@@ -10,9 +10,10 @@
 | Field | Value |
 |-------|-------|
 | Estimated changed lines | ~2,600–3,400 total (per-slice: 600 / 550 / 450 / 800 / 700 / 300) |
-| Session review budget override | 800 lines/PR (`review_budget_lines: 800`) — slice 4 sits exactly at this ceiling |
+| Session review budget override | **1600 lines/PR from slice 3 onward** (raised by maintainer decision 2026-08-12; was 800) |
 | 400-line budget risk | High (every slice exceeds the skill's literal 400-line default; kept for guard matching) |
-| 800-line budget risk (effective session budget) | Low for slices 1, 2, 3, 6; Medium–High for slice 4 (at ceiling); Medium for slice 5 (now unblocked, and grown by tasks 5.16–5.17) |
+| Why the budget was raised | The per-slice estimates count **production** lines, but `strict_tdd: true` roughly doubles each slice with its tests. Measured: slice 1 = 821 changed lines, slice 2 = 1442. Both breached an 800 ceiling that was never calibrated for TDD. 1600 keeps the guard meaningful — it still stops a genuinely runaway slice instead of firing on every one. |
+| 1600-line budget risk | Low for slices 3 and 6; Medium for slice 5 (grown by tasks 5.16–5.17); Medium–High for slice 4, whose ~800 production estimate implies ~1600 with tests |
 | Chained PRs recommended | Yes |
 | Suggested split | 6 slices, PR 1 → PR 6, matching the proposal's delivery table |
 | Delivery strategy | auto-chain |
