@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Trader dark theme. Defined once here so no component ever needs a raw hex
+   value or a var() inside className. */
+@theme {
+  --color-surface-950: #080b12;
+  --color-surface-900: #0e1420;
+  --color-surface-850: #141c2b;
+  --color-surface-800: #1b2536;
+  --color-surface-700: #263248;
+
+  --color-edge: #22304a;
+
+  --color-ink-100: #eef3fb;
+  --color-ink-300: #b6c2d6;
+  --color-ink-500: #7f8da5;
+
+  --color-accent: #3b82f6;
+  --color-profit: #16c784;
+  --color-loss: #ea3943;
+  --color-idle: #f0b90b;
+
+  --font-mono:
+    "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-surface-950 text-ink-100 antialiased;
+}
+
+/* Monetary and percentage figures are read in columns; keep them aligned. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

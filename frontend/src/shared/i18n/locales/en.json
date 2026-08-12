@@ -1,0 +1,13 @@
+{
+  "app": {
+    "name": "Strategy Manager"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "strategies": "Strategies",
+    "settings": "Settings"
+  },
+  "status": {
+    "dryRun": "Dry run"
+  }
+}

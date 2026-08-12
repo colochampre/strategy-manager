@@ -1,0 +1,13 @@
+{
+  "app": {
+    "name": "Strategy Manager"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "strategies": "Estrategias",
+    "settings": "Configuración"
+  },
+  "status": {
+    "dryRun": "Modo simulación"
+  }
+}
