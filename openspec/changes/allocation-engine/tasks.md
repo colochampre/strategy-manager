@@ -70,27 +70,36 @@ threat-matrix RED tasks are required.
 >    `hash(signal_type + time + action + contracts + position_size)`, not `time`
 >    alone; `{{timenow}}` has only second resolution.
 
-- [ ] 2.0a RED: unit tests for `TradingViewAlert` parsing — the exact Pionex-format payload parses; `contracts`/`position_size`/`price` coerce from strings to `Decimal`; a malformed or missing `data` object is rejected
-- [ ] 2.0b GREEN: implement `signals/domain/alert.py` (parsing + coercion, no framework imports)
-- [ ] 2.0c RED: unit tests for `derive_idempotency_key` — identical payload yields an identical key; a differing `position_size` or `contracts` yields a different key within the same `time` second
-- [ ] 2.0d GREEN: implement the composite key derivation
-- [ ] 2.0e RED: unit tests for `PositionTransition.classify(prior, next)` — the five cases (open long, open short, close long, close short, reverse) plus absent prior treated as `0`; asserts each maps to CONSUMES or RELEASES
-- [ ] 2.0f GREEN: implement `signals/domain/position_transition.py`
-- [ ] 2.1 RED: unit tests for `WebhookSignal`/`IdempotencyKey`/`SignalStatus` in `backend/tests/signals/domain/test_signal.py`
-- [ ] 2.2 GREEN: implement `signals/domain/signal.py`
-- [ ] 2.3 RED: unit tests for `SourceIpAndSecretAuth` — valid, wrong IP, missing/wrong secret (spec: signal-ingress § Webhook Authentication)
-- [ ] 2.4 GREEN: implement `signals/infrastructure/auth.py` with the four allowlisted TradingView IPs
-- [ ] 2.5 RED: unit tests for `IngestSignal` — missing key rejected, first delivery persists+enqueues, duplicate resumes (spec: signal-ingress § Idempotent Signal Persistence) with fake ports
-- [ ] 2.6 GREEN: implement `signals/application/ports.py` and `ingest_signal.py`
-- [ ] 2.7 Migration `0002_signals`: `signals` table + `ux_signals_idempotency`, real `downgrade()`. Columns MUST include typed `action`, `contracts`, `position_size`, `price`, `symbol` and `signal_type`, plus an index on `(strategy_id, symbol, received_at DESC)` so the prior `position_size` lookup is cheap [DB]
-- [ ] 2.8 RED: integration test — `ON CONFLICT DO NOTHING` insert produces no second row on duplicate key [DB]
-- [ ] 2.9 GREEN: implement `SqlAlchemySignalRepository` + `SignalRow`
-- [ ] 2.10 RED: API test — `POST /webhook/tradingview`: 200 fast, 401 wrong IP, 422 missing key, no exchange call on any branch, spy `ExchangePort` (spec: signal-ingress § Fast Enqueue-Only Response) [DB]
-- [ ] 2.11 GREEN: implement `signals/infrastructure/router.py`; wire into `main.py`
-- [ ] 2.12 Verify slice green: `cd backend && uv run pytest tests/signals -q`; `ruff check .`; `mypy src`
+- [x] 2.0a RED: unit tests for `TradingViewAlert` parsing — the exact Pionex-format payload parses; `contracts`/`position_size`/`price` coerce from strings to `Decimal`; a malformed or missing `data` object is rejected
+- [x] 2.0b GREEN: implement `signals/domain/alert.py` (parsing + coercion, no framework imports)
+- [x] 2.0c RED: unit tests for `derive_idempotency_key` — identical payload yields an identical key; a differing `position_size` or `contracts` yields a different key within the same `time` second
+- [x] 2.0d GREEN: implement the composite key derivation
+- [x] 2.0e RED: unit tests for `PositionTransition.classify(prior, next)` — the five cases (open long, open short, close long, close short, reverse) plus absent prior treated as `0`; asserts each maps to CONSUMES or RELEASES
+- [x] 2.0f GREEN: implement `signals/domain/position_transition.py`
+- [x] 2.1 RED: unit tests for `WebhookSignal`/`IdempotencyKey`/`SignalStatus` in `backend/tests/signals/domain/test_signal.py`
+- [x] 2.2 GREEN: implement `signals/domain/signal.py`
+- [x] 2.3 RED: unit tests for `SourceIpAndSecretAuth` — valid, wrong IP, missing/wrong secret (spec: signal-ingress § Webhook Authentication)
+- [x] 2.4 GREEN: implement `signals/infrastructure/auth.py` with the four allowlisted TradingView IPs
+- [x] 2.5 RED: unit tests for `IngestSignal` — missing key rejected, first delivery persists+enqueues, duplicate resumes (spec: signal-ingress § Idempotent Signal Persistence) with fake ports
+- [x] 2.6 GREEN: implement `signals/application/ports.py` and `ingest_signal.py`
+- [x] 2.7 Migration `0002_signals`: `signals` table + `ux_signals_idempotency`, real `downgrade()`. Columns MUST include typed `action`, `contracts`, `position_size`, `price`, `symbol` and `signal_type`, plus an index on `(strategy_id, symbol, received_at DESC)` so the prior `position_size` lookup is cheap [DB]
+- [x] 2.8 RED: integration test — `ON CONFLICT DO NOTHING` insert produces no second row on duplicate key [DB]
+- [x] 2.9 GREEN: implement `SqlAlchemySignalRepository` + `SignalRow`
+- [x] 2.10 RED: API test — `POST /webhook/tradingview`: 200 fast, 401 wrong IP, 422 missing key, no exchange call on any branch, spy `ExchangePort` (spec: signal-ingress § Fast Enqueue-Only Response) [DB]
+- [x] 2.11 GREEN: implement `signals/infrastructure/router.py`; wire into `main.py`
+- [x] 2.12 Verify slice green: `cd backend && uv run pytest tests/signals -q`; `ruff check .`; `mypy src`
 
 ## Slice 3: Strategies and accounts
 
+> **HARD CONSTRAINT FROM SLICE 2.** `signals.strategy_id` is already populated
+> with `UUID(alert.signal_type)`. Strategy registration MUST set `strategies.id`
+> explicitly to that same `signal_type` UUID and MUST NOT rely on the
+> `gen_random_uuid()` server default. Otherwise task 3.5's
+> `ADD CONSTRAINT fk_signals_strategy` fails against rows slice 2 already
+> inserted, and it will look like a migration bug rather than an identity
+> mismatch. See design.md § "`strategy_id` derives from `signal_type`".
+
+- [ ] 3.0 RED: integration test — inserting a signal with `signal_type` X then registering a strategy with `id = X` lets migration `0003`'s FK apply cleanly; registering with a generated id instead makes it fail [DB]
 - [ ] 3.1 RED: unit tests for `Strategy`/`FillMode`/`AllocationPolicy` in `backend/tests/strategies/domain/test_strategy.py`
 - [ ] 3.2 GREEN: implement `strategies/domain/strategy.py`
 - [ ] 3.3 RED: unit tests for `PoolConfig` VO in `backend/tests/accounts/domain/test_pool_config.py`

@@ -898,6 +898,41 @@ allocation path or the unlocked release path.** Consequences:
   prior value; treat an absent prior as `0`.
 - A release-path signal MUST NOT take the advisory lock.
 
+### Webhook secret transport — RESOLVED, supersedes sequence diagram 1
+
+Sequence diagram 1 shows the shared secret arriving as `payload.secret`. That is
+**wrong** and is superseded here: the adopted alert body is fixed by the
+Pionex-compatible format and has no field for a secret.
+
+The secret travels as a **`?secret=` query parameter on the webhook URL**.
+TradingView cannot set custom headers, so the URL is the only channel available.
+
+This is not merely a fallback — it is the better option, because the alert body
+stays **byte-identical** between the Pionex endpoint and this application. The
+same alert can feed both systems during migration, which is the property that
+made adopting the payload unchanged worthwhile in the first place. Putting a
+secret in `signal_param` would have broken that.
+
+Consequence: the webhook URL is itself a credential. It must never be logged,
+and rotating the secret means re-editing the alert URL in TradingView.
+
+### `strategy_id` derives from `signal_type` — HARD CONSTRAINT ON SLICE 3
+
+`signals.strategy_id` is set to `UUID(alert.signal_type)` at ingress. Slice 2
+ships before the `strategies` table exists, so there is nothing to validate
+against yet, and migration `0003` adds `fk_signals_strategy` afterwards.
+
+**Therefore slice 3 MUST register strategies with `strategies.id` set explicitly
+to the strategy's `signal_type` UUID.** It must NOT rely on the
+`gen_random_uuid()` server default. If it does, migration `0003`'s
+`ADD CONSTRAINT fk_signals_strategy` will fail against any row slice 2 already
+inserted, and the failure will look like a migration bug rather than an identity
+mismatch.
+
+The `signal_type` UUID is the strategy's stable public identity: it is what the
+owner already pastes into TradingView, and it is the join key between an alert
+and a strategy row.
+
 ### Idempotency key
 
 `key = hash(signal_type + time + action + contracts + position_size)`.
