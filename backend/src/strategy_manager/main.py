@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from strategy_manager.shared.config import get_settings
+from strategy_manager.signals.infrastructure.router import router as signals_router
 
 
 def create_app() -> FastAPI:
@@ -30,6 +31,8 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str | bool]:
         return {"status": "ok", "dry_run": settings.dry_run}
+
+    app.include_router(signals_router)
 
     return app
 
