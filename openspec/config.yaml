@@ -1,0 +1,67 @@
+schema: spec-driven
+
+context: |
+  Backend: FastAPI 0.141, Python 3.12 pinned via uv, SQLAlchemy 2.0 async,
+  Alembic, asyncpg, PostgreSQL 17.
+  Frontend: Vite 6, React 19, TypeScript strict, Tailwind 4, TanStack Query,
+  Zustand 5, react-i18next (EN/ES), Recharts 3, Vitest.
+  Architecture: modular monolith, hexagonal per module, screaming top level.
+  domain/ imports no framework code.
+  Testing: pytest (backend), vitest (frontend). See testing-capabilities.
+
+strict_tdd: true
+
+testing:
+  detected: 2026-08-11
+  backend:
+    runner: pytest
+    command: "cd backend && uv run pytest"
+    layers: { unit: true, integration: true, e2e: false }
+    coverage: { available: false, command: "" }
+    quality:
+      linter: { available: true, command: "cd backend && uv run ruff check ." }
+      type_checker: { available: true, command: "cd backend && uv run mypy src" }
+      formatter: { available: true, command: "cd backend && uv run ruff format ." }
+  frontend:
+    runner: vitest
+    command: "cd frontend && npm test"
+    layers: { unit: true, integration: true, e2e: false }
+    coverage: { available: false, command: "" }
+    quality:
+      linter: { available: false, command: "" }
+      type_checker: { available: true, command: "cd frontend && npm run lint" }
+      formatter: { available: false, command: "" }
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - State impact on DRY_RUN, idempotency keys, and capital-pool isolation when relevant
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Any allocation/execution/ledger requirement must state its settlement-currency pool explicitly
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - State which hexagonal layer (domain/application/infrastructure) each new component belongs to
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Concurrency behaviour must be proven against a live PostgreSQL connection;
+      advisory locks have no meaningful fake. The local database is available
+      (resolved 2026-08-12) — do not plan around a fake.
+  apply:
+    guidelines:
+      - Follow existing hexagonal layering: domain has no framework imports
+      - All code, comments, identifiers, and UI copy in English
+      - UI strings go through i18n (EN/ES); never hardcode display text
+      - Tailwind: no hex colours and no var() inside className
+    tdd: true
+    test_command: "cd backend && uv run pytest"
+  verify:
+    test_command: "cd backend && uv run pytest && cd ../frontend && npm test"
+    build_command: "cd frontend && npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Never alter the append-only ledger convention when merging deltas

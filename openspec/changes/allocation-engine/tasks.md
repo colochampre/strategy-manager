@@ -1,0 +1,173 @@
+# Tasks: Allocation Engine
+
+> Size note: the skill's 530-word tasks budget is deliberately exceeded, for the
+> same reason recorded in design.md — six slices, one gated, each needing its
+> own RED/GREEN pairs, explicit race-test and negative-control tasks, and full
+> work-unit evidence per the launch brief. Recorded as a risk, not an oversight.
+
+## Review Workload Forecast
+
+| Field | Value |
+|-------|-------|
+| Estimated changed lines | ~2,600–3,400 total (per-slice: 600 / 550 / 450 / 800 / 700 / 300) |
+| Session review budget override | 800 lines/PR (`review_budget_lines: 800`) — slice 4 sits exactly at this ceiling |
+| 400-line budget risk | High (every slice exceeds the skill's literal 400-line default; kept for guard matching) |
+| 800-line budget risk (effective session budget) | Low for slices 1, 2, 3, 6; Medium–High for slice 4 (at ceiling); Medium for slice 5 (now unblocked, and grown by tasks 5.16–5.17) |
+| Chained PRs recommended | Yes |
+| Suggested split | 6 slices, PR 1 → PR 6, matching the proposal's delivery table |
+| Delivery strategy | auto-chain |
+| Chain strategy | feature-branch-chain |
+
+```text
+Decision needed before apply: No
+Chained PRs recommended: Yes
+Chain strategy: feature-branch-chain
+400-line budget risk: High
+```
+
+**Threat matrix**: N/A — this change routes no shell commands, subprocess,
+VCS/PR automation or executable-file classification (per design.md). No
+threat-matrix RED tasks are required.
+
+### Suggested Work Units
+
+| Unit | Goal | Branch (base) | Focused test command | Runtime harness | Rollback boundary |
+|---|---|---|---|---|---|
+| 1 | Shared domain + job queue | `slice/1-shared-foundation` (base `tracker/allocation-engine`) | `cd backend && uv run pytest tests/shared -q` | Live PG `strategy_manager_test`, `alembic upgrade head` on `0001` [DB] | `alembic downgrade base`; delete `shared/{domain,application,infrastructure}` additions |
+| 2 | Signal ingress | `slice/2-signal-ingress` (base `slice/1-shared-foundation`) | `cd backend && uv run pytest tests/signals -q` | Live PG, `0002` applied; `httpx.AsyncClient` for router tests [DB] | `alembic downgrade 0001`; remove `signals/` package and router mount |
+| 3 | Strategies + accounts | `slice/3-strategies-accounts` (base `slice/2-signal-ingress`) | `cd backend && uv run pytest tests/strategies tests/accounts -q` | Live PG, `0003` applied incl. seeded `capital_pools` rows [DB] | `alembic downgrade 0002`; remove `strategies/` and `accounts/` packages |
+| 4 | Allocation core (race test + negative control) | `slice/4-allocation-core` (base `slice/3-strategies-accounts`) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0004` applied; concurrency tests need real concurrent connections, no fake exists [DB] | `alembic downgrade 0003`; remove `allocation/` package |
+| 5 | Execution + ledger | `slice/5-execution-ledger` (base `slice/4-allocation-core`) | `cd backend && uv run pytest tests/execution tests/ledger -q` | Live PG, `0005` applied; Tier B fresh-DB-per-module for trigger tests [DB] | `alembic downgrade 0004` (blocked by ledger-cutoff rule once a fill exists); remove `execution/` and `ledger/` packages |
+| 6 | Reservation expiry sweeper | `slice/6-reservation-sweeper` (base `slice/4-allocation-core`, **not** slice 5 — real dependency is slice 4 only) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0006` applied [DB] | `alembic downgrade 0004`; revert `expire_reservations.py` and `SweepHandler` |
+
+---
+
+## Slice 1: Shared foundation and job queue
+
+- [x] 1.1 RED: unit tests for `Money`/`Currency`/`Venue` in `backend/tests/shared/domain/test_money.py`
+- [x] 1.2 GREEN: implement `shared/domain/money.py` and `shared/domain/errors.py`
+- [x] 1.3 RED: unit tests for `Job`/`JobKind`/`ClaimedJob` DTOs in `backend/tests/shared/application/test_job.py`
+- [x] 1.4 GREEN: implement `shared/application/job.py` and Protocol ports in `shared/application/ports.py`
+- [x] 1.5 GREEN: implement `SystemClock`, `FixedUsdRateProvider`; add `reservation_ttl_seconds`, `worker_poll_interval_seconds` to `shared/config.py`
+- [x] 1.6 Migration `0001_jobs`: `jobs` table + `ix_jobs_claimable`, real `downgrade()` [DB]
+- [x] 1.7 RED: integration test — two workers claim distinct jobs concurrently, neither blocks (spec: job-queue § SKIP LOCKED Claim) [DB]
+- [x] 1.8 RED: integration test — crash reclaim: killed connection releases the row lock (spec: job-queue § Crash Reclaim) [DB]
+- [x] 1.9 RED: integration test — no-jobs poll returns cleanly; ack marks complete; failure allows retry (spec: job-queue § Acknowledge and Retry) [DB]
+- [x] 1.10 GREEN: implement `PostgresJobQueue` (claim/ack/fail/retry) in `shared/infrastructure/job_queue.py` [DB]
+- [x] 1.11 GREEN: implement `SqlAlchemyUnitOfWork` and `JobRow`
+- [x] 1.12 GREEN: implement `WorkerRunner` claim loop + handler registry
+- [x] 1.13 Verify slice green: `cd backend && uv run pytest tests/shared -q`; `ruff check .`; `mypy src`
+
+## Slice 2: Signal ingress
+
+> **Alert contract resolved 2026-08-12** — see design.md § "Alert Contract and
+> Signal Routing". The payload is the owner's existing Pionex-format alert,
+> adopted unchanged. Two consequences land in this slice:
+> 1. `signals` MUST persist `action`, `contracts`, `position_size`, `price` and
+>    `symbol` as typed columns, not just an opaque payload blob — the
+>    open/close transition cannot be reconstructed later without them.
+> 2. The idempotency key is
+>    `hash(signal_type + time + action + contracts + position_size)`, not `time`
+>    alone; `{{timenow}}` has only second resolution.
+
+- [ ] 2.0a RED: unit tests for `TradingViewAlert` parsing — the exact Pionex-format payload parses; `contracts`/`position_size`/`price` coerce from strings to `Decimal`; a malformed or missing `data` object is rejected
+- [ ] 2.0b GREEN: implement `signals/domain/alert.py` (parsing + coercion, no framework imports)
+- [ ] 2.0c RED: unit tests for `derive_idempotency_key` — identical payload yields an identical key; a differing `position_size` or `contracts` yields a different key within the same `time` second
+- [ ] 2.0d GREEN: implement the composite key derivation
+- [ ] 2.0e RED: unit tests for `PositionTransition.classify(prior, next)` — the five cases (open long, open short, close long, close short, reverse) plus absent prior treated as `0`; asserts each maps to CONSUMES or RELEASES
+- [ ] 2.0f GREEN: implement `signals/domain/position_transition.py`
+- [ ] 2.1 RED: unit tests for `WebhookSignal`/`IdempotencyKey`/`SignalStatus` in `backend/tests/signals/domain/test_signal.py`
+- [ ] 2.2 GREEN: implement `signals/domain/signal.py`
+- [ ] 2.3 RED: unit tests for `SourceIpAndSecretAuth` — valid, wrong IP, missing/wrong secret (spec: signal-ingress § Webhook Authentication)
+- [ ] 2.4 GREEN: implement `signals/infrastructure/auth.py` with the four allowlisted TradingView IPs
+- [ ] 2.5 RED: unit tests for `IngestSignal` — missing key rejected, first delivery persists+enqueues, duplicate resumes (spec: signal-ingress § Idempotent Signal Persistence) with fake ports
+- [ ] 2.6 GREEN: implement `signals/application/ports.py` and `ingest_signal.py`
+- [ ] 2.7 Migration `0002_signals`: `signals` table + `ux_signals_idempotency`, real `downgrade()`. Columns MUST include typed `action`, `contracts`, `position_size`, `price`, `symbol` and `signal_type`, plus an index on `(strategy_id, symbol, received_at DESC)` so the prior `position_size` lookup is cheap [DB]
+- [ ] 2.8 RED: integration test — `ON CONFLICT DO NOTHING` insert produces no second row on duplicate key [DB]
+- [ ] 2.9 GREEN: implement `SqlAlchemySignalRepository` + `SignalRow`
+- [ ] 2.10 RED: API test — `POST /webhook/tradingview`: 200 fast, 401 wrong IP, 422 missing key, no exchange call on any branch, spy `ExchangePort` (spec: signal-ingress § Fast Enqueue-Only Response) [DB]
+- [ ] 2.11 GREEN: implement `signals/infrastructure/router.py`; wire into `main.py`
+- [ ] 2.12 Verify slice green: `cd backend && uv run pytest tests/signals -q`; `ruff check .`; `mypy src`
+
+## Slice 3: Strategies and accounts
+
+- [ ] 3.1 RED: unit tests for `Strategy`/`FillMode`/`AllocationPolicy` in `backend/tests/strategies/domain/test_strategy.py`
+- [ ] 3.2 GREEN: implement `strategies/domain/strategy.py`
+- [ ] 3.3 RED: unit tests for `PoolConfig` VO in `backend/tests/accounts/domain/test_pool_config.py`
+- [ ] 3.4 GREEN: implement `accounts/domain/pool_config.py`
+- [ ] 3.5 Migration `0003_strategies_pools`: `capital_pools` + `strategies` tables, FK, `ALTER TABLE signals ADD CONSTRAINT fk_signals_strategy`, seed the four configured pools (`spot`/USDT, `usdt-m`/USDT, `coin-m`/BTC, `coin-m`/ETH) — **`capital_pools` is the single source of truth; no `CONFIGURED_POOLS` env list**, real `downgrade()` [DB]
+- [ ] 3.6 RED: integration test — reading `capital_pools` returns the seeded rows [DB]
+- [ ] 3.7 GREEN: implement `SqlAlchemyStrategyRepository`+`StrategyRow`, and a pool-config repository that reads `capital_pools` (`accounts/infrastructure/`) — supersedes the design draft's env-parsing `PoolConfigLoader` per the resolved single-source-of-truth decision
+- [ ] 3.8 GREEN: implement `FakeBalanceSource` and `BalanceSourcePort`
+- [ ] 3.9 RED: unit test — `StrategyPolicyAdapter` maps `Strategy` → `StrategyPolicySnapshot` DTO with a fake repository
+- [ ] 3.10 GREEN: implement `strategies/application/policy_adapter.py` (implements `allocation.application.StrategyPolicyPort`)
+- [ ] 3.11 RED: unit test — `PoolBalanceAdapter` maps pool config + `FakeBalanceSource` to `PoolBalancePort`
+- [ ] 3.12 GREEN: implement `accounts/application/pool_balance_adapter.py`
+- [ ] 3.13 RED: unit test — `assert_pool_lock_keys_distinct` raises `PoolLockKeyCollisionError` given two synthetic pools sharing a lock-key pair (pure, no DB) (spec: capital-allocation § Startup Lock-Key Collision Invariant)
+- [ ] 3.14 RED: integration test — collision check against the four seeded pools passes; confirms `coin-m`/BTC and `coin-m`/ETH share `k1` but differ in `k2` [DB]
+- [ ] 3.15 GREEN: implement `allocation/infrastructure/lock_key_invariant.py`; wire invariant 1 into `main.py` lifespan
+- [ ] 3.16 Verify slice green: `cd backend && uv run pytest tests/strategies tests/accounts -q`; `ruff check .`; `mypy src`
+
+## Slice 4: Allocation core — race test and negative control
+
+- [ ] 4.1 RED: unit tests for `decide()` — all 6 ordered rules and all 7 edge cases (spec: capital-allocation § Strategy Policy Resolution, § Reservation Expiry)
+- [ ] 4.2 GREEN: implement `allocation/domain/decision.py` and `rules.py`
+- [ ] 4.3 RED: unit tests for `CapitalPool.available` (clamped at 0) and `PoolKey`/`LockKey` construction
+- [ ] 4.4 GREEN: implement `capital_pool.py`, `pool_key.py`, `lock_key.py`
+- [ ] 4.5 RED: unit tests for `Reservation` state transitions — legal moves accepted, illegal moves rejected
+- [ ] 4.6 GREEN: implement `allocation/domain/reservation.py`
+- [ ] 4.7 RED: unit tests for `AllocateCapital` pre-lock guards — resume without lock, disabled-strategy skip without lock, unknown pool raises, currency mismatch, non-positive request — fake ports + `FrozenClock`
+- [ ] 4.8 GREEN: implement `allocation/application/ports.py` and `allocate_capital.py`
+- [ ] 4.9 Migration `0004_reservations`: `reservations` table + `ix_reservations_active`, real `downgrade()` [DB]
+- [ ] 4.10 GREEN: implement `PgAdvisoryLockAdapter` and `SqlAlchemyReservationRepository`+`ReservationRow` [DB]
+- [ ] 4.11 RED: integration test — TXN-A end to end: full/partial/skip each write or skip a reservation row inside the locked transaction (spec: capital-allocation § Serialized Allocation Decision, § Pool Availability) [DB]
+- [ ] 4.12 **[HIGHEST VALUE]** RED: concurrency race test — 8 concurrent 200-unit requests against a 1000-balance pool, parametrized over 30 iterations; assert committed reservations never exceed 1000, every result is FULL/PARTIAL/SKIP, no phantom grants (spec: capital-allocation § Concurrency Safety Invariant) [DB]
+- [ ] 4.13 GREEN: confirm 4.12 passes against `PgAdvisoryLockAdapter`; no new production code expected beyond 4.10 [DB]
+- [ ] 4.14 **[HIGHEST VALUE]** RED: negative control — `NoOpAdvisoryLock` stub, same scenario for up to 50 iterations, explicit `pytest.fail("50 lock-free iterations never over-allocated...")` branch if no breach is ever observed (spec: capital-allocation § Concurrency Safety Invariant, negative-control scenario) [DB]
+- [ ] 4.15 Verify 4.14 observes a real breach on this codebase today (the `pytest.fail` branch only fires on regression) [DB]
+- [ ] 4.16 Verify slice green: `cd backend && uv run pytest tests/allocation -q` (incl. 4.12, 4.14); `ruff check .`; `mypy src`
+
+## Slice 5: Execution and ledger
+
+> **Unblocked 2026-08-12.** The alert contract is confirmed — see design.md
+> § "Alert Contract and Signal Routing". `quantity = granted / price`, where
+> `granted` comes from the strategy's configured percentage of pool
+> availability. The alert's `contracts` field is TradingView simulated-equity
+> sizing and MUST NEVER be used as a real order quantity; persist it as
+> diagnostic context only. `price` from the alert is the bar close at signal
+> time — a slippage reference, never the ledger fill price.
+>
+> New scope in this slice: tasks 5.16–5.17 route by `PositionTransition` so a
+> capital-RELEASING signal never takes the advisory lock.
+
+- [ ] 5.1 RED: unit tests for `ExecutionAttempt`/`OrderRequest`/`Fill` (`execution/domain/`) — `quantity = granted / price`, `granted` from the strategy's configured pool percentage, never from the alert's `contracts`
+- [ ] 5.2 GREEN: implement `execution/domain/`
+- [ ] 5.3 RED: unit tests for `LedgerEntry` (frozen, zero mutators)
+- [ ] 5.4 GREEN: implement `ledger/domain/ledger_entry.py`
+- [ ] 5.5 RED: unit tests for `ExecuteReservation` pre-submit expiry re-check — valid submits, expired aborts to `RELEASED` with no submission (spec: trade-execution § Pre-Submit Expiry Re-Check) — fake `ExchangePort` + `FrozenClock`
+- [ ] 5.6 GREEN: implement `execution/application/ports.py` and `execute_reservation.py`
+- [ ] 5.7 GREEN: implement `FakeExchangeAdapter` (`is_live = False`)
+- [ ] 5.8 RED: unit test — `RecordFill` implements `FillRecorderPort`, maps `FillRecord` (incl. `usd_rate_at_fill`) with a fake `LedgerRepositoryPort`
+- [ ] 5.9 GREEN: implement `ledger/application/ports.py` (internal) and `record_fill.py`
+- [ ] 5.10 Migration `0005_ledger_execution` — `execution_attempts`, `ledger_entries`, `fn_ledger_append_only()`, both triggers; `downgrade()` refuses with existing rows unless `-x force_ledger_drop=1` [DB]
+- [ ] 5.11 GREEN: implement `SqlAlchemyExecutionAttemptRepository`+`Row` and `SqlAlchemyLedgerRepository`+`Row` (insert-only)
+- [ ] 5.12 RED (Tier B): raw `UPDATE`, `DELETE`, `TRUNCATE` on `ledger_entries` each raise `restrict_violation`, fresh-DB-per-module fixture (spec: trade-ledger § Append-Only Enforcement) [DB]
+- [ ] 5.13 RED: successful fill records via `FillRecorderPort` carrying `allocation_id`, `strategy_id`, pool (spec: trade-ledger § Ledger Row Content, trade-execution § Fill Recording) [DB]
+- [ ] 5.14 GREEN: wire `ProcessSignalHandler` (`AllocateCapital` then `ExecuteReservation`); register `signal.process` in `WorkerRunner` via `main.py`
+- [ ] 5.16 RED: unit test — a RELEASE-path signal (close long, close short) never acquires the advisory lock, asserted with a spy `AdvisoryLockPort`; a CONSUME-path signal does acquire it
+- [ ] 5.17 GREEN: route by `PositionTransition` in `ProcessSignalHandler` — CONSUMES goes through `AllocateCapital`, RELEASES goes straight to `ExecuteReservation` without the lock
+- [ ] 5.15 Verify: `cd backend && uv run pytest tests/execution tests/ledger -q`; `ruff check .`; `mypy src`
+
+## Slice 6: Reservation expiry sweeper
+
+> Depends on **slice 4 only** (needs `ReservationRepositoryPort`, `Reservation`,
+> job queue). It does **not** depend on slice 5 and may ship in parallel with it.
+
+- [ ] 6.1 RED: unit tests for `ExpireReservations` — marks past-`expires_at` `PENDING`/`SUBMITTED` as `EXPIRED` with `terminal_at` set — fake repository + `FrozenClock` (spec: capital-allocation § Reservation Expiry)
+- [ ] 6.2 GREEN: implement `allocation/application/expire_reservations.py`
+- [ ] 6.3 Migration `0006_reservation_terminal`: `terminal_at`, `release_reason` columns + `ix_reservations_sweepable`, real `downgrade()` [DB]
+- [ ] 6.4 RED: integration test — TXN-C batch expiry updates all past-expiry rows to `EXPIRED` [DB]
+- [ ] 6.5 GREEN: extend `SqlAlchemyReservationRepository` with the sweep query/update [DB]
+- [ ] 6.6 RED: unit test — `SweepHandler` re-enqueues `reservation.sweep` with `run_after = now + worker_poll_interval_seconds`
+- [ ] 6.7 GREEN: implement self-re-enqueuing `SweepHandler`; register `reservation.sweep` in `WorkerRunner` via `main.py`
+- [ ] 6.8 Verify slice green: `cd backend && uv run pytest tests/allocation -q`; `ruff check .`; `mypy src`
