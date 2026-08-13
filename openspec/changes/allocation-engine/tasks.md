@@ -100,23 +100,23 @@ threat-matrix RED tasks are required.
 > inserted, and it will look like a migration bug rather than an identity
 > mismatch. See design.md § "`strategy_id` derives from `signal_type`".
 
-- [ ] 3.0 RED: integration test — inserting a signal with `signal_type` X then registering a strategy with `id = X` lets migration `0003`'s FK apply cleanly; registering with a generated id instead makes it fail [DB]
-- [ ] 3.1 RED: unit tests for `Strategy`/`FillMode`/`AllocationPolicy` in `backend/tests/strategies/domain/test_strategy.py`
-- [ ] 3.2 GREEN: implement `strategies/domain/strategy.py`
-- [ ] 3.3 RED: unit tests for `PoolConfig` VO in `backend/tests/accounts/domain/test_pool_config.py`
-- [ ] 3.4 GREEN: implement `accounts/domain/pool_config.py`
-- [ ] 3.5 Migration `0003_strategies_pools`: `capital_pools` + `strategies` tables, FK, `ALTER TABLE signals ADD CONSTRAINT fk_signals_strategy`, seed the four configured pools (`spot`/USDT, `usdt-m`/USDT, `coin-m`/BTC, `coin-m`/ETH) — **`capital_pools` is the single source of truth; no `CONFIGURED_POOLS` env list**, real `downgrade()` [DB]
-- [ ] 3.6 RED: integration test — reading `capital_pools` returns the seeded rows [DB]
-- [ ] 3.7 GREEN: implement `SqlAlchemyStrategyRepository`+`StrategyRow`, and a pool-config repository that reads `capital_pools` (`accounts/infrastructure/`) — supersedes the design draft's env-parsing `PoolConfigLoader` per the resolved single-source-of-truth decision
-- [ ] 3.8 GREEN: implement `FakeBalanceSource` and `BalanceSourcePort`
-- [ ] 3.9 RED: unit test — `StrategyPolicyAdapter` maps `Strategy` → `StrategyPolicySnapshot` DTO with a fake repository
-- [ ] 3.10 GREEN: implement `strategies/application/policy_adapter.py` (implements `allocation.application.StrategyPolicyPort`)
-- [ ] 3.11 RED: unit test — `PoolBalanceAdapter` maps pool config + `FakeBalanceSource` to `PoolBalancePort`
-- [ ] 3.12 GREEN: implement `accounts/application/pool_balance_adapter.py`
-- [ ] 3.13 RED: unit test — `assert_pool_lock_keys_distinct` raises `PoolLockKeyCollisionError` given two synthetic pools sharing a lock-key pair (pure, no DB) (spec: capital-allocation § Startup Lock-Key Collision Invariant)
-- [ ] 3.14 RED: integration test — collision check against the four seeded pools passes; confirms `coin-m`/BTC and `coin-m`/ETH share `k1` but differ in `k2` [DB]
-- [ ] 3.15 GREEN: implement `allocation/infrastructure/lock_key_invariant.py`; wire invariant 1 into `main.py` lifespan
-- [ ] 3.16 Verify slice green: `cd backend && uv run pytest tests/strategies tests/accounts -q`; `ruff check .`; `mypy src`
+- [x] 3.0 RED: integration test — inserting a signal with `signal_type` X then registering a strategy with `id = X` lets migration `0003`'s FK apply cleanly; registering with a generated id instead makes it fail [DB]
+- [x] 3.1 RED: unit tests for `Strategy`/`FillMode`/`AllocationPolicy` in `backend/tests/strategies/domain/test_strategy.py`
+- [x] 3.2 GREEN: implement `strategies/domain/strategy.py`
+- [x] 3.3 RED: unit tests for `PoolConfig` VO in `backend/tests/accounts/domain/test_pool_config.py`
+- [x] 3.4 GREEN: implement `accounts/domain/pool_config.py`
+- [x] 3.5 Migration `0003_strategies_pools`: `capital_pools` + `strategies` tables, FK, `ALTER TABLE signals ADD CONSTRAINT fk_signals_strategy`, seed the four configured pools (`spot`/USDT, `usdt-m`/USDT, `coin-m`/BTC, `coin-m`/ETH) — **`capital_pools` is the single source of truth; no `CONFIGURED_POOLS` env list**, real `downgrade()` [DB]
+- [x] 3.6 RED: integration test — reading `capital_pools` returns the seeded rows [DB]
+- [x] 3.7 GREEN: implement `SqlAlchemyStrategyRepository`+`StrategyRow`, and a pool-config repository that reads `capital_pools` (`accounts/infrastructure/`) — supersedes the design draft's env-parsing `PoolConfigLoader` per the resolved single-source-of-truth decision
+- [x] 3.8 GREEN: implement `FakeBalanceSource` and `BalanceSourcePort`
+- [x] 3.9 RED: unit test — `StrategyPolicyAdapter` maps `Strategy` → `StrategyPolicySnapshot` DTO with a fake repository
+- [x] 3.10 GREEN: implement `strategies/application/policy_adapter.py` (implements `allocation.application.StrategyPolicyPort`)
+- [x] 3.11 RED: unit test — `PoolBalanceAdapter` maps pool config + `FakeBalanceSource` to `PoolBalancePort`
+- [x] 3.12 GREEN: implement `accounts/application/pool_balance_adapter.py`
+- [x] 3.13 RED: unit test — `assert_pool_lock_keys_distinct` raises `PoolLockKeyCollisionError` given two synthetic pools sharing a lock-key pair (pure, no DB) (spec: capital-allocation § Startup Lock-Key Collision Invariant)
+- [x] 3.14 RED: integration test — collision check against the four seeded pools passes; confirms `coin-m`/BTC and `coin-m`/ETH share `k1` but differ in `k2` [DB]
+- [x] 3.15 GREEN: implement `allocation/infrastructure/lock_key_invariant.py`; wire invariant 1 into `main.py` lifespan
+- [x] 3.16 Verify slice green: `cd backend && uv run pytest tests/strategies tests/accounts -q`; `ruff check .`; `mypy src`
 
 ## Slice 4: Allocation core — race test and negative control
 

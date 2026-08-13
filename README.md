@@ -18,8 +18,21 @@ feature to be built.
 ## Setup
 
 ```bash
-# 1. Create the database (once)
-createdb strategy_manager        # or: psql -U postgres -c "CREATE DATABASE strategy_manager;"
+# 1. Create the role and databases (once, as a superuser)
+#
+#    Create the ROLE FIRST and let it own everything. Migrations run
+#    ALTER TABLE ... ADD CONSTRAINT, and the integration tests run TRUNCATE.
+#    PostgreSQL requires table OWNERSHIP for both — write privileges are not
+#    enough. If the tables are created by one role and the app then connects
+#    as another, migrations fail with "must be owner of table".
+psql -U postgres -c "CREATE ROLE strategy_manager WITH LOGIN CREATEDB PASSWORD 'pick-a-strong-one';"
+psql -U postgres -c "CREATE DATABASE strategy_manager OWNER strategy_manager;"
+psql -U postgres -c "CREATE DATABASE strategy_manager_test OWNER strategy_manager;"
+psql -U postgres -d strategy_manager      -c "ALTER SCHEMA public OWNER TO strategy_manager;"
+psql -U postgres -d strategy_manager_test -c "ALTER SCHEMA public OWNER TO strategy_manager;"
+
+#    Already have tables owned by postgres? Transfer them instead:
+#    ALTER TABLE <each> OWNER TO strategy_manager;
 
 # 2. Configure
 cp .env.example backend/.env     # then fill DATABASE_URL, WEBHOOK_SECRET, MASTER_ENCRYPTION_KEY
