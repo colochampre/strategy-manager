@@ -1,14 +1,20 @@
 """Ports (Protocols) and consumer-owned DTOs declared by ``allocation``,
-implemented by ``strategies`` and ``accounts`` (design.md § Interfaces /
-Contracts). The consumer declares the port, the provider owns the adapter —
-declared here in slice 3 so slice 4's ``AllocateCapital`` consumes them
-unchanged.
+implemented by ``strategies``, ``accounts`` and ``allocation.infrastructure``
+itself (design.md § Interfaces / Contracts). The consumer declares the port,
+the provider owns the adapter — ``StrategyPolicyPort``/``PoolBalancePort``
+were declared in slice 3 so slice 4's ``AllocateCapital`` consumes them
+unchanged; ``AdvisoryLockPort``/``ReservationRepositoryPort`` are added here in
+slice 4.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
+
+from strategy_manager.allocation.domain.lock_key import LockKey
+from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,3 +47,34 @@ class PoolBalancePort(Protocol):
     call here would run inside the advisory lock (design.md § Interfaces)."""
 
     async def read(self, venue: str, settlement_currency: str) -> PoolBalance: ...
+
+
+class AdvisoryLockPort(Protocol):
+    """MUST run on the same session/connection as the reservation write, MUST
+    be inside an open transaction, and MUST be released only by that
+    transaction's commit or rollback."""
+
+    async def acquire(self, key: LockKey) -> None: ...
+
+
+class ReservationRepositoryPort(Protocol):
+    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None: ...
+
+    async def sum_active(
+        self, venue: str, settlement_currency: str, now: datetime
+    ) -> Decimal: ...
+
+    async def insert(self, reservation: Reservation) -> None: ...
+
+    async def mark(
+        self, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None: ...
+
+
+class CommitPort(Protocol):
+    """The minimal capability ``AllocateCapital`` needs to finalize TXN-A.
+    Deliberately narrow, mirroring ``signals.application.ports.CommitPort``,
+    so any object with an async ``commit()`` (including a raw ``AsyncSession``)
+    satisfies it structurally."""
+
+    async def commit(self) -> None: ...

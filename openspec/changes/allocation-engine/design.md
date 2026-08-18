@@ -90,6 +90,14 @@ httpx, pydantic-settings or `asyncio` primitives — only `dataclasses`, `enum`,
 | `Reservation`, `ReservationStatus` | `allocation/domain/reservation.py` | domain |
 | `AllocationRules` (VO: fill_mode, min_order_size) | `allocation/domain/rules.py` | domain |
 | `AllocationDecision`, `DecisionOutcome`, `SkipReason`, `decide(...)` pure fn | `allocation/domain/decision.py` | domain |
+
+> `AllocationResult.skip_reason` (application layer) is a plain `str`, not the
+> domain `SkipReason` enum. The application layer carries one reason the domain
+> cannot know — `STRATEGY_DISABLED`, decided pre-lock from policy, never by
+> `decide()` — so widening the domain enum to hold it would push an application
+> concern into the pure core. This matches the existing
+> `StrategyPolicySnapshot.fill_mode: str` boundary convention.
+
 | `AdvisoryLockPort`, `ReservationRepositoryPort`, `PoolBalancePort`, `StrategyPolicyPort` + their consumer-owned DTOs (`StrategyPolicySnapshot`, `PoolBalance`) | `allocation/application/ports.py` | application |
 | `AllocateCapital` use case | `allocation/application/allocate_capital.py` | application |
 | `ExpireReservations` sweeper use case (slice 6) | `allocation/application/expire_reservations.py` | application |
@@ -276,8 +284,6 @@ sequenceDiagram
         SP-->>AC: StrategyPolicySnapshot(enabled, fill_mode, venue, currency)
         alt strategy disabled
             AC-->>H: SKIP(STRATEGY_DISABLED) - no lock, no row
-        else pool key not configured
-            AC-->>H: raise UnknownPoolError - job FAILED, loud
         else
             Note over AC,DB: ---- TXN-A begins ----
             AC->>DB: BEGIN
@@ -285,6 +291,10 @@ sequenceDiagram
             L->>DB: SELECT pg_advisory_xact_lock(hashtext(:venue), hashtext(:currency))
             DB-->>L: granted (blocks until the pool is free)
             AC->>PB: read(pool_key)
+            alt pool key not configured
+                PB-->>AC: DomainError
+                AC-->>H: raise UnknownPoolError - ROLLBACK releases the lock, job FAILED, loud
+            end
             PB-->>AC: PoolBalance(balance, min_order_size)
             AC->>DB: SELECT COALESCE(SUM(amount),0) FROM reservations WHERE pool AND status IN ('PENDING','SUBMITTED') AND expires_at > now()
             DB-->>AC: reserved_active
@@ -415,9 +425,24 @@ whole product.
 |---|---|---|
 | Reservation already exists for `signal_id` | resume, return it unchanged | none — no lock taken |
 | `strategy.enabled is false` | `SKIP(STRATEGY_DISABLED)` | none — no lock taken |
-| Pool key not in `capital_pools`, or pool disabled | raise `UnknownPoolError` → job `FAILED` | none |
-| `requested.currency != pool.settlement_currency` | raise `CurrencyMismatchError` | none |
-| `requested <= 0` | raise `InvalidAllocationRequest` | none |
+| Pool key not in `capital_pools`, or pool disabled | raise `UnknownPoolError` → job `FAILED` | none — but see the note below: detected *inside* the lock |
+| `requested.currency != pool.settlement_currency` | raise `CurrencyMismatchError` | none — no lock taken |
+| `requested <= 0` | raise `InvalidAllocationRequest` | none — no lock taken |
+
+**Unknown-pool detection sits inside the lock (RESOLVED 2026-08-18, supersedes
+the row above and the "Unknown / disabled pool" edge-case row).** Pool
+existence is only knowable from the balance read, and the balance read must
+stay inside the advisory lock — otherwise the decision could be made from a
+balance the lock never protected, which is the exact race this design exists
+to prevent. Adding a separate pre-lock config-lookup port would either
+duplicate that read or reintroduce the same inconsistency window.
+
+`AllocateCapital` therefore takes the lock, attempts the balance read, and
+translates its failure into `UnknownPoolError`. The practical cost is that a
+*misconfigured* pool holds the advisory lock for the duration of one failed
+read before the transaction rolls back and releases it. That is bounded, only
+reachable through misconfiguration, and still fails loudly as required. The
+other four guards remain genuinely pre-lock.
 
 A disabled strategy is a normal business outcome, so it skips. An unknown pool is
 a misconfiguration, so it fails loudly rather than silently skipping every signal.
@@ -462,7 +487,7 @@ Invariants the function guarantees, asserted directly in unit tests:
 | Availability below min order size, `fill_mode=PARTIAL` | rule 5 → `SKIP(PARTIAL_BELOW_MIN_ORDER_SIZE)` — an unfillable dust order is worse than a skip |
 | Request itself below min order size | rule 1 → `SKIP`, before any availability is even considered |
 | Disabled strategy | pre-lock `SKIP(STRATEGY_DISABLED)`, lock never taken |
-| Unknown / disabled pool | pre-lock `UnknownPoolError`, job `FAILED`, alert-worthy |
+| Unknown / disabled pool | `UnknownPoolError` raised from the in-lock balance read, job `FAILED`, alert-worthy |
 | Exactly `requested == available` | rule 3 → `FULL`, drives availability to exactly zero |
 
 ---

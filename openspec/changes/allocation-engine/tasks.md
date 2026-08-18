@@ -10,10 +10,14 @@
 | Field | Value |
 |-------|-------|
 | Estimated changed lines | ~2,600–3,400 total (per-slice: 600 / 550 / 450 / 800 / 700 / 300) |
-| Session review budget override | **1600 lines/PR from slice 3 onward** (raised by maintainer decision 2026-08-12; was 800) |
+| Session review budget override | **2000 lines/PR from slice 5 onward** (raised by maintainer decision 2026-08-18; was 1600 from slice 3, 800 before that) |
 | 400-line budget risk | High (every slice exceeds the skill's literal 400-line default; kept for guard matching) |
-| Why the budget was raised | The per-slice estimates count **production** lines, but `strict_tdd: true` roughly doubles each slice with its tests. Measured: slice 1 = 821 changed lines, slice 2 = 1442. Both breached an 800 ceiling that was never calibrated for TDD. 1600 keeps the guard meaningful — it still stops a genuinely runaway slice instead of firing on every one. |
-| 1600-line budget risk | Low for slices 3 and 6; Medium for slice 5 (grown by tasks 5.16–5.17); Medium–High for slice 4, whose ~800 production estimate implies ~1600 with tests |
+| Why the budget was raised (800 → 1600) | The per-slice estimates count **production** lines, but `strict_tdd: true` roughly doubles each slice with its tests. Measured: slice 1 = 821 changed lines, slice 2 = 1442. Both breached an 800 ceiling that was never calibrated for TDD. |
+| Why the budget was raised again (1600 → 2000) | Slice 4 landed at 1913 runtime-counted lines — 623 production, 78 migration, 1138 tests, the rest artifacts. The overage is entirely mandated coverage: `decide()`'s 6 ordered rules with 7 edge cases, the `Reservation` transition matrix, the TXN-A integration test, the 30-iteration race test and the 50-iteration negative control. Trimming to fit 1600 would have cut the highest-value tests in the change. Accepted as `size:exception`, budget raised so slice 5 does not block on the same miscalibration. |
+| 2000-line budget risk | Low for slice 6; Medium for slice 5 (execution + ledger, grown by tasks 5.16–5.17, and the append-only ledger needs both a row trigger and a statement-level `BEFORE TRUNCATE` trigger with guard tests for each) |
+
+Measured per slice (runtime-counted, includes artifacts): slice 1 = 821,
+slice 2 = 1442, slice 3 = 1464, slice 4 = 1913.
 | Chained PRs recommended | Yes |
 | Suggested split | 6 slices, PR 1 → PR 6, matching the proposal's delivery table |
 | Delivery strategy | auto-chain |
@@ -120,22 +124,22 @@ threat-matrix RED tasks are required.
 
 ## Slice 4: Allocation core — race test and negative control
 
-- [ ] 4.1 RED: unit tests for `decide()` — all 6 ordered rules and all 7 edge cases (spec: capital-allocation § Strategy Policy Resolution, § Reservation Expiry)
-- [ ] 4.2 GREEN: implement `allocation/domain/decision.py` and `rules.py`
-- [ ] 4.3 RED: unit tests for `CapitalPool.available` (clamped at 0) and `PoolKey`/`LockKey` construction
-- [ ] 4.4 GREEN: implement `capital_pool.py`, `pool_key.py`, `lock_key.py`
-- [ ] 4.5 RED: unit tests for `Reservation` state transitions — legal moves accepted, illegal moves rejected
-- [ ] 4.6 GREEN: implement `allocation/domain/reservation.py`
-- [ ] 4.7 RED: unit tests for `AllocateCapital` pre-lock guards — resume without lock, disabled-strategy skip without lock, unknown pool raises, currency mismatch, non-positive request — fake ports + `FrozenClock`
-- [ ] 4.8 GREEN: implement `allocation/application/ports.py` and `allocate_capital.py`
-- [ ] 4.9 Migration `0004_reservations`: `reservations` table + `ix_reservations_active`, real `downgrade()` [DB]
-- [ ] 4.10 GREEN: implement `PgAdvisoryLockAdapter` and `SqlAlchemyReservationRepository`+`ReservationRow` [DB]
-- [ ] 4.11 RED: integration test — TXN-A end to end: full/partial/skip each write or skip a reservation row inside the locked transaction (spec: capital-allocation § Serialized Allocation Decision, § Pool Availability) [DB]
-- [ ] 4.12 **[HIGHEST VALUE]** RED: concurrency race test — 8 concurrent 200-unit requests against a 1000-balance pool, parametrized over 30 iterations; assert committed reservations never exceed 1000, every result is FULL/PARTIAL/SKIP, no phantom grants (spec: capital-allocation § Concurrency Safety Invariant) [DB]
-- [ ] 4.13 GREEN: confirm 4.12 passes against `PgAdvisoryLockAdapter`; no new production code expected beyond 4.10 [DB]
-- [ ] 4.14 **[HIGHEST VALUE]** RED: negative control — `NoOpAdvisoryLock` stub, same scenario for up to 50 iterations, explicit `pytest.fail("50 lock-free iterations never over-allocated...")` branch if no breach is ever observed (spec: capital-allocation § Concurrency Safety Invariant, negative-control scenario) [DB]
-- [ ] 4.15 Verify 4.14 observes a real breach on this codebase today (the `pytest.fail` branch only fires on regression) [DB]
-- [ ] 4.16 Verify slice green: `cd backend && uv run pytest tests/allocation -q` (incl. 4.12, 4.14); `ruff check .`; `mypy src`
+- [x] 4.1 RED: unit tests for `decide()` — all 6 ordered rules and all 7 edge cases (spec: capital-allocation § Strategy Policy Resolution, § Reservation Expiry)
+- [x] 4.2 GREEN: implement `allocation/domain/decision.py` and `rules.py`
+- [x] 4.3 RED: unit tests for `CapitalPool.available` (clamped at 0) and `PoolKey`/`LockKey` construction
+- [x] 4.4 GREEN: implement `capital_pool.py`, `pool_key.py`, `lock_key.py`
+- [x] 4.5 RED: unit tests for `Reservation` state transitions — legal moves accepted, illegal moves rejected
+- [x] 4.6 GREEN: implement `allocation/domain/reservation.py`
+- [x] 4.7 RED: unit tests for `AllocateCapital` pre-lock guards — resume without lock, disabled-strategy skip without lock, unknown pool raises, currency mismatch, non-positive request — fake ports + `FrozenClock`
+- [x] 4.8 GREEN: implement `allocation/application/ports.py` and `allocate_capital.py`
+- [x] 4.9 Migration `0004_reservations`: `reservations` table + `ix_reservations_active`, real `downgrade()` [DB]
+- [x] 4.10 GREEN: implement `PgAdvisoryLockAdapter` and `SqlAlchemyReservationRepository`+`ReservationRow` [DB]
+- [x] 4.11 RED: integration test — TXN-A end to end: full/partial/skip each write or skip a reservation row inside the locked transaction (spec: capital-allocation § Serialized Allocation Decision, § Pool Availability) [DB]
+- [x] 4.12 **[HIGHEST VALUE]** RED: concurrency race test — 8 concurrent 200-unit requests against a 1000-balance pool, parametrized over 30 iterations; assert committed reservations never exceed 1000, every result is FULL/PARTIAL/SKIP, no phantom grants (spec: capital-allocation § Concurrency Safety Invariant) [DB]
+- [x] 4.13 GREEN: confirm 4.12 passes against `PgAdvisoryLockAdapter`; no new production code expected beyond 4.10 [DB]
+- [x] 4.14 **[HIGHEST VALUE]** RED: negative control — `NoOpAdvisoryLock` stub, same scenario for up to 50 iterations, explicit `pytest.fail("50 lock-free iterations never over-allocated...")` branch if no breach is ever observed (spec: capital-allocation § Concurrency Safety Invariant, negative-control scenario) [DB]
+- [x] 4.15 Verify 4.14 observes a real breach on this codebase today (the `pytest.fail` branch only fires on regression) [DB]
+- [x] 4.16 Verify slice green: `cd backend && uv run pytest tests/allocation -q` (incl. 4.12, 4.14); `ruff check .`; `mypy src`
 
 ## Slice 5: Execution and ledger
 

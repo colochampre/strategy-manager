@@ -65,7 +65,11 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         # Drop and recreate ``signals`` unconditionally: a stale table from an
         # earlier schema iteration (e.g. missing the composite unique
         # constraint) would otherwise survive ``create_all``'s checkfirst.
-        await conn.run_sync(SignalRow.__table__.drop, checkfirst=True)
+        # ``CASCADE`` is required since slice 4: ``reservations`` carries a
+        # foreign key into ``signals``, so a plain ``DROP TABLE`` now fails
+        # with "other objects depend on it" — both tables are recreated by
+        # ``create_all`` immediately below regardless.
+        await conn.execute(text("DROP TABLE IF EXISTS signals CASCADE"))
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("TRUNCATE signals, jobs RESTART IDENTITY CASCADE"))
 
