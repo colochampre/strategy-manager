@@ -6,8 +6,19 @@ each locking a fixed share inside a Pionex bot.
 
 ## Status
 
-Scaffold. No exchange-facing code yet — the allocation engine is the first
-feature to be built.
+**Backend allocation engine complete** (239 tests, ruff and mypy strict clean).
+Webhook ingress, job queue, capital allocation, execution and the append-only
+ledger are all built and covered.
+
+Not built yet:
+
+- **The frontend.** Strategies view, dashboard and settings are still the Vite
+  scaffold.
+- **A real exchange adapter.** Only `FakeExchangeAdapter` exists, and `DRY_RUN`
+  defaults to true — nothing reaches Pionex.
+
+See [the archived change](./openspec/changes/archive/2026-08-18-allocation-engine/archive-report.md)
+for what shipped, the decisions behind it, and the known gaps.
 
 ## Requirements
 
