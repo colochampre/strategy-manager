@@ -4,13 +4,18 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.allocation.domain.reservation import (
+    ReleaseReason,
+    Reservation,
+    ReservationStatus,
+)
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.shared.domain.money import Currency, Venue
 
@@ -85,6 +90,48 @@ class SqlAlchemyReservationRepository:
             )
         )
         await self._session.flush()
+
+    async def expire_due(self, now: datetime, limit: int) -> int:
+        """Implements ``ReservationSweepPort`` — TXN-C (design.md
+        § Transaction Boundaries). One set-based UPDATE, never a read-modify-
+        write loop: loading each row and transitioning it individually would
+        reintroduce exactly the read-then-write race the advisory lock exists
+        to prevent, on the one path that deliberately runs without it.
+
+        Idempotent by construction: the WHERE clause only matches rows that
+        still hold capital, so a second pass over the same rows matches nothing
+        and leaves ``terminal_at`` — the only record of when a reservation
+        actually ended — untouched.
+
+        ``SKIP LOCKED`` keeps two sweepers from blocking on each other; a row
+        another sweeper already holds is simply left for the next tick.
+        """
+
+        due = (
+            select(ReservationRow.id)
+            .where(
+                ReservationRow.status.in_(_ACTIVE_STATUSES),
+                ReservationRow.expires_at <= now,
+            )
+            .order_by(ReservationRow.expires_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(
+                update(ReservationRow)
+                .where(ReservationRow.id.in_(due.scalar_subquery()))
+                .values(
+                    status=ReservationStatus.EXPIRED.value,
+                    terminal_at=now,
+                    release_reason=ReleaseReason.EXPIRED_BY_SWEEPER.value,
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        return result.rowcount
 
     async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
         await self._session.execute(

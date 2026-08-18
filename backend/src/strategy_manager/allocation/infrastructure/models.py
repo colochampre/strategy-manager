@@ -46,3 +46,9 @@ class ReservationRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Added by migration 0008. Both stay NULL while the reservation still holds
+    # capital; a CHECK constraint enforces that pairing at the database level.
+    terminal_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    release_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

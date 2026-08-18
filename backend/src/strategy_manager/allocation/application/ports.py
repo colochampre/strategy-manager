@@ -72,6 +72,19 @@ class ReservationRepositoryPort(Protocol):
     ) -> None: ...
 
 
+class ReservationSweepPort(Protocol):
+    """Batch expiry for the sweeper (design.md § Transaction Boundaries,
+    TXN-C). Separate from ``ReservationRepositoryPort`` because the sweeper
+    needs none of the per-signal reads and must not be handed the ability to
+    insert — a set-based UPDATE is its whole vocabulary."""
+
+    async def expire_due(self, now: datetime, limit: int) -> int:
+        """Terminates up to ``limit`` reservations whose ``expires_at`` has
+        passed and whose status still holds capital. Returns how many changed.
+        MUST be idempotent: a second call over the same rows changes nothing."""
+        ...
+
+
 class CommitPort(Protocol):
     """The minimal capability ``AllocateCapital`` needs to finalize TXN-A.
     Deliberately narrow, mirroring ``signals.application.ports.CommitPort``,

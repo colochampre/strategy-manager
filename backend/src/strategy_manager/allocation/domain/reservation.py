@@ -21,6 +21,23 @@ class ReservationStatus(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class ReleaseReason(StrEnum):
+    """Why a reservation stopped holding capital. Recorded on the row so a
+    terminal reservation says *how* it ended, not just *that* it did — the
+    difference between a swept orphan and a deliberate abort is the whole
+    signal when a worker starts misbehaving (migration ``0008``)."""
+
+    EXPIRED_BY_SWEEPER = "EXPIRED_BY_SWEEPER"
+    PRE_SUBMIT_EXPIRY = "PRE_SUBMIT_EXPIRY"
+    EXCHANGE_ERROR = "EXCHANGE_ERROR"
+
+
+# Only these two hold capital, so only these two are ever sweepable.
+_SWEEPABLE_STATUSES: frozenset[ReservationStatus] = frozenset(
+    {ReservationStatus.PENDING, ReservationStatus.SUBMITTED}
+)
+
+
 # FILLED, RELEASED and EXPIRED are terminal: no further transition is legal.
 _LEGAL_TRANSITIONS: dict[ReservationStatus, frozenset[ReservationStatus]] = {
     ReservationStatus.PENDING: frozenset(
@@ -48,6 +65,8 @@ class Reservation:
     expires_at: datetime
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    terminal_at: datetime | None = None
+    release_reason: ReleaseReason | None = None
 
     def transition_to(self, new_status: ReservationStatus) -> "Reservation":
         """Returns a new ``Reservation`` with the target status. Raises on any
@@ -59,3 +78,23 @@ class Reservation:
                 f"illegal reservation transition: {self.status} -> {new_status}"
             )
         return replace(self, status=new_status)
+
+    def is_sweepable(self, now: datetime) -> bool:
+        """Whether the expiry sweeper may give this reservation a terminal
+        status. The boundary is inclusive: ``sum_active`` already stops counting
+        a reservation once ``expires_at > now`` is false, so a row sitting
+        exactly on its expiry is no longer holding capital and must be allowed
+        to terminate."""
+
+        return self.status in _SWEEPABLE_STATUSES and self.expires_at <= now
+
+    def expire(self, now: datetime) -> "Reservation":
+        """Terminates this reservation as swept. Raises if it already reached a
+        terminal status — re-expiring a FILLED reservation would rewrite
+        settled history, so it must never be a silent no-op."""
+
+        return replace(
+            self.transition_to(ReservationStatus.EXPIRED),
+            terminal_at=now,
+            release_reason=ReleaseReason.EXPIRED_BY_SWEEPER,
+        )

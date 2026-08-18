@@ -186,14 +186,14 @@ threat-matrix RED tasks are required.
 > Depends on **slice 4 only** (needs `ReservationRepositoryPort`, `Reservation`,
 > job queue). It does **not** depend on slice 5 and may ship in parallel with it.
 
-- [ ] 6.1 RED: unit tests for `ExpireReservations` — marks past-`expires_at` `PENDING`/`SUBMITTED` as `EXPIRED` with `terminal_at` set — fake repository + `FrozenClock` (spec: capital-allocation § Reservation Expiry)
-- [ ] 6.2 GREEN: implement `allocation/application/expire_reservations.py`
-- [ ] 6.3 Migration `0008_reservation_terminal` (**not `0006`** — see the work-unit table note; `down_revision = "0007"`): `terminal_at`, `release_reason` columns + `ix_reservations_sweepable`, real `downgrade()` [DB]
-- [ ] 6.4 RED: integration test — TXN-C batch expiry updates all past-expiry rows to `EXPIRED` [DB]
-- [ ] 6.5 GREEN: extend `SqlAlchemyReservationRepository` with the sweep query/update [DB]
-- [ ] 6.6 RED: unit test — `SweepHandler` re-enqueues `reservation.sweep` with `run_after = now + worker_poll_interval_seconds`
-- [ ] 6.7 GREEN: implement self-re-enqueuing `SweepHandler`; register `reservation.sweep` in `WorkerRunner` via `main.py`
-- [ ] 6.8 Verify slice green: `cd backend && uv run pytest tests/allocation -q`; `ruff check .`; `mypy src`
+- [x] 6.1 RED: unit tests for `ExpireReservations` — marks past-`expires_at` `PENDING`/`SUBMITTED` as `EXPIRED` with `terminal_at` set — fake repository + `FrozenClock` (spec: capital-allocation § Reservation Expiry)
+- [x] 6.2 GREEN: implement `allocation/application/expire_reservations.py`
+- [x] 6.3 Migration `0008_reservation_terminal` (**not `0006`** — see the work-unit table note; `down_revision = "0007"`): `terminal_at`, `release_reason` columns + `ix_reservations_sweepable`, real `downgrade()` [DB]
+- [x] 6.4 RED: integration test — TXN-C batch expiry updates all past-expiry rows to `EXPIRED` [DB]
+- [x] 6.5 GREEN: extend `SqlAlchemyReservationRepository` with the sweep query/update [DB]
+- [x] 6.6 RED: unit test — `SweepHandler` re-enqueues `reservation.sweep` with `run_after = now + worker_poll_interval_seconds`
+- [x] 6.7 GREEN: implement self-re-enqueuing `SweepHandler`; register `reservation.sweep` in `WorkerRunner` via `main.py`
+- [x] 6.8 Verify slice green: `cd backend && uv run pytest tests/allocation -q`; `ruff check .`; `mypy src`
 
 ## Slice 7: Per-strategy allocation percentage
 

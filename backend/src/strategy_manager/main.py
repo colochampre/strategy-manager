@@ -18,6 +18,8 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
+from strategy_manager.allocation.application.expire_reservations import ExpireReservations
+from strategy_manager.allocation.application.sweep_handler import SweepHandler
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     assert_pool_lock_keys_distinct,
@@ -120,10 +122,10 @@ def build_worker_runner(
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
 ) -> WorkerRunner:
-    """Registers ``signal.process`` — the only job kind this change adds a
-    handler for (``reservation.sweep`` is slice 6). One fresh session per
-    claimed job, independent of the claim session (design.md § Transaction
-    Boundaries: the claim's row lock must die with its own connection)."""
+    """Registers ``signal.process`` and ``reservation.sweep``. One fresh
+    session per claimed job, independent of the claim session (design.md
+    § Transaction Boundaries: the claim's row lock must die with its own
+    connection)."""
 
     settings = get_settings()
     factory = session_factory_override or session_factory
@@ -139,12 +141,32 @@ def build_worker_runner(
             )
             await handler.handle(signal_id)
 
+    async def handle_reservation_sweep(job: ClaimedJob) -> None:
+        # The sweep and its self-re-enqueue share one session, so a successor
+        # is never committed unless the sweep it follows committed too.
+        async with factory() as session:
+            handler = SweepHandler(
+                expire_reservations=ExpireReservations(
+                    reservations=SqlAlchemyReservationRepository(session),
+                    clock=SystemClock(),
+                    commit=session,
+                ),
+                queue=PostgresJobQueue(session),
+                clock=SystemClock(),
+                poll_interval_seconds=settings.worker_poll_interval_seconds,
+            )
+            await handler.handle(job)
+            await session.commit()
+
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:
         async with factory() as session:
             yield PostgresJobQueue(session)
 
-    handlers: Mapping[JobKind, JobHandler] = {JobKind.SIGNAL_PROCESS: handle_signal_process}
+    handlers: Mapping[JobKind, JobHandler] = {
+        JobKind.SIGNAL_PROCESS: handle_signal_process,
+        JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
+    }
     return WorkerRunner(
         queue_factory=queue_factory,
         handlers=handlers,
