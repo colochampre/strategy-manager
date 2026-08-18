@@ -1,13 +1,20 @@
-"""Unit tests for the Strategy aggregate, FillMode and AllocationPolicy VO
-(design.md § strategies/domain/strategy.py)."""
+"""Unit tests for the Strategy aggregate, FillMode, AllocationPercent and
+AllocationPolicy VO (design.md § strategies/domain/strategy.py; tasks.md
+7.1)."""
 
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Venue
-from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import (
+    AllocationPercent,
+    AllocationPolicy,
+    FillMode,
+    Strategy,
+)
 
 
 def test_fill_mode_values_match_db_constraint() -> None:
@@ -60,3 +67,50 @@ def test_strategy_rejects_empty_name() -> None:
 
     with pytest.raises(InvariantViolation):
         Strategy(id=uuid4(), name="", policy=policy)
+
+
+def test_allocation_percent_accepts_the_open_half_open_range() -> None:
+    AllocationPercent(Decimal("0.01"))
+    AllocationPercent(Decimal("50"))
+    AllocationPercent(Decimal("100"))
+
+
+def test_allocation_percent_rejects_zero() -> None:
+    with pytest.raises(InvariantViolation):
+        AllocationPercent(Decimal("0"))
+
+
+def test_allocation_percent_rejects_negative() -> None:
+    with pytest.raises(InvariantViolation):
+        AllocationPercent(Decimal("-10"))
+
+
+def test_allocation_percent_rejects_values_above_100() -> None:
+    with pytest.raises(InvariantViolation):
+        AllocationPercent(Decimal("100.01"))
+
+
+def test_allocation_percent_requires_a_decimal() -> None:
+    with pytest.raises(InvariantViolation):
+        AllocationPercent(50)  # type: ignore[arg-type]
+
+
+def test_allocation_policy_defaults_allocation_percent_to_100() -> None:
+    """Migration 0007's ``DEFAULT 100`` preserves current behaviour for any
+    existing row; the domain VO mirrors that default (tasks.md 7.2)."""
+    policy = AllocationPolicy(
+        venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
+    )
+
+    assert policy.allocation_percent == AllocationPercent(Decimal("100"))
+
+
+def test_allocation_policy_stores_an_explicit_allocation_percent() -> None:
+    policy = AllocationPolicy(
+        venue=Venue.SPOT,
+        settlement_currency=Currency.USDT,
+        fill_mode=FillMode.SKIP,
+        allocation_percent=AllocationPercent(Decimal("20")),
+    )
+
+    assert policy.allocation_percent == AllocationPercent(Decimal("20"))

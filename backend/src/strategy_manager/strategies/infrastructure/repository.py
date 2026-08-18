@@ -5,7 +5,12 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.domain.money import Currency, Venue
-from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import (
+    AllocationPercent,
+    AllocationPolicy,
+    FillMode,
+    Strategy,
+)
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 
@@ -24,6 +29,7 @@ class SqlAlchemyStrategyRepository:
                 settlement_currency=strategy.policy.settlement_currency.value,
                 enabled=strategy.enabled,
                 fill_mode=strategy.policy.fill_mode.value,
+                allocation_percent=strategy.policy.allocation_percent.value,
             )
         )
         await self._session.flush()
@@ -39,6 +45,7 @@ class SqlAlchemyStrategyRepository:
                 venue=Venue(row.venue),
                 settlement_currency=Currency(row.settlement_currency),
                 fill_mode=FillMode(row.fill_mode),
+                allocation_percent=AllocationPercent(row.allocation_percent),
             ),
             enabled=row.enabled,
             created_at=row.created_at,

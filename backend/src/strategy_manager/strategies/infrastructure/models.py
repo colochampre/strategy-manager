@@ -1,5 +1,5 @@
 """SQLAlchemy ORM model owned by ``strategies``. Mirrors migration
-``0003_strategies_pools``.
+``0003_strategies_pools``, extended by ``0007_allocation_percent``.
 
 ``id`` has NO ``gen_random_uuid()`` server default: it MUST be supplied
 explicitly by the caller as the strategy's ``signal_type`` UUID (design.md
@@ -10,9 +10,10 @@ the one declarative registry in ``shared.db.Base``.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKeyConstraint, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKeyConstraint, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -21,7 +22,8 @@ from strategy_manager.shared.db import Base
 
 
 class StrategyRow(Base):
-    """Mirrors the ``strategies`` table created by migration ``0003``."""
+    """Mirrors the ``strategies`` table created by migration ``0003``,
+    extended with ``allocation_percent`` by migration ``0007``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
@@ -40,6 +42,9 @@ class StrategyRow(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     fill_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    allocation_percent: Mapped[Decimal] = mapped_column(
+        Numeric, nullable=False, server_default=text("100")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

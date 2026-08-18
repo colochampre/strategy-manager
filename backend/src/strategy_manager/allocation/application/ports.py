@@ -28,6 +28,7 @@ class StrategyPolicySnapshot:
     fill_mode: str  # 'SKIP' | 'PARTIAL'
     venue: str
     settlement_currency: str
+    allocation_percent: Decimal  # 0 < value <= 100 (tasks.md 7.6)
 
 
 @dataclass(frozen=True, slots=True)

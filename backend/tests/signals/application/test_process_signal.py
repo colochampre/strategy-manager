@@ -5,6 +5,11 @@ acquire it (tasks.md 5.16; design.md § "position_size routes the signal").
 No database: ``AllocateCapital`` is real (slice 4), wired with fakes,
 including the spy lock, so the assertion exercises the actual lock call
 site rather than a re-implemented stand-in.
+
+Also covers tasks.md 7.7: a CONSUME-path signal's requested amount MUST come
+from the strategy's ``allocation_percent`` applied to the pool balance,
+never from the alert's ``position_size``/``contracts`` (design.md's GAP
+FOUND note, closed by this slice).
 """
 
 from dataclasses import dataclass, field
@@ -101,25 +106,54 @@ class FakeSignalContextPort:
         return self.context
 
 
-def _allocate_capital(lock: SpyAdvisoryLock) -> AllocateCapital:
+def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
+    defaults: dict[str, object] = dict(
+        strategy_id=uuid4(),
+        enabled=True,
+        fill_mode="PARTIAL",
+        venue="spot",
+        settlement_currency="USDT",
+        allocation_percent=Decimal("100"),
+    )
+    defaults.update(overrides)
+    return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
+
+
+def _allocate_capital(
+    lock: SpyAdvisoryLock,
+    policy: StrategyPolicySnapshot | None = None,
+    pool_balance: PoolBalance | None = None,
+    reservations: FakeReservationRepository | None = None,
+) -> AllocateCapital:
     return AllocateCapital(
-        strategy_policy=FakeStrategyPolicyPort(
-            StrategyPolicySnapshot(
-                strategy_id=uuid4(),
-                enabled=True,
-                fill_mode="PARTIAL",
-                venue="spot",
-                settlement_currency="USDT",
-            )
-        ),
+        strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
         pool_balance=FakePoolBalancePort(
-            PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+            pool_balance or PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
         ),
         lock=lock,
-        reservations=FakeReservationRepository(),
+        reservations=reservations or FakeReservationRepository(),
         commit=FakeCommit(),
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
+    )
+
+
+def _process_signal_handler(
+    *,
+    context: SignalContext,
+    allocate_capital: AllocateCapital,
+    execute_reservation: SpyExecuteReservation,
+    policy: StrategyPolicySnapshot | None = None,
+    pool_balance: PoolBalance | None = None,
+) -> ProcessSignalHandler:
+    return ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(context),
+        strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
+        pool_balance=FakePoolBalancePort(
+            pool_balance or PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+        ),
+        allocate_capital=allocate_capital,
+        execute_reservation=execute_reservation,
     )
 
 
@@ -136,8 +170,8 @@ async def test_consumes_signal_acquires_the_advisory_lock() -> None:
         prior_reservation_id=None,
         settlement_currency="USDT",
     )
-    handler = ProcessSignalHandler(
-        signal_context=FakeSignalContextPort(context),
+    handler = _process_signal_handler(
+        context=context,
         allocate_capital=allocate_capital,
         execute_reservation=execute_reservation,
     )
@@ -163,8 +197,8 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
         prior_reservation_id=prior_reservation_id,
         settlement_currency="USDT",
     )
-    handler = ProcessSignalHandler(
-        signal_context=FakeSignalContextPort(context),
+    handler = _process_signal_handler(
+        context=context,
         allocate_capital=allocate_capital,
         execute_reservation=execute_reservation,
     )
@@ -190,8 +224,8 @@ async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> No
         prior_reservation_id=None,
         settlement_currency="USDT",
     )
-    handler = ProcessSignalHandler(
-        signal_context=FakeSignalContextPort(context),
+    handler = _process_signal_handler(
+        context=context,
         allocate_capital=allocate_capital,
         execute_reservation=execute_reservation,
     )
@@ -202,3 +236,43 @@ async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> No
     assert execute_reservation.calls == []
     assert result.reservation_id is None
     assert result.executed is False
+
+
+async def test_consumes_signal_sizes_requested_from_allocation_percent_never_from_position_size(
+) -> None:
+    """tasks.md 7.7: the requested amount MUST come from the strategy's
+    ``allocation_percent`` applied to the pool balance, never from the
+    alert's ``position_size``/``contracts`` (design.md's GAP FOUND note,
+    closed by this slice). ``position_size`` and ``price`` are set so their
+    product (200,000,000) wildly differs from the percent-derived request
+    (200) — if the stand-in ever regressed, this assertion would fail loudly."""
+    lock = SpyAdvisoryLock()
+    policy = _snapshot(allocation_percent=Decimal("20"))
+    pool_balance = PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+    reservations = FakeReservationRepository()
+    allocate_capital = _allocate_capital(
+        lock, policy=policy, pool_balance=pool_balance, reservations=reservations
+    )
+    execute_reservation = SpyExecuteReservation()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),  # position_size * price = 200,000,000 - never used
+        position_size=Decimal("4000"),
+        prior_position_size=Decimal("0"),  # open long -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=allocate_capital,
+        execute_reservation=execute_reservation,
+        policy=policy,
+        pool_balance=pool_balance,
+    )
+
+    await handler.handle(uuid4())
+
+    assert len(reservations.inserted) == 1
+    # 20% of a 1000 balance = 200 - not 200,000,000.
+    assert reservations.inserted[0].amount == Decimal("200")

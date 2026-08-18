@@ -11,19 +11,35 @@ position it is now closing, without ever touching the lock: releasing work
 can only increase pool availability, so it cannot over-allocate
 (design.md's "only capital-consuming work takes the lock").
 
-Deviation, documented rather than silently made: design.md says ``granted``
-comes from "the strategy's configured percentage of pool availability", but
-no such percentage field exists anywhere in this codebase (``AllocationPolicy``
-carries only ``venue``/``settlement_currency``/``fill_mode``). This handler
-instead derives the *requested* amount as ``abs(position_size) * price`` —
-the notional value the alert's own reference price implies for the intended
-position — and lets the existing ``decide()`` algorithm (slice 4) apportion
-``granted <= requested`` against real availability. This keeps
-`quantity = granted / price` exactly as specified while never depending on
-``alert.contracts``. A REVERSE transition is routed through the CONSUMES
-branch only (its consuming half); fully closing the prior leg first is not
-implemented in this slice — this is a known limitation, not a tested
-scenario, and is called out in the apply-progress report.
+``requested`` for a CONSUMES signal is derived from the strategy's
+configured ``allocation_percent`` applied to the pool BALANCE (design.md
+§ "Order size never comes from the alert", percent base RESOLVED
+2026-08-18; tasks.md 7.7/7.8) — never from the alert's ``position_size`` or
+``contracts``, which are TradingView's *simulated* equity and have no
+relationship to the real pool. ``decide()`` (slice 4) is unchanged and still
+apportions ``granted <= requested`` against real availability: the percent
+caps the *ask*, the advisory lock and ``decide()`` govern the *grant*. This
+keeps `quantity = granted / price` exactly as specified.
+
+**Two balance reads, deliberately.** Sizing the ask reads the pool balance
+here, outside the lock; ``AllocateCapital`` then reads it again inside the
+lock to compute real availability. That is safe: the money invariant depends
+only on the in-lock read, so a balance that moved between the two can make the
+*ask* slightly stale but can never over-allocate — ``decide()`` still clamps
+``granted`` to what is actually available.
+
+Do not "fix" this by moving the percent calculation inside ``AllocateCapital``.
+That would couple the allocation engine to a per-strategy product policy it
+has no business knowing: ``AllocateCapital``'s contract is "here is an amount,
+allocate what you can", and how that amount was sized belongs to the caller.
+Any other sizing rule — a manual allocation, a future risk model — must be
+able to drive the same engine without changing it.
+
+A REVERSE
+transition is routed through the CONSUMES branch only (its consuming half);
+fully closing the prior leg first is not implemented in this slice — this
+is a known limitation, not a tested scenario, and is called out in the
+apply-progress report.
 """
 
 from dataclasses import dataclass
@@ -35,6 +51,8 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
     AllocateCommand,
 )
+from strategy_manager.allocation.application.ports import PoolBalancePort, StrategyPolicyPort
+from strategy_manager.allocation.domain.percent import requested_from_percent
 from strategy_manager.execution.application.execute_reservation import (
     ExecuteCommand,
     ExecuteResult,
@@ -105,10 +123,14 @@ class ProcessSignalHandler:
     def __init__(
         self,
         signal_context: SignalContextPort,
+        strategy_policy: StrategyPolicyPort,
+        pool_balance: PoolBalancePort,
         allocate_capital: AllocateCapital,
         execute_reservation: ExecuteReservationPort,
     ) -> None:
         self._signal_context = signal_context
+        self._strategy_policy = strategy_policy
+        self._pool_balance = pool_balance
         self._allocate_capital = allocate_capital
         self._execute_reservation = execute_reservation
 
@@ -125,9 +147,11 @@ class ProcessSignalHandler:
     async def _handle_consumes(
         self, signal_id: UUID, context: SignalContext, transition: PositionTransition
     ) -> ProcessSignalResult:
+        policy = await self._strategy_policy.policy_for(context.strategy_id)
+        pool_balance = await self._pool_balance.read(policy.venue, policy.settlement_currency)
         requested = Money(
-            amount=abs(context.position_size) * context.price,
-            currency=Currency(context.settlement_currency),
+            amount=requested_from_percent(pool_balance.balance, policy.allocation_percent),
+            currency=Currency(policy.settlement_currency),
         )
         result = await self._allocate_capital.allocate(
             AllocateCommand(

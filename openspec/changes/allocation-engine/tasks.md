@@ -15,7 +15,7 @@
 | Why the budget was raised (800 → 1600) | The per-slice estimates count **production** lines, but `strict_tdd: true` roughly doubles each slice with its tests. Measured: slice 1 = 821 changed lines, slice 2 = 1442. Both breached an 800 ceiling that was never calibrated for TDD. |
 | Why the budget was raised again (1600 → 2000) | Slice 4 landed at 1913 runtime-counted lines — 623 production, 78 migration, 1138 tests, the rest artifacts. The overage is entirely mandated coverage: `decide()`'s 6 ordered rules with 7 edge cases, the `Reservation` transition matrix, the TXN-A integration test, the 30-iteration race test and the 50-iteration negative control. Trimming to fit 1600 would have cut the highest-value tests in the change. Accepted as `size:exception`, budget raised so slice 5 does not block on the same miscalibration. |
 | 2000-line budget risk | Low for slice 6; Medium for slice 5 (execution + ledger, grown by tasks 5.16–5.17, and the append-only ledger needs both a row trigger and a statement-level `BEFORE TRUNCATE` trigger with guard tests for each) |
-| Measured per slice | Runtime-counted, includes artifacts: slice 1 = 821, slice 2 = 1442, slice 3 = 1464, slice 4 = 1913, slice 5 = 2721 |
+| Measured per slice | Runtime-counted, includes artifacts: slice 1 = 821, slice 2 = 1442, slice 3 = 1464, slice 4 = 1913, slice 5 = 2721, slice 7 = 506 (`git diff --stat`: 462 insertions + 44 deletions across 15 files) |
 | Chained PRs recommended | Yes |
 | Suggested split | 6 slices, PR 1 → PR 6, matching the proposal's delivery table |
 | Delivery strategy | auto-chain |
@@ -41,8 +41,18 @@ threat-matrix RED tasks are required.
 | 3 | Strategies + accounts | `slice/3-strategies-accounts` (base `slice/2-signal-ingress`) | `cd backend && uv run pytest tests/strategies tests/accounts -q` | Live PG, `0003` applied incl. seeded `capital_pools` rows [DB] | `alembic downgrade 0002`; remove `strategies/` and `accounts/` packages |
 | 4 | Allocation core (race test + negative control) | `slice/4-allocation-core` (base `slice/3-strategies-accounts`) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0004` applied; concurrency tests need real concurrent connections, no fake exists [DB] | `alembic downgrade 0003`; remove `allocation/` package |
 | 5 | Execution + ledger | `slice/5-execution-ledger` (base `slice/4-allocation-core`) | `cd backend && uv run pytest tests/execution tests/ledger -q` | Live PG, `0005` applied; Tier B fresh-DB-per-module for trigger tests [DB] | `alembic downgrade 0004` (blocked by ledger-cutoff rule once a fill exists); remove `execution/` and `ledger/` packages |
-| 6 | Reservation expiry sweeper | `slice/6-reservation-sweeper` (base `slice/4-allocation-core`, **not** slice 5 — real dependency is slice 4 only) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0006` applied [DB] | `alembic downgrade 0004`; revert `expire_reservations.py` and `SweepHandler` |
-| 7 | Per-strategy allocation percentage (**added 2026-08-18**, closes a gap found in slice 5) | `slice/7-allocation-percentage` (base `slice/5-execution-ledger`) | `cd backend && uv run pytest -q` | Live PG, `0007` applied [DB] | `alembic downgrade 0006`; revert `AllocationPolicy`, `StrategyPolicySnapshot` and `ProcessSignalHandler` to their slice-5 state |
+| 7 | Per-strategy allocation percentage (**added 2026-08-18**, closes a gap found in slice 5) | `slice/7-allocation-percentage` (base `slice/5-execution-ledger`) | `cd backend && uv run pytest -q` | Live PG, `0007` applied (`down_revision = "0005"`) [DB] | `alembic downgrade 0005`; revert `AllocationPolicy`, `StrategyPolicySnapshot` and `ProcessSignalHandler` to their slice-5 state |
+| 6 | Reservation expiry sweeper — **runs last, see the note below** | `slice/6-reservation-sweeper` (base `slice/7-allocation-percentage`) | `cd backend && uv run pytest tests/allocation -q` | Live PG, migration **`0008`** applied (`down_revision = "0007"`) [DB] | `alembic downgrade 0007`; revert `expire_reservations.py` and `SweepHandler` |
+
+> **Slice 6 moved after slice 7 and renumbered to migration `0008`
+> (2026-08-18).** Its *code* dependency really is slice 4 only — nothing in the
+> sweeper touches execution, the ledger or the allocation percent. But the
+> Alembic revision chain is linear and shared across every slice, so basing
+> slice 6 on `slice/4-allocation-core` and numbering it `0006` would fork the
+> chain: `0006` and `0007` would both descend from a common ancestor, leaving
+> two heads and forcing a merge revision at integration time. Code
+> independence does not buy migration independence. Slice 6 therefore chains
+> from `0007` as `0008`, and `0006` is intentionally never used.
 
 ---
 
@@ -178,7 +188,7 @@ threat-matrix RED tasks are required.
 
 - [ ] 6.1 RED: unit tests for `ExpireReservations` — marks past-`expires_at` `PENDING`/`SUBMITTED` as `EXPIRED` with `terminal_at` set — fake repository + `FrozenClock` (spec: capital-allocation § Reservation Expiry)
 - [ ] 6.2 GREEN: implement `allocation/application/expire_reservations.py`
-- [ ] 6.3 Migration `0006_reservation_terminal`: `terminal_at`, `release_reason` columns + `ix_reservations_sweepable`, real `downgrade()` [DB]
+- [ ] 6.3 Migration `0008_reservation_terminal` (**not `0006`** — see the work-unit table note; `down_revision = "0007"`): `terminal_at`, `release_reason` columns + `ix_reservations_sweepable`, real `downgrade()` [DB]
 - [ ] 6.4 RED: integration test — TXN-C batch expiry updates all past-expiry rows to `EXPIRED` [DB]
 - [ ] 6.5 GREEN: extend `SqlAlchemyReservationRepository` with the sweep query/update [DB]
 - [ ] 6.6 RED: unit test — `SweepHandler` re-enqueues `reservation.sweep` with `run_after = now + worker_poll_interval_seconds`
@@ -202,13 +212,13 @@ threat-matrix RED tasks are required.
 > `granted` to real availability, so the balance base can never over-allocate:
 > the percent caps the *ask*, the lock and `decide()` govern the *grant*.
 
-- [ ] 7.1 RED: unit tests for `AllocationPercent` — accepts 0 < p <= 100, rejects zero, negative, and > 100; `Decimal` throughout
-- [ ] 7.2 GREEN: implement `AllocationPercent` in `strategies/domain/strategy.py` and add it to `AllocationPolicy`
-- [ ] 7.3 RED: unit tests for `requested_from_percent(balance, percent)` — `ROUND_DOWN` quantization, and a 100% strategy requests exactly the balance
-- [ ] 7.4 GREEN: implement it in the allocation domain (pure, no framework)
-- [ ] 7.5 Migration `0007_allocation_percent`: `strategies.allocation_percent numeric NOT NULL DEFAULT 100` + a `CHECK (allocation_percent > 0 AND allocation_percent <= 100)`, real `downgrade()` [DB]
-- [ ] 7.6 GREEN: carry `allocation_percent` through `StrategyPolicySnapshot`, `SqlAlchemyStrategyRepository` and `StrategyPolicyAdapter`
-- [ ] 7.7 RED: unit test — `ProcessSignalHandler` derives `requested` from `allocation_percent` × pool balance, and **never** from `position_size` or `contracts`; assert with a strategy whose `position_size × price` differs wildly from its percent-derived request
-- [ ] 7.8 GREEN: replace the slice-5 stand-in in `signals/application/process_signal.py`; delete its deviation note
-- [ ] 7.9 RED (integration): two strategies at 60% and 60% of the same 1000-balance pool — the first grants 600, the second is clamped to the remaining 400 by `decide()`, proving the percent caps the ask without breaking the invariant [DB]
-- [ ] 7.10 Verify slice green: `cd backend && uv run pytest -q`; `ruff check .`; `mypy src`
+- [x] 7.1 RED: unit tests for `AllocationPercent` — accepts 0 < p <= 100, rejects zero, negative, and > 100; `Decimal` throughout
+- [x] 7.2 GREEN: implement `AllocationPercent` in `strategies/domain/strategy.py` and add it to `AllocationPolicy`
+- [x] 7.3 RED: unit tests for `requested_from_percent(balance, percent)` — `ROUND_DOWN` quantization, and a 100% strategy requests exactly the balance
+- [x] 7.4 GREEN: implement it in the allocation domain (pure, no framework)
+- [x] 7.5 Migration `0007_allocation_percent`: `strategies.allocation_percent numeric NOT NULL DEFAULT 100` + a `CHECK (allocation_percent > 0 AND allocation_percent <= 100)`, real `downgrade()` [DB]
+- [x] 7.6 GREEN: carry `allocation_percent` through `StrategyPolicySnapshot`, `SqlAlchemyStrategyRepository` and `StrategyPolicyAdapter`
+- [x] 7.7 RED: unit test — `ProcessSignalHandler` derives `requested` from `allocation_percent` × pool balance, and **never** from `position_size` or `contracts`; assert with a strategy whose `position_size × price` differs wildly from its percent-derived request
+- [x] 7.8 GREEN: replace the slice-5 stand-in in `signals/application/process_signal.py`; delete its deviation note
+- [x] 7.9 RED (integration): two strategies at 60% and 60% of the same 1000-balance pool — the first grants 600, the second is clamped to the remaining 400 by `decide()`, proving the percent caps the ask without breaking the invariant [DB]
+- [x] 7.10 Verify slice green: `cd backend && uv run pytest -q`; `ruff check .`; `mypy src`

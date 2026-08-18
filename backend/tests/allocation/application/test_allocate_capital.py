@@ -94,6 +94,7 @@ def _enabled_snapshot(**overrides: object) -> StrategyPolicySnapshot:
         fill_mode="PARTIAL",
         venue="spot",
         settlement_currency="USDT",
+        allocation_percent=Decimal("100"),
     )
     defaults.update(overrides)
     return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]

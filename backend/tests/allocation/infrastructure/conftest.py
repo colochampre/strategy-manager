@@ -107,6 +107,7 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
+    allocation_percent: Decimal = Decimal("100"),
 ) -> None:
     """Inserts a committed ``strategies`` row so reservation FKs resolve."""
 
@@ -119,6 +120,7 @@ async def seed_strategy(
                 settlement_currency=settlement_currency,
                 enabled=enabled,
                 fill_mode=fill_mode,
+                allocation_percent=allocation_percent,
             )
         )
         await session.commit()

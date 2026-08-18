@@ -83,9 +83,12 @@ def _build_process_signal_handler(
         reservations=reservation_repository,
     )
 
+    strategy_policy = StrategyPolicyAdapter(strategy_repository)
+    pool_balance = PoolBalanceAdapter(pools_by_key, FakeBalanceSource())
+
     allocate_capital = AllocateCapital(
-        strategy_policy=StrategyPolicyAdapter(strategy_repository),
-        pool_balance=PoolBalanceAdapter(pools_by_key, FakeBalanceSource()),
+        strategy_policy=strategy_policy,
+        pool_balance=pool_balance,
         lock=PgAdvisoryLockAdapter(session),
         reservations=reservation_repository,
         commit=session,
@@ -105,6 +108,8 @@ def _build_process_signal_handler(
 
     return ProcessSignalHandler(
         signal_context=signal_context,
+        strategy_policy=strategy_policy,
+        pool_balance=pool_balance,
         allocate_capital=allocate_capital,
         execute_reservation=execute_reservation,
     )

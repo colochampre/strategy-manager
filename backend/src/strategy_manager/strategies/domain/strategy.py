@@ -7,6 +7,7 @@ FastAPI, SQLAlchemy or httpx.
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
@@ -22,15 +23,40 @@ class FillMode(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class AllocationPercent:
+    """The strategy's share of its pool's BALANCE (not availability) that
+    ``requested`` is derived from — the owner's explicit decision
+    2026-08-18, superseding an earlier "percentage of availability" draft
+    (design.md § "Order size never comes from the alert"; tasks.md 7.1).
+    Mirrors the ``strategies.allocation_percent`` CHECK constraint:
+    ``0 < value <= 100``.
+    """
+
+    value: Decimal
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, Decimal):
+            raise InvariantViolation("AllocationPercent.value must be a Decimal")
+        if not (Decimal("0") < self.value <= Decimal("100")):
+            raise InvariantViolation(
+                "AllocationPercent.value must satisfy 0 < value <= 100"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class AllocationPolicy:
     """The pool a strategy targets and how it behaves under partial
-    availability. Extracted as a VO because these three fields are always
+    availability. Extracted as a VO because these fields are always
     read and validated together — they are the strategy's whole allocation
-    policy (design.md's ``strategies`` table columns)."""
+    policy (design.md's ``strategies`` table columns).
+
+    ``allocation_percent`` defaults to 100 — migration ``0007``'s
+    ``DEFAULT 100`` preserves current behaviour for any existing row."""
 
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
+    allocation_percent: AllocationPercent = AllocationPercent(Decimal("100"))
 
 
 @dataclass(frozen=True, slots=True)

@@ -918,12 +918,33 @@ from the other direction.
 available, so the balance base can never over-allocate. The percent caps the
 *ask*; the advisory lock and `decide()` govern the *grant*.
 
-> **GAP FOUND 2026-08-18 — `allocation_percent` does not exist yet.** Slice 3
+> **GAP FOUND 2026-08-18 — `allocation_percent` did not exist.** Slice 3
 > built `AllocationPolicy` with only `venue`, `settlement_currency` and
 > `fill_mode`. Slice 5 shipped with `requested = abs(position_size) * price` as
 > a stand-in, which sizes from TradingView's *simulated* equity and effectively
 > asks for the whole pool on every signal. Harmless only because `DRY_RUN`
-> defaults to true. Closed by slice 7.
+> defaults to true. **Closed by slice 7.**
+
+### Where the percent is applied — two balance reads
+
+`ProcessSignalHandler` sizes the ask by reading the pool balance **outside**
+the lock, then `AllocateCapital` reads it again **inside** the lock to compute
+real availability.
+
+This is deliberate and it is safe. The money invariant depends only on the
+in-lock read: a balance that moved between the two makes the *ask* slightly
+stale, never the *grant*. `decide()` still clamps `granted` to real
+availability, so no sequence of stale asks can over-allocate.
+
+The alternative — passing `allocation_percent` into `AllocateCapital` and
+deriving `requested` from the in-lock read — buys one fewer read and no ask
+drift, at the cost of teaching the allocation engine about a per-strategy
+product policy. That is the wrong trade for this codebase. `AllocateCapital`'s
+contract is "here is an amount, allocate what you can"; how the amount was
+sized belongs to the caller, so a manual allocation or a future risk model can
+drive the same engine unchanged. Rule 4 is still satisfied: the availability
+read, the decision and the reservation write all remain inside one
+advisory-locked transaction.
 
 ### `position_size` routes the signal — affects slices 2, 4 and 5
 
