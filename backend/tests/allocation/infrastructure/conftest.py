@@ -1,0 +1,154 @@
+"""Fixtures for allocation integration tests against a real PostgreSQL
+database. Mirrors ``tests/accounts/infrastructure/conftest.py`` and
+``tests/strategies/infrastructure/conftest.py``, extended with the
+``reservations`` table (migration ``0004``) and helpers to seed the
+``strategies``/``signals`` rows a reservation's foreign keys require.
+"""
+
+import re
+from collections.abc import AsyncIterator
+from decimal import Decimal
+from uuid import UUID
+
+import asyncpg
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from strategy_manager.allocation.infrastructure.models import ReservationRow  # noqa: F401
+from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.db import Base
+from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.strategies.infrastructure.models import StrategyRow
+
+TEST_DB_NAME = "strategy_manager_test"
+
+_test_db_ready = False
+
+SEEDED_POOLS = [
+    {"venue": "spot", "settlement_currency": "USDT", "min_order_size": Decimal("10")},
+    {"venue": "usdt-m", "settlement_currency": "USDT", "min_order_size": Decimal("5")},
+    {"venue": "coin-m", "settlement_currency": "BTC", "min_order_size": Decimal("0.0001")},
+    {"venue": "coin-m", "settlement_currency": "ETH", "min_order_size": Decimal("0.001")},
+]
+
+
+def _test_database_url(dev_url: str) -> str:
+    test_url = re.sub(r"/[^/?]+(\?.*)?$", rf"/{TEST_DB_NAME}\1", dev_url)
+    if test_url == dev_url:
+        raise RuntimeError(
+            "TEST_DATABASE_URL must not match settings.database_url (the dev database)"
+        )
+    return test_url
+
+
+async def _ensure_test_database_exists(dev_url: str) -> None:
+    global _test_db_ready
+    if _test_db_ready:
+        return
+    dsn = dev_url.replace("postgresql+asyncpg://", "postgresql://")
+    maintenance_dsn = re.sub(r"/[^/?]+(\?.*)?$", r"/postgres\1", dsn)
+    conn = await asyncpg.connect(maintenance_dsn)
+    try:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = $1", TEST_DB_NAME
+        )
+        if not exists:
+            await conn.execute(f'CREATE DATABASE "{TEST_DB_NAME}"')
+    finally:
+        await conn.close()
+    _test_db_ready = True
+
+
+@pytest.fixture
+async def pg_engine() -> AsyncIterator[AsyncEngine]:
+    settings = get_settings()
+    test_url = _test_database_url(settings.database_url)
+    await _ensure_test_database_exists(settings.database_url)
+
+    engine = create_async_engine(test_url, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(
+            text(
+                "TRUNCATE reservations, signals, strategies, capital_pools, jobs "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+        for pool in SEEDED_POOLS:
+            await conn.execute(
+                text(
+                    "INSERT INTO capital_pools (venue, settlement_currency, min_order_size) "
+                    "VALUES (:venue, :settlement_currency, :min_order_size)"
+                ),
+                pool,
+            )
+
+    yield engine
+
+    await engine.dispose()
+
+
+@pytest.fixture
+def pg_session_factory(pg_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(pg_engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def seed_strategy(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    strategy_id: UUID,
+    venue: str = "spot",
+    settlement_currency: str = "USDT",
+    fill_mode: str = "PARTIAL",
+    enabled: bool = True,
+    allocation_percent: Decimal = Decimal("100"),
+) -> None:
+    """Inserts a committed ``strategies`` row so reservation FKs resolve."""
+
+    async with session_factory() as session:
+        session.add(
+            StrategyRow(
+                id=strategy_id,
+                name=f"strategy-{strategy_id}",
+                venue=venue,
+                settlement_currency=settlement_currency,
+                enabled=enabled,
+                fill_mode=fill_mode,
+                allocation_percent=allocation_percent,
+            )
+        )
+        await session.commit()
+
+
+async def seed_signal(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    signal_id: UUID,
+    strategy_id: UUID,
+    idempotency_key: str,
+) -> None:
+    """Inserts a committed ``signals`` row so a reservation's ``signal_id``
+    foreign key resolves."""
+
+    async with session_factory() as session:
+        session.add(
+            SignalRow(
+                id=signal_id,
+                strategy_id=strategy_id,
+                idempotency_key=idempotency_key,
+                raw_payload={},
+                action="buy",
+                contracts=Decimal("1"),
+                position_size=Decimal("1"),
+                price=Decimal("1"),
+                symbol="BTCUSDT",
+                signal_type=str(strategy_id),
+            )
+        )
+        await session.commit()

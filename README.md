@@ -6,8 +6,19 @@ each locking a fixed share inside a Pionex bot.
 
 ## Status
 
-Scaffold. No exchange-facing code yet — the allocation engine is the first
-feature to be built.
+**Backend allocation engine complete** (239 tests, ruff and mypy strict clean).
+Webhook ingress, job queue, capital allocation, execution and the append-only
+ledger are all built and covered.
+
+Not built yet:
+
+- **The frontend.** Strategies view, dashboard and settings are still the Vite
+  scaffold.
+- **A real exchange adapter.** Only `FakeExchangeAdapter` exists, and `DRY_RUN`
+  defaults to true — nothing reaches Pionex.
+
+See [the archived change](./openspec/changes/archive/2026-08-18-allocation-engine/archive-report.md)
+for what shipped, the decisions behind it, and the known gaps.
 
 ## Requirements
 
@@ -18,8 +29,21 @@ feature to be built.
 ## Setup
 
 ```bash
-# 1. Create the database (once)
-createdb strategy_manager        # or: psql -U postgres -c "CREATE DATABASE strategy_manager;"
+# 1. Create the role and databases (once, as a superuser)
+#
+#    Create the ROLE FIRST and let it own everything. Migrations run
+#    ALTER TABLE ... ADD CONSTRAINT, and the integration tests run TRUNCATE.
+#    PostgreSQL requires table OWNERSHIP for both — write privileges are not
+#    enough. If the tables are created by one role and the app then connects
+#    as another, migrations fail with "must be owner of table".
+psql -U postgres -c "CREATE ROLE strategy_manager WITH LOGIN CREATEDB PASSWORD 'pick-a-strong-one';"
+psql -U postgres -c "CREATE DATABASE strategy_manager OWNER strategy_manager;"
+psql -U postgres -c "CREATE DATABASE strategy_manager_test OWNER strategy_manager;"
+psql -U postgres -d strategy_manager      -c "ALTER SCHEMA public OWNER TO strategy_manager;"
+psql -U postgres -d strategy_manager_test -c "ALTER SCHEMA public OWNER TO strategy_manager;"
+
+#    Already have tables owned by postgres? Transfer them instead:
+#    ALTER TABLE <each> OWNER TO strategy_manager;
 
 # 2. Configure
 cp .env.example backend/.env     # then fill DATABASE_URL, WEBHOOK_SECRET, MASTER_ENCRYPTION_KEY

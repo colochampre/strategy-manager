@@ -90,6 +90,14 @@ httpx, pydantic-settings or `asyncio` primitives — only `dataclasses`, `enum`,
 | `Reservation`, `ReservationStatus` | `allocation/domain/reservation.py` | domain |
 | `AllocationRules` (VO: fill_mode, min_order_size) | `allocation/domain/rules.py` | domain |
 | `AllocationDecision`, `DecisionOutcome`, `SkipReason`, `decide(...)` pure fn | `allocation/domain/decision.py` | domain |
+
+> `AllocationResult.skip_reason` (application layer) is a plain `str`, not the
+> domain `SkipReason` enum. The application layer carries one reason the domain
+> cannot know — `STRATEGY_DISABLED`, decided pre-lock from policy, never by
+> `decide()` — so widening the domain enum to hold it would push an application
+> concern into the pure core. This matches the existing
+> `StrategyPolicySnapshot.fill_mode: str` boundary convention.
+
 | `AdvisoryLockPort`, `ReservationRepositoryPort`, `PoolBalancePort`, `StrategyPolicyPort` + their consumer-owned DTOs (`StrategyPolicySnapshot`, `PoolBalance`) | `allocation/application/ports.py` | application |
 | `AllocateCapital` use case | `allocation/application/allocate_capital.py` | application |
 | `ExpireReservations` sweeper use case (slice 6) | `allocation/application/expire_reservations.py` | application |
@@ -276,8 +284,6 @@ sequenceDiagram
         SP-->>AC: StrategyPolicySnapshot(enabled, fill_mode, venue, currency)
         alt strategy disabled
             AC-->>H: SKIP(STRATEGY_DISABLED) - no lock, no row
-        else pool key not configured
-            AC-->>H: raise UnknownPoolError - job FAILED, loud
         else
             Note over AC,DB: ---- TXN-A begins ----
             AC->>DB: BEGIN
@@ -285,6 +291,10 @@ sequenceDiagram
             L->>DB: SELECT pg_advisory_xact_lock(hashtext(:venue), hashtext(:currency))
             DB-->>L: granted (blocks until the pool is free)
             AC->>PB: read(pool_key)
+            alt pool key not configured
+                PB-->>AC: DomainError
+                AC-->>H: raise UnknownPoolError - ROLLBACK releases the lock, job FAILED, loud
+            end
             PB-->>AC: PoolBalance(balance, min_order_size)
             AC->>DB: SELECT COALESCE(SUM(amount),0) FROM reservations WHERE pool AND status IN ('PENDING','SUBMITTED') AND expires_at > now()
             DB-->>AC: reserved_active
@@ -415,9 +425,24 @@ whole product.
 |---|---|---|
 | Reservation already exists for `signal_id` | resume, return it unchanged | none — no lock taken |
 | `strategy.enabled is false` | `SKIP(STRATEGY_DISABLED)` | none — no lock taken |
-| Pool key not in `capital_pools`, or pool disabled | raise `UnknownPoolError` → job `FAILED` | none |
-| `requested.currency != pool.settlement_currency` | raise `CurrencyMismatchError` | none |
-| `requested <= 0` | raise `InvalidAllocationRequest` | none |
+| Pool key not in `capital_pools`, or pool disabled | raise `UnknownPoolError` → job `FAILED` | none — but see the note below: detected *inside* the lock |
+| `requested.currency != pool.settlement_currency` | raise `CurrencyMismatchError` | none — no lock taken |
+| `requested <= 0` | raise `InvalidAllocationRequest` | none — no lock taken |
+
+**Unknown-pool detection sits inside the lock (RESOLVED 2026-08-18, supersedes
+the row above and the "Unknown / disabled pool" edge-case row).** Pool
+existence is only knowable from the balance read, and the balance read must
+stay inside the advisory lock — otherwise the decision could be made from a
+balance the lock never protected, which is the exact race this design exists
+to prevent. Adding a separate pre-lock config-lookup port would either
+duplicate that read or reintroduce the same inconsistency window.
+
+`AllocateCapital` therefore takes the lock, attempts the balance read, and
+translates its failure into `UnknownPoolError`. The practical cost is that a
+*misconfigured* pool holds the advisory lock for the duration of one failed
+read before the transaction rolls back and releases it. That is bounded, only
+reachable through misconfiguration, and still fails loudly as required. The
+other four guards remain genuinely pre-lock.
 
 A disabled strategy is a normal business outcome, so it skips. An unknown pool is
 a misconfiguration, so it fails loudly rather than silently skipping every signal.
@@ -462,7 +487,7 @@ Invariants the function guarantees, asserted directly in unit tests:
 | Availability below min order size, `fill_mode=PARTIAL` | rule 5 → `SKIP(PARTIAL_BELOW_MIN_ORDER_SIZE)` — an unfillable dust order is worse than a skip |
 | Request itself below min order size | rule 1 → `SKIP`, before any availability is even considered |
 | Disabled strategy | pre-lock `SKIP(STRATEGY_DISABLED)`, lock never taken |
-| Unknown / disabled pool | pre-lock `UnknownPoolError`, job `FAILED`, alert-worthy |
+| Unknown / disabled pool | `UnknownPoolError` raised from the in-lock balance read, job `FAILED`, alert-worthy |
 | Exactly `requested == available` | rule 3 → `FULL`, drives availability to exactly zero |
 
 ---
@@ -867,8 +892,59 @@ alert can keep feeding Pionex signal bots during migration:
 `{{strategy.order.contracts}}` is computed by the Pine strategy against
 TradingView's simulated equity, which has no knowledge of the real Pionex
 balance. Using it as a live quantity would size real positions from a backtest's
-imaginary account. `granted` therefore comes from the strategy's configured
-percentage of pool availability, exactly as the product requires.
+imaginary account.
+
+`requested` therefore comes from the strategy's configured
+`allocation_percent` applied to the **pool balance**, and `decide()` then
+apportions `granted <= requested` against real availability.
+
+**Percent base: pool balance, not availability (RESOLVED 2026-08-18).** An
+earlier revision of this section said "percentage of pool availability"; the
+owner chose the balance base instead, and this supersedes it. The difference is
+not cosmetic:
+
+| Base | Strategy at 20%, pool balance 1000, 600 already reserved | Pool with nothing reserved |
+|---|---|---|
+| Pool balance (**chosen**) | requests 200 — a fixed per-strategy ceiling | requests 200 |
+| Availability | requests 80 — the ceiling shrinks as others reserve | requests 1000 × 0.20 = 200 |
+
+Only the balance base gives a strategy a stable absolute ceiling. Under the
+availability base a strategy's request size depends on who happened to reserve
+first, and a strategy configured at 100% would drain an idle pool — which is
+exactly the per-bot capital lock this product exists to remove, reintroduced
+from the other direction.
+
+`decide()` is unchanged: it still clamps `granted` to what is actually
+available, so the balance base can never over-allocate. The percent caps the
+*ask*; the advisory lock and `decide()` govern the *grant*.
+
+> **GAP FOUND 2026-08-18 — `allocation_percent` did not exist.** Slice 3
+> built `AllocationPolicy` with only `venue`, `settlement_currency` and
+> `fill_mode`. Slice 5 shipped with `requested = abs(position_size) * price` as
+> a stand-in, which sizes from TradingView's *simulated* equity and effectively
+> asks for the whole pool on every signal. Harmless only because `DRY_RUN`
+> defaults to true. **Closed by slice 7.**
+
+### Where the percent is applied — two balance reads
+
+`ProcessSignalHandler` sizes the ask by reading the pool balance **outside**
+the lock, then `AllocateCapital` reads it again **inside** the lock to compute
+real availability.
+
+This is deliberate and it is safe. The money invariant depends only on the
+in-lock read: a balance that moved between the two makes the *ask* slightly
+stale, never the *grant*. `decide()` still clamps `granted` to real
+availability, so no sequence of stale asks can over-allocate.
+
+The alternative — passing `allocation_percent` into `AllocateCapital` and
+deriving `requested` from the in-lock read — buys one fewer read and no ask
+drift, at the cost of teaching the allocation engine about a per-strategy
+product policy. That is the wrong trade for this codebase. `AllocateCapital`'s
+contract is "here is an amount, allocate what you can"; how the amount was
+sized belongs to the caller, so a manual allocation or a future risk model can
+drive the same engine unchanged. Rule 4 is still satisfied: the availability
+read, the decision and the reservation write all remain inside one
+advisory-locked transaction.
 
 ### `position_size` routes the signal — affects slices 2, 4 and 5
 
@@ -898,6 +974,41 @@ allocation path or the unlocked release path.** Consequences:
   prior value; treat an absent prior as `0`.
 - A release-path signal MUST NOT take the advisory lock.
 
+### Webhook secret transport — RESOLVED, supersedes sequence diagram 1
+
+Sequence diagram 1 shows the shared secret arriving as `payload.secret`. That is
+**wrong** and is superseded here: the adopted alert body is fixed by the
+Pionex-compatible format and has no field for a secret.
+
+The secret travels as a **`?secret=` query parameter on the webhook URL**.
+TradingView cannot set custom headers, so the URL is the only channel available.
+
+This is not merely a fallback — it is the better option, because the alert body
+stays **byte-identical** between the Pionex endpoint and this application. The
+same alert can feed both systems during migration, which is the property that
+made adopting the payload unchanged worthwhile in the first place. Putting a
+secret in `signal_param` would have broken that.
+
+Consequence: the webhook URL is itself a credential. It must never be logged,
+and rotating the secret means re-editing the alert URL in TradingView.
+
+### `strategy_id` derives from `signal_type` — HARD CONSTRAINT ON SLICE 3
+
+`signals.strategy_id` is set to `UUID(alert.signal_type)` at ingress. Slice 2
+ships before the `strategies` table exists, so there is nothing to validate
+against yet, and migration `0003` adds `fk_signals_strategy` afterwards.
+
+**Therefore slice 3 MUST register strategies with `strategies.id` set explicitly
+to the strategy's `signal_type` UUID.** It must NOT rely on the
+`gen_random_uuid()` server default. If it does, migration `0003`'s
+`ADD CONSTRAINT fk_signals_strategy` will fail against any row slice 2 already
+inserted, and the failure will look like a migration bug rather than an identity
+mismatch.
+
+The `signal_type` UUID is the strategy's stable public identity: it is what the
+owner already pastes into TradingView, and it is the join key between an alert
+and a strategy row.
+
 ### Idempotency key
 
 `key = hash(signal_type + time + action + contracts + position_size)`.
@@ -914,8 +1025,10 @@ indistinguishable; that is an inherent limit of what TradingView provides.
 
 - [x] **RESOLVED 2026-08-12** — see "Alert Contract and Signal Routing" below.
       Order size does NOT come from the alert; it comes from the strategy's
-      configured percentage of pool availability. `quantity = granted / price`
-      stands. Slice 5 is unblocked.
+      configured percentage of the **pool balance** (base chosen by the owner
+      2026-08-18, superseding "availability"). `quantity = granted / price`
+      stands. Slice 5 is unblocked; the `allocation_percent` field itself lands
+      in slice 7.
 
 - [x] **RESOLVED 2026-08-12.** `capital_pools` seeding: the **table is the single
       source of truth**, seeded by migration. There is no parallel
