@@ -5,6 +5,7 @@ idempotent at the database level; a conflict falls back to a lookup of the
 already-persisted row (spec: signal-ingress § Idempotent Signal Persistence).
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,8 +13,26 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.signals.application.ports import InsertOutcome
-from strategy_manager.signals.domain.signal import WebhookSignal
+from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
 from strategy_manager.signals.infrastructure.models import SignalRow
+
+
+def _to_domain(row: SignalRow) -> WebhookSignal:
+    return WebhookSignal(
+        id=row.id,
+        strategy_id=row.strategy_id,
+        idempotency_key=IdempotencyKey(row.idempotency_key),
+        action=row.action,
+        contracts=row.contracts,
+        position_size=row.position_size,
+        price=row.price,
+        symbol=row.symbol,
+        signal_type=row.signal_type,
+        raw_payload=row.raw_payload,
+        received_at=row.received_at,
+        status=SignalStatus(row.status),
+        job_id=row.job_id,
+    )
 
 
 class SqlAlchemySignalRepository:
@@ -56,3 +75,27 @@ class SqlAlchemySignalRepository:
             )
         )
         return result.scalar_one()
+
+    async def get_by_id(self, signal_id: UUID) -> WebhookSignal | None:
+        row = await self._session.get(SignalRow, signal_id)
+        return _to_domain(row) if row is not None else None
+
+    async def find_prior(
+        self, strategy_id: UUID, symbol: str, before: datetime
+    ) -> WebhookSignal | None:
+        """Backed by ``ix_signals_strategy_symbol_received_at`` (migration
+        ``0002``) — the index this exact query was built for."""
+
+        row = (
+            await self._session.execute(
+                select(SignalRow)
+                .where(
+                    SignalRow.strategy_id == strategy_id,
+                    SignalRow.symbol == symbol,
+                    SignalRow.received_at < before,
+                )
+                .order_by(SignalRow.received_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return _to_domain(row) if row is not None else None

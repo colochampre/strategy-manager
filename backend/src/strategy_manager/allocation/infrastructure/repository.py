@@ -47,6 +47,19 @@ class SqlAlchemyReservationRepository:
         ).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
 
+    async def get_for_update(self, reservation_id: UUID) -> Reservation:
+        """Row-locks the reservation (spec: trade-execution; design.md §
+        TXN-B1). Used by ``execution``'s pre-submit expiry re-check via
+        ``ReservationGatewayAdapter``, which owns this method's cross-module
+        boundary."""
+
+        row = (
+            await self._session.execute(
+                select(ReservationRow).where(ReservationRow.id == reservation_id).with_for_update()
+            )
+        ).scalar_one()
+        return _to_domain(row)
+
     async def sum_active(self, venue: str, settlement_currency: str, now: datetime) -> Decimal:
         result = await self._session.execute(
             select(func.coalesce(func.sum(ReservationRow.amount), 0)).where(

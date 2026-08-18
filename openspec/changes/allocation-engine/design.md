@@ -892,8 +892,38 @@ alert can keep feeding Pionex signal bots during migration:
 `{{strategy.order.contracts}}` is computed by the Pine strategy against
 TradingView's simulated equity, which has no knowledge of the real Pionex
 balance. Using it as a live quantity would size real positions from a backtest's
-imaginary account. `granted` therefore comes from the strategy's configured
-percentage of pool availability, exactly as the product requires.
+imaginary account.
+
+`requested` therefore comes from the strategy's configured
+`allocation_percent` applied to the **pool balance**, and `decide()` then
+apportions `granted <= requested` against real availability.
+
+**Percent base: pool balance, not availability (RESOLVED 2026-08-18).** An
+earlier revision of this section said "percentage of pool availability"; the
+owner chose the balance base instead, and this supersedes it. The difference is
+not cosmetic:
+
+| Base | Strategy at 20%, pool balance 1000, 600 already reserved | Pool with nothing reserved |
+|---|---|---|
+| Pool balance (**chosen**) | requests 200 — a fixed per-strategy ceiling | requests 200 |
+| Availability | requests 80 — the ceiling shrinks as others reserve | requests 1000 × 0.20 = 200 |
+
+Only the balance base gives a strategy a stable absolute ceiling. Under the
+availability base a strategy's request size depends on who happened to reserve
+first, and a strategy configured at 100% would drain an idle pool — which is
+exactly the per-bot capital lock this product exists to remove, reintroduced
+from the other direction.
+
+`decide()` is unchanged: it still clamps `granted` to what is actually
+available, so the balance base can never over-allocate. The percent caps the
+*ask*; the advisory lock and `decide()` govern the *grant*.
+
+> **GAP FOUND 2026-08-18 — `allocation_percent` does not exist yet.** Slice 3
+> built `AllocationPolicy` with only `venue`, `settlement_currency` and
+> `fill_mode`. Slice 5 shipped with `requested = abs(position_size) * price` as
+> a stand-in, which sizes from TradingView's *simulated* equity and effectively
+> asks for the whole pool on every signal. Harmless only because `DRY_RUN`
+> defaults to true. Closed by slice 7.
 
 ### `position_size` routes the signal — affects slices 2, 4 and 5
 
@@ -974,8 +1004,10 @@ indistinguishable; that is an inherent limit of what TradingView provides.
 
 - [x] **RESOLVED 2026-08-12** — see "Alert Contract and Signal Routing" below.
       Order size does NOT come from the alert; it comes from the strategy's
-      configured percentage of pool availability. `quantity = granted / price`
-      stands. Slice 5 is unblocked.
+      configured percentage of the **pool balance** (base chosen by the owner
+      2026-08-18, superseding "availability"). `quantity = granted / price`
+      stands. Slice 5 is unblocked; the `allocation_percent` field itself lands
+      in slice 7.
 
 - [x] **RESOLVED 2026-08-12.** `capital_pools` seeding: the **table is the single
       source of truth**, seeded by migration. There is no parallel

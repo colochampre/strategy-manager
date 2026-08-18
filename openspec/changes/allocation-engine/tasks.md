@@ -15,9 +15,7 @@
 | Why the budget was raised (800 → 1600) | The per-slice estimates count **production** lines, but `strict_tdd: true` roughly doubles each slice with its tests. Measured: slice 1 = 821 changed lines, slice 2 = 1442. Both breached an 800 ceiling that was never calibrated for TDD. |
 | Why the budget was raised again (1600 → 2000) | Slice 4 landed at 1913 runtime-counted lines — 623 production, 78 migration, 1138 tests, the rest artifacts. The overage is entirely mandated coverage: `decide()`'s 6 ordered rules with 7 edge cases, the `Reservation` transition matrix, the TXN-A integration test, the 30-iteration race test and the 50-iteration negative control. Trimming to fit 1600 would have cut the highest-value tests in the change. Accepted as `size:exception`, budget raised so slice 5 does not block on the same miscalibration. |
 | 2000-line budget risk | Low for slice 6; Medium for slice 5 (execution + ledger, grown by tasks 5.16–5.17, and the append-only ledger needs both a row trigger and a statement-level `BEFORE TRUNCATE` trigger with guard tests for each) |
-
-Measured per slice (runtime-counted, includes artifacts): slice 1 = 821,
-slice 2 = 1442, slice 3 = 1464, slice 4 = 1913.
+| Measured per slice | Runtime-counted, includes artifacts: slice 1 = 821, slice 2 = 1442, slice 3 = 1464, slice 4 = 1913, slice 5 = 2721 |
 | Chained PRs recommended | Yes |
 | Suggested split | 6 slices, PR 1 → PR 6, matching the proposal's delivery table |
 | Delivery strategy | auto-chain |
@@ -44,6 +42,7 @@ threat-matrix RED tasks are required.
 | 4 | Allocation core (race test + negative control) | `slice/4-allocation-core` (base `slice/3-strategies-accounts`) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0004` applied; concurrency tests need real concurrent connections, no fake exists [DB] | `alembic downgrade 0003`; remove `allocation/` package |
 | 5 | Execution + ledger | `slice/5-execution-ledger` (base `slice/4-allocation-core`) | `cd backend && uv run pytest tests/execution tests/ledger -q` | Live PG, `0005` applied; Tier B fresh-DB-per-module for trigger tests [DB] | `alembic downgrade 0004` (blocked by ledger-cutoff rule once a fill exists); remove `execution/` and `ledger/` packages |
 | 6 | Reservation expiry sweeper | `slice/6-reservation-sweeper` (base `slice/4-allocation-core`, **not** slice 5 — real dependency is slice 4 only) | `cd backend && uv run pytest tests/allocation -q` | Live PG, `0006` applied [DB] | `alembic downgrade 0004`; revert `expire_reservations.py` and `SweepHandler` |
+| 7 | Per-strategy allocation percentage (**added 2026-08-18**, closes a gap found in slice 5) | `slice/7-allocation-percentage` (base `slice/5-execution-ledger`) | `cd backend && uv run pytest -q` | Live PG, `0007` applied [DB] | `alembic downgrade 0006`; revert `AllocationPolicy`, `StrategyPolicySnapshot` and `ProcessSignalHandler` to their slice-5 state |
 
 ---
 
@@ -154,23 +153,23 @@ threat-matrix RED tasks are required.
 > New scope in this slice: tasks 5.16–5.17 route by `PositionTransition` so a
 > capital-RELEASING signal never takes the advisory lock.
 
-- [ ] 5.1 RED: unit tests for `ExecutionAttempt`/`OrderRequest`/`Fill` (`execution/domain/`) — `quantity = granted / price`, `granted` from the strategy's configured pool percentage, never from the alert's `contracts`
-- [ ] 5.2 GREEN: implement `execution/domain/`
-- [ ] 5.3 RED: unit tests for `LedgerEntry` (frozen, zero mutators)
-- [ ] 5.4 GREEN: implement `ledger/domain/ledger_entry.py`
-- [ ] 5.5 RED: unit tests for `ExecuteReservation` pre-submit expiry re-check — valid submits, expired aborts to `RELEASED` with no submission (spec: trade-execution § Pre-Submit Expiry Re-Check) — fake `ExchangePort` + `FrozenClock`
-- [ ] 5.6 GREEN: implement `execution/application/ports.py` and `execute_reservation.py`
-- [ ] 5.7 GREEN: implement `FakeExchangeAdapter` (`is_live = False`)
-- [ ] 5.8 RED: unit test — `RecordFill` implements `FillRecorderPort`, maps `FillRecord` (incl. `usd_rate_at_fill`) with a fake `LedgerRepositoryPort`
-- [ ] 5.9 GREEN: implement `ledger/application/ports.py` (internal) and `record_fill.py`
-- [ ] 5.10 Migration `0005_ledger_execution` — `execution_attempts`, `ledger_entries`, `fn_ledger_append_only()`, both triggers; `downgrade()` refuses with existing rows unless `-x force_ledger_drop=1` [DB]
-- [ ] 5.11 GREEN: implement `SqlAlchemyExecutionAttemptRepository`+`Row` and `SqlAlchemyLedgerRepository`+`Row` (insert-only)
-- [ ] 5.12 RED (Tier B): raw `UPDATE`, `DELETE`, `TRUNCATE` on `ledger_entries` each raise `restrict_violation`, fresh-DB-per-module fixture (spec: trade-ledger § Append-Only Enforcement) [DB]
-- [ ] 5.13 RED: successful fill records via `FillRecorderPort` carrying `allocation_id`, `strategy_id`, pool (spec: trade-ledger § Ledger Row Content, trade-execution § Fill Recording) [DB]
-- [ ] 5.14 GREEN: wire `ProcessSignalHandler` (`AllocateCapital` then `ExecuteReservation`); register `signal.process` in `WorkerRunner` via `main.py`
-- [ ] 5.16 RED: unit test — a RELEASE-path signal (close long, close short) never acquires the advisory lock, asserted with a spy `AdvisoryLockPort`; a CONSUME-path signal does acquire it
-- [ ] 5.17 GREEN: route by `PositionTransition` in `ProcessSignalHandler` — CONSUMES goes through `AllocateCapital`, RELEASES goes straight to `ExecuteReservation` without the lock
-- [ ] 5.15 Verify: `cd backend && uv run pytest tests/execution tests/ledger -q`; `ruff check .`; `mypy src`
+- [x] 5.1 RED: unit tests for `ExecutionAttempt`/`OrderRequest`/`Fill` (`execution/domain/`) — `quantity = granted / price`, `granted` from the strategy's configured pool percentage, never from the alert's `contracts`
+- [x] 5.2 GREEN: implement `execution/domain/`
+- [x] 5.3 RED: unit tests for `LedgerEntry` (frozen, zero mutators)
+- [x] 5.4 GREEN: implement `ledger/domain/ledger_entry.py`
+- [x] 5.5 RED: unit tests for `ExecuteReservation` pre-submit expiry re-check — valid submits, expired aborts to `RELEASED` with no submission (spec: trade-execution § Pre-Submit Expiry Re-Check) — fake `ExchangePort` + `FrozenClock`
+- [x] 5.6 GREEN: implement `execution/application/ports.py` and `execute_reservation.py`
+- [x] 5.7 GREEN: implement `FakeExchangeAdapter` (`is_live = False`)
+- [x] 5.8 RED: unit test — `RecordFill` implements `FillRecorderPort`, maps `FillRecord` (incl. `usd_rate_at_fill`) with a fake `LedgerRepositoryPort`
+- [x] 5.9 GREEN: implement `ledger/application/ports.py` (internal) and `record_fill.py`
+- [x] 5.10 Migration `0005_ledger_execution` — `execution_attempts`, `ledger_entries`, `fn_ledger_append_only()`, both triggers; `downgrade()` refuses with existing rows unless `-x force_ledger_drop=1` [DB]
+- [x] 5.11 GREEN: implement `SqlAlchemyExecutionAttemptRepository`+`Row` and `SqlAlchemyLedgerRepository`+`Row` (insert-only)
+- [x] 5.12 RED (Tier B): raw `UPDATE`, `DELETE`, `TRUNCATE` on `ledger_entries` each raise `restrict_violation`, fresh-DB-per-module fixture (spec: trade-ledger § Append-Only Enforcement) [DB]
+- [x] 5.13 RED: successful fill records via `FillRecorderPort` carrying `allocation_id`, `strategy_id`, pool (spec: trade-ledger § Ledger Row Content, trade-execution § Fill Recording) [DB]
+- [x] 5.14 GREEN: wire `ProcessSignalHandler` (`AllocateCapital` then `ExecuteReservation`); register `signal.process` in `WorkerRunner` via `main.py`
+- [x] 5.16 RED: unit test — a RELEASE-path signal (close long, close short) never acquires the advisory lock, asserted with a spy `AdvisoryLockPort`; a CONSUME-path signal does acquire it
+- [x] 5.17 GREEN: route by `PositionTransition` in `ProcessSignalHandler` — CONSUMES goes through `AllocateCapital`, RELEASES goes straight to `ExecuteReservation` without the lock
+- [x] 5.15 Verify: `cd backend && uv run pytest tests/execution tests/ledger -q`; `ruff check .`; `mypy src`
 
 ## Slice 6: Reservation expiry sweeper
 
@@ -185,3 +184,31 @@ threat-matrix RED tasks are required.
 - [ ] 6.6 RED: unit test — `SweepHandler` re-enqueues `reservation.sweep` with `run_after = now + worker_poll_interval_seconds`
 - [ ] 6.7 GREEN: implement self-re-enqueuing `SweepHandler`; register `reservation.sweep` in `WorkerRunner` via `main.py`
 - [ ] 6.8 Verify slice green: `cd backend && uv run pytest tests/allocation -q`; `ruff check .`; `mypy src`
+
+## Slice 7: Per-strategy allocation percentage
+
+> **Added 2026-08-18 to close a gap found during slice 5.** design.md always
+> required `requested` to come from the strategy's configured percentage, but
+> no such field was ever created — slice 3 built `AllocationPolicy` with only
+> `venue`, `settlement_currency` and `fill_mode`. Slice 5 shipped a stand-in,
+> `requested = abs(position_size) * price`, which sizes from TradingView's
+> *simulated* equity and therefore asks for the whole pool on every signal.
+> Harmless only because `DRY_RUN` defaults to true. This slice closes it.
+>
+> **Percent base: pool balance, not availability** (owner's decision
+> 2026-08-18 — see design.md § "Order size never comes from the alert"). A
+> strategy at 20% of a 1000-balance pool requests 200, always, regardless of
+> what other strategies hold. `decide()` is unchanged and still clamps
+> `granted` to real availability, so the balance base can never over-allocate:
+> the percent caps the *ask*, the lock and `decide()` govern the *grant*.
+
+- [ ] 7.1 RED: unit tests for `AllocationPercent` — accepts 0 < p <= 100, rejects zero, negative, and > 100; `Decimal` throughout
+- [ ] 7.2 GREEN: implement `AllocationPercent` in `strategies/domain/strategy.py` and add it to `AllocationPolicy`
+- [ ] 7.3 RED: unit tests for `requested_from_percent(balance, percent)` — `ROUND_DOWN` quantization, and a 100% strategy requests exactly the balance
+- [ ] 7.4 GREEN: implement it in the allocation domain (pure, no framework)
+- [ ] 7.5 Migration `0007_allocation_percent`: `strategies.allocation_percent numeric NOT NULL DEFAULT 100` + a `CHECK (allocation_percent > 0 AND allocation_percent <= 100)`, real `downgrade()` [DB]
+- [ ] 7.6 GREEN: carry `allocation_percent` through `StrategyPolicySnapshot`, `SqlAlchemyStrategyRepository` and `StrategyPolicyAdapter`
+- [ ] 7.7 RED: unit test — `ProcessSignalHandler` derives `requested` from `allocation_percent` × pool balance, and **never** from `position_size` or `contracts`; assert with a strategy whose `position_size × price` differs wildly from its percent-derived request
+- [ ] 7.8 GREEN: replace the slice-5 stand-in in `signals/application/process_signal.py`; delete its deviation note
+- [ ] 7.9 RED (integration): two strategies at 60% and 60% of the same 1000-balance pool — the first grants 600, the second is clamped to the remaining 400 by `decide()`, proving the percent caps the ask without breaking the invariant [DB]
+- [ ] 7.10 Verify slice green: `cd backend && uv run pytest -q`; `ruff check .`; `mypy src`
