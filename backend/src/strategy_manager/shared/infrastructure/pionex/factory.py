@@ -1,7 +1,13 @@
-"""Builds a configured read-only Pionex client from ``Settings``.
+"""Builds a configured read-only Pionex client.
 
-Kept apart from the client itself so the client stays free of configuration
-concerns and remains trivially constructible in tests with a mock transport.
+Credentials are passed in rather than read here, because there are two
+legitimate sources and they are not interchangeable. The worker loads them
+from the envelope-encrypted vault, which is the system of record. The
+standalone probe script reads them from the environment, which is a developer
+convenience and never signs an order.
+
+Keeping the choice at the call site means neither source can silently stand
+in for the other.
 """
 
 from collections.abc import AsyncIterator
@@ -20,25 +26,30 @@ from strategy_manager.shared.infrastructure.pionex.signer import (
 )
 
 
-@asynccontextmanager
-async def read_only_client(
-    settings: Settings, clock: ClockPort | None = None
-) -> AsyncIterator[PionexReadOnlyClient]:
-    """Yields a read-only client bound to the configured credentials.
+def credentials_from_settings(settings: Settings) -> PionexCredentials:
+    """Reads the environment-configured key pair.
 
-    Raises ``InvariantViolation`` when credentials are missing rather than
-    letting an unauthenticated request reach Pionex and come back as an
-    opaque signature failure.
+    Raises rather than letting an unauthenticated request reach Pionex and
+    come back as an opaque signature failure.
     """
     if not settings.pionex_api_key or not settings.pionex_api_secret:
         raise InvariantViolation(
-            "PIONEX_API_KEY and PIONEX_API_SECRET must be set to read Pionex account state"
+            "PIONEX_API_KEY and PIONEX_API_SECRET must be set to read Pionex "
+            "account state from the environment"
         )
-
-    credentials = PionexCredentials(
+    return PionexCredentials(
         api_key=settings.pionex_api_key,
         api_secret=settings.pionex_api_secret,
     )
+
+
+@asynccontextmanager
+async def read_only_client(
+    settings: Settings,
+    credentials: PionexCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[PionexReadOnlyClient]:
+    """Yields a read-only client bound to the supplied credentials."""
     signer = PionexSigner(credentials, clock or SystemClock())
 
     async with httpx.AsyncClient(

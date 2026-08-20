@@ -20,6 +20,9 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
     SqlAlchemyBalanceSnapshotRepository,
 )
+from strategy_manager.accounts.infrastructure.credential_vault import (
+    SqlAlchemyCredentialVault,
+)
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
 from strategy_manager.accounts.infrastructure.pionex_balance_reader import (
     PionexBalanceReader,
@@ -49,8 +52,11 @@ from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
+from strategy_manager.shared.infrastructure.pionex import EXCHANGE as PIONEX_EXCHANGE
 from strategy_manager.shared.infrastructure.pionex.factory import read_only_client
+from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.process_signal import ProcessSignalHandler
@@ -166,6 +172,10 @@ def build_worker_runner(
     # (spec: trade-execution § DRY_RUN Safety).
     assert_dry_run_safe(dry_run=settings.dry_run, exchange=FakeExchangeAdapter())
 
+    # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
+    # fails here rather than on the first job that needs a credential.
+    cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session:
@@ -176,20 +186,32 @@ def build_worker_runner(
         # The HTTP client is built per job rather than held open across the
         # worker's life: a sync runs every few seconds, so the reconnect is
         # cheap, and no socket outlives the job that opened it.
-        async with factory() as session, read_only_client(settings) as client:
-            handler = BalanceSyncHandler(
-                sync_balances=SyncBalances(
-                    pools=list(pools_by_key),
-                    reader=PionexBalanceReader(client, SystemClock()),
-                    snapshots=SqlAlchemyBalanceSnapshotRepository(session),
-                    commit=session,
+        async with factory() as session:
+            # Decrypted here and used immediately — the plaintext lives only
+            # for the length of this call (CLAUDE.md rule 8).
+            credential = await SqlAlchemyCredentialVault(
+                session, cipher, SystemClock()
+            ).load(PIONEX_EXCHANGE)
+
+            async with read_only_client(
+                settings,
+                PionexCredentials(
+                    api_key=credential.api_key, api_secret=credential.api_secret
                 ),
-                queue=PostgresJobQueue(session),
-                clock=SystemClock(),
-                interval_seconds=settings.balance_sync_interval_seconds,
-            )
-            await handler.handle(job)
-            await session.commit()
+            ) as client:
+                handler = BalanceSyncHandler(
+                    sync_balances=SyncBalances(
+                        pools=list(pools_by_key),
+                        reader=PionexBalanceReader(client, SystemClock()),
+                        snapshots=SqlAlchemyBalanceSnapshotRepository(session),
+                        commit=session,
+                    ),
+                    queue=PostgresJobQueue(session),
+                    clock=SystemClock(),
+                    interval_seconds=settings.balance_sync_interval_seconds,
+                )
+                await handler.handle(job)
+                await session.commit()
 
     async def handle_reservation_sweep(job: ClaimedJob) -> None:
         # The sweep and its self-re-enqueue share one session, so a successor

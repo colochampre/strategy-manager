@@ -8,3 +8,6 @@ sibling modules' infrastructure, is worse than sharing it here.
 Nothing in ``domain`` or ``application`` may import this package. Pionex is
 an adapter, never the centre (CLAUDE.md § Architecture).
 """
+
+EXCHANGE = "pionex"
+"""Key under which this venue's credentials are stored in the vault."""

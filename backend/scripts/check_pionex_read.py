@@ -20,7 +20,10 @@ from collections.abc import Awaitable, Callable
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.pionex.errors import PionexApiError
-from strategy_manager.shared.infrastructure.pionex.factory import read_only_client
+from strategy_manager.shared.infrastructure.pionex.factory import (
+    credentials_from_settings,
+    read_only_client,
+)
 from strategy_manager.shared.infrastructure.pionex.read_client import CoinBalance
 
 
@@ -48,7 +51,7 @@ async def main() -> int:
     settings = get_settings()
     print(f"Pionex base URL: {settings.pionex_base_url}")
 
-    async with read_only_client(settings) as client:
+    async with read_only_client(settings, credentials_from_settings(settings)) as client:
         spot_ok = await _probe("SPOT      /api/v1/account/balances", client.spot_balances)
         futures_ok = await _probe(
             "FUTURES   /uapi/v1/account/balances", client.futures_balances

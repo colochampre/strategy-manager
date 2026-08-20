@@ -8,6 +8,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
+from strategy_manager.accounts.domain.exchange_credential import (
+    CredentialHint,
+    ExchangeCredential,
+)
+
 PoolKey = tuple[str, str]
 """A pool's identity: ``(venue, settlement_currency)``."""
 
@@ -57,3 +62,16 @@ class CommitPort(Protocol):
     """The transaction boundary a use case closes when its work is done."""
 
     async def commit(self) -> None: ...
+
+
+class CredentialVaultPort(Protocol):
+    """Decrypts exchange API credentials at the moment of use.
+
+    ``load`` returns a live secret and must only ever be called on the worker,
+    immediately before signing (CLAUDE.md rule 8). Anything that merely needs
+    to display or enumerate credentials calls ``hints`` instead.
+    """
+
+    async def load(self, exchange: str) -> ExchangeCredential: ...
+
+    async def hints(self) -> list[CredentialHint]: ...
