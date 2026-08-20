@@ -20,6 +20,7 @@ capital instead.
 | Backend lint | `cd backend && uv run ruff check .` |
 | Backend typecheck | `cd backend && uv run mypy src` |
 | Backend dev server | `cd backend && uv run uvicorn strategy_manager.main:app --reload` |
+| Worker process | `cd backend && uv run python -m strategy_manager.worker` |
 | Migrations | `cd backend && uv run alembic upgrade head` |
 | Frontend tests | `cd frontend && npm test` |
 | Frontend typecheck | `cd frontend && npm run lint` |

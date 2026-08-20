@@ -37,6 +37,7 @@ from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
 from strategy_manager.execution.application.execute_reservation import ExecuteReservation
+from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
@@ -150,15 +151,20 @@ def build_worker_runner(
     must die with its own connection).
 
     Both recurring chains keep themselves alive by enqueuing their own
-    successor, so each needs an initial job to exist before it runs at all.
-    Nothing here seeds them — that gap predates this function and applies to
-    the sweeper too."""
+    successor, so each needs an initial job before it runs at all. Seeding is
+    ``RecurringJobSeeder``'s job, called by the worker entrypoint — registering
+    a handler here does not start its chain."""
 
     settings = get_settings()
     factory = session_factory_override or session_factory
     pools_by_key = {
         (pool.venue.value, pool.settlement_currency.value): pool for pool in pools
     }
+
+    # This is the composition root the DRY_RUN invariant names: the one place
+    # that knows which ExchangePort adapter is actually registered
+    # (spec: trade-execution § DRY_RUN Safety).
+    assert_dry_run_safe(dry_run=settings.dry_run, exchange=FakeExchangeAdapter())
 
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
