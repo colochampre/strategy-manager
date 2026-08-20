@@ -13,9 +13,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.accounts.application.balance_sync_handler import BalanceSyncHandler
 from strategy_manager.accounts.application.pool_balance_adapter import PoolBalanceAdapter
+from strategy_manager.accounts.application.sync_balances import SyncBalances
 from strategy_manager.accounts.domain.pool_config import PoolConfig
-from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
+from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
+    SqlAlchemyBalanceSnapshotRepository,
+)
+from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
+from strategy_manager.accounts.infrastructure.pionex_balance_reader import (
+    PionexBalanceReader,
+)
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
@@ -36,11 +44,12 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
-from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
+from strategy_manager.shared.infrastructure.pionex.factory import read_only_client
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.process_signal import ProcessSignalHandler
@@ -67,13 +76,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def _build_process_signal_handler(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[str, str], PoolConfig],
-    reservation_ttl_seconds: int,
+    settings: Settings,
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
-    handlers table). Only ``FakeExchangeAdapter``/``FakeBalanceSource`` are
-    registered in this change — a real Pionex adapter is future scope, kept
-    swappable behind ``ExchangePort``/``BalanceSourcePort``."""
+    handlers table).
+
+    ``BalanceSourcePort`` is now bound to ``DbBalanceSource``, which reads the
+    snapshot the ``balance.sync`` job writes. It reads locally on purpose:
+    this runs inside the pool's advisory lock, where a remote call would
+    serialize every allocation on that pool behind exchange latency.
+
+    ``ExchangePort`` is still ``FakeExchangeAdapter`` — order submission
+    against a real venue is future scope, kept swappable behind the port."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
@@ -86,7 +101,14 @@ def _build_process_signal_handler(
     )
 
     strategy_policy = StrategyPolicyAdapter(strategy_repository)
-    pool_balance = PoolBalanceAdapter(pools_by_key, FakeBalanceSource())
+    pool_balance = PoolBalanceAdapter(
+        pools_by_key,
+        DbBalanceSource(
+            session,
+            SystemClock(),
+            max_age_seconds=settings.balance_snapshot_max_age_seconds,
+        ),
+    )
 
     allocate_capital = AllocateCapital(
         strategy_policy=strategy_policy,
@@ -95,7 +117,7 @@ def _build_process_signal_handler(
         reservations=reservation_repository,
         commit=session,
         clock=SystemClock(),
-        reservation_ttl_seconds=reservation_ttl_seconds,
+        reservation_ttl_seconds=settings.reservation_ttl_seconds,
     )
 
     execute_reservation = ExecuteReservation(
@@ -122,10 +144,15 @@ def build_worker_runner(
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
 ) -> WorkerRunner:
-    """Registers ``signal.process`` and ``reservation.sweep``. One fresh
-    session per claimed job, independent of the claim session (design.md
-    § Transaction Boundaries: the claim's row lock must die with its own
-    connection)."""
+    """Registers ``signal.process``, ``reservation.sweep`` and
+    ``balance.sync``. One fresh session per claimed job, independent of the
+    claim session (design.md § Transaction Boundaries: the claim's row lock
+    must die with its own connection).
+
+    Both recurring chains keep themselves alive by enqueuing their own
+    successor, so each needs an initial job to exist before it runs at all.
+    Nothing here seeds them — that gap predates this function and applies to
+    the sweeper too."""
 
     settings = get_settings()
     factory = session_factory_override or session_factory
@@ -136,10 +163,27 @@ def build_worker_runner(
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session:
-            handler = _build_process_signal_handler(
-                session, pools_by_key, settings.reservation_ttl_seconds
-            )
+            handler = _build_process_signal_handler(session, pools_by_key, settings)
             await handler.handle(signal_id)
+
+    async def handle_balance_sync(job: ClaimedJob) -> None:
+        # The HTTP client is built per job rather than held open across the
+        # worker's life: a sync runs every few seconds, so the reconnect is
+        # cheap, and no socket outlives the job that opened it.
+        async with factory() as session, read_only_client(settings) as client:
+            handler = BalanceSyncHandler(
+                sync_balances=SyncBalances(
+                    pools=list(pools_by_key),
+                    reader=PionexBalanceReader(client, SystemClock()),
+                    snapshots=SqlAlchemyBalanceSnapshotRepository(session),
+                    commit=session,
+                ),
+                queue=PostgresJobQueue(session),
+                clock=SystemClock(),
+                interval_seconds=settings.balance_sync_interval_seconds,
+            )
+            await handler.handle(job)
+            await session.commit()
 
     async def handle_reservation_sweep(job: ClaimedJob) -> None:
         # The sweep and its self-re-enqueue share one session, so a successor
@@ -166,6 +210,7 @@ def build_worker_runner(
     handlers: Mapping[JobKind, JobHandler] = {
         JobKind.SIGNAL_PROCESS: handle_signal_process,
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
+        JobKind.BALANCE_SYNC: handle_balance_sync,
     }
     return WorkerRunner(
         queue_factory=queue_factory,

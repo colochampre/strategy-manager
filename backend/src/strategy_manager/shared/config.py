@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     # How long the worker sleeps between polls when it finds no claimable job.
     worker_poll_interval_seconds: float = Field(default=2.0)
 
+    # How often the balance.sync job refreshes pool_balance_snapshots.
+    balance_sync_interval_seconds: float = Field(default=15.0)
+
+    # How old a snapshot may be before the allocation path refuses to size a
+    # trade against it. Generous relative to the sync interval on purpose: a
+    # couple of transient API failures should not halt trading, but a sync
+    # chain that actually died must.
+    balance_snapshot_max_age_seconds: float = Field(default=90.0)
+
 
 @lru_cache
 def get_settings() -> Settings:
