@@ -21,10 +21,7 @@ from strategy_manager.allocation.application.allocate_capital import AllocateCap
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
-from strategy_manager.execution.application.execute_reservation import (
-    ExecuteCommand,
-    ExecuteResult,
-)
+from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
@@ -87,15 +84,15 @@ class FakeCommit:
 
 
 @dataclass
-class SpyExecuteReservation:
-    """Stands in for ``ExecuteReservation`` — records what it was asked to
+class SpyPlaceOrder:
+    """Stands in for ``PlaceOrder`` — records what it was asked to
     execute against, without needing an exchange/ledger stack."""
 
-    calls: list[ExecuteCommand] = field(default_factory=list)
+    calls: list[PlaceCommand] = field(default_factory=list)
 
-    async def execute(self, command: ExecuteCommand) -> ExecuteResult:
+    async def place(self, command: PlaceCommand) -> PlaceResult:
         self.calls.append(command)
-        return ExecuteResult(status="FILLED", execution_attempt_id=uuid4())
+        return PlaceResult(status="PLACED", execution_attempt_id=uuid4())
 
 
 @dataclass
@@ -142,7 +139,7 @@ def _process_signal_handler(
     *,
     context: SignalContext,
     allocate_capital: AllocateCapital,
-    execute_reservation: SpyExecuteReservation,
+    place_order: SpyPlaceOrder,
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
 ) -> ProcessSignalHandler:
@@ -153,14 +150,14 @@ def _process_signal_handler(
             pool_balance or PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
         ),
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
     )
 
 
 async def test_consumes_signal_acquires_the_advisory_lock() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)
-    execute_reservation = SpyExecuteReservation()
+    place_order = SpyPlaceOrder()
     context = SignalContext(
         strategy_id=uuid4(),
         symbol="BTCUSDT",
@@ -173,20 +170,20 @@ async def test_consumes_signal_acquires_the_advisory_lock() -> None:
     handler = _process_signal_handler(
         context=context,
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
     )
 
     result = await handler.handle(uuid4())
 
     assert len(lock.acquired) == 1
     assert result.transition_kind == "open_long"
-    assert len(execute_reservation.calls) == 1
+    assert len(place_order.calls) == 1
 
 
 async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)
-    execute_reservation = SpyExecuteReservation()
+    place_order = SpyPlaceOrder()
     prior_reservation_id = uuid4()
     context = SignalContext(
         strategy_id=uuid4(),
@@ -200,21 +197,21 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
     handler = _process_signal_handler(
         context=context,
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
     )
 
     result = await handler.handle(uuid4())
 
     assert lock.acquired == []
     assert result.transition_kind == "close_long"
-    assert len(execute_reservation.calls) == 1
-    assert execute_reservation.calls[0].reservation_id == prior_reservation_id
+    assert len(place_order.calls) == 1
+    assert place_order.calls[0].reservation_id == prior_reservation_id
 
 
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)
-    execute_reservation = SpyExecuteReservation()
+    place_order = SpyPlaceOrder()
     context = SignalContext(
         strategy_id=uuid4(),
         symbol="BTCUSDT",
@@ -227,13 +224,13 @@ async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> No
     handler = _process_signal_handler(
         context=context,
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
     )
 
     result = await handler.handle(uuid4())
 
     assert lock.acquired == []
-    assert execute_reservation.calls == []
+    assert place_order.calls == []
     assert result.reservation_id is None
     assert result.executed is False
 
@@ -253,7 +250,7 @@ async def test_consumes_signal_sizes_requested_from_allocation_percent_never_fro
     allocate_capital = _allocate_capital(
         lock, policy=policy, pool_balance=pool_balance, reservations=reservations
     )
-    execute_reservation = SpyExecuteReservation()
+    place_order = SpyPlaceOrder()
     context = SignalContext(
         strategy_id=uuid4(),
         symbol="BTCUSDT",
@@ -266,7 +263,7 @@ async def test_consumes_signal_sizes_requested_from_allocation_percent_never_fro
     handler = _process_signal_handler(
         context=context,
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
         policy=policy,
         pool_balance=pool_balance,
     )

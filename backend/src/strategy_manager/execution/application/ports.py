@@ -19,20 +19,57 @@ from strategy_manager.shared.domain.errors import DomainError
 
 
 class ExchangeError(DomainError):
-    """Raised by ``ExchangePort.submit`` when the exchange rejects or errors
-    on an order. Distinguishes a business-level rejection from a raised
-    ``Fill`` on success (design.md's sequence diagram 3, "exchange rejects
-    or errors" branch)."""
+    """Raised by ``ExchangePort`` when the exchange rejects or errors on an
+    order (design.md's sequence diagram 3, "exchange rejects or errors"
+    branch)."""
+
+
+class OrderNotFound(DomainError):
+    """The exchange has no order under this ``client_order_id``.
+
+    Means the order never reached it. Because the client order id is written
+    to the database before the network call, this is the answer that
+    distinguishes "we crashed before placing" from "we crashed after
+    placing" — and it is the only way to tell them apart after the fact.
+    """
+
+
+class FillsNotReady(DomainError):
+    """The exchange accepted the order but has not published its fills yet.
+
+    Transient by nature: the settlement job raises this so the queue retries
+    it, rather than concluding the order did not fill.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class PlacedOrder:
+    """What the exchange returns when it accepts an order.
+
+    Nothing about the fill is known at this point — Pionex answers a new
+    order with an id and nothing else — which is why settlement is a
+    separate step rather than the tail of this one.
+    """
+
+    exchange_order_id: str
+    client_order_id: str
 
 
 class ExchangePort(Protocol):
-    """In this change the only registered adapter is ``FakeExchangeAdapter``
-    (``is_live = False``). ``is_live`` gates the ``DRY_RUN`` startup
-    invariant (spec: trade-execution § DRY_RUN Safety)."""
+    """``is_live`` gates the ``DRY_RUN`` startup invariant
+    (spec: trade-execution § DRY_RUN Safety).
+
+    Split in two on purpose. ``place`` sends the order; ``fetch_fills``
+    learns what became of it, keyed by the client order id this system chose
+    before it ever spoke to the exchange. That key is what makes an order
+    recoverable when the worker dies mid-flight.
+    """
 
     is_live: bool
 
-    async def submit(self, order: OrderRequest) -> Fill: ...
+    async def place(self, order: OrderRequest) -> PlacedOrder: ...
+
+    async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +100,10 @@ class ReservationGatewayPort(Protocol):
 
 class ExecutionAttemptRepositoryPort(Protocol):
     async def insert(self, attempt: ExecutionAttempt) -> None: ...
+
+    async def get(self, attempt_id: UUID) -> ExecutionAttempt: ...
+
+    async def mark_placed(self, attempt_id: UUID, exchange_order_id: str) -> None: ...
 
     async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None: ...
 

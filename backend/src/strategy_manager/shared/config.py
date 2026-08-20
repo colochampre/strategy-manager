@@ -49,6 +49,21 @@ class Settings(BaseSettings):
     # 32 bytes, base64-encoded.
     master_encryption_key: str = Field(default="")
 
+    # Pionex REST API. Spot lives under /api/v1/ and futures under /uapi/v1/
+    # on this same host; they are separate base paths, not separate hosts.
+    pionex_base_url: str = Field(default="https://api.pionex.com")
+
+    # Read-only Pionex credentials, used by the balance reader only. These are
+    # a development convenience: the per-account credentials that sign live
+    # orders belong envelope-encrypted in the database (CLAUDE.md rule 8), not
+    # in the environment.
+    pionex_api_key: str = Field(default="")
+    pionex_api_secret: str = Field(default="")
+
+    # Pionex rejects a request whose timestamp is more than 20s off its clock,
+    # so a read that outlives that window can never succeed on retry anyway.
+    pionex_timeout_seconds: float = Field(default=10.0)
+
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool
@@ -57,6 +72,21 @@ class Settings(BaseSettings):
 
     # How long the worker sleeps between polls when it finds no claimable job.
     worker_poll_interval_seconds: float = Field(default=2.0)
+
+    # How long execution.settle waits before asking the exchange what an
+    # order became. Long enough that a market order has normally been
+    # published, short enough that a reservation is not left in limbo — and
+    # the job retries anyway when fills are not there yet.
+    execution_settle_delay_seconds: float = Field(default=2.0)
+
+    # How often the balance.sync job refreshes pool_balance_snapshots.
+    balance_sync_interval_seconds: float = Field(default=15.0)
+
+    # How old a snapshot may be before the allocation path refuses to size a
+    # trade against it. Generous relative to the sync interval on purpose: a
+    # couple of transient API failures should not halt trading, but a sync
+    # chain that actually died must.
+    balance_snapshot_max_age_seconds: float = Field(default=90.0)
 
 
 @lru_cache

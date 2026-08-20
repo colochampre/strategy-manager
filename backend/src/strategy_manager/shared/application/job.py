@@ -17,6 +17,8 @@ class JobKind(StrEnum):
 
     SIGNAL_PROCESS = "signal.process"
     RESERVATION_SWEEP = "reservation.sweep"
+    BALANCE_SYNC = "balance.sync"
+    EXECUTION_SETTLE = "execution.settle"
 
 
 @dataclass(frozen=True, slots=True)
