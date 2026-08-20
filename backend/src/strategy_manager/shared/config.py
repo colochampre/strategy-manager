@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     # How long the worker sleeps between polls when it finds no claimable job.
     worker_poll_interval_seconds: float = Field(default=2.0)
 
+    # How long execution.settle waits before asking the exchange what an
+    # order became. Long enough that a market order has normally been
+    # published, short enough that a reservation is not left in limbo — and
+    # the job retries anyway when fills are not there yet.
+    execution_settle_delay_seconds: float = Field(default=2.0)
+
     # How often the balance.sync job refreshes pool_balance_snapshots.
     balance_sync_interval_seconds: float = Field(default=15.0)
 

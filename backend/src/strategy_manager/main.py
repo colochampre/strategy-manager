@@ -39,7 +39,9 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
-from strategy_manager.execution.application.execute_reservation import ExecuteReservation
+from strategy_manager.execution.application.place_order import PlaceOrder
+from strategy_manager.execution.application.ports import ExchangePort
+from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.repository import (
@@ -84,6 +86,7 @@ def _build_process_signal_handler(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[str, str], PoolConfig],
     settings: Settings,
+    exchange: ExchangePort,
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -95,7 +98,10 @@ def _build_process_signal_handler(
     serialize every allocation on that pool behind exchange latency.
 
     ``ExchangePort`` is still ``FakeExchangeAdapter`` — order submission
-    against a real venue is future scope, kept swappable behind the port."""
+    against a real venue is future scope, kept swappable behind the port. It
+    is passed in rather than built here because one instance is shared with
+    the ``execution.settle`` handler: placing and settling are two jobs
+    talking about the same order."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
@@ -127,14 +133,14 @@ def _build_process_signal_handler(
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
     )
 
-    execute_reservation = ExecuteReservation(
+    place_order = PlaceOrder(
         reservations=ReservationGatewayAdapter(reservation_repository),
-        exchange=FakeExchangeAdapter(),
+        exchange=exchange,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
-        fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
-        usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
+        queue=PostgresJobQueue(session),
         clock=SystemClock(),
         commit=session,
+        settle_delay_seconds=settings.execution_settle_delay_seconds,
     )
 
     return ProcessSignalHandler(
@@ -142,7 +148,25 @@ def _build_process_signal_handler(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
         allocate_capital=allocate_capital,
-        execute_reservation=execute_reservation,
+        place_order=place_order,
+    )
+
+
+def _build_settle_execution(
+    session: AsyncSession, exchange: ExchangePort
+) -> SettleExecution:
+    """Composes the ``execution.settle`` job's use case: ask the exchange what
+    the order became, and write it to the append-only ledger."""
+    return SettleExecution(
+        reservations=ReservationGatewayAdapter(
+            SqlAlchemyReservationRepository(session)
+        ),
+        exchange=exchange,
+        attempts=SqlAlchemyExecutionAttemptRepository(session),
+        fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
+        usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
+        clock=SystemClock(),
+        commit=session,
     )
 
 
@@ -167,10 +191,14 @@ def build_worker_runner(
         (pool.venue.value, pool.settlement_currency.value): pool for pool in pools
     }
 
+    # One adapter instance for the worker's whole life: placing and settling
+    # are separate jobs that must agree about the same order.
+    exchange: ExchangePort = FakeExchangeAdapter()
+
     # This is the composition root the DRY_RUN invariant names: the one place
     # that knows which ExchangePort adapter is actually registered
     # (spec: trade-execution § DRY_RUN Safety).
-    assert_dry_run_safe(dry_run=settings.dry_run, exchange=FakeExchangeAdapter())
+    assert_dry_run_safe(dry_run=settings.dry_run, exchange=exchange)
 
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
@@ -179,8 +207,15 @@ def build_worker_runner(
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session:
-            handler = _build_process_signal_handler(session, pools_by_key, settings)
+            handler = _build_process_signal_handler(
+                session, pools_by_key, settings, exchange
+            )
             await handler.handle(signal_id)
+
+    async def handle_execution_settle(job: ClaimedJob) -> None:
+        attempt_id = UUID(str(job.payload["execution_attempt_id"]))
+        async with factory() as session:
+            await _build_settle_execution(session, exchange).settle(attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         # The HTTP client is built per job rather than held open across the
@@ -239,6 +274,7 @@ def build_worker_runner(
         JobKind.SIGNAL_PROCESS: handle_signal_process,
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
         JobKind.BALANCE_SYNC: handle_balance_sync,
+        JobKind.EXECUTION_SETTLE: handle_execution_settle,
     }
     return WorkerRunner(
         queue_factory=queue_factory,

@@ -5,11 +5,15 @@ a capital-RELEASING signal never takes the advisory lock").
 
 A CONSUMES signal (opening a position, or the consuming half of a reverse)
 goes through ``AllocateCapital`` — the only path that takes the advisory
-lock. A RELEASES signal (closing a position) goes straight to
-``ExecuteReservation`` against the reservation that originally opened the
-position it is now closing, without ever touching the lock: releasing work
-can only increase pool availability, so it cannot over-allocate
-(design.md's "only capital-consuming work takes the lock").
+lock. A RELEASES signal (closing a position) goes straight to ``PlaceOrder``
+against the reservation that originally opened the position it is now
+closing, without ever touching the lock: releasing work can only increase
+pool availability, so it cannot over-allocate (design.md's "only
+capital-consuming work takes the lock").
+
+This handler's work ends when the order is placed. What it filled at is
+recorded by the ``execution.settle`` job, which ``PlaceOrder`` schedules
+before it ever contacts the exchange.
 
 ``requested`` for a CONSUMES signal is derived from the strategy's
 configured ``allocation_percent`` applied to the pool BALANCE (design.md
@@ -53,10 +57,7 @@ from strategy_manager.allocation.application.allocate_capital import (
 )
 from strategy_manager.allocation.application.ports import PoolBalancePort, StrategyPolicyPort
 from strategy_manager.allocation.domain.percent import requested_from_percent
-from strategy_manager.execution.application.execute_reservation import (
-    ExecuteCommand,
-    ExecuteResult,
-)
+from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.domain.position_transition import (
@@ -100,12 +101,15 @@ class SignalContextPort(Protocol):
     async def load(self, signal_id: UUID) -> SignalContext: ...
 
 
-class ExecuteReservationPort(Protocol):
-    """Narrowed to exactly what ``ProcessSignalHandler`` calls, so a fake
-    can stand in for ``ExecuteReservation`` in unit tests without a full
-    exchange/ledger stack."""
+class PlaceOrderPort(Protocol):
+    """Narrowed to exactly what ``ProcessSignalHandler`` calls, so a fake can
+    stand in for ``PlaceOrder`` in unit tests without a full exchange stack.
 
-    async def execute(self, command: ExecuteCommand) -> ExecuteResult: ...
+    Placing is where this handler's responsibility ends. What the order
+    filled at is settled by a separate job, so nothing here waits on the
+    exchange to publish fills."""
+
+    async def place(self, command: PlaceCommand) -> PlaceResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,13 +130,13 @@ class ProcessSignalHandler:
         strategy_policy: StrategyPolicyPort,
         pool_balance: PoolBalancePort,
         allocate_capital: AllocateCapital,
-        execute_reservation: ExecuteReservationPort,
+        place_order: PlaceOrderPort,
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
         self._allocate_capital = allocate_capital
-        self._execute_reservation = execute_reservation
+        self._place_order = place_order
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -162,8 +166,8 @@ class ProcessSignalHandler:
         if result.reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        await self._execute_reservation.execute(
-            ExecuteCommand(
+        await self._place_order.place(
+            PlaceCommand(
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
                 side=_CONSUMING_SIDE[transition.kind],
@@ -178,8 +182,8 @@ class ProcessSignalHandler:
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        await self._execute_reservation.execute(
-            ExecuteCommand(
+        await self._place_order.place(
+            PlaceCommand(
                 reservation_id=context.prior_reservation_id,
                 symbol=context.symbol,
                 side=_RELEASING_SIDE[transition.kind],
