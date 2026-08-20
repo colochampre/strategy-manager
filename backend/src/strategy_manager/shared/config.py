@@ -49,6 +49,21 @@ class Settings(BaseSettings):
     # 32 bytes, base64-encoded.
     master_encryption_key: str = Field(default="")
 
+    # Pionex REST API. Spot lives under /api/v1/ and futures under /uapi/v1/
+    # on this same host; they are separate base paths, not separate hosts.
+    pionex_base_url: str = Field(default="https://api.pionex.com")
+
+    # Read-only Pionex credentials, used by the balance reader only. These are
+    # a development convenience: the per-account credentials that sign live
+    # orders belong envelope-encrypted in the database (CLAUDE.md rule 8), not
+    # in the environment.
+    pionex_api_key: str = Field(default="")
+    pionex_api_secret: str = Field(default="")
+
+    # Pionex rejects a request whose timestamp is more than 20s off its clock,
+    # so a read that outlives that window can never succeed on retry anyway.
+    pionex_timeout_seconds: float = Field(default=10.0)
+
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool
