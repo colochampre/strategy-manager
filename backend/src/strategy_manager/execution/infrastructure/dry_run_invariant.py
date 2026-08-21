@@ -11,19 +11,34 @@ fake adapter registered, every signal instead reports a perfect fill at a
 fixed price against no exchange at all: a strategy that looks live, looks
 profitable, and has never placed an order. Refusing to start is the only
 outcome that tells the truth.
+
+It accepts an adapter or an adapter class, because the live adapter is built
+per job — it needs a decrypted credential and an open HTTP client, neither of
+which exists at startup. ``is_live`` is a class attribute on every adapter
+precisely so this check can run before any of that: the invariant is about
+which adapter is *registered*, and that is decided at startup even when the
+instance is not.
 """
 
 from strategy_manager.execution.application.ports import ExchangePort
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 
-def assert_dry_run_safe(*, dry_run: bool, exchange: ExchangePort) -> None:
+def assert_dry_run_safe(
+    *, dry_run: bool, exchange: ExchangePort | type[ExchangePort]
+) -> None:
     if dry_run or exchange.is_live:
         return
 
     raise InvariantViolation(
         f"DRY_RUN is false but the registered ExchangePort adapter "
-        f"({type(exchange).__name__}) is not live. Refusing to start: this "
+        f"({_name(exchange)}) is not live. Refusing to start: this "
         "configuration reports fabricated fills while appearing to trade. "
         "Set DRY_RUN=true, or register a live exchange adapter."
     )
+
+
+def _name(exchange: ExchangePort | type[ExchangePort]) -> str:
+    """The operator reading this in a crash log needs the adapter's name
+    whether the composition root passed the class or an instance of it."""
+    return exchange.__name__ if isinstance(exchange, type) else type(exchange).__name__
