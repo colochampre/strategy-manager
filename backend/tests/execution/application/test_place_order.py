@@ -20,7 +20,12 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import OrderRequest, OrderSide
+from strategy_manager.execution.domain.order import (
+    MarketBuy,
+    MarketSell,
+    OrderRequest,
+    OrderSide,
+)
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -146,11 +151,13 @@ def _build(
     return use_case, reservations, attempts, queue, exchange, log
 
 
-def _command(price: Decimal = Decimal("50")) -> PlaceCommand:
+def _command(
+    price: Decimal = Decimal("50"), side: OrderSide = OrderSide.BUY
+) -> PlaceCommand:
     return PlaceCommand(
         reservation_id=RESERVATION_ID,
         symbol="BTC_USDT",
-        side=OrderSide.BUY,
+        side=side,
         price=price,
     )
 
@@ -190,14 +197,43 @@ async def test_a_placed_order_records_the_exchange_id() -> None:
     assert (RESERVATION_ID, "SUBMITTED") in reservations.marks
 
 
-async def test_the_order_quantity_comes_from_granted_over_price() -> None:
-    """Never from the alert's contracts field (design.md's "Order size never
-    comes from the alert")."""
+async def test_a_buy_sends_the_granted_amount_untouched() -> None:
+    """A market buy is denominated in the quote currency, which IS the
+    settlement currency the reservation granted. So the granted amount goes on
+    the wire verbatim — no division, and no dependency on a bar-close price
+    that was already stale when the alert fired."""
     use_case, _, _, _, exchange, _ = _build(amount=Decimal("100"))
 
     await use_case.place(_command(price=Decimal("50")))
 
-    assert exchange.orders[0].quantity == Decimal("2")
+    order = exchange.orders[0]
+    assert isinstance(order, MarketBuy)
+    assert order.quote_amount == Decimal("100")
+
+
+async def test_a_sell_size_comes_from_granted_over_price() -> None:
+    """Never from the alert's contracts field (design.md's "Order size never
+    comes from the alert")."""
+    use_case, _, _, _, exchange, _ = _build(amount=Decimal("100"))
+
+    await use_case.place(_command(price=Decimal("50"), side=OrderSide.SELL))
+
+    order = exchange.orders[0]
+    assert isinstance(order, MarketSell)
+    assert order.base_size == Decimal("2")
+
+
+async def test_the_attempt_records_the_size_that_actually_went_on_the_wire() -> None:
+    """Exactly one of the two columns is ever populated. Storing a derived
+    base quantity for a buy would put a number in the database that was never
+    sent to anyone and can never be reconciled against the exchange."""
+    use_case, _, attempts, _, _, _ = _build(amount=Decimal("100"))
+
+    await use_case.place(_command(price=Decimal("50")))
+
+    attempt = attempts.inserted[0]
+    assert attempt.quantity is None
+    assert attempt.quote_amount == Decimal("100")
 
 
 async def test_an_expired_reservation_places_nothing() -> None:

@@ -41,7 +41,13 @@ from strategy_manager.execution.application.ports import (
     ReservationGatewayPort,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
-from strategy_manager.execution.domain.order import OrderRequest, OrderSide, compute_order_quantity
+from strategy_manager.execution.domain.order import (
+    MarketBuy,
+    MarketSell,
+    OrderRequest,
+    OrderSide,
+    market_order,
+)
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 
@@ -101,9 +107,22 @@ class PlaceOrder:
             await self._commit.commit()
             return PlaceResult(status="ABORTED_EXPIRED", execution_attempt_id=None)
 
-        quantity = compute_order_quantity(reservation.amount, command.price)
         client_order_id = str(uuid4())
         attempt_id = uuid4()
+
+        # Built before any write so a malformed price is rejected without
+        # leaving a half-built attempt or an orphan settle job behind. It is
+        # also the object that decides *which* size this order carries, and
+        # the attempt below records that same number rather than a second,
+        # differently-derived one.
+        order = market_order(
+            side=command.side,
+            client_order_id=client_order_id,
+            symbol=command.symbol,
+            granted=reservation.amount,
+            price=command.price,
+        )
+        quantity, quote_amount = _sizes(order)
 
         await self._reservations.mark(reservation.id, SUBMITTED, now)
         await self._attempts.insert(
@@ -113,8 +132,9 @@ class PlaceOrder:
                 venue=reservation.venue,
                 settlement_currency=reservation.settlement_currency,
                 symbol=command.symbol,
-                side=command.side,
+                side=order.side,
                 quantity=quantity,
+                quote_amount=quote_amount,
                 status=ExecutionStatus.SUBMITTED,
                 client_order_id=client_order_id,
             )
@@ -129,13 +149,6 @@ class PlaceOrder:
         await self._commit.commit()
         # ---- TXN-B1 ends. From here on the order is recoverable by its
         # client order id whatever happens to this process.
-
-        order = OrderRequest(
-            client_order_id=client_order_id,
-            symbol=command.symbol,
-            side=command.side,
-            quantity=quantity,
-        )
 
         # ---- no transaction: the network call is outside every lock and
         # every transaction (design.md § Transaction Boundaries)
@@ -159,3 +172,13 @@ class PlaceOrder:
             execution_attempt_id=attempt_id,
             exchange_order_id=placed.exchange_order_id,
         )
+
+
+def _sizes(order: OrderRequest) -> tuple[Decimal | None, Decimal | None]:
+    """Projects the order's single size onto the attempt's two nullable
+    columns. Exactly one is ever populated — the one that went on the wire."""
+    match order:
+        case MarketBuy():
+            return None, order.quote_amount
+        case MarketSell():
+            return order.base_size, None

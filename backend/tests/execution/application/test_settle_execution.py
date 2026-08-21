@@ -48,7 +48,10 @@ def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAt
         settlement_currency="USDT",
         symbol="BTC_USDT",
         side=OrderSide.BUY,
-        quantity=Decimal("2"),
+        # A buy carries its quote amount, never a base quantity: this attempt
+        # spent 100 USDT and what that bought is whatever the fills say.
+        quantity=None,
+        quote_amount=Decimal("100"),
         status=status,
         client_order_id=CLIENT_ORDER_ID,
     )

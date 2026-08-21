@@ -1,5 +1,5 @@
 """SQLAlchemy implementation of ``ExecutionAttemptRepositoryPort`` against
-the ``execution_attempts`` table (migration ``0005``).
+the ``execution_attempts`` table (migrations ``0005`` and ``0011``).
 """
 
 from uuid import UUID
@@ -29,6 +29,7 @@ class SqlAlchemyExecutionAttemptRepository:
                 symbol=attempt.symbol,
                 side=attempt.side.value,
                 quantity=attempt.quantity,
+                quote_amount=attempt.quote_amount,
                 status=attempt.status.value,
                 client_order_id=attempt.client_order_id,
                 exchange_order_id=attempt.exchange_order_id,
@@ -54,6 +55,7 @@ class SqlAlchemyExecutionAttemptRepository:
             symbol=row.symbol,
             side=OrderSide(row.side),
             quantity=row.quantity,
+            quote_amount=row.quote_amount,
             status=ExecutionStatus(row.status),
             client_order_id=row.client_order_id,
             exchange_order_id=row.exchange_order_id,
