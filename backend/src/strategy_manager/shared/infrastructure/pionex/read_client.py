@@ -4,7 +4,12 @@ GET-only by construction: this class has no method that can place, amend or
 cancel an order, or move funds. That guarantee is structural rather than a
 runtime flag -- ``DRY_RUN`` is not what protects you here, the absence of the
 code is. Adding a writing method to this class defeats its only purpose;
-order submission belongs behind ``execution.application.ports.ExchangePort``.
+order submission belongs behind ``execution.application.ports.ExchangePort``
+and lives in ``trade_client.py``.
+
+Note what it holds: a ``PionexTransport``, not an ``httpx.AsyncClient``, and
+it only ever calls ``get`` on it. The read-only property survives the shared
+transport gaining a ``post``.
 
 Spot and futures are different base paths and are NOT interchangeable
 (CLAUDE.md § External constraints): spot lives under ``/api/v1/``, futures
@@ -20,6 +25,7 @@ import httpx
 
 from strategy_manager.shared.infrastructure.pionex.errors import PionexApiError
 from strategy_manager.shared.infrastructure.pionex.signer import PionexSigner
+from strategy_manager.shared.infrastructure.pionex.transport import PionexTransport
 
 SPOT_BALANCES_PATH = "/api/v1/account/balances"
 FUTURES_BALANCES_PATH = "/uapi/v1/account/balances"
@@ -47,52 +53,21 @@ class PionexReadOnlyClient:
     """Signed, read-only access to Pionex account state."""
 
     def __init__(self, http: httpx.AsyncClient, signer: PionexSigner) -> None:
-        self._http = http
-        self._signer = signer
+        self._transport = PionexTransport(http, signer)
 
     async def spot_balances(self) -> list[CoinBalance]:
         """Trading-account spot balances. Excludes bot and earn balances --
         Pionex does not report those here, which is precisely what makes this
         the number a bot-free account should be sized from.
         """
-        return _parse_balances(await self._get(SPOT_BALANCES_PATH))
+        return _parse_balances(await self._read(SPOT_BALANCES_PATH))
 
     async def futures_balances(self) -> list[CoinBalance]:
         """Cross-margin futures wallet balances, including ``debts``."""
-        return _parse_balances(await self._get(FUTURES_BALANCES_PATH))
+        return _parse_balances(await self._read(FUTURES_BALANCES_PATH))
 
-    async def _get(self, path: str) -> Mapping[str, Any]:
-        signed = self._signer.sign("GET", path)
-
-        try:
-            response = await self._http.get(
-                signed.path_with_query, headers=dict(signed.headers)
-            )
-        except httpx.HTTPError as exc:
-            raise PionexApiError(f"GET {path} failed: {exc}") from exc
-
-        if response.status_code != httpx.codes.OK:
-            raise PionexApiError(
-                f"GET {path} returned HTTP {response.status_code}",
-                http_status=response.status_code,
-            )
-
-        try:
-            envelope = response.json()
-        except ValueError as exc:
-            raise PionexApiError(f"GET {path} returned a non-JSON body") from exc
-
-        if not isinstance(envelope, dict):
-            raise PionexApiError(f"GET {path} returned a non-object body")
-
-        if envelope.get("result") is not True:
-            code = envelope.get("code")
-            raise PionexApiError(
-                str(envelope.get("message") or f"GET {path} was rejected by Pionex"),
-                code=None if code is None else str(code),
-            )
-
-        data = envelope.get("data")
+    async def _read(self, path: str) -> Mapping[str, Any]:
+        data = await self._transport.get(path)
         if not isinstance(data, dict):
             raise PionexApiError(f"GET {path} returned no data object")
         return data
