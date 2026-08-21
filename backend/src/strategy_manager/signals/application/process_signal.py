@@ -176,6 +176,7 @@ class ProcessSignalHandler:
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
         close_position: ClosePositionPort,
+        tradable_venues: frozenset[str],
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
@@ -183,6 +184,7 @@ class ProcessSignalHandler:
         self._allocate_capital = allocate_capital
         self._place_order = place_order
         self._close_position = close_position
+        self._tradable_venues = tradable_venues
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -190,6 +192,9 @@ class ProcessSignalHandler:
             context.prior_position_size, context.position_size
         )
         policy = await self._strategy_policy.policy_for(context.strategy_id)
+
+        if policy.venue not in self._tradable_venues:
+            return self._refuse_untradable_venue(context, transition, policy.venue)
 
         # ``transition.effects`` is ORDERED, and that ordering is the domain's
         # own statement of what happens first. A reverse releases before it
@@ -263,6 +268,38 @@ class ProcessSignalHandler:
             )
         )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
+
+    def _refuse_untradable_venue(
+        self,
+        context: SignalContext,
+        transition: PositionTransition,
+        venue: str,
+    ) -> ProcessSignalResult:
+        """Refuse THIS signal, and only this one.
+
+        ``venue`` reaches the reservation, the attempt and the ledger row
+        without ever selecting an adapter, so a strategy on a venue the
+        registered adapter cannot trade would have its size computed from one
+        wallet and its order sent to another -- a futures pool sized against
+        the futures balance and executed on spot.
+
+        The check sits here, before allocation, because refusing once a
+        reservation exists means capital is already held for a trade that
+        cannot be placed correctly.
+
+        It refuses per signal rather than at startup on purpose: a pool nobody
+        is trading is not a reason to stop the pools somebody is. The operator
+        still learns about it at startup, as a warning that names the pools
+        without taking the process down with them.
+        """
+        refused = (
+            f"strategy {context.strategy_id} trades on {venue}, which the "
+            f"registered exchange adapter does not serve "
+            f"({', '.join(sorted(self._tradable_venues)) or 'nothing'}). "
+            "No order was placed and no capital was reserved."
+        )
+        logger.warning("refusing signal for %s: %s", context.symbol, refused)
+        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
     def _note_unexecuted_tail(
         self,

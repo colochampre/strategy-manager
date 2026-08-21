@@ -44,6 +44,7 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderRequest
+from strategy_manager.shared.domain.money import Venue
 from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexApiError,
     PionexOrderNotFound,
@@ -70,6 +71,12 @@ class PionexExchangeAdapter:
     """
 
     is_live = True
+
+    # Spot only. ``PionexTradeClient`` speaks ``/api/v1/``, and Pionex's
+    # futures API is a different base path with different semantics, so a
+    # futures pool needs a different adapter rather than this one pointed
+    # somewhere else.
+    venues = frozenset({Venue.SPOT.value})
 
     def __init__(self, client: PionexTradeClient) -> None:
         self._client = client

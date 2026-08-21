@@ -125,6 +125,9 @@ class FakeSignalContextPort:
         return self.context
 
 
+TRADABLE = frozenset({"spot"})
+
+
 def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
     defaults: dict[str, object] = dict(
         strategy_id=uuid4(),
@@ -165,6 +168,7 @@ def _process_signal_handler(
     close_position: SpyClosePosition | None = None,
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
+    tradable_venues: frozenset[str] = TRADABLE,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -175,6 +179,7 @@ def _process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position or SpyClosePosition(),
+        tradable_venues=tradable_venues,
     )
 
 
@@ -503,6 +508,67 @@ async def test_a_reverse_with_no_prior_reservation_is_a_safe_no_op() -> None:
     assert result.executed is False
     assert close_position.calls == []
     assert place_order.calls == []
+
+
+async def test_a_signal_on_an_unserved_venue_is_refused_without_reserving() -> None:
+    """``venue`` never selects an adapter, so a futures strategy would be sized
+    against the futures wallet and executed on spot. Refusing before allocation
+    means no capital is held for a trade that cannot be placed correctly."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=_snapshot(venue="usdt-m"),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused is not None
+    assert "usdt-m" in result.refused
+    assert lock.acquired == []
+    assert place_order.calls == []
+
+
+async def test_refusing_one_venue_leaves_the_served_one_trading() -> None:
+    """The reason this is per signal and not a startup invariant. An enabled
+    coin-m pool nobody trades must not stop the spot trading that works."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=_snapshot(venue="spot"),
+        tradable_venues=frozenset({"spot"}),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert result.refused is None
+    assert len(place_order.calls) == 1
 
 
 async def test_opening_a_short_sells_and_opening_a_long_buys() -> None:

@@ -11,6 +11,7 @@ from uuid import uuid4
 from strategy_manager.execution.application.ports import OrderNotFound, PlacedOrder
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderRequest
+from strategy_manager.shared.domain.money import Venue
 
 
 class FakeExchangeAdapter:
@@ -26,6 +27,11 @@ class FakeExchangeAdapter:
     """
 
     is_live = False
+
+    # A fake fills anything anywhere, so it constrains no venue. That is not a
+    # loophole: DRY_RUN is what stands between this adapter and a real
+    # exchange, and nothing it "trades" reaches one.
+    venues = frozenset({Venue.SPOT.value, Venue.USDT_M.value, Venue.COIN_M.value})
 
     def __init__(self, fill_price: Decimal = Decimal("1")) -> None:
         self._fill_price = fill_price

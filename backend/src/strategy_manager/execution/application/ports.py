@@ -59,6 +59,18 @@ class ExchangePort(Protocol):
     """``is_live`` gates the ``DRY_RUN`` startup invariant
     (spec: trade-execution § DRY_RUN Safety).
 
+    ``venues`` declares which ``capital_pools.venue`` values this adapter can
+    actually trade, and gates the venue startup invariant. It has to be
+    declared rather than assumed because Pionex's spot and futures APIs are
+    different base paths — ``/api/v1/`` and ``/uapi/v1/`` — and therefore
+    different adapters. Without it, a strategy configured on a futures pool
+    has its capital sized against the futures wallet and its orders sent to
+    spot, with nothing anywhere reporting a problem.
+
+    Both are class attributes so the composition root can check them before an
+    instance exists: a live adapter needs a decrypted credential and an open
+    socket, and neither belongs to startup.
+
     Split in two on purpose. ``place`` sends the order; ``fetch_fills``
     learns what became of it, keyed by the client order id this system chose
     before it ever spoke to the exchange. That key is what makes an order
@@ -66,6 +78,7 @@ class ExchangePort(Protocol):
     """
 
     is_live: bool
+    venues: frozenset[str]
 
     async def place(self, order: OrderRequest) -> PlacedOrder: ...
 

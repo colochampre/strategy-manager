@@ -4,6 +4,7 @@ Module routers are mounted here as they are built. The application owns all
 business logic, authentication and secrets; the frontend is a pure client.
 """
 
+import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -51,6 +52,10 @@ from strategy_manager.execution.infrastructure.pionex_exchange import (
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
+from strategy_manager.execution.infrastructure.venue_support import (
+    describe_untradable,
+    untradable_pool_venues,
+)
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -76,6 +81,8 @@ from strategy_manager.signals.infrastructure.signal_context import SignalContext
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -95,6 +102,7 @@ def _build_process_signal_handler(
     pools_by_key: Mapping[tuple[str, str], PoolConfig],
     settings: Settings,
     exchange: ExchangePort,
+    tradable_venues: frozenset[str],
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -170,6 +178,7 @@ def _build_process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position,
+        tradable_venues=tradable_venues,
     )
 
 
@@ -223,6 +232,18 @@ def build_worker_runner(
     )
     assert_dry_run_safe(dry_run=settings.dry_run, exchange=registered)
 
+    # ``venue`` reaches the reservation, the attempt and the ledger row without
+    # ever selecting an adapter, so a strategy on a venue this adapter does not
+    # serve would be sized against one wallet and executed against another.
+    #
+    # Warned about here and REFUSED per signal, not here. A pool nobody is
+    # trading is not a reason to stop the pools somebody is: halting the worker
+    # over an unused coin-m pool would take spot trading down with it.
+    tradable_venues = frozenset(registered.venues)
+    untradable = untradable_pool_venues(exchange=registered, pools=pools)
+    if untradable:
+        logger.warning(describe_untradable(exchange=registered, untradable=untradable))
+
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
@@ -256,7 +277,7 @@ def build_worker_runner(
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session, exchange_for(session) as exchange:
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchange
+                session, pools_by_key, settings, exchange, tradable_venues
             )
             await handler.handle(signal_id)
 
