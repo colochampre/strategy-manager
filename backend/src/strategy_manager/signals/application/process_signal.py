@@ -54,7 +54,8 @@ is a known limitation, not a tested scenario, and is called out in the
 apply-progress report.
 """
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
@@ -63,7 +64,11 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
     AllocateCommand,
 )
-from strategy_manager.allocation.application.ports import PoolBalancePort, StrategyPolicyPort
+from strategy_manager.allocation.application.ports import (
+    PoolBalancePort,
+    StrategyPolicyPort,
+    StrategyPolicySnapshot,
+)
 from strategy_manager.allocation.domain.percent import requested_from_percent
 from strategy_manager.execution.application.close_position import (
     CloseCommand,
@@ -75,18 +80,30 @@ from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
-    TransitionKind,
 )
 
-_CONSUMING_SIDE: dict[TransitionKind, OrderSide] = {
-    TransitionKind.OPEN_LONG: OrderSide.BUY,
-    TransitionKind.OPEN_SHORT: OrderSide.SELL,
-    TransitionKind.REVERSE: OrderSide.BUY,
-}
-_RELEASING_SIDE: dict[TransitionKind, OrderSide] = {
-    TransitionKind.CLOSE_LONG: OrderSide.SELL,
-    TransitionKind.CLOSE_SHORT: OrderSide.BUY,
-}
+logger = logging.getLogger(__name__)
+
+
+def _consuming_side(next_position_size: Decimal) -> OrderSide:
+    """Opening a long buys; opening a short sells."""
+    return OrderSide.BUY if next_position_size > 0 else OrderSide.SELL
+
+
+def _releasing_side(prior_position_size: Decimal) -> OrderSide:
+    """Closing a long sells; closing a short buys."""
+    return OrderSide.SELL if prior_position_size > 0 else OrderSide.BUY
+
+
+# These replaced two dicts keyed by ``TransitionKind``, which could not express
+# a reverse at all: a reverse consumes on one side and releases on the other,
+# and which side is which depends on the DIRECTION of the flip, not on the kind.
+# ``REVERSE`` was consequently mapped to a constant ``BUY``, so a strategy
+# holding a long and told to flip short bought more long.
+#
+# Deriving both sides from the position sizes is correct for all five kinds and
+# leaves nothing to keep in sync: the sign of the position after the order says
+# what is being opened, the sign before it says what is being closed.
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,9 +149,18 @@ class ClosePositionPort(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ProcessSignalResult:
+    """``refused`` names a half of the transition that could not be executed
+    and never will be, as opposed to one that failed and should be retried.
+
+    A reverse on a spot pool is the case that needs it: the closing half runs
+    and succeeds, and the opening half is impossible because spot cannot hold a
+    short. Raising would retry a close that already happened; reporting plain
+    success would hide that the position is now flat rather than flipped."""
+
     transition_kind: str
     reservation_id: UUID | None
     executed: bool
+    refused: str | None = None
 
 
 class ProcessSignalHandler:
@@ -163,15 +189,33 @@ class ProcessSignalHandler:
         transition = PositionTransition.classify(
             context.prior_position_size, context.position_size
         )
+        policy = await self._strategy_policy.policy_for(context.strategy_id)
 
-        if TransitionEffect.CONSUMES in transition.effects:
-            return await self._handle_consumes(signal_id, context, transition)
-        return await self._handle_releases(context, transition)
+        # ``transition.effects`` is ORDERED, and that ordering is the domain's
+        # own statement of what happens first. A reverse releases before it
+        # consumes, so routing on the first effect closes the prior position --
+        # no branch names REVERSE anywhere.
+        #
+        # The previous routing asked ``CONSUMES in effects``, which for a
+        # reverse matched the SECOND effect and skipped the first entirely.
+        # With a consuming side hardcoded to BUY, a strategy holding a long and
+        # told to flip short bought MORE long.
+        if transition.effects[0] is TransitionEffect.CONSUMES:
+            result = await self._handle_consumes(signal_id, context, transition, policy)
+        else:
+            result = await self._handle_releases(context, transition, policy)
+
+        if len(transition.effects) == 1:
+            return result
+        return self._note_unexecuted_tail(context, transition, result)
 
     async def _handle_consumes(
-        self, signal_id: UUID, context: SignalContext, transition: PositionTransition
+        self,
+        signal_id: UUID,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
-        policy = await self._strategy_policy.policy_for(context.strategy_id)
         pool_balance = await self._pool_balance.read(policy.venue, policy.settlement_currency)
         requested = Money(
             amount=requested_from_percent(pool_balance.balance, policy.allocation_percent),
@@ -190,14 +234,17 @@ class ProcessSignalHandler:
             PlaceCommand(
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
-                side=_CONSUMING_SIDE[transition.kind],
+                side=_consuming_side(context.position_size),
                 price=context.price,
             )
         )
         return ProcessSignalResult(transition.kind.value, result.reservation_id, True)
 
     async def _handle_releases(
-        self, context: SignalContext, transition: PositionTransition
+        self,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
         """A close carries no price, because nothing about its size is derived
         from one. ``ClosePosition`` reads the ledger for what the opening
@@ -205,7 +252,6 @@ class ProcessSignalHandler:
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        policy = await self._strategy_policy.policy_for(context.strategy_id)
         await self._close_position.close(
             CloseCommand(
                 allocation_id=context.prior_reservation_id,
@@ -213,7 +259,48 @@ class ProcessSignalHandler:
                 venue=policy.venue,
                 settlement_currency=policy.settlement_currency,
                 symbol=context.symbol,
-                side=_RELEASING_SIDE[transition.kind],
+                side=_releasing_side(_prior_of(context)),
             )
         )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
+
+    def _note_unexecuted_tail(
+        self,
+        context: SignalContext,
+        transition: PositionTransition,
+        result: ProcessSignalResult,
+    ) -> ProcessSignalResult:
+        """A transition declaring more than one effect had only its first one
+        executed.
+
+        Today that is a reverse, and both blockers on its second half are real
+        and permanent rather than transient: it needs a venue able to hold the
+        opposite side, and it needs capital the close has not settled -- the
+        proceeds are not spendable until the sell fills and the balance
+        snapshot refreshes. Retrying would re-run a close that already
+        succeeded.
+
+        The position therefore ends flat rather than flipped. That is a
+        defensible state, since the prior exposure is genuinely gone, but it is
+        not what the signal asked for, so it is reported rather than swallowed.
+        """
+        tail = transition.effects[1].value
+        refused = (
+            f"only the {transition.effects[0].value} half of this "
+            f"{transition.kind.value} ran; the {tail} half needs a venue that "
+            "can hold the opposite side and capital the close has not settled"
+        )
+        logger.warning(
+            "partial %s on %s: %s", transition.kind.value, context.symbol, refused
+        )
+        return replace(result, refused=refused)
+
+
+def _prior_of(context: SignalContext) -> Decimal:
+    """``PositionTransition.classify`` treats an absent prior as zero, and the
+    releasing side is only ever asked for when the prior was non-zero."""
+    return (
+        context.prior_position_size
+        if context.prior_position_size is not None
+        else Decimal("0")
+    )

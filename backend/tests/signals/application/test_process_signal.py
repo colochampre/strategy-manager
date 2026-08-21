@@ -358,3 +358,208 @@ async def test_consumes_signal_sizes_requested_from_allocation_percent_never_fro
     assert len(reservations.inserted) == 1
     # 20% of a 1000 balance = 200 - not 200,000,000.
     assert reservations.inserted[0].amount == Decimal("200")
+
+
+async def test_a_reverse_closes_the_prior_position_instead_of_skipping_it() -> None:
+    """``handle`` used to ask ``CONSUMES in effects``, which for a reverse
+    matched the SECOND of its two effects and skipped the first entirely, so
+    the closing half never ran.
+
+    Routing on ``effects[0]`` uses the ordering the domain already declares —
+    a reverse releases before it consumes — and no branch names REVERSE."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    close_position = SpyClosePosition()
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),  # long -> short = REVERSE
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.transition_kind == "reverse"
+    assert len(close_position.calls) == 1
+    assert close_position.calls[0].allocation_id == prior_reservation_id
+
+
+async def test_a_reverse_out_of_a_long_never_buys_more() -> None:
+    """THE test. ``_CONSUMING_SIDE`` mapped REVERSE to a constant BUY, so a
+    strategy holding a long and told to flip short bought more long — the exact
+    opposite of the signal, with real capital allocated behind it."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    close_position = SpyClosePosition()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    await handler.handle(uuid4())
+
+    assert place_order.calls == []
+    assert lock.acquired == []
+    assert close_position.calls[0].side is OrderSide.SELL
+
+
+async def test_a_transition_with_a_second_effect_reports_it_did_not_run() -> None:
+    """The position ends flat, not flipped. That is a defensible state — the
+    prior exposure is genuinely gone — but reporting plain success would hide
+    that the strategy is no longer positioned the way its signal asked."""
+    lock = SpyAdvisoryLock()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert result.refused is not None
+    assert "consumes half" in result.refused
+
+
+async def test_a_single_effect_transition_reports_nothing_refused() -> None:
+    """A plain open or close is complete on its own. Only a transition
+    declaring more than one effect has a tail to report."""
+    lock = SpyAdvisoryLock()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+
+
+async def test_a_reverse_with_no_prior_reservation_is_a_safe_no_op() -> None:
+    """Nothing to close. The prior signal never produced a reservation, so
+    there is no position this system put on."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    close_position = SpyClosePosition()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert close_position.calls == []
+    assert place_order.calls == []
+
+
+async def test_opening_a_short_sells_and_opening_a_long_buys() -> None:
+    """The side now comes from the sign of the position AFTER the order, so it
+    is right for every transition kind rather than for the three the old dicts
+    happened to enumerate."""
+    for position_size, expected in (
+        (Decimal("1"), OrderSide.BUY),
+        (Decimal("-1"), OrderSide.SELL),
+    ):
+        lock = SpyAdvisoryLock()
+        place_order = SpyPlaceOrder()
+        context = SignalContext(
+            strategy_id=uuid4(),
+            symbol="BTC_USDT",
+            price=Decimal("50000"),
+            position_size=position_size,
+            prior_position_size=Decimal("0"),  # open -> CONSUMES
+            prior_reservation_id=None,
+            settlement_currency="USDT",
+        )
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(lock),
+            place_order=place_order,
+        )
+
+        await handler.handle(uuid4())
+
+        assert place_order.calls[0].side is expected
+
+
+async def test_closing_a_short_buys_and_closing_a_long_sells() -> None:
+    """Same derivation from the other side: the sign of the position BEFORE
+    the order says what is being closed."""
+    for prior, expected in (
+        (Decimal("1"), OrderSide.SELL),
+        (Decimal("-1"), OrderSide.BUY),
+    ):
+        lock = SpyAdvisoryLock()
+        close_position = SpyClosePosition()
+        context = SignalContext(
+            strategy_id=uuid4(),
+            symbol="BTC_USDT",
+            price=Decimal("50000"),
+            position_size=Decimal("0"),
+            prior_position_size=prior,
+            prior_reservation_id=uuid4(),
+            settlement_currency="USDT",
+        )
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(lock),
+            place_order=SpyPlaceOrder(),
+            close_position=close_position,
+        )
+
+        await handler.handle(uuid4())
+
+        assert close_position.calls[0].side is expected
