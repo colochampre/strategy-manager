@@ -105,7 +105,12 @@ class SettleExecution:
             )
 
         # ---- TXN-B2: fills + terminal status, one transaction
-        reservation = await self._reservations.get_for_update(attempt.reservation_id)
+        #
+        # The reservation is read for both kinds of attempt, but only written
+        # for an opening one. ``allocation_id`` resolves to the reservation
+        # that funded an open, or to the allocation a close is unwinding, and
+        # both carry the same strategy.
+        reservation = await self._reservations.get_for_update(attempt.allocation_id)
         usd_rate = await self._usd_rate_provider.usd_rate(
             Currency(attempt.settlement_currency)
         )
@@ -113,7 +118,11 @@ class SettleExecution:
             await self._record(attempt, reservation.strategy_id, usd_rate, fill)
 
         await self._attempts.mark_filled(attempt_id, fills[0].exchange_order_id)
-        await self._reservations.mark(attempt.reservation_id, FILLED, now)
+        if not attempt.is_closing:
+            # A closing order has no reservation of its own, and the one it is
+            # unwinding went FILLED when the position opened. Re-marking it
+            # would rewrite settled history to say something it already says.
+            await self._reservations.mark(attempt.allocation_id, FILLED, now)
         await self._commit.commit()
 
         return SettleResult(
@@ -123,9 +132,20 @@ class SettleExecution:
     async def _release_never_placed(
         self, attempt: ExecutionAttempt, now: datetime
     ) -> SettleResult:
-        """The exchange never saw this order, so the reservation is holding
-        capital against something that does not exist."""
-        await self._reservations.mark(attempt.reservation_id, RELEASED, now)
+        """The exchange never saw this order.
+
+        For an open, that means the reservation is holding capital against
+        something that does not exist, so it is released and the money returns
+        to the pool.
+
+        For a close, there is nothing to release: the capital left the pool
+        when the position opened and is still sitting in the base currency. The
+        position simply remains open, and the failed attempt is the record of
+        why. Marking the opening reservation RELEASED here would be a lie about
+        capital that is demonstrably still deployed.
+        """
+        if not attempt.is_closing:
+            await self._reservations.mark(attempt.allocation_id, RELEASED, now)
         await self._attempts.mark_failed(
             attempt.id, "the exchange has no order under this client order id"
         )
@@ -153,7 +173,7 @@ class SettleExecution:
         await self._fill_recorder.record(
             FillRecord(
                 strategy_id=strategy_id,
-                allocation_id=attempt.reservation_id,
+                allocation_id=attempt.allocation_id,
                 execution_attempt_id=attempt.id,
                 venue=attempt.venue,
                 settlement_currency=attempt.settlement_currency,

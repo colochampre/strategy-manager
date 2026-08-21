@@ -5,11 +5,19 @@ a capital-RELEASING signal never takes the advisory lock").
 
 A CONSUMES signal (opening a position, or the consuming half of a reverse)
 goes through ``AllocateCapital`` — the only path that takes the advisory
-lock. A RELEASES signal (closing a position) goes straight to ``PlaceOrder``
-against the reservation that originally opened the position it is now
-closing, without ever touching the lock: releasing work can only increase
-pool availability, so it cannot over-allocate (design.md's "only
-capital-consuming work takes the lock").
+lock. A RELEASES signal (closing a position) goes to ``ClosePosition``,
+naming the allocation that originally opened the position, without ever
+touching the lock: releasing work can only increase pool availability, so it
+cannot over-allocate (design.md's "only capital-consuming work takes the
+lock").
+
+Closing used to be routed through ``PlaceOrder`` too, against the opening
+reservation, and it could not work in any timing window — inside the
+reservation's TTL the opening attempt already owned the UNIQUE
+``execution_attempts.reservation_id`` row, and outside it the pre-submit
+expiry re-check aborted the order. ``ClosePosition`` exists because a close
+is a different operation: it reserves nothing, and its size comes from the
+ledger rather than from an amount divided by a price.
 
 This handler's work ends when the order is placed. What it filled at is
 recorded by the ``execution.settle`` job, which ``PlaceOrder`` schedules
@@ -57,6 +65,10 @@ from strategy_manager.allocation.application.allocate_capital import (
 )
 from strategy_manager.allocation.application.ports import PoolBalancePort, StrategyPolicyPort
 from strategy_manager.allocation.domain.percent import requested_from_percent
+from strategy_manager.execution.application.close_position import (
+    CloseCommand,
+    CloseResult,
+)
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Currency, Money
@@ -112,6 +124,12 @@ class PlaceOrderPort(Protocol):
     async def place(self, command: PlaceCommand) -> PlaceResult: ...
 
 
+class ClosePositionPort(Protocol):
+    """The releasing counterpart of ``PlaceOrderPort``."""
+
+    async def close(self, command: CloseCommand) -> CloseResult: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessSignalResult:
     transition_kind: str
@@ -131,12 +149,14 @@ class ProcessSignalHandler:
         pool_balance: PoolBalancePort,
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
+        close_position: ClosePositionPort,
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
         self._allocate_capital = allocate_capital
         self._place_order = place_order
+        self._close_position = close_position
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -179,15 +199,21 @@ class ProcessSignalHandler:
     async def _handle_releases(
         self, context: SignalContext, transition: PositionTransition
     ) -> ProcessSignalResult:
+        """A close carries no price, because nothing about its size is derived
+        from one. ``ClosePosition`` reads the ledger for what the opening
+        allocation actually acquired."""
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        await self._place_order.place(
-            PlaceCommand(
-                reservation_id=context.prior_reservation_id,
+        policy = await self._strategy_policy.policy_for(context.strategy_id)
+        await self._close_position.close(
+            CloseCommand(
+                allocation_id=context.prior_reservation_id,
+                strategy_id=context.strategy_id,
+                venue=policy.venue,
+                settlement_currency=policy.settlement_currency,
                 symbol=context.symbol,
                 side=_RELEASING_SIDE[transition.kind],
-                price=context.price,
             )
         )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)

@@ -139,6 +139,25 @@ class FillRecorderPort(Protocol):
     async def record(self, fill: FillRecord) -> None: ...
 
 
+class HeldPositionPort(Protocol):
+    """How much base currency an allocation is still holding.
+
+    Declared here and implemented by ``ledger`` (``ReadHeldBase``), same
+    direction as ``FillRecorderPort``: the consumer owns the port, the provider
+    owns the adapter.
+
+    This is the only honest source for a close size. The reservation knows what
+    was *granted* in the settlement currency, and dividing that by a later
+    price does not reproduce what was actually bought — the fill price differs
+    from the alert's reference price, a market order can fill in pieces at
+    several prices, and a fee charged in the base currency means less of it
+    arrived than was purchased. The ledger recorded every one of those facts at
+    the time (CLAUDE.md rule 6: positions are a projection over it).
+    """
+
+    async def base_held(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
+
+
 class CommitPort(Protocol):
     """Mirrors ``allocation.application.ports.CommitPort`` /
     ``signals.application.ports.CommitPort``: deliberately narrow so any

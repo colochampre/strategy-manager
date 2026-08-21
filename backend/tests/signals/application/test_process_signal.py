@@ -21,7 +21,12 @@ from strategy_manager.allocation.application.allocate_capital import AllocateCap
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.execution.application.close_position import (
+    CloseCommand,
+    CloseResult,
+)
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
+from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
@@ -95,6 +100,23 @@ class SpyPlaceOrder:
         return PlaceResult(status="PLACED", execution_attempt_id=uuid4())
 
 
+class SpyClosePosition:
+    """Stands in for ``ClosePosition``. A close no longer goes through
+    ``PlaceOrder`` at all, and keeping the two spies separate is what lets a
+    test assert which of the two paths a signal actually took."""
+
+    def __init__(self) -> None:
+        self.calls: list[CloseCommand] = []
+
+    async def close(self, command: CloseCommand) -> CloseResult:
+        self.calls.append(command)
+        return CloseResult(
+            status="PLACED",
+            execution_attempt_id=uuid4(),
+            base_size=Decimal("0.002"),
+        )
+
+
 @dataclass
 class FakeSignalContextPort:
     context: SignalContext
@@ -140,6 +162,7 @@ def _process_signal_handler(
     context: SignalContext,
     allocate_capital: AllocateCapital,
     place_order: SpyPlaceOrder,
+    close_position: SpyClosePosition | None = None,
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
 ) -> ProcessSignalHandler:
@@ -151,6 +174,7 @@ def _process_signal_handler(
         ),
         allocate_capital=allocate_capital,
         place_order=place_order,
+        close_position=close_position or SpyClosePosition(),
     )
 
 
@@ -184,10 +208,11 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)
     place_order = SpyPlaceOrder()
+    close_position = SpyClosePosition()
     prior_reservation_id = uuid4()
     context = SignalContext(
         strategy_id=uuid4(),
-        symbol="BTCUSDT",
+        symbol="BTC_USDT",
         price=Decimal("50000"),
         position_size=Decimal("0"),
         prior_position_size=Decimal("1"),  # close long -> RELEASES
@@ -198,14 +223,74 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
         context=context,
         allocate_capital=allocate_capital,
         place_order=place_order,
+        close_position=close_position,
     )
 
     result = await handler.handle(uuid4())
 
     assert lock.acquired == []
     assert result.transition_kind == "close_long"
-    assert len(place_order.calls) == 1
-    assert place_order.calls[0].reservation_id == prior_reservation_id
+    assert len(close_position.calls) == 1
+    assert close_position.calls[0].allocation_id == prior_reservation_id
+
+
+async def test_a_close_never_goes_through_the_opening_path() -> None:
+    """The bug this routing replaced. Closing used to call PlaceOrder against
+    the opening reservation, which aborted on the expiry re-check outside the
+    reservation's TTL and collided with the UNIQUE constraint inside it — so no
+    close ever reached the exchange."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    close_position = SpyClosePosition()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    await handler.handle(uuid4())
+
+    assert place_order.calls == []
+    assert len(close_position.calls) == 1
+
+
+async def test_a_close_carries_no_price_because_nothing_derives_a_size_from_one() -> None:
+    """CloseCommand structurally has no price field. The close size comes from
+    the ledger — what the opening allocation actually acquired — and a price
+    that could reintroduce ``granted / price`` sizing is simply absent."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+    )
+
+    await handler.handle(uuid4())
+
+    assert not hasattr(close_position.calls[0], "price")
+    assert close_position.calls[0].symbol == "BTC_USDT"
+    assert close_position.calls[0].side is OrderSide.SELL
 
 
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:

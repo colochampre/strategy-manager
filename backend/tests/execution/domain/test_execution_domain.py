@@ -14,7 +14,7 @@ built at all, which is what the structural tests below actually assert.
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -161,6 +161,7 @@ def test_execution_attempt_holds_its_fields() -> None:
     attempt = ExecutionAttempt(
         id=attempt_id,
         reservation_id=reservation_id,
+        closes_allocation_id=None,
         venue="spot",
         settlement_currency="USDT",
         symbol="BTCUSDT",
@@ -186,6 +187,7 @@ def test_an_attempt_carries_exactly_one_size() -> None:
         ExecutionAttempt(
             id=uuid4(),
             reservation_id=uuid4(),
+            closes_allocation_id=None,
             venue="spot",
             settlement_currency="USDT",
             symbol="BTC_USDT",
@@ -201,3 +203,68 @@ def test_an_attempt_carries_exactly_one_size() -> None:
 
     with pytest.raises(InvariantViolation, match="exactly one size"):
         _attempt(Decimal("0.004"), Decimal("200"))
+
+
+def test_an_attempt_has_exactly_one_origin() -> None:
+    """Mirrors ``ck_execution_attempts_one_origin``. An attempt either spends a
+    reservation's capital or unwinds a position, and the two uniqueness rules
+    that give each side its idempotency only work if they never overlap."""
+    def _attempt(reservation_id: UUID | None, closes: UUID | None) -> ExecutionAttempt:
+        return ExecutionAttempt(
+            id=uuid4(),
+            reservation_id=reservation_id,
+            closes_allocation_id=closes,
+            venue="spot",
+            settlement_currency="USDT",
+            symbol="BTC_USDT",
+            side=OrderSide.SELL,
+            quantity=Decimal("0.004"),
+            quote_amount=None,
+            status=ExecutionStatus.SUBMITTED,
+            client_order_id="c1",
+        )
+
+    with pytest.raises(InvariantViolation, match="exactly one origin"):
+        _attempt(None, None)
+
+    with pytest.raises(InvariantViolation, match="exactly one origin"):
+        _attempt(uuid4(), uuid4())
+
+
+def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
+    """Opens and closes land in the same ``ledger_entries.allocation_id``
+    column, which is what lets a close net against its open when positions are
+    projected from the ledger."""
+    opening = uuid4()
+
+    open_attempt = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=opening,
+        closes_allocation_id=None,
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="BTC_USDT",
+        side=OrderSide.BUY,
+        quantity=None,
+        quote_amount=Decimal("100"),
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="c1",
+    )
+    close_attempt = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=opening,
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="BTC_USDT",
+        side=OrderSide.SELL,
+        quantity=Decimal("0.002"),
+        quote_amount=None,
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="c2",
+    )
+
+    assert open_attempt.allocation_id == opening
+    assert close_attempt.allocation_id == opening
+    assert open_attempt.is_closing is False
+    assert close_attempt.is_closing is True

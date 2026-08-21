@@ -39,6 +39,7 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
+from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import ExchangePort
 from strategy_manager.execution.application.settle_execution import SettleExecution
@@ -50,6 +51,7 @@ from strategy_manager.execution.infrastructure.pionex_exchange import (
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
+from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
@@ -148,12 +150,26 @@ def _build_process_signal_handler(
         settle_delay_seconds=settings.execution_settle_delay_seconds,
     )
 
+    # A close shares the exchange and the attempt repository with placement,
+    # but nothing else: no reservation gateway, no advisory lock, and its size
+    # comes from the ledger rather than from a granted amount and a price.
+    close_position = ClosePosition(
+        exchange=exchange,
+        attempts=SqlAlchemyExecutionAttemptRepository(session),
+        held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
+        queue=PostgresJobQueue(session),
+        clock=SystemClock(),
+        commit=session,
+        settle_delay_seconds=settings.execution_settle_delay_seconds,
+    )
+
     return ProcessSignalHandler(
         signal_context=signal_context,
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
         allocate_capital=allocate_capital,
         place_order=place_order,
+        close_position=close_position,
     )
 
 

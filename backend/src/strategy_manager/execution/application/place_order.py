@@ -129,6 +129,7 @@ class PlaceOrder:
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=reservation.id,
+                closes_allocation_id=None,
                 venue=reservation.venue,
                 settlement_currency=reservation.settlement_currency,
                 symbol=command.symbol,

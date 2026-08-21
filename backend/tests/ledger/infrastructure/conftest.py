@@ -214,22 +214,28 @@ async def seed_execution_attempt(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     attempt_id: UUID,
-    reservation_id: UUID,
+    reservation_id: UUID | None = None,
+    closes_allocation_id: UUID | None = None,
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
 ) -> None:
+    """Seeds either kind of attempt (migration ``0012``): an opening one bound
+    to the reservation it spends, or a closing one bound to the allocation it
+    unwinds. Exactly one of the two ids belongs on a row."""
     async with session_factory() as session:
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
-                "(id, reservation_id, venue, settlement_currency, symbol, side, quantity, "
-                "status, client_order_id) "
-                "VALUES (:id, :reservation_id, :venue, :settlement_currency, 'BTCUSDT', 'BUY', "
-                "0.004, 'SUBMITTED', :client_order_id)"
+                "(id, reservation_id, closes_allocation_id, venue, settlement_currency, "
+                "symbol, side, quantity, status, client_order_id) "
+                "VALUES (:id, :reservation_id, :closes_allocation_id, :venue, "
+                ":settlement_currency, 'BTCUSDT', 'BUY', 0.004, 'SUBMITTED', "
+                ":client_order_id)"
             ),
             {
                 "id": attempt_id,
                 "reservation_id": reservation_id,
+                "closes_allocation_id": closes_allocation_id,
                 "venue": venue,
                 "settlement_currency": settlement_currency,
                 "client_order_id": f"client-{attempt_id}",
