@@ -19,6 +19,7 @@ import asyncpg
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -36,6 +37,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 TEST_DB_NAME = "strategy_manager_test"
 
 _test_db_ready = False
+_schema_rebuilt = False
 
 SEEDED_POOLS = [
     {"venue": "spot", "settlement_currency": "USDT", "min_order_size": Decimal("10")},
@@ -80,6 +82,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
 
     engine = create_async_engine(test_url, pool_pre_ping=True)
     async with engine.begin() as conn:
+        await _rebuild_schema_once(conn)
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(
             text(
@@ -99,6 +102,28 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
     yield engine
 
     await engine.dispose()
+
+
+async def _rebuild_schema_once(conn: AsyncConnection) -> None:
+    """Drops and recreates the test schema on the first fixture of the session.
+
+    ``create_all`` creates tables that are missing and never alters ones that
+    already exist, so a long-lived test database silently drifts behind the ORM
+    the moment a migration adds a column. The failure that produces is an
+    ``UndefinedColumnError`` in an unrelated test, which is a genuinely
+    confusing way to learn that a schema changed.
+
+    Rebuilding once per session costs a fraction of a second and makes the test
+    database a pure function of the ORM models. It is not a substitute for the
+    migrations: those are exercised against the real database by
+    ``alembic upgrade head`` and by the tier B fixtures, which is also why the
+    raw-SQL triggers and CHECK constraints are absent here.
+    """
+    global _schema_rebuilt
+    if _schema_rebuilt:
+        return
+    await conn.run_sync(Base.metadata.drop_all)
+    _schema_rebuilt = True
 
 
 @pytest.fixture
