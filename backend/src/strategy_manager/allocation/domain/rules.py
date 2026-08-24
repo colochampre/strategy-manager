@@ -25,7 +25,13 @@ class FillMode(StrEnum):
 @dataclass(frozen=True, slots=True)
 class AllocationRules:
     """``min_order_size`` lives on the pool, never on the strategy (design.md's
-    "Decision: min order size lives on the pool")."""
+    "Decision: min order size lives on the pool").
+
+    It is the smallest position that can still be CLOSED, not the smallest the
+    venue will accept as one order -- see ``PoolConfig``. Granting less than
+    this is how capital gets locked in a position that cannot be exited, which
+    is why rules 1 and 5 skip rather than shrink below it.
+    """
 
     fill_mode: FillMode
     min_order_size: Decimal
