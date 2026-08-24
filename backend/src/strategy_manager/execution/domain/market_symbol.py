@@ -12,6 +12,13 @@ quote" is the concept the close-sizing rule depends on, not a transport
 detail. The day a venue with a different convention is added, the split becomes
 a per-venue concern and this function is where that will be obvious.
 
+**Perpetual markets carry a third part.** Pionex names them
+``BASE_QUOTE_PERP`` -- ``BTC_USDT_PERP``. Splitting that on the first
+separator alone reads the quote half as ``USDT_PERP``, which matches no
+settlement currency, so every futures close would be refused as a
+misconfigured strategy. The contract marker is stripped before the split
+rather than after, because it qualifies the market, not the currency.
+
 The quote half is checked against the pool's settlement currency rather than
 discarded. A strategy configured in a USDT pool that signals a BTC-quoted
 market is misconfigured in a way that would otherwise surface as an
@@ -21,13 +28,26 @@ inexplicably wrong order size, and it is cheap to refuse here instead.
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 SEPARATOR = "_"
+PERPETUAL_SUFFIX = "_PERP"
+
+
+def is_perpetual(symbol: str) -> bool:
+    """Whether this symbol names a perpetual futures market."""
+    return symbol.upper().endswith(PERPETUAL_SUFFIX)
 
 
 def base_currency_of(symbol: str, settlement_currency: str) -> str:
     """Returns the base currency of ``symbol``, asserting its quote half is
-    the pool's settlement currency."""
+    the pool's settlement currency.
 
-    base, separator, quote = symbol.partition(SEPARATOR)
+    Accepts spot (``BTC_USDT``) and perpetual (``BTC_USDT_PERP``) symbols
+    alike: both trade BTC settled in USDT, and a close is sized in the base
+    currency on either.
+    """
+
+    market = symbol[: -len(PERPETUAL_SUFFIX)] if is_perpetual(symbol) else symbol
+
+    base, separator, quote = market.partition(SEPARATOR)
     if not separator or not base or not quote:
         raise InvariantViolation(
             f"market symbol {symbol!r} is not in BASE{SEPARATOR}QUOTE form, so "

@@ -38,3 +38,25 @@ def test_a_symbol_without_a_usable_split_is_refused(symbol: str) -> None:
     close in a currency nobody chose."""
     with pytest.raises(InvariantViolation, match="BASE_QUOTE"):
         base_currency_of(symbol, "USDT")
+
+
+def test_a_perpetual_symbol_splits_on_the_market_not_the_contract_marker() -> None:
+    """``BTC_USDT_PERP`` trades BTC settled in USDT. Splitting on the first
+    separator alone reads the quote as ``USDT_PERP``, which matches no
+    settlement currency, so every futures close would be refused as a
+    misconfigured strategy."""
+    assert base_currency_of("BTC_USDT_PERP", "USDT") == "BTC"
+    assert base_currency_of("eth_usdt_perp", "usdt") == "ETH"
+
+
+def test_a_perpetual_still_has_its_quote_half_checked() -> None:
+    """Stripping the contract marker must not also strip the check that the
+    market is one the pool can actually fund (CLAUDE.md rule 5)."""
+    with pytest.raises(InvariantViolation, match="cannot fund"):
+        base_currency_of("ADA_BTC_PERP", "USDT")
+
+
+def test_a_coin_margined_perpetual_resolves_against_its_own_settlement() -> None:
+    """The catalogue lists 43 non-USDT-settled perpetuals. ``ADA_BTC_PERP``
+    is funded by the BTC pool, not the USDT one."""
+    assert base_currency_of("ADA_BTC_PERP", "BTC") == "ADA"
