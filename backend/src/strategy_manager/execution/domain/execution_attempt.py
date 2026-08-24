@@ -1,5 +1,6 @@
 """``ExecutionAttempt`` DTO: mirrors a row of ``execution_attempts``
-(migration ``0005``; design.md § execution/ and ledger/ (slice 5)).
+(migrations ``0005``, ``0011`` and ``0012``; design.md § execution/ and
+ledger/ (slice 5)).
 """
 
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 
 class ExecutionStatus(StrEnum):
@@ -22,20 +24,69 @@ class ExecutionStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExecutionAttempt:
-    """One attempt to submit a reservation as an order. ``reservation_id`` is
-    the reservation's ``allocation_id`` (spec: trade-execution §
-    Reservation-Bound Submission)."""
+    """One attempt to submit an order, either opening a position or closing
+    one.
+
+    ``reservation_id`` / ``closes_allocation_id`` mirror the
+    ``ck_execution_attempts_one_origin`` CHECK: exactly one is set, and which
+    one says what kind of order this is. An open is bound to the reservation
+    whose capital it spends. A close is bound to the allocation whose position
+    it is unwinding — it reserves nothing, because a FILLED reservation has
+    already stopped counting toward pool availability and the spend is visible
+    in the exchange balance instead.
+
+    ``quantity`` and ``quote_amount`` mirror ``MarketSell``/``MarketBuy``:
+    exactly one of them is set, and it is the number that actually went on the
+    wire. Recording a base quantity for a buy would put a figure in the
+    database that was never sent to anyone — derived from a stale alert price
+    and impossible to reconcile against the exchange. What the order really
+    filled at belongs to the ledger, which reads it from the fills.
+    """
 
     id: UUID
-    reservation_id: UUID
+    reservation_id: UUID | None
+    closes_allocation_id: UUID | None
     venue: str
     settlement_currency: str
     symbol: str
     side: OrderSide
-    quantity: Decimal
+    quantity: Decimal | None
+    quote_amount: Decimal | None
     status: ExecutionStatus
     client_order_id: str
     exchange_order_id: str | None = None
     error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Mirrors the two CHECK constraints, so an invalid attempt fails at
+        construction rather than on the INSERT."""
+        if (self.reservation_id is None) == (self.closes_allocation_id is None):
+            raise InvariantViolation(
+                "an ExecutionAttempt has exactly one origin: reservation_id for "
+                "an opening order, or closes_allocation_id for a closing one"
+            )
+        if (self.quantity is None) == (self.quote_amount is None):
+            raise InvariantViolation(
+                "an ExecutionAttempt carries exactly one size: quantity for a "
+                "sell (base) or quote_amount for a buy (quote)"
+            )
+
+    @property
+    def allocation_id(self) -> UUID:
+        """The allocation this attempt's fills belong to.
+
+        For an open it is the reservation that funded it; for a close it is the
+        allocation being unwound. Both land in the same ``ledger_entries``
+        column on purpose — that is what lets a close net against its open when
+        positions are projected from the ledger (CLAUDE.md rule 6).
+        """
+        allocation = self.reservation_id or self.closes_allocation_id
+        if allocation is None:  # pragma: no cover - __post_init__ forbids it
+            raise InvariantViolation("ExecutionAttempt has no allocation")
+        return allocation
+
+    @property
+    def is_closing(self) -> bool:
+        return self.closes_allocation_id is not None

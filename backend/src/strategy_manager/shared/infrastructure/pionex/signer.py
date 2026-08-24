@@ -9,18 +9,25 @@ https://pionex-doc.gitbook.io/apidocs/restful/general/authentication:
 2. Sort them in ascending ASCII order by key and join them with ``&``.
    Values are signed RAW -- Pionex does not URL-encode them.
 3. The signed payload is ``METHOD + path + "?" + query``, plus the request
-   body for POST/DELETE. This module signs GET only, so the body is empty.
+   body verbatim for POST/DELETE. A GET has no body, so that part is empty.
 4. HMAC-SHA256 that payload with the API secret; take lowercase hex.
 5. Send the API key as ``PIONEX-KEY`` and the hex digest as
    ``PIONEX-SIGNATURE``.
 
-Step 2 is where this silently goes wrong. An HTTP client building a URL from
-a parameter mapping will percent-encode the values, while the signature was
-computed over the raw ones -- every request then fails authentication with
-no useful error. Two guards close that gap: ``sign`` returns the exact query
-string it signed so the caller transmits those bytes verbatim, and any value
-that is not already URL-safe is rejected up front instead of producing a
-signature that cannot match.
+Steps 2 and 3 are where this silently goes wrong, in the same way and for
+the same reason: the signature is computed over one byte sequence and a
+convenience API transmits a different one. An HTTP client building a URL from
+a parameter mapping percent-encodes the values the signature was computed
+over raw. An HTTP client handed a ``json=`` dict re-serializes it with its
+own separator and key-order choices, so a body signed as
+``{"symbol":"BTC_USDT"}`` goes out as ``{"symbol": "BTC_USDT"}`` -- one space,
+and authentication fails with no useful error.
+
+``SignedRequest`` closes both gaps the same way: it carries the exact query
+string AND the exact body that were signed, so the caller transmits those
+bytes verbatim rather than rebuilding either. Any parameter value that is not
+already URL-safe is rejected up front instead of producing a signature that
+cannot match.
 """
 
 import hmac
@@ -68,16 +75,18 @@ class PionexCredentials:
 class SignedRequest:
     """Exactly what to put on the wire.
 
-    ``path_with_query`` is the signed byte sequence: send it as-is. Rebuilding
-    it from a parameter mapping invalidates the signature.
+    ``path_with_query`` and ``body`` are the signed byte sequences: send them
+    as-is. Rebuilding the query from a parameter mapping, or the body from a
+    dict, invalidates the signature.
     """
 
     path_with_query: str
     headers: Mapping[str, str]
+    body: str = ""
 
 
 class PionexSigner:
-    """Signs read requests for the Pionex REST API."""
+    """Signs requests for the Pionex REST API."""
 
     def __init__(self, credentials: PionexCredentials, clock: ClockPort) -> None:
         self._credentials = credentials
@@ -117,6 +126,7 @@ class PionexSigner:
                 KEY_HEADER: self._credentials.api_key,
                 SIGNATURE_HEADER: signature,
             },
+            body=body,
         )
 
     def _timestamp_ms(self) -> int:

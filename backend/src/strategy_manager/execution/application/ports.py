@@ -59,6 +59,18 @@ class ExchangePort(Protocol):
     """``is_live`` gates the ``DRY_RUN`` startup invariant
     (spec: trade-execution § DRY_RUN Safety).
 
+    ``venues`` declares which ``capital_pools.venue`` values this adapter can
+    actually trade, and gates the venue startup invariant. It has to be
+    declared rather than assumed because Pionex's spot and futures APIs are
+    different base paths — ``/api/v1/`` and ``/uapi/v1/`` — and therefore
+    different adapters. Without it, a strategy configured on a futures pool
+    has its capital sized against the futures wallet and its orders sent to
+    spot, with nothing anywhere reporting a problem.
+
+    Both are class attributes so the composition root can check them before an
+    instance exists: a live adapter needs a decrypted credential and an open
+    socket, and neither belongs to startup.
+
     Split in two on purpose. ``place`` sends the order; ``fetch_fills``
     learns what became of it, keyed by the client order id this system chose
     before it ever spoke to the exchange. That key is what makes an order
@@ -66,6 +78,7 @@ class ExchangePort(Protocol):
     """
 
     is_live: bool
+    venues: frozenset[str]
 
     async def place(self, order: OrderRequest) -> PlacedOrder: ...
 
@@ -137,6 +150,25 @@ class FillRecord:
 
 class FillRecorderPort(Protocol):
     async def record(self, fill: FillRecord) -> None: ...
+
+
+class HeldPositionPort(Protocol):
+    """How much base currency an allocation is still holding.
+
+    Declared here and implemented by ``ledger`` (``ReadHeldBase``), same
+    direction as ``FillRecorderPort``: the consumer owns the port, the provider
+    owns the adapter.
+
+    This is the only honest source for a close size. The reservation knows what
+    was *granted* in the settlement currency, and dividing that by a later
+    price does not reproduce what was actually bought — the fill price differs
+    from the alert's reference price, a market order can fill in pieces at
+    several prices, and a fee charged in the base currency means less of it
+    arrived than was purchased. The ledger recorded every one of those facts at
+    the time (CLAUDE.md rule 6: positions are a projection over it).
+    """
+
+    async def base_held(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
 
 
 class CommitPort(Protocol):

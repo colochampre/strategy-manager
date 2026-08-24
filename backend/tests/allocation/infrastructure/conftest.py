@@ -25,6 +25,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
 
@@ -73,6 +74,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
 
     engine = create_async_engine(test_url, pool_pre_ping=True)
     async with engine.begin() as conn:
+        await rebuild_schema_once(conn)
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(
             text(

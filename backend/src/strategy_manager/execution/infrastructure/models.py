@@ -1,5 +1,7 @@
-"""SQLAlchemy ORM model owned by ``execution``. Mirrors migration
-``0005_ledger_execution``'s ``execution_attempts`` table.
+"""SQLAlchemy ORM model owned by ``execution``. Mirrors the
+``execution_attempts`` table created by migration ``0005_ledger_execution``
+and reshaped by ``0011_execution_attempt_quote_amount`` and
+``0012_closing_execution_attempts``.
 """
 
 from datetime import datetime
@@ -16,21 +18,34 @@ from strategy_manager.shared.db import Base
 
 class ExecutionAttemptRow(Base):
     """Mirrors the ``execution_attempts`` table created by migration
-    ``0005``."""
+    ``0005`` and reshaped by ``0011`` and ``0012``."""
 
     __tablename__ = "execution_attempts"
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    reservation_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("reservations.id"), nullable=False, unique=True
+    # Exactly one of these is set, enforced by ``ck_execution_attempts_one_origin``
+    # (migration ``0012``). Both are UNIQUE, and each uniqueness rule is the
+    # idempotency rule for its side: one opening order per reservation, one
+    # closing order per position. PostgreSQL allows many NULLs in a UNIQUE
+    # column, so nullability costs neither guarantee.
+    reservation_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("reservations.id"), nullable=True, unique=True
+    )
+    closes_allocation_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("reservations.id"), nullable=True, unique=True
     )
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     side: Mapped[str] = mapped_column(Text, nullable=False)
-    quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    # Exactly one of these is set, enforced by the CHECK constraint
+    # ``ck_execution_attempts_one_size`` (migration ``0011``): ``quantity``
+    # is a sell's base size, ``quote_amount`` a buy's quote amount. Whichever
+    # is populated is the number that actually went on the wire.
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+    quote_amount: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)

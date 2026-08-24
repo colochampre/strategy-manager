@@ -24,6 +24,7 @@ from strategy_manager.shared.infrastructure.pionex.signer import (
     PionexCredentials,
     PionexSigner,
 )
+from strategy_manager.shared.infrastructure.pionex.trade_client import PionexTradeClient
 
 
 def credentials_from_settings(settings: Settings) -> PionexCredentials:
@@ -52,8 +53,39 @@ async def read_only_client(
     """Yields a read-only client bound to the supplied credentials."""
     signer = PionexSigner(credentials, clock or SystemClock())
 
+    async with _http(settings) as http:
+        yield PionexReadOnlyClient(http, signer)
+
+
+@asynccontextmanager
+async def trade_client(
+    settings: Settings,
+    credentials: PionexCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[PionexTradeClient]:
+    """Yields a client that can place orders.
+
+    Deliberately a separate entry point from ``read_only_client``. Anything
+    that only reads should be unable to reach a writing client by accident,
+    and a call site asking for this one is stating plainly that it intends to
+    move money.
+    """
+    signer = PionexSigner(credentials, clock or SystemClock())
+
+    async with _http(settings) as http:
+        yield PionexTradeClient(http, signer)
+
+
+@asynccontextmanager
+async def _http(settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
+    """One transport configuration for both clients.
+
+    The timeout is not a tuning knob: Pionex rejects a request whose timestamp
+    is more than 20s off its own clock, so a call that outlives that window
+    can never succeed on retry anyway.
+    """
     async with httpx.AsyncClient(
         base_url=settings.pionex_base_url,
         timeout=settings.pionex_timeout_seconds,
     ) as http:
-        yield PionexReadOnlyClient(http, signer)
+        yield http

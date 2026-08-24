@@ -1,6 +1,18 @@
 """PoolConfig VO: a configured capital pool's static configuration
 (design.md § accounts/domain/pool_config.py). ``min_order_size`` lives here,
 never on ``strategies`` (design.md's "Choice" note on the shared boundary).
+
+``min_order_size`` is NOT the venue's minimum for one order. It is the
+smallest position that survives a ROUND TRIP, which is a larger number, and
+the difference is not academic: a position opened at the venue's own minimum
+cannot be closed. Fees and base-precision rounding shrink it between open and
+close, and the venue applies the same minimum to the closing order's notional.
+
+That was verified live on Pionex (migration ``0014``): buying exactly 10 USDT
+of ETH, the venue's ``minAmount``, produced a holding worth 9.98 that the
+venue then refused to sell. In production that capital would be locked in a
+position the system could never exit, because every close attempt would be
+rejected identically.
 """
 
 from dataclasses import dataclass

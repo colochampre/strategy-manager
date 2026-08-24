@@ -1,22 +1,31 @@
-"""Unit tests for ``ExecutionAttempt``/``OrderRequest``/``Fill`` (tasks.md
-5.1). The core assertion: order quantity is always derived as
-``granted / price`` — ``granted`` is the reservation's already-decided
-capital amount, never the alert's ``contracts`` field (design.md § "Order
-size never comes from the alert").
+"""Unit tests for ``ExecutionAttempt``/``MarketBuy``/``MarketSell``/``Fill``
+(tasks.md 5.1).
+
+Two rules are under test here, and they are not the same rule.
+
+The old one: an order's size is never the alert's ``contracts`` field
+(design.md § "Order size never comes from the alert").
+
+The new one: a market order is denominated by side. A BUY spends a quote
+amount — the granted capital, verbatim — and a SELL sells a base size derived
+as ``granted / price``. The sum type exists so the wrong pairing cannot be
+built at all, which is what the structural tests below actually assert.
 """
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import (
-    OrderRequest,
+    MarketBuy,
+    MarketSell,
     OrderSide,
     compute_order_quantity,
+    market_order,
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -53,22 +62,74 @@ def test_compute_order_quantity_rejects_non_positive_price() -> None:
         compute_order_quantity(Decimal("200"), Decimal("-1"))
 
 
-def test_order_request_rejects_non_positive_quantity() -> None:
-    with pytest.raises(InvariantViolation):
-        OrderRequest(
-            client_order_id="c1", symbol="BTCUSDT", side=OrderSide.BUY, quantity=Decimal("0")
-        )
-
-
-def test_order_request_holds_its_fields() -> None:
-    order = OrderRequest(
-        client_order_id="c1", symbol="BTCUSDT", side=OrderSide.BUY, quantity=Decimal("0.004")
+def test_a_buy_carries_the_granted_amount_with_no_arithmetic_at_all() -> None:
+    """The reservation granted 200 of the settlement currency, which IS the
+    quote currency. Any transformation of that number here — division by a
+    stale price, rounding to a base precision — would replace a figure the
+    allocation engine decided with a worse one."""
+    order = market_order(
+        side=OrderSide.BUY,
+        client_order_id="c1",
+        symbol="BTC_USDT",
+        granted=Decimal("200"),
+        price=Decimal("50000"),
     )
 
-    assert order.client_order_id == "c1"
-    assert order.symbol == "BTCUSDT"
+    assert isinstance(order, MarketBuy)
+    assert order.quote_amount == Decimal("200")
     assert order.side is OrderSide.BUY
-    assert order.quantity == Decimal("0.004")
+
+
+def test_a_sell_carries_the_base_size_derived_from_the_price() -> None:
+    order = market_order(
+        side=OrderSide.SELL,
+        client_order_id="c1",
+        symbol="BTC_USDT",
+        granted=Decimal("200"),
+        price=Decimal("50000"),
+    )
+
+    assert isinstance(order, MarketSell)
+    assert order.base_size == Decimal("0.004")
+    assert order.side is OrderSide.SELL
+
+
+def test_a_buy_cannot_be_built_carrying_a_base_size() -> None:
+    """The point of the sum type. There is no field to put a base size in on a
+    buy, so no adapter can send one — the venue rejects that combination, and
+    here it cannot even be expressed."""
+    assert not hasattr(
+        MarketBuy(client_order_id="c1", symbol="BTC_USDT", quote_amount=Decimal("200")),
+        "base_size",
+    )
+    assert not hasattr(
+        MarketSell(client_order_id="c1", symbol="BTC_USDT", base_size=Decimal("1")),
+        "quote_amount",
+    )
+
+
+def test_market_order_rejects_a_non_positive_price_on_either_side() -> None:
+    """A sell needs the price arithmetically. A buy does not — but an alert
+    quoting a price of zero is a malformed payload, and acting on a malformed
+    payload is not made safe by the fact that this particular number happens
+    to go unused."""
+    for side in (OrderSide.BUY, OrderSide.SELL):
+        with pytest.raises(InvariantViolation, match="price must be positive"):
+            market_order(
+                side=side,
+                client_order_id="c1",
+                symbol="BTC_USDT",
+                granted=Decimal("200"),
+                price=Decimal("0"),
+            )
+
+
+def test_an_order_rejects_a_non_positive_size() -> None:
+    with pytest.raises(InvariantViolation, match="quote_amount"):
+        MarketBuy(client_order_id="c1", symbol="BTC_USDT", quote_amount=Decimal("0"))
+
+    with pytest.raises(InvariantViolation, match="base_size"):
+        MarketSell(client_order_id="c1", symbol="BTC_USDT", base_size=Decimal("0"))
 
 
 def test_fill_holds_exchange_reported_fields() -> None:
@@ -100,11 +161,13 @@ def test_execution_attempt_holds_its_fields() -> None:
     attempt = ExecutionAttempt(
         id=attempt_id,
         reservation_id=reservation_id,
+        closes_allocation_id=None,
         venue="spot",
         settlement_currency="USDT",
         symbol="BTCUSDT",
-        side=OrderSide.BUY,
+        side=OrderSide.SELL,
         quantity=Decimal("0.004"),
+        quote_amount=None,
         status=ExecutionStatus.SUBMITTED,
         client_order_id="c1",
     )
@@ -114,3 +177,94 @@ def test_execution_attempt_holds_its_fields() -> None:
     assert attempt.status is ExecutionStatus.SUBMITTED
     assert attempt.exchange_order_id is None
     assert attempt.error is None
+
+
+def test_an_attempt_carries_exactly_one_size() -> None:
+    """Mirrors the ``ck_execution_attempts_one_size`` CHECK constraint, so the
+    invalid row fails at construction instead of on the INSERT — and so the
+    two representations can never disagree about what was sent."""
+    def _attempt(quantity: Decimal | None, quote_amount: Decimal | None) -> None:
+        ExecutionAttempt(
+            id=uuid4(),
+            reservation_id=uuid4(),
+            closes_allocation_id=None,
+            venue="spot",
+            settlement_currency="USDT",
+            symbol="BTC_USDT",
+            side=OrderSide.BUY,
+            quantity=quantity,
+            quote_amount=quote_amount,
+            status=ExecutionStatus.SUBMITTED,
+            client_order_id="c1",
+        )
+
+    with pytest.raises(InvariantViolation, match="exactly one size"):
+        _attempt(None, None)
+
+    with pytest.raises(InvariantViolation, match="exactly one size"):
+        _attempt(Decimal("0.004"), Decimal("200"))
+
+
+def test_an_attempt_has_exactly_one_origin() -> None:
+    """Mirrors ``ck_execution_attempts_one_origin``. An attempt either spends a
+    reservation's capital or unwinds a position, and the two uniqueness rules
+    that give each side its idempotency only work if they never overlap."""
+    def _attempt(reservation_id: UUID | None, closes: UUID | None) -> ExecutionAttempt:
+        return ExecutionAttempt(
+            id=uuid4(),
+            reservation_id=reservation_id,
+            closes_allocation_id=closes,
+            venue="spot",
+            settlement_currency="USDT",
+            symbol="BTC_USDT",
+            side=OrderSide.SELL,
+            quantity=Decimal("0.004"),
+            quote_amount=None,
+            status=ExecutionStatus.SUBMITTED,
+            client_order_id="c1",
+        )
+
+    with pytest.raises(InvariantViolation, match="exactly one origin"):
+        _attempt(None, None)
+
+    with pytest.raises(InvariantViolation, match="exactly one origin"):
+        _attempt(uuid4(), uuid4())
+
+
+def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
+    """Opens and closes land in the same ``ledger_entries.allocation_id``
+    column, which is what lets a close net against its open when positions are
+    projected from the ledger."""
+    opening = uuid4()
+
+    open_attempt = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=opening,
+        closes_allocation_id=None,
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="BTC_USDT",
+        side=OrderSide.BUY,
+        quantity=None,
+        quote_amount=Decimal("100"),
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="c1",
+    )
+    close_attempt = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=opening,
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="BTC_USDT",
+        side=OrderSide.SELL,
+        quantity=Decimal("0.002"),
+        quote_amount=None,
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="c2",
+    )
+
+    assert open_attempt.allocation_id == opening
+    assert close_attempt.allocation_id == opening
+    assert open_attempt.is_closing is False
+    assert close_attempt.is_closing is True

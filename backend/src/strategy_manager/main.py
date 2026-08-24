@@ -4,6 +4,7 @@ Module routers are mounted here as they are built. The application owns all
 business logic, authentication and secrets; the frontend is a pure client.
 """
 
+import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -39,14 +40,23 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
+from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import ExchangePort
 from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
+from strategy_manager.execution.infrastructure.pionex_exchange import (
+    PionexExchangeAdapter,
+)
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
+from strategy_manager.execution.infrastructure.venue_support import (
+    describe_untradable,
+    untradable_pool_venues,
+)
+from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
@@ -57,7 +67,10 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.pionex import EXCHANGE as PIONEX_EXCHANGE
-from strategy_manager.shared.infrastructure.pionex.factory import read_only_client
+from strategy_manager.shared.infrastructure.pionex.factory import (
+    read_only_client,
+    trade_client,
+)
 from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
@@ -67,6 +80,8 @@ from strategy_manager.signals.infrastructure.router import router as signals_rou
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -87,6 +102,7 @@ def _build_process_signal_handler(
     pools_by_key: Mapping[tuple[str, str], PoolConfig],
     settings: Settings,
     exchange: ExchangePort,
+    tradable_venues: frozenset[str],
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -97,11 +113,10 @@ def _build_process_signal_handler(
     this runs inside the pool's advisory lock, where a remote call would
     serialize every allocation on that pool behind exchange latency.
 
-    ``ExchangePort`` is still ``FakeExchangeAdapter`` — order submission
-    against a real venue is future scope, kept swappable behind the port. It
-    is passed in rather than built here because one instance is shared with
-    the ``execution.settle`` handler: placing and settling are two jobs
-    talking about the same order."""
+    ``ExchangePort`` is passed in rather than built here: which adapter is
+    registered is a ``DRY_RUN`` decision that belongs to the composition root,
+    and the same instance is handed to the ``execution.settle`` handler
+    because placing and settling are two jobs talking about the same order."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
@@ -143,12 +158,27 @@ def _build_process_signal_handler(
         settle_delay_seconds=settings.execution_settle_delay_seconds,
     )
 
+    # A close shares the exchange and the attempt repository with placement,
+    # but nothing else: no reservation gateway, no advisory lock, and its size
+    # comes from the ledger rather than from a granted amount and a price.
+    close_position = ClosePosition(
+        exchange=exchange,
+        attempts=SqlAlchemyExecutionAttemptRepository(session),
+        held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
+        queue=PostgresJobQueue(session),
+        clock=SystemClock(),
+        commit=session,
+        settle_delay_seconds=settings.execution_settle_delay_seconds,
+    )
+
     return ProcessSignalHandler(
         signal_context=signal_context,
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
         allocate_capital=allocate_capital,
         place_order=place_order,
+        close_position=close_position,
+        tradable_venues=tradable_venues,
     )
 
 
@@ -191,30 +221,69 @@ def build_worker_runner(
         (pool.venue.value, pool.settlement_currency.value): pool for pool in pools
     }
 
-    # One adapter instance for the worker's whole life: placing and settling
-    # are separate jobs that must agree about the same order.
-    exchange: ExchangePort = FakeExchangeAdapter()
-
+    # DRY_RUN is what selects the adapter, and it is the only thing that does.
     # This is the composition root the DRY_RUN invariant names: the one place
     # that knows which ExchangePort adapter is actually registered
-    # (spec: trade-execution § DRY_RUN Safety).
-    assert_dry_run_safe(dry_run=settings.dry_run, exchange=exchange)
+    # (spec: trade-execution § DRY_RUN Safety). The check runs against the
+    # class because the live adapter cannot exist yet — it needs a decrypted
+    # credential and an open socket, and neither belongs to startup.
+    registered: type[ExchangePort] = (
+        FakeExchangeAdapter if settings.dry_run else PionexExchangeAdapter
+    )
+    assert_dry_run_safe(dry_run=settings.dry_run, exchange=registered)
+
+    # ``venue`` reaches the reservation, the attempt and the ledger row without
+    # ever selecting an adapter, so a strategy on a venue this adapter does not
+    # serve would be sized against one wallet and executed against another.
+    #
+    # Warned about here and REFUSED per signal, not here. A pool nobody is
+    # trading is not a reason to stop the pools somebody is: halting the worker
+    # over an unused coin-m pool would take spot trading down with it.
+    tradable_venues = frozenset(registered.venues)
+    untradable = untradable_pool_venues(exchange=registered, pools=pools)
+    if untradable:
+        logger.warning(describe_untradable(exchange=registered, untradable=untradable))
 
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
 
+    # The fake holds its placed orders in memory, so place and settle have to
+    # share ONE instance or settlement finds nothing. The live adapter is the
+    # opposite: it is stateless, Pionex itself is the shared state, and it
+    # needs a per-job credential and socket — so it is built per job, exactly
+    # like the balance reader, and the plaintext dies with the call
+    # (CLAUDE.md rule 8).
+    fake_exchange = FakeExchangeAdapter()
+
+    @asynccontextmanager
+    async def exchange_for(session: AsyncSession) -> AsyncIterator[ExchangePort]:
+        if settings.dry_run:
+            yield fake_exchange
+            return
+
+        credential = await SqlAlchemyCredentialVault(
+            session, cipher, SystemClock()
+        ).load(PIONEX_EXCHANGE)
+        async with trade_client(
+            settings,
+            PionexCredentials(
+                api_key=credential.api_key, api_secret=credential.api_secret
+            ),
+        ) as client:
+            yield PionexExchangeAdapter(client)
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
-        async with factory() as session:
+        async with factory() as session, exchange_for(session) as exchange:
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchange
+                session, pools_by_key, settings, exchange, tradable_venues
             )
             await handler.handle(signal_id)
 
     async def handle_execution_settle(job: ClaimedJob) -> None:
         attempt_id = UUID(str(job.payload["execution_attempt_id"]))
-        async with factory() as session:
+        async with factory() as session, exchange_for(session) as exchange:
             await _build_settle_execution(session, exchange).settle(attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:

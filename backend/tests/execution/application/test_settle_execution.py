@@ -40,15 +40,39 @@ class FrozenClock:
         return NOW
 
 
+def _closing_attempt(
+    status: ExecutionStatus = ExecutionStatus.SUBMITTED,
+) -> ExecutionAttempt:
+    """A close: bound to the allocation it unwinds, not to a reservation, and
+    denominated in the base currency it is selling."""
+    return ExecutionAttempt(
+        id=ATTEMPT_ID,
+        reservation_id=None,
+        closes_allocation_id=RESERVATION_ID,
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="BTC_USDT",
+        side=OrderSide.SELL,
+        quantity=Decimal("0.00199960"),
+        quote_amount=None,
+        status=status,
+        client_order_id=CLIENT_ORDER_ID,
+    )
+
+
 def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAttempt:
     return ExecutionAttempt(
         id=ATTEMPT_ID,
         reservation_id=RESERVATION_ID,
+        closes_allocation_id=None,
         venue="spot",
         settlement_currency="USDT",
         symbol="BTC_USDT",
         side=OrderSide.BUY,
-        quantity=Decimal("2"),
+        # A buy carries its quote amount, never a base quantity: this attempt
+        # spent 100 USDT and what that bought is whatever the fills say.
+        quantity=None,
+        quote_amount=Decimal("100"),
         status=status,
         client_order_id=CLIENT_ORDER_ID,
     )
@@ -292,3 +316,51 @@ async def test_a_second_settlement_of_a_filled_attempt_records_nothing() -> None
 
     assert result.status == "ALREADY_SETTLED"
     assert ledger.records == []
+
+
+async def test_a_settled_close_writes_its_fills_under_the_opening_allocation() -> None:
+    """Both sides of a position land in the same ``ledger_entries.allocation_id``
+    column. That is what lets the close net against the open when positions are
+    projected from the ledger, and what makes a second close read zero held."""
+    exchange = FakeExchange([_fill("0.00199960", "50010")])
+    use_case, _, _, ledger, _ = _build(exchange, attempt=_closing_attempt())
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "FILLED"
+    assert ledger.records[0].allocation_id == RESERVATION_ID
+    assert ledger.records[0].side == "SELL"
+    assert ledger.records[0].strategy_id == STRATEGY_ID
+
+
+async def test_a_settled_close_does_not_re_mark_the_reservation() -> None:
+    """The reservation it is unwinding went FILLED when the position opened.
+    Re-marking it would rewrite settled history to say what it already says —
+    and a close has no reservation of its own to mark."""
+    exchange = FakeExchange([_fill("0.00199960", "50010")])
+    use_case, reservations, attempts, _, _ = _build(
+        exchange, attempt=_closing_attempt()
+    )
+
+    await use_case.settle(ATTEMPT_ID)
+
+    assert reservations.marks == []
+    assert attempts.filled == [(ATTEMPT_ID, "EX-1")]
+
+
+async def test_a_close_the_exchange_never_saw_releases_nothing() -> None:
+    """The capital left the pool when the position opened and is still sitting
+    in the base currency. Marking the opening reservation RELEASED here would
+    claim money is available that is demonstrably still deployed — the position
+    simply stays open, and the failed attempt records why."""
+    exchange = FakeExchange(raises=OrderNotFound("no such order"))
+    use_case, reservations, attempts, ledger, _ = _build(
+        exchange, attempt=_closing_attempt()
+    )
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "NEVER_PLACED"
+    assert reservations.marks == []
+    assert ledger.records == []
+    assert attempts.failed[0][0] == ATTEMPT_ID

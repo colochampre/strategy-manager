@@ -21,6 +21,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
+from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
 
@@ -70,6 +71,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         # with "other objects depend on it" — both tables are recreated by
         # ``create_all`` immediately below regardless.
         await conn.execute(text("DROP TABLE IF EXISTS signals CASCADE"))
+        await rebuild_schema_once(conn)
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("TRUNCATE signals, jobs RESTART IDENTITY CASCADE"))
 

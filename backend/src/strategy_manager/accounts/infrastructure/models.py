@@ -16,7 +16,6 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     Text,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -80,7 +79,11 @@ class ExchangeCredentialRow(Base):
 
     __tablename__ = "exchange_credentials"
     __table_args__ = (
-        UniqueConstraint("exchange", "label", name="ux_exchange_credentials_label"),
+        # There is deliberately no UNIQUE on (exchange, label). It existed
+        # until migration ``0013`` and made rotation impossible: superseded
+        # rows keep their label, so storing a new key under the same one
+        # collided with the history the design exists to preserve. The partial
+        # index below is the real invariant.
         CheckConstraint(
             "char_length(api_key_last4) = 4",
             name="ck_exchange_credentials_last4_length",
