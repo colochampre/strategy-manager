@@ -19,6 +19,9 @@ from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.config import Settings
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.pionex.futures_read_client import (
+    PionexFuturesReadClient,
+)
 from strategy_manager.shared.infrastructure.pionex.read_client import PionexReadOnlyClient
 from strategy_manager.shared.infrastructure.pionex.signer import (
     PionexCredentials,
@@ -55,6 +58,24 @@ async def read_only_client(
 
     async with _http(settings) as http:
         yield PionexReadOnlyClient(http, signer)
+
+
+@asynccontextmanager
+async def futures_read_only_client(
+    settings: Settings,
+    credentials: PionexCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[PionexFuturesReadClient]:
+    """Yields a read-only futures client bound to the supplied credentials.
+
+    Separate from ``read_only_client`` because the two speak to different
+    base paths and return different read models, not because one is safer:
+    both are GET-only by construction.
+    """
+    signer = PionexSigner(credentials, clock or SystemClock())
+
+    async with _http(settings) as http:
+        yield PionexFuturesReadClient(http, signer)
 
 
 @asynccontextmanager
