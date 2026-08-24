@@ -35,6 +35,14 @@ class ExecutionAttempt:
     already stopped counting toward pool availability and the spend is visible
     in the exchange balance instead.
 
+    ``leverage`` (migration ``0015``) is set only for a futures order and
+    NULL for a spot one. It is captured when the order is sized rather than
+    read back later, because it is a per-symbol account setting the owner can
+    change from Pionex's own UI: the multiple in force an hour after the fact
+    is not necessarily the one that decided this position's size. NULL means
+    "not a futures order" -- defaulting it to 1 would make a spot fill
+    indistinguishable from a futures position at 1x, which liquidates.
+
     ``quantity`` and ``quote_amount`` mirror ``MarketSell``/``MarketBuy``:
     exactly one of them is set, and it is the number that actually went on the
     wire. Recording a base quantity for a buy would put a figure in the
@@ -52,6 +60,7 @@ class ExecutionAttempt:
     side: OrderSide
     quantity: Decimal | None
     quote_amount: Decimal | None
+    leverage: Decimal | None
     status: ExecutionStatus
     client_order_id: str
     exchange_order_id: str | None = None

@@ -147,17 +147,22 @@ class PionexFuturesTradeClient:
         side: str,
         base_size: Decimal,
         reduce_only: bool,
-        reference_price: Decimal,
+        reference_price: Decimal | None,
     ) -> PionexOrderAck:
         """Places a ``MARKET_QTY`` order for ``base_size`` of the base
         currency.
 
         ``reference_price`` never goes on the wire. It is the alert's
-        bar-close price and it is used only for the local minimum-notional
-        check, so a size the venue would refuse is refused here with the
-        actual numbers in the message instead of arriving as an opaque code.
-        The venue remains the authority: this check is a fail-safe, and it is
-        made against a price that is by definition slightly stale.
+        bar-close price, used only for the local minimum-notional check, so a
+        size the venue would refuse is refused here with the actual numbers
+        in the message instead of arriving as an opaque code. The venue
+        remains the authority: this is a fail-safe made against a price that
+        is by definition slightly stale.
+
+        It is ``None`` for a close, which is sized from the ledger and has no
+        price of its own. Inventing one to satisfy a fail-safe would be worse
+        than skipping it: a close that this system refuses locally leaves a
+        real position open.
 
         The size is truncated DOWN to the symbol's step first. A futures size
         is always a quotient, so it essentially never lands on a step boundary

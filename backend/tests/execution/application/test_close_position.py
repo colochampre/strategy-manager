@@ -24,10 +24,20 @@ from strategy_manager.execution.application.close_position import (
     ClosePosition,
     NothingRecordedYet,
 )
-from strategy_manager.execution.application.ports import ExchangeError, PlacedOrder
+from strategy_manager.execution.application.ports import (
+    CloseOrderSpec,
+    ExchangeError,
+    OpenOrderSpec,
+    PlacedOrder,
+)
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import MarketSell, OrderRequest, OrderSide
+from strategy_manager.execution.domain.order import (
+    MarketSell,
+    OrderSide,
+    market_order,
+)
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -96,11 +106,37 @@ class SpyExchange:
     is_live = False
 
     def __init__(self, log: list[str], raises: Exception | None = None) -> None:
-        self.orders: list[OrderRequest] = []
+        self.orders: list[PlaceableOrder] = []
+        self.built: list[OpenOrderSpec] = []
         self._log = log
         self._raises = raises
 
-    async def place(self, order: OrderRequest) -> PlacedOrder:
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
+        """Real adapters build the order because denomination is a venue
+        property. This double keeps spot's rule so the existing expectations
+        still describe what a spot venue does."""
+        self.built.append(spec)
+        return market_order(
+            side=spec.side,
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            granted=spec.granted,
+            price=spec.price,
+        )
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        if spec.side is not OrderSide.SELL:
+            raise ExchangeError(
+                "closing a short is not supported on spot: a market buy "
+                "cannot be sized in the base currency"
+            )
+        return MarketSell(
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            base_size=spec.base_size,
+        )
+
+    async def place(self, order: PlaceableOrder) -> PlacedOrder:
         self._log.append("exchange.place")
         if self._raises is not None:
             raise self._raises
@@ -232,7 +268,11 @@ async def test_closing_a_short_is_refused_rather_than_approximated() -> None:
     Approximating with a quote amount leaves a residual position either way."""
     use_case, attempts, _, exchange, _, _ = _build()
 
-    with pytest.raises(InvariantViolation, match="closing a short"):
+    # Refused by the ADAPTER now, not by the use case: futures sizes both
+    # directions in the base currency, so this is spot's limitation and not
+    # a rule of closing. Still an ExchangeError, still a DomainError, and
+    # still raised before any attempt row exists.
+    with pytest.raises(ExchangeError, match="closing a short"):
         await use_case.close(_command(side=OrderSide.BUY))
 
     assert exchange.orders == []

@@ -14,7 +14,8 @@ from uuid import UUID
 
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import OrderRequest
+from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.errors import DomainError
 
 
@@ -55,6 +56,42 @@ class PlacedOrder:
     client_order_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class OpenOrderSpec:
+    """What an adapter needs to turn granted capital into an opening order.
+
+    ``granted`` is the reservation's amount in the pool's settlement currency
+    and ``price`` is the alert's bar-close reference. What those two become
+    is venue business, which is exactly why this is a spec handed to an
+    adapter rather than an order built by the caller: on spot a buy carries
+    ``granted`` verbatim as a quote amount, while on futures ``granted`` is
+    margin and the size is ``granted * leverage / price`` at a leverage only
+    the adapter can read.
+    """
+
+    client_order_id: str
+    symbol: str
+    side: OrderSide
+    granted: Decimal
+    price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class CloseOrderSpec:
+    """What an adapter needs to turn a held position into a closing order.
+
+    ``base_size`` comes from the ledger (``HeldPositionPort``) and is already
+    the honest number, so no venue re-derives it. What differs is what the
+    venue does with it: spot sells the base currency, futures sends a
+    reduce-only order in the closing direction.
+    """
+
+    client_order_id: str
+    symbol: str
+    side: OrderSide
+    base_size: Decimal
+
+
 class ExchangePort(Protocol):
     """``is_live`` gates the ``DRY_RUN`` startup invariant
     (spec: trade-execution § DRY_RUN Safety).
@@ -75,12 +112,28 @@ class ExchangePort(Protocol):
     learns what became of it, keyed by the client order id this system chose
     before it ever spoke to the exchange. That key is what makes an order
     recoverable when the worker dies mid-flight.
+
+    **Building the order is the adapter's job, not the caller's.** A market
+    order is denominated differently per venue -- spot spends a quote amount
+    on a buy and sells a base size, futures sends a base size both ways at a
+    leverage that must be read from the account -- and only the adapter knows
+    which. The two ``build_*`` methods are async for that reason: a futures
+    adapter has to ask the venue what leverage the symbol is on before it can
+    size anything.
+
+    They stay separate from ``place`` because the caller must record the size
+    in its own transaction BEFORE the network call, so the order it commits
+    to is the order that goes out.
     """
 
     is_live: bool
     venues: frozenset[str]
 
-    async def place(self, order: OrderRequest) -> PlacedOrder: ...
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder: ...
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder: ...
+
+    async def place(self, order: PlaceableOrder) -> PlacedOrder: ...
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]: ...
 

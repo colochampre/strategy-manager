@@ -40,6 +40,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from strategy_manager.execution.application.ports import (
+    CloseOrderSpec,
     CommitPort,
     ExchangeError,
     ExchangePort,
@@ -47,11 +48,12 @@ from strategy_manager.execution.application.ports import (
     HeldPositionPort,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.market_symbol import base_currency_of
-from strategy_manager.execution.domain.order import MarketSell, OrderSide
+from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
-from strategy_manager.shared.domain.errors import InvariantViolation
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,18 +116,11 @@ class ClosePosition:
         self._settle_delay_seconds = settle_delay_seconds
 
     async def close(self, command: CloseCommand) -> CloseResult:
-        if command.side is not OrderSide.SELL:
-            # Closing a short means buying the base currency back, and a spot
-            # MARKET BUY is denominated in the quote currency — there is no way
-            # to ask it for an exact base quantity. Shorts belong to the
-            # futures venue (/uapi/v1/), whose adapter does not exist yet, so
-            # this is refused rather than approximated with a quote amount that
-            # would leave a residual position either way.
-            raise InvariantViolation(
-                "closing a short is not supported on spot: a market buy cannot "
-                "be sized in the base currency. This needs the futures adapter."
-            )
-
+        # Whether this side can be closed at all is the ADAPTER's answer, not
+        # this use case's. Spot cannot buy back an exact base quantity, so it
+        # refuses; futures sizes both directions in the base currency, so it
+        # does not. Deciding it here would have hard-coded spot's limitation
+        # into every venue.
         base_currency = base_currency_of(command.symbol, command.settlement_currency)
         base_size = await self._held.base_held(command.allocation_id, base_currency)
         if base_size <= 0:
@@ -138,10 +133,13 @@ class ClosePosition:
         now = self._clock.now()
         client_order_id = str(uuid4())
         attempt_id = uuid4()
-        order = MarketSell(
-            client_order_id=client_order_id,
-            symbol=command.symbol,
-            base_size=base_size,
+        order = await self._exchange.build_close_order(
+            CloseOrderSpec(
+                client_order_id=client_order_id,
+                symbol=command.symbol,
+                side=command.side,
+                base_size=base_size,
+            )
         )
 
         await self._attempts.insert(
@@ -152,9 +150,10 @@ class ClosePosition:
                 venue=command.venue,
                 settlement_currency=command.settlement_currency,
                 symbol=command.symbol,
-                side=order.side,
-                quantity=order.base_size,
+                side=command.side,
+                quantity=base_size,
                 quote_amount=None,
+                leverage=_leverage_of(order),
                 status=ExecutionStatus.SUBMITTED,
                 client_order_id=client_order_id,
             )
@@ -195,3 +194,10 @@ class ClosePosition:
             base_size=base_size,
             exchange_order_id=placed.exchange_order_id,
         )
+
+
+def _leverage_of(order: PlaceableOrder) -> Decimal | None:
+    """A futures close records the multiple it was placed under; a spot close
+    has none. Read off the order rather than looked up again, so the attempt
+    names the number that was actually in force."""
+    return order.leverage if isinstance(order, FuturesMarketOrder) else None

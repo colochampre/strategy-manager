@@ -38,12 +38,20 @@ Deciding which is which comes down to whether Pionex answered:
 from datetime import UTC, datetime, timedelta
 
 from strategy_manager.execution.application.ports import (
+    CloseOrderSpec,
     ExchangeError,
+    OpenOrderSpec,
     OrderNotFound,
     PlacedOrder,
 )
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderRequest
+from strategy_manager.execution.domain.order import (
+    MarketBuy,
+    MarketSell,
+    OrderSide,
+    market_order,
+)
+from strategy_manager.execution.domain.placeable import PlaceableOrder, SpotOrder
 from strategy_manager.shared.domain.money import Venue
 from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexApiError,
@@ -81,25 +89,74 @@ class PionexExchangeAdapter:
     def __init__(self, client: PionexTradeClient) -> None:
         self._client = client
 
-    async def place(self, order: OrderRequest) -> PlacedOrder:
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
+        """A buy carries the granted amount verbatim; a sell divides it by the
+        reference price. ``market_order`` owns that rule.
+
+        Async only to satisfy the port: spot needs nothing from the venue to
+        size an order, which is precisely the difference from futures.
+        """
+        return market_order(
+            side=spec.side,
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            granted=spec.granted,
+            price=spec.price,
+        )
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        """Closing on spot means selling what the ledger says was acquired.
+
+        A BUY-side close is refused rather than approximated. Closing a short
+        means buying the base currency back, and a spot MARKET BUY is
+        denominated in the quote currency -- there is no way to ask it for an
+        exact base quantity, so any attempt leaves a residual position either
+        way. Shorts belong to the futures venue, whose adapter sizes both
+        directions in the base currency.
+        """
+        if spec.side is not OrderSide.SELL:
+            raise ExchangeError(
+                "closing a short is not supported on spot: a market buy cannot "
+                "be sized in the base currency. That position belongs on the "
+                "futures venue."
+            )
+        return MarketSell(
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            base_size=spec.base_size,
+        )
+
+    async def place(self, order: PlaceableOrder) -> PlacedOrder:
         """Sends the order in whichever denomination its variant carries.
 
         There is no side flag to get wrong here — a ``MarketBuy`` can only
         reach ``place_market_buy``, which can only send ``amount``.
         """
+        if not isinstance(order, MarketBuy | MarketSell):
+            # Routing should never send a futures order here: this adapter
+            # declares only the spot venue and the composition root maps venue
+            # to adapter. Refused loudly rather than mis-sent, because the
+            # failure it guards is an order priced against one wallet and
+            # placed against another.
+            raise ExchangeError(
+                f"{type(order).__name__} is not a spot order; this adapter "
+                f"trades {', '.join(sorted(self.venues))} only"
+            )
+
+        spot: SpotOrder = order
         try:
-            match order:
+            match spot:
                 case MarketBuy():
                     ack = await self._client.place_market_buy(
-                        symbol=order.symbol,
-                        client_order_id=order.client_order_id,
-                        quote_amount=order.quote_amount,
+                        symbol=spot.symbol,
+                        client_order_id=spot.client_order_id,
+                        quote_amount=spot.quote_amount,
                     )
                 case MarketSell():
                     ack = await self._client.place_market_sell(
-                        symbol=order.symbol,
-                        client_order_id=order.client_order_id,
-                        base_size=order.base_size,
+                        symbol=spot.symbol,
+                        client_order_id=spot.client_order_id,
+                        base_size=spot.base_size,
                     )
         except PionexApiError as exc:
             if _is_definitive_rejection(exc):

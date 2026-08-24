@@ -69,13 +69,19 @@ class PerpRules:
             Decimal(1).scaleb(-self.base_precision), rounding=ROUND_DOWN
         )
 
-    def assert_tradable(self, size: Decimal, price: Decimal) -> None:
+    def assert_tradable(self, size: Decimal, price: Decimal | None) -> None:
         """Every constraint that decides whether this order is placeable.
 
         Checked together and named individually, because the operator's
         remedy differs for each: a size below the floor needs a bigger grant,
         one above the ceiling needs a smaller one or less leverage, and an
         offline market needs a different symbol entirely.
+
+        ``price`` is ``None`` when the caller has none -- a close is sized
+        from the ledger, not from an amount and a price. The notional check
+        is then skipped rather than run against an invented number: every
+        other check still applies, and the venue enforces the notional
+        anyway.
         """
         if self.status.upper() != TRADING:
             raise PionexApiError(
@@ -91,6 +97,9 @@ class PerpRules:
                 f"{self.symbol} caps a market order at {self.max_size_market} in "
                 f"the base currency; this one is {size}"
             )
+
+        if price is None:
+            return
 
         notional = size * price
         if notional < self.min_notional:

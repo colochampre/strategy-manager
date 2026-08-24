@@ -25,7 +25,7 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import OrderRequest, OrderSide
+from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Currency
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
@@ -55,6 +55,7 @@ def _closing_attempt(
         side=OrderSide.SELL,
         quantity=Decimal("0.00199960"),
         quote_amount=None,
+        leverage=None,
         status=status,
         client_order_id=CLIENT_ORDER_ID,
     )
@@ -73,6 +74,7 @@ def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAt
         # spent 100 USDT and what that bought is whatever the fills say.
         quantity=None,
         quote_amount=Decimal("100"),
+        leverage=None,
         status=status,
         client_order_id=CLIENT_ORDER_ID,
     )
@@ -143,7 +145,13 @@ class FakeExchange:
         self._raises = raises
         self.queried: list[str] = []
 
-    async def place(self, order: OrderRequest) -> object:  # pragma: no cover
+    async def place(self, order: object) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+    async def build_open_order(self, spec: object) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+    async def build_close_order(self, spec: object) -> object:  # pragma: no cover
         raise NotImplementedError
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:

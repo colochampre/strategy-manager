@@ -14,7 +14,9 @@ import pytest
 
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceOrder
 from strategy_manager.execution.application.ports import (
+    CloseOrderSpec,
     ExchangeError,
+    OpenOrderSpec,
     PlacedOrder,
     ReservationSnapshot,
 )
@@ -23,9 +25,10 @@ from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import (
     MarketBuy,
     MarketSell,
-    OrderRequest,
     OrderSide,
+    market_order,
 )
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -99,11 +102,37 @@ class SpyExchange:
     is_live = False
 
     def __init__(self, log: list[str], raises: Exception | None = None) -> None:
-        self.orders: list[OrderRequest] = []
+        self.orders: list[PlaceableOrder] = []
+        self.built: list[OpenOrderSpec] = []
         self._log = log
         self._raises = raises
 
-    async def place(self, order: OrderRequest) -> PlacedOrder:
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
+        """Real adapters build the order because denomination is a venue
+        property. This double keeps spot's rule so the existing expectations
+        still describe what a spot venue does."""
+        self.built.append(spec)
+        return market_order(
+            side=spec.side,
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            granted=spec.granted,
+            price=spec.price,
+        )
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        if spec.side is not OrderSide.SELL:
+            raise ExchangeError(
+                "closing a short is not supported on spot: a market buy "
+                "cannot be sized in the base currency"
+            )
+        return MarketSell(
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            base_size=spec.base_size,
+        )
+
+    async def place(self, order: PlaceableOrder) -> PlacedOrder:
         self._log.append("exchange.place")
         if self._raises is not None:
             raise self._raises

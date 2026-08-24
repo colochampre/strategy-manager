@@ -168,6 +168,7 @@ def test_execution_attempt_holds_its_fields() -> None:
         side=OrderSide.SELL,
         quantity=Decimal("0.004"),
         quote_amount=None,
+        leverage=None,
         status=ExecutionStatus.SUBMITTED,
         client_order_id="c1",
     )
@@ -194,6 +195,7 @@ def test_an_attempt_carries_exactly_one_size() -> None:
             side=OrderSide.BUY,
             quantity=quantity,
             quote_amount=quote_amount,
+            leverage=None,
             status=ExecutionStatus.SUBMITTED,
             client_order_id="c1",
         )
@@ -220,6 +222,7 @@ def test_an_attempt_has_exactly_one_origin() -> None:
             side=OrderSide.SELL,
             quantity=Decimal("0.004"),
             quote_amount=None,
+            leverage=None,
             status=ExecutionStatus.SUBMITTED,
             client_order_id="c1",
         )
@@ -247,6 +250,7 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
         side=OrderSide.BUY,
         quantity=None,
         quote_amount=Decimal("100"),
+        leverage=None,
         status=ExecutionStatus.SUBMITTED,
         client_order_id="c1",
     )
@@ -260,6 +264,7 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
         side=OrderSide.SELL,
         quantity=Decimal("0.002"),
         quote_amount=None,
+        leverage=None,
         status=ExecutionStatus.SUBMITTED,
         client_order_id="c2",
     )

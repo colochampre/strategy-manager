@@ -8,9 +8,26 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from strategy_manager.execution.application.ports import OrderNotFound, PlacedOrder
+from strategy_manager.execution.application.ports import (
+    CloseOrderSpec,
+    OpenOrderSpec,
+    OrderNotFound,
+    PlacedOrder,
+)
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderRequest
+from strategy_manager.execution.domain.futures_order import (
+    FuturesMarketOrder,
+    close_futures_order,
+    open_futures_order,
+)
+from strategy_manager.execution.domain.market_symbol import is_perpetual
+from strategy_manager.execution.domain.order import (
+    MarketBuy,
+    MarketSell,
+    OrderSide,
+    market_order,
+)
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.money import Venue
 
 
@@ -33,11 +50,66 @@ class FakeExchangeAdapter:
     # exchange, and nothing it "trades" reaches one.
     venues = frozenset({Venue.SPOT.value, Venue.USDT_M.value, Venue.COIN_M.value})
 
+    # A dry run rehearses the real shapes, so the fake sizes a perpetual the
+    # way the live futures adapter does. Leverage is 1 because there is no
+    # account to read one from -- what a dry run exercises is the ORDER SHAPE
+    # and the routing, not the multiple.
+    FAKE_LEVERAGE = Decimal("1")
+
     def __init__(self, fill_price: Decimal = Decimal("1")) -> None:
         self._fill_price = fill_price
         self._placed: dict[str, Fill] = {}
 
-    async def place(self, order: OrderRequest) -> PlacedOrder:
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
+        """Builds whichever shape the symbol implies.
+
+        Branching on the symbol rather than always building a spot order is
+        what makes a dry run worth running: otherwise DRY_RUN would exercise
+        a code path that never runs live for a futures strategy, and the
+        first real exercise of the futures shape would be with real money.
+        """
+        if is_perpetual(spec.symbol):
+            return open_futures_order(
+                side=spec.side,
+                client_order_id=spec.client_order_id,
+                symbol=spec.symbol,
+                granted=spec.granted,
+                leverage=self.FAKE_LEVERAGE,
+                price=spec.price,
+            )
+        return market_order(
+            side=spec.side,
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            granted=spec.granted,
+            price=spec.price,
+        )
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        if is_perpetual(spec.symbol):
+            return close_futures_order(
+                side=spec.side,
+                client_order_id=spec.client_order_id,
+                symbol=spec.symbol,
+                base_size=spec.base_size,
+                leverage=self.FAKE_LEVERAGE,
+            )
+        if spec.side is not OrderSide.SELL:
+            # Mirrors the live spot adapter: a spot market buy cannot be sized
+            # in the base currency, so a dry run must refuse what production
+            # refuses. A fake that accepts more than the real thing hides the
+            # bug until it is expensive.
+            raise OrderNotFound(
+                "closing a short is not supported on spot; that position "
+                "belongs on the futures venue"
+            )
+        return MarketSell(
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            base_size=spec.base_size,
+        )
+
+    async def place(self, order: PlaceableOrder) -> PlacedOrder:
         exchange_order_id = f"fake-order-{uuid4()}"
         self._placed[order.client_order_id] = Fill(
             exchange_order_id=exchange_order_id,
@@ -60,7 +132,7 @@ class FakeExchangeAdapter:
             raise OrderNotFound(f"no fake order under client order id {client_order_id}")
         return [fill]
 
-    def _base_quantity(self, order: OrderRequest) -> Decimal:
+    def _base_quantity(self, order: PlaceableOrder) -> Decimal:
         """A fill is always reported in the base currency, whichever way the
         order was denominated — so a buy's quote amount is converted here at
         the fake's own fill price, exactly as a real venue would convert it at
@@ -69,4 +141,6 @@ class FakeExchangeAdapter:
             case MarketBuy():
                 return order.quote_amount / self._fill_price
             case MarketSell():
+                return order.base_size
+            case FuturesMarketOrder():
                 return order.base_size

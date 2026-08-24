@@ -46,6 +46,10 @@ class ExecutionAttemptRow(Base):
     # is populated is the number that actually went on the wire.
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
     quote_amount: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+
+    # ``ck_execution_attempts_leverage_positive`` (migration ``0015``):
+    # set for a futures order, NULL for a spot one.
+    leverage: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)

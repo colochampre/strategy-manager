@@ -38,16 +38,13 @@ from strategy_manager.execution.application.ports import (
     ExchangeError,
     ExchangePort,
     ExecutionAttemptRepositoryPort,
+    OpenOrderSpec,
     ReservationGatewayPort,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
-from strategy_manager.execution.domain.order import (
-    MarketBuy,
-    MarketSell,
-    OrderRequest,
-    OrderSide,
-    market_order,
-)
+from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
+from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderSide
+from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 
@@ -115,14 +112,23 @@ class PlaceOrder:
         # also the object that decides *which* size this order carries, and
         # the attempt below records that same number rather than a second,
         # differently-derived one.
-        order = market_order(
-            side=command.side,
-            client_order_id=client_order_id,
-            symbol=command.symbol,
-            granted=reservation.amount,
-            price=command.price,
+        #
+        # The ADAPTER builds it, because denomination is a venue property: on
+        # spot a buy carries the granted amount verbatim, on futures that
+        # amount is margin and the size depends on a leverage only the venue
+        # can report. So this call may reach the network -- which is exactly
+        # why it happens here, before the transaction's writes, and not
+        # inside them.
+        order = await self._exchange.build_open_order(
+            OpenOrderSpec(
+                client_order_id=client_order_id,
+                symbol=command.symbol,
+                side=command.side,
+                granted=reservation.amount,
+                price=command.price,
+            )
         )
-        quantity, quote_amount = _sizes(order)
+        quantity, quote_amount, leverage = _sizes(order)
 
         await self._reservations.mark(reservation.id, SUBMITTED, now)
         await self._attempts.insert(
@@ -136,6 +142,7 @@ class PlaceOrder:
                 side=order.side,
                 quantity=quantity,
                 quote_amount=quote_amount,
+                leverage=leverage,
                 status=ExecutionStatus.SUBMITTED,
                 client_order_id=client_order_id,
             )
@@ -175,11 +182,21 @@ class PlaceOrder:
         )
 
 
-def _sizes(order: OrderRequest) -> tuple[Decimal | None, Decimal | None]:
-    """Projects the order's single size onto the attempt's two nullable
-    columns. Exactly one is ever populated — the one that went on the wire."""
+def _sizes(
+    order: PlaceableOrder,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    """Projects the order onto the attempt's nullable columns.
+
+    Exactly one size is ever populated — the one that went on the wire.
+    ``leverage`` is set only for a futures order, because only there does a
+    number outside the order change what the size means: the same base size
+    at 5x and at 20x is a different fraction of the pool, and the multiple in
+    force when it was sized is the only thing that explains it.
+    """
     match order:
         case MarketBuy():
-            return None, order.quote_amount
+            return None, order.quote_amount, None
         case MarketSell():
-            return order.base_size, None
+            return order.base_size, None, None
+        case FuturesMarketOrder():
+            return order.base_size, None, order.leverage
