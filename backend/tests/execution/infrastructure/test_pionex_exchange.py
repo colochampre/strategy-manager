@@ -255,3 +255,31 @@ async def test_the_fill_timestamp_keeps_its_milliseconds() -> None:
 
     assert fills[0].filled_at.microsecond == 999000
     assert fills[0].filled_at.tzinfo is UTC
+
+
+async def test_pionexs_real_permission_refusal_is_definitive() -> None:
+    """Captured live on 2026-08-24 placing a real order with a read-only key:
+    HTTP 200, ``result: false``, ``code: AUTH_UNAVAILABLE``, message
+    "have no right".
+
+    Classifying it as definitive was then verified the only way that counts —
+    looking the client order id up afterwards. Pionex had no order under it and
+    the balance was unchanged to the last of its 26 decimals. So releasing the
+    reservation is right: the capital is genuinely free.
+
+    Note this arrives as HTTP 200. Keying the decision on the status line
+    instead of the envelope's code would have read a definitive refusal as an
+    ambiguous one and left the reservation held.
+    """
+    client = FakeTradeClient(
+        place_raises=PionexApiError("have no right", code="AUTH_UNAVAILABLE")
+    )
+
+    with pytest.raises(ExchangeError, match="have no right"):
+        await _adapter(client).place(
+            MarketBuy(
+                client_order_id=CLIENT_ORDER_ID,
+                symbol="ETH_USDT",
+                quote_amount=Decimal("10"),
+            )
+        )
