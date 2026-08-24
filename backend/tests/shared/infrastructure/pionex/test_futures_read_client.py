@@ -32,7 +32,7 @@ def _contract(**overrides: Any) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "symbol": "BTC_USDT_PERP",
         "name": "BTC/USDT Perpetual",
-        "contractType": "PERPETUAL",
+        "type": "PERP",
         "baseCurrency": "BTC",
         "quoteCurrency": "USDT",
         "basePrecision": 3,
@@ -50,6 +50,15 @@ def _contract(**overrides: Any) -> dict[str, Any]:
     }
     return {**entry, **overrides}
 
+
+# The venue answers a single-symbol leverage query with a LIST, not the flat
+# object the published reference describes.
+LEVERAGES: dict[str, Any] = {
+    "leverages": [
+        {"symbol": "ETH_USDT_PERP", "leverage": "3"},
+        {"symbol": "BTC_USDT_PERP", "leverage": "20"},
+    ]
+}
 
 POSITION: dict[str, Any] = {
     "positionId": 90210,
@@ -218,9 +227,7 @@ async def test_the_account_reads_are_signed_and_hit_the_uapi_base_path(
     signer: PionexSigner, recorded: list[httpx.Request]
 ) -> None:
     responses = {
-        LEVERAGE_PATH: httpx.Response(
-            200, json=_envelope({"symbol": "BTC_USDT_PERP", "leverage": "20"})
-        ),
+        LEVERAGE_PATH: httpx.Response(200, json=_envelope(LEVERAGES)),
         MARGIN_MODE_PATH: httpx.Response(
             200, json=_envelope({"symbol": "BTC_USDT_PERP", "isolatedMode": "CROSS"})
         ),
@@ -246,7 +253,7 @@ async def test_the_transmitted_query_is_byte_identical_to_the_signed_one(
 ) -> None:
     """The symbol travels as a query parameter, and Pionex signs values raw.
     If httpx re-encodes it, every futures account read fails authentication."""
-    payload = _envelope({"symbol": "BTC_USDT_PERP", "leverage": "20"})
+    payload = _envelope(LEVERAGES)
     client = _client(signer, {LEVERAGE_PATH: httpx.Response(200, json=payload)}, recorded)
 
     signed = signer.sign("GET", LEVERAGE_PATH, {"symbol": "BTC_USDT_PERP"})
@@ -311,3 +318,43 @@ def test_the_client_exposes_no_writing_method() -> None:
     public = [name for name in dir(PionexFuturesReadClient) if not name.startswith("_")]
 
     assert [name for name in public if any(word in name.lower() for word in forbidden)] == []
+
+
+async def test_leverage_is_matched_by_symbol_not_taken_positionally(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """The venue answers a single-symbol query with a list. Reading entry
+    zero would report ETH's leverage as BTC's, and leverage is the multiplier
+    on every sizing decision that follows."""
+    payload = _envelope(LEVERAGES)
+    client = _client(signer, {LEVERAGE_PATH: httpx.Response(200, json=payload)}, recorded)
+
+    assert LEVERAGES["leverages"][0]["symbol"] != "BTC_USDT_PERP"
+    assert await client.leverage_for("BTC_USDT_PERP") == Decimal("20")
+
+
+async def test_leverage_for_a_symbol_the_venue_omits_fails_loudly(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    payload = _envelope({"leverages": []})
+    client = _client(signer, {LEVERAGE_PATH: httpx.Response(200, json=payload)}, recorded)
+
+    with pytest.raises(PionexApiError, match="no leverage is reported"):
+        await client.leverage_for("BTC_USDT_PERP")
+
+
+async def test_the_documented_contract_type_field_is_not_the_live_one(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """The reference documents ``contractType: PERPETUAL``; the venue sends
+    ``type: PERP`` and no ``contractType`` at all. Reading the documented
+    name yields None for every one of the 603 listed markets."""
+    entry = _contract()
+    assert "contractType" not in entry
+
+    responses = {SYMBOLS_PATH: httpx.Response(200, json=_envelope({"symbols": [entry]}))}
+    client = _client(signer, responses, recorded)
+
+    contracts = await client.perp_contracts()
+
+    assert contracts[0].contract_type == "PERP"

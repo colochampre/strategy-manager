@@ -74,6 +74,14 @@ class PerpContract:
 
     symbol: str
     contract_type: str
+    """Reported as ``type`` on the wire, valued ``PERP``.
+
+    The published reference calls this field ``contractType`` and gives it the
+    value ``PERPETUAL``. Neither is true of the live response: all 603 listed
+    contracts carry ``type`` and no ``contractType`` at all, so reading the
+    documented name yields ``None`` for every market.
+    """
+
     base_currency: str
     quote_currency: str
     base_precision: int
@@ -150,9 +158,20 @@ class PionexFuturesReadClient:
         return [_parse_position(entry) for entry in _list_of(data, "positions")]
 
     async def leverage_for(self, symbol: str) -> Decimal:
-        """The leverage configured for one symbol."""
+        """The leverage configured for one symbol.
+
+        The response is a ``leverages`` LIST even when one symbol was asked
+        for -- the published reference describes a flat ``{symbol, leverage}``
+        object, which is not what the venue sends. The entry is matched by
+        symbol rather than taken positionally, because a list keyed by nothing
+        is exactly where the wrong market's leverage gets read as this one's.
+        """
         data = await self._read(LEVERAGE_PATH, {"symbol": symbol})
-        return _amount(data, "leverage")
+        for entry in _list_of(data, "leverages"):
+            fields = _object(entry, "leverage entry")
+            if _text(fields, "symbol").upper() == symbol.upper():
+                return _amount(fields, "leverage")
+        raise PionexApiError(f"no leverage is reported for {symbol!r}")
 
     async def margin_mode_for(self, symbol: str) -> str:
         """CROSS or ISOLATED, as configured for one symbol."""
@@ -196,7 +215,7 @@ def _parse_contract(entry: Any) -> PerpContract:
     fields = _object(entry, "symbol entry")
     return PerpContract(
         symbol=_text(fields, "symbol").upper(),
-        contract_type=_text(fields, "contractType"),
+        contract_type=_text(fields, "type"),
         base_currency=_text(fields, "baseCurrency"),
         quote_currency=_text(fields, "quoteCurrency"),
         base_precision=_integer(fields, "basePrecision"),

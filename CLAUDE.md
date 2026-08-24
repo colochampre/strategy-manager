@@ -88,15 +88,38 @@ These exist because this system moves real money.
   2FA and a paid plan; provides no request signing.
 - **Pionex spot:** `https://api.pionex.com`, paths `/api/v1/`. HMAC-SHA256,
   headers `PIONEX-KEY` / `PIONEX-SIGNATURE`, `timestamp` in ms valid ±20s.
-- **Pionex futures:** paths `/uapi/v1/` — a different base path, so a separate
-  adapter. Margin modes CROSS / ISOLATED.
+- **Pionex futures:** account and trade paths `/uapi/v1/` — a different base
+  path, so a separate adapter. But the perpetual catalogue and risk table are
+  served from the *spot* namespace: `/api/v1/common/symbols?type=PERP` and
+  `/api/v1/common/riskTable`. Symbols are suffixed `_PERP`.
+  Margin mode CROSS / ISOLATED is a **per-symbol setting**
+  (`/uapi/v1/trade/isolatedMode`), not an order parameter. Leverage is
+  per symbol too (`/uapi/v1/account/leverage`). Position mode
+  (`/uapi/v1/account/positionMode`) is account-wide: `BUYSELL` one-way or
+  `OPENCLOSE` hedged.
+
+### Where the futures docs are wrong (verified live 2026-08-24)
+
+The published reference disagrees with the venue in two places, and both fail
+silently rather than loudly:
+
+- Contract type arrives as `type: "PERP"`, **not** `contractType: "PERPETUAL"`.
+  Reading the documented name yields `None` for all 603 markets.
+- `GET /uapi/v1/account/leverage` answers with a `leverages` **list** even for
+  a single-symbol query, not the documented flat `{symbol, leverage}` object.
+  Match the entry by symbol; taking index 0 reads another market's leverage.
 
 ## Open risks
 
-- No leverage-setting endpoint is documented in the Pionex futures Trade API.
-  Confirm against a live account before depending on it.
-- COIN-M coverage via the API is unconfirmed. Implement spot and USDT-M first;
-  keep the venue an abstraction so COIN-M lands as a later adapter.
+- Futures order sizing is by **base size** (`size`) with order type
+  `MARKET_QTY`. There is no quote-amount market order as on spot, where a BUY
+  sends `amount`. `OrderRequest` cannot be reused unchanged.
+- Setting leverage and margin mode is unproven. Reading both works against a
+  live account; neither `POST` has been exercised.
+- COIN-M is reachable after all: the catalogue lists 43 non-USDT-settled
+  perpetuals across 22 settlement currencies (BTC, ETH, SOL and others). Still
+  implement USDT-M first, but the venue abstraction now has a confirmed second
+  settlement currency to serve, not a hypothetical one.
 
 ## Conventions
 
