@@ -105,13 +105,21 @@ async def test_the_wrong_master_key_cannot_read_a_stored_credential(
 async def test_storing_again_supersedes_rather_than_duplicating(
     pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
 ) -> None:
-    """Rotation. The partial unique index allows only one active row per
-    exchange, so the old one has to step down before the new one lands."""
+    """Rotation, under the SAME label — which is the only rotation that
+    actually happens, because ``store_pionex_credentials.py`` uses a fixed one.
+
+    This test used to pass a new label on the second store. It therefore
+    exercised a scenario no caller performs, and missed that a UNIQUE on
+    (exchange, label) made real rotation raise a constraint violation. The
+    partial unique index allows one active row per exchange, so the old one
+    steps down before the new one lands; nothing else may constrain the row
+    that steps down.
+    """
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
         await vault.store(_credential(api_key="OLD-KEY-0000"))
         await session.commit()
-        await vault.store(_credential(api_key="NEW-KEY-1111", label="rotated"))
+        await vault.store(_credential(api_key="NEW-KEY-1111"))
         await session.commit()
 
         loaded = await vault.load(EXCHANGE)
@@ -129,7 +137,7 @@ async def test_a_superseded_credential_is_kept_not_deleted(
         vault = _vault(session, master_key)
         await vault.store(_credential(api_key="OLD-KEY-0000"))
         await session.commit()
-        await vault.store(_credential(api_key="NEW-KEY-1111", label="rotated"))
+        await vault.store(_credential(api_key="NEW-KEY-1111"))
         await session.commit()
 
         inactive = (
@@ -164,3 +172,27 @@ async def test_hints_expose_only_the_last_four(
     assert len(hints) == 1
     assert hints[0].api_key_last4 == "abcd"
     assert not hasattr(hints[0], "api_secret")
+
+
+async def test_a_credential_can_be_rotated_more_than_once(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """Every key this system has ever held stays recoverable.
+
+    Two rotations under one label is what a year of ordinary key hygiene looks
+    like, and it is precisely what the dropped UNIQUE forbade — the second
+    store collided with the first superseded row rather than joining it.
+    """
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        for api_key in ("KEY-ONE-0001", "KEY-TWO-0002", "KEY-THREE-0003"):
+            await vault.store(_credential(api_key=api_key))
+            await session.commit()
+
+        loaded = await vault.load(EXCHANGE)
+        rows = (await session.execute(select(ExchangeCredentialRow))).scalars().all()
+
+    assert loaded.api_key == "KEY-THREE-0003"
+    assert len(rows) == 3
+    assert [row.is_active for row in rows].count(True) == 1
+    assert sorted(row.api_key_last4 for row in rows) == ["0001", "0002", "0003"]
