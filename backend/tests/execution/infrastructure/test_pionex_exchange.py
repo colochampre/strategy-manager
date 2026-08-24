@@ -25,8 +25,8 @@ from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexApiError,
     PionexOrderNotFound,
 )
+from strategy_manager.shared.infrastructure.pionex.fills import PionexFill
 from strategy_manager.shared.infrastructure.pionex.trade_client import (
-    PionexFill,
     PionexOrderAck,
 )
 

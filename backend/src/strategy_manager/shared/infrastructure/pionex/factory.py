@@ -22,12 +22,16 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.pionex.futures_read_client import (
     PionexFuturesReadClient,
 )
+from strategy_manager.shared.infrastructure.pionex.futures_trade_client import (
+    PionexFuturesTradeClient,
+)
 from strategy_manager.shared.infrastructure.pionex.read_client import PionexReadOnlyClient
 from strategy_manager.shared.infrastructure.pionex.signer import (
     PionexCredentials,
     PionexSigner,
 )
 from strategy_manager.shared.infrastructure.pionex.trade_client import PionexTradeClient
+from strategy_manager.shared.infrastructure.pionex.transport import PionexTransport
 
 
 def credentials_from_settings(settings: Settings) -> PionexCredentials:
@@ -79,6 +83,24 @@ async def futures_read_only_client(
 
 
 @asynccontextmanager
+async def futures_trade_client(
+    settings: Settings,
+    credentials: PionexCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[PionexFuturesTradeClient]:
+    """Yields a client that can place FUTURES orders.
+
+    Separate from ``trade_client`` because the two speak different base paths
+    and different order shapes, and a call site asking for this one is
+    stating plainly which venue it intends to move money on.
+    """
+    signer = PionexSigner(credentials, clock or SystemClock())
+
+    async with _http(settings) as http:
+        yield PionexFuturesTradeClient(http, signer)
+
+
+@asynccontextmanager
 async def trade_client(
     settings: Settings,
     credentials: PionexCredentials,
@@ -95,6 +117,27 @@ async def trade_client(
 
     async with _http(settings) as http:
         yield PionexTradeClient(http, signer)
+
+
+@asynccontextmanager
+async def signed_transport(
+    settings: Settings,
+    credentials: PionexCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[PionexTransport]:
+    """Yields the bare signed transport, for probes that need the raw
+    envelope rather than a parsed read model.
+
+    Public and deliberately narrow: the scripts that ask "what exactly does
+    Pionex answer here?" cannot use a typed client, because the whole point
+    of asking is that the typed shape is not yet known to be right. Nothing
+    in the application wires this -- it takes a path and returns whatever
+    comes back, which is exactly what an adapter must not do.
+    """
+    signer = PionexSigner(credentials, clock or SystemClock())
+
+    async with _http(settings) as http:
+        yield PionexTransport(http, signer)
 
 
 @asynccontextmanager
