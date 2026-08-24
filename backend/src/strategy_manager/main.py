@@ -42,19 +42,28 @@ from strategy_manager.allocation.infrastructure.reservation_gateway import (
 )
 from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
-from strategy_manager.execution.application.ports import ExchangePort
+from strategy_manager.execution.application.ports import (
+    ExchangePort,
+    ExchangeRegistryPort,
+)
 from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
+from strategy_manager.execution.infrastructure.exchange_registry import (
+    VenueExchangeRegistry,
+)
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.pionex_exchange import (
     PionexExchangeAdapter,
+)
+from strategy_manager.execution.infrastructure.pionex_futures_exchange import (
+    PionexFuturesExchangeAdapter,
 )
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
 from strategy_manager.execution.infrastructure.venue_support import (
-    describe_untradable,
-    untradable_pool_venues,
+    describe_unserved,
+    unserved_pool_venues,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
@@ -68,6 +77,7 @@ from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.pionex import EXCHANGE as PIONEX_EXCHANGE
 from strategy_manager.shared.infrastructure.pionex.factory import (
+    futures_trade_client,
     read_only_client,
     trade_client,
 )
@@ -101,7 +111,7 @@ def _build_process_signal_handler(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[str, str], PoolConfig],
     settings: Settings,
-    exchange: ExchangePort,
+    exchanges: ExchangeRegistryPort,
     tradable_venues: frozenset[str],
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
@@ -113,10 +123,11 @@ def _build_process_signal_handler(
     this runs inside the pool's advisory lock, where a remote call would
     serialize every allocation on that pool behind exchange latency.
 
-    ``ExchangePort`` is passed in rather than built here: which adapter is
-    registered is a ``DRY_RUN`` decision that belongs to the composition root,
-    and the same instance is handed to the ``execution.settle`` handler
-    because placing and settling are two jobs talking about the same order."""
+    The exchange REGISTRY is passed in rather than built here: which
+    adapters are registered is a ``DRY_RUN`` decision that belongs to the
+    composition root, and the same registry is handed to the
+    ``execution.settle`` handler because placing and settling are two jobs
+    talking about the same order -- on the same venue."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
@@ -150,7 +161,7 @@ def _build_process_signal_handler(
 
     place_order = PlaceOrder(
         reservations=ReservationGatewayAdapter(reservation_repository),
-        exchange=exchange,
+        exchanges=exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         queue=PostgresJobQueue(session),
         clock=SystemClock(),
@@ -162,7 +173,7 @@ def _build_process_signal_handler(
     # but nothing else: no reservation gateway, no advisory lock, and its size
     # comes from the ledger rather than from a granted amount and a price.
     close_position = ClosePosition(
-        exchange=exchange,
+        exchanges=exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
         queue=PostgresJobQueue(session),
@@ -183,7 +194,7 @@ def _build_process_signal_handler(
 
 
 def _build_settle_execution(
-    session: AsyncSession, exchange: ExchangePort
+    session: AsyncSession, exchanges: ExchangeRegistryPort
 ) -> SettleExecution:
     """Composes the ``execution.settle`` job's use case: ask the exchange what
     the order became, and write it to the append-only ledger."""
@@ -191,7 +202,7 @@ def _build_settle_execution(
         reservations=ReservationGatewayAdapter(
             SqlAlchemyReservationRepository(session)
         ),
-        exchange=exchange,
+        exchanges=exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
         usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
@@ -227,10 +238,13 @@ def build_worker_runner(
     # (spec: trade-execution § DRY_RUN Safety). The check runs against the
     # class because the live adapter cannot exist yet — it needs a decrypted
     # credential and an open socket, and neither belongs to startup.
-    registered: type[ExchangePort] = (
-        FakeExchangeAdapter if settings.dry_run else PionexExchangeAdapter
+    registered: tuple[type[ExchangePort], ...] = (
+        (FakeExchangeAdapter,)
+        if settings.dry_run
+        else (PionexExchangeAdapter, PionexFuturesExchangeAdapter)
     )
-    assert_dry_run_safe(dry_run=settings.dry_run, exchange=registered)
+    for adapter in registered:
+        assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
 
     # ``venue`` reaches the reservation, the attempt and the ledger row without
     # ever selecting an adapter, so a strategy on a venue this adapter does not
@@ -239,10 +253,22 @@ def build_worker_runner(
     # Warned about here and REFUSED per signal, not here. A pool nobody is
     # trading is not a reason to stop the pools somebody is: halting the worker
     # over an unused coin-m pool would take spot trading down with it.
-    tradable_venues = frozenset(registered.venues)
-    untradable = untradable_pool_venues(exchange=registered, pools=pools)
-    if untradable:
-        logger.warning(describe_untradable(exchange=registered, untradable=untradable))
+    # The UNION across every registered adapter. Asking each one separately
+    # would report every futures pool as untradable merely because the spot
+    # adapter does not serve it -- noise that trains an operator to ignore the
+    # one warning that matters.
+    tradable_venues: frozenset[str] = frozenset().union(
+        *(adapter.venues for adapter in registered)
+    )
+    unserved = unserved_pool_venues(served=tradable_venues, pools=pools)
+    if unserved:
+        logger.warning(
+            describe_unserved(
+                served=tradable_venues,
+                by=" + ".join(adapter.__name__ for adapter in registered),
+                unserved=unserved,
+            )
+        )
 
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
@@ -257,34 +283,55 @@ def build_worker_runner(
     fake_exchange = FakeExchangeAdapter()
 
     @asynccontextmanager
-    async def exchange_for(session: AsyncSession) -> AsyncIterator[ExchangePort]:
+    async def exchange_for(
+        session: AsyncSession,
+    ) -> AsyncIterator[ExchangeRegistryPort]:
+        """Every venue this deployment can trade, built fresh for one job.
+
+        Both live adapters are opened even when the job turns out to need
+        only one. That costs an HTTP client, not a request -- httpx connects
+        lazily and neither adapter calls anything until it is asked to -- and
+        it buys the property that matters: the registry is complete before
+        the venue is known, so selection never has to fall back.
+
+        The credential is decrypted once and shared by both clients. It is
+        the same Pionex key: spot and futures are different base paths on one
+        account, not different accounts. The plaintext still dies with this
+        context (CLAUDE.md rule 8).
+        """
         if settings.dry_run:
-            yield fake_exchange
+            yield VenueExchangeRegistry([fake_exchange])
             return
 
         credential = await SqlAlchemyCredentialVault(
             session, cipher, SystemClock()
         ).load(PIONEX_EXCHANGE)
-        async with trade_client(
-            settings,
-            PionexCredentials(
-                api_key=credential.api_key, api_secret=credential.api_secret
-            ),
-        ) as client:
-            yield PionexExchangeAdapter(client)
+        credentials = PionexCredentials(
+            api_key=credential.api_key, api_secret=credential.api_secret
+        )
+        async with (
+            trade_client(settings, credentials) as spot,
+            futures_trade_client(settings, credentials) as futures,
+        ):
+            yield VenueExchangeRegistry(
+                [
+                    PionexExchangeAdapter(spot),
+                    PionexFuturesExchangeAdapter(futures),
+                ]
+            )
 
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
-        async with factory() as session, exchange_for(session) as exchange:
+        async with factory() as session, exchange_for(session) as exchanges:
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchange, tradable_venues
+                session, pools_by_key, settings, exchanges, tradable_venues
             )
             await handler.handle(signal_id)
 
     async def handle_execution_settle(job: ClaimedJob) -> None:
         attempt_id = UUID(str(job.payload["execution_attempt_id"]))
-        async with factory() as session, exchange_for(session) as exchange:
-            await _build_settle_execution(session, exchange).settle(attempt_id)
+        async with factory() as session, exchange_for(session) as exchanges:
+            await _build_settle_execution(session, exchanges).settle(attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         # The HTTP client is built per job rather than held open across the

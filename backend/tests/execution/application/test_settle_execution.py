@@ -26,6 +26,9 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.infrastructure.exchange_registry import (
+    VenueExchangeRegistry,
+)
 from strategy_manager.shared.domain.money import Currency
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
@@ -137,6 +140,7 @@ class FakeAttempts:
 
 class FakeExchange:
     is_live = False
+    venues = frozenset({"spot"})
 
     def __init__(
         self, fills: list[Fill] | None = None, raises: Exception | None = None
@@ -195,7 +199,7 @@ def _build(
     usd_rate = StubUsdRate()
     use_case = SettleExecution(
         reservations=reservations,
-        exchange=exchange,  # type: ignore[arg-type]
+        exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
         attempts=attempts,  # type: ignore[arg-type]
         fill_recorder=ledger,  # type: ignore[arg-type]
         usd_rate_provider=usd_rate,

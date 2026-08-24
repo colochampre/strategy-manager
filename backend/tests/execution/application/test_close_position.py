@@ -38,6 +38,9 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.infrastructure.exchange_registry import (
+    VenueExchangeRegistry,
+)
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -104,6 +107,7 @@ class SpyQueue:
 
 class SpyExchange:
     is_live = False
+    venues = frozenset({"spot"})
 
     def __init__(self, log: list[str], raises: Exception | None = None) -> None:
         self.orders: list[PlaceableOrder] = []
@@ -170,7 +174,7 @@ def _build(
     exchange = SpyExchange(log, exchange_raises)
     held = FakeHeld(base_held)
     use_case = ClosePosition(
-        exchange=exchange,  # type: ignore[arg-type]
+        exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
         attempts=attempts,  # type: ignore[arg-type]
         held=held,  # type: ignore[arg-type]
         queue=queue,  # type: ignore[arg-type]

@@ -43,7 +43,8 @@ number that sized a position and the number in force an hour later are not
 guaranteed to be the same. The one that sized it is the one that explains the
 position, so it travels with the order and is recorded on the execution
 attempt. A close never re-derives a size from it -- closes are sized from the
-ledger (``HeldPositionPort``), same as on spot.
+ledger (``HeldPositionPort``), same as on spot -- so a closing order carries
+no leverage at all.
 """
 
 from dataclasses import dataclass
@@ -63,21 +64,28 @@ class FuturesMarketOrder:
     direction instead of flattening the old one. With it, the venue refuses to
     do anything except reduce what is already there.
 
-    ``leverage`` is the number this order was sized at, kept so the position
+    ``leverage`` is the number this order was SIZED at, kept so the position
     stays explainable after the account setting moves.
+
+    It is ``None`` on a close, and that is not an omission. A close takes its
+    size from the ledger, so no leverage participates in deriving it -- and
+    requiring one would mean reading an account setting before every close,
+    turning a purely descriptive field into a way for a close to fail. A close
+    that cannot be placed leaves a real position open; nothing descriptive is
+    worth that.
     """
 
     client_order_id: str
     symbol: str
     side: OrderSide
     base_size: Decimal
-    leverage: Decimal
+    leverage: Decimal | None = None
     reduce_only: bool = False
 
     def __post_init__(self) -> None:
         if self.base_size <= 0:
             raise InvariantViolation("FuturesMarketOrder.base_size must be positive")
-        if self.leverage <= 0:
+        if self.leverage is not None and self.leverage <= 0:
             raise InvariantViolation("FuturesMarketOrder.leverage must be positive")
 
 
@@ -141,7 +149,6 @@ def close_futures_order(
     client_order_id: str,
     symbol: str,
     base_size: Decimal,
-    leverage: Decimal,
 ) -> FuturesMarketOrder:
     """Builds the order that FLATTENS a position the ledger already knows.
 
@@ -152,12 +159,14 @@ def close_futures_order(
 
     Always ``reduce_only``. A close that cannot reduce should fail at the
     venue rather than open a fresh position in the opposite direction.
+
+    Carries no leverage: none was used to derive this size, and reading one
+    just to record it would let an account-settings call fail a close.
     """
     return FuturesMarketOrder(
         client_order_id=client_order_id,
         symbol=symbol,
         side=side,
         base_size=base_size,
-        leverage=leverage,
         reduce_only=True,
     )

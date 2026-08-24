@@ -92,7 +92,6 @@ class FakeExchangeAdapter:
                 client_order_id=spec.client_order_id,
                 symbol=spec.symbol,
                 base_size=spec.base_size,
-                leverage=self.FAKE_LEVERAGE,
             )
         if spec.side is not OrderSide.SELL:
             # Mirrors the live spot adapter: a spot market buy cannot be sized

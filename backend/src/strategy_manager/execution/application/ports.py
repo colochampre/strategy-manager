@@ -138,6 +138,22 @@ class ExchangePort(Protocol):
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]: ...
 
 
+class ExchangeRegistryPort(Protocol):
+    """Which adapter trades a given venue.
+
+    Every use case that touches an exchange takes this rather than a single
+    ``ExchangePort``, because every one of them already knows the venue it is
+    acting on -- the reservation's, the close command's, the attempt's -- and
+    the venue is the only thing that decides where an order may go.
+
+    Handing a use case one adapter is what allowed a ``usdt-m`` reservation to
+    be sized against the futures wallet and placed on spot: the venue reached
+    every layer and selected nothing.
+    """
+
+    def for_venue(self, venue: str) -> ExchangePort: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ReservationSnapshot:
     """What ``ExecuteReservation`` needs to know about the reservation it is

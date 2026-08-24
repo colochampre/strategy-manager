@@ -18,7 +18,9 @@ from strategy_manager.execution.infrastructure.pionex_exchange import (
     PionexExchangeAdapter,
 )
 from strategy_manager.execution.infrastructure.venue_support import (
+    describe_unserved,
     describe_untradable,
+    unserved_pool_venues,
     untradable_pool_venues,
 )
 from strategy_manager.shared.domain.money import Currency, Venue
@@ -106,3 +108,32 @@ def test_it_accepts_an_instance_as_well_as_a_class() -> None:
 
 def test_no_pools_at_all_reports_nothing() -> None:
     assert untradable_pool_venues(exchange=PionexExchangeAdapter, pools=[]) == []
+
+
+def test_the_union_across_adapters_is_what_counts_as_unserved() -> None:
+    """Asking each adapter separately would report every futures pool as
+    untradable merely because the spot adapter does not serve it -- noise that
+    trains an operator to ignore the one warning that matters."""
+    pools = [_pool(Venue.SPOT), _pool(Venue.USDT_M), _pool(Venue.COIN_M, Currency.BTC)]
+
+    unserved = unserved_pool_venues(served=frozenset({"spot", "usdt-m"}), pools=pools)
+
+    assert unserved == ["coin-m"]
+
+
+def test_nothing_is_unserved_when_every_pool_has_an_adapter() -> None:
+    pools = [_pool(Venue.SPOT), _pool(Venue.USDT_M)]
+
+    assert unserved_pool_venues(served=frozenset({"spot", "usdt-m"}), pools=pools) == []
+
+
+def test_the_union_warning_names_both_halves_of_the_mismatch() -> None:
+    message = describe_unserved(
+        served=frozenset({"spot", "usdt-m"}),
+        by="PionexExchangeAdapter + PionexFuturesExchangeAdapter",
+        unserved=["coin-m"],
+    )
+
+    assert "spot, usdt-m" in message
+    assert "coin-m" in message
+    assert "refused rather than executed against the wrong wallet" in message

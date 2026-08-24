@@ -43,15 +43,13 @@ from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     CommitPort,
     ExchangeError,
-    ExchangePort,
+    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     HeldPositionPort,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
-from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.market_symbol import base_currency_of
 from strategy_manager.execution.domain.order import OrderSide
-from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 
@@ -99,7 +97,7 @@ class ClosePosition:
 
     def __init__(
         self,
-        exchange: ExchangePort,
+        exchanges: ExchangeRegistryPort,
         attempts: ExecutionAttemptRepositoryPort,
         held: HeldPositionPort,
         queue: JobQueuePort,
@@ -107,7 +105,7 @@ class ClosePosition:
         commit: CommitPort,
         settle_delay_seconds: float,
     ) -> None:
-        self._exchange = exchange
+        self._exchanges = exchanges
         self._attempts = attempts
         self._held = held
         self._queue = queue
@@ -133,7 +131,8 @@ class ClosePosition:
         now = self._clock.now()
         client_order_id = str(uuid4())
         attempt_id = uuid4()
-        order = await self._exchange.build_close_order(
+        exchange = self._exchanges.for_venue(command.venue)
+        order = await exchange.build_close_order(
             CloseOrderSpec(
                 client_order_id=client_order_id,
                 symbol=command.symbol,
@@ -153,7 +152,10 @@ class ClosePosition:
                 side=command.side,
                 quantity=base_size,
                 quote_amount=None,
-                leverage=_leverage_of(order),
+                # A close records no leverage: none derived its size. The
+                # multiple that explains the position is on the OPENING
+                # attempt, where it was actually used.
+                leverage=None,
                 status=ExecutionStatus.SUBMITTED,
                 client_order_id=client_order_id,
             )
@@ -172,7 +174,7 @@ class ClosePosition:
         # closing order against the same position.
 
         try:
-            placed = await self._exchange.place(order)
+            placed = await exchange.place(order)
         except ExchangeError as exc:
             # Definitive rejection. There is no reservation to release — the
             # capital was already spent and is sitting in the base currency,
@@ -194,10 +196,3 @@ class ClosePosition:
             base_size=base_size,
             exchange_order_id=placed.exchange_order_id,
         )
-
-
-def _leverage_of(order: PlaceableOrder) -> Decimal | None:
-    """A futures close records the multiple it was placed under; a spot close
-    has none. Read off the order rather than looked up again, so the attempt
-    names the number that was actually in force."""
-    return order.leverage if isinstance(order, FuturesMarketOrder) else None

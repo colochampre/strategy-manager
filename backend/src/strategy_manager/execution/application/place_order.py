@@ -36,7 +36,7 @@ from uuid import UUID, uuid4
 from strategy_manager.execution.application.ports import (
     CommitPort,
     ExchangeError,
-    ExchangePort,
+    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     OpenOrderSpec,
     ReservationGatewayPort,
@@ -79,7 +79,7 @@ class PlaceOrder:
     def __init__(
         self,
         reservations: ReservationGatewayPort,
-        exchange: ExchangePort,
+        exchanges: ExchangeRegistryPort,
         attempts: ExecutionAttemptRepositoryPort,
         queue: JobQueuePort,
         clock: ClockPort,
@@ -87,7 +87,7 @@ class PlaceOrder:
         settle_delay_seconds: float,
     ) -> None:
         self._reservations = reservations
-        self._exchange = exchange
+        self._exchanges = exchanges
         self._attempts = attempts
         self._queue = queue
         self._clock = clock
@@ -119,7 +119,8 @@ class PlaceOrder:
         # can report. So this call may reach the network -- which is exactly
         # why it happens here, before the transaction's writes, and not
         # inside them.
-        order = await self._exchange.build_open_order(
+        exchange = self._exchanges.for_venue(reservation.venue)
+        order = await exchange.build_open_order(
             OpenOrderSpec(
                 client_order_id=client_order_id,
                 symbol=command.symbol,
@@ -161,7 +162,7 @@ class PlaceOrder:
         # ---- no transaction: the network call is outside every lock and
         # every transaction (design.md § Transaction Boundaries)
         try:
-            placed = await self._exchange.place(order)
+            placed = await exchange.place(order)
         except ExchangeError as exc:
             # A rejection is definitive: the exchange saw the order and
             # refused it, so the reservation can be released now rather than

@@ -42,21 +42,41 @@ def untradable_pool_venues(
     ``assert_dry_run_safe`` does: the live adapter is built per job and does
     not exist yet at startup.
     """
-    return sorted(
-        {pool.venue.value for pool in pools if pool.venue.value not in exchange.venues}
-    )
+    return unserved_pool_venues(served=frozenset(exchange.venues), pools=pools)
+
+
+def unserved_pool_venues(
+    *, served: frozenset[str], pools: Sequence[PoolConfig]
+) -> list[str]:
+    """Venues among the enabled pools that NO registered adapter trades.
+
+    The union is the honest question once more than one adapter exists.
+    Asking it per adapter reports every futures pool as untradable merely
+    because the spot adapter does not serve it -- noise that trains an
+    operator to ignore the one warning that matters.
+    """
+    return sorted({pool.venue.value for pool in pools if pool.venue.value not in served})
 
 
 def describe_untradable(
     *, exchange: ExchangePort | type[ExchangePort], untradable: Sequence[str]
 ) -> str:
+    """The startup warning for a single adapter."""
+    return describe_unserved(
+        served=frozenset(exchange.venues), by=_name(exchange), unserved=untradable
+    )
+
+
+def describe_unserved(
+    *, served: frozenset[str], by: str, unserved: Sequence[str]
+) -> str:
     """The startup warning's text. Names both halves of the mismatch, because
     the operator's two remedies -- disable those pools, or register an adapter
     that serves them -- both need to know which is which."""
-    served = ", ".join(sorted(exchange.venues)) or "nothing"
+    trades = ", ".join(sorted(served)) or "nothing"
     return (
-        f"{_name(exchange)} trades {served}, but enabled capital pools exist on "
-        f"{', '.join(untradable)}. Signals for strategies on those venues will "
+        f"{by} trades {trades}, but enabled capital pools exist on "
+        f"{', '.join(unserved)}. Signals for strategies on those venues will "
         "be refused rather than executed against the wrong wallet. Disable "
         "those pools, or register an adapter that serves them."
     )

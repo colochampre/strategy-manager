@@ -24,7 +24,7 @@ from uuid import UUID
 
 from strategy_manager.execution.application.ports import (
     CommitPort,
-    ExchangePort,
+    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     FillRecord,
     FillRecorderPort,
@@ -63,7 +63,7 @@ class SettleExecution:
     def __init__(
         self,
         reservations: ReservationGatewayPort,
-        exchange: ExchangePort,
+        exchanges: ExchangeRegistryPort,
         attempts: ExecutionAttemptRepositoryPort,
         fill_recorder: FillRecorderPort,
         usd_rate_provider: UsdRateProviderPort,
@@ -71,7 +71,7 @@ class SettleExecution:
         commit: CommitPort,
     ) -> None:
         self._reservations = reservations
-        self._exchange = exchange
+        self._exchanges = exchanges
         self._attempts = attempts
         self._fill_recorder = fill_recorder
         self._usd_rate_provider = usd_rate_provider
@@ -93,7 +93,7 @@ class SettleExecution:
             )
 
         try:
-            fills = await self._exchange.fetch_fills(
+            fills = await self._exchanges.for_venue(attempt.venue).fetch_fills(
                 attempt.client_order_id, attempt.symbol
             )
         except OrderNotFound:

@@ -135,11 +135,23 @@ def test_a_closing_order_is_always_reduce_only() -> None:
         client_order_id="abc",
         symbol="BTC_USDT_PERP",
         base_size=Decimal("0.0078"),
-        leverage=Decimal("5"),
     )
 
     assert order.reduce_only is True
     assert order.base_size == Decimal("0.0078")
+
+
+def test_a_closing_order_carries_no_leverage() -> None:
+    """None derived its size, and reading one just to record it would let an
+    account-settings call fail a close -- leaving a real position open."""
+    order = close_futures_order(
+        side=OrderSide.SELL,
+        client_order_id="abc",
+        symbol="BTC_USDT_PERP",
+        base_size=Decimal("0.0078"),
+    )
+
+    assert order.leverage is None
 
 
 def test_a_close_takes_its_size_verbatim_and_never_re_derives_it() -> None:
@@ -153,7 +165,6 @@ def test_a_close_takes_its_size_verbatim_and_never_re_derives_it() -> None:
         client_order_id="abc",
         symbol="BTC_USDT_PERP",
         base_size=from_ledger,
-        leverage=Decimal("5"),
     )
 
     assert order.base_size == from_ledger
