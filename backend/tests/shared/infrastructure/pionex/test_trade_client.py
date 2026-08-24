@@ -23,6 +23,7 @@ from strategy_manager.shared.infrastructure.pionex.signer import (
     SIGNATURE_HEADER,
     PionexSigner,
 )
+from strategy_manager.shared.infrastructure.pionex.symbols import SYMBOLS_PATH
 from strategy_manager.shared.infrastructure.pionex.trade_client import (
     FILLS_BY_ORDER_ID_PATH,
     NEW_ORDER_PATH,
@@ -59,13 +60,42 @@ FILLS: dict[str, Any] = {
 }
 
 
+# Verified against the live account on 2026-08-24. These four numbers decide
+# whether an order is accepted at all, and both legs of a round trip violate
+# them by default: balances carry more precision than orders may, and ledger
+# fills carry more than the base currency allows.
+SYMBOLS: dict[str, Any] = {
+    "result": True,
+    "data": {
+        "symbols": [
+            {
+                "symbol": "BTC_USDT",
+                "type": "SPOT",
+                "baseCurrency": "BTC",
+                "quoteCurrency": "USDT",
+                "basePrecision": 6,
+                "quotePrecision": 2,
+                "amountPrecision": 8,
+                "minTradeSize": "0.000001",
+                "minAmount": "10",
+            }
+        ]
+    },
+}
+
+
 def _client(
     signer: PionexSigner,
     responses: dict[str, httpx.Response],
     recorded: list[httpx.Request],
 ) -> PionexTradeClient:
+    """The symbol catalog answers by default: every placing path consults it
+    before it can know what precision the order may carry."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
+        if request.url.path == SYMBOLS_PATH:
+            return httpx.Response(200, json=SYMBOLS)
         return responses[request.url.path]
 
     http = httpx.AsyncClient(
@@ -95,12 +125,13 @@ async def test_the_transmitted_body_is_byte_identical_to_the_signed_one(
         quote_amount=Decimal("100"),
     )
 
-    sent = recorded[0].content.decode()
+    order = _order_request(recorded)
+    sent = order.content.decode()
     signed = signer.sign("POST", NEW_ORDER_PATH, body=sent)
 
     assert " " not in sent
-    assert recorded[0].headers[SIGNATURE_HEADER] == signed.headers[SIGNATURE_HEADER]
-    assert recorded[0].headers[KEY_HEADER] == "test-key-abcd"
+    assert order.headers[SIGNATURE_HEADER] == signed.headers[SIGNATURE_HEADER]
+    assert order.headers[KEY_HEADER] == "test-key-abcd"
 
 
 async def test_a_market_buy_sends_amount_and_never_size(
@@ -116,7 +147,7 @@ async def test_a_market_buy_sends_amount_and_never_size(
         quote_amount=Decimal("100"),
     )
 
-    body = json.loads(recorded[0].content)
+    body = json.loads(_order_request(recorded).content)
     assert body == {
         "symbol": "BTC_USDT",
         "side": "BUY",
@@ -139,27 +170,124 @@ async def test_a_market_sell_sends_size_and_never_amount(
         base_size=Decimal("0.004"),
     )
 
-    body = json.loads(recorded[0].content)
+    body = json.loads(_order_request(recorded).content)
     assert body["size"] == "0.004"
     assert "amount" not in body
 
 
-async def test_a_tiny_size_is_sent_as_a_plain_decimal_not_scientific_notation(
+async def test_a_size_is_sent_as_a_plain_decimal_not_scientific_notation(
     signer: PionexSigner, recorded: list[httpx.Request]
 ) -> None:
-    """``str(Decimal("1E-8"))`` is ``'1E-8'``, and a size that came out of a
-    division very much can carry that exponent. Pionex would reject it."""
+    """``str(Decimal("1E-6"))`` is ``'0.000001'``, but a size out of a division
+    can normalise to an exponent form Pionex would reject."""
     client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
 
     await client.place_market_sell(
         symbol="BTC_USDT",
         client_order_id=CLIENT_ORDER_ID,
-        base_size=Decimal("1") / Decimal("100000000"),
+        base_size=Decimal("1") / Decimal("1000000"),
     )
 
-    size = json.loads(recorded[0].content)["size"]
-    assert size == "0.00000001"
+    size = json.loads(_order_request(recorded).content)["size"]
+    assert size == "0.000001"
     assert "E" not in size.upper()
+
+
+async def test_a_buy_amount_is_truncated_to_the_symbols_precision(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """A granted amount is a percentage of an exchange balance, and Pionex
+    reports balances with far more precision than it accepts on an order. The
+    live spot balance carried 26 decimals; ``amountPrecision`` is 8. Untouched,
+    every buy would be refused."""
+    client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
+
+    await client.place_market_buy(
+        symbol="BTC_USDT",
+        client_order_id=CLIENT_ORDER_ID,
+        quote_amount=Decimal("90.105606580776785293876389408"),
+    )
+
+    assert json.loads(_order_request(recorded).content)["amount"] == "90.10560658"
+
+
+async def test_rounding_is_always_down_on_both_legs(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """Up is never safe. A buy rounded up spends capital the allocation engine
+    never granted. A sell rounded up asks for more of the base currency than
+    the account holds, which is refused for insufficient balance — and leaves a
+    position open while this system believes it closed."""
+    client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
+
+    await client.place_market_buy(
+        symbol="BTC_USDT",
+        client_order_id=CLIENT_ORDER_ID,
+        quote_amount=Decimal("10.999999999"),
+    )
+    assert json.loads(_order_request(recorded).content)["amount"] == "10.99999999"
+
+    recorded.clear()
+    await client.place_market_sell(
+        symbol="BTC_USDT",
+        client_order_id=CLIENT_ORDER_ID,
+        base_size=Decimal("0.0039999999"),
+    )
+    assert json.loads(_order_request(recorded).content)["size"] == "0.003999"
+
+
+async def test_an_order_below_the_symbols_minimum_never_leaves_the_process(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """Pionex would reject it anyway. Refusing locally names the actual number
+    and the actual limit, instead of arriving as an opaque rejection code."""
+    client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
+
+    with pytest.raises(PionexApiError, match="at least 10"):
+        await client.place_market_buy(
+            symbol="BTC_USDT",
+            client_order_id=CLIENT_ORDER_ID,
+            quote_amount=Decimal("1"),
+        )
+
+    with pytest.raises(PionexApiError, match="at least 0.000001"):
+        await client.place_market_sell(
+            symbol="BTC_USDT",
+            client_order_id=CLIENT_ORDER_ID,
+            base_size=Decimal("0.0000001"),
+        )
+
+    assert [r for r in recorded if r.url.path == NEW_ORDER_PATH] == []
+
+
+async def test_an_unlisted_symbol_is_refused(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
+
+    with pytest.raises(PionexApiError, match="does not list"):
+        await client.place_market_buy(
+            symbol="DOGE_USDT",
+            client_order_id=CLIENT_ORDER_ID,
+            quote_amount=Decimal("100"),
+        )
+
+
+async def test_the_symbol_catalog_is_fetched_once_per_client(
+    signer: PionexSigner, recorded: list[httpx.Request]
+) -> None:
+    """One extra GET on a job that is about to place an order is the right
+    trade for numbers that decide whether it is accepted. Once is enough."""
+    client = _client(signer, {NEW_ORDER_PATH: httpx.Response(200, json=ACK)}, recorded)
+
+    for _ in range(3):
+        await client.place_market_buy(
+            symbol="BTC_USDT",
+            client_order_id=CLIENT_ORDER_ID,
+            quote_amount=Decimal("100"),
+        )
+
+    assert len([r for r in recorded if r.url.path == SYMBOLS_PATH]) == 1
 
 
 async def test_an_echoed_client_order_id_that_does_not_match_is_refused(
@@ -194,7 +322,7 @@ async def test_a_client_order_id_pionex_would_reject_never_leaves_the_process(
             quote_amount=Decimal("100"),
         )
 
-    assert recorded == []
+    assert [r for r in recorded if r.url.path == NEW_ORDER_PATH] == []
 
 
 async def test_fills_are_reached_through_the_exchange_order_id(
@@ -360,3 +488,10 @@ async def test_no_fills_yet_is_an_empty_list_not_an_error(
     client = _client(signer, {FILLS_BY_ORDER_ID_PATH: httpx.Response(200, json=payload)}, recorded)
 
     assert await client.fills_for_order("1") == []
+
+
+def _order_request(recorded: list[httpx.Request]) -> httpx.Request:
+    """The new-order POST, ignoring the symbol-catalog GET that precedes it."""
+    orders = [r for r in recorded if r.url.path == NEW_ORDER_PATH]
+    assert len(orders) == 1, f"expected exactly one order, got {len(orders)}"
+    return orders[0]

@@ -15,6 +15,12 @@ separately, so both request shapes are visible in the code instead of hidden
 behind an ``if``. The caller already knows which it has: the domain's
 ``MarketBuy | MarketSell`` decided it.
 
+**Every order is rounded to the symbol's precision before it is sent.**
+Pionex reports balances with far more precision than it accepts on an order,
+and the ledger records fills with whatever precision they had, so both an
+untouched buy amount and an untouched sell size are rejected. Rounding is
+always DOWN — see ``symbols.py`` for why up is never safe.
+
 **Fills need two hops.** Pionex answers a new order with an id and nothing
 else, and its fill endpoint is keyed by the EXCHANGE order id, not the client
 one. So: ``clientOrderId -> order (yields orderId) -> fills``. Both hops live
@@ -33,6 +39,10 @@ from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexOrderNotFound,
 )
 from strategy_manager.shared.infrastructure.pionex.signer import PionexSigner
+from strategy_manager.shared.infrastructure.pionex.symbols import (
+    PionexSymbolCatalog,
+    SymbolRules,
+)
 from strategy_manager.shared.infrastructure.pionex.transport import PionexTransport
 
 NEW_ORDER_PATH = "/api/v1/trade/order"
@@ -113,29 +123,58 @@ class PionexTradeClient:
 
     def __init__(self, http: httpx.AsyncClient, signer: PionexSigner) -> None:
         self._transport = PionexTransport(http, signer)
+        self._symbols = PionexSymbolCatalog(self._transport)
+
+    async def symbol_rules(self, symbol: str) -> SymbolRules:
+        """The precision and minimum constraints this market imposes.
+
+        Public because the constraints decide whether an order is placeable at
+        all, so a caller may reasonably want to see them before committing to
+        one -- the live trade probe prints them.
+        """
+        return await self._symbols.rules_for(symbol)
 
     async def place_market_buy(
         self, *, symbol: str, client_order_id: str, quote_amount: Decimal
     ) -> PionexOrderAck:
-        """Spend ``quote_amount`` of the quote currency at the market price."""
+        """Spend ``quote_amount`` of the quote currency at the market price.
+
+        The amount is truncated to the symbol's ``amountPrecision`` first. A
+        granted amount is a percentage of an exchange balance, and Pionex
+        reports balances with far more precision than it accepts on an order.
+        """
+        rules = await self._symbols.rules_for(symbol)
+        amount = rules.round_amount(quote_amount)
+        rules.assert_amount_tradable(amount)
+
         return await self._place(
             symbol=symbol,
             client_order_id=client_order_id,
             side=BUY,
             size_field="amount",
-            size=quote_amount,
+            size=amount,
         )
 
     async def place_market_sell(
         self, *, symbol: str, client_order_id: str, base_size: Decimal
     ) -> PionexOrderAck:
-        """Sell ``base_size`` of the base currency at the market price."""
+        """Sell ``base_size`` of the base currency at the market price.
+
+        Truncated to the symbol's ``basePrecision``, and DOWN: rounding a sell
+        up asks the exchange for more of the base currency than the account
+        holds, which is refused for insufficient balance and leaves a position
+        open while this system believes it closed.
+        """
+        rules = await self._symbols.rules_for(symbol)
+        size = rules.round_base_size(base_size)
+        rules.assert_size_tradable(size)
+
         return await self._place(
             symbol=symbol,
             client_order_id=client_order_id,
             side=SELL,
             size_field="size",
-            size=base_size,
+            size=size,
         )
 
     async def order_id_for(self, client_order_id: str) -> str:
