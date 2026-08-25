@@ -310,22 +310,30 @@ class ProcessSignalHandler:
         """A transition declaring more than one effect had only its first one
         executed.
 
-        Today that is a reverse, and both blockers on its second half are real
-        and permanent rather than transient: it needs a venue able to hold the
-        opposite side, and it needs capital the close has not settled -- the
-        proceeds are not spendable until the sell fills and the balance
-        snapshot refreshes. Retrying would re-run a close that already
-        succeeded.
+        Today that is a reverse, and one blocker on its second half remains.
+        It is no longer the venue: the futures adapter holds either side, and
+        a short opens and closes in the base currency like a long. What is
+        left is capital -- the close's proceeds are not spendable until that
+        order fills AND the balance snapshot refreshes, and allocation reads
+        the snapshot rather than the exchange, on purpose, because a remote
+        read inside the pool's advisory lock would serialize every allocation
+        behind exchange latency.
+
+        So this is a SCHEDULING gap, not a venue gap, and it needs a second
+        job that runs after settlement rather than a retry: retrying here
+        would re-run a close that already succeeded.
 
         The position therefore ends flat rather than flipped. That is a
-        defensible state, since the prior exposure is genuinely gone, but it is
-        not what the signal asked for, so it is reported rather than swallowed.
+        defensible state, since the prior exposure is genuinely gone, but it
+        is not what the signal asked for, so it is reported rather than
+        swallowed.
         """
         tail = transition.effects[1].value
         refused = (
             f"only the {transition.effects[0].value} half of this "
-            f"{transition.kind.value} ran; the {tail} half needs a venue that "
-            "can hold the opposite side and capital the close has not settled"
+            f"{transition.kind.value} ran; the {tail} half needs capital the "
+            "close has not settled yet, so the position is flat rather than "
+            "flipped"
         )
         logger.warning(
             "partial %s on %s: %s", transition.kind.value, context.symbol, refused

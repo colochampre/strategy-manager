@@ -222,7 +222,7 @@ class FillRecorderPort(Protocol):
 
 
 class HeldPositionPort(Protocol):
-    """How much base currency an allocation is still holding.
+    """The SIGNED base-currency position an allocation still holds.
 
     Declared here and implemented by ``ledger`` (``ReadHeldBase``), same
     direction as ``FillRecorderPort``: the consumer owns the port, the provider
@@ -235,9 +235,21 @@ class HeldPositionPort(Protocol):
     several prices, and a fee charged in the base currency means less of it
     arrived than was purchased. The ledger recorded every one of those facts at
     the time (CLAUDE.md rule 6: positions are a projection over it).
+
+    **The sign is the direction, and it is load-bearing.** Positive is long:
+    more of the base currency was bought than sold. Negative is SHORT, which
+    on a futures venue is an ordinary position opened by a SELL and closed by
+    buying the same quantity back. Clamping it at zero — which is right for
+    spot, where a negative holding really is a bookkeeping impossibility —
+    would report every short as "nothing held", and a close sized from that
+    can never be placed. The position would stay open at the venue with the
+    system unable to exit it.
+
+    So the sign travels, and the caller decides what it may mean for the venue
+    it is on.
     """
 
-    async def base_held(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
+    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
 
 
 class CommitPort(Protocol):

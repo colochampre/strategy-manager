@@ -59,13 +59,13 @@ class FakeHeld:
     """Stands in for the ledger's projection of what the opening allocation
     actually acquired."""
 
-    def __init__(self, base_held: Decimal) -> None:
-        self._base_held = base_held
+    def __init__(self, net_base: Decimal) -> None:
+        self._net_base = net_base
         self.asked: list[tuple[UUID, str]] = []
 
-    async def base_held(self, allocation_id: UUID, base_currency: str) -> Decimal:
+    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal:
         self.asked.append((allocation_id, base_currency))
-        return self._base_held
+        return self._net_base
 
 
 class SpyAttempts:
@@ -165,14 +165,14 @@ class SpyCommit:
 
 def _build(
     *,
-    base_held: Decimal = Decimal("0.00199960"),
+    net_base: Decimal = Decimal("0.00199960"),
     exchange_raises: Exception | None = None,
 ) -> tuple[ClosePosition, SpyAttempts, SpyQueue, SpyExchange, FakeHeld, list[str]]:
     log: list[str] = []
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
     exchange = SpyExchange(log, exchange_raises)
-    held = FakeHeld(base_held)
+    held = FakeHeld(net_base)
     use_case = ClosePosition(
         exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
         attempts=attempts,  # type: ignore[arg-type]
@@ -201,7 +201,7 @@ async def test_the_close_size_comes_from_the_ledger_not_from_a_price() -> None:
     dividing that by any price does not reproduce what was bought, because the
     fill price differed from the alert's, a market order can fill in pieces,
     and a base-currency fee means less arrived than was purchased."""
-    use_case, _, _, exchange, held, _ = _build(base_held=Decimal("0.00199960"))
+    use_case, _, _, exchange, held, _ = _build(net_base=Decimal("0.00199960"))
 
     result = await use_case.close(_command())
 
@@ -256,7 +256,7 @@ async def test_a_position_with_nothing_recorded_yet_is_retried_never_declared_cl
     """Placement and settlement are separate jobs, so a close signal can arrive
     before the opening fills land. Reporting success there would abandon an open
     position while claiming it was closed."""
-    use_case, attempts, queue, exchange, _, _ = _build(base_held=Decimal("0"))
+    use_case, attempts, queue, exchange, _, _ = _build(net_base=Decimal("0"))
 
     with pytest.raises(NothingRecordedYet):
         await use_case.close(_command())
@@ -269,18 +269,48 @@ async def test_a_position_with_nothing_recorded_yet_is_retried_never_declared_cl
 async def test_closing_a_short_is_refused_rather_than_approximated() -> None:
     """A close of a short is a BUY, and a spot market buy is denominated in the
     quote currency — there is no way to ask it for an exact base quantity.
-    Approximating with a quote amount leaves a residual position either way."""
-    use_case, attempts, _, exchange, _, _ = _build()
+    Approximating with a quote amount leaves a residual position either way.
 
-    # Refused by the ADAPTER now, not by the use case: futures sizes both
-    # directions in the base currency, so this is spot's limitation and not
-    # a rule of closing. Still an ExchangeError, still a DomainError, and
-    # still raised before any attempt row exists.
+    Refused by the ADAPTER now, not by the use case: futures sizes both
+    directions in the base currency, so this is spot's limitation and not a
+    rule of closing. Still a DomainError, still raised before any attempt row
+    exists. The holding is NEGATIVE here because that is what a short is.
+    """
+    use_case, attempts, _, exchange, _, _ = _build(net_base=Decimal("-0.00199960"))
+
     with pytest.raises(ExchangeError, match="closing a short"):
         await use_case.close(_command(side=OrderSide.BUY))
 
     assert exchange.orders == []
     assert attempts.inserted == []
+
+
+async def test_a_short_is_a_negative_holding_not_an_empty_one() -> None:
+    """The bug this guards: ``ReadHeldBase`` used to clamp at zero, so a short
+    read as "nothing held", ``NothingRecordedYet`` fired, and the close
+    retried forever with a real position open at the venue.
+
+    Getting as far as the adapter's refusal is the assertion — it proves the
+    close was SIZED, not discarded as empty."""
+    use_case, _, _, _, _, _ = _build(net_base=Decimal("-0.0078"))
+
+    with pytest.raises(ExchangeError):
+        await use_case.close(_command(side=OrderSide.BUY))
+
+
+async def test_a_holding_pointing_the_other_way_is_refused_before_any_order() -> None:
+    """A close that SELLS unwinds a long, so the ledger must show a positive
+    holding. If they disagree, one of them is wrong about a real position, and
+    closing in the wrong direction does not flatten anything -- it doubles the
+    exposure."""
+    use_case, attempts, queue, exchange, _, _ = _build(net_base=Decimal("-0.0078"))
+
+    with pytest.raises(InvariantViolation, match="would add exposure"):
+        await use_case.close(_command(side=OrderSide.SELL))
+
+    assert exchange.orders == []
+    assert attempts.inserted == []
+    assert queue.enqueued == []
 
 
 async def test_a_rejected_close_releases_no_reservation() -> None:

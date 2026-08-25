@@ -1,6 +1,6 @@
 """``ReadHeldBase``: implements ``execution.application.ports.HeldPositionPort``
-by projecting one allocation's ledger rows into the base currency it still
-holds.
+by projecting one allocation's ledger rows into the signed base-currency
+position it still holds.
 
 This is CLAUDE.md rule 6 in use rather than in principle — "positions are a
 projection" over the append-only ledger, and this is the smallest useful
@@ -22,9 +22,18 @@ amount:
   balance. Fees in the quote currency, or in a third token, do not touch the
   base holding and are correctly ignored here.
 
-The result is clamped at zero. A negative holding is not a short position — it
-is a bookkeeping impossibility, and sending it anywhere as an order size would
-be worse than refusing.
+**The result is signed, and used to be clamped at zero.** That clamp encoded
+a true statement about spot -- a negative holding there is a bookkeeping
+impossibility -- as though it were true everywhere. On a futures venue a
+negative net IS a short: opened by a SELL, closed by buying the same quantity
+back. Clamping reported every short as "nothing held", which made
+``ClosePosition`` raise ``NothingRecordedYet`` and retry forever, leaving a
+real leveraged position open with no way for this system to exit it.
+
+Deciding what a negative means is the caller's, because only the caller knows
+the venue. ``ClosePosition`` checks the sign against the side the signal
+asked for and refuses a disagreement, which catches the spot bookkeeping error
+the clamp used to hide.
 """
 
 from decimal import Decimal
@@ -39,6 +48,6 @@ class ReadHeldBase:
     def __init__(self, reader: LedgerPositionReaderPort) -> None:
         self._reader = reader
 
-    async def base_held(self, allocation_id: UUID, base_currency: str) -> Decimal:
-        held = await self._reader.net_base_quantity(allocation_id, base_currency)
-        return max(held, Decimal(0))
+    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal:
+        """Positive is long, negative is short, zero is flat."""
+        return await self._reader.net_base_quantity(allocation_id, base_currency)

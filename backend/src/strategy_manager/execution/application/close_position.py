@@ -52,6 +52,7 @@ from strategy_manager.execution.domain.market_symbol import base_currency_of
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,13 +121,16 @@ class ClosePosition:
         # does not. Deciding it here would have hard-coded spot's limitation
         # into every venue.
         base_currency = base_currency_of(command.symbol, command.settlement_currency)
-        base_size = await self._held.base_held(command.allocation_id, base_currency)
-        if base_size <= 0:
+        net = await self._held.net_base(command.allocation_id, base_currency)
+        if net == 0:
             raise NothingRecordedYet(
-                f"the ledger holds no {base_currency} for allocation "
+                f"the ledger holds no {base_currency} position for allocation "
                 f"{command.allocation_id}; the opening fills have most likely "
                 "not settled yet"
             )
+
+        _assert_direction_agrees(command, net, base_currency)
+        base_size = abs(net)
 
         now = self._clock.now()
         client_order_id = str(uuid4())
@@ -196,3 +200,31 @@ class ClosePosition:
             base_size=base_size,
             exchange_order_id=placed.exchange_order_id,
         )
+
+
+def _assert_direction_agrees(
+    command: CloseCommand, net: Decimal, base_currency: str
+) -> None:
+    """The ledger and the signal must agree on which way the position points.
+
+    A close that SELLS is unwinding a long, so the ledger must show a positive
+    holding; one that BUYS is unwinding a short, so it must show a negative
+    one. If they disagree, one of the two is wrong about a real position and
+    trading on either reading makes it worse -- a "close" in the wrong
+    direction does not flatten anything, it doubles the exposure.
+
+    This also catches on spot what the old clamp-at-zero quietly swallowed: a
+    negative spot holding is a bookkeeping error, and it now says so instead
+    of reporting "nothing held" and retrying forever.
+    """
+    closing_a_short = command.side is OrderSide.BUY
+    if (net < 0) == closing_a_short:
+        return
+
+    held = "short" if net < 0 else "long"
+    raise InvariantViolation(
+        f"allocation {command.allocation_id} holds a {held} position of {net} "
+        f"{base_currency}, but the signal asks to close it with a "
+        f"{command.side.value}. Closing in that direction would add exposure "
+        "rather than remove it."
+    )

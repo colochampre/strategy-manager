@@ -110,7 +110,7 @@ async def test_a_base_currency_fee_reduces_what_can_be_sold(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -137,7 +137,7 @@ async def test_a_quote_currency_fee_does_not_touch_the_base_holding(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -168,7 +168,7 @@ async def test_a_market_order_filled_in_pieces_sums_to_the_whole_position(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -215,7 +215,7 @@ async def test_a_sell_already_recorded_is_subtracted(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -262,7 +262,7 @@ async def test_a_fully_closed_position_holds_nothing(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -305,7 +305,7 @@ async def test_another_allocations_rows_are_never_counted(
         await session.commit()
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
@@ -320,7 +320,72 @@ async def test_an_allocation_with_no_rows_holds_nothing(
     _, allocation_id, _ = await _seed_position(pg_session_factory)
 
     async with pg_session_factory() as session:
-        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).base_held(
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
+            allocation_id, "BTC"
+        )
+
+    assert held == Decimal("0")
+
+
+async def test_a_short_reads_back_as_a_negative_position_not_as_nothing(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A futures short is opened by a SELL, so its net base quantity is
+    negative. The projection used to clamp at zero, which reported every short
+    as "nothing held": ``ClosePosition`` then raised ``NothingRecordedYet`` and
+    retried forever while a real leveraged position stayed open at the venue.
+
+    The fee is charged in USDT on a sell, so it does not touch the base side.
+    """
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+
+    async with pg_session_factory() as session:
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                side="SELL",
+                quantity="0.00780000",
+                fee="0.24960000",
+                fee_currency="USDT",
+            )
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
+            allocation_id, "BTC"
+        )
+
+    assert held == Decimal("-0.00780000")
+
+
+async def test_a_short_bought_back_in_full_reads_back_flat(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The round trip a futures close performs: sell to open, buy the same
+    quantity to flatten."""
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+
+    async with pg_session_factory() as session:
+        recorder = RecordFill(SqlAlchemyLedgerRepository(session))
+        for side in ("SELL", "BUY"):
+            await recorder.record(
+                _fill(
+                    strategy_id=strategy_id,
+                    allocation_id=allocation_id,
+                    attempt_id=attempt_id,
+                    side=side,
+                    quantity="0.00780000",
+                    fee="0.24960000",
+                    fee_currency="USDT",
+                )
+            )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
             allocation_id, "BTC"
         )
 
