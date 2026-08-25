@@ -109,17 +109,44 @@ silently rather than loudly:
   a single-symbol query, not the documented flat `{symbol, leverage}` object.
   Match the entry by symbol; taking index 0 reads another market's leverage.
 
+## Futures execution (USDT-M)
+
+Futures orders are `MARKET_QTY`, sized in **base size** both ways — there is
+no quote-amount market order as on spot. So futures has its own order type
+(`FuturesMarketOrder`), not extra variants of spot's `MarketBuy | MarketSell`.
+
+**The granted amount is MARGIN.** Pool availability is read from the futures
+wallet, which holds margin, so `size = granted * leverage / price` at the
+leverage the venue reports for that symbol. Reading it as notional would
+deploy one leverage-th of the reserved capital. The leverage is read at
+order-build time, recorded on the execution attempt, and the order is refused
+if it cannot be read — never defaulted.
+
+Every use case selects its adapter through `VenueExchangeRegistry`, keyed by
+`venue`. An unserved venue raises; there is no fallback, because a fallback is
+the failure being prevented.
+
+The account must be in `BUYSELL` (one-way) mode. A hedged account is refused
+before any order is sent: `reduceOnly` only applies in one-way mode, and
+without it every close can open a fresh position on the other side.
+
 ## Open risks
 
-- Futures order sizing is by **base size** (`size`) with order type
-  `MARKET_QTY`. There is no quote-amount market order as on spot, where a BUY
-  sends `amount`. `OrderRequest` cannot be reused unchanged.
+- **No futures order has ever been placed.** Sizing, rounding, limits, the
+  order-not-found code and both close directions are verified against live
+  reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
+  prints it without sending). The POST itself is unexercised, as is the
+  futures fill payload.
 - Setting leverage and margin mode is unproven. Reading both works against a
   live account; neither `POST` has been exercised.
-- COIN-M is reachable after all: the catalogue lists 43 non-USDT-settled
-  perpetuals across 22 settlement currencies (BTC, ETH, SOL and others). Still
-  implement USDT-M first, but the venue abstraction now has a confirmed second
-  settlement currency to serve, not a hypothetical one.
+- A REVERSE still ends flat, not flipped. The venue is no longer the blocker —
+  futures holds either side. The close's proceeds are not spendable until it
+  settles and the balance snapshot refreshes, so the second half needs a job
+  after settlement, not a retry.
+- COIN-M is reachable: the catalogue lists 43 non-USDT-settled perpetuals
+  across 22 settlement currencies. It reaches the same `/uapi/v1/` API, but
+  those currencies are not in the `Currency` enum or the `capital_pools`
+  CHECK constraint, so the futures adapter declares `usdt-m` only.
 
 ## Conventions
 
