@@ -159,16 +159,26 @@ running as. That confusion already produced one wrong conclusion.
 
 ## Open risks
 
-- **The API key cannot trade futures.** A real order, correctly signed with
-  the vault's trade key, is refused with `TRADE_TYPE_DENIED` / "user denied not
-  in whitelist" (verified 2026-08-25). It is an eligibility gate reached
-  *before* the payload or the wallet balance is consulted, so funding the
-  wallet changes nothing.
+- **Pionex does not allow this user to trade futures over the API.** An
+  order is refused with `TRADE_TYPE_DENIED` / "user denied not in whitelist"
+  (verified 2026-08-25). Funding the wallet changes nothing: the gate is
+  reached before the payload or the balance is consulted.
 
-  It is the KEY, not the account: the owner opens futures positions manually,
-  and that same key (`***nedr`) placed three real spot orders. Grant futures
-  trading to the key — or issue one that has it — then re-run
-  `scripts/check_pionex_futures_order.py`.
+  It is NOT the key and NOT an IP allowlist. `scripts/check_pionex_trade_
+  permission.py` sends the same key at both APIs with deliberately unfillable
+  orders and separates the cases:
+
+  ```
+  SPOT     TRADE_AMOUNT_FILTER_DENIED   -> reached field validation
+  FUTURES  TRADE_TYPE_DENIED            -> refused earlier, per user
+  ```
+
+  Spot parsed and validated its order, so the key trades from this IP over the
+  API. Futures never mentioned the size, which was itself below the minimum.
+  The key carries every permission Pionex offers and no IP restriction, and
+  the owner trades futures by hand — so this is an account-level API
+  entitlement, consistent with the docs index labelling the futures section
+  "Internal". It has to be requested from Pionex; there is no toggle for it.
 - **No futures order has ever reached validation.** Sizing, rounding, limits,
   the order-not-found code and both close directions are verified against live
   reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
