@@ -112,6 +112,10 @@ silently rather than loudly:
   GET was documented to return. Read and write shapes are not symmetric.
 - `POST /uapi/v1/trade/isolatedMode` accepts `ISOLATED`, the value the GET
   reports — not the `ISOLATED_BOTH` the models page lists.
+- The same concept is spelled differently by endpoint. `GET
+  /uapi/v1/trade/isolatedMode` answers `ISOLATED` for a symbol, while a
+  POSITION object from `/uapi/v1/account/positions` reports `ISOLATED_BOTH`.
+  Do not compare the two values for equality.
 
 ## Futures execution (USDT-M)
 
@@ -125,6 +129,16 @@ leverage the venue reports for that symbol. Reading it as notional would
 deploy one leverage-th of the reserved capital. The leverage is read at
 order-build time, recorded on the execution attempt, and the order is refused
 if it cannot be read — never defaulted.
+
+Confirmed against Pionex's own interface (2026-08-25). A position opened by
+hand at 7.50 USDT of margin and 2x on ETH at 2467 became `0.006` ETH —
+`7.50 * 2 / 2467 = 0.00608`, floored to the `0.001` step. The adapter
+reproduces that number exactly, so the venue sizes a margin amount the same
+way this system does.
+
+Under ISOLATED margin the open position's margin leaves `free`, and
+`PionexBalanceReader` reads `free - debts`, so capital backing an open
+position is correctly excluded from pool availability.
 
 Every use case selects its adapter through `VenueExchangeRegistry`, keyed by
 `venue`. An unserved venue raises; there is no fallback, because a fallback is
@@ -145,12 +159,16 @@ running as. That confusion already produced one wrong conclusion.
 
 ## Open risks
 
-- **Futures trading is DENIED for this account.** A real order, correctly
-  signed with the trade key, is refused with `TRADE_TYPE_DENIED` / "user denied
-  not in whitelist" (verified 2026-08-25). This is an eligibility gate reached
+- **The API key cannot trade futures.** A real order, correctly signed with
+  the vault's trade key, is refused with `TRADE_TYPE_DENIED` / "user denied not
+  in whitelist" (verified 2026-08-25). It is an eligibility gate reached
   *before* the payload or the wallet balance is consulted, so funding the
-  futures wallet changes nothing. Futures/perpetual trading has to be enabled
-  on the account and granted to the API key before any order can be placed.
+  wallet changes nothing.
+
+  It is the KEY, not the account: the owner opens futures positions manually,
+  and that same key (`***nedr`) placed three real spot orders. Grant futures
+  trading to the key — or issue one that has it — then re-run
+  `scripts/check_pionex_futures_order.py`.
 - **No futures order has ever reached validation.** Sizing, rounding, limits,
   the order-not-found code and both close directions are verified against live
   reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
