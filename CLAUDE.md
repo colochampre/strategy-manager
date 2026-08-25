@@ -108,6 +108,10 @@ silently rather than loudly:
 - `GET /uapi/v1/account/leverage` answers with a `leverages` **list** even for
   a single-symbol query, not the documented flat `{symbol, leverage}` object.
   Match the entry by symbol; taking index 0 reads another market's leverage.
+- The `POST` to that same path answers the flat `{symbol, leverage}` object the
+  GET was documented to return. Read and write shapes are not symmetric.
+- `POST /uapi/v1/trade/isolatedMode` accepts `ISOLATED`, the value the GET
+  reports — not the `ISOLATED_BOTH` the models page lists.
 
 ## Futures execution (USDT-M)
 
@@ -130,15 +134,31 @@ The account must be in `BUYSELL` (one-way) mode. A hedged account is refused
 before any order is sent: `reduceOnly` only applies in one-way mode, and
 without it every close can open a fresh position on the other side.
 
+## Credentials: two keys, and they are not interchangeable
+
+`.env` holds the **read-only** key (`***Swka`). The encrypted vault holds the
+**trade** key (`***nedr`), and that is the one the worker signs with. A write
+refused because the wrong key was used answers `AUTH_UNAVAILABLE` — exactly
+what a venue that forbids the write answers — so any probe that writes must
+load from the vault (`scripts/probe_credentials.py`) and print which key it is
+running as. That confusion already produced one wrong conclusion.
+
 ## Open risks
 
-- **No futures order has ever been placed.** Sizing, rounding, limits, the
-  order-not-found code and both close directions are verified against live
+- **Futures trading is DENIED for this account.** A real order, correctly
+  signed with the trade key, is refused with `TRADE_TYPE_DENIED` / "user denied
+  not in whitelist" (verified 2026-08-25). This is an eligibility gate reached
+  *before* the payload or the wallet balance is consulted, so funding the
+  futures wallet changes nothing. Futures/perpetual trading has to be enabled
+  on the account and granted to the API key before any order can be placed.
+- **No futures order has ever reached validation.** Sizing, rounding, limits,
+  the order-not-found code and both close directions are verified against live
   reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
-  prints it without sending). The POST itself is unexercised, as is the
-  futures fill payload.
-- Setting leverage and margin mode is unproven. Reading both works against a
-  live account; neither `POST` has been exercised.
+  prints it without sending). `MARKET_QTY`, `size` and `reduceOnly` are still
+  unexercised on the wire, as is the futures fill payload.
+- Leverage and margin mode ARE writable, verified 2026-08-25 with the vault's
+  trade key against an empty wallet with no open positions. The system still
+  only reads them; nothing sets them.
 - A REVERSE still ends flat, not flipped. The venue is no longer the blocker —
   futures holds either side. The close's proceeds are not spendable until it
   settles and the balance snapshot refreshes, so the second half needs a job
