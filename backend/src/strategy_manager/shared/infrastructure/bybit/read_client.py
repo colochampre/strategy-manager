@@ -29,7 +29,7 @@ read and reported rather than filtered on faith.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -85,6 +85,61 @@ class PerpContract:
     @property
     def is_trading(self) -> bool:
         return self.status.upper() == "TRADING"
+
+    def round_qty(self, qty: Decimal) -> Decimal:
+        """Truncates to the venue's step, downward.
+
+        Always DOWN, for the reason every venue adapter here repeats: rounding
+        up spends capital the allocation engine never granted, and on a close
+        asks the venue to reduce more than the position holds. Down leaves
+        dust; up invents money.
+        """
+        if self.qty_step <= 0:
+            return qty
+        steps = (qty / self.qty_step).to_integral_value(rounding=ROUND_DOWN)
+        return steps * self.qty_step
+
+    def assert_tradable(self, qty: Decimal, price: Decimal | None) -> None:
+        """Every constraint that decides whether this order is placeable.
+
+        Named individually because the operator's remedy differs for each: a
+        qty below the floor needs a bigger grant, one above the ceiling needs
+        a smaller one or less leverage, a dated contract needs a different
+        symbol, and an untradable one needs a different market entirely.
+
+        ``price`` is ``None`` when the caller has none — a close is sized from
+        the ledger, not from an amount and a price — and the notional check is
+        then skipped rather than run against an invented number.
+        """
+        if not self.is_perpetual:
+            raise BybitApiError(
+                f"{self.symbol} is a {self.contract_type}, not a perpetual; it "
+                "expires underneath any position held in it"
+            )
+        if not self.is_trading:
+            raise BybitApiError(
+                f"{self.symbol} is {self.status}, not Trading; it cannot be traded"
+            )
+        if qty < self.min_order_qty:
+            raise BybitApiError(
+                f"{self.symbol} requires an order of at least {self.min_order_qty} "
+                f"{self.base_coin}; this one is {qty}"
+            )
+        if qty > self.max_order_qty:
+            raise BybitApiError(
+                f"{self.symbol} caps an order at {self.max_order_qty} "
+                f"{self.base_coin}; this one is {qty}"
+            )
+
+        if price is None or self.min_notional is None:
+            return
+
+        notional = qty * price
+        if notional < self.min_notional:
+            raise BybitApiError(
+                f"{self.symbol} requires a notional of at least "
+                f"{self.min_notional}; this one is {notional} ({qty} at {price})"
+            )
 
 
 @dataclass(frozen=True, slots=True)

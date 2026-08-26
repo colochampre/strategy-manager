@@ -25,6 +25,7 @@ from strategy_manager.shared.infrastructure.bybit.signer import (
     BybitCredentials,
     BybitSigner,
 )
+from strategy_manager.shared.infrastructure.bybit.trade_client import BybitTradeClient
 from strategy_manager.shared.infrastructure.bybit.transport import BybitTransport
 from strategy_manager.shared.infrastructure.clock import SystemClock
 
@@ -57,6 +58,25 @@ async def read_only_client(
 
     async with _http(settings) as http:
         yield BybitReadOnlyClient(http, signer)
+
+
+@asynccontextmanager
+async def trade_client(
+    settings: Settings,
+    credentials: BybitCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[BybitTradeClient]:
+    """Yields a client that can place orders.
+
+    Deliberately a separate entry point from ``read_only_client``. Anything
+    that only reads should be unable to reach a writing client by accident,
+    and a call site asking for this one is stating plainly that it intends to
+    move money.
+    """
+    signer = _signer(settings, credentials, clock)
+
+    async with _http(settings) as http:
+        yield BybitTradeClient(http, signer)
 
 
 @asynccontextmanager
