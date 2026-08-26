@@ -43,6 +43,7 @@ TICKERS_PATH = "/v5/market/tickers"
 WALLET_BALANCE_PATH = "/v5/account/wallet-balance"
 POSITIONS_PATH = "/v5/position/list"
 ACCOUNT_INFO_PATH = "/v5/account/info"
+API_KEY_INFO_PATH = "/v5/user/query-api"
 
 LINEAR = "linear"
 UNIFIED = "UNIFIED"
@@ -185,6 +186,20 @@ class BybitReadOnlyClient:
             if _text(fields, "symbol").upper() == symbol.upper():
                 return _amount(fields, "leverage")
         raise BybitApiError(f"Bybit reports no leverage for {symbol!r}")
+
+    async def api_key_info(self) -> Mapping[str, Any]:
+        """What this key is actually allowed to do, and for how long.
+
+        Read-only, and the most useful call this client makes before anything
+        is sealed into the vault: it reports ``readOnly``, the granted
+        ``permissions`` (including ``Wallet.Withdraw``), the bound ``ips``,
+        and — only for keys with no IP binding — ``expiredAt`` and
+        ``deadlineDay``.
+
+        Verbatim rather than parsed, because it is consumed by a script whose
+        job is to show the operator what they are about to store.
+        """
+        return await self._read(API_KEY_INFO_PATH)
 
     async def account_info(self) -> Mapping[str, Any]:
         """Margin mode and account type, verbatim. Unparsed on purpose: this
