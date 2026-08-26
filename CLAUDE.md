@@ -159,26 +159,34 @@ running as. That confusion already produced one wrong conclusion.
 
 ## Open risks
 
-- **Pionex does not allow this user to trade futures over the API.** An
-  order is refused with `TRADE_TYPE_DENIED` / "user denied not in whitelist"
-  (verified 2026-08-25). Funding the wallet changes nothing: the gate is
-  reached before the payload or the balance is consulted.
+- **SETTLED — Pionex does not offer futures order placement over the API.**
+  Support answered on 2026-08-26: *"Manual Futures trading via API is not yet
+  available to public users. Currently, only the Futures Bot API is
+  available."*
 
-  It is NOT the key and NOT an IP allowlist. `scripts/check_pionex_trade_
-  permission.py` sends the same key at both APIs with deliberately unfillable
-  orders and separates the cases:
+  So `POST /uapi/v1/trade/order` is unreachable, and `TRADE_TYPE_DENIED` /
+  "user denied not in whitelist" meant exactly what it said. It is not the
+  key, not an IP allowlist, not the account, and not a setting. Do not
+  re-diagnose it. `scripts/check_pionex_trade_permission.py` reproduces the
+  evidence in one run if it ever needs re-checking:
 
   ```
   SPOT     TRADE_AMOUNT_FILTER_DENIED   -> reached field validation
   FUTURES  TRADE_TYPE_DENIED            -> refused earlier, per user
   ```
 
-  Spot parsed and validated its order, so the key trades from this IP over the
-  API. Futures never mentioned the size, which was itself below the minimum.
-  The key carries every permission Pionex offers and no IP restriction, and
-  the owner trades futures by hand — so this is an account-level API
-  entitlement, consistent with the docs index labelling the futures section
-  "Internal". It has to be requested from Pionex; there is no toggle for it.
+  **The USDT-M adapter therefore cannot run against Pionex.** What survives is
+  venue-agnostic: `ExchangePort`, `VenueExchangeRegistry`, `FuturesMarketOrder`,
+  the signed-position handling, and the definitive-vs-ambiguous rule. The
+  sizing arithmetic is verified against a real venue's own behaviour, so the
+  adapter is the reference implementation for whichever venue comes next.
+
+  The Futures **Bot** API (`/api/v1/bot/orders/futuresGrid/*`) is available but
+  does not fit: a grid bot spreads orders across a price range rather than
+  taking a directional market position on a signal, so entry price and size
+  are not deterministic, there is no `reduceOnly`, and the ledger would have to
+  reconstruct positions from bot state instead of fills. Signal bots cannot be
+  created over the API at all — only `futures_grid` and `spot_grid` can.
 - **No futures order has ever reached validation.** Sizing, rounding, limits,
   the order-not-found code and both close directions are verified against live
   reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
