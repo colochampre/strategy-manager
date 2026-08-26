@@ -21,13 +21,13 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
     SqlAlchemyBalanceSnapshotRepository,
 )
+from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
+    BybitBalanceReader,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
-from strategy_manager.accounts.infrastructure.pionex_balance_reader import (
-    PionexBalanceReader,
-)
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
@@ -47,17 +47,14 @@ from strategy_manager.execution.application.ports import (
     ExchangeRegistryPort,
 )
 from strategy_manager.execution.application.settle_execution import SettleExecution
+from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
+    BybitFuturesExchangeAdapter,
+)
 from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
-from strategy_manager.execution.infrastructure.pionex_exchange import (
-    PionexExchangeAdapter,
-)
-from strategy_manager.execution.infrastructure.pionex_futures_exchange import (
-    PionexFuturesExchangeAdapter,
-)
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
@@ -72,16 +69,15 @@ from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
-from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
-from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
-from strategy_manager.shared.infrastructure.pionex import EXCHANGE as PIONEX_EXCHANGE
-from strategy_manager.shared.infrastructure.pionex.factory import (
-    futures_trade_client,
+from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
+from strategy_manager.shared.infrastructure.bybit.factory import (
     read_only_client,
     trade_client,
 )
-from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials
+from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
+from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
+from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.process_signal import ProcessSignalHandler
@@ -241,10 +237,15 @@ def build_worker_runner(
     # (spec: trade-execution § DRY_RUN Safety). The check runs against the
     # class because the live adapter cannot exist yet — it needs a decrypted
     # credential and an open socket, and neither belongs to startup.
+    #
+    # Bybit, not Pionex. The Pionex adapters are complete, tested and correct,
+    # and they are deliberately NOT registered: Pionex does not offer futures
+    # order placement over its API to public users, so the futures one cannot
+    # execute, and splitting capital across two exchanges to keep the spot one
+    # would defeat what this system is for. They stay in the repository as the
+    # second implementation that proves this port is the right shape.
     registered: tuple[type[ExchangePort], ...] = (
-        (FakeExchangeAdapter,)
-        if settings.dry_run
-        else (PionexExchangeAdapter, PionexFuturesExchangeAdapter)
+        (FakeExchangeAdapter,) if settings.dry_run else (BybitFuturesExchangeAdapter,)
     )
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
@@ -291,16 +292,14 @@ def build_worker_runner(
     ) -> AsyncIterator[ExchangeRegistryPort]:
         """Every venue this deployment can trade, built fresh for one job.
 
-        Both live adapters are opened even when the job turns out to need
-        only one. That costs an HTTP client, not a request -- httpx connects
-        lazily and neither adapter calls anything until it is asked to -- and
-        it buys the property that matters: the registry is complete before
-        the venue is known, so selection never has to fall back.
+        The registry is complete before the venue is known, so selection never
+        has to fall back -- and a fallback is precisely the failure it exists
+        to prevent.
 
-        The credential is decrypted once and shared by both clients. It is
-        the same Pionex key: spot and futures are different base paths on one
-        account, not different accounts. The plaintext still dies with this
-        context (CLAUDE.md rule 8).
+        The credential is decrypted here and dies with this context
+        (CLAUDE.md rule 8). It is the Bybit key: loading Pionex's would
+        authenticate against the wrong venue and fail in a way that looks
+        exactly like the venue refusing the call.
         """
         if settings.dry_run:
             yield VenueExchangeRegistry([fake_exchange])
@@ -308,20 +307,12 @@ def build_worker_runner(
 
         credential = await SqlAlchemyCredentialVault(
             session, cipher, SystemClock()
-        ).load(PIONEX_EXCHANGE)
-        credentials = PionexCredentials(
+        ).load(BYBIT_EXCHANGE)
+        credentials = BybitCredentials(
             api_key=credential.api_key, api_secret=credential.api_secret
         )
-        async with (
-            trade_client(settings, credentials) as spot,
-            futures_trade_client(settings, credentials) as futures,
-        ):
-            yield VenueExchangeRegistry(
-                [
-                    PionexExchangeAdapter(spot),
-                    PionexFuturesExchangeAdapter(futures),
-                ]
-            )
+        async with trade_client(settings, credentials) as futures:
+            yield VenueExchangeRegistry([BybitFuturesExchangeAdapter(futures)])
 
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
@@ -345,18 +336,18 @@ def build_worker_runner(
             # for the length of this call (CLAUDE.md rule 8).
             credential = await SqlAlchemyCredentialVault(
                 session, cipher, SystemClock()
-            ).load(PIONEX_EXCHANGE)
+            ).load(BYBIT_EXCHANGE)
 
             async with read_only_client(
                 settings,
-                PionexCredentials(
+                BybitCredentials(
                     api_key=credential.api_key, api_secret=credential.api_secret
                 ),
             ) as client:
                 handler = BalanceSyncHandler(
                     sync_balances=SyncBalances(
                         pools=list(pools_by_key),
-                        reader=PionexBalanceReader(client, SystemClock()),
+                        reader=BybitBalanceReader(client, SystemClock()),
                         snapshots=SqlAlchemyBalanceSnapshotRepository(session),
                         commit=session,
                     ),
