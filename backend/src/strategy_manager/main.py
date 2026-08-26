@@ -90,6 +90,9 @@ from strategy_manager.signals.infrastructure.router import router as signals_rou
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from strategy_manager.strategies.infrastructure.router import (
+    router as strategies_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +425,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "dry_run": settings.dry_run}
 
     app.include_router(signals_router)
+    app.include_router(strategies_router)
 
     return app
 
