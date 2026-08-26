@@ -31,13 +31,49 @@ def test_a_symbol_quoted_in_another_currency_is_refused() -> None:
         base_currency_of("ETH_BTC", "USDT")
 
 
-@pytest.mark.parametrize("symbol", ["BTCUSDT", "BTC", "_USDT", "BTC_", ""])
-def test_a_symbol_without_a_usable_split_is_refused(symbol: str) -> None:
-    """Venues that write BTCUSDT with no separator cannot be split without a
-    currency registry. Refusing is correct: guessing a boundary would size a
-    close in a currency nobody chose."""
+@pytest.mark.parametrize("symbol", ["_USDT", "BTC_"])
+def test_a_malformed_separated_symbol_is_refused(symbol: str) -> None:
+    """A separator with nothing on one side of it is not a market."""
     with pytest.raises(InvariantViolation, match="BASE_QUOTE"):
         base_currency_of(symbol, "USDT")
+
+
+@pytest.mark.parametrize("symbol", ["BTC", "", "USDT"])
+def test_a_concatenated_symbol_that_is_not_quoted_here_is_refused(
+    symbol: str,
+) -> None:
+    """Without a separator the settlement currency is the only boundary. A
+    symbol that does not end in it cannot be resolved, and guessing one would
+    size a close in a currency nobody chose. ``USDT`` alone is refused too:
+    stripping the quote leaves no base at all."""
+    with pytest.raises(InvariantViolation):
+        base_currency_of(symbol, "USDT")
+
+
+def test_a_concatenated_symbol_resolves_against_the_settlement_currency() -> None:
+    """This used to be refused, on the grounds that BTCUSDT cannot be split
+    without a currency registry. It does not need one: the caller already
+    supplies the quote, and SOLUSDT minus a known USDT is SOL.
+
+    Bybit writes every symbol this way, so the old refusal would have made
+    every close on that venue impossible."""
+    assert base_currency_of("BTCUSDT", "USDT") == "BTC"
+    assert base_currency_of("SOLUSDT", "USDT") == "SOL"
+    assert base_currency_of("1INCHUSDT", "USDT") == "1INCH"
+
+
+def test_tradingviews_perpetual_suffix_is_not_part_of_the_symbol() -> None:
+    """A TradingView alert charted on Bybit sends SOLUSDT.P. The .P is a
+    contract marker, and reading it as part of the currency would leave the
+    symbol quoted in nothing the pool holds."""
+    assert base_currency_of("SOLUSDT.P", "USDT") == "SOL"
+    assert base_currency_of("solusdt.p", "usdt") == "SOL"
+
+
+def test_a_base_whose_name_ends_in_the_quote_still_resolves() -> None:
+    """Only ONE suffix is removed, so a boundary that appears twice does not
+    eat the base."""
+    assert base_currency_of("XUSDTUSDT", "USDT") == "XUSDT"
 
 
 def test_a_perpetual_symbol_splits_on_the_market_not_the_contract_marker() -> None:

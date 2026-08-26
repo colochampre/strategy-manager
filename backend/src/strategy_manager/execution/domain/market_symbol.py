@@ -5,19 +5,28 @@ paid for in USDT. Sizing a close needs the base half, because a close sells
 what the open actually acquired — and because a fee charged in the base
 currency reduces that holding, while a fee charged in anything else does not.
 
-The ``BASE_QUOTE`` shape is Pionex's, and it is not universal: other venues
-write ``BTCUSDT`` with no separator, which cannot be split without a currency
-registry. This lives in the domain anyway, because "a market has a base and a
-quote" is the concept the close-sizing rule depends on, not a transport
-detail. The day a venue with a different convention is added, the split becomes
-a per-venue concern and this function is where that will be obvious.
+**Three shapes reach this function, and they are not cosmetic variants.**
 
-**Perpetual markets carry a third part.** Pionex names them
-``BASE_QUOTE_PERP`` -- ``BTC_USDT_PERP``. Splitting that on the first
-separator alone reads the quote half as ``USDT_PERP``, which matches no
-settlement currency, so every futures close would be refused as a
-misconfigured strategy. The contract marker is stripped before the split
-rather than after, because it qualifies the market, not the currency.
+``BTC_USDT``       Pionex spot. Separated, so the split is a partition.
+``BTC_USDT_PERP``  Pionex perpetual. Same, once the contract marker is off.
+``SOLUSDT.P``      What TradingView sends for a Bybit perpetual, and what
+                   Bybit itself calls ``SOLUSDT``. Concatenated: there is no
+                   separator to split on at all.
+
+The concatenated form is why this file used to say a currency registry would
+be needed. It is not, because the caller already supplies the one fact that
+resolves it: the pool's settlement currency IS the quote. ``SOLUSDT`` minus a
+known ``USDT`` suffix is ``SOL``, unambiguously — a base whose own name ends
+in the quote still comes out right, since only one suffix is removed.
+
+That the settlement currency is REQUIRED rather than optional is the point.
+Guessing where the boundary falls in ``SOLUSDT`` is not possible; being told
+the quote makes it arithmetic.
+
+**Contract markers are stripped before the split, never after.** They qualify
+the market, not the currency. ``.P`` is TradingView's perpetual suffix and
+``_PERP`` is Pionex's; both name the same thing and neither is part of a
+currency.
 
 The quote half is checked against the pool's settlement currency rather than
 discarded. A strategy configured in a USDT pool that signals a BTC-quoted
@@ -28,37 +37,75 @@ inexplicably wrong order size, and it is cheap to refuse here instead.
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 SEPARATOR = "_"
-PERPETUAL_SUFFIX = "_PERP"
+
+# Contract markers, longest first so a symbol carrying one is not left with a
+# fragment of the other.
+CONTRACT_MARKERS = ("_PERP", ".P")
+
+
+def strip_contract_marker(symbol: str) -> str:
+    """Removes the perpetual marker, leaving the market itself.
+
+    This is also what a venue is asked about: Bybit lists ``SOLUSDT``, while
+    the alert that referenced it says ``SOLUSDT.P``. Sending the marker to the
+    venue produces "no such symbol" for a market that plainly exists.
+    """
+    upper = symbol.upper()
+    for marker in CONTRACT_MARKERS:
+        if upper.endswith(marker):
+            return symbol[: -len(marker)]
+    return symbol
 
 
 def is_perpetual(symbol: str) -> bool:
     """Whether this symbol names a perpetual futures market."""
-    return symbol.upper().endswith(PERPETUAL_SUFFIX)
+    return strip_contract_marker(symbol) != symbol
 
 
 def base_currency_of(symbol: str, settlement_currency: str) -> str:
     """Returns the base currency of ``symbol``, asserting its quote half is
     the pool's settlement currency.
 
-    Accepts spot (``BTC_USDT``) and perpetual (``BTC_USDT_PERP``) symbols
-    alike: both trade BTC settled in USDT, and a close is sized in the base
-    currency on either.
+    Accepts every shape listed in this module's docstring.
     """
+    market = strip_contract_marker(symbol).upper()
+    quote = settlement_currency.upper()
 
-    market = symbol[: -len(PERPETUAL_SUFFIX)] if is_perpetual(symbol) else symbol
+    base, separator, tail = market.partition(SEPARATOR)
+    if separator:
+        return _split(symbol, base, tail, quote)
 
-    base, separator, quote = market.partition(SEPARATOR)
-    if not separator or not base or not quote:
+    # Concatenated. The settlement currency is the only boundary available,
+    # and it is enough.
+    if not market.endswith(quote) or market == quote:
+        raise InvariantViolation(
+            f"market symbol {symbol!r} is not quoted in {settlement_currency!r} "
+            "and carries no separator, so its base currency cannot be "
+            "determined; the strategy is trading a market its capital pool "
+            "cannot fund"
+        )
+    return _non_empty(symbol, market[: -len(quote)])
+
+
+def _split(symbol: str, base: str, quote: str, settlement: str) -> str:
+    if not base or not quote:
         raise InvariantViolation(
             f"market symbol {symbol!r} is not in BASE{SEPARATOR}QUOTE form, so "
             "its base currency cannot be determined"
         )
-
-    if quote.upper() != settlement_currency.upper():
+    if quote != settlement:
         raise InvariantViolation(
             f"market symbol {symbol!r} is quoted in {quote!r} but the pool "
-            f"settles in {settlement_currency!r}; the strategy is trading a "
-            "market its capital pool cannot fund"
+            f"settles in {settlement!r}; the strategy is trading a market its "
+            "capital pool cannot fund"
         )
+    return base
 
-    return base.upper()
+
+def _non_empty(symbol: str, base: str) -> str:
+    if not base:
+        raise InvariantViolation(
+            f"market symbol {symbol!r} has no base currency once its quote is "
+            "removed"
+        )
+    return base

@@ -57,6 +57,7 @@ from strategy_manager.execution.domain.futures_order import (
     close_futures_order,
     futures_position_size,
 )
+from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.money import Venue
 from strategy_manager.shared.infrastructure.bybit.errors import (
@@ -100,8 +101,9 @@ class BybitFuturesExchangeAdapter:
         contract's step, and every limit that would get the order rejected is
         checked while the reference price is still in hand.
         """
-        leverage = await self._client.leverage_for(spec.symbol)
-        rules = await self._client.perp_rules(spec.symbol)
+        symbol = _venue_symbol(spec.symbol)
+        leverage = await self._client.leverage_for(symbol)
+        rules = await self._client.perp_rules(symbol)
 
         raw = futures_position_size(
             granted=spec.granted, leverage=leverage, price=spec.price
@@ -109,7 +111,7 @@ class BybitFuturesExchangeAdapter:
         qty = rules.round_qty(raw)
         if qty <= 0:
             raise ExchangeError(
-                f"{spec.symbol} rounds a size of {raw} down to {qty} at a step of "
+                f"{symbol} rounds a size of {raw} down to {qty} at a step of "
                 f"{rules.qty_step}; the granted {spec.granted} is too small to "
                 f"open a position at {leverage}x"
             )
@@ -117,7 +119,7 @@ class BybitFuturesExchangeAdapter:
 
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
-            symbol=spec.symbol,
+            symbol=symbol,
             side=spec.side,
             base_size=qty,
             leverage=leverage,
@@ -134,11 +136,12 @@ class BybitFuturesExchangeAdapter:
         Truncated DOWN, so a close never asks the venue to reduce more than
         the position holds.
         """
-        rules = await self._client.perp_rules(spec.symbol)
+        symbol = _venue_symbol(spec.symbol)
+        rules = await self._client.perp_rules(symbol)
         qty = rules.round_qty(spec.base_size)
         if qty <= 0:
             raise ExchangeError(
-                f"{spec.symbol} rounds a held size of {spec.base_size} down to "
+                f"{symbol} rounds a held size of {spec.base_size} down to "
                 f"{qty} at a step of {rules.qty_step}; the position is smaller "
                 "than one tradable unit and cannot be closed by an order"
             )
@@ -147,7 +150,7 @@ class BybitFuturesExchangeAdapter:
         return close_futures_order(
             side=spec.side,
             client_order_id=spec.client_order_id,
-            symbol=spec.symbol,
+            symbol=symbol,
             base_size=qty,
         )
 
@@ -210,6 +213,21 @@ class BybitFuturesExchangeAdapter:
         # The order exists and has published nothing yet. That is transient,
         # and the settle job retries rather than concluding anything.
         return []
+
+
+def _venue_symbol(symbol: str) -> str:
+    """What Bybit calls this market.
+
+    A TradingView alert charted on Bybit sends ``SOLUSDT.P`` — the ``.P`` is
+    TradingView's perpetual suffix, not part of the symbol. Bybit lists it as
+    ``SOLUSDT``, and sending the suffix produces "no such symbol" for a market
+    that plainly exists.
+
+    Normalised at the boundary rather than at ingress on purpose: the signal
+    record keeps what the alert actually said, which is what makes a
+    disagreement between the two diagnosable later.
+    """
+    return strip_contract_marker(symbol).upper()
 
 
 def _bybit_side(order: FuturesMarketOrder) -> str:
