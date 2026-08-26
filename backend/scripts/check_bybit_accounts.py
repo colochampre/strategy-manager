@@ -58,6 +58,23 @@ POOLED_COLLATERAL_FIELDS = (
     "totalAvailableBalance",
 )
 
+# The per-coin fields that decide what a pool may allocate. Printed verbatim,
+# including the empty ones, because which of these Bybit actually populates is
+# the whole question -- and an empty field that looks like a zero is how a
+# pool ends up reporting capital it does not have.
+AVAILABILITY_FIELDS = (
+    "walletBalance",
+    "equity",
+    "usdValue",
+    "availableToWithdraw",
+    "totalPositionIM",
+    "totalOrderIM",
+    "locked",
+    "unrealisedPnl",
+    "collateralSwitch",
+    "marginCollateral",
+)
+
 
 async def _balances(client: BybitReadOnlyClient, account_type: str) -> None:
     print(f"\n{account_type} account")
@@ -100,14 +117,15 @@ def _report_collateral(account: Mapping[str, Any]) -> None:
     }
 
     coins = account.get("coin")
+    pooled = False
     if isinstance(coins, list):
         for entry in coins:
-            if isinstance(entry, dict) and _nonzero(entry.get("walletBalance")):
-                print(
-                    f"    {entry.get('coin'):<6} wallet={entry.get('walletBalance')}  "
-                    f"equity={entry.get('equity')}  "
-                    f"availableToWithdraw={entry.get('availableToWithdraw')}"
-                )
+            if not isinstance(entry, dict) or not _nonzero(entry.get("walletBalance")):
+                continue
+            pooled = pooled or bool(entry.get("collateralSwitch"))
+            print(f"\n    {entry.get('coin')}")
+            for field in AVAILABILITY_FIELDS:
+                print(f"      {field:<20} {entry.get(field)!r}")
 
     print("\n  --- does this account pool collateral across products? ---")
     if not evidence:
@@ -117,17 +135,28 @@ def _report_collateral(account: Mapping[str, Any]) -> None:
         print("  this again.")
         return
 
-    print("  Bybit reports equity at the ACCOUNT level rather than per product,")
-    print("  and it is non-zero, which is consistent with one USDT balance")
-    print("  standing behind spot and linear perpetuals together.")
-    print("\n  If that holds, it is NOT how CLAUDE.md rule 5 describes a pool.")
-    print("  The rule was written for Pionex's segregated wallets, where spot")
-    print("  USDT and USDT-M margin genuinely cannot fund each other. Here they")
-    print("  may not be separate at all, and configuring both as pools would")
-    print("  let the same money be reserved twice.")
-    print("\n  Still only consistent-with, not proven. The proof is behavioural:")
-    print("  open a small position and watch whether spot availability drops.")
-    print("  A balance read cannot settle it.")
+    if pooled:
+        print("  YES. The coin carries collateralSwitch=true, equity is reported")
+        print("  at the ACCOUNT level, and there is no per-product wallet in the")
+        print("  payload at all. One USDT balance stands behind spot and linear")
+        print("  perpetuals together.")
+        print("\n  CLAUDE.md rule 5 does not describe this venue. It was written")
+        print("  for Pionex's segregated wallets, where spot USDT and USDT-M")
+        print("  margin genuinely cannot fund each other. Configuring BOTH as")
+        print("  pools here would let the same money be reserved twice.")
+        print("  On Bybit there is ONE USDT pool.")
+    else:
+        print("  Account-level equity is non-zero but no coin reports")
+        print("  collateralSwitch. Read the raw object below before concluding.")
+
+    print("\n  --- which field is pool availability? ---")
+    print("  NOT totalEquity: it is a USD VALUATION. usdValue differs from")
+    print("  walletBalance by the USDT/USD rate, and reading it would silently")
+    print("  convert a settlement-currency amount into dollars, against rule 7.")
+    print("  availableToWithdraw comes back EMPTY on this account, so it cannot")
+    print("  be the source either.")
+    print("  What is left, in the coin's own units:")
+    print("      walletBalance - totalPositionIM - totalOrderIM - locked")
 
 
 def _nonzero(value: Any) -> bool:

@@ -69,9 +69,17 @@ These exist because this system moves real money.
 4. **Allocation is a transaction, not a calculation.** Availability read,
    allocation decision and reservation write happen inside one transaction,
    serialized with `pg_advisory_xact_lock` keyed by `(venue, settlement_currency)`.
-5. **Capital pools are per settlement currency.** Spot USDT, USDT-M margin and
-   COIN-M wallets are separate balances that cannot fund each other. There is no
-   single "account capital" number.
+5. **Capital pools are per settlement currency.** There is no single "account
+   capital" number. How many pools that produces is a property of the VENUE,
+   not of this rule:
+   - **Pionex segregates.** Spot USDT, USDT-M margin and COIN-M wallets are
+     genuinely separate balances that cannot fund each other.
+   - **Bybit's Unified Trading Account does not.** One USDT balance stands
+     behind spot and linear perpetuals together: the coin reports
+     `collateralSwitch: true`, equity is reported at the ACCOUNT level, and
+     there is no per-product wallet in the payload (verified 2026-08-26). So
+     Bybit has **one USDT pool**, and configuring both `spot/USDT` and
+     `usdt-m/USDT` there would let the same money be reserved twice.
 6. **The ledger is append-only.** Every fill records `strategy_id` and
    `allocation_id`. Positions are a projection. PnL and every dashboard
    timeframe are queries over it.
@@ -147,6 +155,29 @@ the failure being prevented.
 The account must be in `BUYSELL` (one-way) mode. A hedged account is refused
 before any order is sent: `reduceOnly` only applies in one-way mode, and
 without it every close can open a fresh position on the other side.
+
+## Bybit (the venue that can actually execute)
+
+Base `https://api.bybit.com`, V5. HMAC-SHA256 hex over
+`timestamp + api_key + recv_window + queryString` for a GET and the raw JSON
+body for a POST; headers `X-BAPI-KEY` family. Money sits in account TYPES:
+a deposit lands in `FUND`, trading collateral lives in `UNIFIED`, and a
+deposit nobody moves is capital the allocation engine cannot see. The vault
+key carries `AccountTransfer`, so `scripts/transfer_bybit_funds.py` can move
+it — preview by default, `--confirm` to act.
+
+**Pool availability is NOT `totalEquity`.** That field is a USD *valuation*:
+`usdValue` differs from `walletBalance` by the USDT/USD rate, so reading it
+would silently convert a settlement-currency amount into dollars, against
+rule 7. `availableToWithdraw` comes back EMPTY on this account. What is left,
+in the coin's own units, is
+`walletBalance - totalPositionIM - totalOrderIM - locked`.
+
+Verified live 2026-08-26: `qty` is denominated in the BASE coin
+(`BTCUSDT` step 0.001 BTC), `orderLinkId` allows exactly 36 characters and a
+UUID4 is exactly 36, and 40 DATED futures (`BTCUSDT-25DEC26`) sit beside 800
+perpetuals under the one `linear` category — so `contractType` is checked
+before every order, because a dated contract settles underneath a position.
 
 ## Credentials: two keys, and they are not interchangeable
 
