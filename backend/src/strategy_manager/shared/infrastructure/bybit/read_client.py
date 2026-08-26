@@ -44,6 +44,7 @@ WALLET_BALANCE_PATH = "/v5/account/wallet-balance"
 POSITIONS_PATH = "/v5/position/list"
 ACCOUNT_INFO_PATH = "/v5/account/info"
 API_KEY_INFO_PATH = "/v5/user/query-api"
+ACCOUNT_COINS_BALANCE_PATH = "/v5/asset/transfer/query-account-coins-balance"
 
 LINEAR = "linear"
 UNIFIED = "UNIFIED"
@@ -242,6 +243,33 @@ class BybitReadOnlyClient:
                 return _amount(fields, "leverage")
         raise BybitApiError(f"Bybit reports no leverage for {symbol!r}")
 
+    async def account_coins_balance(
+        self, account_type: str, coins: str
+    ) -> list[CoinBalance]:
+        """Balances of one specific account type.
+
+        Bybit splits money across account types — ``FUND`` is where a deposit
+        lands, ``UNIFIED`` is where trading collateral lives — and they are
+        not the same pot. Reading only ``UNIFIED`` reports zero for an account
+        that has just been funded, which looks exactly like an account with no
+        money in it.
+        """
+        data = await self._read(
+            ACCOUNT_COINS_BALANCE_PATH, {"accountType": account_type, "coin": coins}
+        )
+        return [_parse_transfer_balance(entry) for entry in _list_of(data, "balance")]
+
+    async def unified_account_raw(self) -> Mapping[str, Any]:
+        """The unified account object verbatim, account-level totals included.
+
+        Unparsed on purpose: the account-level equity fields are what answer
+        whether this account pools collateral across products, and a probe
+        should show what arrived rather than what was expected.
+        """
+        data = await self._read(WALLET_BALANCE_PATH, {"accountType": UNIFIED})
+        accounts = _list_of(data, "list")
+        return _object(accounts[0], "account") if accounts else {}
+
     async def api_key_info(self) -> Mapping[str, Any]:
         """What this key is actually allowed to do, and for how long.
 
@@ -319,6 +347,22 @@ def _parse_balance(entry: Any) -> CoinBalance:
         wallet_balance=_amount(fields, "walletBalance"),
         available_to_withdraw=_optional_amount(fields, "availableToWithdraw"),
         equity=_optional_amount(fields, "equity"),
+    )
+
+
+def _parse_transfer_balance(entry: Any) -> CoinBalance:
+    """The asset endpoint reports ``transferBalance`` where the wallet
+    endpoint reports ``equity``. Different names, different meanings: one is
+    what can be moved between account types, the other is what backs
+    positions. Mapped onto the same read model but not conflated — the field
+    that arrives is the field that is used.
+    """
+    fields = _object(entry, "coin balance")
+    return CoinBalance(
+        coin=_text(fields, "coin"),
+        wallet_balance=_amount(fields, "walletBalance"),
+        available_to_withdraw=_optional_amount(fields, "transferBalance"),
+        equity=None,
     )
 
 

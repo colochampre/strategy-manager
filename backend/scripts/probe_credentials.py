@@ -38,14 +38,28 @@ from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentia
 
 
 @asynccontextmanager
-async def vault_credentials(settings: Settings) -> AsyncIterator[PionexCredentials]:
+async def vault_credentials(
+    settings: Settings, exchange: str = PIONEX_EXCHANGE
+) -> AsyncIterator[PionexCredentials]:
     """The credential the worker signs with, decrypted for the length of this
-    context and no longer (CLAUDE.md rule 8)."""
+    context and no longer (CLAUDE.md rule 8).
+
+    ``exchange`` defaults to Pionex only because that is what existed first.
+    It is a parameter rather than a constant because the vault now holds more
+    than one, and loading the wrong venue's key would produce an
+    authentication failure that looks exactly like a venue refusing the call —
+    the confusion this module exists to prevent, one level up.
+
+    The return type is a ``PionexCredentials`` for every venue, which is
+    honest rather than sloppy: it is a redacting key/secret pair and nothing
+    about it is Pionex-specific. Callers that need a venue's own credential
+    type construct it from these two fields.
+    """
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
     async with session_factory() as session:
         credential = await SqlAlchemyCredentialVault(
             session, cipher, SystemClock()
-        ).load(PIONEX_EXCHANGE)
+        ).load(exchange)
         yield PionexCredentials(
             api_key=credential.api_key, api_secret=credential.api_secret
         )
