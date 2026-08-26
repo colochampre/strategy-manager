@@ -37,12 +37,16 @@ from typing import Any
 
 from probe_credentials import announce, vault_credentials
 
+from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
+    BybitBalanceReader,
+)
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE
 from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
 from strategy_manager.shared.infrastructure.bybit.factory import read_only_client
 from strategy_manager.shared.infrastructure.bybit.read_client import BybitReadOnlyClient
 from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
+from strategy_manager.shared.infrastructure.clock import SystemClock
 
 COINS = "USDT,USDC"
 
@@ -189,6 +193,25 @@ def _report_transfer_permission(info: Mapping[str, Any]) -> None:
         print("  WARNING: this key can WITHDRAW. Nothing here needs that.")
 
 
+async def _report_pool_view(client: BybitReadOnlyClient) -> None:
+    """What the allocation engine would actually see, through the real reader.
+
+    The point of running the production adapter here rather than repeating its
+    arithmetic is that a probe agreeing with itself proves nothing.
+    """
+    reader = BybitBalanceReader(client, SystemClock())
+    readings = await reader.read([("usdt-m", "USDT")])
+
+    print("\nWHAT A POOL WOULD SEE (through BybitBalanceReader)")
+    for reading in readings:
+        print(
+            f"  {reading.venue}/{reading.settlement_currency}  "
+            f"available={reading.available}"
+        )
+    print("  = walletBalance - totalPositionIM - totalOrderIM - locked,")
+    print("    in USDT, not converted to USD.")
+
+
 async def main() -> int:
     settings = get_settings()
 
@@ -222,6 +245,8 @@ async def main() -> int:
                 print(f"\nkey info FAILED -- {exc}")
                 return 1
             _report_transfer_permission(info)
+
+            await _report_pool_view(client)
 
             print("\nraw unified account object:")
             print("  " + json.dumps(account, indent=2).replace("\n", "\n  "))

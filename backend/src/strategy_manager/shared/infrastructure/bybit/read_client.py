@@ -154,6 +154,48 @@ class CoinBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class UnifiedCoinBalance:
+    """One coin in the unified account, with the fields that decide what a
+    pool may allocate.
+
+    **Not ``totalEquity``, and not ``usdValue``.** Both are USD valuations —
+    on a 5 USDT balance the account reported ``4.99968`` — so reading either
+    would silently convert a settlement-currency amount into dollars, against
+    CLAUDE.md rule 7. Availability is computed in the coin's own units.
+
+    **Not ``availableToWithdraw`` either.** Bybit returns it EMPTY on this
+    account, and an empty string that reads like a zero is how a pool reports
+    capital it does not have.
+    """
+
+    coin: str
+    wallet_balance: Decimal
+    total_position_im: Decimal
+    total_order_im: Decimal
+    locked: Decimal
+    equity: Decimal | None
+    usd_value: Decimal | None
+    is_collateral: bool
+
+    @property
+    def available(self) -> Decimal:
+        """What a pool may draw on, in this coin's own units.
+
+        Initial margin already committed to positions and to resting orders
+        is subtracted, and so is anything locked. All three are capital that
+        is spoken for; counting them would let the allocator hand out money
+        twice — the same error, on one venue, that configuring two pools over
+        one unified balance would make across venues.
+
+        Floored at zero: a negative available balance is not a debt this
+        system can act on, and handing a negative number to the allocation
+        engine would be worse than reporting nothing.
+        """
+        committed = self.total_position_im + self.total_order_im + self.locked
+        return max(self.wallet_balance - committed, Decimal(0))
+
+
+@dataclass(frozen=True, slots=True)
 class Position:
     """One open position exactly as the venue reports it.
 
@@ -259,6 +301,21 @@ class BybitReadOnlyClient:
         )
         return [_parse_transfer_balance(entry) for entry in _list_of(data, "balance")]
 
+    async def unified_balances(self) -> list[UnifiedCoinBalance]:
+        """Every coin in the unified account, with its availability fields.
+
+        This is the read a capital pool is sized from. There is exactly one
+        unified balance per coin — Bybit pools collateral across products —
+        so two pools over the same settlement currency would be two views of
+        one pot, which is why ``BybitBalanceReader`` refuses to serve them.
+        """
+        account = await self.unified_account_raw()
+        if not account:
+            return []
+        return [
+            _parse_unified_balance(entry) for entry in _list_of(account, "coin")
+        ]
+
     async def unified_account_raw(self) -> Mapping[str, Any]:
         """The unified account object verbatim, account-level totals included.
 
@@ -347,6 +404,29 @@ def _parse_balance(entry: Any) -> CoinBalance:
         wallet_balance=_amount(fields, "walletBalance"),
         available_to_withdraw=_optional_amount(fields, "availableToWithdraw"),
         equity=_optional_amount(fields, "equity"),
+    )
+
+
+def _parse_unified_balance(entry: Any) -> UnifiedCoinBalance:
+    """Margin fields default to zero when absent.
+
+    That is safe in one direction only, and it is the right one: a missing
+    ``totalPositionIM`` read as zero makes availability look LARGER than it
+    is, which is exactly backwards. So they are parsed strictly when present
+    and default to zero only when the key is absent entirely — Bybit sends
+    "0" for an account with no positions, so an absent key means a shape
+    change worth noticing rather than a quiet zero.
+    """
+    fields = _object(entry, "unified coin balance")
+    return UnifiedCoinBalance(
+        coin=_text(fields, "coin"),
+        wallet_balance=_amount(fields, "walletBalance"),
+        total_position_im=_amount_or_zero(fields, "totalPositionIM"),
+        total_order_im=_amount_or_zero(fields, "totalOrderIM"),
+        locked=_amount_or_zero(fields, "locked"),
+        equity=_optional_amount(fields, "equity"),
+        usd_value=_optional_amount(fields, "usdValue"),
+        is_collateral=bool(fields.get("collateralSwitch")),
     )
 
 
