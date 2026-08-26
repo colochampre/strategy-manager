@@ -64,6 +64,32 @@ class Settings(BaseSettings):
     # so a read that outlives that window can never succeed on retry anyway.
     pionex_timeout_seconds: float = Field(default=10.0)
 
+    # Bybit V5 REST API. Deliberately its OWN settings rather than a reuse of
+    # the Pionex ones: two venues, two credentials, two base URLs, and one of
+    # them is the only place this system can currently place a futures order.
+    # Overwriting the Pionex values would also throw away the credential that
+    # proved the live spot adapter works.
+    #
+    # ``api-testnet.bybit.com`` is a real, fully functional testnet — something
+    # Pionex never offered. It is the difference between rehearsing a futures
+    # order and only ever reasoning about one, so it is worth pointing at while
+    # the adapter is being written.
+    bybit_base_url: str = Field(default="https://api.bybit.com")
+
+    # Read-only Bybit credentials, same standing as the Pionex pair above: a
+    # development convenience for probes and balance reads. Anything that signs
+    # an order loads from the envelope-encrypted vault instead
+    # (CLAUDE.md rule 8).
+    bybit_api_key: str = Field(default="")
+    bybit_api_secret: str = Field(default="")
+
+    bybit_timeout_seconds: float = Field(default=10.0)
+
+    # Bybit rejects a request whose timestamp falls outside this window,
+    # measured against its own clock. 5000ms is Bybit's own default and is
+    # generous enough that clock skew, not latency, is what would break it.
+    bybit_recv_window_ms: int = Field(default=5000)
+
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool
