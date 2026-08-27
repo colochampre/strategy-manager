@@ -45,6 +45,23 @@ class Settings(BaseSettings):
     # allowlist is the whole authentication story for the webhook.
     webhook_secret: str = Field(default="")
 
+    # Extra source addresses the webhook will accept, ON TOP of TradingView's
+    # four. Empty by default, so a deployment that sets nothing behaves
+    # exactly as before.
+    #
+    # It exists because a signal cannot be rehearsed otherwise: the alert has
+    # to come from one of four fixed addresses, so nobody can send themselves
+    # a test one, and the whole ingress path stays unexercised until a real
+    # 4h candle closes.
+    #
+    # **Widening this is widening authentication.** The shared secret is still
+    # required — an added address does not bypass it — but an address here is
+    # one more place a request carrying a leaked secret would be accepted
+    # from. Add a loopback for local rehearsal; do not add a proxy's address
+    # to "make the tunnel work", because every request through a proxy carries
+    # that address and the allowlist would then constrain nothing.
+    extra_webhook_source_ips: list[str] = Field(default_factory=list)
+
     # Master key for envelope-encrypting exchange API credentials at rest.
     # 32 bytes, base64-encoded.
     master_encryption_key: str = Field(default="")

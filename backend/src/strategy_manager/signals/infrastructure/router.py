@@ -48,7 +48,7 @@ async def receive_tradingview_webhook(
     secret: str | None = Query(default=None),
 ) -> WebhookResponse:
     source_ip = request.client.host if request.client is not None else None
-    auth = SourceIpAndSecretAuth(expected_secret=settings.webhook_secret)
+    auth = SourceIpAndSecretAuth.from_settings(settings)
     if not auth.authenticate(source_ip, secret):
         raise HTTPException(status_code=401, detail="unauthorized")
 
