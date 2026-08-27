@@ -1,10 +1,10 @@
-"""Leaves exactly one capital pool enabled, for the venue that is registered.
+﻿"""Leaves exactly one capital pool enabled, for the venue that is registered.
 
 This is NOT a test and NOT a migration. Pool rows are configuration, not
 schema: which pools exist is an operator's decision, and a migration would
 impose it on every deployment.
 
-**Why one.** Bybit's Unified Trading Account does not segregate collateral —
+**Why one.** Bybit's Unified Trading Account does not segregate collateral --
 one USDT balance stands behind spot and linear perpetuals together. Two pools
 over that balance would each read the same pot, so the allocation engine could
 reserve the same money twice, with every reservation looking perfectly valid
@@ -13,7 +13,7 @@ means the balance sync fails until this is fixed.
 
 The pools left over from the Pionex era are DISABLED, not deleted. ``strategies``
 carries a composite foreign key into ``capital_pools``, so deleting a row would
-either fail or orphan a strategy — and a disabled pool is recoverable, which a
+either fail or orphan a strategy -- and a disabled pool is recoverable, which a
 deleted one is not.
 
 Idempotent: running it again changes nothing.
@@ -27,6 +27,7 @@ Usage:
 import argparse
 import asyncio
 import sys
+from decimal import Decimal
 
 from sqlalchemy import text
 
@@ -42,11 +43,25 @@ KEEP_CURRENCY = "USDT"
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--min-order-size",
+        type=Decimal,
+        default=None,
+        help=(
+            "set the kept pool's minimum. It is ONE number doing TWO jobs: a "
+            "signal whose requested amount falls below it is skipped, and so "
+            "is a partial fill that would land below it."
+        ),
+    )
+    parser.add_argument(
         "--confirm",
         action="store_true",
         help="apply the change. Without it this only previews.",
     )
     args = parser.parse_args()
+
+    if args.min_order_size is not None and args.min_order_size <= 0:
+        print("--min-order-size must be positive", file=sys.stderr)
+        return 1
 
     async with session_factory() as session:
         rows = (
@@ -95,6 +110,18 @@ async def main() -> int:
             ),
             {"venue": KEEP_VENUE, "currency": KEEP_CURRENCY},
         )
+        if args.min_order_size is not None:
+            await session.execute(
+                text(
+                    "UPDATE capital_pools SET min_order_size = :minimum "
+                    "WHERE venue = :venue AND settlement_currency = :currency"
+                ),
+                {
+                    "minimum": args.min_order_size,
+                    "venue": KEEP_VENUE,
+                    "currency": KEEP_CURRENCY,
+                },
+            )
         await session.commit()
 
         after = (
