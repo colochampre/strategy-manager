@@ -188,6 +188,29 @@ what a venue that forbids the write answers — so any probe that writes must
 load from the vault (`scripts/probe_credentials.py`) and print which key it is
 running as. That confusion already produced one wrong conclusion.
 
+## The first real futures round trip (2026-08-27)
+
+`scripts/check_bybit_round_trip.py` opened and closed a real position through
+the production adapter. 20 USDT granted, `SOLUSDT.P` at the account's 3x,
+0.5 SOL. It cost **0.06383625 USDT** and the accounting closes exactly:
+fees `0.05883625` plus a price move of `-0.005`.
+
+What that settled, none of which a read could:
+
+- **The fee is charged in USDT on BOTH sides**, at `0.00055` taker. It is
+  never taken in the base coin. That is the opposite of Pionex spot, where a
+  BUY's fee came out in the base currency and shrank the holding — the bug
+  that stranded a position there. Here the base quantity is untouched by
+  fees, so a close sized from the ledger equals the open exactly.
+- Every field this system reads was confirmed against the raw payload:
+  `execQty`, `execPrice`, `execFee`, `feeCurrency`, `execTime`, `execId`,
+  `orderId`. Fills arrive on the first poll.
+- `orderLinkId` round-trips, and `reduceOnly` works: the closing execution
+  reported `closedSize: 0.5`, and the position read back flat.
+- Two fields exist that nothing reads yet and might be worth it later:
+  `closedSize` says whether an execution closed rather than opened, and
+  `execFeeV2` mirrored `execFee` exactly on both legs.
+
 ## Open risks
 
 - **SETTLED — Pionex does not offer futures order placement over the API.**
@@ -218,14 +241,14 @@ running as. That confusion already produced one wrong conclusion.
   are not deterministic, there is no `reduceOnly`, and the ledger would have to
   reconstruct positions from bot state instead of fills. Signal bots cannot be
   created over the API at all — only `futures_grid` and `spot_grid` can.
-- **No futures order has ever reached validation.** Sizing, rounding, limits,
-  the order-not-found code and both close directions are verified against live
-  reads (`scripts/check_pionex_futures_sizing.py` builds the real order and
-  prints it without sending). `MARKET_QTY`, `size` and `reduceOnly` are still
-  unexercised on the wire, as is the futures fill payload.
-- Leverage and margin mode ARE writable, verified 2026-08-25 with the vault's
-  trade key against an empty wallet with no open positions. The system still
-  only reads them; nothing sets them.
+- Leverage and margin mode ARE writable on Pionex, verified 2026-08-25. The
+  system still only reads them, on either venue; nothing sets them. On Bybit
+  that means the position is opened at whatever leverage the symbol carries,
+  so changing it in the UI changes the size of the next order.
+- `tradeMode` on a Bybit position is NOT the margin mode. It reported `0`
+  while the account was demonstrably on isolated margin (UI and
+  `account/info` both said so). The account-level `marginMode` is what
+  governs; nothing here reads `tradeMode`, and nothing should start.
 - A REVERSE still ends flat, not flipped. The venue is no longer the blocker —
   futures holds either side. The close's proceeds are not spendable until it
   settles and the balance snapshot refreshes, so the second half needs a job
