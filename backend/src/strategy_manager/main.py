@@ -69,6 +69,9 @@ from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.infrastructure.access_log import (
+    install_access_log_redaction,
+)
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
 from strategy_manager.shared.infrastructure.bybit.factory import (
     read_only_client,
@@ -395,6 +398,11 @@ def build_worker_runner(
 
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    # The webhook secret rides in the query string, and uvicorn's access
+    # logger writes request lines verbatim. Install this before the router
+    # that can log one.
+    install_access_log_redaction()
 
     app = FastAPI(
         title="Strategy Manager",
