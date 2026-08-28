@@ -4,8 +4,15 @@ Persistence and enqueue are the only side effects; no trade is ever executed
 within this request/response cycle (spec: signal-ingress § Fast Enqueue-Only
 Response). TradingView cannot sign its requests, so the shared secret travels
 as a query parameter on the configured webhook URL (the alert body itself is
-fixed — see design.md § "Alert Contract and Signal Routing") and the source
-IP is read from the request's peer address.
+fixed — see design.md § "Alert Contract and Signal Routing").
+
+The secret stays in the URL rather than moving into the body because the body
+is persisted verbatim into ``signals.raw_payload``; ``access_log.py`` carries
+the reasoning and keeps the value out of the access log.
+
+Which address the allowlist judges depends on deployment, so this reads both
+candidates and lets ``resolve_source_ip`` decide — it must never be decided
+here by whichever value happens to be present.
 """
 
 from typing import Annotated
@@ -28,7 +35,11 @@ from strategy_manager.signals.domain.alert import (
     TradingViewAlert,
     derive_idempotency_key,
 )
-from strategy_manager.signals.infrastructure.auth import SourceIpAndSecretAuth
+from strategy_manager.signals.infrastructure.auth import (
+    CLOUDFLARE_CLIENT_IP_HEADER,
+    SourceIpAndSecretAuth,
+    resolve_source_ip,
+)
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 
 router = APIRouter()
@@ -47,7 +58,11 @@ async def receive_tradingview_webhook(
     session: Annotated[AsyncSession, Depends(get_session)],
     secret: str | None = Query(default=None),
 ) -> WebhookResponse:
-    source_ip = request.client.host if request.client is not None else None
+    source_ip = resolve_source_ip(
+        peer_ip=request.client.host if request.client is not None else None,
+        forwarded_ip=request.headers.get(CLOUDFLARE_CLIENT_IP_HEADER),
+        behind_cloudflare_tunnel=settings.behind_cloudflare_tunnel,
+    )
     auth = SourceIpAndSecretAuth.from_settings(settings)
     if not auth.authenticate(source_ip, secret):
         raise HTTPException(status_code=401, detail="unauthorized")

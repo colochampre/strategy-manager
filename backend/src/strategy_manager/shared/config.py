@@ -59,8 +59,25 @@ class Settings(BaseSettings):
     # one more place a request carrying a leaked secret would be accepted
     # from. Add a loopback for local rehearsal; do not add a proxy's address
     # to "make the tunnel work", because every request through a proxy carries
-    # that address and the allowlist would then constrain nothing.
+    # that address and the allowlist would then constrain nothing. A tunnel is
+    # what ``behind_cloudflare_tunnel`` below is for.
     extra_webhook_source_ips: list[str] = Field(default_factory=list)
+
+    # Whether this deployment sits behind a Cloudflare Tunnel. When it does,
+    # the peer address is cloudflared's and the originating address arrives in
+    # the ``CF-Connecting-IP`` header instead.
+    #
+    # A DECLARATION, never an autodetection. Cloudflare overwrites that header
+    # on every request it forwards, so no client coming through the tunnel can
+    # forge it — but nothing stops a client that reaches this port some other
+    # way from sending one of its own. Inferring the tunnel from "is a CF
+    # header present?" would trust the header on exactly the requests that did
+    # not come through Cloudflare.
+    #
+    # Cloudflare should also be enforcing the same four addresses at the edge
+    # with a WAF custom rule; this is the second copy of that judgement, on
+    # the side of the tunnel that actually moves money.
+    behind_cloudflare_tunnel: bool = False
 
     # Master key for envelope-encrypting exchange API credentials at rest.
     # 32 bytes, base64-encoded.

@@ -4,18 +4,26 @@ Covers spec: signal-ingress § Webhook Authentication.
 """
 
 from strategy_manager.shared.config import Settings
-from strategy_manager.signals.infrastructure.auth import SourceIpAndSecretAuth
+from strategy_manager.signals.infrastructure.auth import (
+    SourceIpAndSecretAuth,
+    resolve_source_ip,
+)
 
 ALLOWED_IP = "52.89.214.238"
 OTHER_ALLOWED_IP = "34.212.75.30"
 
 
-def _settings(secret: str = "s3cr3t", extra: list[str] | None = None) -> Settings:
+def _settings(
+    secret: str = "s3cr3t",
+    extra: list[str] | None = None,
+    behind_tunnel: bool = False,
+) -> Settings:
     """Built without reading .env, so these assertions describe the code and
     not whatever the developer's machine happens to be configured with."""
     return Settings(
         webhook_secret=secret,
         extra_webhook_source_ips=extra or [],
+        behind_cloudflare_tunnel=behind_tunnel,
         _env_file=None,  # type: ignore[call-arg]
     )
 
@@ -100,3 +108,105 @@ def test_an_added_address_cannot_rescue_an_unconfigured_secret() -> None:
     )
 
     assert auth.authenticate("127.0.0.1", "") is False
+
+
+# --- resolve_source_ip: which address the allowlist is given ----------------
+#
+# Behind a Cloudflare Tunnel the peer address is cloudflared's, so reading it
+# would 401 every genuine alert. The interesting cases are the refusals.
+
+CLOUDFLARED_PEER = "127.0.0.1"
+
+
+def test_exposed_directly_the_peer_address_is_the_clients() -> None:
+    resolved = resolve_source_ip(
+        peer_ip=ALLOWED_IP,
+        forwarded_ip=None,
+        behind_cloudflare_tunnel=False,
+    )
+
+    assert resolved == ALLOWED_IP
+
+
+def test_exposed_directly_the_header_is_ignored_entirely() -> None:
+    """Not a preference and not a fallback: ignored. Otherwise anyone reaching
+    the port directly could name their own source address."""
+    resolved = resolve_source_ip(
+        peer_ip="203.0.113.9",
+        forwarded_ip=ALLOWED_IP,
+        behind_cloudflare_tunnel=False,
+    )
+
+    assert resolved == "203.0.113.9"
+
+
+def test_behind_the_tunnel_the_forwarded_address_is_the_clients() -> None:
+    resolved = resolve_source_ip(
+        peer_ip=CLOUDFLARED_PEER,
+        forwarded_ip=ALLOWED_IP,
+        behind_cloudflare_tunnel=True,
+    )
+
+    assert resolved == ALLOWED_IP
+
+
+def test_behind_the_tunnel_a_missing_header_never_falls_back_to_the_peer() -> None:
+    """The peer is the loopback. A deployment that allowlisted the loopback to
+    rehearse would otherwise have opened the allowlist to every direct caller
+    willing to omit the header."""
+    resolved = resolve_source_ip(
+        peer_ip=CLOUDFLARED_PEER,
+        forwarded_ip=None,
+        behind_cloudflare_tunnel=True,
+    )
+
+    assert resolved is None
+    assert (
+        SourceIpAndSecretAuth.from_settings(
+            _settings(extra=[CLOUDFLARED_PEER], behind_tunnel=True)
+        ).authenticate(resolved, "s3cr3t")
+        is False
+    )
+
+
+def test_behind_the_tunnel_a_forwarded_list_is_refused() -> None:
+    """A comma-separated value is X-Forwarded-For's shape, so something other
+    than Cloudflare wrote it. There is no safe entry to pick."""
+    resolved = resolve_source_ip(
+        peer_ip=CLOUDFLARED_PEER,
+        forwarded_ip=f"203.0.113.9, {ALLOWED_IP}",
+        behind_cloudflare_tunnel=True,
+    )
+
+    assert resolved is None
+
+
+def test_behind_the_tunnel_a_blank_header_is_refused() -> None:
+    resolved = resolve_source_ip(
+        peer_ip=CLOUDFLARED_PEER,
+        forwarded_ip="   ",
+        behind_cloudflare_tunnel=True,
+    )
+
+    assert resolved is None
+
+
+def test_behind_the_tunnel_surrounding_whitespace_is_tolerated() -> None:
+    resolved = resolve_source_ip(
+        peer_ip=CLOUDFLARED_PEER,
+        forwarded_ip=f"  {ALLOWED_IP}  ",
+        behind_cloudflare_tunnel=True,
+    )
+
+    assert resolved == ALLOWED_IP
+
+
+def test_a_non_ascii_secret_is_compared_without_raising() -> None:
+    """``hmac.compare_digest`` rejects non-ASCII ``str``; the comparison
+    encodes first, so a unicode secret fails as wrong rather than as a 500."""
+    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
+
+    assert auth.authenticate(ALLOWED_IP, "contraseña") is False
+    assert SourceIpAndSecretAuth(expected_secret="contraseña").authenticate(
+        ALLOWED_IP, "contraseña"
+    ) is True

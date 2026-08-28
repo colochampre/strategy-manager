@@ -5,8 +5,11 @@ Persistence, § Fast Enqueue-Only Response.
 
 The current alert contract has no room for a shared secret in the fixed
 Pionex-format body, so the secret travels as a query parameter on the
-configured webhook URL; the source IP is read from the request's peer
-address. ``ExchangePort`` does not exist until slice 5, so "no exchange call"
+configured webhook URL. Which address the allowlist judges depends on
+deployment: the request's peer address when exposed directly, and
+``CF-Connecting-IP`` behind a Cloudflare Tunnel.
+
+``ExchangePort`` does not exist until slice 5, so "no exchange call"
 is verified indirectly here: the enqueued job is left PENDING (unclaimed),
 proving nothing beyond persist-and-enqueue happened inline.
 """
@@ -142,3 +145,112 @@ async def test_duplicate_signal_returns_200_with_no_second_job(
     async with pg_session_factory() as session:
         jobs = (await session.execute(select(JobRow))).scalars().all()
     assert len(jobs) == 1
+
+
+# --- behind a Cloudflare Tunnel --------------------------------------------
+#
+# The peer is cloudflared over the loopback, so reading the peer address would
+# 401 every genuine alert. The header is trusted ONLY because the deployment
+# declares the tunnel.
+
+CLOUDFLARED_PEER = "127.0.0.1"
+CF_HEADER = "CF-Connecting-IP"
+
+
+def _tunnel_app(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    *,
+    behind_tunnel: bool,
+    peer_ip: str = CLOUDFLARED_PEER,
+) -> ASGITransport:
+    from strategy_manager.shared import db as shared_db
+
+    get_settings().behind_cloudflare_tunnel = behind_tunnel
+    app = create_app()
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _override_get_session
+    return ASGITransport(app=app, client=(peer_ip, 12345))
+
+
+@pytest.fixture(autouse=True)
+def _reset_tunnel_flag() -> AsyncIterator[None]:
+    yield
+    get_settings().behind_cloudflare_tunnel = False
+
+
+async def test_behind_the_tunnel_a_forwarded_tradingview_address_is_accepted(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    transport = _tunnel_app(pg_session_factory, behind_tunnel=True)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhook/tradingview",
+            params={"secret": SECRET},
+            json=VALID_PAYLOAD,
+            headers={CF_HEADER: ALLOWED_IP},
+        )
+
+    assert response.status_code == 200
+
+
+async def test_behind_the_tunnel_a_forwarded_stranger_is_rejected(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    transport = _tunnel_app(pg_session_factory, behind_tunnel=True)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhook/tradingview",
+            params={"secret": SECRET},
+            json=VALID_PAYLOAD,
+            headers={CF_HEADER: DISALLOWED_IP},
+        )
+
+    assert response.status_code == 401
+
+    async with pg_session_factory() as session:
+        jobs = (await session.execute(select(JobRow))).scalars().all()
+    assert jobs == []
+
+
+async def test_behind_the_tunnel_a_missing_header_is_rejected(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """No fallback to the peer address, which is the loopback."""
+    transport = _tunnel_app(pg_session_factory, behind_tunnel=True)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhook/tradingview", params={"secret": SECRET}, json=VALID_PAYLOAD
+        )
+
+    assert response.status_code == 401
+
+
+async def test_without_the_tunnel_declared_the_header_cannot_grant_access(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The whole reason the flag exists: a request that reaches the port
+    directly must not be able to name its own source address."""
+    transport = _tunnel_app(
+        pg_session_factory, behind_tunnel=False, peer_ip=DISALLOWED_IP
+    )
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/webhook/tradingview",
+            params={"secret": SECRET},
+            json=VALID_PAYLOAD,
+            headers={CF_HEADER: ALLOWED_IP},
+        )
+
+    assert response.status_code == 401
+
+    async with pg_session_factory() as session:
+        jobs = (await session.execute(select(JobRow))).scalars().all()
+    assert jobs == []
