@@ -30,6 +30,7 @@ class SqlAlchemyBalanceSnapshotRepository:
                 {
                     "venue": reading.venue,
                     "settlement_currency": reading.settlement_currency,
+                    "total": reading.total,
                     "available": reading.available,
                     "observed_at": reading.observed_at,
                 }
@@ -40,6 +41,7 @@ class SqlAlchemyBalanceSnapshotRepository:
             statement.on_conflict_do_update(
                 index_elements=["venue", "settlement_currency"],
                 set_={
+                    "total": statement.excluded.total,
                     "available": statement.excluded.available,
                     "observed_at": statement.excluded.observed_at,
                     "updated_at": func.now(),

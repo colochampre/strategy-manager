@@ -189,7 +189,9 @@ async def test_unknown_pool_raises() -> None:
 async def test_currency_mismatch_raises() -> None:
     use_case, lock, _, _ = _build_use_case(
         policy=_enabled_snapshot(settlement_currency="USDT"),
-        pool_balance=PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("10")),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
     )
 
     with pytest.raises(CurrencyMismatchError):
@@ -207,7 +209,9 @@ async def test_currency_mismatch_raises() -> None:
 async def test_non_positive_request_raises() -> None:
     use_case, lock, _, _ = _build_use_case(
         policy=_enabled_snapshot(),
-        pool_balance=PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("10")),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
     )
 
     with pytest.raises(InvalidAllocationRequestError):
@@ -226,7 +230,9 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
     strategy_id = uuid4()
     use_case, lock, reservations, commit = _build_use_case(
         policy=_enabled_snapshot(strategy_id=strategy_id),
-        pool_balance=PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("10")),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
     )
 
     result = await use_case.allocate(

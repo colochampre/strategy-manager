@@ -129,6 +129,25 @@ async def test_frozen_capital_is_not_available() -> None:
     assert readings[0].available == Decimal("100")
 
 
+async def test_frozen_capital_counts_toward_the_total() -> None:
+    """Frozen capital still belongs to the pool, so it is part of the sizing
+    base even though it cannot be granted again."""
+    client = FakePionexClient(spot=[_coin("USDT", "100", frozen="400")])
+
+    readings = await _reader(client).read([SPOT_POOL])
+
+    assert readings[0].total == Decimal("500")
+    assert readings[0].available == Decimal("100")
+
+
+async def test_debts_are_subtracted_from_the_total_too() -> None:
+    client = FakePionexClient(futures=[_coin("USDT", "1000", frozen="200", debts="250")])
+
+    readings = await _reader(client).read([USDT_M_POOL])
+
+    assert readings[0].total == Decimal("950")
+
+
 async def test_debts_are_subtracted_from_a_futures_balance() -> None:
     client = FakePionexClient(futures=[_coin("USDT", "1000", debts="250")])
 

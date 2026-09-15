@@ -61,10 +61,14 @@ class PoolBalanceSnapshotRow(Base):
         CheckConstraint(
             "available >= 0", name="ck_pool_balance_snapshots_available_non_negative"
         ),
+        CheckConstraint(
+            "total >= available", name="ck_pool_balance_snapshots_total_covers_available"
+        ),
     )
 
     venue: Mapped[str] = mapped_column(Text, primary_key=True)
     settlement_currency: Mapped[str] = mapped_column(Text, primary_key=True)
+    total: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     available: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

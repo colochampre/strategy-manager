@@ -30,5 +30,9 @@ class PoolBalanceAdapter:
                 f"no configured pool for ({venue}, {settlement_currency})"
             )
 
-        balance = await self._balance_source.read_balance(venue, settlement_currency)
-        return PoolBalance(balance=balance, min_order_size=pool.min_order_size)
+        funds = await self._balance_source.read_balance(venue, settlement_currency)
+        return PoolBalance(
+            total=funds.total,
+            available=funds.available,
+            min_order_size=pool.min_order_size,
+        )

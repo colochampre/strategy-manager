@@ -72,6 +72,39 @@ async def test_availability_is_the_wallet_minus_what_is_committed() -> None:
     assert readings[0].available == Decimal("440")
 
 
+async def test_the_total_is_the_wallet_including_committed_margin() -> None:
+    """Margin behind an open position stays in the wallet. Sizing from the
+    total means a second strategy asks for the same amount as the first."""
+    reader, _ = _reader(
+        _coin(wallet="600", position_im="120", order_im="30", locked="10")
+    )
+
+    readings = await reader.read([("usdt-m", "USDT")])
+
+    assert readings[0].total == Decimal("600")
+    assert readings[0].available == Decimal("440")
+
+
+async def test_the_total_excludes_unrealized_pnl() -> None:
+    """``equity`` carries unrealized PnL. Sizing from it would grow the next
+    position out of gains that have not been realized."""
+    balance = UnifiedCoinBalance(
+        coin="USDT",
+        wallet_balance=Decimal("1000"),
+        total_position_im=Decimal("300"),
+        total_order_im=Decimal("0"),
+        locked=Decimal("0"),
+        equity=Decimal("1150"),
+        usd_value=Decimal("1149.9"),
+        is_collateral=True,
+    )
+    reader, _ = _reader(balance)
+
+    readings = await reader.read([("usdt-m", "USDT")])
+
+    assert readings[0].total == Decimal("1000")
+
+
 async def test_availability_is_never_the_usd_valuation() -> None:
     """usdValue and totalEquity are USD. On a 5 USDT balance the live account
     reported 4.99968, and reading it would silently convert a
@@ -111,6 +144,7 @@ async def test_a_currency_the_account_does_not_hold_reads_as_zero() -> None:
     readings = await reader.read([("usdt-m", "USDC")])
 
     assert readings[0].available == Decimal("0")
+    assert readings[0].total == Decimal("0")
 
 
 async def test_the_account_is_fetched_once_however_many_pools_there_are() -> None:

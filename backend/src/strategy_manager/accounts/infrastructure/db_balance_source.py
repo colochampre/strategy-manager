@@ -12,10 +12,10 @@ against a balance that stopped being true.
 """
 
 from datetime import timedelta
-from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.accounts.application.ports import PoolFunds
 from strategy_manager.accounts.domain.errors import StaleBalanceSnapshot
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 from strategy_manager.shared.application.ports import ClockPort
@@ -34,7 +34,7 @@ class DbBalanceSource:
         self._clock = clock
         self._max_age = timedelta(seconds=max_age_seconds)
 
-    async def read_balance(self, venue: str, settlement_currency: str) -> Decimal:
+    async def read_balance(self, venue: str, settlement_currency: str) -> PoolFunds:
         row = await self._session.get(
             PoolBalanceSnapshotRow, (venue, settlement_currency)
         )
@@ -53,4 +53,4 @@ class DbBalanceSource:
                 "trade against a balance that may no longer exist"
             )
 
-        return row.available
+        return PoolFunds(total=row.total, available=row.available)

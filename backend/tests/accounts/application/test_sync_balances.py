@@ -22,6 +22,7 @@ def _reading(venue: str, available: str) -> PoolBalanceReading:
     return PoolBalanceReading(
         venue=venue,
         settlement_currency="USDT",
+        total=Decimal(available),
         available=Decimal(available),
         observed_at=NOW,
     )

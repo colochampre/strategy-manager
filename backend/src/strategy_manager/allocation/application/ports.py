@@ -33,9 +33,15 @@ class StrategyPolicySnapshot:
 
 @dataclass(frozen=True, slots=True)
 class PoolBalance:
-    """What ``AllocateCapital`` needs to know about a pool's current state."""
+    """What ``AllocateCapital`` needs to know about a pool's current state.
 
-    balance: Decimal
+    ``total`` is the sizing base for ``allocation_percent``; ``available``
+    is the ceiling on what may be granted. Mixing them up either compounds
+    sizes as positions open or grants capital that is already committed.
+    """
+
+    total: Decimal
+    available: Decimal
     min_order_size: Decimal
 
 

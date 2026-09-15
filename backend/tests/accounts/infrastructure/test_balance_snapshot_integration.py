@@ -38,12 +38,16 @@ class FrozenClock:
 
 
 def _reading(
-    pool: tuple[str, str], available: str, observed_at: datetime = NOW
+    pool: tuple[str, str],
+    available: str,
+    observed_at: datetime = NOW,
+    total: str | None = None,
 ) -> PoolBalanceReading:
     venue, currency = pool
     return PoolBalanceReading(
         venue=venue,
         settlement_currency=currency,
+        total=Decimal(available if total is None else total),
         available=Decimal(available),
         observed_at=observed_at,
     )
@@ -64,9 +68,38 @@ async def test_a_written_snapshot_reads_back_exactly(
         )
         await session.commit()
 
-        balance = await _source(session, FrozenClock()).read_balance(*SPOT)
+        funds = await _source(session, FrozenClock()).read_balance(*SPOT)
 
-    assert balance == Decimal("600.529840783767852939")
+    assert funds.available == Decimal("600.529840783767852939")
+
+
+async def test_total_and_availability_round_trip_separately(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A futures pool with open positions holds more than it can still grant.
+    Reading one figure back as the other is how sizing starts compounding."""
+    async with pg_session_factory() as session:
+        await SqlAlchemyBalanceSnapshotRepository(session).upsert(
+            [_reading(("usdt-m", "USDT"), "400", total="1000")]
+        )
+        await session.commit()
+
+        funds = await _source(session, FrozenClock()).read_balance("usdt-m", "USDT")
+
+    assert (funds.total, funds.available) == (Decimal("1000"), Decimal("400"))
+
+
+async def test_availability_above_the_total_is_rejected_by_the_database(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Availability is the total minus what is committed. A row claiming more
+    free capital than the pool holds was mapped from the wrong fields."""
+    async with pg_session_factory() as session:
+        with pytest.raises(IntegrityError):
+            await SqlAlchemyBalanceSnapshotRepository(session).upsert(
+                [_reading(SPOT, "600", total="500")]
+            )
+            await session.commit()
 
 
 async def test_a_second_sync_overwrites_rather_than_appends(
@@ -134,7 +167,9 @@ async def test_a_snapshot_inside_the_age_limit_still_answers(
 
         just_inside = FrozenClock(NOW + timedelta(seconds=MAX_AGE - 1))
 
-        assert await _source(session, just_inside).read_balance(*SPOT) == Decimal("600")
+        funds = await _source(session, just_inside).read_balance(*SPOT)
+
+    assert funds.available == Decimal("600")
 
 
 async def test_a_pool_that_was_never_synced_refuses_to_answer(

@@ -13,9 +13,19 @@ async def test_read_balance_returns_the_configured_amount() -> None:
     source = FakeBalanceSource()
     source.set_balance("spot", "USDT", Decimal("1000"))
 
-    balance = await source.read_balance("spot", "USDT")
+    funds = await source.read_balance("spot", "USDT")
 
-    assert balance == Decimal("1000")
+    assert funds.total == Decimal("1000")
+    assert funds.available == Decimal("1000")
+
+
+async def test_set_funds_keeps_total_and_availability_apart() -> None:
+    source = FakeBalanceSource()
+    source.set_funds("usdt-m", "USDT", total=Decimal("1000"), available=Decimal("400"))
+
+    funds = await source.read_balance("usdt-m", "USDT")
+
+    assert (funds.total, funds.available) == (Decimal("1000"), Decimal("400"))
 
 
 async def test_read_balance_raises_for_unconfigured_pool() -> None:
@@ -28,6 +38,6 @@ async def test_read_balance_raises_for_unconfigured_pool() -> None:
 async def test_constructor_accepts_initial_balances() -> None:
     source = FakeBalanceSource({("usdt-m", "USDT"): Decimal("500")})
 
-    balance = await source.read_balance("usdt-m", "USDT")
+    funds = await source.read_balance("usdt-m", "USDT")
 
-    assert balance == Decimal("500")
+    assert funds.available == Decimal("500")

@@ -23,12 +23,13 @@ def _pools() -> dict[tuple[str, str], PoolConfig]:
 
 async def test_read_combines_pool_config_and_live_balance() -> None:
     balance_source = FakeBalanceSource()
-    balance_source.set_balance("spot", "USDT", Decimal("1000"))
+    balance_source.set_funds("spot", "USDT", total=Decimal("1000"), available=Decimal("700"))
     adapter = PoolBalanceAdapter(_pools(), balance_source)
 
     pool_balance = await adapter.read("spot", "USDT")
 
-    assert pool_balance.balance == Decimal("1000")
+    assert pool_balance.total == Decimal("1000")
+    assert pool_balance.available == Decimal("700")
     assert pool_balance.min_order_size == Decimal("10")
 
 

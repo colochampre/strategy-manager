@@ -137,7 +137,7 @@ class AllocateCapital:
             policy.venue, policy.settlement_currency, now
         )
         pool = CapitalPool(
-            key=pool_key, balance=pool_balance.balance, reserved_active=reserved_active
+            key=pool_key, balance=pool_balance.available, reserved_active=reserved_active
         )
         rules = AllocationRules(
             fill_mode=FillMode(policy.fill_mode), min_order_size=pool_balance.min_order_size

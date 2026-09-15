@@ -46,23 +46,41 @@ class PionexBalanceReader:
         )
         observed_at = self._clock.now()
 
-        return [
-            PoolBalanceReading(
-                venue=venue,
-                settlement_currency=currency,
-                available=_available(
-                    (futures if venue in _FUTURES_VENUES else spot).get(currency)
-                ),
-                observed_at=observed_at,
+        readings = []
+        for venue, currency in pools:
+            balance = (futures if venue in _FUTURES_VENUES else spot).get(currency)
+            readings.append(
+                PoolBalanceReading(
+                    venue=venue,
+                    settlement_currency=currency,
+                    total=_total(balance),
+                    available=_available(balance),
+                    observed_at=observed_at,
+                )
             )
-            for venue, currency in pools
-        ]
+        return readings
 
     @staticmethod
     async def _by_coin(
         read: Callable[[], Awaitable[list[CoinBalance]]],
     ) -> dict[str, CoinBalance]:
         return {balance.coin: balance for balance in await read()}
+
+
+def _total(balance: CoinBalance | None) -> Decimal:
+    """``free + frozen - debts``: what the wallet holds, committed or not.
+
+    Frozen capital belongs to the pool even though it cannot be granted
+    again, so it counts toward the sizing base while staying out of
+    availability. Whether Pionex moves an isolated position's margin into
+    ``frozen`` or out of the wallet entirely has not been verified live;
+    Pionex cannot place futures orders over the API (CLAUDE.md, settled
+    2026-08-26), so no Pionex futures pool is sized from this today.
+    """
+    if balance is None:
+        return Decimal(0)
+    total = balance.free + balance.frozen - (balance.debts or Decimal(0))
+    return max(total, Decimal(0))
 
 
 def _available(balance: CoinBalance | None) -> Decimal:

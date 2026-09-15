@@ -222,8 +222,12 @@ class ProcessSignalHandler:
         policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
         pool_balance = await self._pool_balance.read(policy.venue, policy.settlement_currency)
+        # Sized from the pool's TOTAL, never from what is still free: the same
+        # percentage must ask for the same amount whether or not other
+        # strategies already hold positions. ``decide()`` still caps the grant
+        # at what is actually available.
         requested = Money(
-            amount=requested_from_percent(pool_balance.balance, policy.allocation_percent),
+            amount=requested_from_percent(pool_balance.total, policy.allocation_percent),
             currency=Currency(policy.settlement_currency),
         )
         result = await self._allocate_capital.allocate(

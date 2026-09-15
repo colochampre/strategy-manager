@@ -61,6 +61,7 @@ class BybitBalanceReader:
             PoolBalanceReading(
                 venue=venue,
                 settlement_currency=currency,
+                total=_total(by_coin.get(currency.upper())),
                 available=_available(by_coin.get(currency.upper())),
                 observed_at=observed_at,
             )
@@ -83,6 +84,17 @@ def _assert_one_pool_per_currency(pools: Sequence[PoolKey]) -> None:
                 f"per settlement currency on Bybit (CLAUDE.md rule 5)."
             )
         seen[key] = venue
+
+
+def _total(balance: UnifiedCoinBalance | None) -> Decimal:
+    """The coin's ``walletBalance``: what the pool holds, committed or not.
+
+    Margin behind open positions stays in the wallet, so a second strategy
+    sizes from the same base as the first. Unrealized PnL is not part of it
+    (that is ``equity``), and neither is ``totalEquity``, which is a USD
+    valuation (rule 7). Floored at zero, like availability.
+    """
+    return Decimal(0) if balance is None else max(balance.wallet_balance, Decimal(0))
 
 
 def _available(balance: UnifiedCoinBalance | None) -> Decimal:

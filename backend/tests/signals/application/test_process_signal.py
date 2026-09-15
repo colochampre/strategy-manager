@@ -150,7 +150,9 @@ def _allocate_capital(
     return AllocateCapital(
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
         pool_balance=FakePoolBalancePort(
-            pool_balance or PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+            pool_balance or PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+            )
         ),
         lock=lock,
         reservations=reservations or FakeReservationRepository(),
@@ -174,7 +176,9 @@ def _process_signal_handler(
         signal_context=FakeSignalContextPort(context),
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
         pool_balance=FakePoolBalancePort(
-            pool_balance or PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+            pool_balance or PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+            )
         ),
         allocate_capital=allocate_capital,
         place_order=place_order,
@@ -335,7 +339,9 @@ async def test_consumes_signal_sizes_requested_from_allocation_percent_never_fro
     (200) — if the stand-in ever regressed, this assertion would fail loudly."""
     lock = SpyAdvisoryLock()
     policy = _snapshot(allocation_percent=Decimal("20"))
-    pool_balance = PoolBalance(balance=Decimal("1000"), min_order_size=Decimal("1"))
+    pool_balance = PoolBalance(
+        total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+    )
     reservations = FakeReservationRepository()
     allocate_capital = _allocate_capital(
         lock, policy=policy, pool_balance=pool_balance, reservations=reservations
@@ -363,6 +369,62 @@ async def test_consumes_signal_sizes_requested_from_allocation_percent_never_fro
     assert len(reservations.inserted) == 1
     # 20% of a 1000 balance = 200 - not 200,000,000.
     assert reservations.inserted[0].amount == Decimal("200")
+
+
+def _open_long_context() -> SignalContext:
+    return SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),  # open long -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+
+
+async def _granted_for(policy: StrategyPolicySnapshot, pool_balance: PoolBalance) -> Decimal:
+    lock = SpyAdvisoryLock()
+    reservations = FakeReservationRepository()
+    handler = _process_signal_handler(
+        context=_open_long_context(),
+        allocate_capital=_allocate_capital(
+            lock, policy=policy, pool_balance=pool_balance, reservations=reservations
+        ),
+        place_order=SpyPlaceOrder(),
+        policy=policy,
+        pool_balance=pool_balance,
+    )
+
+    await handler.handle(uuid4())
+
+    assert len(reservations.inserted) == 1
+    return reservations.inserted[0].amount
+
+
+async def test_consumes_signal_sizes_from_the_pool_total_not_from_what_is_free() -> None:
+    """Owner decision 2026-09-15: ``allocation_percent`` is a share of the
+    pool's TOTAL. With 1000 in the pool and 400 still free because other
+    strategies hold positions, a 30% strategy asks for 300 -- not 30% of the
+    400. Sizing from what is free opened smaller positions for every strategy
+    that happened to signal after another."""
+    granted = await _granted_for(
+        _snapshot(allocation_percent=Decimal("30")),
+        PoolBalance(total=Decimal("1000"), available=Decimal("400"), min_order_size=Decimal("1")),
+    )
+
+    assert granted == Decimal("300")
+
+
+async def test_a_total_based_ask_is_still_capped_by_what_is_free() -> None:
+    """Sizing from the total must never grant capital that is committed: with
+    only 200 free, the 300 ask is filled partially at 200."""
+    granted = await _granted_for(
+        _snapshot(allocation_percent=Decimal("30"), fill_mode="PARTIAL"),
+        PoolBalance(total=Decimal("1000"), available=Decimal("200"), min_order_size=Decimal("1")),
+    )
+
+    assert granted == Decimal("200")
 
 
 async def test_a_reverse_closes_the_prior_position_instead_of_skipping_it() -> None:

@@ -17,18 +17,41 @@ PoolKey = tuple[str, str]
 """A pool's identity: ``(venue, settlement_currency)``."""
 
 
+@dataclass(frozen=True, slots=True)
+class PoolFunds:
+    """The two figures a pool is judged by, in its settlement currency.
+
+    ``total`` is what the pool holds, committed or not. It is the base a
+    strategy's ``allocation_percent`` is applied to, so three strategies at
+    30% each ask for the same amount whether or not the others already hold
+    positions (owner decision 2026-09-15).
+
+    ``available`` is what is still free to commit. It caps every grant.
+
+    Two figures because they answer different questions. Sizing from
+    ``available`` made the same configuration open different sizes depending
+    on whether a balance sync happened to run between two signals.
+    """
+
+    total: Decimal
+    available: Decimal
+
+
 class BalanceSourcePort(Protocol):
-    """Reads a pool's raw balance from the exchange or a stand-in.
+    """Reads a pool's funds from the exchange or a stand-in.
     Implementations MUST be local (DB or in-memory) — a synchronous remote
     call here would run inside the advisory lock once consumed by
     ``allocation.application.PoolBalancePort`` (design.md § Interfaces)."""
 
-    async def read_balance(self, venue: str, settlement_currency: str) -> Decimal: ...
+    async def read_balance(self, venue: str, settlement_currency: str) -> PoolFunds: ...
 
 
 @dataclass(frozen=True, slots=True)
 class PoolBalanceReading:
     """One pool's balance as the exchange reported it.
+
+    ``total`` excludes unrealized PnL: sizing on paper gains would grow the
+    next position out of money that has not been realized.
 
     ``observed_at`` is the moment of the reading, not of the write. Freshness
     is judged against this field, so it must never be back-filled with a
@@ -37,6 +60,7 @@ class PoolBalanceReading:
 
     venue: str
     settlement_currency: str
+    total: Decimal
     available: Decimal
     observed_at: datetime
 
