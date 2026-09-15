@@ -124,6 +124,25 @@ class Settings(BaseSettings):
     # generous enough that clock skew, not latency, is what would break it.
     bybit_recv_window_ms: int = Field(default=5000)
 
+    # Binance REST API. Two hosts, one signing scheme: USDⓈ-M futures lives on
+    # fapi.binance.com, and spot plus the account-wide wallet endpoints live on
+    # api.binance.com. Binance segregates wallets like Pionex, so a futures
+    # pool reads only the USDⓈ-M futures wallet.
+    binance_futures_base_url: str = Field(default="https://fapi.binance.com")
+    binance_spot_base_url: str = Field(default="https://api.binance.com")
+
+    # Read-only Binance credentials, same standing as the Bybit and Pionex
+    # pairs above: probes and balance reads only. A key that signs orders loads
+    # from the envelope-encrypted vault (CLAUDE.md rule 8).
+    binance_api_key: str = Field(default="")
+    binance_api_secret: str = Field(default="")
+
+    binance_timeout_seconds: float = Field(default=10.0)
+
+    # Binance rejects a timestamp 1000ms or more ahead of its clock, or older
+    # than this window. 5000ms is Binance's own default; 60000ms its ceiling.
+    binance_recv_window_ms: int = Field(default=5000)
+
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool
