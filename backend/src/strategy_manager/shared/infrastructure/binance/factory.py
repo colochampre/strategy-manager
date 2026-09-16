@@ -21,6 +21,7 @@ from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
     BinanceSigner,
 )
+from strategy_manager.shared.infrastructure.binance.trade_client import BinanceTradeClient
 from strategy_manager.shared.infrastructure.binance.transport import BinanceTransport
 from strategy_manager.shared.infrastructure.clock import SystemClock
 
@@ -72,6 +73,37 @@ async def read_only_client(
         timeout=settings.binance_timeout_seconds,
     ) as http:
         yield BinanceReadOnlyClient(http, signer)
+
+
+@asynccontextmanager
+async def trade_client(
+    settings: Settings,
+    credentials: BinanceCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[BinanceTradeClient]:
+    """Yields a USDⓈ-M futures client that can place orders.
+
+    Deliberately a separate entry point from ``read_only_client``, exactly as
+    on Bybit. Anything that only reads should be unable to reach a writing
+    client by accident, and a call site asking for this one is stating plainly
+    that it intends to move money.
+
+    Which credentials arrive here is the caller's decision and it is not a
+    detail: the vault's trade key signs orders, while the environment's
+    read-only key would come back as ``-2015`` — a code that also means a
+    revoked key and a host outside the allowlist, and therefore reads like the
+    venue refusing the write rather than like the wrong key being used.
+    """
+    signer = BinanceSigner(
+        credentials,
+        clock or SystemClock(),
+        recv_window_ms=settings.binance_recv_window_ms,
+    )
+    async with httpx.AsyncClient(
+        base_url=settings.binance_futures_base_url,
+        timeout=settings.binance_timeout_seconds,
+    ) as http:
+        yield BinanceTradeClient(http, signer)
 
 
 @asynccontextmanager

@@ -10,12 +10,24 @@ the moment two exchanges offered the same one, and routing by venue would send
 a Binance pool's order to whichever adapter claimed ``usdt-m`` first.
 """
 
+from typing import cast
+
 import pytest
 
 from strategy_manager.execution.application.ports import ExchangeError
+from strategy_manager.execution.infrastructure.binance_futures_exchange import (
+    BinanceFuturesExchangeAdapter,
+)
+from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
+    BybitFuturesExchangeAdapter,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
+from strategy_manager.shared.infrastructure.binance.trade_client import (
+    BinanceTradeClient,
+)
+from strategy_manager.shared.infrastructure.bybit.trade_client import BybitTradeClient
 
 
 class StubAdapter:
@@ -102,6 +114,35 @@ def test_it_is_live_only_when_every_adapter_is() -> None:
 
     assert all_live.is_live is True
     assert mixed.is_live is False
+
+
+def test_the_live_adapters_the_composition_root_registers_serve_both_exchanges() -> None:
+    """The real pair, not stubs: what ``exchange_for`` builds when both vault
+    credentials load. Bybit and Binance each declare ``usdt-m``, so this is the
+    collision the (exchange, venue) key exists to survive -- and the clients are
+    never touched during construction, which is why placeholders suffice."""
+    bybit = BybitFuturesExchangeAdapter(cast(BybitTradeClient, object()))
+    binance = BinanceFuturesExchangeAdapter(cast(BinanceTradeClient, object()))
+
+    registry = VenueExchangeRegistry([bybit, binance])
+
+    assert registry.pools == frozenset({("bybit", "usdt-m"), ("binance", "usdt-m")})
+    assert registry.for_pool("bybit", "usdt-m") is bybit
+    assert registry.for_pool("binance", "usdt-m") is binance
+    assert registry.is_live is True
+
+
+def test_registering_one_exchanges_live_adapter_twice_still_raises() -> None:
+    """Graceful degradation must never become graceful duplication: whatever
+    the composition root skips, what it does register is still exactly one
+    adapter per pool."""
+    with pytest.raises(ExchangeError, match="claimed by both"):
+        VenueExchangeRegistry(
+            [
+                BinanceFuturesExchangeAdapter(cast(BinanceTradeClient, object())),
+                BinanceFuturesExchangeAdapter(cast(BinanceTradeClient, object())),
+            ]
+        )
 
 
 def test_an_empty_registry_serves_nothing_and_says_so() -> None:

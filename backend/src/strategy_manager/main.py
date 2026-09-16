@@ -20,6 +20,7 @@ from strategy_manager.accounts.application.sync_balances import (
     CompositeBalanceSync,
     SyncBalances,
 )
+from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
     SqlAlchemyBalanceSnapshotRepository,
@@ -31,6 +32,7 @@ from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
     BybitBalanceReader,
 )
 from strategy_manager.accounts.infrastructure.credential_vault import (
+    CredentialNotFound,
     SqlAlchemyCredentialVault,
 )
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
@@ -53,6 +55,9 @@ from strategy_manager.execution.application.ports import (
     ExchangeRegistryPort,
 )
 from strategy_manager.execution.application.settle_execution import SettleExecution
+from strategy_manager.execution.infrastructure.binance_futures_exchange import (
+    BinanceFuturesExchangeAdapter,
+)
 from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
 )
@@ -85,6 +90,10 @@ from strategy_manager.shared.infrastructure.binance.factory import (
 from strategy_manager.shared.infrastructure.binance.factory import (
     read_only_client as binance_read_only_client,
 )
+from strategy_manager.shared.infrastructure.binance.factory import (
+    trade_client as binance_trade_client,
+)
+from strategy_manager.shared.infrastructure.binance.signer import BinanceCredentials
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
 from strategy_manager.shared.infrastructure.bybit.factory import (
     read_only_client,
@@ -226,6 +235,47 @@ def _build_settle_execution(
     )
 
 
+async def _vault_credential(
+    vault: SqlAlchemyCredentialVault, exchange: str
+) -> ExchangeCredential | None:
+    """The trade credential for one exchange, or ``None`` if none is stored.
+
+    A missing credential is a degradation, not a failure, and it is scoped to
+    the exchange that is missing it. Raising here would let an exchange nobody
+    has sealed a key for stop the exchange that has one -- the same
+    disproportion the unserved-pool warning refuses one level up: halting the
+    worker over an unused pool would take working trading down with it.
+
+    What the caller does instead is register the exchanges that DID load, and
+    that is the whole of what this buys: the exchange holding a key keeps
+    trading.
+
+    Be exact about the cost to the one WITHOUT a key, because the obvious
+    reading is wrong. Its signals are NOT refused by name. ``tradable_pools``
+    is computed at startup from the registered CLASSES and knows nothing about
+    credentials, so such a signal passes that check, reserves capital, and only
+    then fails in ``PlaceOrder`` -- where ``for_pool`` raises OUTSIDE the block
+    that releases a reservation on a definitive rejection. The job retries and
+    the capital stays held until the reservation expires on its own.
+
+    Survivable, and deliberately not repaired here: repairing it means deciding
+    that an unserved pool is a definitive rejection, which is an execution-layer
+    decision rather than a wiring one. What must not happen is someone reading
+    this helper and believing the missing exchange fails cleanly.
+    """
+    try:
+        return await vault.load(exchange)
+    except CredentialNotFound:
+        logger.warning(
+            "no active credential is stored for '%s'; its adapter will not be "
+            "registered, so signals on its pools will reserve capital and then "
+            "fail to place, holding it until the reservation expires. Trading "
+            "on every other exchange is unaffected.",
+            exchange,
+        )
+        return None
+
+
 def build_worker_runner(
     pools: Sequence[PoolConfig],
     *,
@@ -255,14 +305,21 @@ def build_worker_runner(
     # class because the live adapter cannot exist yet — it needs a decrypted
     # credential and an open socket, and neither belongs to startup.
     #
-    # Bybit, not Pionex. The Pionex adapters are complete, tested and correct,
-    # and they are deliberately NOT registered: Pionex does not offer futures
-    # order placement over its API to public users, so the futures one cannot
-    # execute, and splitting capital across two exchanges to keep the spot one
-    # would defeat what this system is for. They stay in the repository as the
-    # second implementation that proves this port is the right shape.
+    # Bybit and Binance, not Pionex. Binance now joins Bybit as a venue that can
+    # actually execute: both place futures orders over their API, each against
+    # its own account, and the registry keyed by (exchange, venue) is what keeps
+    # one exchange's signal from reaching the other's wallet.
+    #
+    # The Pionex adapters are complete, tested and correct, and they are
+    # deliberately NOT registered: Pionex does not offer futures order placement
+    # over its API to public users, so the futures one cannot execute, and
+    # splitting capital across two exchanges to keep the spot one would defeat
+    # what this system is for. They stay in the repository as the second
+    # implementation that proves this port is the right shape.
     registered: tuple[type[ExchangePort], ...] = (
-        (FakeExchangeAdapter,) if settings.dry_run else (BybitFuturesExchangeAdapter,)
+        (FakeExchangeAdapter,)
+        if settings.dry_run
+        else (BybitFuturesExchangeAdapter, BinanceFuturesExchangeAdapter)
     )
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
@@ -292,15 +349,28 @@ def build_worker_runner(
     # would report every futures pool as untradable merely because the spot
     # adapter does not serve it -- noise that trains an operator to ignore the
     # one warning that matters.
-    live_adapters: tuple[ExchangePort, ...] = (
-        tuple(fakes_by_exchange.values())
+    #
+    # The two branches ask the same question of genuinely different KINDS of
+    # thing, which is why the answer is computed per branch rather than through
+    # one tuple of adapters. A dry run's fakes are INSTANCES: ``exchange`` is
+    # per instance there, so one fake stands in for each configured exchange.
+    # The live adapters are CLASSES, because a live one cannot exist at startup
+    # -- it needs a decrypted credential and an open socket, and neither belongs
+    # here. Both kinds carry ``exchange`` and ``venues``, which is everything
+    # this computation reads, so nothing is gained by forcing them together and
+    # the pairs come out identical either way.
+    tradable_pools: frozenset[tuple[str, str]] = (
+        frozenset(
+            (fake.exchange, venue)
+            for fake in fakes_by_exchange.values()
+            for venue in fake.venues
+        )
         if settings.dry_run
-        else (BybitFuturesExchangeAdapter,)  # type: ignore[assignment]
-    )
-    tradable_pools: frozenset[tuple[str, str]] = frozenset(
-        (adapter.exchange, venue)
-        for adapter in live_adapters
-        for venue in adapter.venues
+        else frozenset(
+            (adapter.exchange, venue)
+            for adapter in registered
+            for venue in adapter.venues
+        )
     )
     unserved = unserved_pools(served=tradable_pools, pools=pools)
     if unserved:
@@ -333,23 +403,61 @@ def build_worker_runner(
         has to fall back -- and a fallback is precisely the failure it exists
         to prevent.
 
-        The credential is decrypted here and dies with this context
-        (CLAUDE.md rule 8). It is the Bybit key: loading Pionex's would
-        authenticate against the wrong venue and fail in a way that looks
+        Each credential is decrypted here and dies with this context
+        (CLAUDE.md rule 8), and each adapter is signed with its OWN exchange's
+        key: authenticating against the wrong venue fails in a way that looks
         exactly like the venue refusing the call.
+
+        The two are loaded INDEPENDENTLY. A Binance key nobody has sealed must
+        cost Binance signals and nothing else -- it may not take Bybit trading
+        down with it, which is the same rule the unserved-pool warning follows.
+        That, and only that, is what loading them separately buys.
+
+        An exchange left out is not in the registry, and a signal for it fails
+        inside ``PlaceOrder`` rather than being refused by name up front. See
+        ``_vault_credential`` for why, and for the capital that stays reserved
+        until it expires. The same holds when NEITHER loads: an empty registry
+        is not a clean stop, it is every signal taking that path. Yielding it
+        anyway is still right, because manufacturing an outage at job start
+        would take down the exchange that DOES have a key.
+
+        The exit stack is what lets both HTTP clients nest and close in order,
+        however many of them were actually opened.
         """
         if settings.dry_run:
             yield VenueExchangeRegistry(list(fakes_by_exchange.values()))
             return
 
-        credential = await SqlAlchemyCredentialVault(
-            session, cipher, SystemClock()
-        ).load(BYBIT_EXCHANGE)
-        credentials = BybitCredentials(
-            api_key=credential.api_key, api_secret=credential.api_secret
-        )
-        async with trade_client(settings, credentials) as futures:
-            yield VenueExchangeRegistry([BybitFuturesExchangeAdapter(futures)])
+        vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+
+        async with AsyncExitStack() as clients:
+            adapters: list[ExchangePort] = []
+
+            bybit = await _vault_credential(vault, BYBIT_EXCHANGE)
+            if bybit is not None:
+                futures = await clients.enter_async_context(
+                    trade_client(
+                        settings,
+                        BybitCredentials(
+                            api_key=bybit.api_key, api_secret=bybit.api_secret
+                        ),
+                    )
+                )
+                adapters.append(BybitFuturesExchangeAdapter(futures))
+
+            binance = await _vault_credential(vault, BINANCE_EXCHANGE)
+            if binance is not None:
+                binance_futures = await clients.enter_async_context(
+                    binance_trade_client(
+                        settings,
+                        BinanceCredentials(
+                            api_key=binance.api_key, api_secret=binance.api_secret
+                        ),
+                    )
+                )
+                adapters.append(BinanceFuturesExchangeAdapter(binance_futures))
+
+            yield VenueExchangeRegistry(adapters)
 
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
@@ -408,10 +516,23 @@ def build_worker_runner(
                     )
 
                 if binance_pools:
-                    # The READ-ONLY environment key, not the vault: Binance has
-                    # no vault credential until one that signs orders is stored,
-                    # and a balance read is a read. The key was verified to
-                    # carry no trading or transfer permission (probe, 2026-09-15).
+                    # The READ-ONLY environment key, deliberately, even though
+                    # the vault now DOES hold a Binance key that signs orders.
+                    # The two are not interchangeable and the difference is
+                    # where they work from: the trade key is IP-restricted, so
+                    # it only signs from the allowlisted host, while the
+                    # read-only key works from anywhere. Balance reads are the
+                    # half that must keep working from any host -- a stale
+                    # snapshot is what starves the allocation engine -- so the
+                    # IP-bound key is exercised at order time and nowhere else.
+                    #
+                    # The cost of that split, stated plainly: a broken trade key
+                    # will NOT show up as a balance failure. It surfaces as
+                    # -2015 on the first order instead, so a green balance sync
+                    # says nothing about whether this host can actually trade.
+                    #
+                    # The key was verified to carry no trading or transfer
+                    # permission (probe, 2026-09-15).
                     binance = await clients.enter_async_context(
                         binance_read_only_client(
                             settings, binance_credentials_from_settings(settings)
