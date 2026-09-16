@@ -14,6 +14,9 @@ import httpx
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.config import Settings
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.infrastructure.binance.read_client import (
+    BinanceReadOnlyClient,
+)
 from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
     BinanceSigner,
@@ -45,6 +48,30 @@ async def futures_transport(
     """USDⓈ-M futures: ``fapi.binance.com``."""
     async with _transport(settings.binance_futures_base_url, settings, credentials, clock) as t:
         yield t
+
+
+@asynccontextmanager
+async def read_only_client(
+    settings: Settings,
+    credentials: BinanceCredentials,
+    clock: ClockPort | None = None,
+) -> AsyncIterator[BinanceReadOnlyClient]:
+    """Yields a read-only USDⓈ-M futures client bound to these credentials.
+
+    Deliberately separate from the transports below: a caller asking for this
+    one cannot reach an endpoint that writes, because the client has no method
+    that does.
+    """
+    signer = BinanceSigner(
+        credentials,
+        clock or SystemClock(),
+        recv_window_ms=settings.binance_recv_window_ms,
+    )
+    async with httpx.AsyncClient(
+        base_url=settings.binance_futures_base_url,
+        timeout=settings.binance_timeout_seconds,
+    ) as http:
+        yield BinanceReadOnlyClient(http, signer)
 
 
 @asynccontextmanager

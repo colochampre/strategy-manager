@@ -6,7 +6,7 @@ business logic, authentication and secrets; the frontend is a pure client.
 
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from decimal import Decimal
 from uuid import UUID
 
@@ -16,10 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.application.balance_sync_handler import BalanceSyncHandler
 from strategy_manager.accounts.application.pool_balance_adapter import PoolBalanceAdapter
-from strategy_manager.accounts.application.sync_balances import SyncBalances
+from strategy_manager.accounts.application.sync_balances import (
+    CompositeBalanceSync,
+    SyncBalances,
+)
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
     SqlAlchemyBalanceSnapshotRepository,
+)
+from strategy_manager.accounts.infrastructure.binance_balance_reader import (
+    BinanceBalanceReader,
 )
 from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
     BybitBalanceReader,
@@ -71,6 +77,13 @@ from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.access_log import (
     install_access_log_redaction,
+)
+from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
+from strategy_manager.shared.infrastructure.binance.factory import (
+    credentials_from_settings as binance_credentials_from_settings,
+)
+from strategy_manager.shared.infrastructure.binance.factory import (
+    read_only_client as binance_read_only_client,
 )
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
 from strategy_manager.shared.infrastructure.bybit.factory import (
@@ -352,36 +365,69 @@ def build_worker_runner(
             await _build_settle_execution(session, exchanges).settle(attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
-        # The HTTP client is built per job rather than held open across the
-        # worker's life: a sync runs every few seconds, so the reconnect is
-        # cheap, and no socket outlives the job that opened it.
-        async with factory() as session:
-            # Decrypted here and used immediately — the plaintext lives only
-            # for the length of this call (CLAUDE.md rule 8).
-            credential = await SqlAlchemyCredentialVault(
-                session, cipher, SystemClock()
-            ).load(BYBIT_EXCHANGE)
+        """One sync per exchange that has enabled pools.
 
-            async with read_only_client(
-                settings,
-                BybitCredentials(
-                    api_key=credential.api_key, api_secret=credential.api_secret
-                ),
-            ) as client:
-                # Only Bybit's pools: this reader speaks to Bybit, and handing
-                # it a Binance pool would write that pool's balance from an
-                # account that does not hold its money.
+        Each exchange answers for its own account only, so a reader is never
+        handed a pool whose money it does not hold -- the same rule the
+        registry enforces for orders, applied to balances.
+
+        The HTTP clients are built per job rather than held open across the
+        worker's life: a sync runs every few seconds, so the reconnect is
+        cheap, and no socket outlives the job that opened it.
+        """
+        async with factory() as session:
+            snapshots = SqlAlchemyBalanceSnapshotRepository(session)
+            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+
+            async with AsyncExitStack() as clients:
+                syncs: list[SyncBalances] = []
+
+                if bybit_pools:
+                    # Decrypted here and used immediately — the plaintext lives
+                    # only for the length of this call (CLAUDE.md rule 8).
+                    credential = await SqlAlchemyCredentialVault(
+                        session, cipher, SystemClock()
+                    ).load(BYBIT_EXCHANGE)
+                    bybit = await clients.enter_async_context(
+                        read_only_client(
+                            settings,
+                            BybitCredentials(
+                                api_key=credential.api_key,
+                                api_secret=credential.api_secret,
+                            ),
+                        )
+                    )
+                    syncs.append(
+                        SyncBalances(
+                            pools=bybit_pools,
+                            reader=BybitBalanceReader(bybit, SystemClock()),
+                            snapshots=snapshots,
+                            commit=session,
+                        )
+                    )
+
+                if binance_pools:
+                    # The READ-ONLY environment key, not the vault: Binance has
+                    # no vault credential until one that signs orders is stored,
+                    # and a balance read is a read. The key was verified to
+                    # carry no trading or transfer permission (probe, 2026-09-15).
+                    binance = await clients.enter_async_context(
+                        binance_read_only_client(
+                            settings, binance_credentials_from_settings(settings)
+                        )
+                    )
+                    syncs.append(
+                        SyncBalances(
+                            pools=binance_pools,
+                            reader=BinanceBalanceReader(binance, SystemClock()),
+                            snapshots=snapshots,
+                            commit=session,
+                        )
+                    )
+
                 handler = BalanceSyncHandler(
-                    sync_balances=SyncBalances(
-                        pools=[
-                            key
-                            for key in pools_by_key
-                            if key[0] == BYBIT_EXCHANGE
-                        ],
-                        reader=BybitBalanceReader(client, SystemClock()),
-                        snapshots=SqlAlchemyBalanceSnapshotRepository(session),
-                        commit=session,
-                    ),
+                    sync_balances=CompositeBalanceSync(syncs),
                     queue=PostgresJobQueue(session),
                     clock=SystemClock(),
                     interval_seconds=settings.balance_sync_interval_seconds,

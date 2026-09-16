@@ -12,7 +12,11 @@ from decimal import Decimal
 import pytest
 
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
-from strategy_manager.accounts.application.sync_balances import SyncBalances
+from strategy_manager.accounts.application.sync_balances import (
+    CompositeBalanceSync,
+    SyncBalances,
+    SyncResult,
+)
 from strategy_manager.shared.domain.money import Exchange
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
@@ -105,3 +109,47 @@ async def test_a_failed_read_writes_nothing_and_commits_nothing() -> None:
 
     assert writer.written == []
     assert commit.commits == 0
+
+
+# --- CompositeBalanceSync: one sync per exchange -----------------------------
+#
+# Each exchange answers for its own account only, so a reader is never handed a
+# pool whose money it does not hold.
+
+
+class StubSync:
+    def __init__(self, synced: int, raises: Exception | None = None) -> None:
+        self._synced = synced
+        self._raises = raises
+        self.calls = 0
+
+    async def sync(self) -> SyncResult:
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        return SyncResult(synced=self._synced)
+
+
+async def test_every_exchange_is_synced_and_the_counts_add_up() -> None:
+    bybit, binance = StubSync(1), StubSync(2)
+
+    result = await CompositeBalanceSync([bybit, binance]).sync()
+
+    assert (bybit.calls, binance.calls) == (1, 1)
+    assert result.synced == 3
+
+
+async def test_one_exchange_failing_fails_the_whole_job() -> None:
+    """Reporting partial success would leave a dead exchange looking healthy.
+    The job fails, the queue retries, and the snapshots that were not written
+    keep ageing until they halt their own pools."""
+    boom = RuntimeError("binance unreachable")
+
+    with pytest.raises(RuntimeError, match="binance unreachable"):
+        await CompositeBalanceSync([StubSync(1), StubSync(0, raises=boom)]).sync()
+
+
+async def test_no_exchanges_is_a_no_op_rather_than_an_error() -> None:
+    """A deployment with no enabled pools yet still runs the chain: the job
+    must keep re-enqueuing itself, or nothing ever starts syncing."""
+    assert (await CompositeBalanceSync([]).sync()).synced == 0
