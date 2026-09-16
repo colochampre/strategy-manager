@@ -158,7 +158,7 @@ def test_execution_attempt_holds_its_fields() -> None:
     reservation_id = uuid4()
     attempt_id = uuid4()
 
-    attempt = ExecutionAttempt(
+    attempt = ExecutionAttempt(exchange="pionex", 
         id=attempt_id,
         reservation_id=reservation_id,
         closes_allocation_id=None,
@@ -185,7 +185,7 @@ def test_an_attempt_carries_exactly_one_size() -> None:
     invalid row fails at construction instead of on the INSERT — and so the
     two representations can never disagree about what was sent."""
     def _attempt(quantity: Decimal | None, quote_amount: Decimal | None) -> None:
-        ExecutionAttempt(
+        ExecutionAttempt(exchange="pionex", 
             id=uuid4(),
             reservation_id=uuid4(),
             closes_allocation_id=None,
@@ -212,7 +212,7 @@ def test_an_attempt_has_exactly_one_origin() -> None:
     reservation's capital or unwinds a position, and the two uniqueness rules
     that give each side its idempotency only work if they never overlap."""
     def _attempt(reservation_id: UUID | None, closes: UUID | None) -> ExecutionAttempt:
-        return ExecutionAttempt(
+        return ExecutionAttempt(exchange="pionex", 
             id=uuid4(),
             reservation_id=reservation_id,
             closes_allocation_id=closes,
@@ -240,7 +240,7 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
     projected from the ledger."""
     opening = uuid4()
 
-    open_attempt = ExecutionAttempt(
+    open_attempt = ExecutionAttempt(exchange="pionex", 
         id=uuid4(),
         reservation_id=opening,
         closes_allocation_id=None,
@@ -254,7 +254,7 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
         status=ExecutionStatus.SUBMITTED,
         client_order_id="c1",
     )
-    close_attempt = ExecutionAttempt(
+    close_attempt = ExecutionAttempt(exchange="pionex", 
         id=uuid4(),
         reservation_id=None,
         closes_allocation_id=opening,

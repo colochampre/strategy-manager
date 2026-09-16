@@ -48,7 +48,7 @@ class FrozenClock:
 
 class FakeReservations:
     def __init__(self, expires_at: datetime, amount: Decimal = Decimal("100")) -> None:
-        self._snapshot = ReservationSnapshot(
+        self._snapshot = ReservationSnapshot(exchange="pionex", 
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
             venue="spot",
@@ -103,6 +103,7 @@ class SpyQueue:
 
 class SpyExchange:
     is_live = False
+    exchange = "pionex"
     venues = frozenset({"spot"})
 
     def __init__(self, log: list[str], raises: Exception | None = None) -> None:

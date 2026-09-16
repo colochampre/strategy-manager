@@ -21,7 +21,16 @@ class LedgerEntryRow(Base):
 
     __tablename__ = "ledger_entries"
     __table_args__ = (
-        UniqueConstraint("venue", "exchange_fill_id", name="ux_ledger_exchange_fill"),
+        # Fill ids are only unique WITHIN an exchange: nothing stops Binance
+        # and Bybit from issuing the same one, and keyed by venue alone the
+        # second exchange's fill would be silently rejected as a duplicate of
+        # the first's.
+        UniqueConstraint(
+            "exchange",
+            "venue",
+            "exchange_fill_id",
+            name="ux_ledger_exchange_fill",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -36,6 +45,7 @@ class LedgerEntryRow(Base):
     execution_attempt_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("execution_attempts.id"), nullable=False
     )
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)

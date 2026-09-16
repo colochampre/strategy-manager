@@ -23,6 +23,7 @@ class ReservationGatewayAdapter:
         return ReservationSnapshot(
             id=reservation.id,
             strategy_id=reservation.strategy_id,
+            exchange=reservation.pool_key.exchange.value,
             venue=reservation.pool_key.venue.value,
             settlement_currency=reservation.pool_key.settlement_currency.value,
             amount=reservation.amount,

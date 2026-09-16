@@ -93,9 +93,9 @@ class SettleExecution:
             )
 
         try:
-            fills = await self._exchanges.for_venue(attempt.venue).fetch_fills(
-                attempt.client_order_id, attempt.symbol
-            )
+            fills = await self._exchanges.for_pool(
+                attempt.exchange, attempt.venue
+            ).fetch_fills(attempt.client_order_id, attempt.symbol)
         except OrderNotFound:
             return await self._release_never_placed(attempt, now)
 
@@ -175,6 +175,7 @@ class SettleExecution:
                 strategy_id=strategy_id,
                 allocation_id=attempt.allocation_id,
                 execution_attempt_id=attempt.id,
+                exchange=attempt.exchange,
                 venue=attempt.venue,
                 settlement_currency=attempt.settlement_currency,
                 symbol=attempt.symbol,

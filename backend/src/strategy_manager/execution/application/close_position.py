@@ -63,6 +63,7 @@ class CloseCommand:
 
     allocation_id: UUID
     strategy_id: UUID
+    exchange: str
     venue: str
     settlement_currency: str
     symbol: str
@@ -135,7 +136,7 @@ class ClosePosition:
         now = self._clock.now()
         client_order_id = str(uuid4())
         attempt_id = uuid4()
-        exchange = self._exchanges.for_venue(command.venue)
+        exchange = self._exchanges.for_pool(command.exchange, command.venue)
         order = await exchange.build_close_order(
             CloseOrderSpec(
                 client_order_id=client_order_id,
@@ -150,6 +151,7 @@ class ClosePosition:
                 id=attempt_id,
                 reservation_id=None,
                 closes_allocation_id=command.allocation_id,
+                exchange=command.exchange,
                 venue=command.venue,
                 settlement_currency=command.settlement_currency,
                 symbol=command.symbol,

@@ -107,6 +107,7 @@ class SpyQueue:
 
 class SpyExchange:
     is_live = False
+    exchange = "pionex"
     venues = frozenset({"spot"})
 
     def __init__(self, log: list[str], raises: Exception | None = None) -> None:
@@ -186,7 +187,7 @@ def _build(
 
 
 def _command(side: OrderSide = OrderSide.SELL) -> CloseCommand:
-    return CloseCommand(
+    return CloseCommand(exchange="pionex", 
         allocation_id=ALLOCATION_ID,
         strategy_id=STRATEGY_ID,
         venue="spot",
@@ -343,7 +344,7 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
     misconfigured in a way that would otherwise surface as an inexplicably
     wrong order size."""
     use_case, attempts, queue, exchange, _, _ = _build()
-    command = CloseCommand(
+    command = CloseCommand(exchange="pionex", 
         allocation_id=ALLOCATION_ID,
         strategy_id=STRATEGY_ID,
         venue="spot",

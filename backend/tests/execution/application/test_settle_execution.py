@@ -48,7 +48,7 @@ def _closing_attempt(
 ) -> ExecutionAttempt:
     """A close: bound to the allocation it unwinds, not to a reservation, and
     denominated in the base currency it is selling."""
-    return ExecutionAttempt(
+    return ExecutionAttempt(exchange="pionex", 
         id=ATTEMPT_ID,
         reservation_id=None,
         closes_allocation_id=RESERVATION_ID,
@@ -65,7 +65,7 @@ def _closing_attempt(
 
 
 def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAttempt:
-    return ExecutionAttempt(
+    return ExecutionAttempt(exchange="pionex", 
         id=ATTEMPT_ID,
         reservation_id=RESERVATION_ID,
         closes_allocation_id=None,
@@ -100,7 +100,7 @@ class FakeReservations:
         self.marks: list[tuple[UUID, str]] = []
 
     async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot:
-        return ReservationSnapshot(
+        return ReservationSnapshot(exchange="pionex", 
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
             venue="spot",
@@ -140,6 +140,7 @@ class FakeAttempts:
 
 class FakeExchange:
     is_live = False
+    exchange = "pionex"
     venues = frozenset({"spot"})
 
     def __init__(

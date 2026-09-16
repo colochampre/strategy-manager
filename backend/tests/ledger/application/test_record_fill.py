@@ -41,7 +41,7 @@ def _fill_record(**overrides: object) -> FillRecord:
         usd_rate_at_fill=Decimal("1"),
     )
     defaults.update(overrides)
-    return FillRecord(**defaults)  # type: ignore[arg-type]
+    return FillRecord(exchange="pionex", **defaults)  # type: ignore[arg-type]
 
 
 async def test_record_maps_fill_record_to_a_ledger_entry_and_inserts_it() -> None:

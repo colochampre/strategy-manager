@@ -148,10 +148,11 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     attempt_id = uuid4()
     await conn.execute(
         text(
-            "INSERT INTO execution_attempts (id, reservation_id, venue, settlement_currency, "
+            "INSERT INTO execution_attempts "
+            "(id, reservation_id, exchange, venue, settlement_currency, "
             "symbol, side, quantity, status, client_order_id) "
-            "VALUES (:id, :reservation_id, 'spot', 'USDT', 'BTCUSDT', 'BUY', 0.004, "
-            "'SUBMITTED', :client_order_id)"
+            "VALUES (:id, :reservation_id, 'pionex', 'spot', 'USDT', 'BTCUSDT', 'BUY', "
+            "0.004, 'SUBMITTED', :client_order_id)"
         ),
         {"id": attempt_id, "reservation_id": reservation_id, "client_order_id": f"c-{attempt_id}"},
     )
@@ -159,11 +160,12 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     await conn.execute(
         text(
             "INSERT INTO ledger_entries (id, strategy_id, allocation_id, execution_attempt_id, "
-            "venue, settlement_currency, symbol, side, quantity, price, fee, fee_currency, "
-            "notional, exchange_order_id, exchange_fill_id, filled_at, usd_rate_at_fill) "
-            "VALUES (:id, :strategy_id, :allocation_id, :execution_attempt_id, 'spot', 'USDT', "
-            "'BTCUSDT', 'BUY', 0.004, 50000, 0.02, 'USDT', 200, :exchange_order_id, "
-            ":exchange_fill_id, now(), 1)"
+            "exchange, venue, settlement_currency, symbol, side, quantity, price, fee, "
+            "fee_currency, notional, exchange_order_id, exchange_fill_id, filled_at, "
+            "usd_rate_at_fill) "
+            "VALUES (:id, :strategy_id, :allocation_id, :execution_attempt_id, 'pionex', "
+            "'spot', 'USDT', 'BTCUSDT', 'BUY', 0.004, 50000, 0.02, 'USDT', 200, "
+            ":exchange_order_id, :exchange_fill_id, now(), 1)"
         ),
         {
             "id": ledger_id,

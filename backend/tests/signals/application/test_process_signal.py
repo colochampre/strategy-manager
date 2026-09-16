@@ -130,7 +130,7 @@ class FakeSignalContextPort:
         return self.context
 
 
-TRADABLE = frozenset({"spot"})
+TRADABLE = frozenset({("pionex", "spot")})
 
 
 def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
@@ -143,7 +143,10 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         allocation_percent=Decimal("100"),
     )
     defaults.update(overrides)
-    return StrategyPolicySnapshot(exchange=Exchange.BYBIT, **defaults)  # type: ignore[arg-type]
+    # Pionex, because the default venue is spot: the tradable-pool check is
+    # keyed by both, so a mismatched pair would be refused for a reason that
+    # has nothing to do with what is being tested.
+    return StrategyPolicySnapshot(exchange=Exchange.PIONEX, **defaults)  # type: ignore[arg-type]
 
 
 def _allocate_capital(
@@ -175,7 +178,7 @@ def _process_signal_handler(
     close_position: SpyClosePosition | None = None,
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
-    tradable_venues: frozenset[str] = TRADABLE,
+    tradable_pools: frozenset[tuple[str, str]] = TRADABLE,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -188,7 +191,7 @@ def _process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position or SpyClosePosition(),
-        tradable_venues=tradable_venues,
+        tradable_pools=tradable_pools,
     )
 
 
@@ -628,7 +631,7 @@ async def test_refusing_one_venue_leaves_the_served_one_trading() -> None:
         allocate_capital=_allocate_capital(lock),
         place_order=place_order,
         policy=_snapshot(venue="spot"),
-        tradable_venues=frozenset({"spot"}),
+        tradable_pools=frozenset({("pionex", "spot")}),
     )
 
     result = await handler.handle(uuid4())

@@ -52,7 +52,7 @@ async def test_successful_fill_is_recorded_in_full(
     async with pg_session_factory() as session:
         record_fill = RecordFill(SqlAlchemyLedgerRepository(session))
         await record_fill.record(
-            FillRecord(
+            FillRecord(exchange="bybit", 
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,

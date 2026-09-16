@@ -35,7 +35,7 @@ def _entry(**overrides: object) -> LedgerEntry:
         usd_rate_at_fill=Decimal("1"),
     )
     defaults.update(overrides)
-    return LedgerEntry(**defaults)  # type: ignore[arg-type]
+    return LedgerEntry(exchange="pionex", **defaults)  # type: ignore[arg-type]
 
 
 def test_ledger_entry_is_frozen() -> None:

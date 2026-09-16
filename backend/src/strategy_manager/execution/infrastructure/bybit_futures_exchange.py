@@ -59,7 +59,7 @@ from strategy_manager.execution.domain.futures_order import (
 )
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.placeable import PlaceableOrder
-from strategy_manager.shared.domain.money import Venue
+from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
     BybitOrderNotFound,
@@ -83,6 +83,8 @@ class BybitFuturesExchangeAdapter:
     USDT-M linear perpetuals."""
 
     is_live = True
+
+    exchange = Exchange.BYBIT.value
 
     # USDT-M only. Bybit also settles linear perpetuals in USDC, but USDC is
     # not in the ``Currency`` enum or the ``capital_pools`` CHECK constraint,

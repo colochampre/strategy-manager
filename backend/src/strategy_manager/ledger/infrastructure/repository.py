@@ -29,6 +29,7 @@ class SqlAlchemyLedgerRepository:
                 strategy_id=entry.strategy_id,
                 allocation_id=entry.allocation_id,
                 execution_attempt_id=entry.execution_attempt_id,
+                exchange=entry.exchange,
                 venue=entry.venue,
                 settlement_currency=entry.settlement_currency,
                 symbol=entry.symbol,

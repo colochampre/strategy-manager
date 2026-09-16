@@ -25,6 +25,7 @@ class LedgerEntry:
     strategy_id: UUID
     allocation_id: UUID
     execution_attempt_id: UUID
+    exchange: str
     venue: str
     settlement_currency: str
     symbol: str

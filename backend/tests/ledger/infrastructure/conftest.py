@@ -218,6 +218,7 @@ async def seed_execution_attempt(
     attempt_id: UUID,
     reservation_id: UUID | None = None,
     closes_allocation_id: UUID | None = None,
+    exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
 ) -> None:
@@ -228,9 +229,9 @@ async def seed_execution_attempt(
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
-                "(id, reservation_id, closes_allocation_id, venue, settlement_currency, "
-                "symbol, side, quantity, status, client_order_id) "
-                "VALUES (:id, :reservation_id, :closes_allocation_id, :venue, "
+                "(id, reservation_id, closes_allocation_id, exchange, venue, "
+                "settlement_currency, symbol, side, quantity, status, client_order_id) "
+                "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
                 ":settlement_currency, 'BTCUSDT', 'BUY', 0.004, 'SUBMITTED', "
                 ":client_order_id)"
             ),
@@ -238,6 +239,7 @@ async def seed_execution_attempt(
                 "id": attempt_id,
                 "reservation_id": reservation_id,
                 "closes_allocation_id": closes_allocation_id,
+                "exchange": exchange,
                 "venue": venue,
                 "settlement_currency": settlement_currency,
                 "client_order_id": f"client-{attempt_id}",

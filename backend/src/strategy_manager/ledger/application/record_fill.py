@@ -28,6 +28,7 @@ class RecordFill:
             strategy_id=fill.strategy_id,
             allocation_id=fill.allocation_id,
             execution_attempt_id=fill.execution_attempt_id,
+            exchange=fill.exchange,
             venue=fill.venue,
             settlement_currency=fill.settlement_currency,
             symbol=fill.symbol,

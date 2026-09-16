@@ -176,7 +176,7 @@ class ProcessSignalHandler:
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
         close_position: ClosePositionPort,
-        tradable_venues: frozenset[str],
+        tradable_pools: frozenset[tuple[str, str]],
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
@@ -184,7 +184,7 @@ class ProcessSignalHandler:
         self._allocate_capital = allocate_capital
         self._place_order = place_order
         self._close_position = close_position
-        self._tradable_venues = tradable_venues
+        self._tradable_pools = tradable_pools
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -193,8 +193,10 @@ class ProcessSignalHandler:
         )
         policy = await self._strategy_policy.policy_for(context.strategy_id)
 
-        if policy.venue not in self._tradable_venues:
-            return self._refuse_untradable_venue(context, transition, policy.venue)
+        if (policy.exchange, policy.venue) not in self._tradable_pools:
+            return self._refuse_untradable_pool(
+                context, transition, policy.exchange, policy.venue
+            )
 
         # ``transition.effects`` is ORDERED, and that ordering is the domain's
         # own statement of what happens first. A reverse releases before it
@@ -267,6 +269,7 @@ class ProcessSignalHandler:
             CloseCommand(
                 allocation_id=context.prior_reservation_id,
                 strategy_id=context.strategy_id,
+                exchange=policy.exchange,
                 venue=policy.venue,
                 settlement_currency=policy.settlement_currency,
                 symbol=context.symbol,
@@ -275,19 +278,21 @@ class ProcessSignalHandler:
         )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
 
-    def _refuse_untradable_venue(
+    def _refuse_untradable_pool(
         self,
         context: SignalContext,
         transition: PositionTransition,
+        exchange: str,
         venue: str,
     ) -> ProcessSignalResult:
         """Refuse THIS signal, and only this one.
 
-        ``venue`` reaches the reservation, the attempt and the ledger row
-        without ever selecting an adapter, so a strategy on a venue the
-        registered adapter cannot trade would have its size computed from one
+        The pool reaches the reservation, the attempt and the ledger row
+        without ever selecting an adapter, so a strategy on a pool the
+        registered adapters cannot trade would have its size computed from one
         wallet and its order sent to another -- a futures pool sized against
-        the futures balance and executed on spot.
+        the futures balance and executed on spot, or a Binance pool executed
+        against a Bybit account.
 
         The check sits here, before allocation, because refusing once a
         reservation exists means capital is already held for a trade that
@@ -298,10 +303,10 @@ class ProcessSignalHandler:
         still learns about it at startup, as a warning that names the pools
         without taking the process down with them.
         """
+        served = ", ".join(sorted(f"{e}/{v}" for e, v in self._tradable_pools))
         refused = (
-            f"strategy {context.strategy_id} trades on {venue}, which the "
-            f"registered exchange adapter does not serve "
-            f"({', '.join(sorted(self._tradable_venues)) or 'nothing'}). "
+            f"strategy {context.strategy_id} trades on {exchange}/{venue}, which "
+            f"no registered exchange adapter serves ({served or 'nothing'}). "
             "No order was placed and no capital was reserved."
         )
         logger.warning("refusing signal for %s: %s", context.symbol, refused)

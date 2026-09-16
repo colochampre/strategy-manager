@@ -67,7 +67,7 @@ def _fill(
     fee_currency: str,
 ) -> FillRecord:
     price = Decimal("50000")
-    return FillRecord(
+    return FillRecord(exchange="bybit", 
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,

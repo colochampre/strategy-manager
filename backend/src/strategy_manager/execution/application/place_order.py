@@ -119,7 +119,7 @@ class PlaceOrder:
         # can report. So this call may reach the network -- which is exactly
         # why it happens here, before the transaction's writes, and not
         # inside them.
-        exchange = self._exchanges.for_venue(reservation.venue)
+        exchange = self._exchanges.for_pool(reservation.exchange, reservation.venue)
         order = await exchange.build_open_order(
             OpenOrderSpec(
                 client_order_id=client_order_id,
@@ -137,6 +137,7 @@ class PlaceOrder:
                 id=attempt_id,
                 reservation_id=reservation.id,
                 closes_allocation_id=None,
+                exchange=reservation.exchange,
                 venue=reservation.venue,
                 settlement_currency=reservation.settlement_currency,
                 symbol=command.symbol,

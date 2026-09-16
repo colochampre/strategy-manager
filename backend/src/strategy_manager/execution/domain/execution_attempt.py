@@ -54,6 +54,7 @@ class ExecutionAttempt:
     id: UUID
     reservation_id: UUID | None
     closes_allocation_id: UUID | None
+    exchange: str
     venue: str
     settlement_currency: str
     symbol: str

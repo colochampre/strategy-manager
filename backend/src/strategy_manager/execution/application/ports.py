@@ -124,9 +124,17 @@ class ExchangePort(Protocol):
     They stay separate from ``place`` because the caller must record the size
     in its own transaction BEFORE the network call, so the order it commits
     to is the order that goes out.
+
+    ``exchange`` names which one this adapter speaks to. A venue alone stopped
+    identifying an adapter the moment two exchanges offered the same one: Bybit
+    and Binance both trade ``usdt-m``, and routing a Binance pool's order by
+    venue would send it to whichever adapter happened to claim that venue —
+    the same class of failure the venue registry was built to prevent, one
+    level up.
     """
 
     is_live: bool
+    exchange: str
     venues: frozenset[str]
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder: ...
@@ -139,19 +147,21 @@ class ExchangePort(Protocol):
 
 
 class ExchangeRegistryPort(Protocol):
-    """Which adapter trades a given venue.
+    """Which adapter trades a given pool.
 
     Every use case that touches an exchange takes this rather than a single
-    ``ExchangePort``, because every one of them already knows the venue it is
+    ``ExchangePort``, because every one of them already knows the pool it is
     acting on -- the reservation's, the close command's, the attempt's -- and
-    the venue is the only thing that decides where an order may go.
+    that pool is the only thing that decides where an order may go.
 
     Handing a use case one adapter is what allowed a ``usdt-m`` reservation to
     be sized against the futures wallet and placed on spot: the venue reached
-    every layer and selected nothing.
+    every layer and selected nothing. The exchange joins the key for the same
+    reason, one level up: two exchanges now offer ``usdt-m``, and a pool's
+    money only exists on one of them.
     """
 
-    def for_venue(self, venue: str) -> ExchangePort: ...
+    def for_pool(self, exchange: str, venue: str) -> ExchangePort: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +173,7 @@ class ReservationSnapshot:
 
     id: UUID
     strategy_id: UUID
+    exchange: str
     venue: str
     settlement_currency: str
     amount: Decimal
@@ -202,6 +213,7 @@ class FillRecord:
     strategy_id: UUID
     allocation_id: UUID
     execution_attempt_id: UUID
+    exchange: str
     venue: str
     settlement_currency: str
     symbol: str

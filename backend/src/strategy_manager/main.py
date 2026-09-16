@@ -60,7 +60,7 @@ from strategy_manager.execution.infrastructure.repository import (
 )
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
-    unserved_pool_venues,
+    unserved_pools,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
@@ -114,7 +114,7 @@ def _build_process_signal_handler(
     pools_by_key: Mapping[tuple[str, str, str], PoolConfig],
     settings: Settings,
     exchanges: ExchangeRegistryPort,
-    tradable_venues: frozenset[str],
+    tradable_pools: frozenset[tuple[str, str]],
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -191,7 +191,7 @@ def _build_process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position,
-        tradable_venues=tradable_venues,
+        tradable_pools=tradable_pools,
     )
 
 
@@ -254,6 +254,20 @@ def build_worker_runner(
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
 
+    # One fake per configured exchange, not one fake for all of them. The
+    # registry is keyed by (exchange, venue) now, and a single instance
+    # claiming every exchange would route a Binance pool's rehearsal through
+    # the same object as a Bybit one -- the very collapse this key exists to
+    # prevent, rehearsed wrongly.
+    #
+    # Each holds its own placed orders, so place and settle must share the
+    # instance for a given exchange; that is why they are built here, once,
+    # rather than per job.
+    fakes_by_exchange = {
+        pool.exchange.value: FakeExchangeAdapter(exchange=pool.exchange.value)
+        for pool in pools
+    }
+
     # ``venue`` reaches the reservation, the attempt and the ledger row without
     # ever selecting an adapter, so a strategy on a venue this adapter does not
     # serve would be sized against one wallet and executed against another.
@@ -265,14 +279,21 @@ def build_worker_runner(
     # would report every futures pool as untradable merely because the spot
     # adapter does not serve it -- noise that trains an operator to ignore the
     # one warning that matters.
-    tradable_venues: frozenset[str] = frozenset().union(
-        *(adapter.venues for adapter in registered)
+    live_adapters: tuple[ExchangePort, ...] = (
+        tuple(fakes_by_exchange.values())
+        if settings.dry_run
+        else (BybitFuturesExchangeAdapter,)  # type: ignore[assignment]
     )
-    unserved = unserved_pool_venues(served=tradable_venues, pools=pools)
+    tradable_pools: frozenset[tuple[str, str]] = frozenset(
+        (adapter.exchange, venue)
+        for adapter in live_adapters
+        for venue in adapter.venues
+    )
+    unserved = unserved_pools(served=tradable_pools, pools=pools)
     if unserved:
         logger.warning(
             describe_unserved(
-                served=tradable_venues,
+                served=tradable_pools,
                 by=" + ".join(adapter.__name__ for adapter in registered),
                 unserved=unserved,
             )
@@ -282,13 +303,12 @@ def build_worker_runner(
     # fails here rather than on the first job that needs a credential.
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
 
-    # The fake holds its placed orders in memory, so place and settle have to
-    # share ONE instance or settlement finds nothing. The live adapter is the
-    # opposite: it is stateless, Pionex itself is the shared state, and it
-    # needs a per-job credential and socket — so it is built per job, exactly
-    # like the balance reader, and the plaintext dies with the call
-    # (CLAUDE.md rule 8).
-    fake_exchange = FakeExchangeAdapter()
+    # The fakes above hold their placed orders in memory, so place and settle
+    # have to share the same instance per exchange or settlement finds
+    # nothing. The live adapter is the opposite: it is stateless, the venue
+    # itself is the shared state, and it needs a per-job credential and socket
+    # — so it is built per job, exactly like the balance reader, and the
+    # plaintext dies with the call (CLAUDE.md rule 8).
 
     @asynccontextmanager
     async def exchange_for(
@@ -306,7 +326,7 @@ def build_worker_runner(
         exactly like the venue refusing the call.
         """
         if settings.dry_run:
-            yield VenueExchangeRegistry([fake_exchange])
+            yield VenueExchangeRegistry(list(fakes_by_exchange.values()))
             return
 
         credential = await SqlAlchemyCredentialVault(
@@ -322,7 +342,7 @@ def build_worker_runner(
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session, exchange_for(session) as exchanges:
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchanges, tradable_venues
+                session, pools_by_key, settings, exchanges, tradable_pools
             )
             await handler.handle(signal_id)
 
@@ -348,9 +368,16 @@ def build_worker_runner(
                     api_key=credential.api_key, api_secret=credential.api_secret
                 ),
             ) as client:
+                # Only Bybit's pools: this reader speaks to Bybit, and handing
+                # it a Binance pool would write that pool's balance from an
+                # account that does not hold its money.
                 handler = BalanceSyncHandler(
                     sync_balances=SyncBalances(
-                        pools=list(pools_by_key),
+                        pools=[
+                            key
+                            for key in pools_by_key
+                            if key[0] == BYBIT_EXCHANGE
+                        ],
                         reader=BybitBalanceReader(client, SystemClock()),
                         snapshots=SqlAlchemyBalanceSnapshotRepository(session),
                         commit=session,

@@ -28,7 +28,7 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
-from strategy_manager.shared.domain.money import Venue
+from strategy_manager.shared.domain.money import Exchange, Venue
 
 
 class FakeExchangeAdapter:
@@ -56,7 +56,15 @@ class FakeExchangeAdapter:
     # and the routing, not the multiple.
     FAKE_LEVERAGE = Decimal("1")
 
-    def __init__(self, fill_price: Decimal = Decimal("1")) -> None:
+    def __init__(
+        self, exchange: str = Exchange.BYBIT.value, fill_price: Decimal = Decimal("1")
+    ) -> None:
+        """``exchange`` is per instance, not per class: the registry is keyed by
+        it, so a dry run needs one fake standing in for each configured
+        exchange rather than one fake claiming to be all of them. Each also
+        keeps its own placed orders, which is what a real pair of adapters
+        would do."""
+        self.exchange = exchange
         self._fill_price = fill_price
         self._placed: dict[str, Fill] = {}
 

@@ -1,4 +1,4 @@
-"""Which adapter actually trades a given venue.
+"""Which adapter actually trades a given pool.
 
 This module exists because of a bug that was invisible for weeks. ``venue``
 travelled faithfully from ``capital_pools`` through the reservation, the
@@ -10,10 +10,15 @@ nothing raised, and a ledger row claiming a trade happened somewhere it did
 not.
 
 The fix is not a check. It is making the selection exist at all: one place
-that maps a venue to the adapter that serves it, so "which venue is this?" has
+that maps a pool to the adapter that serves it, so "which pool is this?" has
 exactly one answer and every use case asks the same question.
 
-A venue nothing serves raises here rather than falling back to any adapter.
+The key is ``(exchange, venue)``, not the venue alone. Once Binance and Bybit
+both offer ``usdt-m``, a venue selects nothing: a Binance pool's order routed
+by venue would reach whichever adapter claimed it first, against an account
+that does not hold that pool's money.
+
+A pool nothing serves raises here rather than falling back to any adapter.
 There is no sensible default: the whole failure being prevented is an order
 reaching the wrong wallet, and a fallback is precisely that.
 """
@@ -22,33 +27,37 @@ from collections.abc import Iterable, Mapping
 
 from strategy_manager.execution.application.ports import ExchangeError, ExchangePort
 
+PoolRoute = tuple[str, str]
+"""``(exchange, venue)`` — what selects an adapter."""
+
 
 class VenueExchangeRegistry:
     """Implements ``ExchangeRegistryPort`` over a fixed set of adapters."""
 
     def __init__(self, adapters: Iterable[ExchangePort]) -> None:
-        by_venue: dict[str, ExchangePort] = {}
+        by_pool: dict[PoolRoute, ExchangePort] = {}
         for adapter in adapters:
             for venue in adapter.venues:
-                existing = by_venue.get(venue)
+                route = (adapter.exchange, venue)
+                existing = by_pool.get(route)
                 if existing is not None:
-                    # Two adapters claiming one venue means the selection is
+                    # Two adapters claiming one pool means the selection is
                     # ambiguous, and an ambiguous selection is the bug this
                     # class exists to prevent. Refuse at construction, which
                     # is startup, rather than picking one silently.
                     raise ExchangeError(
-                        f"venue {venue!r} is claimed by both "
+                        f"pool {route[0]}/{route[1]} is claimed by both "
                         f"{type(existing).__name__} and {type(adapter).__name__}; "
-                        "exactly one adapter must serve each venue"
+                        "exactly one adapter must serve each pool"
                     )
-                by_venue[venue] = adapter
-        self._by_venue = by_venue
+                by_pool[route] = adapter
+        self._by_pool = by_pool
 
     @property
-    def venues(self) -> frozenset[str]:
-        """Every venue this registry can trade, for the startup warning and
-        the per-signal refusal."""
-        return frozenset(self._by_venue)
+    def pools(self) -> frozenset[PoolRoute]:
+        """Every ``(exchange, venue)`` this registry can trade, for the startup
+        warning and the per-signal refusal."""
+        return frozenset(self._by_pool)
 
     @property
     def is_live(self) -> bool:
@@ -59,18 +68,19 @@ class VenueExchangeRegistry:
         weaker would let a live futures adapter ride along in a run the
         operator believes is dry.
         """
-        return all(adapter.is_live for adapter in self._by_venue.values())
+        return all(adapter.is_live for adapter in self._by_pool.values())
 
     @property
-    def adapters(self) -> Mapping[str, ExchangePort]:
+    def adapters(self) -> Mapping[PoolRoute, ExchangePort]:
         """Read-only view, for composition and for tests that assert wiring."""
-        return dict(self._by_venue)
+        return dict(self._by_pool)
 
-    def for_venue(self, venue: str) -> ExchangePort:
-        adapter = self._by_venue.get(venue)
+    def for_pool(self, exchange: str, venue: str) -> ExchangePort:
+        adapter = self._by_pool.get((exchange, venue))
         if adapter is None:
+            served = ", ".join(f"{e}/{v}" for e, v in sorted(self._by_pool))
             raise ExchangeError(
-                f"no exchange adapter serves venue {venue!r}; registered venues "
-                f"are {', '.join(sorted(self._by_venue)) or 'none'}"
+                f"no exchange adapter serves pool {exchange}/{venue}; registered "
+                f"pools are {served or 'none'}"
             )
         return adapter
