@@ -21,13 +21,12 @@ from strategy_manager.accounts.infrastructure.balance_snapshot_repository import
 )
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
-from strategy_manager.shared.domain.money import Exchange
 
 pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 MAX_AGE = 90.0
-SPOT = ("spot", "USDT")
+SPOT = ("pionex", "spot", "USDT")
 
 
 class FrozenClock:
@@ -39,14 +38,14 @@ class FrozenClock:
 
 
 def _reading(
-    pool: tuple[str, str],
+    pool: tuple[str, str, str],
     available: str,
     observed_at: datetime = NOW,
     total: str | None = None,
 ) -> PoolBalanceReading:
-    venue, currency = pool
+    exchange, venue, currency = pool
     return PoolBalanceReading(
-        exchange=Exchange.BYBIT,
+        exchange=exchange,
         venue=venue,
         settlement_currency=currency,
         total=Decimal(available if total is None else total),
@@ -82,11 +81,11 @@ async def test_total_and_availability_round_trip_separately(
     Reading one figure back as the other is how sizing starts compounding."""
     async with pg_session_factory() as session:
         await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-            [_reading(("usdt-m", "USDT"), "400", total="1000")]
+            [_reading(("bybit", "usdt-m", "USDT"), "400", total="1000")]
         )
         await session.commit()
 
-        funds = await _source(session, FrozenClock()).read_balance("usdt-m", "USDT")
+        funds = await _source(session, FrozenClock()).read_balance("bybit", "usdt-m", "USDT")
 
     assert (funds.total, funds.available) == (Decimal("1000"), Decimal("400"))
 
@@ -132,7 +131,7 @@ async def test_a_batch_covering_several_pools_lands_in_one_statement(
 ) -> None:
     async with pg_session_factory() as session:
         await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-            [_reading(SPOT, "100"), _reading(("usdt-m", "USDT"), "50")]
+            [_reading(SPOT, "100"), _reading(("bybit", "usdt-m", "USDT"), "50")]
         )
         await session.commit()
 
@@ -190,7 +189,7 @@ async def test_a_snapshot_for_an_unconfigured_pool_is_rejected(
     async with pg_session_factory() as session:
         with pytest.raises(IntegrityError):
             await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-                [_reading(("spot", "DOGE"), "1")]
+                [_reading(("pionex", "spot", "DOGE"), "1")]
             )
             await session.commit()
 

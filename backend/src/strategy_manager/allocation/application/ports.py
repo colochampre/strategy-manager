@@ -26,6 +26,7 @@ class StrategyPolicySnapshot:
     strategy_id: UUID
     enabled: bool
     fill_mode: str  # 'SKIP' | 'PARTIAL'
+    exchange: str
     venue: str
     settlement_currency: str
     allocation_percent: Decimal  # 0 < value <= 100 (tasks.md 7.6)
@@ -53,7 +54,9 @@ class PoolBalancePort(Protocol):
     """Implementations MUST be local (DB or in-memory). A synchronous remote
     call here would run inside the advisory lock (design.md § Interfaces)."""
 
-    async def read(self, venue: str, settlement_currency: str) -> PoolBalance: ...
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolBalance: ...
 
 
 class AdvisoryLockPort(Protocol):
@@ -68,7 +71,7 @@ class ReservationRepositoryPort(Protocol):
     async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None: ...
 
     async def sum_active(
-        self, venue: str, settlement_currency: str, now: datetime
+        self, exchange: str, venue: str, settlement_currency: str, now: datetime
     ) -> Decimal: ...
 
     async def insert(self, reservation: Reservation) -> None: ...

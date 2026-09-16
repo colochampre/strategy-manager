@@ -28,7 +28,6 @@ from decimal import Decimal
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Exchange
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     BybitReadOnlyClient,
     UnifiedCoinBalance,
@@ -59,21 +58,21 @@ class BybitBalanceReader:
 
         return [
             PoolBalanceReading(
-                exchange=Exchange.BYBIT.value,
+                exchange=exchange,
                 venue=venue,
                 settlement_currency=currency,
                 total=_total(by_coin.get(currency.upper())),
                 available=_available(by_coin.get(currency.upper())),
                 observed_at=observed_at,
             )
-            for venue, currency in pools
+            for exchange, venue, currency in pools
         ]
 
 
 def _assert_one_pool_per_currency(pools: Sequence[PoolKey]) -> None:
     """Refuses a configuration where two pools would read the same balance."""
     seen: dict[str, str] = {}
-    for venue, currency in pools:
+    for _exchange, venue, currency in pools:
         key = currency.upper()
         first = seen.get(key)
         if first is not None:

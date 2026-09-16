@@ -11,8 +11,8 @@ answers "should this trade now?", and only the second one moves money. They
 are separate calls so that neither can be done by accident while doing the
 other.
 
-There is no way to change ``venue`` or ``settlement_currency`` after
-registration. That is the guard, not a gap — ``UpdateStrategy`` explains why
+There is no way to change ``exchange``, ``venue`` or ``settlement_currency``
+after registration. That is the guard, not a gap — ``UpdateStrategy`` explains why
 at length. In short: it is not an edit, it is a different pool of money, and a
 strategy switched between pools routes the close of an open position to the
 wrong adapter.
@@ -32,7 +32,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -63,6 +63,7 @@ class StrategyView(BaseModel):
 
     id: UUID
     name: str
+    exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
@@ -74,6 +75,7 @@ class StrategyView(BaseModel):
         return cls(
             id=strategy.id,
             name=strategy.name,
+            exchange=strategy.policy.exchange,
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
             fill_mode=strategy.policy.fill_mode,
@@ -88,6 +90,7 @@ class RegisterRequest(BaseModel):
 
     id: UUID
     name: str = Field(min_length=1)
+    exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
@@ -97,8 +100,8 @@ class RegisterRequest(BaseModel):
 class UpdateRequest(BaseModel):
     """Every field is optional; omitted means unchanged.
 
-    ``venue`` and ``settlement_currency`` are absent on purpose — see this
-    module's docstring.
+    ``exchange``, ``venue`` and ``settlement_currency`` are absent on purpose
+    — see this module's docstring.
     """
 
     name: str | None = Field(default=None, min_length=1)
@@ -121,6 +124,7 @@ async def register_strategy(
             RegisterCommand(
                 strategy_id=body.id,
                 name=body.name,
+                exchange=body.exchange,
                 venue=body.venue,
                 settlement_currency=body.settlement_currency,
                 fill_mode=body.fill_mode,

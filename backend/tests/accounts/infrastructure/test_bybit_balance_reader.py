@@ -65,7 +65,7 @@ async def test_availability_is_the_wallet_minus_what_is_committed() -> None:
     again."""
     reader, _ = _reader(_coin(wallet="600", position_im="120", order_im="30", locked="10"))
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].available == Decimal("440")
 
@@ -75,7 +75,7 @@ async def test_the_total_is_the_wallet_including_committed_margin() -> None:
     total means a second strategy asks for the same amount as the first."""
     reader, _ = _reader(_coin(wallet="600", position_im="120", order_im="30", locked="10"))
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].total == Decimal("600")
     assert readings[0].available == Decimal("440")
@@ -96,7 +96,7 @@ async def test_the_total_excludes_unrealized_pnl() -> None:
     )
     reader, _ = _reader(balance)
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].total == Decimal("1000")
 
@@ -117,7 +117,7 @@ async def test_availability_is_never_the_usd_valuation() -> None:
     )
     reader, _ = _reader(balance)
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].available == Decimal("5")
 
@@ -127,7 +127,7 @@ async def test_a_fully_committed_balance_reads_as_zero_not_negative() -> None:
     handing one to the allocation engine is worse than reporting nothing."""
     reader, _ = _reader(_coin(wallet="100", position_im="150"))
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].available == Decimal("0")
 
@@ -137,7 +137,7 @@ async def test_a_currency_the_account_does_not_hold_reads_as_zero() -> None:
     the allocator skips, which is a correct outcome rather than a failure."""
     reader, _ = _reader(_coin(coin="USDT"))
 
-    readings = await reader.read([("usdt-m", "USDC")])
+    readings = await reader.read([("bybit", "usdt-m", "USDC")])
 
     assert readings[0].available == Decimal("0")
     assert readings[0].total == Decimal("0")
@@ -148,7 +148,7 @@ async def test_the_account_is_fetched_once_however_many_pools_there_are() -> Non
     pools must never multiply API calls."""
     reader, client = _reader(_coin(coin="USDT"), _coin(coin="USDC", wallet="10"))
 
-    await reader.read([("usdt-m", "USDT"), ("coin-m", "USDC")])
+    await reader.read([("bybit", "usdt-m", "USDT"), ("bybit", "coin-m", "USDC")])
 
     assert client.calls == 1
 
@@ -158,7 +158,7 @@ async def test_every_reading_shares_one_observation_time() -> None:
     imply a precision that is not there."""
     reader, _ = _reader(_coin(coin="USDT"), _coin(coin="USDC", wallet="10"))
 
-    readings = await reader.read([("usdt-m", "USDT"), ("coin-m", "USDC")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT"), ("bybit", "coin-m", "USDC")])
 
     assert {reading.observed_at for reading in readings} == {FROZEN_NOW}
 
@@ -171,7 +171,7 @@ async def test_two_pools_over_one_currency_are_refused() -> None:
     reader, _ = _reader(_coin())
 
     with pytest.raises(InvariantViolation, match="reserved twice"):
-        await reader.read([("spot", "USDT"), ("usdt-m", "USDT")])
+        await reader.read([("bybit", "spot", "USDT"), ("bybit", "usdt-m", "USDT")])
 
 
 async def test_the_refusal_names_both_pools() -> None:
@@ -180,7 +180,7 @@ async def test_the_refusal_names_both_pools() -> None:
     reader, _ = _reader(_coin())
 
     with pytest.raises(InvariantViolation, match="spot/USDT and usdt-m/USDT"):
-        await reader.read([("spot", "USDT"), ("usdt-m", "USDT")])
+        await reader.read([("bybit", "spot", "USDT"), ("bybit", "usdt-m", "USDT")])
 
 
 async def test_different_currencies_are_not_refused() -> None:
@@ -188,7 +188,7 @@ async def test_different_currencies_are_not_refused() -> None:
     exist. Separate currencies are separate money."""
     reader, _ = _reader(_coin(coin="USDT"), _coin(coin="USDC", wallet="10"))
 
-    readings = await reader.read([("usdt-m", "USDT"), ("usdt-m", "USDC")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT"), ("bybit", "usdt-m", "USDC")])
 
     assert [r.available for r in readings] == [Decimal("600"), Decimal("10")]
 
@@ -199,7 +199,7 @@ async def test_the_refusal_happens_before_the_network_call() -> None:
     reader, client = _reader(_coin())
 
     with pytest.raises(InvariantViolation):
-        await reader.read([("spot", "USDT"), ("usdt-m", "USDT")])
+        await reader.read([("bybit", "spot", "USDT"), ("bybit", "usdt-m", "USDT")])
 
     assert client.calls == 0
 
@@ -209,6 +209,6 @@ async def test_every_reading_is_stamped_bybit() -> None:
     named usdt-m become one pool again."""
     reader, _ = _reader(_coin())
 
-    readings = await reader.read([("usdt-m", "USDT")])
+    readings = await reader.read([("bybit", "usdt-m", "USDT")])
 
     assert readings[0].exchange == "bybit"

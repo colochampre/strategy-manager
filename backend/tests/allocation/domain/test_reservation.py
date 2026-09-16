@@ -10,9 +10,9 @@ import pytest
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
-_KEY = PoolKey(venue=Venue.SPOT, settlement_currency=Currency.USDT)
+_KEY = PoolKey(exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT)
 
 
 def _reservation(status: ReservationStatus = ReservationStatus.PENDING) -> Reservation:

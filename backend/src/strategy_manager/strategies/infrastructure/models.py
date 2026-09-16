@@ -28,14 +28,19 @@ class StrategyRow(Base):
     __tablename__ = "strategies"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["venue", "settlement_currency"],
-            ["capital_pools.venue", "capital_pools.settlement_currency"],
+            ["exchange", "venue", "settlement_currency"],
+            [
+                "capital_pools.exchange",
+                "capital_pools.venue",
+                "capital_pools.settlement_currency",
+            ],
             name="fk_strategies_capital_pool",
         ),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(

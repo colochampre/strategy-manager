@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 
@@ -18,7 +18,7 @@ def _strategy(strategy_id: object) -> Strategy:
     return Strategy(
         id=strategy_id,  # type: ignore[arg-type]
         name=f"strategy-{strategy_id}",
-        policy=AllocationPolicy(
+        policy=AllocationPolicy(exchange=Exchange.PIONEX, 
             venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.PARTIAL
         ),
         enabled=True,

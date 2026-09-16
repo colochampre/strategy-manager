@@ -19,10 +19,10 @@ from strategy_manager.allocation.domain.reservation import (
     Reservation,
     ReservationStatus,
 )
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 NOW = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-POOL = PoolKey(venue=Venue.SPOT, settlement_currency=Currency.USDT)
+POOL = PoolKey(exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT)
 
 
 class FrozenClock:

@@ -31,10 +31,9 @@ class CapitalPoolRow(Base):
 
     __tablename__ = "capital_pools"
 
-    # Not part of the primary key YET: this lands the column and its writers
-    # first, so the key switch that lets two exchanges share a venue is a
-    # change of keys alone.
-    exchange: Mapped[str] = mapped_column(Text, nullable=False)
+    # Part of the key: two exchanges both have a usdt-m venue holding USDT,
+    # and they are different money.
+    exchange: Mapped[str] = mapped_column(Text, primary_key=True)
     venue: Mapped[str] = mapped_column(Text, primary_key=True)
     settlement_currency: Mapped[str] = mapped_column(Text, primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -56,8 +55,12 @@ class PoolBalanceSnapshotRow(Base):
     __tablename__ = "pool_balance_snapshots"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["venue", "settlement_currency"],
-            ["capital_pools.venue", "capital_pools.settlement_currency"],
+            ["exchange", "venue", "settlement_currency"],
+            [
+                "capital_pools.exchange",
+                "capital_pools.venue",
+                "capital_pools.settlement_currency",
+            ],
             ondelete="CASCADE",
         ),
         CheckConstraint("available >= 0", name="ck_pool_balance_snapshots_available_non_negative"),
@@ -66,7 +69,7 @@ class PoolBalanceSnapshotRow(Base):
         ),
     )
 
-    exchange: Mapped[str] = mapped_column(Text, nullable=False)
+    exchange: Mapped[str] = mapped_column(Text, primary_key=True)
     venue: Mapped[str] = mapped_column(Text, primary_key=True)
     settlement_currency: Mapped[str] = mapped_column(Text, primary_key=True)
     total: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 class SqlAlchemyPoolCatalog:
@@ -26,12 +26,15 @@ class SqlAlchemyPoolCatalog:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def enabled_pools(self) -> list[tuple[Venue, Currency]]:
+    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]:
         result = await self._session.execute(
-            select(CapitalPoolRow.venue, CapitalPoolRow.settlement_currency).where(
-                CapitalPoolRow.enabled.is_(True)
-            )
+            select(
+                CapitalPoolRow.exchange,
+                CapitalPoolRow.venue,
+                CapitalPoolRow.settlement_currency,
+            ).where(CapitalPoolRow.enabled.is_(True))
         )
         return [
-            (Venue(venue), Currency(currency)) for venue, currency in result.all()
+            (Exchange(exchange), Venue(venue), Currency(currency))
+            for exchange, venue, currency in result.all()
         ]

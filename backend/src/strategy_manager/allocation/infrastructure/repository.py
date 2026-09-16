@@ -17,7 +17,7 @@ from strategy_manager.allocation.domain.reservation import (
     ReservationStatus,
 )
 from strategy_manager.allocation.infrastructure.models import ReservationRow
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 _ACTIVE_STATUSES = (ReservationStatus.PENDING.value, ReservationStatus.SUBMITTED.value)
 
@@ -28,7 +28,9 @@ def _to_domain(row: ReservationRow) -> Reservation:
         strategy_id=row.strategy_id,
         signal_id=row.signal_id,
         pool_key=PoolKey(
-            venue=Venue(row.venue), settlement_currency=Currency(row.settlement_currency)
+            exchange=Exchange(row.exchange),
+            venue=Venue(row.venue),
+            settlement_currency=Currency(row.settlement_currency),
         ),
         amount=row.amount,
         status=ReservationStatus(row.status),
@@ -65,9 +67,12 @@ class SqlAlchemyReservationRepository:
         ).scalar_one()
         return _to_domain(row)
 
-    async def sum_active(self, venue: str, settlement_currency: str, now: datetime) -> Decimal:
+    async def sum_active(
+        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+    ) -> Decimal:
         result = await self._session.execute(
             select(func.coalesce(func.sum(ReservationRow.amount), 0)).where(
+                ReservationRow.exchange == exchange,
                 ReservationRow.venue == venue,
                 ReservationRow.settlement_currency == settlement_currency,
                 ReservationRow.status.in_(_ACTIVE_STATUSES),
@@ -82,6 +87,7 @@ class SqlAlchemyReservationRepository:
                 id=reservation.id,
                 strategy_id=reservation.strategy_id,
                 signal_id=reservation.signal_id,
+                exchange=reservation.pool_key.exchange.value,
                 venue=reservation.pool_key.venue.value,
                 settlement_currency=reservation.pool_key.settlement_currency.value,
                 amount=reservation.amount,

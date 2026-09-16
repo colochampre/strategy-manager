@@ -133,6 +133,7 @@ async def seed_strategy(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     strategy_id: UUID,
+    exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
@@ -143,6 +144,7 @@ async def seed_strategy(
             StrategyRow(
                 id=strategy_id,
                 name=f"strategy-{strategy_id}",
+                exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
                 enabled=enabled,
@@ -183,6 +185,7 @@ async def seed_reservation(
     reservation_id: UUID,
     strategy_id: UUID,
     signal_id: UUID,
+    exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
     amount: Decimal = Decimal("200"),
@@ -191,15 +194,16 @@ async def seed_reservation(
         await session.execute(
             text(
                 "INSERT INTO reservations "
-                "(id, strategy_id, signal_id, venue, settlement_currency, amount, status, "
-                "expires_at) "
-                "VALUES (:id, :strategy_id, :signal_id, :venue, :settlement_currency, :amount, "
-                "'SUBMITTED', now() + interval '1 hour')"
+                "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
+                "amount, status, expires_at) "
+                "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
+                ":settlement_currency, :amount, 'SUBMITTED', now() + interval '1 hour')"
             ),
             {
                 "id": reservation_id,
                 "strategy_id": strategy_id,
                 "signal_id": signal_id,
+                "exchange": exchange,
                 "venue": venue,
                 "settlement_currency": settlement_currency,
                 "amount": amount,

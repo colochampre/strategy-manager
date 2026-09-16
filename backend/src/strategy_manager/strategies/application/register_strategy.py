@@ -29,7 +29,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.shared.domain.errors import DomainError
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     CommitPort,
     PoolCatalogPort,
@@ -54,7 +54,7 @@ class StrategyAlreadyRegistered(DomainError):
 
 
 class PoolNotAvailable(DomainError):
-    """No enabled capital pool matches this venue and settlement currency."""
+    """No enabled capital pool matches this exchange, venue and currency."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +70,7 @@ class RegisterCommand:
 
     strategy_id: UUID
     name: str
+    exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
@@ -104,6 +105,7 @@ class RegisterStrategy:
             id=command.strategy_id,
             name=command.name,
             policy=AllocationPolicy(
+                exchange=command.exchange,
                 venue=command.venue,
                 settlement_currency=command.settlement_currency,
                 fill_mode=command.fill_mode,
@@ -119,15 +121,18 @@ class RegisterStrategy:
 
     async def _assert_pool_available(self, command: RegisterCommand) -> None:
         available = await self._pools.enabled_pools()
-        if (command.venue, command.settlement_currency) in available:
+        if (command.exchange, command.venue, command.settlement_currency) in available:
             return
 
-        offered = ", ".join(f"{v.value}/{c.value}" for v, c in sorted(
-            available, key=lambda pair: (pair[0].value, pair[1].value)
-        ))
+        offered = ", ".join(
+            f"{e.value}/{v.value}/{c.value}"
+            for e, v, c in sorted(
+                available, key=lambda pool: (pool[0].value, pool[1].value, pool[2].value)
+            )
+        )
         raise PoolNotAvailable(
-            f"no enabled capital pool for {command.venue.value}/"
-            f"{command.settlement_currency.value}. Enabled pools are "
-            f"{offered or 'none'}. A strategy on a disabled pool would accept "
-            "every signal and size none of them."
+            f"no enabled capital pool for {command.exchange.value}/"
+            f"{command.venue.value}/{command.settlement_currency.value}. Enabled "
+            f"pools are {offered or 'none'}. A strategy on a disabled pool would "
+            "accept every signal and size none of them."
         )

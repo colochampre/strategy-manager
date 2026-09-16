@@ -30,6 +30,7 @@ class StrategyPolicyAdapter:
             strategy_id=strategy.id,
             enabled=strategy.enabled,
             fill_mode=strategy.policy.fill_mode.value,
+            exchange=strategy.policy.exchange.value,
             venue=strategy.policy.venue.value,
             settlement_currency=strategy.policy.settlement_currency.value,
             allocation_percent=strategy.policy.allocation_percent.value,

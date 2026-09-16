@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.update_strategy import (
     UnknownStrategy,
     UpdateCommand,
@@ -27,7 +27,7 @@ STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 
 
 def _strategy(**overrides: object) -> Strategy:
-    policy = AllocationPolicy(
+    policy = AllocationPolicy(exchange=Exchange.PIONEX, 
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,

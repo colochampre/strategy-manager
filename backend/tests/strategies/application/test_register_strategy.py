@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -40,10 +40,14 @@ class FakeRepository:
 
 
 class FakePools:
-    def __init__(self, pools: list[tuple[Venue, Currency]] | None = None) -> None:
-        self._pools = pools if pools is not None else [(Venue.SPOT, Currency.USDT)]
+    def __init__(
+        self, pools: list[tuple[Exchange, Venue, Currency]] | None = None
+    ) -> None:
+        self._pools = (
+            pools if pools is not None else [(Exchange.PIONEX, Venue.SPOT, Currency.USDT)]
+        )
 
-    async def enabled_pools(self) -> list[tuple[Venue, Currency]]:
+    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]:
         return self._pools
 
 
@@ -65,7 +69,7 @@ def _command(**overrides: object) -> RegisterCommand:
         "allocation_percent": Decimal("100"),
     }
     fields.update(overrides)
-    return RegisterCommand(**fields)  # type: ignore[arg-type]
+    return RegisterCommand(exchange=Exchange.PIONEX, **fields)  # type: ignore[arg-type]
 
 
 def _build(
@@ -129,9 +133,11 @@ async def test_a_pool_that_is_not_enabled_is_refused_before_the_write() -> None:
     """The composite FK cannot catch this: the row exists, it is just
     disabled. The allocation engine reads only enabled pools, so such a
     strategy would accept every signal and size none of them."""
-    use_case, repository, commit = _build(pools=[(Venue.SPOT, Currency.USDT)])
+    use_case, repository, commit = _build(
+        pools=[(Exchange.PIONEX, Venue.SPOT, Currency.USDT)]
+    )
 
-    with pytest.raises(PoolNotAvailable, match="usdt-m/USDT"):
+    with pytest.raises(PoolNotAvailable, match="pionex/usdt-m/USDT"):
         await use_case.register(_command(venue=Venue.USDT_M))
 
     assert repository.inserted == []
@@ -142,10 +148,13 @@ async def test_the_refusal_names_the_pools_that_are_available() -> None:
     """The operator's remedy is to pick one of them or enable theirs, and
     both need the list."""
     use_case, _, _ = _build(
-        pools=[(Venue.SPOT, Currency.USDT), (Venue.COIN_M, Currency.BTC)]
+        pools=[
+            (Exchange.PIONEX, Venue.SPOT, Currency.USDT),
+            (Exchange.PIONEX, Venue.COIN_M, Currency.BTC),
+        ]
     )
 
-    with pytest.raises(PoolNotAvailable, match="coin-m/BTC, spot/USDT"):
+    with pytest.raises(PoolNotAvailable, match="pionex/coin-m/BTC, pionex/spot/USDT"):
         await use_case.register(_command(venue=Venue.USDT_M))
 
 

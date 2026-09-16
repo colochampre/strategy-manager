@@ -13,6 +13,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from strategy_manager.accounts.domain.pool_config import PoolConfig
+from strategy_manager.allocation.domain.lock_key import LockKey
+from strategy_manager.allocation.domain.pool_key import PoolKey
 
 
 class PoolLockKeyCollisionError(Exception):
@@ -40,8 +42,9 @@ def assert_lock_key_pairs_distinct(pairs: Sequence[LockKeyPair]) -> None:
         collision = seen.get(key)
         if collision is not None:
             raise PoolLockKeyCollisionError(
-                f"pools ({collision.venue}, {collision.settlement_currency}) and "
-                f"({pair.pool.venue}, {pair.pool.settlement_currency}) both hash to "
+                f"pools ({collision.exchange}, {collision.venue}, "
+                f"{collision.settlement_currency}) and ({pair.pool.exchange}, "
+                f"{pair.pool.venue}, {pair.pool.settlement_currency}) both hash to "
                 f"lock key {key}"
             )
         seen[key] = pair.pool
@@ -55,9 +58,18 @@ async def assert_pool_lock_keys_distinct(
 
     pairs: list[LockKeyPair] = []
     for pool in pools:
+        # The same folding ``PgAdvisoryLockAdapter`` uses, via the same VO:
+        # computing it differently here would check a key nobody takes.
+        key = LockKey.from_pool_key(
+            PoolKey(
+                exchange=pool.exchange,
+                venue=pool.venue,
+                settlement_currency=pool.settlement_currency,
+            )
+        )
         result = await conn.execute(
-            text("SELECT hashtext(:venue), hashtext(:currency)"),
-            {"venue": pool.venue.value, "currency": pool.settlement_currency.value},
+            text("SELECT hashtext(:first), hashtext(:second)"),
+            {"first": key.first, "second": key.second},
         )
         k1, k2 = result.one()
         pairs.append(LockKeyPair(pool=pool, k1=k1, k2=k2))

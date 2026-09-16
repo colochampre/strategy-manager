@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.policy_adapter import (
     StrategyPolicyAdapter,
     UnknownStrategyError,
@@ -29,7 +29,7 @@ async def test_policy_for_maps_strategy_to_snapshot_dto() -> None:
     strategy = Strategy(
         id=strategy_id,
         name="eth-trend",
-        policy=AllocationPolicy(
+        policy=AllocationPolicy(exchange=Exchange.PIONEX, 
             venue=Venue.COIN_M, settlement_currency=Currency.ETH, fill_mode=FillMode.PARTIAL
         ),
         enabled=True,
@@ -50,7 +50,7 @@ async def test_policy_for_maps_a_disabled_skip_strategy() -> None:
     strategy = Strategy(
         id=strategy_id,
         name="btc-grid",
-        policy=AllocationPolicy(
+        policy=AllocationPolicy(exchange=Exchange.PIONEX, 
             venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
         ),
         enabled=False,

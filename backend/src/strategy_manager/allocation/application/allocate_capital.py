@@ -33,7 +33,7 @@ from strategy_manager.allocation.domain.reservation import Reservation, Reservat
 from strategy_manager.allocation.domain.rules import AllocationRules, FillMode
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
-from strategy_manager.shared.domain.money import Currency, Money, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 
 STRATEGY_DISABLED_SKIP_REASON = "STRATEGY_DISABLED"
 
@@ -119,14 +119,18 @@ class AllocateCapital:
             raise InvalidAllocationRequestError("requested amount must be positive")
 
         pool_key = PoolKey(
-            venue=Venue(policy.venue), settlement_currency=Currency(policy.settlement_currency)
+            exchange=Exchange(policy.exchange),
+            venue=Venue(policy.venue),
+            settlement_currency=Currency(policy.settlement_currency),
         )
 
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
         await self._lock.acquire(LockKey.from_pool_key(pool_key))
         try:
-            pool_balance = await self._pool_balance.read(policy.venue, policy.settlement_currency)
+            pool_balance = await self._pool_balance.read(
+                policy.exchange, policy.venue, policy.settlement_currency
+            )
         except DomainError as exc:
             raise UnknownPoolError(
                 f"no configured pool for ({policy.venue}, {policy.settlement_currency})"
@@ -134,7 +138,7 @@ class AllocateCapital:
 
         now = self._clock.now()
         reserved_active = await self._reservations.sum_active(
-            policy.venue, policy.settlement_currency, now
+            policy.exchange, policy.venue, policy.settlement_currency, now
         )
         pool = CapitalPool(
             key=pool_key, balance=pool_balance.available, reserved_active=reserved_active

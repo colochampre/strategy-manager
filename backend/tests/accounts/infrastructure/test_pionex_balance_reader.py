@@ -15,9 +15,9 @@ from strategy_manager.shared.infrastructure.pionex.read_client import CoinBalanc
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 
-SPOT_POOL = ("spot", "USDT")
-USDT_M_POOL = ("usdt-m", "USDT")
-COIN_M_POOL = ("coin-m", "BTC")
+SPOT_POOL = ("pionex", "spot", "USDT")
+USDT_M_POOL = ("pionex", "usdt-m", "USDT")
+COIN_M_POOL = ("pionex", "coin-m", "BTC")
 
 
 class FrozenClock:
@@ -108,7 +108,7 @@ async def test_a_coin_pionex_does_not_report_reads_as_zero() -> None:
     USDT on spot. An absent coin is an empty pool, not a failure."""
     client = FakePionexClient(spot=[_coin("USDT", "1")])
 
-    readings = await _reader(client).read([("spot", "BTC")])
+    readings = await _reader(client).read([("pionex", "spot", "BTC")])
 
     assert readings[0].available == Decimal(0)
 
@@ -175,7 +175,7 @@ async def test_readings_come_back_one_per_requested_pool() -> None:
 
     readings = await _reader(client).read([SPOT_POOL, USDT_M_POOL, COIN_M_POOL])
 
-    assert [(r.venue, r.settlement_currency) for r in readings] == [
+    assert [(r.exchange, r.venue, r.settlement_currency) for r in readings] == [
         SPOT_POOL,
         USDT_M_POOL,
         COIN_M_POOL,

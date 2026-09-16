@@ -100,8 +100,9 @@ async def _seed_active_reservation(conn: AsyncConnection) -> str:
     strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
     await conn.execute(
         text(
-            "INSERT INTO strategies (id, name, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, 'spot', 'USDT', true, 'PARTIAL')"
+            "INSERT INTO strategies "
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
+            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL')"
         ),
         {"id": strategy_id, "name": f"s-{strategy_id}"},
     )
@@ -120,9 +121,11 @@ async def _seed_active_reservation(conn: AsyncConnection) -> str:
     )
     await conn.execute(
         text(
-            "INSERT INTO reservations (id, strategy_id, signal_id, venue, settlement_currency, "
+            "INSERT INTO reservations "
+            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
             "amount, status, expires_at) VALUES "
-            "(:id, :sid, :sig, 'spot', 'USDT', :amount, 'PENDING', now() + interval '1 hour')"
+            "(:id, :sid, :sig, 'pionex', 'spot', 'USDT', :amount, 'PENDING', "
+            "now() + interval '1 hour')"
         ),
         {
             "id": reservation_id,

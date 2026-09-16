@@ -12,7 +12,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 class FillMode(StrEnum):
@@ -53,6 +53,7 @@ class AllocationPolicy:
     ``allocation_percent`` defaults to 100 — migration ``0007``'s
     ``DEFAULT 100`` preserves current behaviour for any existing row."""
 
+    exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode

@@ -15,9 +15,9 @@ from strategy_manager.allocation.domain.decision import (
 )
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.rules import AllocationRules, FillMode
-from strategy_manager.shared.domain.money import Currency, Money, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 
-_POOL_KEY = PoolKey(venue=Venue.SPOT, settlement_currency=Currency.USDT)
+_POOL_KEY = PoolKey(exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT)
 
 
 def _pool(balance: str, reserved_active: str) -> CapitalPool:

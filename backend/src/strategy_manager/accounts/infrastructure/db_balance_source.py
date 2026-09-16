@@ -34,20 +34,22 @@ class DbBalanceSource:
         self._clock = clock
         self._max_age = timedelta(seconds=max_age_seconds)
 
-    async def read_balance(self, venue: str, settlement_currency: str) -> PoolFunds:
+    async def read_balance(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolFunds:
         row = await self._session.get(
-            PoolBalanceSnapshotRow, (venue, settlement_currency)
+            PoolBalanceSnapshotRow, (exchange, venue, settlement_currency)
         )
         if row is None:
             raise StaleBalanceSnapshot(
-                f"no balance has ever been synced for ({venue}, {settlement_currency}); "
-                "the balance.sync job has not run for this pool"
+                f"no balance has ever been synced for ({exchange}, {venue}, "
+                f"{settlement_currency}); the balance.sync job has not run for this pool"
             )
 
         age = self._clock.now() - row.observed_at
         if age > self._max_age:
             raise StaleBalanceSnapshot(
-                f"balance for ({venue}, {settlement_currency}) was observed "
+                f"balance for ({exchange}, {venue}, {settlement_currency}) was observed "
                 f"{age.total_seconds():.1f}s ago, past the "
                 f"{self._max_age.total_seconds():.1f}s limit; refusing to size a "
                 "trade against a balance that may no longer exist"

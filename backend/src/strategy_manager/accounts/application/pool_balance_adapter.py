@@ -17,20 +17,24 @@ class PoolBalanceAdapter:
 
     def __init__(
         self,
-        pools: Mapping[tuple[str, str], PoolConfig],
+        pools: Mapping[tuple[str, str, str], PoolConfig],
         balance_source: BalanceSourcePort,
     ) -> None:
         self._pools = pools
         self._balance_source = balance_source
 
-    async def read(self, venue: str, settlement_currency: str) -> PoolBalance:
-        pool = self._pools.get((venue, settlement_currency))
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolBalance:
+        pool = self._pools.get((exchange, venue, settlement_currency))
         if pool is None:
             raise InvariantViolation(
-                f"no configured pool for ({venue}, {settlement_currency})"
+                f"no configured pool for ({exchange}, {venue}, {settlement_currency})"
             )
 
-        funds = await self._balance_source.read_balance(venue, settlement_currency)
+        funds = await self._balance_source.read_balance(
+            exchange, venue, settlement_currency
+        )
         return PoolBalance(
             total=funds.total,
             available=funds.available,

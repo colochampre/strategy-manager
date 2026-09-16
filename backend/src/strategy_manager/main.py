@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def _build_process_signal_handler(
     session: AsyncSession,
-    pools_by_key: Mapping[tuple[str, str], PoolConfig],
+    pools_by_key: Mapping[tuple[str, str, str], PoolConfig],
     settings: Settings,
     exchanges: ExchangeRegistryPort,
     tradable_venues: frozenset[str],
@@ -231,7 +231,8 @@ def build_worker_runner(
     settings = get_settings()
     factory = session_factory_override or session_factory
     pools_by_key = {
-        (pool.venue.value, pool.settlement_currency.value): pool for pool in pools
+        (pool.exchange.value, pool.venue.value, pool.settlement_currency.value): pool
+        for pool in pools
     }
 
     # DRY_RUN is what selects the adapter, and it is the only thing that does.

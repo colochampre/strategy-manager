@@ -221,7 +221,9 @@ class ProcessSignalHandler:
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
-        pool_balance = await self._pool_balance.read(policy.venue, policy.settlement_currency)
+        pool_balance = await self._pool_balance.read(
+            policy.exchange, policy.venue, policy.settlement_currency
+        )
         # Sized from the pool's TOTAL, never from what is still free: the same
         # percentage must ask for the same amount whether or not other
         # strategies already hold positions. ``decide()`` still caps the grant

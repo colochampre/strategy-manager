@@ -32,7 +32,7 @@ REQUEST_AMOUNT = Decimal("200")
 CONCURRENCY = 8
 
 SPOT_USDT_POOL = {
-    ("spot", "USDT"): PoolConfig(
+    ("pionex", "spot", "USDT"): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
@@ -45,7 +45,7 @@ LockFactory = Callable[[AsyncSession], AdvisoryLockPort]
 
 def build_allocate_capital(session: AsyncSession, lock: AdvisoryLockPort) -> AllocateCapital:
     balance_source = FakeBalanceSource()
-    balance_source.set_balance("spot", "USDT", POOL_BALANCE)
+    balance_source.set_balance("pionex", "spot", "USDT", POOL_BALANCE)
     return AllocateCapital(
         strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
         pool_balance=PoolBalanceAdapter(SPOT_USDT_POOL, balance_source),

@@ -40,7 +40,7 @@ class SqlAlchemyBalanceSnapshotRepository:
         )
         await self._session.execute(
             statement.on_conflict_do_update(
-                index_elements=["venue", "settlement_currency"],
+                index_elements=["exchange", "venue", "settlement_currency"],
                 set_={
                     "exchange": statement.excluded.exchange,
                     "total": statement.excluded.total,

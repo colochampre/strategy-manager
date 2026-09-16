@@ -31,7 +31,7 @@ from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 pytestmark = pytest.mark.integration
 
 _SPOT_USDT_POOL = {
-    ("spot", "USDT"): PoolConfig(
+    ("pionex", "spot", "USDT"): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
@@ -42,7 +42,7 @@ _SPOT_USDT_POOL = {
 
 def _build_allocate_capital(session: AsyncSession, balance: Decimal) -> AllocateCapital:
     balance_source = FakeBalanceSource()
-    balance_source.set_balance("spot", "USDT", balance)
+    balance_source.set_balance("pionex", "spot", "USDT", balance)
     return AllocateCapital(
         strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
         pool_balance=PoolBalanceAdapter(_SPOT_USDT_POOL, balance_source),

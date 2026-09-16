@@ -13,8 +13,8 @@ from strategy_manager.accounts.domain.exchange_credential import (
     ExchangeCredential,
 )
 
-PoolKey = tuple[str, str]
-"""A pool's identity: ``(venue, settlement_currency)``."""
+PoolKey = tuple[str, str, str]
+"""A pool's identity: ``(exchange, venue, settlement_currency)``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,9 @@ class BalanceSourcePort(Protocol):
     call here would run inside the advisory lock once consumed by
     ``allocation.application.PoolBalancePort`` (design.md § Interfaces)."""
 
-    async def read_balance(self, venue: str, settlement_currency: str) -> PoolFunds: ...
+    async def read_balance(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolFunds: ...
 
 
 @dataclass(frozen=True, slots=True)

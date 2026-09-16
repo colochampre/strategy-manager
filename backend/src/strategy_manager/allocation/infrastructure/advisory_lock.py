@@ -17,7 +17,10 @@ class PgAdvisoryLockAdapter:
         self._session = session
 
     async def acquire(self, key: LockKey) -> None:
+        """The two hash inputs come from the key itself: a pool is identified
+        by three values and this lock takes two keys, so ``LockKey`` decides
+        how they fold rather than letting each call site decide."""
         await self._session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:venue), hashtext(:settlement_currency))"),
-            {"venue": key.venue, "settlement_currency": key.settlement_currency},
+            text("SELECT pg_advisory_xact_lock(hashtext(:first), hashtext(:second))"),
+            {"first": key.first, "second": key.second},
         )

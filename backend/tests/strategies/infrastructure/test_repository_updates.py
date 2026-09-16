@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
@@ -32,15 +32,19 @@ pytestmark = pytest.mark.integration
 def _strategy(
     name: str,
     *,
+    exchange: Exchange = Exchange.PIONEX,
     venue: Venue = Venue.SPOT,
     currency: Currency = Currency.USDT,
     enabled: bool = False,
     percent: str = "100",
 ) -> Strategy:
+    """``exchange`` defaults to the one owning the default venue among the
+    seeded pools — the composite FK now names all three columns."""
     return Strategy(
         id=uuid4(),
         name=name,
         policy=AllocationPolicy(
+            exchange=exchange,
             venue=venue,
             settlement_currency=currency,
             fill_mode=FillMode.PARTIAL,
@@ -84,7 +88,7 @@ async def test_update_writes_the_mutable_fields(
     changed = Strategy(
         id=strategy.id,
         name="renamed",
-        policy=AllocationPolicy(
+        policy=AllocationPolicy(exchange=Exchange.BYBIT, 
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
             fill_mode=FillMode.SKIP,
@@ -124,7 +128,7 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
     moved = Strategy(
         id=strategy.id,
         name=strategy.name,
-        policy=AllocationPolicy(
+        policy=AllocationPolicy(exchange=Exchange.BYBIT, 
             venue=Venue.USDT_M,
             settlement_currency=Currency.USDT,
             fill_mode=strategy.policy.fill_mode,
@@ -172,5 +176,5 @@ async def test_the_pool_catalog_reports_only_enabled_pools(
     async with pg_session_factory() as session:
         pools = await SqlAlchemyPoolCatalog(session).enabled_pools()
 
-    assert (Venue.SPOT, Currency.USDT) in pools
-    assert (Venue.COIN_M, Currency.ETH) not in pools
+    assert (Exchange.PIONEX, Venue.SPOT, Currency.USDT) in pools
+    assert (Exchange.PIONEX, Venue.COIN_M, Currency.ETH) not in pools

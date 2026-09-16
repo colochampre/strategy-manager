@@ -60,6 +60,7 @@ async def _seed_reservation(
                 id=reservation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                exchange="pionex",
                 venue="spot",
                 settlement_currency="USDT",
                 amount=Decimal("100"),

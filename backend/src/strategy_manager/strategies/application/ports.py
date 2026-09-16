@@ -5,7 +5,7 @@ provider owns the adapter — ``main.py`` binds them together.
 from typing import Protocol
 from uuid import UUID
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import Strategy
 
 
@@ -22,9 +22,9 @@ class StrategyRepositoryPort(Protocol):
     async def update(self, strategy: Strategy) -> None:
         """Writes the mutable fields of an already-registered strategy.
 
-        ``venue`` and ``settlement_currency`` are NOT among them — see
-        ``UpdateStrategy`` for why moving a strategy between pools is not an
-        edit.
+        ``exchange``, ``venue`` and ``settlement_currency`` are NOT among
+        them — see ``UpdateStrategy`` for why moving a strategy between pools
+        is not an edit.
         """
         ...
 
@@ -44,7 +44,7 @@ class PoolCatalogPort(Protocol):
     size any of them.
     """
 
-    async def enabled_pools(self) -> list[tuple[Venue, Currency]]: ...
+    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]: ...
 
 
 class CommitPort(Protocol):

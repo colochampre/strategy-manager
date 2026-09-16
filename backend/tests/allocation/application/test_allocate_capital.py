@@ -23,7 +23,7 @@ from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Currency, Money, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 
 
 class FrozenClock:
@@ -46,9 +46,13 @@ class FakeStrategyPolicyPort:
 class FakePoolBalancePort:
     balance: PoolBalance | None = None
 
-    async def read(self, venue: str, settlement_currency: str) -> PoolBalance:
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolBalance:
         if self.balance is None:
-            raise InvariantViolation(f"no configured pool for ({venue}, {settlement_currency})")
+            raise InvariantViolation(
+                f"no configured pool for ({exchange}, {venue}, {settlement_currency})"
+            )
         return self.balance
 
 
@@ -69,7 +73,9 @@ class FakeReservationRepository:
     async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
         return self.existing
 
-    async def sum_active(self, venue: str, settlement_currency: str, now: datetime) -> Decimal:
+    async def sum_active(
+        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+    ) -> Decimal:
         return self.sum_active_return
 
     async def insert(self, reservation: Reservation) -> None:
@@ -97,7 +103,10 @@ def _enabled_snapshot(**overrides: object) -> StrategyPolicySnapshot:
         allocation_percent=Decimal("100"),
     )
     defaults.update(overrides)
-    return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
+    # Pionex, because the default venue is spot: the lock key these tests
+    # assert on is built from both, so a mismatched pair would compare unequal
+    # for a reason that has nothing to do with what is being tested.
+    return StrategyPolicySnapshot(exchange=Exchange.PIONEX, **defaults)  # type: ignore[arg-type]
 
 
 def _build_use_case(
@@ -128,7 +137,11 @@ async def test_resume_returns_existing_reservation_without_taking_the_lock() -> 
         id=uuid4(),
         strategy_id=uuid4(),
         signal_id=uuid4(),
-        pool_key=PoolKey(venue=Venue.SPOT, settlement_currency=Currency.USDT),
+        pool_key=PoolKey(
+            exchange=Exchange.PIONEX,
+            venue=Venue.SPOT,
+            settlement_currency=Currency.USDT,
+        ),
         amount=Decimal("200"),
         status=ReservationStatus.PENDING,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
@@ -247,7 +260,7 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
     assert result.granted == Decimal("200")
     assert result.reservation_id is not None
     assert len(lock.acquired) == 1
-    assert lock.acquired[0] == LockKey(venue="spot", settlement_currency="USDT")
+    assert lock.acquired[0] == LockKey(exchange="pionex", venue="spot", settlement_currency="USDT")
     assert len(reservations.inserted) == 1
     assert reservations.inserted[0].amount == Decimal("200")
     assert commit.committed is True

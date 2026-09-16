@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
@@ -27,6 +27,7 @@ class SqlAlchemyStrategyRepository:
             StrategyRow(
                 id=strategy.id,
                 name=strategy.name,
+                exchange=strategy.policy.exchange.value,
                 venue=strategy.policy.venue.value,
                 settlement_currency=strategy.policy.settlement_currency.value,
                 enabled=strategy.enabled,
@@ -52,7 +53,7 @@ class SqlAlchemyStrategyRepository:
     async def update(self, strategy: Strategy) -> None:
         """Writes only the mutable fields.
 
-        ``venue`` and ``settlement_currency`` are deliberately absent: a
+        ``exchange``, ``venue`` and ``settlement_currency`` are deliberately absent: a
         strategy cannot be moved between capital pools (see
         ``UpdateStrategy``), and leaving them out of the statement means this
         adapter cannot do it even if a caller asks.
@@ -74,6 +75,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
         id=row.id,
         name=row.name,
         policy=AllocationPolicy(
+            exchange=Exchange(row.exchange),
             venue=Venue(row.venue),
             settlement_currency=Currency(row.settlement_currency),
             fill_mode=FillMode(row.fill_mode),

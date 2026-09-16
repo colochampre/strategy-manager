@@ -27,6 +27,7 @@ from strategy_manager.execution.application.close_position import (
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.shared.domain.money import Exchange
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
@@ -53,7 +54,9 @@ class FakeStrategyPolicyPort:
 class FakePoolBalancePort:
     balance: PoolBalance
 
-    async def read(self, venue: str, settlement_currency: str) -> PoolBalance:
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolBalance:
         return self.balance
 
 
@@ -72,7 +75,9 @@ class FakeReservationRepository:
     async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
         return None
 
-    async def sum_active(self, venue: str, settlement_currency: str, now: datetime) -> Decimal:
+    async def sum_active(
+        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+    ) -> Decimal:
         return Decimal("0")
 
     async def insert(self, reservation: Reservation) -> None:
@@ -138,7 +143,7 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         allocation_percent=Decimal("100"),
     )
     defaults.update(overrides)
-    return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
+    return StrategyPolicySnapshot(exchange=Exchange.BYBIT, **defaults)  # type: ignore[arg-type]
 
 
 def _allocate_capital(

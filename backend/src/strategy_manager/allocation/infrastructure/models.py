@@ -20,8 +20,12 @@ class ReservationRow(Base):
     __tablename__ = "reservations"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["venue", "settlement_currency"],
-            ["capital_pools.venue", "capital_pools.settlement_currency"],
+            ["exchange", "venue", "settlement_currency"],
+            [
+                "capital_pools.exchange",
+                "capital_pools.venue",
+                "capital_pools.settlement_currency",
+            ],
             name="fk_reservations_capital_pool",
         ),
     )
@@ -35,6 +39,7 @@ class ReservationRow(Base):
     signal_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("signals.id"), nullable=False, unique=True
     )
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)

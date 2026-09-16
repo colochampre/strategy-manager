@@ -119,8 +119,9 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     strategy_id = uuid4()
     await conn.execute(
         text(
-            "INSERT INTO strategies (id, name, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, 'spot', 'USDT', true, 'PARTIAL')"
+            "INSERT INTO strategies "
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
+            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL')"
         ),
         {"id": strategy_id, "name": f"strategy-{strategy_id}"},
     )
@@ -136,10 +137,11 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     reservation_id = uuid4()
     await conn.execute(
         text(
-            "INSERT INTO reservations (id, strategy_id, signal_id, venue, settlement_currency, "
+            "INSERT INTO reservations "
+            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
             "amount, status, expires_at) "
-            "VALUES (:id, :strategy_id, :signal_id, 'spot', 'USDT', 200, 'SUBMITTED', "
-            "now() + interval '1 hour')"
+            "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 200, "
+            "'SUBMITTED', now() + interval '1 hour')"
         ),
         {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
     )

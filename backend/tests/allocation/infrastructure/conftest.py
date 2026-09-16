@@ -126,19 +126,26 @@ async def seed_strategy(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     strategy_id: UUID,
+    exchange: str = "pionex",
     venue: str = "spot",
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
     allocation_percent: Decimal = Decimal("100"),
 ) -> None:
-    """Inserts a committed ``strategies`` row so reservation FKs resolve."""
+    """Inserts a committed ``strategies`` row so reservation FKs resolve.
+
+    ``exchange`` defaults to the one that owns the default venue among the
+    seeded pools: the composite FK now names all three columns, so a mismatched
+    pair simply does not exist.
+    """
 
     async with session_factory() as session:
         session.add(
             StrategyRow(
                 id=strategy_id,
                 name=f"strategy-{strategy_id}",
+                exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
                 enabled=enabled,
