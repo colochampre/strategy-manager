@@ -13,6 +13,7 @@ import pytest
 
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
 from strategy_manager.accounts.application.sync_balances import SyncBalances
+from strategy_manager.shared.domain.money import Exchange
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 POOLS: list[PoolKey] = [("spot", "USDT"), ("usdt-m", "USDT")]
@@ -20,6 +21,7 @@ POOLS: list[PoolKey] = [("spot", "USDT"), ("usdt-m", "USDT")]
 
 def _reading(venue: str, available: str) -> PoolBalanceReading:
     return PoolBalanceReading(
+        exchange=Exchange.BYBIT,
         venue=venue,
         settlement_currency="USDT",
         total=Decimal(available),

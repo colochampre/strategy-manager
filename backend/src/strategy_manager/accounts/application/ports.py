@@ -58,6 +58,7 @@ class PoolBalanceReading:
     persistence timestamp.
     """
 
+    exchange: str
     venue: str
     settlement_currency: str
     total: Decimal

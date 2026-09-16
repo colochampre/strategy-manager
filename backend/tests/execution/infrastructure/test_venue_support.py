@@ -23,22 +23,20 @@ from strategy_manager.execution.infrastructure.venue_support import (
     unserved_pool_venues,
     untradable_pool_venues,
 )
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 def _pool(venue: Venue, currency: Currency = Currency.USDT) -> PoolConfig:
     return PoolConfig(
-        venue=venue, settlement_currency=currency, min_order_size=Decimal("10")
+        exchange=Exchange.BYBIT,
+        venue=venue,
+        settlement_currency=currency,
+        min_order_size=Decimal("10"),
     )
 
 
 def test_a_spot_pool_against_the_spot_adapter_is_tradable() -> None:
-    assert (
-        untradable_pool_venues(
-            exchange=PionexExchangeAdapter, pools=[_pool(Venue.SPOT)]
-        )
-        == []
-    )
+    assert untradable_pool_venues(exchange=PionexExchangeAdapter, pools=[_pool(Venue.SPOT)]) == []
 
 
 def test_futures_pools_against_the_spot_adapter_are_reported() -> None:
@@ -59,9 +57,7 @@ def test_futures_pools_against_the_spot_adapter_are_reported() -> None:
 def test_the_warning_names_both_halves_of_the_mismatch() -> None:
     """The operator's two remedies — disable those pools, or register an
     adapter that serves them — both need to know which venue is which."""
-    message = describe_untradable(
-        exchange=PionexExchangeAdapter, untradable=["coin-m", "usdt-m"]
-    )
+    message = describe_untradable(exchange=PionexExchangeAdapter, untradable=["coin-m", "usdt-m"])
 
     assert "PionexExchangeAdapter" in message
     assert "trades spot" in message
@@ -101,9 +97,7 @@ def test_it_accepts_an_instance_as_well_as_a_class() -> None:
     instance = PionexExchangeAdapter(None)  # type: ignore[arg-type]
 
     assert untradable_pool_venues(exchange=instance, pools=[_pool(Venue.SPOT)]) == []
-    assert untradable_pool_venues(exchange=instance, pools=[_pool(Venue.USDT_M)]) == [
-        "usdt-m"
-    ]
+    assert untradable_pool_venues(exchange=instance, pools=[_pool(Venue.USDT_M)]) == ["usdt-m"]
 
 
 def test_no_pools_at_all_reports_nothing() -> None:

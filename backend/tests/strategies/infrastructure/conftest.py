@@ -26,10 +26,30 @@ TEST_DB_NAME = "strategy_manager_test"
 _test_db_ready = False
 
 SEEDED_POOLS = [
-    {"venue": "spot", "settlement_currency": "USDT", "min_order_size": Decimal("10")},
-    {"venue": "usdt-m", "settlement_currency": "USDT", "min_order_size": Decimal("5")},
-    {"venue": "coin-m", "settlement_currency": "BTC", "min_order_size": Decimal("0.0001")},
-    {"venue": "coin-m", "settlement_currency": "ETH", "min_order_size": Decimal("0.001")},
+    {
+        "exchange": "pionex",
+        "venue": "spot",
+        "settlement_currency": "USDT",
+        "min_order_size": Decimal("10"),
+    },
+    {
+        "exchange": "bybit",
+        "venue": "usdt-m",
+        "settlement_currency": "USDT",
+        "min_order_size": Decimal("5"),
+    },
+    {
+        "exchange": "pionex",
+        "venue": "coin-m",
+        "settlement_currency": "BTC",
+        "min_order_size": Decimal("0.0001"),
+    },
+    {
+        "exchange": "pionex",
+        "venue": "coin-m",
+        "settlement_currency": "ETH",
+        "min_order_size": Decimal("0.001"),
+    },
 ]
 
 
@@ -74,8 +94,9 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
-                    "INSERT INTO capital_pools (venue, settlement_currency, min_order_size) "
-                    "VALUES (:venue, :settlement_currency, :min_order_size)"
+                    "INSERT INTO capital_pools "
+                    "(exchange, venue, settlement_currency, min_order_size) "
+                    "VALUES (:exchange, :venue, :settlement_currency, :min_order_size)"
                 ),
                 pool,
             )

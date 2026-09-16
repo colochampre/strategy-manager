@@ -28,6 +28,7 @@ from decimal import Decimal
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.money import Exchange
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     BybitReadOnlyClient,
     UnifiedCoinBalance,
@@ -52,13 +53,13 @@ class BybitBalanceReader:
         _assert_one_pool_per_currency(pools)
 
         by_coin = {
-            balance.coin.upper(): balance
-            for balance in await self._client.unified_balances()
+            balance.coin.upper(): balance for balance in await self._client.unified_balances()
         }
         observed_at = self._clock.now()
 
         return [
             PoolBalanceReading(
+                exchange=Exchange.BYBIT.value,
                 venue=venue,
                 settlement_currency=currency,
                 total=_total(by_coin.get(currency.upper())),

@@ -27,6 +27,25 @@ class Venue(StrEnum):
     COIN_M = "coin-m"
 
 
+class Exchange(StrEnum):
+    """Which exchange a pool's money actually sits on, matching the
+    ``capital_pools.exchange`` CHECK constraint.
+
+    Separate from ``Venue`` because they answer different questions. A venue
+    says which WALLET and which product — spot, USDⓈ-M, COIN-M — and two
+    exchanges both have a ``usdt-m`` one. Without this, a Binance USDT futures
+    pool and a Bybit USDT futures pool are the same pool: one row, one lock,
+    one balance snapshot, and a ledger that cannot say where a fill happened.
+
+    The value doubles as ``exchange_credentials.exchange``, which is how a
+    pool's rows reach the key that signs its orders.
+    """
+
+    PIONEX = "pionex"
+    BYBIT = "bybit"
+    BINANCE = "binance"
+
+
 @dataclass(frozen=True, slots=True)
 class Money:
     """An amount in a specific currency. All arithmetic is exact Decimal."""

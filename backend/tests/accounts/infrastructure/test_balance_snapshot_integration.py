@@ -21,6 +21,7 @@ from strategy_manager.accounts.infrastructure.balance_snapshot_repository import
 )
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
+from strategy_manager.shared.domain.money import Exchange
 
 pytestmark = pytest.mark.integration
 
@@ -45,6 +46,7 @@ def _reading(
 ) -> PoolBalanceReading:
     venue, currency = pool
     return PoolBalanceReading(
+        exchange=Exchange.BYBIT,
         venue=venue,
         settlement_currency=currency,
         total=Decimal(available if total is None else total),
@@ -112,12 +114,14 @@ async def test_a_second_sync_overwrites_rather_than_appends(
         await session.commit()
 
         rows = (
-            await session.execute(
-                select(PoolBalanceSnapshotRow).where(
-                    PoolBalanceSnapshotRow.venue == "spot"
+            (
+                await session.execute(
+                    select(PoolBalanceSnapshotRow).where(PoolBalanceSnapshotRow.venue == "spot")
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert len(rows) == 1
     assert rows[0].available == Decimal("250")
@@ -143,9 +147,7 @@ async def test_a_snapshot_past_the_age_limit_refuses_to_answer(
     """The sync job died two minutes ago. Sizing a trade against this figure
     is exactly the failure the whole snapshot design exists to prevent."""
     async with pg_session_factory() as session:
-        await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-            [_reading(SPOT, "600")]
-        )
+        await SqlAlchemyBalanceSnapshotRepository(session).upsert([_reading(SPOT, "600")])
         await session.commit()
 
         much_later = FrozenClock(NOW + timedelta(seconds=MAX_AGE + 1))
@@ -160,9 +162,7 @@ async def test_a_snapshot_inside_the_age_limit_still_answers(
     """A couple of transient API failures must not halt trading — that is why
     the limit is several sync intervals wide."""
     async with pg_session_factory() as session:
-        await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-            [_reading(SPOT, "600")]
-        )
+        await SqlAlchemyBalanceSnapshotRepository(session).upsert([_reading(SPOT, "600")])
         await session.commit()
 
         just_inside = FrozenClock(NOW + timedelta(seconds=MAX_AGE - 1))
@@ -200,9 +200,7 @@ async def test_a_negative_balance_is_rejected_by_the_database(
 ) -> None:
     async with pg_session_factory() as session:
         with pytest.raises(IntegrityError):
-            await SqlAlchemyBalanceSnapshotRepository(session).upsert(
-                [_reading(SPOT, "-1")]
-            )
+            await SqlAlchemyBalanceSnapshotRepository(session).upsert([_reading(SPOT, "-1")])
             await session.commit()
 
 

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 class CapitalPoolRepository:
@@ -24,6 +24,7 @@ class CapitalPoolRepository:
         )
         return [
             PoolConfig(
+                exchange=Exchange(row.exchange),
                 venue=Venue(row.venue),
                 settlement_currency=Currency(row.settlement_currency),
                 min_order_size=row.min_order_size,

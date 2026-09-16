@@ -11,11 +11,16 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
     assert_lock_key_pairs_distinct,
 )
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 def _pool(venue: Venue, currency: Currency) -> PoolConfig:
-    return PoolConfig(venue=venue, settlement_currency=currency, min_order_size=Decimal("1"))
+    return PoolConfig(
+        exchange=Exchange.BYBIT,
+        venue=venue,
+        settlement_currency=currency,
+        min_order_size=Decimal("1"),
+    )
 
 
 def test_distinct_pairs_do_not_raise() -> None:

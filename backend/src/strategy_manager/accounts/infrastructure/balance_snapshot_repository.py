@@ -28,6 +28,7 @@ class SqlAlchemyBalanceSnapshotRepository:
         statement = insert(PoolBalanceSnapshotRow).values(
             [
                 {
+                    "exchange": reading.exchange,
                     "venue": reading.venue,
                     "settlement_currency": reading.settlement_currency,
                     "total": reading.total,
@@ -41,6 +42,7 @@ class SqlAlchemyBalanceSnapshotRepository:
             statement.on_conflict_do_update(
                 index_elements=["venue", "settlement_currency"],
                 set_={
+                    "exchange": statement.excluded.exchange,
                     "total": statement.excluded.total,
                     "available": statement.excluded.available,
                     "observed_at": statement.excluded.observed_at,

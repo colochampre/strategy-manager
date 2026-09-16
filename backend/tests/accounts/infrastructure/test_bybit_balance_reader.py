@@ -63,9 +63,7 @@ async def test_availability_is_the_wallet_minus_what_is_committed() -> None:
     """Initial margin behind positions and resting orders is capital that is
     already spoken for. Counting it would let the allocator hand it out
     again."""
-    reader, _ = _reader(
-        _coin(wallet="600", position_im="120", order_im="30", locked="10")
-    )
+    reader, _ = _reader(_coin(wallet="600", position_im="120", order_im="30", locked="10"))
 
     readings = await reader.read([("usdt-m", "USDT")])
 
@@ -75,9 +73,7 @@ async def test_availability_is_the_wallet_minus_what_is_committed() -> None:
 async def test_the_total_is_the_wallet_including_committed_margin() -> None:
     """Margin behind an open position stays in the wallet. Sizing from the
     total means a second strategy asks for the same amount as the first."""
-    reader, _ = _reader(
-        _coin(wallet="600", position_im="120", order_im="30", locked="10")
-    )
+    reader, _ = _reader(_coin(wallet="600", position_im="120", order_im="30", locked="10"))
 
     readings = await reader.read([("usdt-m", "USDT")])
 
@@ -206,3 +202,13 @@ async def test_the_refusal_happens_before_the_network_call() -> None:
         await reader.read([("spot", "USDT"), ("usdt-m", "USDT")])
 
     assert client.calls == 0
+
+
+async def test_every_reading_is_stamped_bybit() -> None:
+    """The snapshot row has to say which exchange answered, or two venues
+    named usdt-m become one pool again."""
+    reader, _ = _reader(_coin())
+
+    readings = await reader.read([("usdt-m", "USDT")])
+
+    assert readings[0].exchange == "bybit"

@@ -45,9 +45,7 @@ class FakePionexClient:
         return self._futures
 
 
-def _coin(
-    coin: str, free: str, frozen: str = "0", debts: str | None = None
-) -> CoinBalance:
+def _coin(coin: str, free: str, frozen: str = "0", debts: str | None = None) -> CoinBalance:
     return CoinBalance(
         coin=coin,
         free=Decimal(free),
@@ -61,9 +59,7 @@ def _reader(client: FakePionexClient) -> PionexBalanceReader:
 
 
 async def test_a_spot_pool_reads_the_spot_wallet() -> None:
-    client = FakePionexClient(
-        spot=[_coin("USDT", "600.5")], futures=[_coin("USDT", "999")]
-    )
+    client = FakePionexClient(spot=[_coin("USDT", "600.5")], futures=[_coin("USDT", "999")])
 
     readings = await _reader(client).read([SPOT_POOL])
 
@@ -71,9 +67,7 @@ async def test_a_spot_pool_reads_the_spot_wallet() -> None:
 
 
 async def test_a_usdt_m_pool_reads_the_futures_wallet() -> None:
-    client = FakePionexClient(
-        spot=[_coin("USDT", "600.5")], futures=[_coin("USDT", "999")]
-    )
+    client = FakePionexClient(spot=[_coin("USDT", "600.5")], futures=[_coin("USDT", "999")])
 
     readings = await _reader(client).read([USDT_M_POOL])
 
@@ -186,3 +180,11 @@ async def test_readings_come_back_one_per_requested_pool() -> None:
         USDT_M_POOL,
         COIN_M_POOL,
     ]
+
+
+async def test_every_reading_is_stamped_pionex() -> None:
+    client = FakePionexClient(spot=[_coin("USDT", "1")], futures=[_coin("USDT", "2")])
+
+    readings = await _reader(client).read([SPOT_POOL, USDT_M_POOL])
+
+    assert {reading.exchange for reading in readings} == {"pionex"}

@@ -21,7 +21,7 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     assert_pool_lock_keys_distinct,
 )
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 pytestmark = pytest.mark.integration
 
@@ -29,15 +29,29 @@ TEST_DB_NAME = "strategy_manager_test"
 _test_db_ready = False
 
 _CONFIGURED_POOLS = [
-    PoolConfig(venue=Venue.SPOT, settlement_currency=Currency.USDT, min_order_size=Decimal("10")),
     PoolConfig(
-        venue=Venue.USDT_M, settlement_currency=Currency.USDT, min_order_size=Decimal("5")
+        exchange=Exchange.PIONEX,
+        venue=Venue.SPOT,
+        settlement_currency=Currency.USDT,
+        min_order_size=Decimal("10"),
     ),
     PoolConfig(
-        venue=Venue.COIN_M, settlement_currency=Currency.BTC, min_order_size=Decimal("0.0001")
+        exchange=Exchange.BYBIT,
+        venue=Venue.USDT_M,
+        settlement_currency=Currency.USDT,
+        min_order_size=Decimal("5"),
     ),
     PoolConfig(
-        venue=Venue.COIN_M, settlement_currency=Currency.ETH, min_order_size=Decimal("0.001")
+        exchange=Exchange.PIONEX,
+        venue=Venue.COIN_M,
+        settlement_currency=Currency.BTC,
+        min_order_size=Decimal("0.0001"),
+    ),
+    PoolConfig(
+        exchange=Exchange.PIONEX,
+        venue=Venue.COIN_M,
+        settlement_currency=Currency.ETH,
+        min_order_size=Decimal("0.001"),
     ),
 ]
 
@@ -50,9 +64,7 @@ async def _ensure_test_database_exists(dev_url: str) -> None:
     maintenance_dsn = re.sub(r"/[^/?]+(\?.*)?$", r"/postgres\1", dsn)
     conn = await asyncpg.connect(maintenance_dsn)
     try:
-        exists = await conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname = $1", TEST_DB_NAME
-        )
+        exists = await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", TEST_DB_NAME)
         if not exists:
             await conn.execute(f'CREATE DATABASE "{TEST_DB_NAME}"')
     finally:

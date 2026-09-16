@@ -10,13 +10,16 @@ from strategy_manager.accounts.application.pool_balance_adapter import PoolBalan
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 def _pools() -> dict[tuple[str, str], PoolConfig]:
     return {
         ("spot", "USDT"): PoolConfig(
-            venue=Venue.SPOT, settlement_currency=Currency.USDT, min_order_size=Decimal("10")
+            exchange=Exchange.PIONEX,
+            venue=Venue.SPOT,
+            settlement_currency=Currency.USDT,
+            min_order_size=Decimal("10"),
         )
     }
 

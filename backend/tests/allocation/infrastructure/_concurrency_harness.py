@@ -22,7 +22,7 @@ from strategy_manager.allocation.application.allocate_capital import (
 from strategy_manager.allocation.application.ports import AdvisoryLockPort
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
-from strategy_manager.shared.domain.money import Currency, Money, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
@@ -33,7 +33,10 @@ CONCURRENCY = 8
 
 SPOT_USDT_POOL = {
     ("spot", "USDT"): PoolConfig(
-        venue=Venue.SPOT, settlement_currency=Currency.USDT, min_order_size=Decimal("1")
+        exchange=Exchange.PIONEX,
+        venue=Venue.SPOT,
+        settlement_currency=Currency.USDT,
+        min_order_size=Decimal("1"),
     )
 }
 

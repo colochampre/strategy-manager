@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
 from strategy_manager.shared.application.ports import ClockPort
-from strategy_manager.shared.domain.money import Venue
+from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.pionex.read_client import (
     CoinBalance,
     PionexReadOnlyClient,
@@ -40,9 +40,7 @@ class PionexBalanceReader:
         venues = {venue for venue, _ in pools}
         spot = await self._by_coin(self._client.spot_balances) if Venue.SPOT.value in venues else {}
         futures = (
-            await self._by_coin(self._client.futures_balances)
-            if venues & _FUTURES_VENUES
-            else {}
+            await self._by_coin(self._client.futures_balances) if venues & _FUTURES_VENUES else {}
         )
         observed_at = self._clock.now()
 
@@ -51,6 +49,7 @@ class PionexBalanceReader:
             balance = (futures if venue in _FUTURES_VENUES else spot).get(currency)
             readings.append(
                 PoolBalanceReading(
+                    exchange=Exchange.PIONEX.value,
                     venue=venue,
                     settlement_currency=currency,
                     total=_total(balance),

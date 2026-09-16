@@ -19,14 +19,21 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.money import Currency, Venue
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 
 @dataclass(frozen=True, slots=True)
 class PoolConfig:
     """Mirrors a row of ``capital_pools`` — the single source of truth for
-    which pools exist. There is no parallel ``CONFIGURED_POOLS`` env list."""
+    which pools exist. There is no parallel ``CONFIGURED_POOLS`` env list.
 
+    ``exchange`` has no default on purpose. Every pool holds real money on one
+    named exchange, and a default would let a pool be created without anyone
+    deciding where its money is — the one fact that selects both the wallet it
+    is sized from and the key its orders are signed with.
+    """
+
+    exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     min_order_size: Decimal

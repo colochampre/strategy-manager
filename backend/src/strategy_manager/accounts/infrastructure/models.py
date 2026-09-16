@@ -31,11 +31,13 @@ class CapitalPoolRow(Base):
 
     __tablename__ = "capital_pools"
 
+    # Not part of the primary key YET: this lands the column and its writers
+    # first, so the key switch that lets two exchanges share a venue is a
+    # change of keys alone.
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, primary_key=True)
     settlement_currency: Mapped[str] = mapped_column(Text, primary_key=True)
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     min_order_size: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -58,14 +60,13 @@ class PoolBalanceSnapshotRow(Base):
             ["capital_pools.venue", "capital_pools.settlement_currency"],
             ondelete="CASCADE",
         ),
-        CheckConstraint(
-            "available >= 0", name="ck_pool_balance_snapshots_available_non_negative"
-        ),
+        CheckConstraint("available >= 0", name="ck_pool_balance_snapshots_available_non_negative"),
         CheckConstraint(
             "total >= available", name="ck_pool_balance_snapshots_total_covers_available"
         ),
     )
 
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, primary_key=True)
     settlement_currency: Mapped[str] = mapped_column(Text, primary_key=True)
     total: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
@@ -105,9 +106,7 @@ class ExchangeCredentialRow(Base):
     )
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     wrapped_dek: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     dek_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     api_key_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
