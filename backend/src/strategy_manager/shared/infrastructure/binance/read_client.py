@@ -209,7 +209,9 @@ class Position:
         return self.signed_size != 0
 
 
-def _parse_contract(entry: Any) -> PerpContract:
+def parse_contract(entry: Any) -> PerpContract:
+    """One raw catalogue entry, as the trading rules an order is checked
+    against. Public because the trade client's catalogue parses on demand."""
     if not isinstance(entry, dict):
         raise BinanceApiError("an entry of 'symbols' is not an object")
 
@@ -305,6 +307,22 @@ class BinanceReadOnlyClient:
 
         return [_parse_asset(entry) for entry in assets]
 
+    async def perp_catalogue(self) -> list[Any]:
+        """Every listed contract's RAW entry. Public: no signature needed.
+
+        Deliberately unparsed. One payload describes 897 contracts of three
+        different products, so parsing all of them to answer about one would
+        make an unrelated market's shape change refuse every order on this
+        venue. The caller parses only the entry it asked for.
+        """
+        payload = await self._transport.get_public(EXCHANGE_INFO_PATH)
+        if not isinstance(payload, dict):
+            raise BinanceApiError(f"{EXCHANGE_INFO_PATH} returned a non-object body")
+        symbols = payload.get("symbols")
+        if not isinstance(symbols, list):
+            raise BinanceApiError(f"{EXCHANGE_INFO_PATH} returned no 'symbols' list")
+        return symbols
+
     async def perp_rules(self, symbol: str) -> PerpContract:
         """The one contract's rules. Public: no signature, no account needed.
 
@@ -312,10 +330,8 @@ class BinanceReadOnlyClient:
         variant of it, and the entry is then matched by symbol rather than
         taken positionally.
         """
-        payload = await self._transport.get_public(EXCHANGE_INFO_PATH)
-        if not isinstance(payload, dict):
-            raise BinanceApiError(f"{EXCHANGE_INFO_PATH} returned a non-object body")
-        return _parse_contract(_matching(payload.get("symbols"), symbol, "exchangeInfo"))
+        entries = await self.perp_catalogue()
+        return parse_contract(_matching(entries, symbol, "exchangeInfo"))
 
     async def symbol_config(self, symbol: str) -> SymbolConfig:
         """The ACCOUNT's leverage and margin type for one symbol."""

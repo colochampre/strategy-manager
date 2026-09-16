@@ -7,6 +7,10 @@ read as success, but a 200 body that still carries a negative ``code`` is
 refused too, because treating it as data is how a rejection gets recorded as
 an answer.
 
+A signed POST carries its parameters in an ``application/x-www-form-urlencoded``
+body rather than JSON, which is the shape Binance signs; the signer produces
+that string and this sends those exact bytes.
+
 HTTP 451 gets its own message. Binance returns it for requests from a location
 its terms exclude, and it is a property of where the request comes from, not
 of the key or the request -- retrying or re-signing changes nothing.
@@ -23,9 +27,12 @@ from strategy_manager.shared.infrastructure.binance.signer import BinanceSigner
 
 _RESTRICTED_LOCATION = 451
 
+# Binance takes a signed POST's parameters as a form-encoded body, not as JSON.
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+
 
 class BinanceTransport:
-    """Sends public or signed GETs to one Binance host."""
+    """Sends public or signed requests to one Binance host."""
 
     def __init__(self, http: httpx.AsyncClient, signer: BinanceSigner) -> None:
         self._http = http
@@ -43,6 +50,26 @@ class BinanceTransport:
             "GET",
             path,
             lambda: self._http.get(signed.path_with_query, headers=dict(signed.headers)),
+        )
+
+    async def post(self, path: str, params: Mapping[str, str] | None = None) -> Any:
+        """A signed POST. The parameters are sent as the exact signed body.
+
+        Routed through the same ``_send`` as the GETs on purpose: the 451
+        answer and the negative-``code`` rejection must be read identically
+        however the request was shaped, because a rejection only some verbs
+        recognise is a rejection that gets recorded as an answer.
+        """
+        signed = self._signer.sign_post(path, params)
+        headers = {**signed.headers, "Content-Type": FORM_CONTENT_TYPE}
+        return await self._send(
+            "POST",
+            path,
+            lambda: self._http.post(
+                signed.path_with_query,
+                headers=headers,
+                content=signed.body.encode("utf-8"),
+            ),
         )
 
     async def _send(

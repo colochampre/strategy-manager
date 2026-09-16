@@ -95,6 +95,44 @@ def test_credentials_never_render_the_secret() -> None:
     assert "***1234" in rendered
 
 
+def test_a_signed_post_puts_every_parameter_in_the_body_and_none_in_the_url() -> None:
+    """Binance signs ``query_string + body``. Keeping everything on one side of
+    that concatenation leaves exactly one string to sign and one to send."""
+    signed = _signer().sign_post("/fapi/v1/order", {"symbol": "BTCUSDT", "side": "BUY"})
+
+    assert signed.path_with_query == "/fapi/v1/order"
+    assert dict(parse_qsl(signed.body))["symbol"] == "BTCUSDT"
+
+
+def test_the_post_signature_covers_exactly_the_body_that_is_sent() -> None:
+    signed = _signer().sign_post("/fapi/v1/order", {"symbol": "BTCUSDT"})
+
+    unsigned, _, signature = signed.body.rpartition("&signature=")
+
+    assert signature == signature_for(DOC_SECRET, unsigned)
+
+
+def test_the_post_signature_is_the_last_body_parameter_after_window_and_timestamp() -> None:
+    signed = _signer().sign_post("/fapi/v1/order", {"symbol": "BTCUSDT", "type": "MARKET"})
+
+    names = [name for name, _ in parse_qsl(signed.body)]
+
+    assert names == ["symbol", "type", "recvWindow", "timestamp", "signature"]
+
+
+def test_a_post_sends_the_key_in_a_header_and_the_secret_nowhere() -> None:
+    signed = _signer().sign_post("/fapi/v1/order", {"symbol": "BTCUSDT"})
+
+    assert dict(signed.headers) == {KEY_HEADER: "key-abcd"}
+    assert DOC_SECRET not in signed.body
+
+
+def test_a_get_carries_no_body_at_all() -> None:
+    """The two verbs are mirror images: what a GET puts in the query, a POST
+    puts in the body, and neither ever carries both."""
+    assert _signer().sign_get("/fapi/v3/account").body == ""
+
+
 @pytest.mark.parametrize(("key", "secret"), [("", "s"), ("k", "")])
 def test_empty_credentials_are_refused_up_front(key: str, secret: str) -> None:
     with pytest.raises(InvariantViolation):

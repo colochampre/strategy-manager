@@ -29,3 +29,17 @@ class BinanceApiError(BinanceError):
         super().__init__(message)
         self.code = code
         self.http_status = http_status
+
+
+class BinanceOrderNotFound(BinanceError):
+    """Binance answered the lookup and said it has no such order.
+
+    Kept distinct from ``BinanceApiError`` for the reason its Bybit and Pionex
+    twins spell out: "no such order" means the order never reached the
+    exchange, so the capital behind it must be released, while "the call
+    failed" means we do not know and must ask again. Misreading the second as
+    the first makes this system forget a live position.
+
+    Only ``-2013`` produces this. ``-1001`` and ``-1007`` describe a request
+    Binance may well have executed, and they stay ``BinanceApiError``.
+    """
