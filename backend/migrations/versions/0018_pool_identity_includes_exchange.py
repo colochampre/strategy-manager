@@ -97,7 +97,45 @@ def upgrade() -> None:
     )
 
 
+def _assert_one_exchange_per_venue() -> None:
+    """The old key cannot represent what the new one allows.
+
+    Once two exchanges hold the same venue and currency, going back to
+    ``(venue, settlement_currency)`` would need one of the two pools to stop
+    existing -- along with its strategies, reservations and snapshot. Postgres
+    does refuse it on its own, with a duplicate-key error that names an index
+    rather than the decision the operator has to make. This says it instead.
+    """
+    duplicates = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT venue, settlement_currency, count(*) AS exchanges "
+                "FROM capital_pools GROUP BY venue, settlement_currency "
+                "HAVING count(*) > 1 ORDER BY venue, settlement_currency"
+            )
+        )
+        .all()
+    )
+    if not duplicates:
+        return
+
+    listed = ", ".join(
+        f"{venue}/{currency} on {count} exchanges"
+        for venue, currency, count in duplicates
+    )
+    raise RuntimeError(
+        "cannot downgrade past 0018: the previous key is (venue, settlement_currency), "
+        f"and these pools now exist on more than one exchange: {listed}. Delete the "
+        "pools of every exchange but one first -- and close or move whatever they "
+        "hold, because their strategies, reservations and balance snapshots go with "
+        "them."
+    )
+
+
 def downgrade() -> None:
+    _assert_one_exchange_per_venue()
+
     op.drop_constraint(_SNAPSHOT_FK_NEW, "pool_balance_snapshots", type_="foreignkey")
     op.drop_constraint("fk_reservations_capital_pool", "reservations", type_="foreignkey")
     op.drop_constraint("fk_strategies_capital_pool", "strategies", type_="foreignkey")
