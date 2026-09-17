@@ -14,8 +14,11 @@ Not built yet:
 
 - **The frontend.** Strategies view, dashboard and settings are still the Vite
   scaffold.
-- **A real exchange adapter.** Only `FakeExchangeAdapter` exists, and `DRY_RUN`
-  defaults to true — nothing reaches Pionex.
+- **Live trading by default.** `DRY_RUN` defaults to true, so
+  `FakeExchangeAdapter` is what gets registered and nothing reaches an
+  exchange. Live Bybit and Binance futures adapters exist and are registered
+  when `DRY_RUN=false`; the Pionex adapters are complete but deliberately not
+  registered, because Pionex offers no futures order placement over its API.
 
 See [the archived change](./openspec/changes/archive/2026-08-18-allocation-engine/archive-report.md)
 for what shipped, the decisions behind it, and the known gaps.
@@ -54,7 +57,14 @@ uv sync
 uv run alembic upgrade head
 uv run uvicorn strategy_manager.main:app --reload
 
-# 4. Frontend (separate terminal)
+# 4. Worker (separate terminal) — the API only persists signals and returns
+#    inside TradingView's 3-second budget. Allocation, execution, ledger
+#    writes, reservation expiry and balance syncing all happen here, so
+#    nothing is traded while this process is not running.
+cd backend
+uv run python -m strategy_manager.worker
+
+# 5. Frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
