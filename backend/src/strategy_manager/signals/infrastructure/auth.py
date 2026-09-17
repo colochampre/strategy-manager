@@ -101,8 +101,10 @@ class SourceIpAndSecretAuth:
     def authenticate(self, source_ip: str | None, provided_secret: str | None) -> bool:
         if not self._expected_secret:
             # An empty configured secret would make comparison vacuous.
-            # Startup invariant 3 (main.py) is supposed to prevent this in
-            # production; fail closed here regardless.
+            # Startup invariant 3 (``webhook_secret_invariant``, wired into
+            # main.py's lifespan) refuses to start a deployment configured this
+            # way; fail closed here regardless, because this class is also
+            # constructed directly and must never authenticate on its own.
             return False
         if source_ip not in self._allowed_ips:
             return False

@@ -109,6 +109,9 @@ from strategy_manager.signals.application.process_signal import ProcessSignalHan
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
+from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
+    assert_webhook_secret_configured,
+)
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from strategy_manager.strategies.infrastructure.router import (
@@ -120,14 +123,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup invariant 1 (design.md § Composition Root): ``capital_pools``
-    is the single source of truth for which pools exist — enumerate it and
-    assert every pool's advisory-lock key pair is distinct before accepting
-    traffic."""
+    """Startup invariants 1 and 3 (design.md § Composition Root).
+
+    1: ``capital_pools`` is the single source of truth for which pools exist —
+    enumerate it and assert every pool's advisory-lock key pair is distinct
+    before accepting traffic.
+
+    3: ``WEBHOOK_SECRET`` must be configured, or this process mounts an
+    endpoint that answers 401 to every alert it was deployed to receive.
+
+    Invariant 2 (``DRY_RUN`` vs. the registered adapter) is not repeated here:
+    it belongs to ``build_worker_runner``, which is the only place that decides
+    which ``ExchangePort`` is registered, and this process places no orders.
+    """
 
     async with engine.connect() as conn:
         pools = await CapitalPoolRepository(conn).list_enabled()
         await assert_pool_lock_keys_distinct(conn, pools)
+    assert_webhook_secret_configured(get_settings())
     yield
 
 
