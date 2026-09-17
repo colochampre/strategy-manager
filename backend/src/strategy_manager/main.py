@@ -531,21 +531,23 @@ def build_worker_runner(
                 if binance_pools:
                     # The READ-ONLY environment key, deliberately, even though
                     # the vault now DOES hold a Binance key that signs orders.
-                    # The two are not interchangeable and the difference is
-                    # where they work from: the trade key is IP-restricted, so
-                    # it only signs from the allowlisted host, while the
-                    # read-only key works from anywhere. Balance reads are the
-                    # half that must keep working from any host -- a stale
-                    # snapshot is what starves the allocation engine -- so the
-                    # IP-bound key is exercised at order time and nowhere else.
+                    # What separates them is SCOPE, not location: this one
+                    # cannot trade and cannot transfer, verified by probe
+                    # (2026-09-15), and a job that only reads a balance has no
+                    # business holding a key that can open a position.
                     #
-                    # The cost of that split, stated plainly: a broken trade key
-                    # will NOT show up as a balance failure. It surfaces as
-                    # -2015 on the first order instead, so a green balance sync
-                    # says nothing about whether this host can actually trade.
+                    # Location used to separate them too, and no longer does.
+                    # Until 2026-09-17 the read-only key carried no IP
+                    # restriction while the trade key did; both are bound now.
+                    # So a host whose address is not on the allowlist loses
+                    # balance reads AND trading together, rather than losing
+                    # trading alone behind a balance sync that still looks fine.
                     #
-                    # The key was verified to carry no trading or transfer
-                    # permission (probe, 2026-09-15).
+                    # What has NOT changed, and is the thing to remember: a
+                    # green balance sync still says nothing about whether this
+                    # host can trade. The two keys carry SEPARATE allowlists, so
+                    # the trade key can be missing an address the read key has,
+                    # and that only surfaces as -2015 on the first order.
                     binance = await clients.enter_async_context(
                         binance_read_only_client(
                             settings, binance_credentials_from_settings(settings)
