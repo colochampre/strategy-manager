@@ -19,6 +19,7 @@ class JobKind(StrEnum):
     RESERVATION_SWEEP = "reservation.sweep"
     BALANCE_SYNC = "balance.sync"
     EXECUTION_SETTLE = "execution.settle"
+    RECONCILIATION_SCAN = "reconciliation.scan"
 
 
 @dataclass(frozen=True, slots=True)

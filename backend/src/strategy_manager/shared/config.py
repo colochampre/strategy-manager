@@ -183,6 +183,32 @@ class Settings(BaseSettings):
     # chain that actually died must.
     balance_snapshot_max_age_seconds: float = Field(default=90.0)
 
+    # How often reconciliation.scan compares each pool's venue-reported net
+    # position against the ledger's.
+    #
+    # Measured, not guessed (Phase 0, scripts/measure_reconciliation_rate_limits.py,
+    # run live against both venues on 2026-09-18): Binance's REQUEST_WEIGHT
+    # ceiling, read back from /fapi/v1/exchangeInfo, is 2400/min; a
+    # no-symbol /fapi/v3/positionRisk call costs 5 weight, the same as
+    # balance.sync's own /fapi/v3/account. At this interval that is 10
+    # weight/min against the 480 (20%) polling allowance — about 2%, nowhere
+    # near binding. Bybit's /v5/position/list and /v5/account/wallet-balance
+    # do not share a bucket either (X-Bapi-Limit-Status held at 49 across
+    # three probe calls). The tightest rate-limit floor either venue implied
+    # was 0.7s, so rate limits did not choose 30 — staleness tolerance and the
+    # false-confirmation floor did: confirmation needs
+    # reconciliation_confirmations consecutive scans, so detection latency is
+    # roughly 2x this interval (~60s), and 30s keeps both scans well outside
+    # any settlement window.
+    reconciliation_scan_interval_seconds: float = Field(default=30.0)
+
+    # How many consecutive scans must see the same discrepancy before it is
+    # confirmed rather than dismissed as a transient read (e.g. a fill still
+    # settling on the venue). Chosen in design, not measured like the
+    # interval above: two catches a real drift within one extra scan while
+    # refusing to confirm off a single noisy read.
+    reconciliation_confirmations: int = Field(default=2)
+
 
 @lru_cache
 def get_settings() -> Settings:

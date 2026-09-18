@@ -7,6 +7,7 @@ from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 def test_job_kind_values_match_the_job_handler_names() -> None:
     assert JobKind.SIGNAL_PROCESS == "signal.process"
     assert JobKind.RESERVATION_SWEEP == "reservation.sweep"
+    assert JobKind.RECONCILIATION_SCAN == "reconciliation.scan"
 
 
 def test_job_defaults_run_after_none_and_max_attempts_five() -> None:
