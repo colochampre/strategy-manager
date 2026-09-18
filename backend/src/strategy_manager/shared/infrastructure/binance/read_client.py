@@ -366,6 +366,23 @@ class BinanceReadOnlyClient:
                 return position if position.is_open else None
         return None
 
+    async def open_positions(self) -> list[Position]:
+        """Every open position across the account, in one call.
+
+        ``position_for``'s no-symbol twin: called without a ``symbol``
+        parameter, ``/fapi/v3/positionRisk`` answers every symbol the account
+        has ever touched at once, flat ones included -- filtered out here the
+        same way ``position_for`` filters a single flat entry, so a caller
+        never has to re-check ``is_open`` itself.
+        """
+        payload = await self._transport.get_signed(POSITION_RISK_PATH)
+        if not isinstance(payload, list):
+            raise BinanceApiError(f"{POSITION_RISK_PATH} did not return a list")
+        positions = [
+            _parse_position(entry) for entry in payload if isinstance(entry, dict)
+        ]
+        return [position for position in positions if position.is_open]
+
 
 def _parse_asset(entry: Any) -> FuturesAssetBalance:
     if not isinstance(entry, dict):

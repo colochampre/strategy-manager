@@ -12,9 +12,33 @@ import pytest
 from strategy_manager.shared.infrastructure.binance.errors import BinanceApiError
 from strategy_manager.shared.infrastructure.binance.read_client import (
     ACCOUNT_PATH,
+    POSITION_RISK_PATH,
     BinanceReadOnlyClient,
     FuturesAssetBalance,
 )
+
+# One open short and one flat entry, as ``positionRisk`` answers when called
+# with no ``symbol`` -- every symbol the account has ever touched, at once.
+OPEN_SHORT = {
+    "symbol": "AAVEUSDT",
+    "positionSide": "BOTH",
+    "positionAmt": "-0.100",
+    "entryPrice": "245.50",
+    "markPrice": "245.61",
+    "notional": "-24.561",
+    "unRealizedProfit": "-0.011",
+    "liquidationPrice": "612.30",
+}
+FLAT_ENTRY = {
+    "symbol": "BTCUSDT",
+    "positionSide": "BOTH",
+    "positionAmt": "0",
+    "entryPrice": "0",
+    "markPrice": "62000.10",
+    "notional": "0",
+    "unRealizedProfit": "0",
+    "liquidationPrice": "0",
+}
 
 # The live USDT asset with an isolated AAVE short open.
 LIVE_USDT = {
@@ -135,3 +159,45 @@ async def test_an_unparsable_amount_is_refused() -> None:
 
     with pytest.raises(BinanceApiError, match="not a number"):
         await client.futures_assets()
+
+
+async def test_open_positions_reads_the_whole_account_without_a_symbol() -> None:
+    client, transport = _client([OPEN_SHORT, FLAT_ENTRY])
+
+    await client.open_positions()
+
+    assert transport.signed_paths == [POSITION_RISK_PATH]
+
+
+async def test_open_positions_filters_out_flat_entries() -> None:
+    """Mirrors ``position_for``'s own filter: a symbol with ``positionAmt`` of
+    zero is not "no position", it is a value -- and here that value means it
+    is left out, exactly the way ``position_for`` turns it into ``None``."""
+    client, _ = _client([OPEN_SHORT, FLAT_ENTRY])
+
+    positions = await client.open_positions()
+
+    assert [p.symbol for p in positions] == ["AAVEUSDT"]
+
+
+async def test_open_positions_keeps_the_sign_of_a_short() -> None:
+    client, _ = _client([OPEN_SHORT])
+
+    positions = await client.open_positions()
+
+    assert positions[0].signed_size == Decimal("-0.100")
+
+
+async def test_open_positions_on_an_all_flat_account_is_empty() -> None:
+    client, _ = _client([FLAT_ENTRY])
+
+    positions = await client.open_positions()
+
+    assert positions == []
+
+
+async def test_open_positions_refuses_a_non_list_body() -> None:
+    client, _ = _client({"code": -1, "msg": "unexpected"})
+
+    with pytest.raises(BinanceApiError, match="did not return a list"):
+        await client.open_positions()

@@ -4,6 +4,7 @@ database enforces the same rule below the application layer with two
 triggers (spec: trade-ledger § Append-Only Enforcement).
 """
 
+from collections import defaultdict
 from decimal import Decimal
 from uuid import UUID
 
@@ -12,12 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
+from strategy_manager.reconciliation.domain.positions import LedgerPosition, OpenAllocation
 
 
 class SqlAlchemyLedgerRepository:
-    """Implements ``LedgerRepositoryPort`` and ``LedgerPositionReaderPort``.
-    No ``update``/``delete``/``mark`` method exists on this class — there is
-    nothing here that could even attempt to mutate a written row."""
+    """Implements ``LedgerRepositoryPort``, ``LedgerPositionReaderPort`` and
+    ``LedgerSymbolPositionReaderPort``. No ``update``/``delete``/``mark``
+    method exists on this class — there is nothing here that could even
+    attempt to mutate a written row."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -80,3 +83,62 @@ class SqlAlchemyLedgerRepository:
             ).where(LedgerEntryRow.allocation_id == allocation_id)
         )
         return Decimal(result.scalar_one())
+
+    async def net_positions_by_symbol(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> list[LedgerPosition]:
+        """Implements ``LedgerSymbolPositionReaderPort``.
+
+        One aggregate over the WHOLE pool's rows, grouped by symbol and
+        allocation — ``net_base_quantity``'s twin, generalised from one
+        allocation to every allocation in the pool at once.
+
+        Design decision 4's fee rule: the base-fee subtraction is keyed on
+        ``fee_currency <> settlement_currency``, not on a ``base_currency``
+        parameter this aggregate has no way to receive per symbol. Provably a
+        no-op on USDⓈ-M, where every fee lands in the settlement currency
+        (CLAUDE.md's verified Bybit round trip); load-bearing for a future
+        spot/COIN-M pool where a fee IS paid in the base currency.
+
+        ``HAVING`` drops any allocation whose net base sums to exactly zero —
+        a fully closed allocation must vanish from the result as if it never
+        existed, not survive as an ``OpenAllocation`` carrying nothing, so
+        that ``classify()``'s rung 1 (``NO_MATCHING_ALLOCATION``, tested on
+        an EMPTY tuple) still tells "never opened here" apart from "opened
+        and closed cleanly".
+
+        Backed by ``ix_ledger_pool_symbol`` (migration ``0020``); without it
+        this is a sequential scan of a table that only ever grows.
+        """
+        signed_quantity = case(
+            (LedgerEntryRow.side == "BUY", LedgerEntryRow.quantity),
+            else_=-LedgerEntryRow.quantity,
+        )
+        settlement_fee = case(
+            (
+                func.upper(LedgerEntryRow.fee_currency) != settlement_currency.upper(),
+                LedgerEntryRow.fee,
+            ),
+            else_=0,
+        )
+        net_base = func.sum(signed_quantity - settlement_fee)
+
+        result = await self._session.execute(
+            select(LedgerEntryRow.symbol, LedgerEntryRow.allocation_id, net_base)
+            .where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+            )
+            .group_by(LedgerEntryRow.symbol, LedgerEntryRow.allocation_id)
+            .having(net_base != 0)
+        )
+
+        by_symbol: dict[str, list[OpenAllocation]] = defaultdict(list)
+        for symbol, allocation_id, net in result.all():
+            by_symbol[symbol].append(OpenAllocation(allocation_id, Decimal(net)))
+
+        return [
+            LedgerPosition(symbol, tuple(allocations))
+            for symbol, allocations in by_symbol.items()
+        ]
