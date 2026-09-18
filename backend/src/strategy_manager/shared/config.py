@@ -143,6 +143,22 @@ class Settings(BaseSettings):
     # than this window. 5000ms is Binance's own default; 60000ms its ceiling.
     binance_recv_window_ms: int = Field(default=5000)
 
+    # Bearer token required by every ``/strategies`` endpoint — the surface
+    # that registers strategies and arms them, which is to say the surface
+    # that decides what this system trades and with how much capital.
+    #
+    # There is no safe default, and an empty value is not one. It is empty
+    # here so that a deployment which sets nothing is REFUSED at startup
+    # (invariant 4) rather than served; a placeholder default would be a
+    # published password, and a "disable auth when empty" fallback would hand
+    # the internet the admin API the moment this line went unread.
+    #
+    # Unlike ``webhook_secret`` this is a token WE issue to ourselves: no
+    # third party's request format constrains it, so it travels in the
+    # ``Authorization`` header rather than a query string and never reaches
+    # the access log.
+    admin_api_token: str = Field(default="")
+
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool

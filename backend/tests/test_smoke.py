@@ -27,10 +27,16 @@ def test_dry_run_is_enabled_by_default() -> None:
 
 
 def test_no_exchange_credentials_are_baked_in() -> None:
-    """No credential may ship as a default value."""
+    """No credential may ship as a default value.
+
+    ``admin_api_token`` belongs in this list for the same reason as the other
+    two: a default would be a published password. It is the one whose empty
+    default is ALSO load-bearing — startup invariant 4 reads exactly this
+    value to decide whether to refuse to boot."""
     settings = Settings(_env_file=None)
 
     assert settings.webhook_secret == ""
+    assert settings.admin_api_token == ""
     assert settings.master_encryption_key == ""
 
 

@@ -49,7 +49,9 @@ psql -U postgres -d strategy_manager_test -c "ALTER SCHEMA public OWNER TO strat
 #    ALTER TABLE <each> OWNER TO strategy_manager;
 
 # 2. Configure
-cp .env.example backend/.env     # then fill DATABASE_URL, WEBHOOK_SECRET, MASTER_ENCRYPTION_KEY
+cp .env.example backend/.env     # then fill DATABASE_URL, WEBHOOK_SECRET,
+#                                  ADMIN_API_TOKEN, MASTER_ENCRYPTION_KEY —
+#                                  the API refuses to start without them
 
 # 3. Backend
 cd backend

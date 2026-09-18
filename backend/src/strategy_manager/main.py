@@ -113,6 +113,9 @@ from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.infrastructure.admin_token_invariant import (
+    assert_admin_api_token_configured,
+)
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from strategy_manager.strategies.infrastructure.router import (
     router as strategies_router,
@@ -123,7 +126,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup invariants 1 and 3 (design.md § Composition Root).
+    """Startup invariants 1, 3 and 4 (design.md § Composition Root).
 
     1: ``capital_pools`` is the single source of truth for which pools exist —
     enumerate it and assert every pool's advisory-lock key pair is distinct
@@ -131,6 +134,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     3: ``WEBHOOK_SECRET`` must be configured, or this process mounts an
     endpoint that answers 401 to every alert it was deployed to receive.
+
+    4: ``ADMIN_API_TOKEN`` must be configured, or this process mounts the
+    router that registers and arms strategies with an authentication whose
+    expected value is empty. 3 and 4 are one invariant per mounted router,
+    which is why both live here: this function is where the routers this
+    process serves become reachable.
 
     Invariant 2 (``DRY_RUN`` vs. the registered adapter) is not repeated here:
     it belongs to ``build_worker_runner``, which is the only place that decides
@@ -141,6 +150,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pools = await CapitalPoolRepository(conn).list_enabled()
         await assert_pool_lock_keys_distinct(conn, pools)
     assert_webhook_secret_configured(get_settings())
+    assert_admin_api_token_configured(get_settings())
     yield
 
 

@@ -45,6 +45,7 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.infrastructure.auth import require_admin_token
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
 )
@@ -52,7 +53,26 @@ from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
 
-router = APIRouter(prefix="/strategies", tags=["strategies"])
+# Authentication is attached to the ROUTER, so it applies to every route
+# declared below AND to every route anyone adds after this line — without the
+# author of that route doing, knowing or remembering anything. The protection
+# is structural, not a checklist item.
+#
+# That distinction is the whole point. Per-endpoint dependencies protect the
+# endpoints someone remembered, and this file is a place where endpoints get
+# added: the next one added in a hurry is precisely the one that would ship
+# open, and it would look exactly like the four already here. A decorator that
+# has to be copied is a rule that will eventually not be.
+#
+# So there is deliberately no ``Depends(require_admin_token)`` on any route
+# below. Adding one would not be harmless duplication — it would teach the
+# next reader that this is where authentication lives, and the route that then
+# omits it inherits nothing and says nothing.
+router = APIRouter(
+    prefix="/strategies",
+    tags=["strategies"],
+    dependencies=[Depends(require_admin_token)],
+)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
