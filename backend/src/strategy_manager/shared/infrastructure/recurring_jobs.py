@@ -31,6 +31,7 @@ from strategy_manager.shared.infrastructure.models import JobRow
 RECURRING_KINDS: tuple[JobKind, ...] = (
     JobKind.RESERVATION_SWEEP,
     JobKind.BALANCE_SYNC,
+    JobKind.RECONCILIATION_SCAN,
 )
 
 LIVE_STATUSES: tuple[str, ...] = ("PENDING", "CLAIMED")

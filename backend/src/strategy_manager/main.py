@@ -74,8 +74,26 @@ from strategy_manager.execution.infrastructure.venue_support import (
     unserved_pools,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
+from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.reconciliation.application.ports import VenuePositionReaderPort
+from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
+    ReconciliationScanHandler,
+)
+from strategy_manager.reconciliation.application.scan_pools import ScanPools
+from strategy_manager.reconciliation.infrastructure.binance_venue_position_reader import (
+    BinanceVenuePositionReader,
+)
+from strategy_manager.reconciliation.infrastructure.bybit_venue_position_reader import (
+    BybitVenuePositionReader,
+)
+from strategy_manager.reconciliation.infrastructure.repository import (
+    SqlAlchemyDiscrepancyRepository,
+)
+from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
+    VenuePositionReaderRegistry,
+)
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
@@ -304,10 +322,10 @@ def build_worker_runner(
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
 ) -> WorkerRunner:
-    """Registers ``signal.process``, ``reservation.sweep`` and
-    ``balance.sync``. One fresh session per claimed job, independent of the
-    claim session (design.md § Transaction Boundaries: the claim's row lock
-    must die with its own connection).
+    """Registers ``signal.process``, ``reservation.sweep``, ``balance.sync``,
+    ``execution.settle`` and ``reconciliation.scan``. One fresh session per
+    claimed job, independent of the claim session (design.md § Transaction
+    Boundaries: the claim's row lock must die with its own connection).
 
     Both recurring chains keep themselves alive by enqueuing their own
     successor, so each needs an initial job before it runs at all. Seeding is
@@ -598,6 +616,72 @@ def build_worker_runner(
             await handler.handle(job)
             await session.commit()
 
+    async def handle_reconciliation_scan(job: ClaimedJob) -> None:
+        """Wraps ``ScanPools`` behind ``ReconciliationScanHandler``, which
+        owns the DRY_RUN hard skip and the successor enqueue (design
+        decisions 8, 11 -- see that handler's own docstring).
+
+        The scan and its self-re-enqueue share one session, exactly as
+        ``handle_reservation_sweep`` does, so a successor is never committed
+        unless the scan that preceded it committed too.
+
+        A real venue position reader is built only when DRY_RUN is off:
+        building one means decrypting a trade credential and opening a
+        socket, and the handler below never calls ``scan()`` under DRY_RUN
+        anyway, so doing that work first would decrypt a credential for a
+        scan that is about to be skipped outright.
+        """
+        async with factory() as session:
+            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+
+            async with AsyncExitStack() as clients:
+                readers: list[VenuePositionReaderPort] = []
+
+                if not settings.dry_run:
+                    if bybit_pools:
+                        credential = await SqlAlchemyCredentialVault(
+                            session, cipher, SystemClock()
+                        ).load(BYBIT_EXCHANGE)
+                        bybit = await clients.enter_async_context(
+                            read_only_client(
+                                settings,
+                                BybitCredentials(
+                                    api_key=credential.api_key,
+                                    api_secret=credential.api_secret,
+                                ),
+                            )
+                        )
+                        readers.append(BybitVenuePositionReader(bybit))
+
+                    if binance_pools:
+                        binance = await clients.enter_async_context(
+                            binance_read_only_client(
+                                settings, binance_credentials_from_settings(settings)
+                            )
+                        )
+                        readers.append(BinanceVenuePositionReader(binance))
+
+                handler = ReconciliationScanHandler(
+                    scan_pools=ScanPools(
+                        pools=bybit_pools + binance_pools,
+                        venue_readers=VenuePositionReaderRegistry(readers),
+                        ledger_positions=ReadSymbolPositions(
+                            SqlAlchemyLedgerRepository(session)
+                        ),
+                        discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                        clock=SystemClock(),
+                        commit=session,
+                        confirmations_required=settings.reconciliation_confirmations,
+                    ),
+                    queue=PostgresJobQueue(session),
+                    clock=SystemClock(),
+                    interval_seconds=settings.reconciliation_scan_interval_seconds,
+                    dry_run=settings.dry_run,
+                )
+                await handler.handle(job)
+                await session.commit()
+
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:
         async with factory() as session:
@@ -608,6 +692,7 @@ def build_worker_runner(
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
+        JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
     }
     return WorkerRunner(
         queue_factory=queue_factory,
