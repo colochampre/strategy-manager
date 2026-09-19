@@ -285,6 +285,32 @@ async def _open_records(
     return [record for record in records if record.symbol == symbol]
 
 
+_FORBIDDEN_TABLES = (
+    "ledger_entries",
+    "execution_attempts",
+    # A pool's available capital is not a stored column: it is derived from the
+    # latest balance snapshot minus the active reservations. So "MUST NOT alter
+    # available" is asserted against the two tables it is actually derived
+    # from, which is where a violation would have to land.
+    "pool_balance_snapshots",
+    "reservations",
+)
+
+
+async def _write_boundary_snapshot(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> dict[str, int]:
+    """Everything the scan is forbidden to touch, in one reading."""
+
+    async with session_factory() as session:
+        return {
+            table: (
+                await session.execute(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
+            ).scalar_one()
+            for table in _FORBIDDEN_TABLES
+        }
+
+
 async def _scan(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -463,7 +489,63 @@ async def test_the_transition_to_confirmed_and_the_reset_on_a_changed_quantity(
     third_record = records[0]
     assert third_record.id == row_id
     assert third_record.consecutive_scans == 1
+    # The demotion itself, asserted against the database rather than inferred
+    # from the counter: a moved observation puts the row back to OBSERVED, and
+    # only a CONFIRMED row is ever acted on.
+    assert third_record.status is DiscrepancyStatus.OBSERVED
     # ``confirmed_at`` is set exactly once and never overwritten or cleared
     # by a later scan (``ck_reconciliation_discrepancies_confirmed_at`` and
-    # the repository's own coalesce).
+    # the repository's own coalesce). This row is the pair the CHECK's one-way
+    # implication exists to permit: OBSERVED, still carrying the timestamp of
+    # the confirmation it earned earlier.
     assert third_record.confirmed_at == confirmed_at
+
+
+# --- The detection-only write boundary, asserted rather than assumed ---------
+
+
+async def test_a_scan_that_records_a_discrepancy_writes_nowhere_else(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The scan MUST NOT write to ledger_entries or execution_attempts, and
+    MUST NOT alter a pool's available balance.
+
+    ``ScanPools`` holds no port capable of any of those writes, so today the
+    violation is undeclarable rather than merely discouraged. This test exists
+    for the day someone widens that constructor: a structural guarantee that
+    nothing asserts is one refactor away from being no guarantee at all.
+
+    The scan is made to DO something first -- it lands a real discrepancy row
+    -- because "nothing changed" proves nothing about a scan that did nothing.
+    """
+    symbol = "DOTUSDT"
+    strategy_id, allocation_id, attempt_id = await _seed_allocation(session_factory)
+
+    async with session_factory() as session:
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                symbol=symbol,
+                side="BUY",
+                quantity="0.004",
+            )
+        )
+        await session.commit()
+
+    before = await _write_boundary_snapshot(session_factory)
+
+    await _scan(
+        session_factory,
+        venue_positions=[VenuePosition(symbol, Decimal("0.009"))],
+        scan_id=uuid4(),
+        at=NOW,
+    )
+
+    # The scan really did land a row, so the assertions below mean something.
+    records = await _open_records(session_factory, symbol=symbol)
+    assert len(records) == 1
+    assert records[0].ledger_net_base == Decimal("0.004")
+
+    assert await _write_boundary_snapshot(session_factory) == before
