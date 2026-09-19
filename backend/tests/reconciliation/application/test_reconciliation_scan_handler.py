@@ -16,6 +16,7 @@ import pytest
 
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     ReconciliationScanHandler,
+    dry_run_skip_announcement,
 )
 from strategy_manager.reconciliation.application.scan_pools import ScanPools, ScanResult
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
@@ -98,6 +99,13 @@ async def test_the_handler_re_enqueues_itself_one_interval_later() -> None:
     assert follow_up.run_after == NOW + timedelta(seconds=INTERVAL)
 
 
+@pytest.fixture(autouse=True)
+def _unannounced() -> None:
+    """No test may inherit another test's process-scoped announcement."""
+
+    dry_run_skip_announcement.reset()
+
+
 async def test_dry_run_skips_the_scan_but_still_enqueues_the_successor(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -115,6 +123,28 @@ async def test_dry_run_skips_the_scan_but_still_enqueues_the_successor(
     assert result is None
     assert len(queue.enqueued) == 1
     assert any("DRY_RUN" in record.message for record in caplog.records)
+
+
+async def test_only_the_first_dry_run_skip_of_a_process_is_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The skip is a configuration state, not an event.
+
+    At a 30-second interval, repeating it at WARNING is ~2,880 identical
+    lines a day, and the cost is that the first WARNING which actually
+    matters arrives buried among them. So it is announced once per worker
+    process and demoted to DEBUG afterwards -- still recorded, never silent.
+    """
+
+    handler, _ = _build(StubScanPools(), dry_run=True)
+
+    with caplog.at_level("DEBUG"):
+        for _ in range(3):
+            await handler.handle(_claimed_job())
+
+    skips = [record for record in caplog.records if "DRY_RUN" in record.message]
+    assert len(skips) == 3, "every skip is still recorded"
+    assert [record.levelname for record in skips] == ["WARNING", "DEBUG", "DEBUG"]
 
 
 async def test_a_scan_with_skipped_pools_still_enqueues_the_successor() -> None:

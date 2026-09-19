@@ -11,9 +11,13 @@ skip, and deciding when the successor is enqueued.
 ``DRY_RUN=true`` comes from ``FakeExchangeAdapter``, not a real venue.
 Comparing that fake ledger against a REAL venue position call would
 manufacture a discrepancy out of the rehearsal itself, so the SCAN is what
-gets skipped here -- logged at WARNING so the skip is loud, never silent.
-Skipping the job's own re-enqueue instead would be the silent version of
-this bug: the chain would simply stop, and nothing would say why.
+gets skipped here -- announced loudly, never silently. Skipping the job's own
+re-enqueue instead would be the silent version of this bug: the chain would
+simply stop, and nothing would say why.
+
+The announcement is WARNING once per worker process and DEBUG thereafter --
+see ``_SkipAnnouncement`` for why repeating a configuration state on every
+scan is worse than useless.
 
 **The successor enqueue (design decision 8).** Deliberately UNLIKE
 ``BalanceSyncHandler``, which enqueues its successor only when ``sync()``
@@ -44,6 +48,43 @@ from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 logger = logging.getLogger(__name__)
 
 
+class _SkipAnnouncement:
+    """Announces the DRY_RUN skip loudly once per worker PROCESS.
+
+    The skip is a configuration STATE, not an event: it reports the same
+    unchanged fact on every scan. At a 30-second interval that is ~2,880
+    identical WARNINGs a day, and the cost of those is not disk -- it is that
+    the first WARNING which actually matters, a failing venue read or a dead
+    chain, arrives buried among thousands that never did.
+
+    So the first skip is a WARNING, loud and discoverable: restart the worker
+    and the reason it is not scanning is right there at the top. Every later
+    skip drops to DEBUG, still recorded for anyone who goes looking, never
+    silent.
+
+    Process-scoped rather than per-handler because ``main.py`` constructs a
+    fresh handler for every claimed job, so instance state would reset every
+    30 seconds and announce nothing.
+    """
+
+    def __init__(self) -> None:
+        self._announced = False
+
+    def level(self) -> int:
+        if self._announced:
+            return logging.DEBUG
+        self._announced = True
+        return logging.WARNING
+
+    def reset(self) -> None:
+        """For tests, which must not inherit another test's announcement."""
+
+        self._announced = False
+
+
+dry_run_skip_announcement = _SkipAnnouncement()
+
+
 class ScanPoolsPort(Protocol):
     """What the handler needs from ``ScanPools``, declared here so the
     handler never depends on the use case's construction."""
@@ -68,7 +109,8 @@ class ReconciliationScanHandler:
 
     async def handle(self, job: ClaimedJob) -> ScanResult | None:
         if self._dry_run:
-            logger.warning(
+            logger.log(
+                dry_run_skip_announcement.level(),
                 "reconciliation scan skipped for job %s: DRY_RUN is enabled; "
                 "comparing a fake ledger against a real venue position would "
                 "manufacture a discrepancy out of the rehearsal itself",
