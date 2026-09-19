@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.config import get_settings
-from strategy_manager.strategies.infrastructure.auth import UNAUTHORIZED_DETAIL
+from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
 
 TOKEN = "adm1n-t0ken"

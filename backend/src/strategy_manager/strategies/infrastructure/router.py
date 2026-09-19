@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -45,7 +46,6 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
-from strategy_manager.strategies.infrastructure.auth import require_admin_token
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
 )

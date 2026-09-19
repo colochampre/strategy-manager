@@ -91,6 +91,9 @@ from strategy_manager.reconciliation.infrastructure.bybit_venue_position_reader 
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.router import (
+    router as reconciliation_router,
+)
 from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
     VenuePositionReaderRegistry,
 )
@@ -730,6 +733,7 @@ def create_app() -> FastAPI:
 
     app.include_router(signals_router)
     app.include_router(strategies_router)
+    app.include_router(reconciliation_router)
 
     return app
 

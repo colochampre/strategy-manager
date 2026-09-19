@@ -1,12 +1,13 @@
-"""Unit tests for AdminTokenAuth — the bearer check on ``/strategies``.
+"""Unit tests for AdminTokenAuth — the shared bearer check guarding every
+admin surface (``/strategies``, ``/reconciliation``).
 
-The surface being protected writes no orders, so the thing these assertions
+The first surface it protects writes no orders, so the thing these assertions
 defend is one step removed: a caller who can register a strategy, arm it and
 set its allocation to 100% has decided what the worker trades with the pool.
 """
 
 from strategy_manager.shared.config import Settings
-from strategy_manager.strategies.infrastructure.auth import AdminTokenAuth
+from strategy_manager.shared.infrastructure.admin_auth import AdminTokenAuth
 
 TOKEN = "adm1n-t0ken"
 

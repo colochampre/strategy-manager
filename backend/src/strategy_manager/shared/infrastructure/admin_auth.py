@@ -1,23 +1,25 @@
-"""Admin authentication for ``/strategies``: a bearer token, and nothing else.
+"""Admin authentication: a bearer token, and nothing else.
 
-This surface registers strategies, arms them and sets how much of a pool each
-one may claim. Nothing here places an order, which is exactly why it reads as
-harmless and is not: a caller who can arm a strategy and set its allocation to
-100% has decided what the worker will trade with the whole pool.
-
-**The reverse proxy is not the authorisation.** It was, until this module
-existed — a path allowlist in front of the application — and that is a rule
-living in a file this repository does not contain, enforced by a process this
-repository does not start. The day someone widens it to serve a new route, the
-admin API silently comes back, and nothing in the application would report
-that as a change. Keeping the proxy rule is right; depending on it is not.
-This is the application's own copy of the judgement, and the one that ships
-with the code that needs it.
+Lives in ``shared`` rather than under any one module's ``infrastructure``,
+because the token it checks is the deployment's one operator credential --
+not a concept any single module owns. ``/strategies`` was its first consumer;
+``/reconciliation`` is its second, and the second consumer is exactly what
+proves this does not belong to the first.
 
 A single bearer token rather than users, sessions or signatures, because
 there is exactly one operator and the thing being protected is a handful of
-configuration rows. What matters is that the check is unconditional and
-structural — see ``router.py`` for where it is attached and why there.
+configuration rows and a read-only operator view. What matters is that the
+check is unconditional and structural -- see each router's own module for
+where it is attached and why there.
+
+**The reverse proxy is not the authorisation.** It was, until this module
+existed -- a path allowlist in front of the application -- and that is a rule
+living in a file this repository does not contain, enforced by a process this
+repository does not start. The day someone widens it to serve a new route, an
+admin surface silently comes back, and nothing in the application would
+report that as a change. Keeping the proxy rule is right; depending on it is
+not. This is the application's own copy of the judgement, and the one that
+ships with the code that needs it.
 
 **Every refusal says the same word.** Missing header, wrong scheme, wrong
 token: one detail, one status. Distinguishing them would answer, for free,
@@ -53,7 +55,7 @@ class AdminTokenAuth:
 
     def authenticate(self, authorization: str | None) -> bool:
         if not self._expected_token:
-            # An empty configured token would make comparison vacuous — and
+            # An empty configured token would make comparison vacuous -- and
             # worse here than for the webhook, because the caller supplies the
             # other side: a request sending an empty token would MATCH, so an
             # unconfigured deployment would authenticate the internet.
@@ -88,7 +90,7 @@ async def require_admin_token(
     """FastAPI dependency: raise 401 unless the request carries the token.
 
     Returns nothing on success on purpose. There is no identity to hand the
-    endpoint — the answer is only "this request may proceed" — and a
+    endpoint -- the answer is only "this request may proceed" -- and a
     dependency that returned a truthy value would invite an endpoint to
     re-check it, which is how per-endpoint authorisation grows back.
     """
