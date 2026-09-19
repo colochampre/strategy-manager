@@ -32,6 +32,11 @@ RECURRING_KINDS: tuple[JobKind, ...] = (
     JobKind.RESERVATION_SWEEP,
     JobKind.BALANCE_SYNC,
     JobKind.RECONCILIATION_SCAN,
+    # Retention for this very table. It is seeded like any other chain
+    # precisely because it is one: nothing deletes a DONE row unless this job
+    # is alive, so a purge chain that died must come back on a worker restart
+    # the same way the others do.
+    JobKind.JOBS_PURGE,
 )
 
 LIVE_STATUSES: tuple[str, ...] = ("PENDING", "CLAIMED")

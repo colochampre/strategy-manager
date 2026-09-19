@@ -20,6 +20,7 @@ class JobKind(StrEnum):
     BALANCE_SYNC = "balance.sync"
     EXECUTION_SETTLE = "execution.settle"
     RECONCILIATION_SCAN = "reconciliation.scan"
+    JOBS_PURGE = "jobs.purge"
 
 
 @dataclass(frozen=True, slots=True)

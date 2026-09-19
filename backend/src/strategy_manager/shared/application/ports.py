@@ -35,6 +35,30 @@ class JobQueuePort(Protocol):
     async def fail(self, job_id: UUID, error: str) -> None: ...
 
 
+class JobRetentionPort(Protocol):
+    """Removal of finished job rows, kept deliberately OUT of ``JobQueuePort``.
+
+    That port is the claim/ack/fail contract every worker path depends on, and
+    every fake in the test suite implements it; widening it to carry a
+    maintenance concern would make retention something each of those fakes has
+    to answer for. Retention has one caller and one adapter, so it gets its own
+    port instead.
+
+    One call deletes at most ``limit`` rows and returns how many it actually
+    deleted, which is what lets the caller batch and stop.
+    """
+
+    async def delete_done_before(self, cutoff: datetime, limit: int) -> int: ...
+
+
+class CommitPort(Protocol):
+    """Mirrors every module's narrow ``CommitPort`` — deliberately small so any
+    object with an async ``commit()`` (including a raw ``AsyncSession``)
+    satisfies it structurally, without leaking SQLAlchemy into this layer."""
+
+    async def commit(self) -> None: ...
+
+
 class UnitOfWorkPort(Protocol):
     """An async-context-managed transaction boundary."""
 

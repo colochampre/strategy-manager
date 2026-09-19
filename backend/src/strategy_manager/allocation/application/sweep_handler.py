@@ -17,6 +17,12 @@ The chain still dies if a job exhausts ``max_attempts`` — the sweeper stops an
 nothing raises. That is a monitoring concern this change does not solve; the
 mitigation is that nothing depends on the sweep for *correctness*
 (``sum_active`` already excludes expired reservations), only for bookkeeping.
+
+That same fact is why ``interval_seconds`` is a SCHEDULING interval the caller
+chooses, and pointedly not the worker's poll interval. It was the poll interval
+once, and one value doing double duty made a bookkeeping chain run every two
+seconds — 43,200 job rows a day, more than everything else combined. The
+parameter is named for what it is so the substitution is not invited back.
 """
 
 from datetime import timedelta
@@ -40,12 +46,12 @@ class SweepHandler:
         expire_reservations: SweepPort,
         queue: JobQueuePort,
         clock: ClockPort,
-        poll_interval_seconds: float,
+        interval_seconds: float,
     ) -> None:
         self._expire_reservations = expire_reservations
         self._queue = queue
         self._clock = clock
-        self._poll_interval_seconds = poll_interval_seconds
+        self._interval_seconds = interval_seconds
 
     async def handle(self, job: ClaimedJob) -> SweepResult:
         del job  # the sweep is global; the claimed job carries no payload
@@ -53,7 +59,7 @@ class SweepHandler:
         await self._queue.enqueue(
             Job(
                 kind=JobKind.RESERVATION_SWEEP,
-                run_after=self._clock.now() + timedelta(seconds=self._poll_interval_seconds),
+                run_after=self._clock.now() + timedelta(seconds=self._interval_seconds),
             )
         )
         return result

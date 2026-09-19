@@ -20,7 +20,11 @@ from strategy_manager.allocation.application.sweep_handler import SweepHandler
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 
 NOW = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-POLL_INTERVAL = 2.0
+
+# Deliberately not the worker's poll interval. The handler takes a scheduling
+# interval of its own; reusing the polling one is the bug this parameter's
+# name now refuses to invite.
+INTERVAL = 60.0
 
 
 class FrozenClock:
@@ -67,7 +71,7 @@ def _build(
         expire_reservations=expire,  # type: ignore[arg-type]
         queue=queue,
         clock=FrozenClock(NOW),
-        poll_interval_seconds=POLL_INTERVAL,
+        interval_seconds=INTERVAL,
     )
     return handler, queue
 
@@ -81,7 +85,10 @@ async def test_the_handler_runs_the_sweep() -> None:
     assert expire.sweeps == 1
 
 
-async def test_the_handler_re_enqueues_itself_one_poll_interval_later() -> None:
+async def test_the_handler_re_enqueues_itself_one_configured_interval_later() -> None:
+    """The successor is scheduled at the interval the handler was GIVEN, not at
+    whatever cadence the worker happens to poll at."""
+
     handler, queue = _build(StubExpireReservations())
 
     await handler.handle(_claimed_job())
@@ -89,7 +96,7 @@ async def test_the_handler_re_enqueues_itself_one_poll_interval_later() -> None:
     assert len(queue.enqueued) == 1
     follow_up = queue.enqueued[0]
     assert follow_up.kind is JobKind.RESERVATION_SWEEP
-    assert follow_up.run_after == NOW + timedelta(seconds=POLL_INTERVAL)
+    assert follow_up.run_after == NOW + timedelta(seconds=INTERVAL)
 
 
 async def test_the_re_enqueue_happens_even_when_nothing_expired() -> None:

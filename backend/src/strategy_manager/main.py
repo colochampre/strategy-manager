@@ -98,6 +98,8 @@ from strategy_manager.reconciliation.infrastructure.venue_position_reader_regist
     VenuePositionReaderRegistry,
 )
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
+from strategy_manager.shared.application.jobs_purge_handler import JobsPurgeHandler
+from strategy_manager.shared.application.purge_jobs import PurgeJobs
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
@@ -124,6 +126,7 @@ from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
+from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.process_signal import ProcessSignalHandler
@@ -614,7 +617,7 @@ def build_worker_runner(
                 ),
                 queue=PostgresJobQueue(session),
                 clock=SystemClock(),
-                poll_interval_seconds=settings.worker_poll_interval_seconds,
+                interval_seconds=settings.reservation_sweep_interval_seconds,
             )
             await handler.handle(job)
             await session.commit()
@@ -685,6 +688,27 @@ def build_worker_runner(
                 await handler.handle(job)
                 await session.commit()
 
+    async def handle_jobs_purge(job: ClaimedJob) -> None:
+        # The purge and its self-re-enqueue share one session, exactly as
+        # ``handle_reservation_sweep`` does, so a successor is never committed
+        # unless the purge that preceded it committed. ``PurgeJobs`` commits
+        # each batch through this same session; the commit below covers the
+        # successor.
+        async with factory() as session:
+            handler = JobsPurgeHandler(
+                purge_jobs=PurgeJobs(
+                    retention=PostgresJobRetention(session),
+                    clock=SystemClock(),
+                    commit=session,
+                    retention_days=settings.job_retention_days,
+                ),
+                queue=PostgresJobQueue(session),
+                clock=SystemClock(),
+                interval_seconds=settings.jobs_purge_interval_seconds,
+            )
+            await handler.handle(job)
+            await session.commit()
+
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:
         async with factory() as session:
@@ -696,6 +720,7 @@ def build_worker_runner(
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
+        JobKind.JOBS_PURGE: handle_jobs_purge,
     }
     return WorkerRunner(
         queue_factory=queue_factory,

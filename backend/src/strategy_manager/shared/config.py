@@ -166,7 +166,29 @@ class Settings(BaseSettings):
     reservation_ttl_seconds: int = Field(default=30)
 
     # How long the worker sleeps between polls when it finds no claimable job.
+    #
+    # This is a POLLING cadence and nothing else. It used to be handed to
+    # ``SweepHandler`` as its scheduling interval too; see the setting below
+    # for what that cost.
     worker_poll_interval_seconds: float = Field(default=2.0)
+
+    # How often reservation.sweep gives expired reservations a terminal status.
+    #
+    # Bookkeeping cadence, not a correctness one: ``sum_active`` already
+    # excludes reservations past ``expires_at``, so capital is released from
+    # pool availability whether or not the sweep has run
+    # (``expire_reservations.py``'s own docstring). What the sweep buys is that
+    # an orphaned reservation stops being indistinguishable from one still
+    # being worked on — an observability property, and 60s is fast enough for
+    # a human reading the table.
+    #
+    # It exists as its OWN setting because it used to be
+    # ``worker_poll_interval_seconds`` (2.0s) reused as a scheduling interval.
+    # One poll of an empty queue is one cheap indexed SELECT; one sweep is a
+    # job ROW, written and later marked DONE. At 2s that chain alone wrote
+    # ~43,200 rows a day — 83% of everything this system enqueued — for
+    # bookkeeping nothing waits on. At 60s it writes 1,440.
+    reservation_sweep_interval_seconds: float = Field(default=60.0)
 
     # How long execution.settle waits before asking the exchange what an
     # order became. Long enough that a market order has normally been
@@ -208,6 +230,26 @@ class Settings(BaseSettings):
     # interval above: two catches a real drift within one extra scan while
     # refusing to confirm off a single noisy read.
     reconciliation_confirmations: int = Field(default=2)
+
+    # How long a finished (DONE) job row is kept before jobs.purge deletes it.
+    #
+    # The window is a debugging one, not a correctness one: nothing reads a
+    # DONE row back. Idempotency lives on ``signals`` (ux_signals_idempotency),
+    # and the recurring seeder deliberately ignores DONE. Seven days is long
+    # enough that a Monday investigation still covers the weekend the incident
+    # happened on.
+    #
+    # FAILED rows are NOT subject to this and are never deleted — a chain that
+    # exhausted its retries leaves no other trace.
+    job_retention_days: int = Field(default=7)
+
+    # How often jobs.purge deletes DONE rows past the retention window.
+    #
+    # Once a day, because retention is measured in days: a finer cadence only
+    # scans the table more often to find the same rows, and the purge is the
+    # one recurring job whose work does not exist until a day's worth of
+    # history has accumulated.
+    jobs_purge_interval_seconds: float = Field(default=86_400.0)
 
 
 @lru_cache
