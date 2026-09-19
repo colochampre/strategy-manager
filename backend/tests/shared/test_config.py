@@ -50,3 +50,44 @@ def test_the_jobs_purge_runs_once_a_day() -> None:
     scans the table more often to find the same rows."""
 
     assert Settings().jobs_purge_interval_seconds == 86_400.0
+
+
+def test_the_retry_backoff_absorbs_a_quarter_hour_of_transient_fault() -> None:
+    """The number that matters is not either setting on its own, it is the
+    window the two of them buy before a self-scheduling chain dies.
+
+    With ``max_attempts=5`` the four waits between the five attempts are
+    30 + 60 + 120 + 240 = 450s, and the fifth failure ends the job. Retrying
+    with no delay at all spent 27 seconds of that window on 2026-09-18 and
+    killed the balance.sync chain."""
+
+    settings = Settings()
+    base = settings.job_retry_backoff_base_seconds
+    cap = settings.job_retry_backoff_max_seconds
+
+    waits = [min(base * 2**attempt, cap) for attempt in range(4)]
+
+    assert waits == [30.0, 60.0, 120.0, 240.0]
+    assert sum(waits) == 450.0
+
+
+def test_the_backoff_cap_is_not_reached_before_the_attempts_run_out() -> None:
+    """A cap below the last wait would flatten the tail of the curve and cut
+    the absorbed window short; 600s sits just above the 480s a sixth attempt
+    would wait, so it bounds a longer chain without shortening this one."""
+
+    settings = Settings()
+
+    assert settings.job_retry_backoff_max_seconds == 600.0
+    assert settings.job_retry_backoff_base_seconds * 2**3 < 600.0
+
+
+def test_the_recurring_seed_interval_is_coarser_than_the_worker_poll() -> None:
+    """Re-seeding takes an advisory lock and scans the jobs table. The claim
+    loop ticks every 2s; a dead chain is an hours-scale event, so 5 minutes is
+    the cadence, not the poll."""
+
+    settings = Settings()
+
+    assert settings.recurring_seed_interval_seconds == 300.0
+    assert settings.recurring_seed_interval_seconds > settings.worker_poll_interval_seconds

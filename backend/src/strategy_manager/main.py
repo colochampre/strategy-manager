@@ -178,6 +178,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:
+    """The queue adapter with its retry backoff wired from configuration.
+
+    ``PostgresJobQueue`` carries defaults equal to the settings' own so that the
+    many construction sites that only enqueue keep working, but this is the
+    composition root and the composition root is where the real values belong —
+    the adapter never reads ``Settings`` itself.
+    """
+    return PostgresJobQueue(
+        session,
+        backoff_base_seconds=settings.job_retry_backoff_base_seconds,
+        backoff_max_seconds=settings.job_retry_backoff_max_seconds,
+    )
+
+
 def _build_process_signal_handler(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[str, str, str], PoolConfig],
@@ -234,7 +249,7 @@ def _build_process_signal_handler(
         reservations=ReservationGatewayAdapter(reservation_repository),
         exchanges=exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
-        queue=PostgresJobQueue(session),
+        queue=_job_queue(session, settings),
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
@@ -247,7 +262,7 @@ def _build_process_signal_handler(
         exchanges=exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
-        queue=PostgresJobQueue(session),
+        queue=_job_queue(session, settings),
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
@@ -598,7 +613,7 @@ def build_worker_runner(
 
                 handler = BalanceSyncHandler(
                     sync_balances=CompositeBalanceSync(syncs),
-                    queue=PostgresJobQueue(session),
+                    queue=_job_queue(session, settings),
                     clock=SystemClock(),
                     interval_seconds=settings.balance_sync_interval_seconds,
                 )
@@ -615,7 +630,7 @@ def build_worker_runner(
                     clock=SystemClock(),
                     commit=session,
                 ),
-                queue=PostgresJobQueue(session),
+                queue=_job_queue(session, settings),
                 clock=SystemClock(),
                 interval_seconds=settings.reservation_sweep_interval_seconds,
             )
@@ -680,7 +695,7 @@ def build_worker_runner(
                         commit=session,
                         confirmations_required=settings.reconciliation_confirmations,
                     ),
-                    queue=PostgresJobQueue(session),
+                    queue=_job_queue(session, settings),
                     clock=SystemClock(),
                     interval_seconds=settings.reconciliation_scan_interval_seconds,
                     dry_run=settings.dry_run,
@@ -702,7 +717,7 @@ def build_worker_runner(
                     commit=session,
                     retention_days=settings.job_retention_days,
                 ),
-                queue=PostgresJobQueue(session),
+                queue=_job_queue(session, settings),
                 clock=SystemClock(),
                 interval_seconds=settings.jobs_purge_interval_seconds,
             )
@@ -712,7 +727,10 @@ def build_worker_runner(
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:
         async with factory() as session:
-            yield PostgresJobQueue(session)
+            # The one queue whose ``fail()`` is ever called: WorkerRunner claims
+            # through this factory, so this is where the retry backoff decides
+            # whether a transient fault costs a chain its life.
+            yield _job_queue(session, settings)
 
     handlers: Mapping[JobKind, JobHandler] = {
         JobKind.SIGNAL_PROCESS: handle_signal_process,

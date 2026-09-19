@@ -5,6 +5,7 @@ No database: ``WorkerRunner`` depends on ``JobQueuePort``, not on
 testable in isolation.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -110,3 +111,46 @@ async def test_run_once_fails_a_job_with_no_registered_handler() -> None:
     assert queue.acked == []
     assert len(queue.failed) == 1
     assert queue.failed[0][0] == claimed.id
+
+
+async def test_run_forever_runs_the_tick_hook_on_every_iteration() -> None:
+    """The hook is how periodic maintenance rides the loop that already ticks,
+    rather than a second task or a thread."""
+    queue = FakeJobQueue(job_to_claim=None)
+    runner = WorkerRunner(
+        queue_factory=_queue_factory(queue), handlers={}, poll_interval_seconds=0.001
+    )
+    stop = asyncio.Event()
+    ticks = 0
+
+    async def tick() -> None:
+        nonlocal ticks
+        ticks += 1
+        if ticks == 3:
+            stop.set()
+
+    await runner.run_forever(stop, on_tick=tick)
+
+    assert ticks == 3
+
+
+async def test_a_failing_tick_hook_does_not_stop_the_loop() -> None:
+    """Maintenance is not the job. A hook that cannot reach the database must
+    not take down the worker that is still processing signals."""
+    queue = FakeJobQueue(job_to_claim=None)
+    runner = WorkerRunner(
+        queue_factory=_queue_factory(queue), handlers={}, poll_interval_seconds=0.001
+    )
+    stop = asyncio.Event()
+    calls = 0
+
+    async def tick() -> None:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise RuntimeError("database unreachable")
+        stop.set()
+
+    await runner.run_forever(stop, on_tick=tick)
+
+    assert calls == 3

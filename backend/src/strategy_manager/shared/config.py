@@ -243,6 +243,46 @@ class Settings(BaseSettings):
     # exhausted its retries leaves no other trace.
     job_retention_days: int = Field(default=7)
 
+    # How long a failed job waits before the worker may claim it again, and the
+    # ceiling that wait grows to: delay = min(base * 2 ** (attempts - 1), cap).
+    #
+    # These are the two numbers that decide how long a transient fault has to
+    # last before it kills a self-scheduling chain, and the reason they exist is
+    # that the answer used to be 27 seconds. On 2026-09-18 Bybit's clock ran
+    # 5,112ms ahead of this host against a 5,000ms recv_window; ``fail()`` put
+    # the job straight back to PENDING without touching ``run_after``, the
+    # worker reclaimed it on the next poll, and five attempts were spent inside
+    # half a minute. balance.sync went FAILED and stayed dead for 19 hours while
+    # the clock that caused it had already corrected itself.
+    #
+    # With ``max_attempts=5`` there are four waits between the five attempts:
+    # 30 + 60 + 120 + 240 = 450s, so a fault has to outlive roughly 7.5 minutes
+    # of waiting — about 15.5 minutes of wall clock once the attempts
+    # themselves are counted — before the chain dies. That is the whole point:
+    # long enough to cover a clock step, an NTP correction or a venue's
+    # maintenance window, short enough that a genuinely broken chain still ends
+    # rather than retrying forever.
+    #
+    # The cap only binds a job with more attempts than the default five (the
+    # fifth wait would be 480s, the sixth 960s), so raising ``max_attempts``
+    # lengthens the chain's life without letting a single retry drift hours out.
+    job_retry_backoff_base_seconds: float = Field(default=30.0)
+    job_retry_backoff_max_seconds: float = Field(default=600.0)
+
+    # How often the worker re-seeds the recurring chains while it runs.
+    #
+    # Seeding used to happen once, at startup. ``RecurringJobSeeder`` is the
+    # only thing that revives a chain that exhausted its retries, so "restart
+    # the worker" was the entire recovery procedure — and nothing restarts the
+    # worker. That is the 19 hours.
+    #
+    # Five minutes, not the 2s claim-loop cadence: a re-seed takes an advisory
+    # lock and scans ``jobs`` for a live row per chain, and a dead chain is an
+    # hours-scale event, so a finer cadence buys nothing and pays for it on
+    # every tick. Five minutes bounds the blind window at five minutes instead
+    # of "until a human looks".
+    recurring_seed_interval_seconds: float = Field(default=300.0)
+
     # How often jobs.purge deletes DONE rows past the retention window.
     #
     # Once a day, because retention is measured in days: a finer cadence only

@@ -19,7 +19,9 @@ Startup order is deliberate:
    vault is a refusal to start rather than a per-job failure.
 4. Seed the recurring chains, so a restart is also the recovery path for a
    chain that died.
-5. Only then start claiming.
+5. Only then start claiming — re-seeding on a cadence from inside that loop,
+   because a restart being the ONLY recovery path meant a dead chain waited
+   for a human. One did, for 19 hours.
 
 Run it with::
 
@@ -27,6 +29,7 @@ Run it with::
 """
 
 import asyncio
+import functools
 import logging
 import signal
 
@@ -39,13 +42,17 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     assert_pool_lock_keys_distinct,
 )
 from strategy_manager.main import build_worker_runner
-from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.application.job import JobKind
+from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed, EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
-from strategy_manager.shared.infrastructure.recurring_jobs import RecurringJobSeeder
+from strategy_manager.shared.infrastructure.recurring_jobs import (
+    RecurringChainRevival,
+    RecurringJobSeeder,
+)
 
 logger = logging.getLogger("strategy_manager.worker")
 
@@ -119,19 +126,53 @@ async def run() -> None:
                 "orders until one is stored."
             )
 
-    async with session_factory() as session:
-        seeded = await RecurringJobSeeder(session, PostgresJobQueue(session)).seed()
+    clock = SystemClock()
+
+    # The startup seed. INFO, because seeding at startup is NORMAL: a chain has
+    # to begin somewhere and on a fresh deployment every one of them does. The
+    # identical call inside the loop below means something else entirely — see
+    # ``RecurringChainRevival``.
+    seeded = await _seed_recurring_chains(settings)
     if seeded:
         logger.info("seeded recurring chains: %s", [kind.value for kind in seeded])
     else:
         logger.info("recurring chains already alive; nothing seeded")
 
+    # Same seeder, same query, opposite meaning. A chain seeded from here was
+    # alive when this process started and has since exhausted its retries, so
+    # the revival is logged at WARNING and names what died.
+    revival = RecurringChainRevival(
+        seed=functools.partial(_seed_recurring_chains, settings),
+        clock=clock,
+        interval_seconds=settings.recurring_seed_interval_seconds,
+        last_seeded_at=clock.now(),
+    )
+
     stop = _install_signal_handlers()
     logger.info("claiming jobs; send SIGINT or SIGTERM to stop")
-    await runner.run_forever(stop)
+    await runner.run_forever(stop, on_tick=revival.revive_if_due)
 
     logger.info("worker stopped")
     await engine.dispose()
+
+
+async def _seed_recurring_chains(settings: Settings) -> list[JobKind]:
+    """One seeding pass on its own fresh session.
+
+    A session per pass rather than one held open for the life of the process:
+    the seeder takes ``pg_advisory_xact_lock``, which is released when its
+    transaction ends, and a connection kept open across hours of idle polling is
+    a connection that can silently go stale.
+    """
+    async with session_factory() as session:
+        return await RecurringJobSeeder(
+            session,
+            PostgresJobQueue(
+                session,
+                backoff_base_seconds=settings.job_retry_backoff_base_seconds,
+                backoff_max_seconds=settings.job_retry_backoff_max_seconds,
+            ),
+        ).seed()
 
 
 async def _assert_sealed_credentials_open(vault: CredentialVaultPort) -> list[str]:

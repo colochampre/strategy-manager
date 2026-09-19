@@ -100,10 +100,17 @@ async def test_successful_processing_acknowledges_the_job_and_it_is_never_reclai
 async def test_failed_processing_allows_the_job_to_be_claimed_again(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
+    """Failing below ``max_attempts`` returns the job to the queue rather than
+    ending it.
+
+    The wait before it is claimable again is zeroed here on purpose: the delay
+    is its own behaviour and ``test_job_queue_backoff.py`` owns it, while this
+    test is about the retry existing at all.
+    """
     await _enqueue_committed(pg_session_factory, Job(kind=JobKind.SIGNAL_PROCESS, payload={}))
 
     async with pg_session_factory() as session:
-        queue = PostgresJobQueue(session)
+        queue = PostgresJobQueue(session, backoff_base_seconds=0.0, backoff_max_seconds=0.0)
         claimed = await queue.claim()
         assert claimed is not None
         await queue.fail(claimed.id, "boom")

@@ -5,23 +5,49 @@
 session so that a crashed connection rolls both back automatically, releasing
 the job for reclaim (spec: job-queue § Crash Reclaim). ``ack``/``fail`` commit,
 finalizing the outcome.
+
+``fail()`` also pushes ``run_after`` forward. It used to leave that column
+alone, which meant a retry was claimable on the very next poll and
+``max_attempts`` could be spent inside half a minute — see
+``config.py``'s ``job_retry_backoff_base_seconds`` for the incident that
+arithmetic came from.
 """
 
-from datetime import UTC, datetime
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
+from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.models import JobRow
+
+# Mirror ``Settings.job_retry_backoff_*``. They are duplicated rather than read
+# here because this adapter must not reach for configuration itself: the
+# composition roots inject the real values (``main.py``, ``worker.py``). These
+# keep the dozens of existing construction sites — most of them tests that only
+# enqueue or claim — working unchanged.
+DEFAULT_BACKOFF_BASE_SECONDS = 30.0
+DEFAULT_BACKOFF_MAX_SECONDS = 600.0
 
 
 class PostgresJobQueue:
     """Implements ``JobQueuePort`` against the ``jobs`` table."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        clock: ClockPort | None = None,
+        backoff_base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
+        backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
+    ) -> None:
         self._session = session
+        self._clock: ClockPort = clock or SystemClock()
+        self._backoff_base_seconds = backoff_base_seconds
+        self._backoff_max_seconds = backoff_max_seconds
 
     async def enqueue(self, job: Job) -> UUID:
         stmt = (
@@ -29,7 +55,7 @@ class PostgresJobQueue:
             .values(
                 kind=job.kind.value,
                 payload=job.payload,
-                run_after=job.run_after or datetime.now(UTC),
+                run_after=job.run_after or self._clock.now(),
                 max_attempts=job.max_attempts,
                 dedupe_key=job.dedupe_key,
             )
@@ -40,7 +66,7 @@ class PostgresJobQueue:
         return job_id
 
     async def claim(self) -> ClaimedJob | None:
-        now = datetime.now(UTC)
+        now = self._clock.now()
         claimable = (
             select(JobRow.id)
             .where(JobRow.status == "PENDING", JobRow.run_after <= now)
@@ -72,7 +98,7 @@ class PostgresJobQueue:
         await self._session.execute(
             update(JobRow)
             .where(JobRow.id == job_id)
-            .values(status="DONE", updated_at=datetime.now(UTC))
+            .values(status="DONE", updated_at=self._clock.now())
         )
         await self._session.commit()
 
@@ -81,10 +107,36 @@ class PostgresJobQueue:
             select(JobRow.attempts, JobRow.max_attempts).where(JobRow.id == job_id)
         )
         row = result.one()
-        next_status = "PENDING" if row.attempts < row.max_attempts else "FAILED"
+        now = self._clock.now()
+        retrying = row.attempts < row.max_attempts
+
+        values: dict[str, object] = {
+            "status": "PENDING" if retrying else "FAILED",
+            "last_error": error,
+            "updated_at": now,
+        }
+        if retrying:
+            # A retry waits; an exhausted job does not get its ``run_after``
+            # rewritten, because nothing will ever claim it again and the
+            # column is the only record of when it was originally due.
+            values["run_after"] = now + timedelta(seconds=self._retry_delay(row.attempts))
+
         await self._session.execute(
-            update(JobRow)
-            .where(JobRow.id == job_id)
-            .values(status=next_status, last_error=error, updated_at=datetime.now(UTC))
+            update(JobRow).where(JobRow.id == job_id).values(**values)
         )
         await self._session.commit()
+
+    def _retry_delay(self, attempts: int) -> float:
+        """``min(base * 2 ** (attempts - 1), cap)``.
+
+        ``attempts`` was already incremented by ``claim()``, so the first
+        failure arrives here as 1 and waits exactly one base delay.
+
+        The exponent is clamped because ``max_attempts`` is a per-job column
+        with no ceiling: past about 1,024 the doubling overflows a float, and an
+        OverflowError raised here would escape ``fail()`` and take the claim
+        loop down with it. Any exponent that large is orders of magnitude past
+        the cap anyway, so clamping changes no reachable answer.
+        """
+        growth = 2.0 ** min(attempts - 1, 32)
+        return min(self._backoff_base_seconds * growth, self._backoff_max_seconds)
