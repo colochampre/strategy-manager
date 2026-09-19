@@ -254,8 +254,8 @@ MUST produce no record at all, rather than a record with a zero difference.
 ### Requirement: Dry Run Skip
 
 When dry-run mode is enabled the scan MUST skip comparison for every pool and
-MUST log the skip explicitly, never silently. The successor job MUST still be
-enqueued, so that the chain survives the skip.
+MUST record the skip explicitly, never silently. The successor job MUST still
+be enqueued, so that the chain survives the skip.
 
 Comparison is what gets skipped, rather than the scheduling: every fill
 recorded in dry-run mode comes from the fake exchange adapter, so comparing
@@ -263,11 +263,23 @@ that ledger against a real venue position would manufacture a disagreement out
 of the rehearsal itself. Skipping the scheduling instead would stop the chain
 with nothing saying why.
 
-#### Scenario: Dry run skips, logs, and keeps the chain alive
+The skip is a configuration state rather than an event, so it MUST be
+announced at warning level once per worker process and recorded at debug
+level on every subsequent scan. Repeating it at warning level on every scan
+would bury the first warning that actually matters among thousands that never
+did, which is a different way of being silent.
+
+#### Scenario: Dry run skips, records, and keeps the chain alive
 
 - GIVEN dry-run mode is enabled
 - WHEN the scan executes
-- THEN no comparison runs, no record is written, the skip is logged at warning level, and the successor job is enqueued
+- THEN no comparison runs, no record is written, the skip is recorded, and the successor job is enqueued
+
+#### Scenario: The skip is announced once, not on every scan
+
+- GIVEN dry-run mode is enabled and a worker process that has already skipped once
+- WHEN further scans execute
+- THEN each skip is still recorded, at debug level rather than warning level
 
 ### Requirement: Detection-Only Write Boundary
 
