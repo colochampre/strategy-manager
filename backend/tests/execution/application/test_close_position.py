@@ -329,6 +329,35 @@ async def test_a_rejected_close_releases_no_reservation() -> None:
     assert attempts.failed[0][1] == "market closed"
 
 
+async def test_a_rejected_close_logs_exactly_one_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A definitive venue rejection used to be silent end to end: the attempt
+    was marked failed but nothing was ever logged, so the only trace was a
+    row an operator would have to know to go looking for. This is the one
+    ERROR record that makes it visible, and it must carry enough identity to
+    act on without a database query: which strategy, which symbol, which
+    allocation, which attempt, which pool, and what the venue said."""
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.close_position")
+    use_case, attempts, _, _, _, _ = _build(
+        exchange_raises=ExchangeError("market closed")
+    )
+
+    result = await use_case.close(_command())
+
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+    message = error_records[0].getMessage()
+    assert str(STRATEGY_ID) in message
+    assert "BTC_USDT" in message
+    assert str(ALLOCATION_ID) in message
+    assert str(result.execution_attempt_id) in message
+    assert "pionex" in message
+    assert "spot" in message
+    assert "USDT" in message
+    assert "market closed" in message
+
+
 async def test_a_placed_close_records_the_exchange_id() -> None:
     use_case, attempts, _, _, _, _ = _build()
 

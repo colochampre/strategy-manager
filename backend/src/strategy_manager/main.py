@@ -527,6 +527,10 @@ def build_worker_runner(
             handler = _build_process_signal_handler(
                 session, pools_by_key, settings, exchanges, tradable_pools
             )
+            # The returned ProcessSignalResult is intentionally discarded here:
+            # the handler owns every outcome (refused, failed, executed) and
+            # logs it itself. The result exists for tests and for a later
+            # continuation mechanism -- do not "fix" this by branching on it.
             await handler.handle(signal_id)
 
     async def handle_execution_settle(job: ClaimedJob) -> None:

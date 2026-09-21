@@ -155,12 +155,19 @@ class ProcessSignalResult:
     A reverse on a spot pool is the case that needs it: the closing half runs
     and succeeds, and the opening half is impossible because spot cannot hold a
     short. Raising would retry a close that already happened; reporting plain
-    success would hide that the position is now flat rather than flipped."""
+    success would hide that the position is now flat rather than flipped.
+
+    ``failed`` is the other outcome: an execution that WAS attempted and was
+    definitively rejected by the venue, as opposed to ``refused``'s half that
+    could never be attempted at all. ``ClosePosition`` already logs the
+    rejection; this field lets a caller such as the job handler see it too
+    without going back to the execution attempt row."""
 
     transition_kind: str
     reservation_id: UUID | None
     executed: bool
     refused: str | None = None
+    failed: str | None = None
 
 
 class ProcessSignalHandler:
@@ -265,7 +272,7 @@ class ProcessSignalHandler:
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        await self._close_position.close(
+        close_result = await self._close_position.close(
             CloseCommand(
                 allocation_id=context.prior_reservation_id,
                 strategy_id=context.strategy_id,
@@ -276,6 +283,13 @@ class ProcessSignalHandler:
                 side=_releasing_side(_prior_of(context)),
             )
         )
+        if close_result.status == "FAILED":
+            return ProcessSignalResult(
+                transition.kind.value,
+                context.prior_reservation_id,
+                False,
+                failed=close_result.error,
+            )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
 
     def _refuse_untradable_pool(

@@ -34,6 +34,7 @@ exchange is contacted, so from that instant there is a durable record naming
 an order the exchange may or may not have seen.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -53,6 +54,8 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 from strategy_manager.shared.domain.errors import InvariantViolation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +190,18 @@ class ClosePosition:
             # where it stays until a later close succeeds.
             await self._attempts.mark_failed(attempt_id, str(exc))
             await self._commit.commit()
+            logger.error(
+                "close rejected by venue: strategy=%s symbol=%s allocation=%s "
+                "attempt=%s pool=%s/%s/%s error=%s",
+                command.strategy_id,
+                command.symbol,
+                command.allocation_id,
+                attempt_id,
+                command.exchange,
+                command.venue,
+                command.settlement_currency,
+                exc,
+            )
             return CloseResult(
                 status="FAILED",
                 execution_attempt_id=attempt_id,

@@ -110,11 +110,14 @@ class SpyClosePosition:
     ``PlaceOrder`` at all, and keeping the two spies separate is what lets a
     test assert which of the two paths a signal actually took."""
 
-    def __init__(self) -> None:
+    def __init__(self, result: CloseResult | None = None) -> None:
         self.calls: list[CloseCommand] = []
+        self._result = result
 
     async def close(self, command: CloseCommand) -> CloseResult:
         self.calls.append(command)
+        if self._result is not None:
+            return self._result
         return CloseResult(
             status="PLACED",
             execution_attempt_id=uuid4(),
@@ -308,6 +311,45 @@ async def test_a_close_carries_no_price_because_nothing_derives_a_size_from_one(
     assert not hasattr(close_position.calls[0], "price")
     assert close_position.calls[0].symbol == "BTC_USDT"
     assert close_position.calls[0].side is OrderSide.SELL
+
+
+async def test_a_failed_close_is_reported_as_not_executed() -> None:
+    """A definitive venue rejection of a close used to vanish here: the
+    handler returned ``executed=True`` regardless of what ``ClosePosition``
+    reported, so the job ended DONE and nothing downstream ever learned the
+    close did not happen. ``failed`` carries the venue's own error text so a
+    later reader does not have to go back to the execution attempt row."""
+    lock = SpyAdvisoryLock()
+    allocate_capital = _allocate_capital(lock)
+    place_order = SpyPlaceOrder()
+    failed_result = CloseResult(
+        status="FAILED",
+        execution_attempt_id=uuid4(),
+        base_size=Decimal("0.002"),
+        error="market closed",
+    )
+    close_position = SpyClosePosition(result=failed_result)
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # close long -> RELEASES
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=allocate_capital,
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.failed == "market closed"
 
 
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:
