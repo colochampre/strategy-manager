@@ -78,6 +78,7 @@ from strategy_manager.execution.application.close_position import (
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Currency, Money
+from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
@@ -197,6 +198,7 @@ class ProcessSignalHandler:
         signal_context: SignalContextPort,
         strategy_policy: StrategyPolicyPort,
         pool_balance: PoolBalancePort,
+        holding_guard: HoldingGuard,
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
         close_position: ClosePositionPort,
@@ -205,6 +207,7 @@ class ProcessSignalHandler:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
+        self._holding_guard = holding_guard
         self._allocate_capital = allocate_capital
         self._place_order = place_order
         self._close_position = close_position
@@ -247,6 +250,24 @@ class ProcessSignalHandler:
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
+        # The Existing-Position Guard (spec: capital-allocation §
+        # Existing-Position Guard) runs BEFORE anything else in this branch --
+        # a refusal here must never reach ``AllocateCapital.allocate()``.
+        # ``HoldingNotSettledYet`` is allowed to propagate out of ``handle``
+        # uncaught: the queue's own backoff is what retries it (design.md §
+        # "Guard order").
+        guard_outcome = await self._holding_guard.check(
+            pool=(policy.exchange, policy.venue, policy.settlement_currency),
+            strategy_id=context.strategy_id,
+            symbol=context.symbol,
+            own_reservation_id=context.own_reservation_id,
+            received_at=context.received_at,
+        )
+        if not guard_outcome.proceed:
+            return ProcessSignalResult(
+                transition.kind.value, None, False, refused=guard_outcome.refused
+            )
+
         pool_balance = await self._pool_balance.read(
             policy.exchange, policy.venue, policy.settlement_currency
         )

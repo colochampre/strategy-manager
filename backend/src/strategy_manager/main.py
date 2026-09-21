@@ -74,6 +74,7 @@ from strategy_manager.execution.infrastructure.venue_support import (
     unserved_pools,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
+from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -129,7 +130,9 @@ from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
+from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.process_signal import ProcessSignalHandler
+from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
@@ -235,6 +238,22 @@ def _build_process_signal_handler(
         ),
     )
 
+    # The Existing-Position Guard (spec: capital-allocation § Existing-
+    # Position Guard). ``ReadSymbolHoldings`` and ``InFlightWorkAdapter``
+    # each compose repositories from more than one module -- neither
+    # ``ledger`` nor ``signals`` alone knows a strategy's whole in-flight
+    # picture, since attempts carry no ``strategy_id`` and reservations carry
+    # no ``symbol``.
+    holding_guard = HoldingGuard(
+        holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+        in_flight_work=InFlightWorkAdapter(
+            attempts=SqlAlchemyExecutionAttemptRepository(session),
+            reservations=reservation_repository,
+        ),
+        clock=SystemClock(),
+        delayed_open_max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
+    )
+
     allocate_capital = AllocateCapital(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -272,6 +291,7 @@ def _build_process_signal_handler(
         signal_context=signal_context,
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
+        holding_guard=holding_guard,
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position,

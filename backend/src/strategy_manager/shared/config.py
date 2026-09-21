@@ -205,6 +205,14 @@ class Settings(BaseSettings):
     # chain that actually died must.
     balance_snapshot_max_age_seconds: float = Field(default=90.0)
 
+    # The owner's number (2026-09-21): the longest an opening signal may be
+    # delayed waiting for in-flight work on the same strategy/symbol to
+    # settle before ``HoldingGuard`` gives up and abandons it with a WARNING
+    # instead of retrying forever. Covers settlement plus a refresh retry; on
+    # the owner's 4-hour bars that is under 5% of a candle. Reused unchanged
+    # by the S5 continuation's own abandonment bound.
+    delayed_open_max_signal_age_seconds: float = Field(default=600.0)
+
     # How often reconciliation.scan compares each pool's venue-reported net
     # position against the ledger's.
     #

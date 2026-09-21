@@ -28,10 +28,13 @@ from strategy_manager.execution.application.close_position import (
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Exchange
+from strategy_manager.signals.application.holding_guard import HoldingGuard, HoldingNotSettledYet
+from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
 )
+from strategy_manager.signals.domain.holding import HeldAllocation
 
 
 class FrozenClock:
@@ -133,6 +136,40 @@ class FakeSignalContextPort:
         return self.context
 
 
+@dataclass
+class FakeSymbolHoldingsPort:
+    holdings: list[HeldAllocation] = field(default_factory=list)
+
+    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+        return self.holdings
+
+
+@dataclass
+class FakeInFlightWorkPort:
+    result: bool = False
+
+    async def in_flight(
+        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+    ) -> bool:
+        return self.result
+
+
+def _holding_guard(
+    *,
+    holdings: list[HeldAllocation] | None = None,
+    in_flight: bool = False,
+) -> HoldingGuard:
+    """A guard that proceeds by default -- every test in this file that does
+    not care about the Existing-Position Guard gets today's behaviour
+    unchanged (no holding, nothing in flight)."""
+    return HoldingGuard(
+        holdings=FakeSymbolHoldingsPort(holdings or []),
+        in_flight_work=FakeInFlightWorkPort(in_flight),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        delayed_open_max_signal_age_seconds=600.0,
+    )
+
+
 TRADABLE = frozenset({("pionex", "spot")})
 
 
@@ -182,6 +219,7 @@ def _process_signal_handler(
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
     tradable_pools: frozenset[tuple[str, str]] = TRADABLE,
+    holding_guard: HoldingGuard | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -191,6 +229,7 @@ def _process_signal_handler(
                 total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
             )
         ),
+        holding_guard=holding_guard or _holding_guard(),
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position or SpyClosePosition(),
@@ -741,3 +780,107 @@ async def test_closing_a_short_buys_and_closing_a_long_sells() -> None:
         await handler.handle(uuid4())
 
         assert close_position.calls[0].side is expected
+
+
+async def test_a_divergent_holding_refuses_and_never_allocates() -> None:
+    """The Existing-Position Guard runs at the TOP of ``_handle_consumes`` --
+    a refusal must never reach ``AllocateCapital``, asserted here with a spy
+    lock: ``AllocateCapital`` is the only path that acquires it."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),  # open -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+        own_reservation_id=None,
+    )
+    guard = _holding_guard(
+        holdings=[
+            HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.4"))
+        ]
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        holding_guard=guard,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.refused is not None
+    assert result.reservation_id is None
+    assert lock.acquired == []
+    assert place_order.calls == []
+
+
+async def test_an_own_reservation_resumes_even_with_a_divergent_holding() -> None:
+    """A retry past ``AllocateCapital`` must not be re-refused by a holding
+    its own earlier attempt is what produced."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+        own_reservation_id=uuid4(),
+    )
+    guard = _holding_guard(
+        holdings=[
+            HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.4"))
+        ]
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        holding_guard=guard,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert len(lock.acquired) == 1
+
+
+async def test_in_flight_work_raises_and_never_allocates() -> None:
+    """``HoldingNotSettledYet`` must propagate out of ``handle`` uncaught --
+    the queue's own backoff is what retries it."""
+    lock = SpyAdvisoryLock()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+        received_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    guard = _holding_guard(in_flight=True)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        holding_guard=guard,
+    )
+
+    try:
+        await handler.handle(uuid4())
+        raised = False
+    except HoldingNotSettledYet:
+        raised = True
+
+    assert raised is True
+    assert lock.acquired == []
