@@ -145,3 +145,41 @@ class SqlAlchemyReservationRepository:
             .where(ReservationRow.id == reservation_id)
             .values(status=status.value, updated_at=at)
         )
+
+    async def has_pending_for_strategy(
+        self,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        strategy_id: UUID,
+        now: datetime,
+    ) -> bool:
+        """Implements ``signals.infrastructure.in_flight_work``'s half (b) of
+        the "In flight vs orphan" check (design.md § "the query"):
+        strategy-level rather than per-symbol, because reservations carry no
+        symbol -- bounded by the reservation's own TTL, so it cannot block an
+        opening signal for longer than that.
+
+        Only PENDING counts here, not SUBMITTED: once a reservation reaches
+        SUBMITTED, an execution attempt row exists for it, and that is what
+        the SUBMITTED-attempt half of the join already catches.
+
+        ``expires_at > now`` is the whole guard against an EXPIRED PENDING
+        row: the sweeper (``reservation.sweep``) only flips ``status`` to
+        ``EXPIRED`` on its own cadence, so a PENDING row past its TTL must
+        still be excluded here rather than trusted to have been swept
+        already.
+        """
+        result = await self._session.execute(
+            select(ReservationRow.id)
+            .where(
+                ReservationRow.exchange == exchange,
+                ReservationRow.venue == venue,
+                ReservationRow.settlement_currency == settlement_currency,
+                ReservationRow.strategy_id == strategy_id,
+                ReservationRow.status == ReservationStatus.PENDING.value,
+                ReservationRow.expires_at > now,
+            )
+            .limit(1)
+        )
+        return result.first() is not None

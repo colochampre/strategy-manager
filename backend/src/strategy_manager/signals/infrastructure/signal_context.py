@@ -44,6 +44,9 @@ class SignalContextAdapter:
 
         prior_position_size, prior_reservation_id = await self._prior_state(signal)
 
+        assert signal.received_at is not None
+        own_reservation = await self._reservations.find_by_signal_id(signal_id)
+
         return SignalContext(
             strategy_id=signal.strategy_id,
             symbol=signal.symbol,
@@ -52,6 +55,8 @@ class SignalContextAdapter:
             prior_position_size=prior_position_size,
             prior_reservation_id=prior_reservation_id,
             settlement_currency=strategy.policy.settlement_currency.value,
+            own_reservation_id=own_reservation.id if own_reservation is not None else None,
+            received_at=signal.received_at,
         )
 
     async def _prior_state(

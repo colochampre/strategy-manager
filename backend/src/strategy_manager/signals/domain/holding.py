@@ -8,6 +8,7 @@ any port, so the classification logic that will live here (S4's
 a database or a venue call.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
@@ -43,3 +44,20 @@ class OrphanKind(Enum):
     REAL = "REAL"
     GHOST = "GHOST"
     AMBIGUOUS = "AMBIGUOUS"
+
+
+def strategy_net(holdings: Iterable[HeldAllocation], strategy_id: UUID) -> Decimal:
+    """The strategy's own net across every allocation ``symbol_holdings``
+    returned for one market -- ``L_S`` in design.md's classification
+    arithmetic (S4), and what the Existing-Position Guard (S2) checks for
+    zero (spec: capital-allocation § Existing-Position Guard).
+
+    Ignoring every other strategy's group is what keeps the guard PER
+    STRATEGY rather than per pool: ``symbol_holdings`` already returns one
+    row per ``(strategy_id, allocation_id)`` across the whole pool, so this
+    is a filter-and-sum, not a query.
+    """
+    return sum(
+        (holding.net_base for holding in holdings if holding.strategy_id == strategy_id),
+        start=Decimal("0"),
+    )

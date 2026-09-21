@@ -4,10 +4,12 @@ the ``execution_attempts`` table (migrations ``0005``, ``0011``, ``0012``).
 
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -96,3 +98,44 @@ class SqlAlchemyExecutionAttemptRepository:
             .where(ExecutionAttemptRow.id == attempt_id)
             .values(status=ExecutionStatus.FAILED.value, error=error)
         )
+
+    async def submitted_for_strategy_symbol(
+        self,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        strategy_id: UUID,
+        symbol: str,
+    ) -> bool:
+        """Implements ``signals.infrastructure.in_flight_work``'s half (a) of
+        the "In flight vs orphan" check (design.md § "the query"): whether
+        the strategy has a SUBMITTED execution attempt -- opening or closing
+        -- on this market within this pool, merged across every spelling it
+        wears (``market_spellings``).
+
+        Attempts carry no ``strategy_id`` of their own, so the join reaches
+        it through whichever reservation the attempt is tied to --
+        ``reservation_id`` for an opening attempt, ``closes_allocation_id``
+        for a closing one (a closing attempt's ``closes_allocation_id`` IS
+        the reservation that originally opened the position). Exactly one of
+        the two is set (``ck_execution_attempts_one_origin``, migration
+        ``0012``), so ``COALESCE`` picks whichever it is.
+        """
+        spellings = list(market_spellings(symbol))
+        origin = func.coalesce(
+            ExecutionAttemptRow.reservation_id, ExecutionAttemptRow.closes_allocation_id
+        )
+        result = await self._session.execute(
+            select(ExecutionAttemptRow.id)
+            .join(ReservationRow, ReservationRow.id == origin)
+            .where(
+                ExecutionAttemptRow.exchange == exchange,
+                ExecutionAttemptRow.venue == venue,
+                ExecutionAttemptRow.settlement_currency == settlement_currency,
+                ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
+                ReservationRow.strategy_id == strategy_id,
+                func.upper(ExecutionAttemptRow.symbol).in_(spellings),
+            )
+            .limit(1)
+        )
+        return result.first() is not None

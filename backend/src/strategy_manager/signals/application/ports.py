@@ -76,3 +76,20 @@ class SymbolHoldingsPort(Protocol):
     async def symbol_holdings(
         self, pool: PoolKey, symbol: str
     ) -> list[HeldAllocation]: ...
+
+
+class InFlightWorkPort(Protocol):
+    """Whether the strategy has execution work in flight on this market
+    within this pool -- an opening reservation still PENDING within its TTL,
+    or a SUBMITTED execution attempt (opening or closing) tied to a
+    reservation for this strategy (design.md § "In flight vs orphan").
+
+    Implemented by ``signals.infrastructure.in_flight_work.InFlightWorkAdapter``,
+    composing ``execution``'s and ``allocation``'s own repositories -- neither
+    module owns the whole answer on its own, since attempts carry no
+    ``strategy_id`` and reservations carry no ``symbol``.
+    """
+
+    async def in_flight(
+        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+    ) -> bool: ...

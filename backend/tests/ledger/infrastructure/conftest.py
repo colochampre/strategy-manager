@@ -12,6 +12,7 @@ itself is proven only against a real ``alembic upgrade head`` database, in
 
 import re
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -189,7 +190,12 @@ async def seed_reservation(
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
     amount: Decimal = Decimal("200"),
+    status: str = "SUBMITTED",
+    expires_at: datetime | None = None,
 ) -> None:
+    resolved_expires_at = expires_at if expires_at is not None else datetime.now(UTC) + timedelta(
+        hours=1
+    )
     async with session_factory() as session:
         await session.execute(
             text(
@@ -197,7 +203,7 @@ async def seed_reservation(
                 "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
                 "amount, status, expires_at) "
                 "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
-                ":settlement_currency, :amount, 'SUBMITTED', now() + interval '1 hour')"
+                ":settlement_currency, :amount, :status, :expires_at)"
             ),
             {
                 "id": reservation_id,
@@ -207,6 +213,8 @@ async def seed_reservation(
                 "venue": venue,
                 "settlement_currency": settlement_currency,
                 "amount": amount,
+                "status": status,
+                "expires_at": resolved_expires_at,
             },
         )
         await session.commit()
@@ -221,6 +229,8 @@ async def seed_execution_attempt(
     exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
+    symbol: str = "BTCUSDT",
+    status: str = "SUBMITTED",
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
@@ -232,7 +242,7 @@ async def seed_execution_attempt(
                 "(id, reservation_id, closes_allocation_id, exchange, venue, "
                 "settlement_currency, symbol, side, quantity, status, client_order_id) "
                 "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
-                ":settlement_currency, 'BTCUSDT', 'BUY', 0.004, 'SUBMITTED', "
+                ":settlement_currency, :symbol, 'BUY', 0.004, :status, "
                 ":client_order_id)"
             ),
             {
@@ -242,6 +252,8 @@ async def seed_execution_attempt(
                 "exchange": exchange,
                 "venue": venue,
                 "settlement_currency": settlement_currency,
+                "symbol": symbol,
+                "status": status,
                 "client_order_id": f"client-{attempt_id}",
             },
         )

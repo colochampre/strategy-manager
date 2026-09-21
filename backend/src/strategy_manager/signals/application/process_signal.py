@@ -56,6 +56,7 @@ apply-progress report.
 
 import logging
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
@@ -95,6 +96,14 @@ def _releasing_side(prior_position_size: Decimal) -> OrderSide:
     return OrderSide.SELL if prior_position_size > 0 else OrderSide.BUY
 
 
+# Placeholder default for ``SignalContext.received_at`` so every test built
+# before this field existed keeps constructing it without one. Never reaches
+# ``HoldingGuard`` in practice: the guard only reads it once ``in_flight`` is
+# True, and every caller supplies the real value (``SignalContextAdapter``
+# asserts the signal's own ``received_at`` is set before it ever builds one).
+_UNSET_RECEIVED_AT = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 # These replaced two dicts keyed by ``TransitionKind``, which could not express
 # a reverse at all: a reverse consumes on one side and releases on the other,
 # and which side is which depends on the DIRECTION of the flip, not on the kind.
@@ -124,6 +133,14 @@ class SignalContext:
     prior_position_size: Decimal | None
     prior_reservation_id: UUID | None
     settlement_currency: str
+    # Both added for the Existing-Position Guard (S2b). ``own_reservation_id``
+    # is set only when THIS signal already produced a reservation -- a retry
+    # of a job whose earlier attempt got as far as ``AllocateCapital`` -- and
+    # is what lets ``HoldingGuard`` resume instead of re-checking a holding
+    # its own prior attempt is what caused. ``received_at`` bounds how long
+    # the guard keeps retrying in-flight work before it gives up.
+    own_reservation_id: UUID | None = None
+    received_at: datetime = _UNSET_RECEIVED_AT
 
 
 class SignalContextPort(Protocol):
