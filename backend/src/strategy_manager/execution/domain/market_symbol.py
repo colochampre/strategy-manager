@@ -62,6 +62,26 @@ def is_perpetual(symbol: str) -> bool:
     return strip_contract_marker(symbol) != symbol
 
 
+def market_spellings(symbol: str) -> frozenset[str]:
+    """Every spelling this market can wear, upper-cased: the venue's bare
+    name plus one candidate per known contract marker (``STXUSDT``,
+    ``STXUSDT.P``, ``STXUSDT_PERP``).
+
+    Built from ``CONTRACT_MARKERS`` rather than hardcoded, so a marker added
+    there reaches every caller of this function too — the same reasoning
+    ``reconciliation.application.market_key`` gives for reusing
+    ``strip_contract_marker`` instead of re-implementing it. A query that
+    filters ledger rows by only the one spelling it was called with misses a
+    holding recorded under another, which is exactly the mismatch that made
+    reconciliation misfire before it was fixed.
+
+    The result is the SAME set no matter which of a market's spellings is
+    passed in, because every candidate is rebuilt from the bare form.
+    """
+    bare = strip_contract_marker(symbol).upper()
+    return frozenset({bare, *(f"{bare}{marker}" for marker in CONTRACT_MARKERS)})
+
+
 def base_currency_of(symbol: str, settlement_currency: str) -> str:
     """Returns the base currency of ``symbol``, asserting its quote half is
     the pool's settlement currency.

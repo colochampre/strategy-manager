@@ -6,7 +6,10 @@ being sold and because a fee charged in it reduces what there is to sell.
 
 import pytest
 
-from strategy_manager.execution.domain.market_symbol import base_currency_of
+from strategy_manager.execution.domain.market_symbol import (
+    base_currency_of,
+    market_spellings,
+)
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 
@@ -96,3 +99,21 @@ def test_a_coin_margined_perpetual_resolves_against_its_own_settlement() -> None
     """The catalogue lists 43 non-USDT-settled perpetuals. ``ADA_BTC_PERP``
     is funded by the BTC pool, not the USDT one."""
     assert base_currency_of("ADA_BTC_PERP", "BTC") == "ADA"
+
+
+def test_market_spellings_returns_every_shape_the_same_market_can_wear() -> None:
+    """The three spellings a Bybit perpetual is known by: the venue's bare
+    name, TradingView's alert spelling, and Pionex's. A query that only
+    accepts the one it was called with misses a holding recorded under
+    another (bug/reconciliation-symbol-spelling-mismatch)."""
+    assert market_spellings("STXUSDT") == frozenset(
+        {"STXUSDT", "STXUSDT.P", "STXUSDT_PERP"}
+    )
+
+
+def test_market_spellings_is_the_same_set_regardless_of_which_spelling_is_asked() -> None:
+    """Whichever spelling a caller happens to hold, the returned set must be
+    identical -- otherwise a query built from one spelling would not find a
+    row recorded under another."""
+    assert market_spellings("STXUSDT.P") == market_spellings("STXUSDT_PERP")
+    assert market_spellings("stxusdt") == market_spellings("STXUSDT")

@@ -9,7 +9,15 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.signal import WebhookSignal
+
+PoolKey = tuple[str, str, str]
+"""A pool's identity: ``(exchange, venue, settlement_currency)``. Mirrors
+``accounts.application.ports.PoolKey`` and
+``reconciliation.application.ports.PoolKey`` exactly but is redeclared here
+rather than imported, so ``signals`` never reaches across another module's
+boundary for a bare type alias."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,3 +59,20 @@ class CommitPort(Protocol):
     satisfies it structurally, without leaking SQLAlchemy into this layer."""
 
     async def commit(self) -> None: ...
+
+
+class SymbolHoldingsPort(Protocol):
+    """Reads every strategy's currently open allocations on one market within
+    one pool, merged across every spelling that market wears (design.md § S2
+    "the query"). Implemented by
+    ``ledger.application.read_symbol_holdings.ReadSymbolHoldings``.
+
+    Feeds both the Existing-Position Guard (this strategy's own net, S2) and
+    orphan classification (the pool's net over every strategy, S4) from the
+    one query design.md says serves both -- so it is declared once here
+    rather than twice.
+    """
+
+    async def symbol_holdings(
+        self, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]: ...

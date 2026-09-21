@@ -11,16 +11,18 @@ from uuid import UUID
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.execution.domain.market_symbol import base_currency_of, market_spellings
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.reconciliation.domain.positions import LedgerPosition, OpenAllocation
+from strategy_manager.signals.domain.holding import HeldAllocation
 
 
 class SqlAlchemyLedgerRepository:
-    """Implements ``LedgerRepositoryPort``, ``LedgerPositionReaderPort`` and
-    ``LedgerSymbolPositionReaderPort``. No ``update``/``delete``/``mark``
-    method exists on this class — there is nothing here that could even
-    attempt to mutate a written row."""
+    """Implements ``LedgerRepositoryPort``, ``LedgerPositionReaderPort``,
+    ``LedgerSymbolPositionReaderPort`` and ``LedgerSymbolHoldingsReaderPort``.
+    No ``update``/``delete``/``mark`` method exists on this class — there is
+    nothing here that could even attempt to mutate a written row."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -141,4 +143,71 @@ class SqlAlchemyLedgerRepository:
         return [
             LedgerPosition(symbol, tuple(allocations))
             for symbol, allocations in by_symbol.items()
+        ]
+
+    async def symbol_holdings(
+        self, exchange: str, venue: str, settlement_currency: str, symbol: str
+    ) -> list[HeldAllocation]:
+        """Implements ``LedgerSymbolHoldingsReaderPort``.
+
+        One aggregate over one MARKET's rows -- merged across every spelling
+        it wears (``market_spellings``) -- grouped by strategy AND
+        allocation, across the WHOLE pool (every strategy that has ever
+        touched this market, not just one). The caller reads out its own
+        strategy's figure for the Existing-Position Guard (S2) and sums
+        every row for the pool's net in orphan classification (S4); one
+        query serves both (design.md § S2 "the query").
+
+        The fee rule is ``base_currency_of``'s -- the same ``ReadHeldBase``
+        and ``ClosePosition`` use (a fee charged IN THE BASE CURRENCY
+        subtracts) -- deliberately NOT ``net_positions_by_symbol``'s
+        settlement-currency rule, because this number must equal what a
+        close of that specific allocation would size against, not a
+        pool-wide aggregate with no single base currency of its own.
+
+        ``HAVING`` drops any group whose net sums to exactly zero. Grouping
+        by strategy and allocation only, never by the raw ``symbol`` column,
+        is what makes this safe against the trap
+        bug/reconciliation-symbol-spelling-mismatch fell into one layer up:
+        an allocation opened as ``STXUSDT.P`` and closed as ``STXUSDT`` nets
+        to zero here and vanishes, instead of surviving as two separate
+        non-zero per-spelling groups.
+
+        Backed by ``ix_ledger_pool_symbol`` (migration ``0020``), whose
+        leading columns are ``(exchange, venue, settlement_currency)``; the
+        ``symbol IN (...)`` filter narrows within that prefix.
+        """
+        base_currency = base_currency_of(symbol, settlement_currency)
+        spellings = list(market_spellings(symbol))
+
+        signed_quantity = case(
+            (LedgerEntryRow.side == "BUY", LedgerEntryRow.quantity),
+            else_=-LedgerEntryRow.quantity,
+        )
+        base_fee = case(
+            (
+                func.upper(LedgerEntryRow.fee_currency) == base_currency.upper(),
+                LedgerEntryRow.fee,
+            ),
+            else_=0,
+        )
+        net_base = func.sum(signed_quantity - base_fee)
+
+        result = await self._session.execute(
+            select(LedgerEntryRow.strategy_id, LedgerEntryRow.allocation_id, net_base)
+            .where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+                func.upper(LedgerEntryRow.symbol).in_(spellings),
+            )
+            .group_by(LedgerEntryRow.strategy_id, LedgerEntryRow.allocation_id)
+            .having(net_base != 0)
+        )
+
+        return [
+            HeldAllocation(
+                strategy_id=strategy_id, allocation_id=allocation_id, net_base=Decimal(net)
+            )
+            for strategy_id, allocation_id, net in result.all()
         ]

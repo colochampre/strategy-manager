@@ -18,6 +18,7 @@ from uuid import UUID
 
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.reconciliation.domain.positions import LedgerPosition
+from strategy_manager.signals.domain.holding import HeldAllocation
 
 
 class LedgerRepositoryPort(Protocol):
@@ -62,3 +63,30 @@ class LedgerSymbolPositionReaderPort(Protocol):
     async def net_positions_by_symbol(
         self, exchange: str, venue: str, settlement_currency: str
     ) -> list[LedgerPosition]: ...
+
+
+class LedgerSymbolHoldingsReaderPort(Protocol):
+    """One query per MARKET -- merged across every spelling it wears
+    (``market_spellings``) -- grouped by strategy AND allocation, unlike
+    ``net_positions_by_symbol`` which groups by raw symbol AND allocation
+    across the WHOLE pool.
+
+    Implementations own design decision 4's fee rule the same way
+    ``net_base_quantity`` does: a fill's quantity is subtracted from its
+    allocation's running net base only when its ``fee_currency`` matches the
+    market's own base currency (``base_currency_of``) -- not
+    ``net_positions_by_symbol``'s settlement-currency rule, because this
+    number must equal what a close of that specific allocation would size
+    against.
+
+    Grouping by strategy and allocation only (never by the raw symbol
+    column) is what lets an allocation opened under one spelling and closed
+    under another still net to exactly zero and vanish under ``HAVING`` --
+    grouping by spelling first, as ``net_positions_by_symbol`` does, would
+    see two separate non-zero halves and never net them out (the trap
+    bug/reconciliation-symbol-spelling-mismatch fell into one layer up).
+    """
+
+    async def symbol_holdings(
+        self, exchange: str, venue: str, settlement_currency: str, symbol: str
+    ) -> list[HeldAllocation]: ...
