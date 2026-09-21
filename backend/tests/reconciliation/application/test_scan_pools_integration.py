@@ -549,3 +549,82 @@ async def test_a_scan_that_records_a_discrepancy_writes_nowhere_else(
     assert records[0].ledger_net_base == Decimal("0.004")
 
     assert await _write_boundary_snapshot(session_factory) == before
+
+
+# --- The spelling regression, against the real ledger projection -------------
+#
+# Production's ledger stores the SIGNAL's symbol (``STXUSDT.P``, TradingView's
+# perpetual form); the venue reports its own (``STXUSDT``). Every earlier test
+# in this file used one spelling on both sides, which is how the scan shipped
+# producing two false discrepancies per open position.
+
+
+async def _record_open_position(
+    session_factory: async_sessionmaker[AsyncSession], *, symbol: str, quantity: str
+) -> UUID:
+    strategy_id, allocation_id, attempt_id = await _seed_allocation(session_factory)
+    async with session_factory() as session:
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                symbol=symbol,
+                side="BUY",
+                quantity=quantity,
+            )
+        )
+        await session.commit()
+    return allocation_id
+
+
+async def _open_records_for_market(
+    session_factory: async_sessionmaker[AsyncSession], *spellings: str
+) -> list[DiscrepancyRecord]:
+    """Every open row under ANY of ``spellings``. The ledger is not truncated
+    between tests in this module, so earlier tests' positions are still in
+    the pool; filtering by this market keeps their rows out of the count."""
+    async with session_factory() as session:
+        records = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies(
+            pool=POOL, open_only=True
+        )
+    return [record for record in records if record.symbol in spellings]
+
+
+async def test_a_ledger_in_tradingview_spelling_agrees_with_the_venue_spelling(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _record_open_position(session_factory, symbol="STXUSDT.P", quantity="0.5")
+
+    await _scan(
+        session_factory,
+        venue_positions=[VenuePosition("STXUSDT", Decimal("0.5"))],
+        scan_id=uuid4(),
+        at=NOW,
+    )
+
+    assert await _open_records_for_market(session_factory, "STXUSDT", "STXUSDT.P") == []
+
+
+async def test_a_real_mismatch_across_spellings_lands_under_the_market_key(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    allocation_id = await _record_open_position(
+        session_factory, symbol="LINKUSDT.P", quantity="0.5"
+    )
+
+    await _scan(
+        session_factory,
+        venue_positions=[VenuePosition("LINKUSDT", Decimal("0.3"))],
+        scan_id=uuid4(),
+        at=NOW,
+    )
+
+    records = await _open_records_for_market(session_factory, "LINKUSDT", "LINKUSDT.P")
+    assert len(records) == 1
+    record = records[0]
+    assert record.symbol == "LINKUSDT"
+    assert record.kind is DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION
+    assert record.venue_net_base == Decimal("0.3")
+    assert record.ledger_net_base == Decimal("0.5")
+    assert record.open_allocation_ids == (allocation_id,)

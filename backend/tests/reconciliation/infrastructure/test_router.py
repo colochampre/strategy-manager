@@ -319,3 +319,25 @@ async def test_exchange_venue_settlement_currency_and_symbol_filter_independentl
 
     assert response.status_code == 200
     assert [row["symbol"] for row in response.json()] == ["BTCUSDT"]
+
+
+@pytest.mark.parametrize("queried", ["STXUSDT", "STXUSDT.P", "stxusdt.p"])
+async def test_the_symbol_filter_finds_a_market_under_any_of_its_spellings(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    authenticated_client: AsyncClient,
+    queried: str,
+) -> None:
+    """The scan stores the market key (``STXUSDT``); an operator reading a
+    TradingView alert types ``STXUSDT.P``. Both name one market, so both find
+    the row."""
+    await _seed(pg_session_factory, pool=("bybit", "usdt-m", "USDT"), symbol="STXUSDT")
+    await _seed(pg_session_factory, pool=("bybit", "usdt-m", "USDT"), symbol="ETHUSDT")
+
+    response = await authenticated_client.get(
+        "/reconciliation/discrepancies",
+        params={"symbol": queried},
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+
+    assert response.status_code == 200
+    assert [row["symbol"] for row in response.json()] == ["STXUSDT"]

@@ -45,6 +45,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.reconciliation.application.market_key import market_key
 from strategy_manager.reconciliation.application.ports import DiscrepancyRecord
 from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyKind,
@@ -150,6 +151,11 @@ async def list_discrepancies(
             if record.settlement_currency == settlement_currency
         ]
     if symbol is not None:
-        records = [record for record in records if record.symbol == symbol]
+        # The scan stores the market key (``STXUSDT``), while an operator
+        # reading a TradingView alert types ``STXUSDT.P``. Both sides are
+        # normalised, so either spelling finds the row -- including a row
+        # written under a marker spelling before keys were canonical.
+        wanted = market_key(symbol)
+        records = [record for record in records if market_key(record.symbol) == wanted]
 
     return [DiscrepancyView.of(record) for record in records[:limit]]

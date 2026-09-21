@@ -487,3 +487,299 @@ async def test_every_configured_pool_is_read_from_the_venue_and_the_ledger() -> 
     assert venue_reader_a.calls == 1
     assert venue_reader_b.calls == 1
     assert ledger.requested == [POOL_A, POOL_B]
+
+
+# --- Spelling: the ledger stores TradingView's form, the venue its own ------
+#
+# The ledger records the SIGNAL's symbol (``STXUSDT.P``, TradingView's
+# perpetual form) while Bybit and Binance report the market by their own name
+# (``STXUSDT``). Every test below uses a DIFFERENT spelling on each side on
+# purpose: the reconciliation tests that shipped used the same one on both, and
+# that is exactly how two false discrepancies per open position went unseen.
+
+
+async def test_one_market_spelled_differently_on_each_side_is_agreement() -> None:
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.5"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_id, Decimal("0.5")),))
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    result = await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
+    assert discrepancies.resolves == []
+    assert result.discrepancies_opened == 0
+
+
+async def test_a_real_mismatch_across_spellings_is_one_row_under_the_market_key() -> None:
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.3"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_id, Decimal("0.5")),))
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert len(discrepancies.upserts) == 1
+    _, symbol, observation, allocation_ids, _, _, _, _ = discrepancies.upserts[0]
+    assert symbol == "STXUSDT"
+    assert observation.kind is DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION
+    assert observation.venue_net_base == Decimal("0.3")
+    assert observation.ledger_net_base == Decimal("0.5")
+    assert allocation_ids == (allocation_id,)
+
+
+async def test_two_ledger_spellings_of_one_market_merge_into_one_comparison() -> None:
+    """``STXUSDT.P`` and ``STXUSDT`` in the ledger are one market. Merged,
+    allocation A's two halves are ONE open allocation, and the market's net
+    is the sum of both spellings -- overwriting one with the other would lose
+    part of the position."""
+    allocation_a, allocation_b = uuid4(), uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.9"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_a, Decimal("0.2")),)),
+            LedgerPosition(
+                "STXUSDT",
+                (
+                    OpenAllocation(allocation_a, Decimal("0.1")),
+                    OpenAllocation(allocation_b, Decimal("0.2")),
+                ),
+            ),
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert len(discrepancies.upserts) == 1
+    _, symbol, observation, allocation_ids, _, _, _, _ = discrepancies.upserts[0]
+    assert symbol == "STXUSDT"
+    assert observation.ledger_net_base == Decimal("0.5")
+    # Allocation A appears once, not once per spelling.
+    assert allocation_ids == (allocation_a, allocation_b)
+    assert observation.kind is DiscrepancyKind.AMBIGUOUS_PARTIAL_REDUCE
+
+
+async def test_an_allocation_opened_and_closed_under_two_spellings_is_closed() -> None:
+    """Opened as ``STXUSDT.P`` (+0.5), closed as ``STXUSDT`` (-0.5). The
+    projection groups per spelling, so each half survives its ``HAVING net !=
+    0`` alone and the allocation comes back twice. Merged, it nets to zero and
+    is closed -- so the venue's +0.3 has NO allocation behind it.
+
+    Kept at zero instead, it would still count as an open allocation, skip
+    rung 1 of the ladder and read ``ATTRIBUTABLE_SINGLE_ALLOCATION``: blaming a
+    position on an allocation that is already closed."""
+    allocation_a = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.3"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_a, Decimal("0.5")),)),
+            LedgerPosition("STXUSDT", (OpenAllocation(allocation_a, Decimal("-0.5")),)),
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert len(discrepancies.upserts) == 1
+    _, symbol, observation, allocation_ids, _, _, _, _ = discrepancies.upserts[0]
+    assert symbol == "STXUSDT"
+    assert observation.kind is DiscrepancyKind.NO_MATCHING_ALLOCATION
+    assert allocation_ids == ()
+
+
+async def test_an_allocation_closed_across_spellings_agrees_with_a_flat_venue() -> None:
+    """The same closed allocation against a flat venue is agreement, not a
+    discrepancy: both sides say nothing is held."""
+    allocation_a = uuid4()
+    venue_reader = FakeVenueReader([])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_a, Decimal("0.5")),)),
+            LedgerPosition("STXUSDT", (OpenAllocation(allocation_a, Decimal("-0.5")),)),
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
+
+
+async def test_one_allocation_split_across_two_spellings_is_still_one_allocation() -> None:
+    """Summed per allocation, a single allocation recorded under both
+    spellings stays attributable to that one allocation."""
+    allocation_a = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.2"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_a, Decimal("0.2")),)),
+            LedgerPosition("STXUSDT", (OpenAllocation(allocation_a, Decimal("0.1")),)),
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert len(discrepancies.upserts) == 1
+    _, _, observation, allocation_ids, _, _, _, _ = discrepancies.upserts[0]
+    assert allocation_ids == (allocation_a,)
+    assert observation.ledger_net_base == Decimal("0.3")
+    assert observation.kind is DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION
+
+
+async def test_two_merged_ledger_spellings_that_match_the_venue_are_agreement() -> None:
+    allocation_a = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.3"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_a, Decimal("0.2")),)),
+            LedgerPosition("STXUSDT", (OpenAllocation(allocation_a, Decimal("0.1")),)),
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
+
+
+async def test_a_previous_row_resolves_once_the_spellings_agree() -> None:
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.5"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_id, Decimal("0.5")),))
+        ]
+    }
+    prior = _record(
+        POOL_A,
+        "STXUSDT",
+        DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        Decimal("0.3"),
+        Decimal("0.5"),
+    )
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A],
+        {("bybit", "usdt-m"): venue_reader},
+        ledger,
+        open_discrepancies={POOL_A: [prior]},
+    )
+
+    result = await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
+    assert len(discrepancies.resolves) == 1
+    assert discrepancies.resolves[0][1] == ("STXUSDT",)
+    assert result.discrepancies_resolved == 1
+
+
+async def test_a_previous_row_stored_under_the_marker_spelling_still_resolves() -> None:
+    """A row written before this fix carries whichever spelling that scan saw.
+    Resolving must name the spelling the row is STORED under, or the
+    repository's ``symbol IN (...)`` matches nothing and it stays open."""
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.5"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_id, Decimal("0.5")),))
+        ]
+    }
+    prior = _record(
+        POOL_A,
+        "STXUSDT.P",
+        DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
+        Decimal("0"),
+        Decimal("0.5"),
+    )
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A],
+        {("bybit", "usdt-m"): venue_reader},
+        ledger,
+        open_discrepancies={POOL_A: [prior]},
+    )
+
+    await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
+    assert len(discrepancies.resolves) == 1
+    assert discrepancies.resolves[0][1] == ("STXUSDT.P",)
+
+
+async def test_a_still_open_marker_spelled_row_carries_its_count_and_is_superseded() -> None:
+    """The disagreement persists, so it is written under the market key -- and
+    the row under the old spelling must not stay open beside it as a second
+    record of one market. Its count carries over: the observation is the same."""
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("STXUSDT", Decimal("0.3"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("STXUSDT.P", (OpenAllocation(allocation_id, Decimal("0.5")),))
+        ]
+    }
+    prior = _record(
+        POOL_A,
+        "STXUSDT.P",
+        DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        Decimal("0.3"),
+        Decimal("0.5"),
+        consecutive_scans=1,
+    )
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A],
+        {("bybit", "usdt-m"): venue_reader},
+        ledger,
+        open_discrepancies={POOL_A: [prior]},
+        confirmations_required=2,
+    )
+
+    await use_case.scan(uuid4())
+
+    assert len(discrepancies.upserts) == 1
+    _, symbol, _, _, consecutive_scans, status, _, _ = discrepancies.upserts[0]
+    assert symbol == "STXUSDT"
+    assert consecutive_scans == 2
+    assert status is DiscrepancyStatus.CONFIRMED
+    assert len(discrepancies.resolves) == 1
+    assert discrepancies.resolves[0][1] == ("STXUSDT.P",)
+
+
+async def test_a_pionex_perp_suffix_and_lowercase_map_to_the_same_market() -> None:
+    allocation_id = uuid4()
+    venue_reader = FakeVenueReader([VenuePosition("btc_usdt", Decimal("1.0"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition(
+                "BTC_USDT_PERP", (OpenAllocation(allocation_id, Decimal("1.0")),)
+            )
+        ]
+    }
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger
+    )
+
+    await use_case.scan(uuid4())
+
+    assert discrepancies.upserts == []
