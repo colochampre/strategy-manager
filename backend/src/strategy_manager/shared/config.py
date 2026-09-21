@@ -197,13 +197,32 @@ class Settings(BaseSettings):
     execution_settle_delay_seconds: float = Field(default=2.0)
 
     # How often the balance.sync job refreshes pool_balance_snapshots.
-    balance_sync_interval_seconds: float = Field(default=15.0)
+    #
+    # Raised from 15s to 60s (design.md § S3, on-demand refresh): the periodic
+    # sync no longer has to catch a stale balance before an opening signal is
+    # sized -- ``RefreshPoolBalance`` does that on demand, right before the
+    # advisory lock, and the sync only has to keep the heartbeat alive for the
+    # cases nothing signals on (a strategy that never trades, closing-only
+    # traffic). It MUST stay under ``balance_snapshot_max_age_seconds`` below,
+    # or a snapshot could go straight from fresh to UNAVAILABLE with no window
+    # where an on-demand refresh failure could still fall back to it.
+    balance_sync_interval_seconds: float = Field(default=60.0)
 
     # How old a snapshot may be before the allocation path refuses to size a
     # trade against it. Generous relative to the sync interval on purpose: a
     # couple of transient API failures should not halt trading, but a sync
-    # chain that actually died must.
+    # chain that actually died must. Also the bound ``RefreshPoolBalance``
+    # (design.md § S3) uses to decide FALLBACK vs UNAVAILABLE when the
+    # on-demand refresh itself fails -- the same number, because both are
+    # answering the same question: is the last known balance still trustworthy?
     balance_snapshot_max_age_seconds: float = Field(default=90.0)
+
+    # How long ``RefreshPoolBalance`` waits for the on-demand, pre-allocation
+    # balance read before giving up and falling back to the stored snapshot
+    # (design.md § S3). Shorter than the venue client's own timeout on
+    # purpose: a signal must not be held hostage by a socket that hangs past
+    # the point where the fallback path would already have answered.
+    balance_refresh_timeout_seconds: float = Field(default=3.0)
 
     # The owner's number (2026-09-21): the longest an opening signal may be
     # delayed waiting for in-flight work on the same strategy/symbol to

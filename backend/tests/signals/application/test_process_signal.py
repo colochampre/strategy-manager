@@ -12,11 +12,17 @@ never from the alert's ``position_size``/``contracts`` (design.md's GAP
 FOUND note, closed by this slice).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
+from strategy_manager.accounts.application.ports import PoolBalanceReading
+from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
+from strategy_manager.accounts.infrastructure.reader_by_exchange import ReaderByExchange
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
 from strategy_manager.allocation.domain.lock_key import LockKey
@@ -28,8 +34,12 @@ from strategy_manager.execution.application.close_position import (
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Exchange
-from strategy_manager.signals.application.holding_guard import HoldingGuard, HoldingNotSettledYet
-from strategy_manager.signals.application.ports import PoolKey
+from strategy_manager.signals.application.holding_guard import (
+    GuardOutcome,
+    HoldingGuard,
+    HoldingNotSettledYet,
+)
+from strategy_manager.signals.application.ports import PoolKey, RefreshOutcome, RefreshStatus
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
@@ -154,6 +164,23 @@ class FakeInFlightWorkPort:
         return self.result
 
 
+@dataclass
+class FakeBalanceRefreshPort:
+    """Proceeds (FRESH) by default -- every test that does not care about the
+    on-demand refresh (S3) gets today's behaviour unchanged."""
+
+    outcome: RefreshOutcome = field(
+        default_factory=lambda: RefreshOutcome(status=RefreshStatus.FRESH)
+    )
+    calls: list[tuple[str, str, str]] = field(default_factory=list)
+
+    async def refresh(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> RefreshOutcome:
+        self.calls.append((exchange, venue, settlement_currency))
+        return self.outcome
+
+
 def _holding_guard(
     *,
     holdings: list[HeldAllocation] | None = None,
@@ -175,6 +202,12 @@ TRADABLE = frozenset({("pionex", "spot")})
 
 def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
     defaults: dict[str, object] = dict(
+        # Pionex, because the default venue is spot: the tradable-pool check
+        # is keyed by both, so a mismatched pair would be refused for a
+        # reason that has nothing to do with what is being tested. Overridable
+        # (S3 correction tests need a real Bybit/Binance exchange to route a
+        # ``ReaderByExchange`` factory by).
+        exchange=Exchange.PIONEX,
         strategy_id=uuid4(),
         enabled=True,
         fill_mode="PARTIAL",
@@ -183,10 +216,7 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         allocation_percent=Decimal("100"),
     )
     defaults.update(overrides)
-    # Pionex, because the default venue is spot: the tradable-pool check is
-    # keyed by both, so a mismatched pair would be refused for a reason that
-    # has nothing to do with what is being tested.
-    return StrategyPolicySnapshot(exchange=Exchange.PIONEX, **defaults)  # type: ignore[arg-type]
+    return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
 
 
 def _allocate_capital(
@@ -220,6 +250,7 @@ def _process_signal_handler(
     pool_balance: PoolBalance | None = None,
     tradable_pools: frozenset[tuple[str, str]] = TRADABLE,
     holding_guard: HoldingGuard | None = None,
+    balance_refresh: FakeBalanceRefreshPort | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -230,6 +261,7 @@ def _process_signal_handler(
             )
         ),
         holding_guard=holding_guard or _holding_guard(),
+        balance_refresh=balance_refresh or FakeBalanceRefreshPort(),
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position or SpyClosePosition(),
@@ -884,3 +916,396 @@ async def test_in_flight_work_raises_and_never_allocates() -> None:
 
     assert raised is True
     assert lock.acquired == []
+
+
+# --- On-Demand Balance Refresh Before Allocation (S3) ------------------------
+#
+# spec: capital-allocation § On-Demand Balance Refresh Before Allocation;
+# design.md § S3 — "Every remote read happens before ``_lock.acquire``.
+# ``AllocateCapital``, ``decide()`` and the in-lock read are untouched."
+
+
+async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order() -> None:
+    """The guard (S2b) must run before the refresh (S3), and the refresh
+    before the sizing read that feeds ``AllocateCapital`` -- proven with a
+    shared spy rather than by trusting the source order, since a refusal from
+    either of the first two must never reach the third."""
+    order: list[str] = []
+
+    class OrderingGuard:
+        async def check(self, **kwargs: object) -> GuardOutcome:
+            order.append("guard")
+            return GuardOutcome(proceed=True)
+
+    class OrderingRefresh:
+        async def refresh(
+            self, exchange: str, venue: str, settlement_currency: str
+        ) -> RefreshOutcome:
+            order.append("refresh")
+            return RefreshOutcome(status=RefreshStatus.FRESH)
+
+    class OrderingPoolBalance:
+        async def read(
+            self, exchange: str, venue: str, settlement_currency: str
+        ) -> PoolBalance:
+            order.append("pool_balance")
+            return PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+            )
+
+    lock = SpyAdvisoryLock()
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(_open_long_context()),
+        strategy_policy=FakeStrategyPolicyPort(_snapshot()),
+        pool_balance=OrderingPoolBalance(),  # type: ignore[arg-type]
+        holding_guard=OrderingGuard(),  # type: ignore[arg-type]
+        balance_refresh=OrderingRefresh(),
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        tradable_pools=TRADABLE,
+    )
+
+    await handler.handle(uuid4())
+
+    assert order == ["guard", "refresh", "pool_balance"]
+
+
+async def test_a_guard_refusal_never_triggers_a_refresh() -> None:
+    """A refusal from the Existing-Position Guard must short-circuit before
+    the refresh is ever attempted -- the refresh is a remote call and the
+    guard already decided this signal will not be allocated."""
+    lock = SpyAdvisoryLock()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    guard = _holding_guard(
+        holdings=[
+            HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.4"))
+        ]
+    )
+    balance_refresh = FakeBalanceRefreshPort()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        holding_guard=guard,
+        balance_refresh=balance_refresh,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert balance_refresh.calls == []
+
+
+async def test_an_unavailable_balance_refuses_with_an_error_naming_signal_strategy_symbol(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """spec: "Refresh fails, snapshot stale" -- the signal is refused AND an
+    ERROR is logged naming the pool, the signal, the strategy and the symbol.
+    ``RefreshPoolBalance`` itself cannot log this line: it only ever knows the
+    pool, not the signal it is being refreshed for."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    balance_refresh = FakeBalanceRefreshPort(
+        outcome=RefreshOutcome(
+            status=RefreshStatus.UNAVAILABLE, age_seconds=120.0, reason="timed out"
+        )
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        balance_refresh=balance_refresh,
+    )
+    signal_id = uuid4()
+
+    with caplog.at_level("ERROR"):
+        result = await handler.handle(signal_id)
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused is not None
+    assert lock.acquired == []
+    assert place_order.calls == []
+    error = next(r for r in caplog.records if r.levelname == "ERROR")
+    assert str(signal_id) in error.message
+    assert str(strategy_id) in error.message
+    assert "ETHUSDT" in error.message
+
+
+async def test_a_fallback_balance_still_proceeds_to_allocate() -> None:
+    """spec: "Refresh fails, snapshot fresh" -- FALLBACK is not a refusal; the
+    signal is sized and allocated exactly as if the refresh had succeeded."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    balance_refresh = FakeBalanceRefreshPort(
+        outcome=RefreshOutcome(status=RefreshStatus.FALLBACK, age_seconds=40.0, reason="timed out")
+    )
+    handler = _process_signal_handler(
+        context=_open_long_context(),
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        balance_refresh=balance_refresh,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert len(lock.acquired) == 1
+    assert len(place_order.calls) == 1
+
+
+# --- S3 correction: lazy, per-exchange credential/client construction -------
+#
+# Orchestrator review of the first S3 commit (cb59825) found a regression:
+# main.py built BOTH exchanges' balance readers EAGERLY on every
+# signal.process job, decrypting a credential and opening an HTTP client
+# unconditionally. A RELEASES signal paid for a refresh it never needed, and
+# a missing/undecryptable credential on ONE exchange raised at job entry and
+# took the OTHER exchange's signals down too. These tests wire the REAL
+# ``RefreshPoolBalance`` + REAL ``ReaderByExchange`` ``ProcessSignalHandler``
+# actually uses, with fake per-exchange factories standing in for main.py's
+# real vault-load + HTTP-client-open closures (``_bybit_reader``/
+# ``_binance_reader``), so the whole designed chain is proven end to end
+# without ever needing a real credential.
+
+
+class _StubBalanceReader:
+    """Stands in for ``BybitBalanceReader``/``BinanceBalanceReader``."""
+
+    def __init__(self, exchange: str) -> None:
+        self._exchange = exchange
+
+    async def read(self, pools: Sequence[PoolKey]) -> list[PoolBalanceReading]:
+        exchange, venue, currency = pools[0]
+        return [
+            PoolBalanceReading(
+                exchange=exchange,
+                venue=venue,
+                settlement_currency=currency,
+                total=Decimal("1000"),
+                available=Decimal("1000"),
+                observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ]
+
+
+class _SpyExchangeFactory:
+    """Stands in for main.py's ``_bybit_reader``/``_binance_reader``
+    closures: each call represents a credential decrypt + HTTP client open.
+    A factory that ``raises`` models a missing or undecryptable credential
+    for that one exchange."""
+
+    def __init__(self, exchange: str, raises: Exception | None = None) -> None:
+        self._exchange = exchange
+        self._raises = raises
+        self.calls = 0
+
+    async def __call__(self) -> _StubBalanceReader:
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        return _StubBalanceReader(self._exchange)
+
+
+@dataclass
+class _SpyWriter:
+    written: list[Sequence[PoolBalanceReading]] = field(default_factory=list)
+
+    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None:
+        self.written.append(readings)
+
+
+@dataclass
+class _SpyCommit:
+    commits: int = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+@dataclass
+class _StubAge:
+    age: float | None
+
+    async def age_seconds(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> float | None:
+        return self.age
+
+
+def _real_balance_refresh(
+    factories: dict[str, "_SpyExchangeFactory"], age: float | None = 40.0
+) -> RefreshPoolBalance:
+    """The real ``RefreshPoolBalance`` + real ``ReaderByExchange`` main.py
+    composes -- only the exchange factories underneath are fakes."""
+    return RefreshPoolBalance(
+        reader=ReaderByExchange(factories),  # type: ignore[arg-type]
+        snapshots=_SpyWriter(),
+        age=_StubAge(age),
+        commit=_SpyCommit(),
+        timeout_seconds=3.0,
+        fallback_max_age_seconds=90.0,
+    )
+
+
+async def test_a_releases_signal_never_invokes_any_exchange_factory() -> None:
+    """(a) A close must not pay for a refresh it never needs, and must not
+    fail because of a credential problem on either exchange -- ``_handle_
+    releases`` never even reads ``self._balance_refresh``."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    bybit_factory = _SpyExchangeFactory("bybit", raises=RuntimeError("no bybit credential"))
+    binance_factory = _SpyExchangeFactory("binance", raises=RuntimeError("no binance credential"))
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # close long -> RELEASES
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        balance_refresh=_real_balance_refresh(
+            {"bybit": bybit_factory, "binance": binance_factory}
+        ),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert bybit_factory.calls == 0
+    assert binance_factory.calls == 0
+
+
+async def test_an_opening_signal_on_binance_proceeds_when_bybit_credential_is_missing() -> None:
+    """(b) "A Binance key nobody has sealed must cost Binance signals and
+    nothing else" (main.py's own rule for ``exchange_for``) -- applied here
+    to the refresh's own reader construction."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    bybit_factory = _SpyExchangeFactory("bybit", raises=RuntimeError("no bybit credential"))
+    binance_factory = _SpyExchangeFactory("binance")
+    policy = _snapshot(exchange=Exchange.BINANCE, venue="usdt-m")
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),  # open -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock, policy=policy),
+        place_order=place_order,
+        policy=policy,
+        tradable_pools=frozenset({("binance", "usdt-m")}),
+        balance_refresh=_real_balance_refresh(
+            {"bybit": bybit_factory, "binance": binance_factory}
+        ),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert bybit_factory.calls == 0
+    assert binance_factory.calls == 1
+
+
+async def test_an_opening_signal_whose_own_credential_is_missing_falls_back() -> None:
+    """(c) A credential/client-construction failure must surface INSIDE the
+    refresh as a reader error, not raise out of ``handle`` -- here the
+    existing snapshot is still young enough (FALLBACK), so the signal is
+    still allocated."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    bybit_factory = _SpyExchangeFactory(
+        "bybit", raises=RuntimeError("no active credential stored for 'bybit'")
+    )
+    policy = _snapshot(exchange=Exchange.BYBIT, venue="usdt-m")
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock, policy=policy),
+        place_order=place_order,
+        policy=policy,
+        tradable_pools=frozenset({("bybit", "usdt-m")}),
+        balance_refresh=_real_balance_refresh({"bybit": bybit_factory}, age=40.0),
+    )
+
+    result = await handler.handle(uuid4())  # must not raise
+
+    assert bybit_factory.calls == 1
+    assert result.executed is True
+    assert len(lock.acquired) == 1
+
+
+async def test_a_missing_credential_refuses_cleanly_once_the_snapshot_is_also_stale() -> None:
+    """Triangulation of the case above: past the fallback bound, the same
+    credential failure refuses cleanly (UNAVAILABLE) instead of raising."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    bybit_factory = _SpyExchangeFactory(
+        "bybit", raises=RuntimeError("no active credential stored for 'bybit'")
+    )
+    policy = _snapshot(exchange=Exchange.BYBIT, venue="usdt-m")
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock, policy=policy),
+        place_order=place_order,
+        policy=policy,
+        tradable_pools=frozenset({("bybit", "usdt-m")}),
+        balance_refresh=_real_balance_refresh({"bybit": bybit_factory}, age=120.0),
+    )
+
+    result = await handler.handle(uuid4())  # must not raise
+
+    assert bybit_factory.calls == 1
+    assert result.executed is False
+    assert result.refused is not None
+    assert lock.acquired == []
+    assert place_order.calls == []

@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.application.balance_sync_handler import BalanceSyncHandler
 from strategy_manager.accounts.application.pool_balance_adapter import PoolBalanceAdapter
+from strategy_manager.accounts.application.ports import ExchangeBalanceReaderPort
+from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
 from strategy_manager.accounts.application.sync_balances import (
     CompositeBalanceSync,
     SyncBalances,
@@ -35,8 +37,15 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     CredentialNotFound,
     SqlAlchemyCredentialVault,
 )
-from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
+from strategy_manager.accounts.infrastructure.db_balance_source import (
+    DbBalanceSnapshotAge,
+    DbBalanceSource,
+)
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
+from strategy_manager.accounts.infrastructure.reader_by_exchange import (
+    ReaderByExchange,
+    ReaderFactory,
+)
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
@@ -202,6 +211,7 @@ def _build_process_signal_handler(
     settings: Settings,
     exchanges: ExchangeRegistryPort,
     tradable_pools: frozenset[tuple[str, str]],
+    balance_refresh_reader: ExchangeBalanceReaderPort,
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -254,6 +264,23 @@ def _build_process_signal_handler(
         delayed_open_max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
     )
 
+    # On-Demand Balance Refresh Before Allocation (spec: capital-allocation §
+    # On-Demand Balance Refresh Before Allocation; design.md § S3). Runs right
+    # after the guard above and right before the sizing read below --
+    # ``_handle_consumes``'s last remote call before ``AllocateCapital``
+    # acquires the advisory lock. ``balance_refresh_reader`` is built once per
+    # job by ``handle_signal_process``, the same way ``handle_balance_sync``
+    # builds its own readers, but able to answer for any configured exchange
+    # since which pool a given signal needs is not known until here.
+    balance_refresh = RefreshPoolBalance(
+        reader=balance_refresh_reader,
+        snapshots=SqlAlchemyBalanceSnapshotRepository(session),
+        age=DbBalanceSnapshotAge(session, SystemClock()),
+        commit=session,
+        timeout_seconds=settings.balance_refresh_timeout_seconds,
+        fallback_max_age_seconds=settings.balance_snapshot_max_age_seconds,
+    )
+
     allocate_capital = AllocateCapital(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -292,6 +319,7 @@ def _build_process_signal_handler(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
         holding_guard=holding_guard,
+        balance_refresh=balance_refresh,
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position,
@@ -541,11 +569,79 @@ def build_worker_runner(
 
             yield VenueExchangeRegistry(adapters)
 
+    @asynccontextmanager
+    async def balance_refresh_reader_for(
+        session: AsyncSession,
+    ) -> AsyncIterator[ExchangeBalanceReaderPort]:
+        """A ``ReaderByExchange`` whose per-exchange factories build NOTHING
+        until ``RefreshPoolBalance`` actually asks for a pool on that
+        exchange -- and only that one exchange's credential is decrypted and
+        HTTP client opened, into this job's own ``AsyncExitStack`` so it
+        closes when the job does.
+
+        Laziness here is a correctness requirement, not an optimization
+        (design.md § S3 correction, 2026-09-21): a RELEASES signal never
+        calls the refresh at all, and a CONSUMES signal only ever needs its
+        OWN pool's exchange -- which is not known until ``_handle_consumes``
+        reads the strategy's policy, well after this context manager has to
+        be entered. Building both exchanges' credentials/clients
+        UNCONDITIONALLY here, the way ``exchange_for`` above does for trade
+        clients, would cost a close -- or a signal on the other exchange -- a
+        credential problem it never needed. That is exactly the failure mode
+        ``_vault_credential`` already exists to prevent for trade clients;
+        this mirrors it for the refresh's own reader.
+
+        A factory's own failure (a missing or undecryptable credential, a
+        client that cannot be constructed) is left to propagate out of the
+        factory and into ``ReaderByExchange.read`` uncaught: it surfaces
+        INSIDE ``RefreshPoolBalance.refresh`` as an ordinary reader error,
+        which is exactly what lets it degrade through FALLBACK/UNAVAILABLE
+        instead of raising out of job entry.
+        """
+
+        async with AsyncExitStack() as clients:
+
+            async def bybit_reader() -> ExchangeBalanceReaderPort:
+                credential = await SqlAlchemyCredentialVault(
+                    session, cipher, SystemClock()
+                ).load(BYBIT_EXCHANGE)
+                bybit = await clients.enter_async_context(
+                    read_only_client(
+                        settings,
+                        BybitCredentials(
+                            api_key=credential.api_key, api_secret=credential.api_secret
+                        ),
+                    )
+                )
+                return BybitBalanceReader(bybit, SystemClock())
+
+            async def binance_reader() -> ExchangeBalanceReaderPort:
+                binance = await clients.enter_async_context(
+                    binance_read_only_client(
+                        settings, binance_credentials_from_settings(settings)
+                    )
+                )
+                return BinanceBalanceReader(binance, SystemClock())
+
+            factories: dict[str, ReaderFactory] = {}
+
+            if any(key[0] == BYBIT_EXCHANGE for key in pools_by_key):
+                factories[BYBIT_EXCHANGE] = bybit_reader
+
+            if any(key[0] == BINANCE_EXCHANGE for key in pools_by_key):
+                factories[BINANCE_EXCHANGE] = binance_reader
+
+            yield ReaderByExchange(factories)
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
-        async with factory() as session, exchange_for(session) as exchanges:
+        async with (
+            factory() as session,
+            exchange_for(session) as exchanges,
+            balance_refresh_reader_for(session) as balance_refresh_reader,
+        ):
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchanges, tradable_pools
+                session, pools_by_key, settings, exchanges, tradable_pools, balance_refresh_reader
             )
             # The returned ProcessSignalResult is intentionally discarded here:
             # the handler owns every outcome (refused, failed, executed) and

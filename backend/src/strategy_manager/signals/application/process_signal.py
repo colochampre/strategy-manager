@@ -79,6 +79,7 @@ from strategy_manager.execution.application.place_order import PlaceCommand, Pla
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.application.holding_guard import HoldingGuard
+from strategy_manager.signals.application.ports import BalanceRefreshPort, RefreshStatus
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
@@ -199,6 +200,7 @@ class ProcessSignalHandler:
         strategy_policy: StrategyPolicyPort,
         pool_balance: PoolBalancePort,
         holding_guard: HoldingGuard,
+        balance_refresh: BalanceRefreshPort,
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
         close_position: ClosePositionPort,
@@ -208,6 +210,7 @@ class ProcessSignalHandler:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
         self._holding_guard = holding_guard
+        self._balance_refresh = balance_refresh
         self._allocate_capital = allocate_capital
         self._place_order = place_order
         self._close_position = close_position
@@ -267,6 +270,28 @@ class ProcessSignalHandler:
             return ProcessSignalResult(
                 transition.kind.value, None, False, refused=guard_outcome.refused
             )
+
+        # On-Demand Balance Refresh Before Allocation (spec: capital-
+        # allocation § On-Demand Balance Refresh Before Allocation; design.md
+        # § S3) -- the LAST remote read before the sizing read below and the
+        # advisory lock ``AllocateCapital`` acquires. FALLBACK is not a
+        # refusal: the stale-but-young-enough snapshot sizes the trade exactly
+        # as if the refresh had succeeded. Only UNAVAILABLE refuses, and only
+        # here can the ERROR name the signal, the strategy and the symbol --
+        # ``RefreshPoolBalance`` itself never sees any of the three, only the
+        # pool.
+        refresh_outcome = await self._balance_refresh.refresh(
+            policy.exchange, policy.venue, policy.settlement_currency
+        )
+        if refresh_outcome.status is RefreshStatus.UNAVAILABLE:
+            refused = (
+                f"balance for pool ({policy.exchange}, {policy.venue}, "
+                f"{policy.settlement_currency}) is unavailable ({refresh_outcome.reason}); "
+                f"refusing signal {signal_id} for strategy {context.strategy_id} on "
+                f"{context.symbol}"
+            )
+            logger.error("refusing signal, balance unavailable: %s", refused)
+            return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
         pool_balance = await self._pool_balance.read(
             policy.exchange, policy.venue, policy.settlement_currency

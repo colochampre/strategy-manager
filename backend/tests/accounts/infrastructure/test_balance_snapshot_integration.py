@@ -19,7 +19,10 @@ from strategy_manager.accounts.domain.errors import StaleBalanceSnapshot
 from strategy_manager.accounts.infrastructure.balance_snapshot_repository import (
     SqlAlchemyBalanceSnapshotRepository,
 )
-from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
+from strategy_manager.accounts.infrastructure.db_balance_source import (
+    DbBalanceSnapshotAge,
+    DbBalanceSource,
+)
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 
 pytestmark = pytest.mark.integration
@@ -213,3 +216,52 @@ async def test_an_empty_batch_is_a_no_op(
         rows = (await session.execute(select(PoolBalanceSnapshotRow))).scalars().all()
 
     assert rows == []
+
+
+# --- DbBalanceSnapshotAge: the age RefreshPoolBalance reads on failure -------
+#
+# Deliberately answers WITHOUT the freshness refusal DbBalanceSource applies:
+# RefreshPoolBalance needs the raw age to decide FALLBACK vs UNAVAILABLE, not
+# an exception.
+
+
+async def test_age_seconds_reports_how_old_a_real_snapshot_is(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with pg_session_factory() as session:
+        await SqlAlchemyBalanceSnapshotRepository(session).upsert(
+            [_reading(SPOT, "600", observed_at=NOW)]
+        )
+        await session.commit()
+
+        later = FrozenClock(NOW + timedelta(seconds=125))
+        age = await DbBalanceSnapshotAge(session, later).age_seconds(*SPOT)
+
+    assert age == 125.0
+
+
+async def test_age_seconds_is_none_for_a_pool_that_was_never_synced(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with pg_session_factory() as session:
+        age = await DbBalanceSnapshotAge(session, FrozenClock()).age_seconds(*SPOT)
+
+    assert age is None
+
+
+async def test_age_seconds_never_refuses_even_when_the_snapshot_is_ancient(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The one behavioural difference from ``DbBalanceSource``: an age this old
+    would make that class raise ``StaleBalanceSnapshot``. This one just reports
+    the number -- ``RefreshPoolBalance`` is the one that decides what it means."""
+    async with pg_session_factory() as session:
+        await SqlAlchemyBalanceSnapshotRepository(session).upsert(
+            [_reading(SPOT, "600", observed_at=NOW)]
+        )
+        await session.commit()
+
+        much_later = FrozenClock(NOW + timedelta(hours=6))
+        age = await DbBalanceSnapshotAge(session, much_later).age_seconds(*SPOT)
+
+    assert age == timedelta(hours=6).total_seconds()

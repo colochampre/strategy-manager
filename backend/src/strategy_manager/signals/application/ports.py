@@ -6,6 +6,7 @@ composition point for this module) is the only place that binds them.
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Protocol
 from uuid import UUID
 
@@ -93,3 +94,44 @@ class InFlightWorkPort(Protocol):
     async def in_flight(
         self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool: ...
+
+
+class RefreshStatus(Enum):
+    """The three outcomes of an on-demand balance refresh (design.md § S3).
+
+    FRESH: the remote read succeeded and the new snapshot was written.
+    FALLBACK: the read failed but the existing snapshot is still young enough
+    to size against. UNAVAILABLE: the read failed and the existing snapshot
+    (or its absence) is too old to trust -- the signal must be refused.
+    """
+
+    FRESH = "FRESH"
+    FALLBACK = "FALLBACK"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshOutcome:
+    """``age_seconds`` is populated for FALLBACK (always) and UNAVAILABLE
+    (unless the pool was never synced at all, in which case there is no age
+    to report). ``reason`` carries the reader's own failure text; absent on
+    FRESH, since nothing failed."""
+
+    status: RefreshStatus
+    age_seconds: float | None = None
+    reason: str | None = None
+
+
+class BalanceRefreshPort(Protocol):
+    """On-demand balance refresh for exactly one pool, called in
+    ``_handle_consumes`` after the Existing-Position Guard and before the
+    sizing read -- the last remote call before the advisory lock (design.md §
+    S3, "Every remote read happens before ``_lock.acquire``"). NEVER called at
+    webhook ingress (CLAUDE.md rule 3).
+
+    Implemented by ``accounts.application.refresh_pool_balance.RefreshPoolBalance``.
+    """
+
+    async def refresh(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> RefreshOutcome: ...

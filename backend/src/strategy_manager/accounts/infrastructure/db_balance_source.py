@@ -56,3 +56,26 @@ class DbBalanceSource:
             )
 
         return PoolFunds(total=row.total, available=row.available)
+
+
+class DbBalanceSnapshotAge:
+    """Implements ``BalanceSnapshotAgePort`` from the same
+    ``pool_balance_snapshots`` table as ``DbBalanceSource``, WITHOUT that
+    class's freshness refusal: ``RefreshPoolBalance`` (application/accounts)
+    needs the raw age itself to decide FALLBACK vs UNAVAILABLE after an
+    on-demand refresh fails, not an exception (design.md § S3).
+    """
+
+    def __init__(self, session: AsyncSession, clock: ClockPort) -> None:
+        self._session = session
+        self._clock = clock
+
+    async def age_seconds(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> float | None:
+        row = await self._session.get(
+            PoolBalanceSnapshotRow, (exchange, venue, settlement_currency)
+        )
+        if row is None:
+            return None
+        return (self._clock.now() - row.observed_at).total_seconds()

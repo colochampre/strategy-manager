@@ -91,3 +91,27 @@ def test_the_recurring_seed_interval_is_coarser_than_the_worker_poll() -> None:
 
     assert settings.recurring_seed_interval_seconds == 300.0
     assert settings.recurring_seed_interval_seconds > settings.worker_poll_interval_seconds
+
+
+def test_balance_sync_interval_defaults_to_sixty_seconds() -> None:
+    """Raised from 15s (design.md § S3): a dead periodic sync no longer needs
+    to be caught this fast now that ``RefreshPoolBalance`` refreshes on demand
+    before an opening signal is sized. It must still stay under
+    ``balance_snapshot_max_age_seconds`` so a snapshot can still be found
+    FALLBACK-eligible rather than immediately UNAVAILABLE."""
+
+    assert Settings().balance_sync_interval_seconds == 60.0
+
+
+def test_balance_sync_interval_stays_under_the_snapshot_max_age() -> None:
+    settings = Settings()
+
+    assert settings.balance_sync_interval_seconds < settings.balance_snapshot_max_age_seconds
+
+
+def test_balance_refresh_timeout_defaults_to_three_seconds() -> None:
+    """Shorter than the venue client's own timeout, so a hung refresh gives up
+    while there is still time for the fallback path to run before the signal
+    itself is retried (design.md § S3)."""
+
+    assert Settings().balance_refresh_timeout_seconds == 3.0

@@ -85,6 +85,22 @@ class BalanceSnapshotWriterPort(Protocol):
     async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None: ...
 
 
+class BalanceSnapshotAgePort(Protocol):
+    """Reads how old a pool's last stored snapshot is, WITHOUT the freshness
+    refusal ``BalanceSourcePort.read_balance`` applies -- used by
+    ``RefreshPoolBalance`` (application/accounts) to decide FALLBACK vs
+    UNAVAILABLE after an on-demand refresh fails (design.md § S3).
+
+    ``None`` means no snapshot has ever been synced for the pool -- there is
+    nothing to fall back to, so this always resolves to UNAVAILABLE regardless
+    of the fallback bound.
+    """
+
+    async def age_seconds(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> float | None: ...
+
+
 class CommitPort(Protocol):
     """The transaction boundary a use case closes when its work is done."""
 
