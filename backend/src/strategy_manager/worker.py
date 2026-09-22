@@ -90,11 +90,19 @@ async def run() -> None:
     # Not a degradation: crypto.py states that a wrong master key, a tampered
     # row and a value moved between rows are the same instruction — stop.
     if settings.dry_run:
-        # Nothing reads the vault under DRY_RUN: the fakes are registered
-        # instead, and no test or rehearsal may require a real credential
-        # (CLAUDE.md rule 1). A self-test here would make a rehearsal depend on
-        # a sealed key, which is the opposite of what the switch is for.
-        logger.info("dry run: the credential vault is never read, so it is not checked")
+        # The self-test is skipped under DRY_RUN so a rehearsal never depends
+        # on a sealed key (CLAUDE.md rule 1). That is NOT the same as the vault
+        # going unread: ``balance.sync`` opens the Bybit credential on its own
+        # cadence under DRY_RUN too, because only ORDERS are faked — balances
+        # are read from the real venue (confirmed live 2026-09-22). So a master
+        # key that does not match the vault still fails, per job, inside that
+        # handler rather than here. Say so, because the line that claimed the
+        # vault was never read sent an incident the wrong way.
+        logger.info(
+            "dry run: the vault self-test is skipped, but balance.sync still "
+            "opens the stored credential — a master key that does not match it "
+            "will fail there, not here"
+        )
     else:
         async with session_factory() as session:
             # The cipher is rebuilt rather than reached for inside the runner:
