@@ -99,3 +99,115 @@ At startup, the system MUST enumerate every configured pool and verify that no t
 - GIVEN two configured pools resolve to the same lock-key pair
 - WHEN the application starts
 - THEN startup MUST fail before accepting traffic
+
+### Requirement: On-Demand Balance Refresh Before Allocation
+
+Before acquiring the advisory lock of pool `(exchange, venue, settlement_currency)` for an opening signal, the system MUST attempt to refresh that pool's balance from the venue, bounded by its own timeout shorter than the venue client's. It MUST NEVER do so at webhook ingress. The in-lock read MUST remain a local read. The periodic `balance.sync` MUST keep running as a heartbeat.
+
+#### Scenario: A dead periodic sync does not lose a signal
+
+- GIVEN pool `(binance, usdt-m, USDT)` whose `balance.sync` has not run for 3 days AND a reachable venue
+- WHEN an opening signal is processed
+- THEN it is sized from the freshly refreshed balance
+
+#### Scenario: Refresh fails, snapshot fresh
+
+- GIVEN pool `(bybit, usdt-m, USDT)` with a snapshot 40s old
+- WHEN the refresh times out
+- THEN it proceeds on the snapshot AND logs a WARNING naming the pool, the reason and the snapshot's age
+
+#### Scenario: Refresh fails, snapshot stale
+
+- GIVEN pool `(bybit, usdt-m, USDT)` with a snapshot 120s old
+- WHEN the refresh times out
+- THEN the signal is refused AND an ERROR is logged naming the pool, the signal, the strategy and the symbol
+
+### Requirement: Existing-Position Guard
+
+Before allocating for an opening signal, the system MUST determine from the LEDGER — never from TradingView's reported position — whether the owning strategy holds a non-zero net position on the signal's symbol within pool `(exchange, venue, settlement_currency)`. The check MUST be per strategy, not per pool. Symbol spellings (`STXUSDT`, `STXUSDT.P`, `STXUSDT_PERP`) MUST be treated as the same market.
+
+#### Scenario: Strategy holds nothing
+
+- GIVEN strategy S1 holds nothing on ETHUSDT in `(bybit, usdt-m, USDT)`
+- WHEN S1 opens ETHUSDT
+- THEN allocation proceeds exactly as today
+
+#### Scenario: A different strategy holds the symbol
+
+- GIVEN S2 holds a non-zero net on ETHUSDT in `(bybit, usdt-m, USDT)` AND S1 holds nothing
+- WHEN S1 opens ETHUSDT
+- THEN allocation proceeds; another strategy's position MUST NOT block it
+
+#### Scenario: Spelling does not hide a holding
+
+- GIVEN S1's ledger rows for the market are recorded as `STXUSDT.P`
+- WHEN S1 opens `STXUSDT`
+- THEN the holding is found
+
+#### Scenario: A close still in flight is not an orphan
+
+- GIVEN S1 holds a position on ETHUSDT whose close is still SUBMITTED
+- WHEN S1 opens ETHUSDT
+- THEN the open is deferred until that close settles, not classified as an orphan and not refused
+
+#### Scenario: A divergent holding is classified
+
+- GIVEN S1 holds a non-zero net on ETHUSDT with nothing in flight
+- WHEN S1 opens ETHUSDT
+- THEN the holding is classified per Orphan Classification before any allocation
+
+### Requirement: Orphan Classification
+
+Let `L_S` be the strategy's ledger net on the symbol (non-zero), `L_P` the pool's ledger net on the symbol summed over every strategy, `O = L_P − L_S`, and `V` the venue's reported net for the account. Comparison MUST be exact Decimal. The system MUST classify as **REAL** iff `V == L_P`; **GHOST** iff `V ≠ L_P` and `V == O`; **AMBIGUOUS** otherwise, and also whenever the venue read fails or times out.
+
+#### Scenario: Real, single strategy
+
+- `(binance, usdt-m, USDT)`: L_S +0.5, O 0, V +0.5 → REAL
+
+#### Scenario: Ghost, closed by hand or liquidated
+
+- L_S +0.5, O 0, V 0 → GHOST
+
+#### Scenario: Partial liquidation is ambiguous, not real
+
+- L_S +0.5, O 0, V +0.3 → AMBIGUOUS. A close sized for 0.5 MUST NOT be sent
+
+#### Scenario: Real with a second strategy on the symbol
+
+- L_S +0.5, O +0.2, V +0.7 → REAL
+
+#### Scenario: Ghost with a second strategy
+
+- L_S +0.5, O +0.2, V +0.2 → GHOST
+
+#### Scenario: Both legs gone
+
+- L_S +0.5, O +0.2, V 0 → AMBIGUOUS
+
+#### Scenario: Opposite sides netted in one-way mode
+
+- L_S +0.5, O −0.5, V 0 → REAL; V −0.5 → GHOST
+
+#### Scenario: Venue unreachable
+
+- The read fails → AMBIGUOUS
+
+### Requirement: Ghost and Ambiguous Refusal
+
+GHOST or AMBIGUOUS in pool `(exchange, venue, settlement_currency)` MUST refuse the opening signal, MUST NOT attempt any close, and MUST NOT book the venue's close into the ledger. A WARNING MUST name the strategy, symbol, allocation(s) and the nets compared.
+
+### Requirement: Real-Orphan Resolution via Close-Then-Open
+
+REAL in pool `(exchange, venue, settlement_currency)` MUST close every allocation of the strategy with a non-zero net on that symbol, and the opening signal MUST be allocated only after every such close has settled.
+
+#### Scenario: Opened only after settlement
+
+- GIVEN REAL for S1 on ETHUSDT under A1 in `(bybit, usdt-m, USDT)`
+- WHEN processed
+- THEN A1 is closed AND no opening attempt for the signal exists while A1's close is SUBMITTED AND the open follows its fill
+
+#### Scenario: A rejected orphan close never triggers the open
+
+- GIVEN REAL for S1 under A1
+- WHEN A1's close is definitively rejected
+- THEN the open is never allocated AND the failure is recorded per Definitive Close Rejection Recording

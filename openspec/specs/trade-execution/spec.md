@@ -34,7 +34,7 @@ Immediately before submitting an order, the worker MUST re-check that the bound 
 
 ### Requirement: DRY_RUN Safety
 
-`DRY_RUN` MUST default to `true`. The composition root MUST fail startup if `dry_run=false` is configured while no real (non-fake) `ExchangePort` adapter is registered.
+`DRY_RUN` MUST default to `true`. The composition root MUST fail startup if `dry_run=false` is configured while no real (non-fake) `ExchangePort` adapter is registered. Additionally: the automatic orphan close and the continuation's open MUST route through `FakeExchangeAdapter` under DRY_RUN, and no test exercising them may require a real credential. Under DRY_RUN a fake venue position reader MUST make the REAL branch reachable for rehearsal.
 
 #### Scenario: Default startup is DRY_RUN
 
@@ -47,6 +47,42 @@ Immediately before submitting an order, the worker MUST re-check that the bound 
 - GIVEN `dry_run=false` is configured and no real exchange adapter is registered
 - WHEN the application starts
 - THEN startup MUST fail rather than allow silent trading
+
+### Requirement: Definitive Close Rejection Recording
+
+A definitive venue rejection of a close in pool `(exchange, venue, settlement_currency)` MUST record the attempt FAILED, MUST log exactly one ERROR naming strategy, symbol, allocation, attempt and the venue's error, and MUST NOT be reported as executed. A timing gap where the fill is simply not recorded yet MUST keep retrying as today.
+
+### Requirement: Retryable Close, Single In-Flight Attempt
+
+In pool `(exchange, venue, settlement_currency)`, at most ONE close attempt per allocation MAY be SUBMITTED at any time. A FAILED, FILLED or ABORTED_EXPIRED attempt MUST NOT prevent a later close on that allocation.
+
+#### Scenario: Retry after a failed close
+
+- One FAILED close on A1 → a new close is recorded
+
+#### Scenario: A residual after a partial fill can still be closed
+
+- A1's close FILLED leaving a non-zero residual → a new close for the residual is recorded
+
+#### Scenario: No two closes in flight
+
+- Two concurrent close attempts on A1 → at most one is SUBMITTED
+
+#### Scenario: A retried close is not re-sent
+
+- A close for A1 already SUBMITTED or FILLED → a retry does not place a second close order
+
+### Requirement: Reverse Completion
+
+A reverse in pool `(exchange, venue, settlement_currency)` on a market that can hold the new side MUST end FLIPPED: the close half settles first, then the open half is placed. A reverse whose new side cannot be held (a short on spot) keeps today's behaviour and reports the unexecuted half.
+
+#### Scenario: Ends flipped
+
+- S1 long ETHUSDT under A1 in `(bybit, usdt-m, USDT)`, reverse → A1 closed, and only after that close fills a short is opened
+
+#### Scenario: The reverse's own position is not an orphan
+
+- The guard, run for the reverse's open half after its close fills, sees A1 at zero net and does not classify it
 
 ### Requirement: Fill Recording
 
