@@ -126,11 +126,21 @@ class OpenAfterClose:
         poll: int = 0,
         *,
         replay_expected: bool = False,
-    ) -> None:
+    ) -> bool:
         """Enqueues the next poll. NEVER commits (mirrors
         ``JobQueuePort.enqueue_unique`` itself) -- the caller's own
         transaction is what makes the seed durable, atomically with
         whatever write prompted it (design.md § S5).
+
+        Returns whether this call is what actually inserted the row
+        (``True``) or found it already there (``False``, a conflict on
+        ``dedupe_key``). ``CloseOrphans`` (design.md § S6) uses this
+        directly: a caller placing a close on behalf of a signal MUST know
+        whether the continuation it is about to rely on is the one THIS
+        call just created (guaranteed to await exactly what was just
+        passed) or an EARLIER one already durable under the same key
+        (whose ``awaited_allocation_ids`` payload is fixed and may not
+        cover a NEW allocation this call would otherwise close unawaited).
 
         Every caller is expected to pass a ``poll`` that has never been
         seeded before for this ``signal_id`` -- a conflict here means some
@@ -151,7 +161,11 @@ class OpenAfterClose:
         idempotency mechanism doing its job, not the S5a2 defect class (a
         step re-seeded that should have advanced the chain instead) -- so a
         conflict there is logged at INFO, never ERROR. Every other caller
-        keeps the default ``False``."""
+        keeps the default ``False``. Logging a benign conflict at INFO and
+        reporting ``inserted=False`` are independent: a caller may still
+        need to treat the conflict as unsafe for a NEW write even though
+        the log itself is not an error (``CloseOrphans`` does exactly
+        this)."""
         dedupe_key = _dedupe_key(signal_id, poll)
         run_after = self._clock.now() + timedelta(seconds=self._poll_interval_seconds)
         _, inserted = await self._queue.enqueue_unique(
@@ -167,7 +181,7 @@ class OpenAfterClose:
             )
         )
         if inserted:
-            return
+            return True
         if replay_expected:
             logger.info(
                 "seed replay for signal %s at poll %s (dedupe_key=%s): already "
@@ -176,7 +190,7 @@ class OpenAfterClose:
                 poll,
                 dedupe_key,
             )
-            return
+            return False
         logger.error(
             "seed conflict for signal %s at poll %s (dedupe_key=%s): a step "
             "already seeded was re-seeded instead of the chain advancing; "
@@ -185,6 +199,7 @@ class OpenAfterClose:
             poll,
             dedupe_key,
         )
+        return False
 
     async def poll(self, job: ClaimedJob) -> None:
         """The ``signal.open_after_close`` job handler: reads the DATABASE

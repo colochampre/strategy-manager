@@ -149,6 +149,7 @@ from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
+from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
 from strategy_manager.signals.application.process_signal import (
@@ -359,6 +360,18 @@ def _build_process_signal_handler(
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
     )
 
+    # The REAL branch of the Existing-Position Guard (design.md § S6): shares
+    # ``close_position`` and ``open_after_close`` with the rest of this
+    # composition root -- closing a REAL orphan and closing the reverse-
+    # wiring release half's own allocation are the same underlying action,
+    # composed once each and reused.
+    close_orphans = CloseOrphans(
+        close_position=close_position,
+        closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
+        open_after_close=open_after_close,
+        commit=session,
+    )
+
     handler = ProcessSignalHandler(
         signal_context=signal_context,
         strategy_policy=strategy_policy,
@@ -374,6 +387,7 @@ def _build_process_signal_handler(
         # (design.md § S5, S5b): shares the same repository/session the rest
         # of this composition root already uses for ``attempts``.
         closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
+        close_orphans=close_orphans,
         tradable_pools=tradable_pools,
     )
     return handler, open_after_close

@@ -20,15 +20,23 @@ capital is allocated (design.md § "Guard order").
    nothing is in flight to explain it) -- read the venue's own net (the
    ONE remote call this guard makes, before the pool's advisory lock is ever
    touched) and classify it (spec: capital-allocation § Orphan
-   Classification; design.md § S4). REAL, GHOST and AMBIGUOUS all refuse
-   with a WARNING today -- owner decision A1 keeps REAL refused until S6
-   delivers closing it, and A2 refuses AMBIGUOUS exactly like a ghost.
+   Classification; design.md § S4). GHOST and AMBIGUOUS refuse with a
+   WARNING (owner decision A2 refuses AMBIGUOUS exactly like a ghost).
+   REAL is never refused: it is reported via
+   ``GuardOutcome.real_orphan_holdings`` instead, because this guard only
+   classifies -- it takes no action and touches nothing outside a read
+   (see below). The caller (``ProcessSignalHandler._handle_consumes``)
+   is what actually closes it, through ``CloseOrphans`` (spec:
+   capital-allocation § Real-Orphan Resolution via Close-Then-Open;
+   design.md § S6, owner decision 3: close the REAL orphan, then open).
 
-A refusal (``proceed=False, refused=...``) or a deferral
-(``proceed=False, refused=None``) here MUST NEVER reach
+A refusal (``proceed=False, refused=...``), a deferral (``proceed=False,
+refused=None, real_orphan_holdings=None``) or a REAL-orphan report
+(``proceed=False, real_orphan_holdings=[...]``) here MUST NEVER reach
 ``AllocateCapital.allocate()`` -- the caller is expected to check
 ``GuardOutcome.proceed`` before doing anything else, and to distinguish the
-two by ``refused`` before deciding whether to seed a continuation.
+three by ``refused``/``real_orphan_holdings`` before deciding what to do
+next.
 """
 
 import logging
@@ -62,16 +70,25 @@ class GuardOutcome:
     ``False`` with ``refused`` set means the signal must be refused
     outright (mirrors ``ProcessSignalResult.refused``).
 
-    ``False`` with ``refused is None`` means DEFERRED: in-flight work exists
-    but has not settled yet. ``awaited_allocation_ids`` (possibly empty --
-    see ``InFlightWorkPort.submitted_closing_allocations``) names which
+    ``False`` with ``refused is None`` and ``real_orphan_holdings is None``
+    means DEFERRED: in-flight work exists but has not settled yet.
+    ``awaited_allocation_ids`` (possibly empty -- see
+    ``InFlightWorkPort.submitted_closing_allocations``) names which
     allocation(s) the caller's ``OpenAfterClose`` continuation should await
     before re-running this guard from scratch via
-    ``ProcessSignalHandler.open_now`` (design.md § S5, amending S2)."""
+    ``ProcessSignalHandler.open_now`` (design.md § S5, amending S2).
+
+    ``False`` with ``real_orphan_holdings`` set (never empty -- see
+    ``HeldAllocation``'s own guarantee) means the divergent holding
+    classified REAL (spec: capital-allocation § Orphan Classification;
+    design.md § S4/S6): the strategy's own non-zero allocations on this
+    market, for the caller to close via ``CloseOrphans`` before deferring
+    the open the same way the in-flight branch does."""
 
     proceed: bool
     refused: str | None = None
     awaited_allocation_ids: list[UUID] | None = None
+    real_orphan_holdings: list[HeldAllocation] | None = None
 
 
 class HoldingGuard:
@@ -109,7 +126,7 @@ class HoldingGuard:
         if net == 0:
             return GuardOutcome(proceed=True)
 
-        return await self._classify_and_refuse(pool, strategy_id, symbol, holdings, net)
+        return await self._classify_divergence(pool, strategy_id, symbol, holdings, net)
 
     async def _on_in_flight(
         self,
@@ -143,7 +160,7 @@ class HoldingGuard:
         logger.warning("abandoning delayed open: %s", refused)
         return GuardOutcome(proceed=False, refused=refused)
 
-    async def _classify_and_refuse(
+    async def _classify_divergence(
         self,
         pool: PoolKey,
         strategy_id: UUID,
@@ -153,30 +170,30 @@ class HoldingGuard:
     ) -> GuardOutcome:
         """The divergent branch's ONE remote call (design.md § "Every remote
         read happens before ``_lock.acquire``"), followed by classification
-        (spec: capital-allocation § Orphan Classification). Every kind
-        refuses today -- only ``REAL``'s ACTION (close-then-open) is S6
-        scope; classifying it correctly is not."""
+        (spec: capital-allocation § Orphan Classification). GHOST and
+        AMBIGUOUS refuse here; REAL does not -- it is reported to the
+        caller instead (design.md § S6), which is the one that actually
+        closes it via ``CloseOrphans``."""
         pool_net = sum((holding.net_base for holding in holdings), start=Decimal("0"))
         venue_net = await self._venue_net_position.net_position(pool, symbol)
         kind = classify_orphan(net, pool_net, venue_net)
 
         if kind is OrphanKind.REAL:
-            refused = (
-                f"strategy {strategy_id} holds a REAL orphan on {symbol} in pool "
-                f"{pool} (pool net {pool_net}, venue net {venue_net}); refusing "
-                "until S6 closes it"
-            )
-        else:
-            own_allocations = ", ".join(
-                f"{holding.allocation_id}={holding.net_base}"
-                for holding in holdings
-                if holding.strategy_id == strategy_id
-            )
-            refused = (
-                f"strategy {strategy_id} holds a {kind.value} divergent net {net} "
-                f"on {symbol} in pool {pool} (allocations: {own_allocations}); "
-                f"pool net {pool_net}, other strategies' net {pool_net - net}, "
-                f"venue net {venue_net}; refusing"
-            )
+            own_holdings = [
+                holding for holding in holdings if holding.strategy_id == strategy_id
+            ]
+            return GuardOutcome(proceed=False, real_orphan_holdings=own_holdings)
+
+        own_allocations = ", ".join(
+            f"{holding.allocation_id}={holding.net_base}"
+            for holding in holdings
+            if holding.strategy_id == strategy_id
+        )
+        refused = (
+            f"strategy {strategy_id} holds a {kind.value} divergent net {net} "
+            f"on {symbol} in pool {pool} (allocations: {own_allocations}); "
+            f"pool net {pool_net}, other strategies' net {pool_net - net}, "
+            f"venue net {venue_net}; refusing"
+        )
         logger.warning("refusing %s holding: %s", kind.value.lower(), refused)
         return GuardOutcome(proceed=False, refused=refused)

@@ -82,7 +82,8 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.application.holding_guard import HoldingGuard
-from strategy_manager.signals.application.ports import BalanceRefreshPort, RefreshStatus
+from strategy_manager.signals.application.ports import BalanceRefreshPort, PoolKey, RefreshStatus
+from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
@@ -211,7 +212,14 @@ class ContinuationSeederPort(Protocol):
     re-running its own idempotent work -- the release half of a reverse
     re-seeding after its close already committed on an earlier attempt at
     this same job. Keeps a benign replay off the ERROR channel that a
-    genuine chain-restarting collision still uses."""
+    genuine chain-restarting collision still uses.
+
+    Returns whether THIS call inserted the row (``True``) or found it
+    already there (``False``). ``CloseOrphans`` (design.md § S6) uses this
+    to decide whether a fresh close it is about to place is guaranteed to
+    be awaited by the continuation THIS call just created, or only by
+    whatever an EARLIER, already-durable row under the same key already
+    committed to awaiting -- see its own docstring."""
 
     async def seed(
         self,
@@ -220,6 +228,36 @@ class ContinuationSeederPort(Protocol):
         poll: int = 0,
         *,
         replay_expected: bool = False,
+    ) -> bool: ...
+
+
+class CloseOrphansPort(Protocol):
+    """The REAL branch of ``HoldingGuard`` (design.md § S6; spec:
+    capital-allocation § Real-Orphan Resolution via Close-Then-Open):
+    called when the guard reports ``GuardOutcome.real_orphan_holdings``
+    instead of proceeding, refusing or deferring for in-flight work --
+    closes every one of the strategy's non-zero allocations on this market
+    before the open is deferred via the S5 continuation. Implemented by
+    ``signals.application.close_orphans.CloseOrphans``, declared here
+    rather than imported per this file's own narrow-Protocol-per-consumer
+    convention.
+
+    ``next_poll`` MUST be the next never-before-seeded step in THIS
+    signal's own chain -- 0 from a fresh ``handle()`` call, or the current
+    poll plus one when reached again from inside ``open_now``. Mirrors
+    ``ContinuationSeederPort``'s own ``poll`` contract exactly, and for the
+    identical reason: this port places closes on the signal's behalf, so
+    seeding the wrong (already-consumed) step here silently drops any
+    fresh close it places with nothing left awaiting it."""
+
+    async def close(
+        self,
+        signal_id: UUID,
+        pool: PoolKey,
+        strategy_id: UUID,
+        symbol: str,
+        holdings: list[HeldAllocation],
+        next_poll: int = 0,
     ) -> None: ...
 
 
@@ -264,6 +302,7 @@ class ProcessSignalHandler:
         open_after_close: ContinuationSeederPort,
         commit: CommitPort,
         closing_attempts: ClosingAttemptsPort,
+        close_orphans: CloseOrphansPort,
         tradable_pools: frozenset[tuple[str, str]],
     ) -> None:
         self._signal_context = signal_context
@@ -277,6 +316,7 @@ class ProcessSignalHandler:
         self._open_after_close = open_after_close
         self._commit = commit
         self._closing_attempts = closing_attempts
+        self._close_orphans = close_orphans
         self._tradable_pools = tradable_pools
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
@@ -370,8 +410,9 @@ class ProcessSignalHandler:
         # Existing-Position Guard) runs BEFORE anything else in this branch --
         # neither a refusal nor a deferral here may ever reach
         # ``AllocateCapital.allocate()`` (design.md § "Guard order").
+        pool: PoolKey = (policy.exchange, policy.venue, policy.settlement_currency)
         guard_outcome = await self._holding_guard.check(
-            pool=(policy.exchange, policy.venue, policy.settlement_currency),
+            pool=pool,
             strategy_id=context.strategy_id,
             symbol=context.symbol,
             own_reservation_id=context.own_reservation_id,
@@ -382,6 +423,32 @@ class ProcessSignalHandler:
                 return ProcessSignalResult(
                     transition.kind.value, None, False, refused=guard_outcome.refused
                 )
+            if guard_outcome.real_orphan_holdings is not None:
+                # Real-Orphan Resolution via Close-Then-Open (spec:
+                # capital-allocation; design.md § S6): the guard never
+                # closes anything itself (see ``HoldingGuard``'s own
+                # docstring) -- this is the caller that does, exactly like
+                # the in-flight branch below seeds its own continuation
+                # rather than the guard doing it. The open is scheduled,
+                # not refused, so this reports the same shape the
+                # in-flight deferral below does. ``next_poll`` is threaded
+                # through exactly like the in-flight branch's own seed
+                # call just below -- 0 from a fresh ``handle()``, poll + 1
+                # from inside ``open_now`` -- so a re-entry that still
+                # finds a REAL orphan (a second allocation surfacing once
+                # the first is out of the way, or a worker-crash replay)
+                # never reseeds an already-consumed step (orchestrator
+                # review of `ee640d6`, "a close can be placed with no live
+                # continuation awaiting it").
+                await self._close_orphans.close(
+                    signal_id=signal_id,
+                    pool=pool,
+                    strategy_id=context.strategy_id,
+                    symbol=context.symbol,
+                    holdings=guard_outcome.real_orphan_holdings,
+                    next_poll=next_poll,
+                )
+                return ProcessSignalResult(transition.kind.value, None, False)
             # DEFERRED (design.md § S5, amending S2): work is still in
             # flight but has not settled yet. Seed a continuation instead of
             # raising into the queue's failure backoff, which could exhaust
@@ -462,40 +529,75 @@ class ProcessSignalHandler:
 
         For a REVERSE whose new side is holdable (design.md § "Reverse
         wiring (A6)"), the S5 continuation is seeded to await THIS close
-        before it is placed."""
+        before it is placed.
+
+        **Idempotent release half, generalised to every close path** (spec:
+        trade-execution § "A retried close is not re-sent"; design.md § S6):
+        a non-FAILED close already recorded for the allocation means an
+        earlier attempt already placed and committed it -- skip straight to
+        re-seeding (reverse-wiring only) or to reporting success (any
+        close), never place a second order. This used to be scoped to the
+        reverse-wiring release half only (S5b); a plain close had no such
+        check at all, and with migration 0021 relaxing the UNIQUE
+        constraint to SUBMITTED-only, a retried plain close would otherwise
+        place a genuine second closing order rather than merely hitting a
+        database error.
+        """
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
-        if transition.kind is TransitionKind.REVERSE and _new_side_holdable(
+        is_reverse_wiring = transition.kind is TransitionKind.REVERSE and _new_side_holdable(
             context.symbol, context.position_size
-        ):
-            # Idempotent release half (design.md § S5, S5b): a non-FAILED
-            # close already recorded for this allocation means an earlier
-            # attempt at THIS very job already placed and committed it --
-            # placing another would hit the closing-attempt UNIQUE
-            # constraint. Skip straight to re-seeding instead (a FAILED
-            # close is retryable per spec: trade-execution § Retryable
-            # Close, Single In-Flight Attempt, so it falls through to a
-            # fresh close below like the no-existing-close case).
-            existing_close = await self._closing_attempts.latest_close_for(
-                context.prior_reservation_id
-            )
-            if existing_close is not None and existing_close.status is not ExecutionStatus.FAILED:
-                await self._open_after_close.seed(
-                    signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
-                )
-                await self._commit.commit()
+        )
+
+        existing_close = await self._closing_attempts.latest_close_for(
+            context.prior_reservation_id
+        )
+        if existing_close is not None:
+            if existing_close.status is not ExecutionStatus.FAILED:
+                if is_reverse_wiring:
+                    await self._open_after_close.seed(
+                        signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
+                    )
+                    await self._commit.commit()
                 return ProcessSignalResult(
                     transition.kind.value, context.prior_reservation_id, True
                 )
+            if is_reverse_wiring:
+                # FAILED close on a replay of the reverse-wiring release
+                # half (design.md § S6, "Edge case carried from S5b
+                # review"): the poll=0 continuation THIS close already
+                # seeded (and whose commit made both durable together)
+                # either already abandoned on seeing this FAILED row, or
+                # will the next time it runs -- reseeding poll 0 again here
+                # is a no-op against the same dedupe_key. Placing a FRESH
+                # close here would leave it with NO live continuation
+                # awaiting it: the reverse could fill and end flat with
+                # nothing above INFO logged, exactly the A6 violation this
+                # exists to prevent. So this does NOT retry -- it reports
+                # the same failure the first attempt already recorded and
+                # logged (S1's ERROR already fired). A genuinely new close
+                # needs a genuinely new signal, not a redelivery of this
+                # job.
+                return ProcessSignalResult(
+                    transition.kind.value,
+                    context.prior_reservation_id,
+                    False,
+                    failed=existing_close.error,
+                )
+            # A plain (non-reverse) close: a FAILED attempt does not block a
+            # retry (spec: trade-execution § Retryable Close, Single
+            # In-Flight Attempt) -- there is no continuation depending on
+            # this one, so falling through to a fresh close below is safe.
 
+        if is_reverse_wiring:
             # Seeded BEFORE the close so ``ClosePosition``'s own commit
             # (close_position.py) makes the seed and the new closing
             # attempt durable together (design.md § S5, "Who seeds the
-            # continuation"). ``replay_expected`` covers the retry-after-
-            # FAILED-close case above: the first-ever pass's seed at this
-            # same poll already committed, so re-seeding it here is this
-            # job's own idempotent step recurring, not a chain restart.
+            # continuation"). ``replay_expected`` covers a redelivery of
+            # this exact job whose seed at this same poll already
+            # committed -- this job's own idempotent step recurring, not a
+            # chain restart.
             await self._open_after_close.seed(
                 signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
             )

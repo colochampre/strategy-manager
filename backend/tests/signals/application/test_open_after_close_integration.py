@@ -178,6 +178,16 @@ class NeverCalledSeeder:
         )
 
 
+class NeverCalledCloseOrphans:
+    async def close(
+        self, signal_id: UUID, pool: object, strategy_id: UUID, symbol: str, holdings: object
+    ) -> None:
+        raise AssertionError(
+            "open_now's guard never finds a REAL orphan once the close it "
+            "awaited has settled -- the strategy nets to zero"
+        )
+
+
 async def _seed_signal(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -485,6 +495,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             open_after_close=NeverCalledSeeder(),
             commit=session,
             closing_attempts=attempts_repository,
+            close_orphans=NeverCalledCloseOrphans(),
             tradable_pools=frozenset({("bybit", "usdt-m")}),
         )
         return handler, open_after_close

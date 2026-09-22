@@ -36,6 +36,7 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Exchange
+from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
 from strategy_manager.signals.application.ports import PoolKey, RefreshOutcome, RefreshStatus
 from strategy_manager.signals.application.process_signal import (
@@ -171,10 +172,18 @@ class FakeInFlightWorkPort:
 @dataclass
 class SpyContinuationSeeder:
     """Stands in for ``OpenAfterClose``. Records every seed the guard's
-    deferred branch (or, since S5b, the reverse-wiring release half) asked
-    for, without needing a real job queue."""
+    deferred branch (or the reverse-wiring release half, or ``CloseOrphans``)
+    asked for, without needing a real job queue.
+
+    Mimics ``enqueue_unique``'s own ``dedupe_key`` semantics: the FIRST seed
+    for a given ``(signal_id, poll)`` pair inserts (``True``); a LATER one
+    for the exact same pair collides (``False``), regardless of
+    ``replay_expected`` -- which only ever picks the log level a real
+    ``OpenAfterClose.seed`` would choose, never the return value
+    (orchestrator review of `ee640d6`)."""
 
     calls: list[tuple[UUID, list[UUID], int, bool]] = field(default_factory=list)
+    _seen: set[tuple[UUID, int]] = field(default_factory=set)
 
     async def seed(
         self,
@@ -183,8 +192,13 @@ class SpyContinuationSeeder:
         poll: int = 0,
         *,
         replay_expected: bool = False,
-    ) -> None:
+    ) -> bool:
         self.calls.append((signal_id, awaited_allocation_ids, poll, replay_expected))
+        key = (signal_id, poll)
+        if key in self._seen:
+            return False
+        self._seen.add(key)
+        return True
 
 
 @dataclass
@@ -200,6 +214,30 @@ class FakeClosingAttemptsPort:
     async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
         self.calls.append(allocation_id)
         return self.latest
+
+
+@dataclass
+class SpyCloseOrphans:
+    """Stands in for ``CloseOrphans`` -- records what the guard's REAL
+    branch (design.md § S6) asked it to close, without needing a real
+    ``ClosePosition``/``OpenAfterClose`` stack. Records ``next_poll`` too
+    (orchestrator review of `ee640d6`): the caller must thread it through,
+    never hardcode it."""
+
+    calls: list[tuple[UUID, PoolKey, UUID, str, list[HeldAllocation], int]] = field(
+        default_factory=list
+    )
+
+    async def close(
+        self,
+        signal_id: UUID,
+        pool: PoolKey,
+        strategy_id: UUID,
+        symbol: str,
+        holdings: list[HeldAllocation],
+        next_poll: int = 0,
+    ) -> None:
+        self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
 
 
 @dataclass
@@ -306,6 +344,7 @@ def _process_signal_handler(
     open_after_close: SpyContinuationSeeder | None = None,
     commit: CommitPort | None = None,
     closing_attempts: FakeClosingAttemptsPort | None = None,
+    close_orphans: SpyCloseOrphans | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -323,6 +362,7 @@ def _process_signal_handler(
         open_after_close=open_after_close or SpyContinuationSeeder(),
         commit=commit or FakeCommit(),
         closing_attempts=closing_attempts or FakeClosingAttemptsPort(),
+        close_orphans=close_orphans or SpyCloseOrphans(),
         tradable_pools=tradable_pools,
     )
 
@@ -944,6 +984,202 @@ async def test_an_own_reservation_resumes_even_with_a_divergent_holding() -> Non
     assert len(lock.acquired) == 1
 
 
+async def test_a_real_orphan_routes_to_close_orphans_and_defers_the_open() -> None:
+    """design.md § S6: the guard's REAL branch never closes anything itself
+    (``GuardOutcome.real_orphan_holdings``) -- ``_handle_consumes`` is the
+    caller that does, through ``CloseOrphans``, and the open is deferred
+    exactly like the in-flight branch's own deferral (never a refusal,
+    never reaching ``AllocateCapital``)."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    own_holding = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")
+    )
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    # L_S = L_P = 0.5, V = 0.5 -> REAL (design.md § S4's own worked example).
+    guard = _holding_guard(holdings=[own_holding], venue_net=Decimal("0.5"))
+    close_orphans = SpyCloseOrphans()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        holding_guard=guard,
+        close_orphans=close_orphans,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_orphans.calls == [
+        (signal_id, ("pionex", "spot", "USDT"), strategy_id, "ETHUSDT", [own_holding], 0)
+    ]
+    assert result.executed is False
+    assert result.refused is None
+    assert result.failed is None
+    assert lock.acquired == []
+    assert place_order.calls == []
+
+
+async def test_open_now_threads_next_poll_into_close_orphans_on_a_real_orphan_re_defer() -> None:
+    """The same threading fix ``_handle_consumes``'s in-flight branch
+    already had -- a re-entry via ``open_now`` that still finds a REAL
+    orphan must seed the NEXT poll, never restart at 0 (orchestrator
+    review of `ee640d6`, "a close can be placed with no live continuation
+    awaiting it")."""
+    lock = SpyAdvisoryLock()
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    own_holding = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")
+    )
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    guard = _holding_guard(holdings=[own_holding], venue_net=Decimal("0.5"))
+    close_orphans = SpyCloseOrphans()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        holding_guard=guard,
+        close_orphans=close_orphans,
+    )
+
+    await handler.open_now(signal_id, poll=2)
+
+    assert close_orphans.calls == [
+        (signal_id, ("pionex", "spot", "USDT"), strategy_id, "ETHUSDT", [own_holding], 3)
+    ]
+
+
+# ---- Scenario A (orchestrator review of `ee640d6`): a REAL orphan whose
+# resolution spans more than one poll -- standing in for a close that only
+# partially flattens the position, leaving a second allocation still
+# divergent -- must not collide on the seed at each re-entry, must
+# eventually close everything, and the deferred open must happen EXACTLY
+# once. Real ``CloseOrphans`` wired with fakes; ``ProcessSignalHandler``
+# drives each round directly (``handle()`` then two ``open_now`` calls),
+# standing in for what ``OpenAfterClose.poll()`` would otherwise drive.
+
+
+@dataclass
+class _SequencedSymbolHoldingsPort:
+    rounds: list[list[HeldAllocation]]
+    call_count: int = 0
+
+    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+        holdings = self.rounds[min(self.call_count, len(self.rounds) - 1)]
+        self.call_count += 1
+        return holdings
+
+
+@dataclass
+class _SequencedVenueNetPositionPort:
+    nets: list[Decimal | None]
+    call_count: int = 0
+
+    async def net_position(self, pool: PoolKey, symbol: str) -> Decimal | None:
+        net = self.nets[min(self.call_count, len(self.nets) - 1)]
+        self.call_count += 1
+        return net
+
+
+@dataclass
+class _FakeClosingAttemptsByAllocation:
+    """Unlike this file's own ``FakeClosingAttemptsPort`` (one shared
+    ``latest`` for every allocation), this tracks a distinct answer per
+    allocation id -- needed once ``CloseOrphans`` is exercised for real
+    across more than one allocation in the same test."""
+
+    by_allocation: dict[UUID, ExecutionAttempt | None] = field(default_factory=dict)
+
+    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+        return self.by_allocation.get(allocation_id)
+
+
+async def test_scenario_a_a_real_orphan_spanning_two_polls_closes_and_opens_once() -> None:
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    allocation_a = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")
+    )
+    allocation_b = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("-0.3")
+    )
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    seeder = SpyContinuationSeeder()
+    close_position = SpyClosePosition()
+    close_orphans = CloseOrphans(
+        close_position=close_position,
+        closing_attempts=_FakeClosingAttemptsByAllocation(),
+        open_after_close=seeder,
+        commit=FakeCommit(),
+    )
+    guard = HoldingGuard(
+        # Round 0 (handle()): only A holds -> REAL. Round 1 (open_now poll=0):
+        # only B holds -> REAL again, standing in for a residual the first
+        # close left behind. Round 2 (open_now poll=1): flat -> proceeds.
+        holdings=_SequencedSymbolHoldingsPort(
+            [[allocation_a], [allocation_b], []]
+        ),
+        in_flight_work=FakeInFlightWorkPort(result=False),
+        venue_net_position=_SequencedVenueNetPositionPort(
+            [Decimal("0.5"), Decimal("-0.3")]
+        ),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        delayed_open_max_signal_age_seconds=600.0,
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        holding_guard=guard,
+        close_orphans=close_orphans,
+        open_after_close=seeder,
+        close_position=close_position,
+    )
+
+    round0 = await handler.handle(signal_id)
+    assert round0.executed is False
+    round1 = await handler.open_now(signal_id, poll=0)
+    assert round1.executed is False
+    round2 = await handler.open_now(signal_id, poll=1)
+
+    assert [call.allocation_id for call in close_position.calls] == [
+        allocation_a.allocation_id,
+        allocation_b.allocation_id,
+    ]
+    seeded_polls = [call[2] for call in seeder.calls]
+    assert seeded_polls == sorted(set(seeded_polls)), "every seeded poll must be distinct"
+    assert len(place_order.calls) == 1
+    assert round2.executed is True
+
+
 async def test_in_flight_work_defers_by_seeding_a_continuation_and_never_allocates() -> None:
     """design.md § S5, amending S2: the in-flight branch no longer raises
     into the queue's failure backoff -- it seeds an ``OpenAfterClose``
@@ -1125,6 +1361,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
         open_after_close=SpyContinuationSeeder(),
         commit=FakeCommit(),
         closing_attempts=FakeClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
         tradable_pools=TRADABLE,
     )
 
@@ -1517,8 +1754,9 @@ async def test_a_holdable_reverse_seeds_the_continuation_before_closing() -> Non
             poll: int = 0,
             *,
             replay_expected: bool = False,
-        ) -> None:
+        ) -> bool:
             order.append("seed")
+            return True
 
     class OrderingClosePosition:
         async def close(self, command: CloseCommand) -> CloseResult:
@@ -1683,10 +1921,14 @@ async def test_a_retried_reverse_with_a_committed_close_does_not_place_a_second(
     assert result.refused is None
 
 
-async def test_a_retried_reverse_after_a_failed_close_places_a_new_one() -> None:
-    """A FAILED close does not block a retry (spec: trade-execution §
-    Retryable Close, Single In-Flight Attempt) -- only a non-FAILED close
-    skips ``ClosePosition.close``."""
+async def test_a_retried_reverse_after_a_failed_close_does_not_place_a_new_one() -> None:
+    """S6, "Edge case carried from S5b review": unlike a PLAIN close (spec:
+    trade-execution § Retryable Close, Single In-Flight Attempt allows a
+    fresh close after FAILED), the reverse-wiring release half must NOT
+    retry on a replay after its own close already failed -- the poll=0
+    continuation it already seeded has no way to learn about a brand-new
+    close, so retrying here would leave the reverse ending flat with
+    nothing above INFO logged (A6). It reports the same failure instead."""
     lock = SpyAdvisoryLock()
     close_position = SpyClosePosition()
     prior_reservation_id = uuid4()
@@ -1705,6 +1947,7 @@ async def test_a_retried_reverse_after_a_failed_close_places_a_new_one() -> None
         leverage=None,
         status=ExecutionStatus.FAILED,
         client_order_id="client-1",
+        error="rejected by venue",
     )
     handler = _process_signal_handler(
         context=context,
@@ -1714,9 +1957,106 @@ async def test_a_retried_reverse_after_a_failed_close_places_a_new_one() -> None
         closing_attempts=FakeClosingAttemptsPort(latest=failed_close),
     )
 
-    await handler.handle(uuid4())
+    result = await handler.handle(uuid4())
+
+    assert close_position.calls == []
+    assert result.executed is False
+    assert result.failed == "rejected by venue"
+
+
+async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_second() -> None:
+    """The idempotent release half generalised to EVERY close path (spec:
+    trade-execution § "A retried close is not re-sent"; design.md § S6) --
+    not only the reverse-wiring one (S5b)."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    strategy_id = uuid4()
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # long -> flat: RELEASES, not REVERSE
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    existing_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="pionex",
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="client-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=existing_close),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert close_position.calls == []
+    assert result.executed is True
+    assert result.refused is None
+    assert result.failed is None
+
+
+async def test_a_plain_close_retried_after_a_failed_close_places_a_new_one() -> None:
+    """A plain (non-reverse) close is not the reverse-wiring's own
+    replay-safety carve-out -- nothing awaits it via a continuation, so a
+    FAILED attempt does not block a retry (spec: trade-execution §
+    Retryable Close, Single In-Flight Attempt)."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    strategy_id = uuid4()
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    failed_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="pionex",
+        venue="spot",
+        settlement_currency="USDT",
+        symbol="ETHUSDT",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.FAILED,
+        client_order_id="client-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=failed_close),
+    )
+
+    result = await handler.handle(uuid4())
 
     assert len(close_position.calls) == 1
+    assert result.executed is True
 
 
 async def test_a_rejected_holdable_reverse_close_is_reported_failed_not_refused() -> None:

@@ -37,8 +37,10 @@ class HeldAllocation:
 class OrphanKind(Enum):
     """How a divergent holding (ledger and venue disagree) is classified.
 
-    Only ``REAL`` is ever acted on -- and even that is refused until S6
-    delivers closing it (owner decision A1).
+    Only ``REAL`` is ever acted on. ``HoldingGuard`` never refuses it --
+    it reports it via ``GuardOutcome.real_orphan_holdings`` instead, and
+    the caller closes it through ``CloseOrphans`` (design.md § S6, owner
+    decision A1/3). GHOST and AMBIGUOUS are always refused.
     """
 
     REAL = "REAL"

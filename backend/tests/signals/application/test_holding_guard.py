@@ -258,12 +258,11 @@ async def test_only_the_strategys_own_net_decides_divergence() -> None:
 # strategy here); AMBIGUOUS for anything else, including a failed read.
 
 
-async def test_a_real_orphan_still_refuses_naming_the_kind(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Owner decision A1: REAL is refused until S6 delivers closing it. The
-    guard classifies it correctly here and now; only the ACTION on it is
-    deferred."""
+async def test_a_real_orphan_is_reported_for_the_caller_to_close_not_refused() -> None:
+    """design.md § S6, owner decision 3: REAL is never refused. The guard
+    classifies it correctly here and now and reports the strategy's own
+    holdings via ``real_orphan_holdings`` -- the caller (``CloseOrphans``)
+    is the one that actually closes it and defers the open."""
     strategy_id, allocation_id = uuid4(), uuid4()
     own_holding = HeldAllocation(
         strategy_id=strategy_id, allocation_id=allocation_id, net_base=Decimal("0.5")
@@ -274,20 +273,46 @@ async def test_a_real_orphan_still_refuses_naming_the_kind(
         venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.5")),
     )
 
-    with caplog.at_level("WARNING"):
-        outcome = await guard.check(
-            pool=POOL,
-            strategy_id=strategy_id,
-            symbol="ETHUSDT",
-            own_reservation_id=None,
-            received_at=NOW,
-        )
+    outcome = await guard.check(
+        pool=POOL,
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW,
+    )
 
     assert outcome.proceed is False
-    assert outcome.refused is not None
-    assert "REAL" in outcome.refused
+    assert outcome.refused is None
+    assert outcome.real_orphan_holdings == [own_holding]
     assert venue.calls == [(POOL, "ETHUSDT")]
-    assert any(record.levelname == "WARNING" for record in caplog.records)
+
+
+async def test_a_real_orphan_reports_only_the_calling_strategys_own_holdings() -> None:
+    """A second strategy sharing the same market must never be closed by
+    the first strategy's own REAL classification (design.md § S4's own
+    worked example: S +0.5, T +0.2, both legs still open -> REAL)."""
+    strategy_id, other_strategy_id = uuid4(), uuid4()
+    own_holding = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")
+    )
+    other_holding = HeldAllocation(
+        strategy_id=other_strategy_id, allocation_id=uuid4(), net_base=Decimal("0.2")
+    )
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[own_holding, other_holding]),
+        in_flight_work=FakeInFlightWorkPort(result=False),
+        venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.7")),
+    )
+
+    outcome = await guard.check(
+        pool=POOL,
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW,
+    )
+
+    assert outcome.real_orphan_holdings == [own_holding]
 
 
 async def test_a_ghost_orphan_refuses_with_a_warning_naming_the_details(

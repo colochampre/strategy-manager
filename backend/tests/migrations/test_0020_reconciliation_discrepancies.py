@@ -353,9 +353,14 @@ async def test_ix_ledger_pool_symbol_index_exists_on_ledger_entries(
 
 def test_downgrade_then_upgrade_round_trips(database_url: str) -> None:
     """Rehearses the exact sequence the migration rehearsal procedure runs
-    against a throwaway copy of the real database: up, down, up again."""
+    against a throwaway copy of the real database: up, down, up again.
 
-    _run_alembic(database_url, "downgrade", "-1")
+    Targets the explicit revision ``0019`` (0020's own ``down_revision``)
+    rather than the relative ``-1``, which would undo whatever migration is
+    head AT THE TIME this runs, not necessarily 0020 -- exactly the trap a
+    later migration (``0021``) fell into when it was added on top."""
+
+    _run_alembic(database_url, "downgrade", "0019")
 
     async def _table_exists() -> bool:
         engine = create_async_engine(database_url, pool_pre_ping=True)
