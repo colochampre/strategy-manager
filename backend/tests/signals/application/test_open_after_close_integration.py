@@ -484,6 +484,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             close_position=NeverCalledClosePosition(),  # type: ignore[arg-type]
             open_after_close=NeverCalledSeeder(),
             commit=session,
+            closing_attempts=attempts_repository,
             tradable_pools=frozenset({("bybit", "usdt-m")}),
         )
         return handler, open_after_close

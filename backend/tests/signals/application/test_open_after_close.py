@@ -484,6 +484,58 @@ async def test_seed_conflict_on_an_already_seeded_poll_logs_an_error(
     )
 
 
+async def test_seed_replay_expected_does_not_log_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """S5b: a caller that KNOWS this exact step may already be seeded --
+    ``poll()``'s own self-reschedule re-run after a worker crash between its
+    commit and its job's ack, or the reverse-wiring release half re-seeding
+    after its close already committed on an earlier attempt at the same job
+    -- is the idempotency mechanism working as designed, not the S5a2
+    chain-restarting collision. It must never reach the ERROR channel."""
+    continuation, _, queue, _ = _continuation(signals=FakeSignalLookupPort(signal=None))
+    signal_id = uuid4()
+
+    await continuation.seed(signal_id, [], poll=0)
+    with caplog.at_level("DEBUG"):
+        await continuation.seed(signal_id, [], poll=0, replay_expected=True)
+
+    assert len(queue.enqueued) == 2
+    assert not any(record.levelname == "ERROR" for record in caplog.records)
+
+
+async def test_a_redelivered_poll_reseeding_the_same_next_step_does_not_log_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Simulates a worker crash between ``poll()``'s own commit and its
+    job's ack: the SAME job (same poll number) is redelivered and reruns,
+    reseeding the identical next-poll ``dedupe_key`` its first run already
+    committed. That is this continuation's own idempotency working, not a
+    collision -- it must stay off the ERROR channel."""
+    signal = _signal()
+    allocation_id = uuid4()
+    attempts = FakeClosingAttemptsPort(
+        closes={
+            allocation_id: _attempt(
+                allocation_id=allocation_id, status=ExecutionStatus.SUBMITTED, created_at=NOW
+            )
+        }
+    )
+    continuation, _, queue, _ = _continuation(
+        signals=FakeSignalLookupPort(signal=signal), attempts=attempts
+    )
+    job = _job(signal.id, [allocation_id], poll=3)
+
+    await continuation.poll(job)
+    with caplog.at_level("ERROR"):
+        await continuation.poll(job)  # redelivered: the exact same job re-runs
+
+    assert len(queue.enqueued) == 2
+    assert queue.enqueued[0].payload["poll"] == 4
+    assert queue.enqueued[1].payload["poll"] == 4
+    assert not any(record.levelname == "ERROR" for record in caplog.records)
+
+
 async def test_in_flight_persisting_across_several_polls_still_opens_exactly_once() -> None:
     """(a) The guard keeps deferring (vacuous empty-awaited-ids case) for
     three polls straight, then clears -- the open must still happen, and

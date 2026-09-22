@@ -370,6 +370,10 @@ def _build_process_signal_handler(
         close_position=close_position,
         open_after_close=open_after_close,
         commit=session,
+        # The reverse-wiring release half's own idempotency check
+        # (design.md § S5, S5b): shares the same repository/session the rest
+        # of this composition root already uses for ``attempts``.
+        closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
         tradable_pools=tradable_pools,
     )
     return handler, open_after_close

@@ -76,6 +76,8 @@ from strategy_manager.execution.application.close_position import (
     CloseResult,
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.market_symbol import is_perpetual
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
@@ -84,6 +86,7 @@ from strategy_manager.signals.application.ports import BalanceRefreshPort, Refre
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
+    TransitionKind,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +100,15 @@ def _consuming_side(next_position_size: Decimal) -> OrderSide:
 def _releasing_side(prior_position_size: Decimal) -> OrderSide:
     """Closing a long sells; closing a short buys."""
     return OrderSide.SELL if prior_position_size > 0 else OrderSide.BUY
+
+
+def _new_side_holdable(symbol: str, next_position_size: Decimal) -> bool:
+    """Whether a reverse's CONSUMING half can be held at all (spec:
+    trade-execution § Reverse Completion; design.md § "Reverse wiring
+    (A6)"). A perpetual market holds either side; on spot only a LONG can be
+    held (bought outright) -- a SHORT on spot is the one case that keeps
+    today's ``_note_unexecuted_tail`` behaviour."""
+    return next_position_size > 0 or is_perpetual(symbol)
 
 
 # Placeholder default for ``SignalContext.received_at`` so every test built
@@ -167,6 +179,18 @@ class ClosePositionPort(Protocol):
     async def close(self, command: CloseCommand) -> CloseResult: ...
 
 
+class ClosingAttemptsPort(Protocol):
+    """The narrow slice of ``SqlAlchemyExecutionAttemptRepository`` the
+    reverse-wiring release half reads (design.md § S5, "Idempotent release
+    half"; S5b): whether a close already exists for the allocation about to
+    be reversed, so a retry of this job never places a second close order.
+    Declared here rather than imported from ``open_after_close`` -- the same
+    narrow-Protocol-per-consumer convention ``ContinuationSeederPort``
+    already follows in this file."""
+
+    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None: ...
+
+
 class ContinuationSeederPort(Protocol):
     """The S5 continuation's seeding half (design.md § S5), called when the
     Existing-Position Guard DEFERS rather than proceeds or refuses --
@@ -180,10 +204,22 @@ class ContinuationSeederPort(Protocol):
     chain: 0 when deferred from a fresh ``handle()`` call, or the current
     poll plus one when deferred again from inside ``open_now`` -- seeding
     the SAME poll twice silently drops the continuation (design.md § S5,
-    the poll-threading fix)."""
+    the poll-threading fix).
+
+    ``replay_expected`` (design.md § "Reverse wiring (A6)", S5b) marks a
+    seed that may legitimately already exist because the caller is
+    re-running its own idempotent work -- the release half of a reverse
+    re-seeding after its close already committed on an earlier attempt at
+    this same job. Keeps a benign replay off the ERROR channel that a
+    genuine chain-restarting collision still uses."""
 
     async def seed(
-        self, signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0
+        self,
+        signal_id: UUID,
+        awaited_allocation_ids: list[UUID],
+        poll: int = 0,
+        *,
+        replay_expected: bool = False,
     ) -> None: ...
 
 
@@ -227,6 +263,7 @@ class ProcessSignalHandler:
         close_position: ClosePositionPort,
         open_after_close: ContinuationSeederPort,
         commit: CommitPort,
+        closing_attempts: ClosingAttemptsPort,
         tradable_pools: frozenset[tuple[str, str]],
     ) -> None:
         self._signal_context = signal_context
@@ -239,6 +276,7 @@ class ProcessSignalHandler:
         self._close_position = close_position
         self._open_after_close = open_after_close
         self._commit = commit
+        self._closing_attempts = closing_attempts
         self._tradable_pools = tradable_pools
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
@@ -265,9 +303,18 @@ class ProcessSignalHandler:
         if transition.effects[0] is TransitionEffect.CONSUMES:
             result = await self._handle_consumes(signal_id, context, transition, policy)
         else:
-            result = await self._handle_releases(context, transition, policy)
+            result = await self._handle_releases(signal_id, context, transition, policy)
 
         if len(transition.effects) == 1:
+            return result
+        if transition.kind is TransitionKind.REVERSE and _new_side_holdable(
+            context.symbol, context.position_size
+        ):
+            # Reverse Completion (spec: trade-execution § Reverse
+            # Completion; design.md § "Reverse wiring (A6)"): the open half
+            # was already seeded, inside ``_handle_releases``, to run once
+            # the close above settles FILLED -- there is no unexecuted tail
+            # to report here, only a completion still in flight.
             return result
         return self._note_unexecuted_tail(context, transition, result)
 
@@ -404,15 +451,54 @@ class ProcessSignalHandler:
 
     async def _handle_releases(
         self,
+        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
     ) -> ProcessSignalResult:
         """A close carries no price, because nothing about its size is derived
         from one. ``ClosePosition`` reads the ledger for what the opening
-        allocation actually acquired."""
+        allocation actually acquired.
+
+        For a REVERSE whose new side is holdable (design.md § "Reverse
+        wiring (A6)"), the S5 continuation is seeded to await THIS close
+        before it is placed."""
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
+
+        if transition.kind is TransitionKind.REVERSE and _new_side_holdable(
+            context.symbol, context.position_size
+        ):
+            # Idempotent release half (design.md § S5, S5b): a non-FAILED
+            # close already recorded for this allocation means an earlier
+            # attempt at THIS very job already placed and committed it --
+            # placing another would hit the closing-attempt UNIQUE
+            # constraint. Skip straight to re-seeding instead (a FAILED
+            # close is retryable per spec: trade-execution § Retryable
+            # Close, Single In-Flight Attempt, so it falls through to a
+            # fresh close below like the no-existing-close case).
+            existing_close = await self._closing_attempts.latest_close_for(
+                context.prior_reservation_id
+            )
+            if existing_close is not None and existing_close.status is not ExecutionStatus.FAILED:
+                await self._open_after_close.seed(
+                    signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
+                )
+                await self._commit.commit()
+                return ProcessSignalResult(
+                    transition.kind.value, context.prior_reservation_id, True
+                )
+
+            # Seeded BEFORE the close so ``ClosePosition``'s own commit
+            # (close_position.py) makes the seed and the new closing
+            # attempt durable together (design.md § S5, "Who seeds the
+            # continuation"). ``replay_expected`` covers the retry-after-
+            # FAILED-close case above: the first-ever pass's seed at this
+            # same poll already committed, so re-seeding it here is this
+            # job's own idempotent step recurring, not a chain restart.
+            await self._open_after_close.seed(
+                signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
+            )
 
         close_result = await self._close_position.close(
             CloseCommand(

@@ -120,7 +120,12 @@ class OpenAfterClose:
         self._max_signal_age_seconds = max_signal_age_seconds
 
     async def seed(
-        self, signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0
+        self,
+        signal_id: UUID,
+        awaited_allocation_ids: list[UUID],
+        poll: int = 0,
+        *,
+        replay_expected: bool = False,
     ) -> None:
         """Enqueues the next poll. NEVER commits (mirrors
         ``JobQueuePort.enqueue_unique`` itself) -- the caller's own
@@ -133,7 +138,20 @@ class OpenAfterClose:
         chain, which would otherwise silently drop the continuation on the
         floor (``enqueue_unique``'s insert-or-return-existing no-ops rather
         than raising). Logged loudly rather than left to be discovered by
-        a signal that never opened."""
+        a signal that never opened.
+
+        ``replay_expected`` (design.md § "Reverse wiring (A6)", S5b) marks a
+        caller that KNOWS this exact step may already exist because it is
+        legitimately replaying idempotent work rather than restarting the
+        chain -- this method's own self-reschedule below, re-run after a
+        worker crash between ``poll()``'s commit and its job's ack; and the
+        reverse-wiring release half re-seeding after its close already
+        committed on an earlier attempt at the same job. Both would hit the
+        exact same ``dedupe_key`` they already committed, which is the
+        idempotency mechanism doing its job, not the S5a2 defect class (a
+        step re-seeded that should have advanced the chain instead) -- so a
+        conflict there is logged at INFO, never ERROR. Every other caller
+        keeps the default ``False``."""
         dedupe_key = _dedupe_key(signal_id, poll)
         run_after = self._clock.now() + timedelta(seconds=self._poll_interval_seconds)
         _, inserted = await self._queue.enqueue_unique(
@@ -148,15 +166,25 @@ class OpenAfterClose:
                 dedupe_key=dedupe_key,
             )
         )
-        if not inserted:
-            logger.error(
-                "seed conflict for signal %s at poll %s (dedupe_key=%s): a step "
-                "already seeded was re-seeded instead of the chain advancing; "
-                "the continuation may be stuck",
+        if inserted:
+            return
+        if replay_expected:
+            logger.info(
+                "seed replay for signal %s at poll %s (dedupe_key=%s): already "
+                "seeded by an earlier attempt at the same idempotent step",
                 signal_id,
                 poll,
                 dedupe_key,
             )
+            return
+        logger.error(
+            "seed conflict for signal %s at poll %s (dedupe_key=%s): a step "
+            "already seeded was re-seeded instead of the chain advancing; "
+            "the continuation may be stuck",
+            signal_id,
+            poll,
+            dedupe_key,
+        )
 
     async def poll(self, job: ClaimedJob) -> None:
         """The ``signal.open_after_close`` job handler: reads the DATABASE
@@ -237,4 +265,8 @@ class OpenAfterClose:
             )
             return
 
-        await self.seed(signal_id, awaited_allocation_ids, poll=poll + 1)
+        # A worker crash between this method's own commit and its job's ack
+        # redelivers the SAME job, re-running this exact branch and
+        # re-seeding the SAME next poll -- the continuation's own
+        # idempotency working, not a chain restart (design.md § S5b).
+        await self.seed(signal_id, awaited_allocation_ids, poll=poll + 1, replay_expected=True)

@@ -32,6 +32,7 @@ from strategy_manager.execution.application.close_position import (
     CloseResult,
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Exchange
@@ -170,14 +171,35 @@ class FakeInFlightWorkPort:
 @dataclass
 class SpyContinuationSeeder:
     """Stands in for ``OpenAfterClose``. Records every seed the guard's
-    deferred branch asked for, without needing a real job queue."""
+    deferred branch (or, since S5b, the reverse-wiring release half) asked
+    for, without needing a real job queue."""
 
-    calls: list[tuple[UUID, list[UUID], int]] = field(default_factory=list)
+    calls: list[tuple[UUID, list[UUID], int, bool]] = field(default_factory=list)
 
     async def seed(
-        self, signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0
+        self,
+        signal_id: UUID,
+        awaited_allocation_ids: list[UUID],
+        poll: int = 0,
+        *,
+        replay_expected: bool = False,
     ) -> None:
-        self.calls.append((signal_id, awaited_allocation_ids, poll))
+        self.calls.append((signal_id, awaited_allocation_ids, poll, replay_expected))
+
+
+@dataclass
+class FakeClosingAttemptsPort:
+    """Stands in for ``SqlAlchemyExecutionAttemptRepository.latest_close_for``
+    -- what the reverse-wiring release half (S5b) reads to make itself
+    idempotent. Defaults to ``None`` (no close exists yet for any
+    allocation), the ordinary first-ever-pass case."""
+
+    latest: ExecutionAttempt | None = None
+    calls: list[UUID] = field(default_factory=list)
+
+    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+        self.calls.append(allocation_id)
+        return self.latest
 
 
 @dataclass
@@ -283,6 +305,7 @@ def _process_signal_handler(
     balance_refresh: FakeBalanceRefreshPort | None = None,
     open_after_close: SpyContinuationSeeder | None = None,
     commit: CommitPort | None = None,
+    closing_attempts: FakeClosingAttemptsPort | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -299,6 +322,7 @@ def _process_signal_handler(
         close_position=close_position or SpyClosePosition(),
         open_after_close=open_after_close or SpyContinuationSeeder(),
         commit=commit or FakeCommit(),
+        closing_attempts=closing_attempts or FakeClosingAttemptsPort(),
         tradable_pools=tradable_pools,
     )
 
@@ -955,7 +979,7 @@ async def test_in_flight_work_defers_by_seeding_a_continuation_and_never_allocat
 
     assert result.executed is False
     assert result.refused is None
-    assert seeder.calls == [(signal_id, [], 0)]
+    assert seeder.calls == [(signal_id, [], 0, False)]
     assert commit.commits == 1
     assert lock.acquired == []
 
@@ -1048,7 +1072,7 @@ async def test_open_now_that_still_finds_in_flight_work_reseeds_the_next_poll() 
     result = await handler.open_now(signal_id, poll=3)
 
     assert result.executed is False
-    assert seeder.calls == [(signal_id, [], 4)]
+    assert seeder.calls == [(signal_id, [], 4, False)]
     assert lock.acquired == []
     assert place_order.calls == []
 
@@ -1100,6 +1124,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
         close_position=SpyClosePosition(),
         open_after_close=SpyContinuationSeeder(),
         commit=FakeCommit(),
+        closing_attempts=FakeClosingAttemptsPort(),
         tradable_pools=TRADABLE,
     )
 
@@ -1446,3 +1471,273 @@ async def test_a_missing_credential_refuses_cleanly_once_the_snapshot_is_also_st
     assert result.refused is not None
     assert lock.acquired == []
     assert place_order.calls == []
+
+
+# --- S5b: reverse wiring -----------------------------------------------------
+#
+# design.md § "Reverse wiring (A6)"; spec: trade-execution § Reverse
+# Completion. A reverse whose new side CAN be held (a perpetual market, or a
+# LONG even on spot) seeds the S5 continuation awaiting the prior
+# reservation's close BEFORE that close is placed, and no longer reports an
+# unexecuted tail -- the open half runs later, via the continuation, once
+# the close is FILLED. A reverse into a SPOT SHORT keeps today's
+# ``_note_unexecuted_tail`` behaviour unchanged (covered by the pre-existing
+# reverse tests above, none of which use a holdable new side).
+
+
+def _holdable_reverse_context(
+    *,
+    symbol: str = "ETHUSDT.P",
+    position_size: Decimal = Decimal("-1"),
+    prior_position_size: Decimal = Decimal("1"),
+    prior_reservation_id: UUID | None = None,
+) -> SignalContext:
+    return SignalContext(
+        strategy_id=uuid4(),
+        symbol=symbol,
+        price=Decimal("2000"),
+        position_size=position_size,
+        prior_position_size=prior_position_size,  # opposite signs -> REVERSE
+        prior_reservation_id=prior_reservation_id or uuid4(),
+        settlement_currency="USDT",
+    )
+
+
+async def test_a_holdable_reverse_seeds_the_continuation_before_closing() -> None:
+    """The continuation is seeded BEFORE ``ClosePosition.close`` runs, so
+    its own commit makes the seed and the new closing attempt atomic
+    (design.md § S5, "Who seeds the continuation")."""
+    order: list[str] = []
+
+    class OrderingSeeder:
+        async def seed(
+            self,
+            signal_id: UUID,
+            awaited_allocation_ids: list[UUID],
+            poll: int = 0,
+            *,
+            replay_expected: bool = False,
+        ) -> None:
+            order.append("seed")
+
+    class OrderingClosePosition:
+        async def close(self, command: CloseCommand) -> CloseResult:
+            order.append("close")
+            return CloseResult(
+                status="PLACED", execution_attempt_id=uuid4(), base_size=Decimal("1")
+            )
+
+    lock = SpyAdvisoryLock()
+    context = _holdable_reverse_context()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=OrderingClosePosition(),  # type: ignore[arg-type]
+        open_after_close=OrderingSeeder(),  # type: ignore[arg-type]
+    )
+
+    await handler.handle(uuid4())
+
+    assert order == ["seed", "close"]
+
+
+async def test_a_holdable_reverse_does_not_report_an_unexecuted_tail() -> None:
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    seeder = SpyContinuationSeeder()
+    context = _holdable_reverse_context()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        open_after_close=seeder,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.transition_kind == "reverse"
+    assert result.refused is None
+    assert len(close_position.calls) == 1
+
+
+async def test_the_continuation_awaits_the_prior_reservation() -> None:
+    lock = SpyAdvisoryLock()
+    seeder = SpyContinuationSeeder()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        open_after_close=seeder,
+    )
+
+    await handler.handle(signal_id)
+
+    # ``replay_expected`` is True even on this first-ever pass: it also
+    # covers the retry-after-a-FAILED-close case, whose seed at this same
+    # poll may already be committed from an earlier attempt (design.md §
+    # S5, S5b) -- a benign conflict here, never a chain-restarting one.
+    assert seeder.calls == [(signal_id, [prior_reservation_id], 0, True)]
+
+
+async def test_a_spot_short_reverse_does_not_seed_a_continuation() -> None:
+    """The non-holdable case (a short on spot) keeps
+    ``_note_unexecuted_tail`` and never touches the continuation."""
+    lock = SpyAdvisoryLock()
+    seeder = SpyContinuationSeeder()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),  # long -> short on SPOT: not holdable
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        open_after_close=seeder,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert seeder.calls == []
+    assert result.refused is not None
+
+
+async def test_a_reverse_into_a_long_is_holdable_even_on_spot() -> None:
+    """"holdable" is ``is_perpetual(symbol) or a long`` -- a spot LONG can be
+    bought outright even though a spot SHORT cannot be held."""
+    lock = SpyAdvisoryLock()
+    seeder = SpyContinuationSeeder()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("-1"),  # short -> long, holdable even on spot
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        open_after_close=seeder,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+    assert len(seeder.calls) == 1
+
+
+async def test_a_retried_reverse_with_a_committed_close_does_not_place_a_second() -> None:
+    """Idempotent release half (design.md § S5): a retry after the close
+    already committed must skip ``ClosePosition.close`` entirely and only
+    reseed, marked ``replay_expected`` -- a retry must never place a second
+    close order."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    seeder = SpyContinuationSeeder()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    existing_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="ETHUSDT.P",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.SUBMITTED,
+        client_order_id="client-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        open_after_close=seeder,
+        closing_attempts=FakeClosingAttemptsPort(latest=existing_close),
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert seeder.calls == [(signal_id, [prior_reservation_id], 0, True)]
+    assert result.executed is True
+    assert result.refused is None
+
+
+async def test_a_retried_reverse_after_a_failed_close_places_a_new_one() -> None:
+    """A FAILED close does not block a retry (spec: trade-execution §
+    Retryable Close, Single In-Flight Attempt) -- only a non-FAILED close
+    skips ``ClosePosition.close``."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    prior_reservation_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    failed_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="ETHUSDT.P",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.FAILED,
+        client_order_id="client-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=failed_close),
+    )
+
+    await handler.handle(uuid4())
+
+    assert len(close_position.calls) == 1
+
+
+async def test_a_rejected_holdable_reverse_close_is_reported_failed_not_refused() -> None:
+    """If the close is definitively rejected, the open never happens (it is
+    left awaiting a close that will never FILL); the failure is reported
+    via ``failed``, not ``refused``."""
+    lock = SpyAdvisoryLock()
+    failed_result = CloseResult(
+        status="FAILED", execution_attempt_id=uuid4(), base_size=Decimal("1"), error="rejected"
+    )
+    close_position = SpyClosePosition(result=failed_result)
+    context = _holdable_reverse_context()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.failed == "rejected"
+    assert result.refused is None
