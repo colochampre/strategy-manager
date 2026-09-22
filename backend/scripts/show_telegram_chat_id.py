@@ -60,7 +60,10 @@ def _chats(updates: list[dict[str, object]]) -> dict[str, str]:
 
 async def main() -> int:
     settings = get_settings()
-    token = settings.telegram_bot_token
+    # Quotes and stray whitespace survive a .env round trip and produce a 401
+    # that reads like a wrong token. Strip them here rather than making someone
+    # spot an invisible character.
+    token = settings.telegram_bot_token.strip().strip("\"'").strip()
     if not token:
         print(
             "TELEGRAM_BOT_TOKEN is not set. Put the token BotFather gave you in "
@@ -71,6 +74,28 @@ async def main() -> int:
 
     print(f"asking Telegram which chats bot ***{token[-4:]} can see")
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        # WHICH bot this token belongs to, before anything else. An empty
+        # getUpdates reads identically whether nobody has written to the bot or
+        # the token belongs to a DIFFERENT bot than the one that was messaged,
+        # and the second is the likelier mistake when someone has several.
+        identity = await client.get(f"{_API}/bot{token}/getMe")
+        if identity.status_code == 200:
+            bot = identity.json().get("result") or {}
+            print(f"this token is @{bot.get('username', '?')} — message THAT bot")
+
+        # A webhook silences getUpdates completely: Telegram delivers each
+        # update to the configured URL instead of queueing it here. Worth
+        # naming, because the symptom is an empty list rather than an error.
+        hook = await client.get(f"{_API}/bot{token}/getWebhookInfo")
+        if hook.status_code == 200 and (hook.json().get("result") or {}).get("url"):
+            print(
+                "\nThis bot has a webhook configured, so getUpdates will always "
+                "come back empty. Remove it with deleteWebhook, or read the chat "
+                "id from whatever receives that webhook.",
+                file=sys.stderr,
+            )
+            return 1
+
         response = await client.get(f"{_API}/bot{token}/getUpdates")
 
     if response.status_code == 401:
