@@ -26,6 +26,24 @@ class UsdRateProviderPort(Protocol):
     async def usd_rate(self, currency: Currency) -> Decimal: ...
 
 
+class AlertPort(Protocol):
+    """One operational message, delivered somewhere a human will actually see it.
+
+    Deliberately the narrowest thing that solves the problem it exists for: a
+    ``balance.sync`` chain died in production and stayed dead for three days
+    because the log was the only signal. Two strings — a line short enough to
+    read on a lock screen, and the detail behind it.
+
+    It carries NO severity, NO structure and NO delivery guarantee, because an
+    adapter that could express those would invite a caller to branch on them.
+    An implementation MUST NOT raise: this is called from behind work that is
+    already failing, and an alert that can fail a job turns one outage into
+    two.
+    """
+
+    async def send(self, title: str, body: str) -> None: ...
+
+
 class JobQueuePort(Protocol):
     """PostgreSQL-backed job queue: enqueue, claim, ack, fail-and-retry."""
 

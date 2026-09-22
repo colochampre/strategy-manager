@@ -11,6 +11,9 @@ the API's view of the world is the same handler the worker runs.
 
 Startup order is deliberate:
 
+0. Install operator alerting, before anything that can refuse to start. Every
+   step below ends the process on failure, and a worker that dies during
+   startup is precisely the worker nobody notices has died.
 1. Load the configured pools and assert their advisory-lock keys are
    distinct. This process is the one that actually takes those locks, so a
    collision here silently serializes two unrelated pools against each other.
@@ -46,6 +49,7 @@ from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.infrastructure.alerting import operator_alerts
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed, EnvelopeCipher
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
@@ -60,6 +64,17 @@ logger = logging.getLogger("strategy_manager.worker")
 async def run() -> None:
     settings = get_settings()
 
+    # Installed FIRST, before any other startup step, and deliberately so.
+    # Every refusal below this line is an ERROR or an ``InvariantViolation``
+    # that ends the process, and a worker that dies during startup is exactly
+    # the worker nobody notices has died. It needs no credential beyond the
+    # settings token — no vault, no database, no venue — so there is nothing
+    # it has to wait for. When alerting is off this is a no-op.
+    async with operator_alerts(settings):
+        await _run_worker(settings)
+
+
+async def _run_worker(settings: Settings) -> None:
     async with engine.connect() as conn:
         pools = await CapitalPoolRepository(conn).list_enabled()
         await assert_pool_lock_keys_distinct(conn, pools)

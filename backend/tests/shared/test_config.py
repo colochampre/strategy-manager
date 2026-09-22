@@ -140,3 +140,51 @@ def test_open_after_close_poll_interval_defaults_to_five_seconds() -> None:
     fill that already landed."""
 
     assert Settings().open_after_close_poll_interval_seconds == 5.0
+
+
+def test_alerts_are_disabled_until_they_are_turned_on() -> None:
+    """The bridge is not installed at all when this is false, so an existing
+    deployment that sets nothing keeps behaving exactly as it did — and a
+    half-configured one cannot start sending to an empty chat id."""
+
+    assert Settings(_env_file=None).alerts_enabled is False
+
+
+def test_the_alert_channel_has_no_credential_by_default() -> None:
+    """A default token would be a published credential, and a default chat id
+    would be somebody else's phone."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.telegram_bot_token == ""
+    assert settings.telegram_chat_id == ""
+
+
+def test_the_alert_send_timeout_is_a_few_seconds() -> None:
+    """The drain task sends one alert at a time, so this bounds how long a
+    hung socket can hold every later ERROR behind it. Shorter than the venue
+    clients' 10s: nothing downstream waits on an alert, so there is no reason
+    to be patient with one."""
+
+    assert Settings(_env_file=None).alert_send_timeout_seconds == 5.0
+
+
+def test_the_alert_throttle_window_defaults_to_fifteen_minutes() -> None:
+    """Long enough that a job exhausting its five attempts (450s of backoff)
+    produces ONE alert rather than five, short enough that a chain still
+    failing an hour later says so again."""
+
+    assert Settings(_env_file=None).alert_throttle_window_seconds == 900.0
+
+
+def test_the_throttle_window_outlives_a_whole_retry_chain() -> None:
+    """The number this setting exists for: 30 + 60 + 120 + 240 = 450s of
+    backoff between the five attempts. A window shorter than that alerts once
+    per attempt, which is the flood the throttle is for."""
+
+    settings = Settings()
+    base = settings.job_retry_backoff_base_seconds
+    cap = settings.job_retry_backoff_max_seconds
+    waits = sum(min(base * 2**attempt, cap) for attempt in range(4))
+
+    assert settings.alert_throttle_window_seconds > waits

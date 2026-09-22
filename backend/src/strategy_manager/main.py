@@ -126,6 +126,7 @@ from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.access_log import (
     install_access_log_redaction,
 )
+from strategy_manager.shared.infrastructure.alerting import operator_alerts
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
 from strategy_manager.shared.infrastructure.binance.factory import (
     credentials_from_settings as binance_credentials_from_settings,
@@ -196,14 +197,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Invariant 2 (``DRY_RUN`` vs. the registered adapter) is not repeated here:
     it belongs to ``build_worker_runner``, which is the only place that decides
     which ``ExchangePort`` is registered, and this process places no orders.
+
+    Operator alerting wraps all three, for the reason the worker gives: every
+    invariant below refuses to serve traffic, and a process that never came up
+    is the one least likely to be noticed. It is a no-op when alerting is off,
+    and it needs nothing but the settings token to install.
     """
 
-    async with engine.connect() as conn:
-        pools = await CapitalPoolRepository(conn).list_enabled()
-        await assert_pool_lock_keys_distinct(conn, pools)
-    assert_webhook_secret_configured(get_settings())
-    assert_admin_api_token_configured(get_settings())
-    yield
+    settings = get_settings()
+    async with operator_alerts(settings):
+        async with engine.connect() as conn:
+            pools = await CapitalPoolRepository(conn).list_enabled()
+            await assert_pool_lock_keys_distinct(conn, pools)
+        assert_webhook_secret_configured(settings)
+        assert_admin_api_token_configured(settings)
+        yield
 
 
 def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:

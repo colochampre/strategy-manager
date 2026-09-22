@@ -280,6 +280,45 @@ class Settings(BaseSettings):
     # refusing to confirm off a single noisy read.
     reconciliation_confirmations: int = Field(default=2)
 
+    # --- Operator alerting --------------------------------------------------
+    #
+    # Every ERROR this process logs is forwarded to a Telegram chat. It exists
+    # because the log was the only signal and nobody reads one that is quiet
+    # 99% of the time: ``balance.sync`` was dead for three days in production,
+    # warning on every retry, and the deployment stopped learning its own
+    # capital while looking alive.
+    #
+    # OFF by default and turned on explicitly. When it is off the bridge is
+    # never installed, so an existing deployment that sets nothing behaves
+    # exactly as it did — and a half-configured one cannot start posting into
+    # an empty chat id. Alerts fire regardless of DRY_RUN: this is about the
+    # system's health, not about whether it is trading.
+    alerts_enabled: bool = False
+
+    # Bot token from @BotFather. A SECRET, and one that travels in the request
+    # PATH rather than a header, so nothing may log the alerter's URL
+    # (telegram_alerter.py). No default: a default would be a published
+    # credential, and a default chat id would be somebody else's phone.
+    telegram_bot_token: str = Field(default="")
+    telegram_chat_id: str = Field(default="")
+
+    # How long one alert may spend on the wire. The drain task sends one at a
+    # time, so this bounds how long a hung socket holds every later ERROR
+    # behind it. Shorter than the venue clients' 10s on purpose: nothing
+    # downstream waits on an alert, so there is no reason to be patient.
+    alert_send_timeout_seconds: float = Field(default=5.0)
+
+    # At most one alert per (logger, message template) per this window.
+    #
+    # 15 minutes is chosen against the retry chain above, not picked round: a
+    # failing job waits 30 + 60 + 120 + 240 = 450s across its five attempts
+    # and logs the same ERROR each time, so a window shorter than that sends
+    # five alerts for one incident. The suppressed ones are counted and the
+    # next alert for that key names the total, so nothing is lost — a channel
+    # that floods is a channel whose owner learns to swipe it away, which is
+    # the original defect with an extra step.
+    alert_throttle_window_seconds: float = Field(default=900.0)
+
     # How long a finished (DONE) job row is kept before jobs.purge deletes it.
     #
     # The window is a debugging one, not a correctness one: nothing reads a
