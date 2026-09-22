@@ -10,6 +10,13 @@ def test_job_kind_values_match_the_job_handler_names() -> None:
     assert JobKind.RECONCILIATION_SCAN == "reconciliation.scan"
 
 
+def test_job_kind_open_after_close_matches_the_continuation_handler_name() -> None:
+    """design.md § S5: the continuation that opens a signal's position only
+    after every close it awaits has settled FILLED."""
+
+    assert JobKind.SIGNAL_OPEN_AFTER_CLOSE == "signal.open_after_close"
+
+
 def test_job_defaults_run_after_none_and_max_attempts_five() -> None:
     job = Job(kind=JobKind.SIGNAL_PROCESS, payload={"signal_id": "abc"})
 

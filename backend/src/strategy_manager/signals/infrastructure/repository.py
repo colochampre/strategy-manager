@@ -8,10 +8,11 @@ already-persisted row (spec: signal-ingress § Idempotent Signal Persistence).
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.signals.application.ports import InsertOutcome
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
 from strategy_manager.signals.infrastructure.models import SignalRow
@@ -99,3 +100,22 @@ class SqlAlchemySignalRepository:
             )
         ).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
+
+    async def has_newer(self, strategy_id: UUID, symbol: str, received_at: datetime) -> bool:
+        """Implements ``SignalRepositoryPort.has_newer`` — merged across
+        every spelling ``symbol`` wears, exactly like
+        ``execution.infrastructure.repository``'s
+        ``submitted_for_strategy_symbol`` merges the same way for the
+        Existing-Position Guard.
+        """
+        spellings = list(market_spellings(symbol))
+        result = await self._session.execute(
+            select(SignalRow.id)
+            .where(
+                SignalRow.strategy_id == strategy_id,
+                func.upper(SignalRow.symbol).in_(spellings),
+                SignalRow.received_at > received_at,
+            )
+            .limit(1)
+        )
+        return result.first() is not None

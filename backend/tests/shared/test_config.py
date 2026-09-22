@@ -123,3 +123,20 @@ def test_venue_net_position_timeout_defaults_to_three_seconds() -> None:
     like the balance refresh above."""
 
     assert Settings().venue_net_position_timeout_seconds == 3.0
+
+
+def test_open_after_close_settle_timeout_defaults_to_five_minutes() -> None:
+    """design.md § S5: how long the continuation waits, from an awaited
+    close's ``created_at``, before abandoning with an ERROR instead of
+    polling forever for a close that never settles."""
+
+    assert Settings().open_after_close_settle_timeout_seconds == 300.0
+
+
+def test_open_after_close_poll_interval_defaults_to_five_seconds() -> None:
+    """design.md § S5: the cadence of the continuation's own re-poll, once a
+    fill usually lands in ~2s -- deliberately NOT the failure backoff
+    (30/60/120/240/480s), which would hold a signal hostage for 30s after a
+    fill that already landed."""
+
+    assert Settings().open_after_close_poll_interval_seconds == 5.0

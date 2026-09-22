@@ -17,10 +17,12 @@ from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.models import JobRow
 
@@ -64,6 +66,44 @@ class PostgresJobQueue:
         result = await self._session.execute(stmt)
         job_id: UUID = result.scalar_one()
         return job_id
+
+    async def enqueue_unique(self, job: Job) -> UUID:
+        """``INSERT ... ON CONFLICT (dedupe_key) DO NOTHING RETURNING id``,
+        with a ``SELECT`` fallback for the existing row's id.
+
+        ``RETURNING`` yields no row on a no-op conflict, so a caller reading
+        only the ``INSERT`` result would see nothing on exactly the call
+        meant to make retrying safe (design.md § S5, the per-poll
+        ``dedupe_key`` chain). Never commits, exactly like ``enqueue`` above
+        -- design.md § S5 needs the seed committed atomically with the
+        caller's own write (a close attempt) inside the SAME transaction;
+        committing here would split that write in two.
+        """
+        if job.dedupe_key is None:
+            raise InvariantViolation("enqueue_unique requires a dedupe_key")
+
+        stmt = (
+            pg_insert(JobRow)
+            .values(
+                kind=job.kind.value,
+                payload=job.payload,
+                run_after=job.run_after or self._clock.now(),
+                max_attempts=job.max_attempts,
+                dedupe_key=job.dedupe_key,
+            )
+            .on_conflict_do_nothing(index_elements=["dedupe_key"])
+            .returning(JobRow.id)
+        )
+        result = await self._session.execute(stmt)
+        row = result.first()
+        if row is not None:
+            job_id: UUID = row.id
+            return job_id
+
+        existing = await self._session.execute(
+            select(JobRow.id).where(JobRow.dedupe_key == job.dedupe_key)
+        )
+        return existing.scalar_one()
 
     async def claim(self) -> ClaimedJob | None:
         now = self._clock.now()

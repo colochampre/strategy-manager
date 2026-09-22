@@ -47,6 +47,21 @@ class SignalRepositoryPort(Protocol):
         (design.md § "position_size routes the signal")."""
         ...
 
+    async def has_newer(self, strategy_id: UUID, symbol: str, received_at: datetime) -> bool:
+        """Whether ``strategy_id`` has a LATER signal on this market than
+        ``received_at`` — merged across every spelling ``symbol`` wears
+        (``market_spellings``) — backing the continuation's abandonment
+        check (design.md § S5; spec: job-queue § Continuation Abandonment,
+        "a newer signal has arrived"). Strictly later: an equal timestamp is
+        the same signal, not a newer one, and must not abandon anything.
+
+        Scoped to strategy AND symbol (owner decision, this unit): a newer
+        signal for the same strategy on a DIFFERENT symbol, or for a
+        different strategy on the SAME symbol, must not abandon this
+        continuation.
+        """
+        ...
+
 
 class WebhookAuthPort(Protocol):
     """Authenticates a webhook request by source IP and shared secret."""

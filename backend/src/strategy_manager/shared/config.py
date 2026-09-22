@@ -240,6 +240,20 @@ class Settings(BaseSettings):
     # by the S5 continuation's own abandonment bound.
     delayed_open_max_signal_age_seconds: float = Field(default=600.0)
 
+    # How long the S5 continuation (``signal.open_after_close``, design.md §
+    # S5) waits, from an awaited close's ``created_at``, before abandoning
+    # with an ERROR instead of polling forever for a close that never
+    # settles. A close usually settles in seconds; this is the ceiling for
+    # "the exchange never answered", not the expected wait.
+    open_after_close_settle_timeout_seconds: float = Field(default=300.0)
+
+    # How often the S5 continuation re-polls the database (never the venue)
+    # to check whether every awaited close has settled (design.md § S5).
+    # Deliberately NOT the failure backoff (30/60/120/240/480s, ``fail()``
+    # above) -- a fill usually lands in ~2s, and the first backoff step alone
+    # would hold a signal hostage for 30s after a fill that already landed.
+    open_after_close_poll_interval_seconds: float = Field(default=5.0)
+
     # How often reconciliation.scan compares each pool's venue-reported net
     # position against the ledger's.
     #

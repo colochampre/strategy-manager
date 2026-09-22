@@ -9,10 +9,12 @@ connections observing each other's row locks.
 import asyncio
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
+from strategy_manager.shared.infrastructure.models import JobRow
 
 pytestmark = pytest.mark.integration
 
@@ -95,6 +97,82 @@ async def test_successful_processing_acknowledges_the_job_and_it_is_never_reclai
         never_reclaimed = await PostgresJobQueue(session).claim()
 
     assert never_reclaimed is None
+
+
+async def test_enqueue_unique_first_call_inserts_and_returns_a_new_id(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with pg_session_factory() as session:
+        job_id = await PostgresJobQueue(session).enqueue_unique(
+            Job(
+                kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
+                payload={"signal_id": "abc", "poll": 0},
+                dedupe_key="signal.open_after_close:abc:0",
+            )
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        claimed = await PostgresJobQueue(session).claim()
+
+    assert claimed is not None
+    assert claimed.id == job_id
+    assert claimed.kind is JobKind.SIGNAL_OPEN_AFTER_CLOSE
+
+
+async def test_enqueue_unique_second_call_with_the_same_dedupe_key_returns_the_existing_id(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    dedupe_key = "signal.open_after_close:def:1"
+
+    async with pg_session_factory() as session:
+        first_id = await PostgresJobQueue(session).enqueue_unique(
+            Job(kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={"poll": 1}, dedupe_key=dedupe_key)
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        second_id = await PostgresJobQueue(session).enqueue_unique(
+            Job(kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={"poll": 1}, dedupe_key=dedupe_key)
+        )
+        await session.commit()
+
+    assert second_id == first_id
+
+    async with pg_session_factory() as session:
+        count = await session.execute(
+            select(func.count())
+            .select_from(JobRow)
+            .where(JobRow.dedupe_key == dedupe_key)
+        )
+        assert count.scalar_one() == 1
+
+
+async def test_enqueue_unique_does_not_commit_and_stays_inside_the_callers_transaction(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """design.md § S5: the seed must be committed atomically with the
+    caller's own write (the close attempt), inside the SAME transaction --
+    a caller that never commits must see nothing durable."""
+
+    session = pg_session_factory()
+    try:
+        await PostgresJobQueue(session).enqueue_unique(
+            Job(kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={}, dedupe_key="never-committed")
+        )
+        # Simulate a crash before the caller's own commit: close without
+        # committing, exactly like the crash-reclaim test above.
+        await session.close()
+    finally:
+        pass
+
+    async with pg_session_factory() as session:
+        count = await session.execute(
+            select(func.count())
+            .select_from(JobRow)
+            .where(JobRow.dedupe_key == "never-committed")
+        )
+        assert count.scalar_one() == 0
 
 
 async def test_failed_processing_allows_the_job_to_be_claimed_again(

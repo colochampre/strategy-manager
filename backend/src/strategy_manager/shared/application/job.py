@@ -21,6 +21,11 @@ class JobKind(StrEnum):
     EXECUTION_SETTLE = "execution.settle"
     RECONCILIATION_SCAN = "reconciliation.scan"
     JOBS_PURGE = "jobs.purge"
+    # The S5 continuation (design.md § S5): opens a signal's position only
+    # after every close it awaits has settled FILLED. Not implemented by
+    # this unit -- only the kind exists so ``enqueue_unique`` and the tests
+    # around it have a real ``JobKind`` to enqueue.
+    SIGNAL_OPEN_AFTER_CLOSE = "signal.open_after_close"
 
 
 @dataclass(frozen=True, slots=True)
