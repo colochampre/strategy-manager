@@ -14,6 +14,7 @@ and still be there for the ERRORs that startup itself produces.
 """
 
 import logging
+import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -88,6 +89,11 @@ async def operator_alerts(settings: Settings) -> AsyncIterator[AlertLogBridge | 
         alerter,
         clock=SystemClock(),
         throttle_window_seconds=settings.alert_throttle_window_seconds,
+        # The hostname when nothing is configured, because an unlabelled alert
+        # is worse than a badly labelled one: production and a developer's
+        # machine write to the SAME chat, and the reader has to know which one
+        # is speaking before deciding whether to act.
+        deployment=settings.alert_source or socket.gethostname(),
     )
     try:
         await bridge.start()

@@ -37,7 +37,7 @@ import logging
 import threading
 from collections.abc import Hashable
 from contextlib import suppress
-from datetime import datetime
+from datetime import UTC, datetime
 
 from strategy_manager.shared.application.ports import AlertPort, ClockPort
 from strategy_manager.shared.infrastructure.alert_redaction import redact
@@ -106,6 +106,7 @@ class AlertLogBridge(logging.Handler):
         *,
         clock: ClockPort,
         throttle_window_seconds: float,
+        deployment: str,
         capacity: int = DEFAULT_CAPACITY,
     ) -> None:
         # The handler's own level, so ``logging`` skips this handler on a DEBUG
@@ -114,6 +115,10 @@ class AlertLogBridge(logging.Handler):
         self._alerter = alerter
         self._throttle = _Throttle(throttle_window_seconds, clock)
         self._window_seconds = throttle_window_seconds
+        # Which deployment is speaking. Production and a developer's machine
+        # write to the same chat, and an alert that cannot be attributed is an
+        # alert nobody acts on.
+        self._deployment = deployment
         self._capacity = capacity
         self._queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue(maxsize=capacity)
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -225,7 +230,10 @@ class AlertLogBridge(logging.Handler):
         if suppressed is None:
             return
 
-        self._offer_threadsafe(_title(record), _body(record, suppressed, self._window_seconds))
+        self._offer_threadsafe(
+            _title(record),
+            _body(record, suppressed, self._window_seconds, self._deployment),
+        )
 
     def _offer_threadsafe(self, title: str, body: str) -> None:
         loop = self._loop
@@ -293,8 +301,21 @@ def _title(record: logging.LogRecord) -> str:
     return f"{record.levelname} in {record.name}"
 
 
-def _body(record: logging.LogRecord, suppressed: int, window_seconds: float) -> str:
-    lines = [f"{record.levelname} {record.name}", "", _message_of(record)]
+def _body(
+    record: logging.LogRecord, suppressed: int, window_seconds: float, deployment: str
+) -> str:
+    """The first line answers WHERE and WHEN. The title already answered WHAT
+    and WHO, so neither the level nor the logger is repeated here: a phone
+    shows about two lines of a notification, and spending them on a word the
+    line above already said is spending the whole alert.
+
+    The time is the RECORD's, in UTC, not the moment the alert is sent: a
+    throttled or queued alert can leave the process well after the event it
+    describes, and the event's time is the one worth having beside a journal
+    line.
+    """
+    stamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+    lines = [f"{deployment} · {stamp} UTC", "", _message_of(record)]
 
     if record.exc_info is not None:
         lines += ["", logging.Formatter().formatException(record.exc_info)]

@@ -93,15 +93,51 @@ async def _bridge(
     clock: MovableClock | None = None,
     *,
     capacity: int = 64,
+    deployment: str = "test-host",
 ) -> AlertLogBridge:
     bridge = AlertLogBridge(
         alerter,
         clock=clock or MovableClock(),
         throttle_window_seconds=WINDOW,
         capacity=capacity,
+        deployment=deployment,
     )
     await bridge.start()
     return bridge
+
+
+async def test_the_body_opens_with_the_source_and_the_time() -> None:
+    """An alert read on a phone has to answer WHERE and WHEN before anything
+    else. Production and a developer's machine write to the same chat, so an
+    alert that does not name its source cannot be told from a rehearsal."""
+    alerter = SpyAlerter()
+    bridge = await _bridge(alerter, deployment="prod-vps")
+
+    bridge.emit(_record("something broke"))
+    await bridge.drain()
+    await bridge.aclose()
+
+    first_line = alerter.sent[0][1].splitlines()[0]
+    assert "prod-vps" in first_line
+    assert "UTC" in first_line
+
+
+async def test_the_body_does_not_repeat_the_title() -> None:
+    """The title already carries the level and the logger. Repeating them as
+    the body's first line spends the two lines a phone notification shows on
+    nothing."""
+    alerter = SpyAlerter()
+    bridge = await _bridge(alerter)
+
+    bridge.emit(_record("the actual message"))
+    await bridge.drain()
+    await bridge.aclose()
+
+    title, body = alerter.sent[0]
+    assert title == f"ERROR in {SOURCE}"
+    assert "the actual message" in body
+    assert SOURCE not in body
+    assert "ERROR" not in body
 
 
 async def test_an_error_is_forwarded_to_the_alerter() -> None:
@@ -115,7 +151,9 @@ async def test_an_error_is_forwarded_to_the_alerter() -> None:
     assert len(alerter.sent) == 1
     title, body = alerter.sent[0]
     assert "balance.sync failed after 5 attempts" in body
-    assert SOURCE in body
+    # The logger lives in the TITLE, not the body: repeating it there spent
+    # one of the two lines a phone notification shows.
+    assert SOURCE in title
 
 
 async def test_the_title_names_the_level_and_the_logger() -> None:
@@ -214,7 +252,10 @@ async def test_a_failing_transport_produces_exactly_one_send_attempt(
         transport=httpx.MockTransport(unreachable),
     )
     bridge = AlertLogBridge(
-        alerter, clock=MovableClock(), throttle_window_seconds=WINDOW
+        alerter,
+        clock=MovableClock(),
+        throttle_window_seconds=WINDOW,
+        deployment="test-host",
     )
     await bridge.start()
 
@@ -277,7 +318,10 @@ def test_emit_without_a_running_loop_drops_and_counts() -> None:
     mode."""
     alerter = SpyAlerter()
     bridge = AlertLogBridge(
-        alerter, clock=MovableClock(), throttle_window_seconds=WINDOW
+        alerter,
+        clock=MovableClock(),
+        throttle_window_seconds=WINDOW,
+        deployment="test-host",
     )
 
     bridge.emit(_record("nobody is listening"))

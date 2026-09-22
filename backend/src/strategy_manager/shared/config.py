@@ -319,6 +319,12 @@ class Settings(BaseSettings):
     # the original defect with an extra step.
     alert_throttle_window_seconds: float = Field(default=900.0)
 
+    # Names the deployment an alert came from, on the first line of every one.
+    # Production and a developer's machine write to the SAME chat, so without
+    # it a rehearsal reads exactly like an incident. Empty falls back to the
+    # hostname, which is always better than nothing.
+    alert_source: str = Field(default="")
+
     # --- Watchdog -----------------------------------------------------------
     #
     # How often ``watchdog.check`` asks the DATABASE whether this deployment is
