@@ -26,6 +26,11 @@ class JobKind(StrEnum):
     # this unit -- only the kind exists so ``enqueue_unique`` and the tests
     # around it have a real ``JobKind`` to enqueue.
     SIGNAL_OPEN_AFTER_CLOSE = "signal.open_after_close"
+    # The periodic health check (``shared.application.watchdog``). A recurring
+    # chain like the others, and deliberately so: it needs no scheduler, no
+    # second process and no second thing that can die unnoticed. What it cannot
+    # do is notice its OWN death -- see that module's docstring.
+    WATCHDOG_CHECK = "watchdog.check"
 
 
 @dataclass(frozen=True, slots=True)

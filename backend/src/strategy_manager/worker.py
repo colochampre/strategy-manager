@@ -46,6 +46,7 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
 )
 from strategy_manager.main import build_worker_runner
 from strategy_manager.shared.application.job import JobKind
+from strategy_manager.shared.application.watchdog import AlertChannelPort
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -70,11 +71,17 @@ async def run() -> None:
     # the worker nobody notices has died. It needs no credential beyond the
     # settings token — no vault, no database, no venue — so there is nothing
     # it has to wait for. When alerting is off this is a no-op.
-    async with operator_alerts(settings):
-        await _run_worker(settings)
+    #
+    # The bridge itself is carried into the composition root because the
+    # watchdog asks it one question — how many alerts it has thrown away. A
+    # channel that is dropping alerts is a channel whose silence proves
+    # nothing, and it is the one failure the alert path cannot report about
+    # itself: whatever the dropped alert was carrying never arrived.
+    async with operator_alerts(settings) as bridge:
+        await _run_worker(settings, bridge)
 
 
-async def _run_worker(settings: Settings) -> None:
+async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None) -> None:
     async with engine.connect() as conn:
         pools = await CapitalPoolRepository(conn).list_enabled()
         await assert_pool_lock_keys_distinct(conn, pools)
@@ -93,7 +100,7 @@ async def _run_worker(settings: Settings) -> None:
     # configuration fails here rather than on the first claimed signal. It also
     # builds the cipher, so a missing or malformed MASTER_ENCRYPTION_KEY has
     # already failed before the block below runs.
-    runner = build_worker_runner(pools)
+    runner = build_worker_runner(pools, alert_channel=alert_channel)
 
     # A master key that is well-formed but WRONG survives all of that: it
     # builds a cipher fine and only fails when a credential is actually opened

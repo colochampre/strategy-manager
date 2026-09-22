@@ -46,6 +46,9 @@ from strategy_manager.accounts.infrastructure.reader_by_exchange import (
     ReaderByExchange,
     ReaderFactory,
 )
+from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
+    SqlAlchemyStaleSnapshotReader,
+)
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
@@ -120,6 +123,8 @@ from strategy_manager.reconciliation.infrastructure.venue_position_reader_regist
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.application.jobs_purge_handler import JobsPurgeHandler
 from strategy_manager.shared.application.purge_jobs import PurgeJobs
+from strategy_manager.shared.application.watchdog import AlertChannelPort, Watchdog
+from strategy_manager.shared.application.watchdog_handler import WatchdogHandler
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.money import Currency
@@ -146,8 +151,10 @@ from strategy_manager.shared.infrastructure.bybit.factory import (
 from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
+from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
+from strategy_manager.shared.infrastructure.recurring_jobs import RECURRING_KINDS
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.close_orphans import CloseOrphans
@@ -464,6 +471,7 @@ def build_worker_runner(
     pools: Sequence[PoolConfig],
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
+    alert_channel: AlertChannelPort | None = None,
 ) -> WorkerRunner:
     """Registers ``signal.process``, ``reservation.sweep``, ``balance.sync``,
     ``execution.settle`` and ``reconciliation.scan``. One fresh session per
@@ -473,7 +481,15 @@ def build_worker_runner(
     Both recurring chains keep themselves alive by enqueuing their own
     successor, so each needs an initial job before it runs at all. Seeding is
     ``RecurringJobSeeder``'s job, called by the worker entrypoint — registering
-    a handler here does not start its chain."""
+    a handler here does not start its chain.
+
+    ``alert_channel`` is the live ``AlertLogBridge`` when the calling process
+    installed one, and it is passed in rather than reached for because it is
+    owned by the ``operator_alerts`` context this function runs inside. The
+    watchdog asks it one thing — how many alerts it has thrown away — and
+    ``None`` simply means alerting is off, which is not a fault: the watchdog
+    still runs and still logs, because delivery is the bridge's problem and
+    this check is not."""
 
     settings = get_settings()
     factory = session_factory_override or session_factory
@@ -1041,6 +1057,37 @@ def build_worker_runner(
             await handler.handle(job)
             await session.commit()
 
+    async def handle_watchdog_check(job: ClaimedJob) -> None:
+        """The periodic check for SILENCE (``shared.application.watchdog``).
+
+        Reads the DATABASE ONLY — no vault, no credential, no venue client.
+        That is the point of it: a watchdog that can hang on an exchange's
+        socket stops watching precisely when something is wrong, and its own
+        failure would then kill the chain it rides on.
+
+        Its session is the usual per-job one, and the commit covers the
+        successor exactly as ``handle_jobs_purge`` does.
+        """
+        async with factory() as session:
+            handler = WatchdogHandler(
+                watchdog=Watchdog(
+                    jobs=PostgresJobHealth(session),
+                    snapshots=SqlAlchemyStaleSnapshotReader(session, SystemClock()),
+                    alert_channel=alert_channel,
+                    clock=SystemClock(),
+                    # The same tuple the seeder revives, so "should be
+                    # scheduled" means one thing in this system, not two.
+                    recurring_kinds=RECURRING_KINDS,
+                    snapshot_max_age_seconds=settings.watchdog_snapshot_max_age_seconds,
+                    lookback_seconds=settings.watchdog_interval_seconds,
+                ),
+                queue=_job_queue(session, settings),
+                clock=SystemClock(),
+                interval_seconds=settings.watchdog_interval_seconds,
+            )
+            await handler.handle(job)
+            await session.commit()
+
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:
         async with factory() as session:
@@ -1057,6 +1104,7 @@ def build_worker_runner(
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
         JobKind.JOBS_PURGE: handle_jobs_purge,
+        JobKind.WATCHDOG_CHECK: handle_watchdog_check,
     }
     return WorkerRunner(
         queue_factory=queue_factory,

@@ -319,6 +319,47 @@ class Settings(BaseSettings):
     # the original defect with an extra step.
     alert_throttle_window_seconds: float = Field(default=900.0)
 
+    # --- Watchdog -----------------------------------------------------------
+    #
+    # How often ``watchdog.check`` asks the DATABASE whether this deployment is
+    # still doing the things it is supposed to be doing. It exists because the
+    # alert bridge above can only forward what this system SAYS, and the
+    # three-day ``balance.sync`` outage (2026-09-18 to 2026-09-21) said nothing
+    # at all: warnings, then a FAILED row, then silence, while the deployment
+    # looked alive.
+    #
+    # It runs whether or not alerting is enabled -- it only logs, and delivery
+    # is the bridge's problem.
+    #
+    # Five minutes, matching ``recurring_seed_interval_seconds`` deliberately.
+    # The revival heals a dead chain on that cadence and only WARNs about it,
+    # so a slower watchdog would keep arriving after the evidence of "nothing
+    # was scheduled" had already been tidied away. At the same cadence the
+    # FAILED-job window is seamless either way: each run reads from the
+    # previous run's timestamp, so a chain that died and was revived between
+    # two checks still shows up as the FAILED row it left behind.
+    watchdog_interval_seconds: float = Field(default=300.0)
+
+    # How old the newest balance snapshot for an enabled pool may be before the
+    # watchdog calls it an incident.
+    #
+    # Ten times ``balance_sync_interval_seconds`` (60s), and a multiple of it on
+    # purpose: a single missed cycle is not an incident -- a venue read can fail
+    # or a sync can be slow, and the chain retries. A SUSTAINED gap is, and ten
+    # consecutive missed syncs is not something a working chain does.
+    #
+    # Deliberately far above ``balance_snapshot_max_age_seconds`` (90s), which
+    # answers a different question. That one is a TRADING bound: past it the
+    # allocator refuses to size, which is a safe, self-correcting refusal that
+    # a couple of transient failures can legitimately trigger. This one is an
+    # OPERATOR bound: past it someone should be woken up. Setting them equal
+    # would alert on every refusal, and a refusal is the system working.
+    #
+    # It also sits above the retry chain's own life (30 + 60 + 120 + 240 = 450s
+    # of backoff across five attempts), so a chain that fails, retries and
+    # recovers does not page anyone on its way back up.
+    watchdog_snapshot_max_age_seconds: float = Field(default=600.0)
+
     # How long a finished (DONE) job row is kept before jobs.purge deletes it.
     #
     # The window is a debugging one, not a correctness one: nothing reads a

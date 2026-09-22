@@ -46,6 +46,12 @@ RECURRING_KINDS: tuple[JobKind, ...] = (
     # is alive, so a purge chain that died must come back on a worker restart
     # the same way the others do.
     JobKind.JOBS_PURGE,
+    # The periodic health check. Seeded like any other chain, and it checks
+    # itself along with the rest — harmlessly, since the job running the check
+    # is CLAIMED while it runs and so counts as live. What it cannot do is
+    # notice its own DEATH; see ``shared.application.watchdog``'s docstring for
+    # why only something outside this process can.
+    JobKind.WATCHDOG_CHECK,
 )
 
 LIVE_STATUSES: tuple[str, ...] = ("PENDING", "CLAIMED")
