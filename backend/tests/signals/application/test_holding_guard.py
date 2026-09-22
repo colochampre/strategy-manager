@@ -1,9 +1,9 @@
 """Unit tests: ``HoldingGuard``'s precedence order (spec: capital-allocation
 § Existing-Position Guard; design.md § "Guard order"):
 
-own reservation -> resume (skip entirely) -> in flight (raise, or abandon
-past the age bound) -> flat -> proceed -> divergent -> classify (S4) ->
-refuse.
+own reservation -> resume (skip entirely) -> in flight (defer by seeding a
+continuation, or abandon past the age bound) -> flat -> proceed -> divergent
+-> classify (S4) -> refuse.
 
 Fakes only -- no database; the underlying joins are proven in
 ``test_in_flight_work_integration.py`` and ``test_symbol_holdings_integration.py``.
@@ -20,10 +20,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.signals.application.holding_guard import (
-    HoldingGuard,
-    HoldingNotSettledYet,
-)
+from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.domain.holding import HeldAllocation
 
@@ -53,13 +50,21 @@ class FakeSymbolHoldingsPort:
 @dataclass
 class FakeInFlightWorkPort:
     result: bool = False
+    closing_allocations: list[UUID] = field(default_factory=list)
     calls: list[tuple[PoolKey, UUID, str, datetime]] = field(default_factory=list)
+    closing_allocation_calls: list[tuple[PoolKey, UUID, str]] = field(default_factory=list)
 
     async def in_flight(
         self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
         self.calls.append((pool, strategy_id, symbol, now))
         return self.result
+
+    async def submitted_closing_allocations(
+        self, pool: PoolKey, strategy_id: UUID, symbol: str
+    ) -> list[UUID]:
+        self.closing_allocation_calls.append((pool, strategy_id, symbol))
+        return self.closing_allocations
 
 
 @dataclass
@@ -124,20 +129,49 @@ async def test_an_own_reservation_resumes_without_checking_anything() -> None:
     assert venue.calls == []
 
 
-async def test_in_flight_within_the_age_bound_raises_holding_not_settled_yet(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_in_flight_within_the_age_bound_defers_by_seeding_a_continuation() -> None:
+    """design.md § S5, amending S2: the in-flight branch no longer raises
+    into the queue's failure backoff. It defers instead, naming which
+    allocation's closing attempt (if any) the caller should await."""
+    strategy_id = uuid4()
+    allocation_id = uuid4()
+    in_flight_work = FakeInFlightWorkPort(result=True, closing_allocations=[allocation_id])
+    guard, holdings, _, venue = _guard(in_flight_work=in_flight_work)
+
+    outcome = await guard.check(
+        pool=POOL,
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW - timedelta(seconds=30),
+    )
+
+    assert outcome.proceed is False
+    assert outcome.refused is None
+    assert outcome.awaited_allocation_ids == [allocation_id]
+    assert in_flight_work.closing_allocation_calls == [(POOL, strategy_id, "ETHUSDT")]
+    assert holdings.calls == []
+    assert venue.calls == []
+
+
+async def test_in_flight_within_the_age_bound_with_no_closing_attempt_defers_empty() -> None:
+    """The in-flight condition can also be a SUBMITTED opening attempt or a
+    PENDING reservation -- neither is a close to await, so
+    ``awaited_allocation_ids`` comes back empty and the continuation
+    re-checks the whole guard from scratch on its own cadence instead."""
     guard, holdings, _, venue = _guard(in_flight_work=FakeInFlightWorkPort(result=True))
 
-    with pytest.raises(HoldingNotSettledYet):
-        await guard.check(
-            pool=POOL,
-            strategy_id=uuid4(),
-            symbol="ETHUSDT",
-            own_reservation_id=None,
-            received_at=NOW - timedelta(seconds=30),
-        )
+    outcome = await guard.check(
+        pool=POOL,
+        strategy_id=uuid4(),
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW - timedelta(seconds=30),
+    )
 
+    assert outcome.proceed is False
+    assert outcome.refused is None
+    assert outcome.awaited_allocation_ids == []
     assert holdings.calls == []
     assert venue.calls == []
 

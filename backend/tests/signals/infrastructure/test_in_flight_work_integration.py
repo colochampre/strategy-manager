@@ -49,6 +49,17 @@ async def _in_flight(
         return await adapter.in_flight(POOL, strategy_id, symbol, NOW)
 
 
+async def _submitted_closing_allocations(
+    session_factory: async_sessionmaker[AsyncSession], strategy_id, symbol: str
+) -> list:
+    async with session_factory() as session:
+        adapter = InFlightWorkAdapter(
+            attempts=SqlAlchemyExecutionAttemptRepository(session),
+            reservations=SqlAlchemyReservationRepository(session),
+        )
+        return await adapter.submitted_closing_allocations(POOL, strategy_id, symbol)
+
+
 async def test_nothing_recorded_is_not_in_flight(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -240,3 +251,79 @@ async def test_an_expired_pending_reservation_is_not_in_flight(
     )
 
     assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT") is False
+
+
+async def test_submitted_closing_allocations_awaits_the_allocation_being_closed(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The S5 continuation's rewired seed (design.md § S5, amending S2):
+    ``InFlightWorkAdapter.submitted_closing_allocations`` names the
+    allocation a SUBMITTED closing attempt belongs to, so the caller can
+    await that specific close settling."""
+    strategy_id, signal_id, allocation_id, attempt_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=allocation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+    )
+    await seed_execution_attempt(
+        pg_session_factory,
+        attempt_id=attempt_id,
+        closes_allocation_id=allocation_id,
+        symbol="STXUSDT",
+        status="SUBMITTED",
+    )
+
+    found = await _submitted_closing_allocations(pg_session_factory, strategy_id, "STXUSDT_PERP")
+
+    assert found == [allocation_id]
+
+
+async def test_submitted_closing_allocations_is_empty_for_a_submitted_opening_attempt(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A SUBMITTED opening attempt makes ``in_flight`` True too, but it is
+    not a close -- nothing here to await settling."""
+    strategy_id, signal_id, reservation_id, attempt_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+    )
+    await seed_execution_attempt(
+        pg_session_factory,
+        attempt_id=attempt_id,
+        reservation_id=reservation_id,
+        symbol="STXUSDT",
+        status="SUBMITTED",
+    )
+
+    found = await _submitted_closing_allocations(pg_session_factory, strategy_id, "STXUSDT")
+
+    assert found == []

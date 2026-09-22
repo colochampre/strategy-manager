@@ -103,7 +103,7 @@ async def test_enqueue_unique_first_call_inserts_and_returns_a_new_id(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with pg_session_factory() as session:
-        job_id = await PostgresJobQueue(session).enqueue_unique(
+        job_id, inserted = await PostgresJobQueue(session).enqueue_unique(
             Job(
                 kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
                 payload={"signal_id": "abc", "poll": 0},
@@ -111,6 +111,8 @@ async def test_enqueue_unique_first_call_inserts_and_returns_a_new_id(
             )
         )
         await session.commit()
+
+    assert inserted is True
 
     async with pg_session_factory() as session:
         claimed = await PostgresJobQueue(session).claim()
@@ -126,18 +128,21 @@ async def test_enqueue_unique_second_call_with_the_same_dedupe_key_returns_the_e
     dedupe_key = "signal.open_after_close:def:1"
 
     async with pg_session_factory() as session:
-        first_id = await PostgresJobQueue(session).enqueue_unique(
+        first_id, first_inserted = await PostgresJobQueue(session).enqueue_unique(
             Job(kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={"poll": 1}, dedupe_key=dedupe_key)
         )
         await session.commit()
 
+    assert first_inserted is True
+
     async with pg_session_factory() as session:
-        second_id = await PostgresJobQueue(session).enqueue_unique(
+        second_id, second_inserted = await PostgresJobQueue(session).enqueue_unique(
             Job(kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={"poll": 1}, dedupe_key=dedupe_key)
         )
         await session.commit()
 
     assert second_id == first_id
+    assert second_inserted is False
 
     async with pg_session_factory() as session:
         count = await session.execute(

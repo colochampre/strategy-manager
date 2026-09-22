@@ -77,6 +77,7 @@ from strategy_manager.execution.application.close_position import (
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import BalanceRefreshPort, RefreshStatus
@@ -166,6 +167,26 @@ class ClosePositionPort(Protocol):
     async def close(self, command: CloseCommand) -> CloseResult: ...
 
 
+class ContinuationSeederPort(Protocol):
+    """The S5 continuation's seeding half (design.md § S5), called when the
+    Existing-Position Guard DEFERS rather than proceeds or refuses --
+    ``HoldingGuard``'s in-flight branch, rewired away from raising
+    ``HoldingNotSettledYet`` into the queue's failure backoff (design.md §
+    S5, amending S2). Implemented by
+    ``signals.application.open_after_close.OpenAfterClose``, declared here
+    rather than imported so neither file needs the other's class.
+
+    ``poll`` MUST be the next never-before-seeded step in this signal's
+    chain: 0 when deferred from a fresh ``handle()`` call, or the current
+    poll plus one when deferred again from inside ``open_now`` -- seeding
+    the SAME poll twice silently drops the continuation (design.md § S5,
+    the poll-threading fix)."""
+
+    async def seed(
+        self, signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessSignalResult:
     """``refused`` names a half of the transition that could not be executed
@@ -204,6 +225,8 @@ class ProcessSignalHandler:
         allocate_capital: AllocateCapital,
         place_order: PlaceOrderPort,
         close_position: ClosePositionPort,
+        open_after_close: ContinuationSeederPort,
+        commit: CommitPort,
         tradable_pools: frozenset[tuple[str, str]],
     ) -> None:
         self._signal_context = signal_context
@@ -214,6 +237,8 @@ class ProcessSignalHandler:
         self._allocate_capital = allocate_capital
         self._place_order = place_order
         self._close_position = close_position
+        self._open_after_close = open_after_close
+        self._commit = commit
         self._tradable_pools = tradable_pools
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
@@ -246,19 +271,58 @@ class ProcessSignalHandler:
             return result
         return self._note_unexecuted_tail(context, transition, result)
 
+    async def open_now(self, signal_id: UUID, poll: int = 0) -> ProcessSignalResult:
+        """The S5 continuation's own entry point (design.md § S5, "all
+        FILLED"): called by ``OpenAfterClose.poll()`` once every close it
+        awaited has settled. Re-runs the Existing-Position Guard, the S3
+        refresh and allocation from scratch -- not ``handle()``, since a
+        continuation only ever awaits the CONSUMES side; the signal it
+        carries was already classified as an opening signal the first time
+        ``handle()`` ran and deferred it.
+
+        Dedups on ``SignalContext.own_reservation_id`` (itself
+        ``find_by_signal_id``, the very same lookup ``AllocateCapital.allocate``
+        dedupes its own retries on) BEFORE touching anything: a continuation
+        that already got as far as allocating for this signal is a no-op
+        here, never a second reservation attempt. Re-running a continuation
+        (a crash between its own commit and its job's ack, or a redelivered
+        job) must never submit two opens -- ``execution_attempts
+        .reservation_id``'s UNIQUE constraint (migration 0005) is the
+        backstop if a race ever reached ``PlaceOrder`` twice regardless.
+
+        ``poll`` is the poll number the continuation had already reached
+        when it called this method. The guard can defer AGAIN here (some
+        OTHER work now in flight, or the vacuous empty-awaited-ids case
+        re-checking itself) -- if it does, ``_handle_consumes`` must seed
+        ``poll + 1``, never restart the chain at 0 (orchestrator-found
+        defect: seeding 0 again collides with the already-DONE poll 0 row
+        and silently drops the continuation)."""
+        context = await self._signal_context.load(signal_id)
+        transition = PositionTransition.classify(
+            context.prior_position_size, context.position_size
+        )
+        if context.own_reservation_id is not None:
+            return ProcessSignalResult(
+                transition.kind.value, context.own_reservation_id, True
+            )
+
+        policy = await self._strategy_policy.policy_for(context.strategy_id)
+        return await self._handle_consumes(
+            signal_id, context, transition, policy, next_poll=poll + 1
+        )
+
     async def _handle_consumes(
         self,
         signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        next_poll: int = 0,
     ) -> ProcessSignalResult:
         # The Existing-Position Guard (spec: capital-allocation §
         # Existing-Position Guard) runs BEFORE anything else in this branch --
-        # a refusal here must never reach ``AllocateCapital.allocate()``.
-        # ``HoldingNotSettledYet`` is allowed to propagate out of ``handle``
-        # uncaught: the queue's own backoff is what retries it (design.md §
-        # "Guard order").
+        # neither a refusal nor a deferral here may ever reach
+        # ``AllocateCapital.allocate()`` (design.md § "Guard order").
         guard_outcome = await self._holding_guard.check(
             pool=(policy.exchange, policy.venue, policy.settlement_currency),
             strategy_id=context.strategy_id,
@@ -267,9 +331,24 @@ class ProcessSignalHandler:
             received_at=context.received_at,
         )
         if not guard_outcome.proceed:
-            return ProcessSignalResult(
-                transition.kind.value, None, False, refused=guard_outcome.refused
+            if guard_outcome.refused is not None:
+                return ProcessSignalResult(
+                    transition.kind.value, None, False, refused=guard_outcome.refused
+                )
+            # DEFERRED (design.md § S5, amending S2): work is still in
+            # flight but has not settled yet. Seed a continuation instead of
+            # raising into the queue's failure backoff, which could exhaust
+            # before the 600s bound and end this signal as a silent FAILED
+            # job with no WARNING. ``next_poll`` is 0 on a fresh ``handle()``
+            # call and ``open_now``'s own poll + 1 when THIS deferral was
+            # reached from inside a continuation already in flight --
+            # seeding 0 again there would collide with the already-DONE
+            # poll 0 row and silently drop the chain.
+            await self._open_after_close.seed(
+                signal_id, guard_outcome.awaited_allocation_ids or [], poll=next_poll
             )
+            await self._commit.commit()
+            return ProcessSignalResult(transition.kind.value, None, False)
 
         # On-Demand Balance Refresh Before Allocation (spec: capital-
         # allocation § On-Demand Balance Refresh Before Allocation; design.md

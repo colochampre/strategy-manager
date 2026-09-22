@@ -111,6 +111,23 @@ class InFlightWorkPort(Protocol):
         self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool: ...
 
+    async def submitted_closing_allocations(
+        self, pool: PoolKey, strategy_id: UUID, symbol: str
+    ) -> list[UUID]:
+        """The allocation id(s) whose closing execution attempt is currently
+        SUBMITTED for this strategy and symbol -- what the rewired in-flight
+        branch of ``HoldingGuard`` awaits via ``OpenAfterClose`` instead of
+        raising into the queue's failure backoff (design.md § S5, amending
+        S2). Empty when ``in_flight`` is True for a different reason (an
+        opening attempt in flight, or a PENDING reservation with no attempt
+        yet) -- there is nothing to await settling in that case, and the
+        continuation re-checks from scratch on its own cadence instead.
+
+        Implemented by
+        ``signals.infrastructure.in_flight_work.InFlightWorkAdapter``.
+        """
+        ...
+
 
 class RefreshStatus(Enum):
     """The three outcomes of an on-demand balance refresh (design.md § S3).

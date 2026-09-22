@@ -67,7 +67,7 @@ class PostgresJobQueue:
         job_id: UUID = result.scalar_one()
         return job_id
 
-    async def enqueue_unique(self, job: Job) -> UUID:
+    async def enqueue_unique(self, job: Job) -> tuple[UUID, bool]:
         """``INSERT ... ON CONFLICT (dedupe_key) DO NOTHING RETURNING id``,
         with a ``SELECT`` fallback for the existing row's id.
 
@@ -78,6 +78,8 @@ class PostgresJobQueue:
         -- design.md § S5 needs the seed committed atomically with the
         caller's own write (a close attempt) inside the SAME transaction;
         committing here would split that write in two.
+
+        Returns ``(id, inserted)`` -- see ``JobQueuePort.enqueue_unique``.
         """
         if job.dedupe_key is None:
             raise InvariantViolation("enqueue_unique requires a dedupe_key")
@@ -98,12 +100,12 @@ class PostgresJobQueue:
         row = result.first()
         if row is not None:
             job_id: UUID = row.id
-            return job_id
+            return job_id, True
 
         existing = await self._session.execute(
             select(JobRow.id).where(JobRow.dedupe_key == job.dedupe_key)
         )
-        return existing.scalar_one()
+        return existing.scalar_one(), False
 
     async def claim(self) -> ClaimedJob | None:
         now = self._clock.now()

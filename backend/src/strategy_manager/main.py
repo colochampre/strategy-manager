@@ -150,7 +150,11 @@ from strategy_manager.shared.infrastructure.job_retention import PostgresJobRete
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.holding_guard import HoldingGuard
-from strategy_manager.signals.application.process_signal import ProcessSignalHandler
+from strategy_manager.signals.application.open_after_close import OpenAfterClose
+from strategy_manager.signals.application.process_signal import (
+    ProcessSignalHandler,
+    ProcessSignalResult,
+)
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
@@ -224,7 +228,7 @@ def _build_process_signal_handler(
     tradable_pools: frozenset[tuple[str, str]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
     venue_position_readers: VenuePositionReaderRegistryPort,
-) -> ProcessSignalHandler:
+) -> tuple[ProcessSignalHandler, OpenAfterClose]:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
     handlers table).
@@ -334,7 +338,28 @@ def _build_process_signal_handler(
         settle_delay_seconds=settings.execution_settle_delay_seconds,
     )
 
-    return ProcessSignalHandler(
+    # The S5 continuation (design.md § S5) and this handler need each other:
+    # the handler seeds it from the rewired in-flight branch (design.md § S5,
+    # amending S2), and it calls back into the handler's own ``open_now``
+    # once every awaited close settles. Neither constructor can hand the
+    # other object in directly since neither exists yet -- ``_open_now``
+    # closes over the ``handler`` name below, which is only ever CALLED
+    # later, by which point this function has already returned it.
+    async def _open_now(signal_id: UUID, poll: int) -> ProcessSignalResult:
+        return await handler.open_now(signal_id, poll)
+
+    open_after_close = OpenAfterClose(
+        signals=signal_repository,
+        attempts=SqlAlchemyExecutionAttemptRepository(session),
+        queue=_job_queue(session, settings),
+        clock=SystemClock(),
+        open_now=_open_now,
+        settle_timeout_seconds=settings.open_after_close_settle_timeout_seconds,
+        poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
+        max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
+    )
+
+    handler = ProcessSignalHandler(
         signal_context=signal_context,
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -343,8 +368,11 @@ def _build_process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position,
+        open_after_close=open_after_close,
+        commit=session,
         tradable_pools=tradable_pools,
     )
+    return handler, open_after_close
 
 
 def _build_settle_execution(
@@ -752,7 +780,7 @@ def build_worker_runner(
             balance_refresh_reader_for(session) as balance_refresh_reader,
             venue_net_position_reader_for(session) as venue_position_readers,
         ):
-            handler = _build_process_signal_handler(
+            handler, _ = _build_process_signal_handler(
                 session,
                 pools_by_key,
                 settings,
@@ -763,9 +791,34 @@ def build_worker_runner(
             )
             # The returned ProcessSignalResult is intentionally discarded here:
             # the handler owns every outcome (refused, failed, executed) and
-            # logs it itself. The result exists for tests and for a later
-            # continuation mechanism -- do not "fix" this by branching on it.
+            # logs it itself. The result exists for tests and for the S5
+            # continuation -- do not "fix" this by branching on it.
             await handler.handle(signal_id)
+            # Required since S5: the guard's in-flight branch may seed a
+            # continuation (``enqueue_unique``, which never commits) without
+            # otherwise writing anything through this handler. Every other
+            # path already committed via its own sub-use-case, so this is a
+            # harmless no-op for them.
+            await session.commit()
+
+    async def handle_signal_open_after_close(job: ClaimedJob) -> None:
+        async with (
+            factory() as session,
+            exchange_for(session) as exchanges,
+            balance_refresh_reader_for(session) as balance_refresh_reader,
+            venue_net_position_reader_for(session) as venue_position_readers,
+        ):
+            _, open_after_close = _build_process_signal_handler(
+                session,
+                pools_by_key,
+                settings,
+                exchanges,
+                tradable_pools,
+                balance_refresh_reader,
+                venue_position_readers,
+            )
+            await open_after_close.poll(job)
+            await session.commit()
 
     async def handle_execution_settle(job: ClaimedJob) -> None:
         attempt_id = UUID(str(job.payload["execution_attempt_id"]))
@@ -972,6 +1025,7 @@ def build_worker_runner(
 
     handlers: Mapping[JobKind, JobHandler] = {
         JobKind.SIGNAL_PROCESS: handle_signal_process,
+        JobKind.SIGNAL_OPEN_AFTER_CLOSE: handle_signal_open_after_close,
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,

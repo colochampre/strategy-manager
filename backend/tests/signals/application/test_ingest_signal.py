@@ -47,7 +47,7 @@ class FakeJobQueue:
         self.enqueued.append(job)
         return uuid4()
 
-    async def enqueue_unique(self, job: Job) -> UUID:
+    async def enqueue_unique(self, job: Job) -> tuple[UUID, bool]:
         raise NotImplementedError
 
     async def claim(self) -> Any:

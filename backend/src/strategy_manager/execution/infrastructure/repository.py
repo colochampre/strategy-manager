@@ -144,6 +144,50 @@ class SqlAlchemyExecutionAttemptRepository:
         )
         return result.first() is not None
 
+    async def submitted_closing_allocations(
+        self,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        strategy_id: UUID,
+        symbol: str,
+    ) -> list[UUID]:
+        """The allocation id(s) whose CLOSING execution attempt is currently
+        SUBMITTED for this strategy and symbol within this pool -- what the
+        rewired Existing-Position Guard in-flight branch awaits via
+        ``OpenAfterClose`` instead of raising into the queue's failure
+        backoff (design.md § S5, amending S2).
+
+        Empty when ``submitted_for_strategy_symbol`` is True for a DIFFERENT
+        reason -- a SUBMITTED opening attempt, or a PENDING reservation with
+        no attempt yet at all: neither is a close in flight, so there is
+        nothing here to await settling. The caller (``HoldingGuard``) still
+        defers via the same continuation; it just carries no allocation id,
+        and ``OpenAfterClose`` re-checks from scratch on its own cadence
+        instead of watching a specific close.
+
+        Scoped to ``closes_allocation_id IS NOT NULL`` only, unlike
+        ``submitted_for_strategy_symbol``'s ``COALESCE`` over both origins --
+        this method answers a narrower question on purpose.
+        """
+        spellings = list(market_spellings(symbol))
+        result = await self._session.execute(
+            select(ExecutionAttemptRow.closes_allocation_id)
+            .join(
+                ReservationRow, ReservationRow.id == ExecutionAttemptRow.closes_allocation_id
+            )
+            .where(
+                ExecutionAttemptRow.exchange == exchange,
+                ExecutionAttemptRow.venue == venue,
+                ExecutionAttemptRow.settlement_currency == settlement_currency,
+                ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
+                ExecutionAttemptRow.closes_allocation_id.is_not(None),
+                ReservationRow.strategy_id == strategy_id,
+                func.upper(ExecutionAttemptRow.symbol).in_(spellings),
+            )
+        )
+        return [row[0] for row in result.all()]
+
     async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
         """The most recent closing execution attempt for ``allocation_id``,
         in ANY status, or ``None`` if it has never been closed -- what the

@@ -6,10 +6,15 @@ capital is allocated (design.md § "Guard order").
 
 1. The signal already owns a reservation (a retry past the point
    ``AllocateCapital`` ran) -- resume, skip every other check.
-2. The strategy has execution work in flight on this symbol -- raise
-   ``HoldingNotSettledYet`` so the job retries, UNLESS the signal is already
+2. The strategy has execution work in flight on this symbol -- DEFER by
+   seeding an ``OpenAfterClose`` continuation that polls the database on its
+   own cadence (design.md § S5, amending S2), UNLESS the signal is already
    older than ``delayed_open_max_signal_age_seconds``, in which case give up
-   and refuse with a WARNING instead of retrying forever.
+   and refuse with a WARNING instead of waiting forever. Deferring replaced
+   raising ``HoldingNotSettledYet`` into the queue's failure backoff: that
+   backoff's own arithmetic (30/60/120/240/480s) outlasts the age bound by
+   its fifth retry, so a signal it never records as failed could still end
+   as a silent FAILED job with no WARNING at all.
 3. The strategy's ledger net on the symbol is zero -- proceed.
 4. Otherwise the holding is divergent (ledger and venue may disagree, but
    nothing is in flight to explain it) -- read the venue's own net (the
@@ -19,8 +24,11 @@ capital is allocated (design.md § "Guard order").
    with a WARNING today -- owner decision A1 keeps REAL refused until S6
    delivers closing it, and A2 refuses AMBIGUOUS exactly like a ghost.
 
-A refusal here MUST NEVER reach ``AllocateCapital.allocate()`` -- the caller
-is expected to check ``GuardOutcome.proceed`` before doing anything else.
+A refusal (``proceed=False, refused=...``) or a deferral
+(``proceed=False, refused=None``) here MUST NEVER reach
+``AllocateCapital.allocate()`` -- the caller is expected to check
+``GuardOutcome.proceed`` before doing anything else, and to distinguish the
+two by ``refused`` before deciding whether to seed a continuation.
 """
 
 import logging
@@ -46,25 +54,24 @@ from strategy_manager.signals.domain.holding import (
 logger = logging.getLogger(__name__)
 
 
-class HoldingNotSettledYet(Exception):
-    """The strategy has execution work in flight on this symbol, so its
-    ledger holding cannot be trusted yet.
-
-    Deliberately not a ``DomainError``: like ``NothingRecordedYet``
-    (``execution.application.close_position``), this is a scheduling
-    condition, not a business outcome, and the queue's own backoff is what
-    should retry it -- not this use case.
-    """
-
-
 @dataclass(frozen=True, slots=True)
 class GuardOutcome:
     """``proceed`` True means the caller may continue toward
-    ``AllocateCapital``; ``False`` means it must not, and ``refused`` names
-    why (mirrors ``ProcessSignalResult.refused``)."""
+    ``AllocateCapital``.
+
+    ``False`` with ``refused`` set means the signal must be refused
+    outright (mirrors ``ProcessSignalResult.refused``).
+
+    ``False`` with ``refused is None`` means DEFERRED: in-flight work exists
+    but has not settled yet. ``awaited_allocation_ids`` (possibly empty --
+    see ``InFlightWorkPort.submitted_closing_allocations``) names which
+    allocation(s) the caller's ``OpenAfterClose`` continuation should await
+    before re-running this guard from scratch via
+    ``ProcessSignalHandler.open_now`` (design.md § S5, amending S2)."""
 
     proceed: bool
     refused: str | None = None
+    awaited_allocation_ids: list[UUID] | None = None
 
 
 class HoldingGuard:
@@ -95,7 +102,7 @@ class HoldingGuard:
 
         now = self._clock.now()
         if await self._in_flight_work.in_flight(pool, strategy_id, symbol, now):
-            return self._on_in_flight(pool, strategy_id, symbol, now, received_at)
+            return await self._on_in_flight(pool, strategy_id, symbol, now, received_at)
 
         holdings = await self._holdings.symbol_holdings(pool, symbol)
         net = strategy_net(holdings, strategy_id)
@@ -104,7 +111,7 @@ class HoldingGuard:
 
         return await self._classify_and_refuse(pool, strategy_id, symbol, holdings, net)
 
-    def _on_in_flight(
+    async def _on_in_flight(
         self,
         pool: PoolKey,
         strategy_id: UUID,
@@ -114,10 +121,18 @@ class HoldingGuard:
     ) -> GuardOutcome:
         age_seconds = (now - received_at).total_seconds()
         if age_seconds <= self._delayed_open_max_signal_age_seconds:
-            raise HoldingNotSettledYet(
-                f"strategy {strategy_id} has work in flight on {symbol} in pool "
-                f"{pool}; the opening signal will retry once it settles"
+            awaited_allocation_ids = await self._in_flight_work.submitted_closing_allocations(
+                pool, strategy_id, symbol
             )
+            logger.info(
+                "deferring open for strategy %s on %s in pool %s: work still in "
+                "flight; seeding a continuation to await %s",
+                strategy_id,
+                symbol,
+                pool,
+                awaited_allocation_ids or "settlement",
+            )
+            return GuardOutcome(proceed=False, awaited_allocation_ids=awaited_allocation_ids)
 
         refused = (
             f"strategy {strategy_id} still has work in flight on {symbol} in "

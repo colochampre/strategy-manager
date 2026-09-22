@@ -33,12 +33,9 @@ from strategy_manager.execution.application.close_position import (
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Exchange
-from strategy_manager.signals.application.holding_guard import (
-    GuardOutcome,
-    HoldingGuard,
-    HoldingNotSettledYet,
-)
+from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
 from strategy_manager.signals.application.ports import PoolKey, RefreshOutcome, RefreshStatus
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
@@ -157,11 +154,30 @@ class FakeSymbolHoldingsPort:
 @dataclass
 class FakeInFlightWorkPort:
     result: bool = False
+    closing_allocations: list[UUID] = field(default_factory=list)
 
     async def in_flight(
         self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
         return self.result
+
+    async def submitted_closing_allocations(
+        self, pool: PoolKey, strategy_id: UUID, symbol: str
+    ) -> list[UUID]:
+        return self.closing_allocations
+
+
+@dataclass
+class SpyContinuationSeeder:
+    """Stands in for ``OpenAfterClose``. Records every seed the guard's
+    deferred branch asked for, without needing a real job queue."""
+
+    calls: list[tuple[UUID, list[UUID], int]] = field(default_factory=list)
+
+    async def seed(
+        self, signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0
+    ) -> None:
+        self.calls.append((signal_id, awaited_allocation_ids, poll))
 
 
 @dataclass
@@ -265,6 +281,8 @@ def _process_signal_handler(
     tradable_pools: frozenset[tuple[str, str]] = TRADABLE,
     holding_guard: HoldingGuard | None = None,
     balance_refresh: FakeBalanceRefreshPort | None = None,
+    open_after_close: SpyContinuationSeeder | None = None,
+    commit: CommitPort | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -279,6 +297,8 @@ def _process_signal_handler(
         allocate_capital=allocate_capital,
         place_order=place_order,
         close_position=close_position or SpyClosePosition(),
+        open_after_close=open_after_close or SpyContinuationSeeder(),
+        commit=commit or FakeCommit(),
         tradable_pools=tradable_pools,
     )
 
@@ -900,10 +920,15 @@ async def test_an_own_reservation_resumes_even_with_a_divergent_holding() -> Non
     assert len(lock.acquired) == 1
 
 
-async def test_in_flight_work_raises_and_never_allocates() -> None:
-    """``HoldingNotSettledYet`` must propagate out of ``handle`` uncaught --
-    the queue's own backoff is what retries it."""
+async def test_in_flight_work_defers_by_seeding_a_continuation_and_never_allocates() -> None:
+    """design.md § S5, amending S2: the in-flight branch no longer raises
+    into the queue's failure backoff -- it seeds an ``OpenAfterClose``
+    continuation and commits, without ever reaching the advisory lock.
+
+    Seeds poll 0 -- this is the FRESH-chain case, reached from ``handle()``
+    directly rather than from an already-in-progress continuation."""
     lock = SpyAdvisoryLock()
+    signal_id = uuid4()
     context = SignalContext(
         strategy_id=uuid4(),
         symbol="ETHUSDT",
@@ -915,21 +940,117 @@ async def test_in_flight_work_raises_and_never_allocates() -> None:
         received_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     guard = _holding_guard(in_flight=True)
+    seeder = SpyContinuationSeeder()
+    commit = _SpyCommit()
     handler = _process_signal_handler(
         context=context,
         allocate_capital=_allocate_capital(lock),
         place_order=SpyPlaceOrder(),
         holding_guard=guard,
+        open_after_close=seeder,
+        commit=commit,
     )
 
-    try:
-        await handler.handle(uuid4())
-        raised = False
-    except HoldingNotSettledYet:
-        raised = True
+    result = await handler.handle(signal_id)
 
-    assert raised is True
+    assert result.executed is False
+    assert result.refused is None
+    assert seeder.calls == [(signal_id, [], 0)]
+    assert commit.commits == 1
     assert lock.acquired == []
+
+
+# --- ``open_now``: the S5 continuation's own entry point --------------------
+#
+# design.md § S5, "all FILLED" -> ``ProcessSignalHandler.open_now(signal_id)``.
+
+
+async def test_open_now_with_no_existing_reservation_runs_the_full_pipeline() -> None:
+    """When the continuation is the first thing to ever allocate for this
+    signal, ``open_now`` runs exactly the guard/refresh/allocate/place
+    pipeline ``_handle_consumes`` always has."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    context = _open_long_context()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+    )
+
+    result = await handler.open_now(uuid4())
+
+    assert result.executed is True
+    assert len(lock.acquired) == 1
+    assert len(place_order.calls) == 1
+
+
+async def test_open_now_is_a_no_op_when_the_signal_already_owns_a_reservation() -> None:
+    """Re-running a continuation (a crash between its own commit and its
+    job's ack, or a redelivered job) must never submit a second open --
+    ``own_reservation_id`` (``find_by_signal_id``) makes this a no-op before
+    the guard, the refresh or ``AllocateCapital`` are ever touched."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    existing_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+        own_reservation_id=existing_reservation_id,
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+    )
+
+    result = await handler.open_now(uuid4())
+
+    assert result.executed is True
+    assert result.reservation_id == existing_reservation_id
+    assert lock.acquired == []
+    assert place_order.calls == []
+
+
+async def test_open_now_that_still_finds_in_flight_work_reseeds_the_next_poll() -> None:
+    """Orchestrator-found defect: if the guard defers AGAIN from inside
+    ``open_now`` (some other work now in flight), it must seed ``poll + 1``
+    -- never restart the chain at 0, which would collide with the
+    already-DONE poll 0 row and silently drop the continuation."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    signal_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT",
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+        received_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    guard = _holding_guard(in_flight=True)
+    seeder = SpyContinuationSeeder()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        holding_guard=guard,
+        open_after_close=seeder,
+    )
+
+    result = await handler.open_now(signal_id, poll=3)
+
+    assert result.executed is False
+    assert seeder.calls == [(signal_id, [], 4)]
+    assert lock.acquired == []
+    assert place_order.calls == []
 
 
 # --- On-Demand Balance Refresh Before Allocation (S3) ------------------------
@@ -977,6 +1098,8 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
         allocate_capital=_allocate_capital(lock),
         place_order=SpyPlaceOrder(),
         close_position=SpyClosePosition(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=FakeCommit(),
         tradable_pools=TRADABLE,
     )
 

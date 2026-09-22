@@ -31,11 +31,19 @@ class JobQueuePort(Protocol):
 
     async def enqueue(self, job: Job) -> UUID: ...
 
-    async def enqueue_unique(self, job: Job) -> UUID:
+    async def enqueue_unique(self, job: Job) -> tuple[UUID, bool]:
         """Like ``enqueue``, but idempotent on ``job.dedupe_key``: a second
         call with the same key returns the existing row's id and inserts
         nothing new (design.md § S5, the continuation's per-poll chain).
         ``job.dedupe_key`` MUST NOT be ``None``.
+
+        Returns ``(id, inserted)``: ``inserted`` is ``True`` when this call's
+        own INSERT won the race, ``False`` when an existing row under the
+        same ``dedupe_key`` was found instead. A caller advancing a chain by
+        a fresh, never-before-used key should never see ``False`` -- when it
+        does, that key was reused, which is exactly the silent-chain-death
+        defect this return value exists to make visible (design.md § S5,
+        amending S5a2: ``OpenAfterClose.seed`` logs an ERROR on ``False``).
         """
         ...
 

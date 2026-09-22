@@ -62,6 +62,7 @@ class FakeExchangeAdapter:
         exchange: str = Exchange.BYBIT.value,
         fill_price: Decimal = Decimal("1"),
         book: FakeVenueBook | None = None,
+        fill_latency_polls: int = 0,
     ) -> None:
         """``exchange`` is per instance, not per class: the registry is keyed by
         it, so a dry run needs one fake standing in for each configured
@@ -71,12 +72,21 @@ class FakeExchangeAdapter:
 
         ``book`` is optional (design.md § S4, DRY_RUN paragraph) so every
         caller that predates it -- and every test that does not care about
-        orphan classification -- keeps today's behaviour unchanged."""
+        orphan classification -- keeps today's behaviour unchanged.
+
+        ``fill_latency_polls`` (design.md § S5 testing, "Timing") rehearses
+        an order whose fill is not published on the exchange's first few
+        answers -- the ordinary case for a real venue, and the one the S5
+        continuation exists to wait out. ``0`` (the default) preserves every
+        caller that predates it: ``fetch_fills`` reveals immediately, exactly
+        as before."""
         self.exchange = exchange
         self._fill_price = fill_price
         self._book = book
+        self._fill_latency_polls = fill_latency_polls
         self._placed: dict[str, Fill] = {}
         self._signed_deltas: dict[str, Decimal] = {}
+        self._fetch_calls: dict[str, int] = {}
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
         """Builds whichever shape the symbol implies.
@@ -154,12 +164,25 @@ class FakeExchangeAdapter:
         if fill is None:
             raise OrderNotFound(f"no fake order under client order id {client_order_id}")
 
+        calls = self._fetch_calls.get(client_order_id, 0) + 1
+        self._fetch_calls[client_order_id] = calls
+        if calls <= self._fill_latency_polls:
+            return []
+
         if self._book is not None:
             delta = self._signed_deltas.pop(client_order_id, None)
             if delta is not None:
                 self._book.record_fill(self.exchange, symbol, delta)
 
         return [fill]
+
+    def is_revealed(self, client_order_id: str) -> bool:
+        """Whether ``fetch_fills`` has shown this order's fill yet -- past
+        ``fill_latency_polls`` calls (design.md § S5 testing, "Timing"). Lets
+        a balance-reader test double move a pool's funds in lockstep with
+        one specific order's own settlement, rather than at a moment the
+        test picks by hand."""
+        return self._fetch_calls.get(client_order_id, 0) > self._fill_latency_polls
 
     def _base_quantity(self, order: PlaceableOrder) -> Decimal:
         """A fill is always reported in the base currency, whichever way the
