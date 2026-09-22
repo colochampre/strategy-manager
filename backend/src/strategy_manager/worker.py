@@ -89,50 +89,27 @@ async def run() -> None:
     #
     # Not a degradation: crypto.py states that a wrong master key, a tampered
     # row and a value moved between rows are the same instruction — stop.
-    if settings.dry_run:
-        # The self-test is skipped under DRY_RUN so a rehearsal never depends
-        # on a sealed key (CLAUDE.md rule 1). That is NOT the same as the vault
-        # going unread: ``balance.sync`` opens the Bybit credential on its own
-        # cadence under DRY_RUN too, because only ORDERS are faked — balances
-        # are read from the real venue (confirmed live 2026-09-22). So a master
-        # key that does not match the vault still fails, per job, inside that
-        # handler rather than here. Say so, because the line that claimed the
-        # vault was never read sent an incident the wrong way.
-        logger.info(
-            "dry run: the vault self-test is skipped, but balance.sync still "
-            "opens the stored credential — a master key that does not match it "
-            "will fail there, not here"
+    # It runs under DRY_RUN TOO, and that is a deliberate change (2026-09-22).
+    # It used to be skipped there, on the reasoning that a rehearsal must never
+    # depend on a sealed key. But DRY_RUN fakes ORDERS, not balances:
+    # ``balance.sync`` opens the stored credential on its own cadence either
+    # way, confirmed live on the deploy of that date. So under DRY_RUN a
+    # mismatched key did not go unused — it failed inside that handler, over
+    # and over, while startup reported the vault as unread. An EMPTY vault is
+    # still not a failure, so a first boot with nothing sealed is unaffected.
+    async with session_factory() as session:
+        # The cipher is rebuilt rather than reached for inside the runner:
+        # it is one key derivation, and the alternative is widening the
+        # composition root's return type so a startup check can borrow a
+        # handle to a secret.
+        opened = await _assert_sealed_credentials_open(
+            SqlAlchemyCredentialVault(
+                session,
+                EnvelopeCipher.from_base64(settings.master_encryption_key),
+                SystemClock(),
+            )
         )
-    else:
-        async with session_factory() as session:
-            # The cipher is rebuilt rather than reached for inside the runner:
-            # it is one key derivation, and the alternative is widening the
-            # composition root's return type so a startup check can borrow a
-            # handle to a secret.
-            opened = await _assert_sealed_credentials_open(
-                SqlAlchemyCredentialVault(
-                    session,
-                    EnvelopeCipher.from_base64(settings.master_encryption_key),
-                    SystemClock(),
-                )
-            )
-        # An EMPTY vault is not a failure. A fresh deployment has sealed
-        # nothing yet, and the sealing scripts need this database and this
-        # configuration to run at all — refusing here would make the first boot
-        # impossible. Warn, because live trading cannot place an order until a
-        # key exists, and say so plainly.
-        if opened:
-            logger.info(
-                "vault self-test: %d sealed credential(s) opened (%s)",
-                len(opened),
-                ", ".join(opened),
-            )
-        else:
-            logger.warning(
-                "vault self-test: no credentials are sealed yet, so nothing was "
-                "checked. Live trading will reserve capital and then fail to place "
-                "orders until one is stored."
-            )
+    _log_vault_self_test(opened, dry_run=settings.dry_run)
 
     clock = SystemClock()
 
@@ -181,6 +158,37 @@ async def _seed_recurring_chains(settings: Settings) -> list[JobKind]:
                 backoff_max_seconds=settings.job_retry_backoff_max_seconds,
             ),
         ).seed()
+
+
+def _log_vault_self_test(opened: list[str], *, dry_run: bool) -> None:
+    """An EMPTY vault is not a failure. A fresh deployment has sealed nothing
+    yet, and the sealing scripts need this database and this configuration to
+    run at all — refusing here would make the first boot impossible.
+
+    The empty case names the job that will actually suffer. Under DRY_RUN that
+    is ``balance.sync``, which reads real balances and so needs a real
+    credential; without one the deployment stops learning its own capital while
+    looking alive. Live, the first cost arrives earlier still: capital is
+    reserved and the order cannot be placed.
+    """
+    if opened:
+        logger.info(
+            "vault self-test: %d sealed credential(s) opened (%s)",
+            len(opened),
+            ", ".join(opened),
+        )
+    elif dry_run:
+        logger.warning(
+            "vault self-test: no credentials are sealed yet, so nothing was "
+            "checked. DRY_RUN fakes orders, not balances: balance.sync will "
+            "keep failing until one is stored."
+        )
+    else:
+        logger.warning(
+            "vault self-test: no credentials are sealed yet, so nothing was "
+            "checked. Live trading will reserve capital and then fail to place "
+            "orders until one is stored."
+        )
 
 
 async def _assert_sealed_credentials_open(vault: CredentialVaultPort) -> list[str]:

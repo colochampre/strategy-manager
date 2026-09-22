@@ -7,6 +7,8 @@ scheduled to revive it, so the deployment stops learning its own capital while
 looking alive. This check moves that failure to startup.
 """
 
+import logging
+
 import pytest
 
 from strategy_manager.accounts.domain.exchange_credential import (
@@ -15,7 +17,7 @@ from strategy_manager.accounts.domain.exchange_credential import (
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed
-from strategy_manager.worker import _assert_sealed_credentials_open
+from strategy_manager.worker import _assert_sealed_credentials_open, _log_vault_self_test
 
 
 class FakeVault:
@@ -83,6 +85,39 @@ async def test_one_unreadable_credential_stops_the_worker_for_all_of_them() -> N
         await _assert_sealed_credentials_open(
             FakeVault(opens=("bybit",), fails=("binance",))
         )
+
+
+def test_an_opened_vault_is_reported_at_info(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
+        _log_vault_self_test(["bybit", "binance"], dry_run=False)
+
+    record = caplog.records[-1]
+    assert record.levelno == logging.INFO
+    assert "bybit" in record.getMessage() and "binance" in record.getMessage()
+
+
+def test_an_empty_vault_warns_rather_than_refusing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
+        _log_vault_self_test([], dry_run=False)
+
+    assert caplog.records[-1].levelno == logging.WARNING
+
+
+def test_an_empty_vault_under_dry_run_names_balance_sync(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The self-test now runs under DRY_RUN too, because balance.sync opens
+    the stored credential there as well — only ORDERS are faked. An operator
+    rehearsing with an empty vault must be told which job will fail, not that
+    the vault goes unread."""
+    with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
+        _log_vault_self_test([], dry_run=True)
+
+    message = caplog.records[-1].getMessage()
+    assert caplog.records[-1].levelno == logging.WARNING
+    assert "balance.sync" in message
 
 
 async def test_an_empty_vault_is_not_a_failure() -> None:
