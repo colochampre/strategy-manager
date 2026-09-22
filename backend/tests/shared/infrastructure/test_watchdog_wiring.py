@@ -48,6 +48,20 @@ def test_the_watchdog_handler_never_reaches_a_venue() -> None:
     assert "CredentialVault" not in body
 
 
+def test_the_composition_root_gives_the_watchdog_its_heartbeat() -> None:
+    """The dead-man's switch is only a switch if the healthy branch can reach
+    it. Unwired, every run would look exactly like a healthy one that pinged —
+    except that the external service would escalate forever."""
+    from strategy_manager import main
+
+    source = inspect.getsource(main.build_worker_runner)
+    body = source[source.index("async def handle_watchdog_check") :]
+    body = body[: body.index("async def queue_factory")]
+
+    assert "build_heartbeat(settings)" in body
+    assert "heartbeat=" in body
+
+
 def test_the_worker_hands_its_alert_bridge_to_the_composition_root() -> None:
     """Condition 4 — a lossy alert channel — is unanswerable without the live
     bridge, and the bridge only exists inside ``operator_alerts``."""

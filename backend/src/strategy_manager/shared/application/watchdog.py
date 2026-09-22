@@ -39,15 +39,30 @@ condition logs once, naming everything it found.
 few minutes for the life of the deployment. A watchdog that chirps on every run
 trains its reader to skip it, which is the original defect with an extra step.
 
-THE HOLE, stated rather than papered over: this is itself a recurring chain, so
-it cannot report its own death. If the watchdog's job dies, or the worker
-process stops claiming at all, every check above stops running and the silence
-is once again indistinguishable from health. ``RecurringChainRevival`` re-seeds
-a dead chain from inside the claim loop, which covers the first case as long as
-the loop is alive, and nothing in this process can cover the second. The only
-real answer is external: a dead-man's switch outside this deployment that
-expects a periodic ping and alerts when it stops arriving. Do not try to solve
-it in here — anything that watches this process from inside it dies with it.
+THE HOLE, and how it is now covered: this is itself a recurring chain, so it
+cannot report its own death. If the watchdog's job dies, or the worker process
+stops claiming at all, every check above stops running and the silence is once
+again indistinguishable from health. ``RecurringChainRevival`` re-seeds a dead
+chain from inside the claim loop, which covers the first case as long as the
+loop is alive, and nothing in this process can cover the second. The answer is
+external, because anything that watches this process from inside it dies with
+it: a dead-man's switch outside this deployment that expects a periodic ping
+and alerts when it stops arriving.
+
+``HeartbeatPort`` is this side of that switch, and ONE rule makes it worth
+more than a liveness probe: **the ping is sent on a healthy run and on no
+other.** An unconditional ping would only prove the process breathes, which is
+the weaker half of what the ERROR bridge already covers. Withholding it turns
+every condition above into something the outside can escalate on its own,
+including the two nothing inside here can report — a dead chain and a dead
+process — because all three then look identical from out there: no ping.
+
+It is the one outbound call in this module, and it is bounded on every side.
+It happens LAST, after every finding has been logged, so a slow endpoint can
+never delay or suppress a report. It cannot raise, because a monitoring
+outage must not kill the one chain nothing else is watching. And its failure
+is a WARNING, never an ERROR: an ERROR goes to the bridge, and an unreachable
+heartbeat endpoint would then page the owner about the monitoring itself.
 """
 
 import logging
@@ -141,6 +156,21 @@ class AlertChannelPort(Protocol):
     def dropped(self) -> int: ...
 
 
+class HeartbeatPort(Protocol):
+    """The outbound half of the dead-man's switch.
+
+    Deliberately argument-free: what the external service is told is that the
+    check ran and found nothing, and there is nothing else it could usefully
+    be told — a service that escalates by ABSENCE reads no payload.
+
+    Adapters are required not to raise, exactly as ``AlertPort``'s are. The use
+    case guards anyway, because this is the chain nothing else watches and a
+    port is an interface, not a promise about every future implementation.
+    """
+
+    async def ping(self) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class WatchdogReport:
     """What one run found. Returned for the handler and the tests; the ERRORs
@@ -169,6 +199,7 @@ class Watchdog:
         jobs: JobHealthPort,
         snapshots: StaleSnapshotPort,
         alert_channel: AlertChannelPort | None,
+        heartbeat: HeartbeatPort | None = None,
         clock: ClockPort,
         recurring_kinds: Sequence[JobKind],
         snapshot_max_age_seconds: float,
@@ -177,6 +208,7 @@ class Watchdog:
         self._jobs = jobs
         self._snapshots = snapshots
         self._alert_channel = alert_channel
+        self._heartbeat = heartbeat
         self._clock = clock
         self._recurring_kinds = tuple(recurring_kinds)
         self._snapshot_max_age_seconds = snapshot_max_age_seconds
@@ -204,7 +236,36 @@ class Watchdog:
             ),
         )
         self._report(report, window_start)
+        if report.healthy and self._heartbeat is not None:
+            # LAST, and only here. Everything above has already been logged, so
+            # the slowest possible endpoint costs this run nothing but time —
+            # and an unhealthy run has already returned from this branch
+            # without saying anything to the outside at all.
+            await self._send_heartbeat(self._heartbeat)
         return report
+
+    async def _send_heartbeat(self, heartbeat: HeartbeatPort) -> None:
+        """Swallows everything, one layer above the adapter that also swallows
+        everything. Not redundancy for its own sake: the adapter's guarantee
+        holds for the adapter, and this method's guarantee holds for the chain
+        — which is the one whose death nobody would notice.
+
+        WARNING, never ERROR: ``AlertLogBridge`` forwards ERROR, and a
+        heartbeat endpoint that is briefly unreachable is a monitoring
+        problem, not a trading one. The external service is about to escalate
+        the missing ping by itself anyway, which is the entire design."""
+        try:
+            await heartbeat.ping()
+        except Exception as exc:
+            # The exception, never the URL: the ping URL carries an opaque
+            # token in its path and httpx puts the request URL inside its own
+            # messages. The adapter scrubs it; this line does not reproduce it.
+            logger.warning(
+                "the watchdog heartbeat could not be sent (%s). This run was "
+                "healthy, so the external dead-man's switch will escalate a "
+                "missing ping that does not reflect this deployment's health.",
+                type(exc).__name__,
+            )
 
     def _report(self, report: WatchdogReport, window_start: datetime) -> None:
         if report.healthy:

@@ -151,6 +151,7 @@ from strategy_manager.shared.infrastructure.bybit.factory import (
 from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
+from strategy_manager.shared.infrastructure.heartbeat import build_heartbeat
 from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
@@ -1063,30 +1064,48 @@ def build_worker_runner(
         Reads the DATABASE ONLY — no vault, no credential, no venue client.
         That is the point of it: a watchdog that can hang on an exchange's
         socket stops watching precisely when something is wrong, and its own
-        failure would then kill the chain it rides on.
+        failure would then kill the chain it rides on. The heartbeat below is
+        the one socket in here and it is not a read: it carries no answer the
+        check depends on, it is sent after everything has already been decided
+        and reported, and it cannot raise.
 
         Its session is the usual per-job one, and the commit covers the
         successor exactly as ``handle_jobs_purge`` does.
+
+        The heartbeat is the one thing here that leaves the deployment, and it
+        is built per run rather than held for the life of the worker. A ping
+        every few minutes does not need a pooled connection, and a client built
+        inside the run is a client that cannot outlive it — this is the chain
+        nothing else is watching, so it gets the lifecycle with nothing to leak.
+        ``None`` when no URL is configured, which is simply the feature off.
         """
-        async with factory() as session:
-            handler = WatchdogHandler(
-                watchdog=Watchdog(
-                    jobs=PostgresJobHealth(session),
-                    snapshots=SqlAlchemyStaleSnapshotReader(session, SystemClock()),
-                    alert_channel=alert_channel,
+        heartbeat = build_heartbeat(settings)
+        try:
+            async with factory() as session:
+                handler = WatchdogHandler(
+                    watchdog=Watchdog(
+                        jobs=PostgresJobHealth(session),
+                        snapshots=SqlAlchemyStaleSnapshotReader(session, SystemClock()),
+                        alert_channel=alert_channel,
+                        heartbeat=heartbeat,
+                        clock=SystemClock(),
+                        # The same tuple the seeder revives, so "should be
+                        # scheduled" means one thing in this system, not two.
+                        recurring_kinds=RECURRING_KINDS,
+                        snapshot_max_age_seconds=(
+                            settings.watchdog_snapshot_max_age_seconds
+                        ),
+                        lookback_seconds=settings.watchdog_interval_seconds,
+                    ),
+                    queue=_job_queue(session, settings),
                     clock=SystemClock(),
-                    # The same tuple the seeder revives, so "should be
-                    # scheduled" means one thing in this system, not two.
-                    recurring_kinds=RECURRING_KINDS,
-                    snapshot_max_age_seconds=settings.watchdog_snapshot_max_age_seconds,
-                    lookback_seconds=settings.watchdog_interval_seconds,
-                ),
-                queue=_job_queue(session, settings),
-                clock=SystemClock(),
-                interval_seconds=settings.watchdog_interval_seconds,
-            )
-            await handler.handle(job)
-            await session.commit()
+                    interval_seconds=settings.watchdog_interval_seconds,
+                )
+                await handler.handle(job)
+                await session.commit()
+        finally:
+            if heartbeat is not None:
+                await heartbeat.aclose()
 
     @asynccontextmanager
     async def queue_factory() -> AsyncIterator[PostgresJobQueue]:

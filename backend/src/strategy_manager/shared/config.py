@@ -366,6 +366,33 @@ class Settings(BaseSettings):
     # recovers does not page anyone on its way back up.
     watchdog_snapshot_max_age_seconds: float = Field(default=600.0)
 
+    # The dead-man's switch: a URL outside this deployment that is pinged after
+    # a watchdog run that found NOTHING wrong, and after no other kind of run.
+    #
+    # It closes the one hole the watchdog cannot close from in here. Every check
+    # it makes, and every ERROR the bridge forwards, needs the worker to still
+    # be claiming jobs; if the process dies the checks stop and the silence is
+    # indistinguishable from health again. An external service that escalates
+    # when a ping stops arriving is driven by ABSENCE, which is the only signal
+    # a dead process cannot suppress.
+    #
+    # Empty is OFF and nothing is ever sent. Provider-agnostic: healthchecks.io,
+    # Better Stack, Cronitor and a self-hosted cron receiver all take a plain
+    # request to an opaque URL.
+    #
+    # A SECRET, and one with no query string to strip — the token is in the
+    # PATH. Nothing may log it, put it in a message or carry it into an alert;
+    # anyone holding it can forge the heartbeat, which switches the monitoring
+    # off without anything turning red.
+    watchdog_heartbeat_url: str = Field(default="")
+
+    # How long one ping may spend on the wire. Bounded tightly and deliberately:
+    # nothing waits on a heartbeat, the next one is only a watchdog interval
+    # away, and a hung socket here would hold a worker session open for its
+    # whole duration. Matches ``alert_send_timeout_seconds`` for the same
+    # reason it is short.
+    watchdog_heartbeat_timeout_seconds: float = Field(default=5.0)
+
     # How long a finished (DONE) job row is kept before jobs.purge deletes it.
     #
     # The window is a debugging one, not a correctness one: nothing reads a

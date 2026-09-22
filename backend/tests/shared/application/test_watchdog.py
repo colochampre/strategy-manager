@@ -90,16 +90,29 @@ class FakeAlertChannel:
         return self._dropped
 
 
+class FakeHeartbeat:
+    def __init__(self, raises: Exception | None = None) -> None:
+        self.pings = 0
+        self._raises = raises
+
+    async def ping(self) -> None:
+        self.pings += 1
+        if self._raises is not None:
+            raise self._raises
+
+
 def _watchdog(
     *,
     jobs: FakeJobHealth | None = None,
     snapshots: FakeStaleSnapshots | None = None,
     alert_channel: FakeAlertChannel | None = None,
+    heartbeat: FakeHeartbeat | None = None,
 ) -> Watchdog:
     return Watchdog(
         jobs=jobs or FakeJobHealth(),
         snapshots=snapshots or FakeStaleSnapshots(),
         alert_channel=alert_channel,
+        heartbeat=heartbeat,
         clock=FrozenClock(),
         recurring_kinds=RECURRING,
         snapshot_max_age_seconds=SNAPSHOT_MAX_AGE,
@@ -332,3 +345,103 @@ async def test_an_unhealthy_run_is_not_reported_as_healthy() -> None:
 
     assert report.healthy is False
     assert report.checked_at == NOW
+
+
+# --- the outbound heartbeat -----------------------------------------------
+#
+# The one blind spot every check above shares: this use case rides a recurring
+# chain, so it cannot report its own death. The answer is outside the process —
+# a service that expects a periodic ping and escalates when it stops arriving.
+# What makes it more than a liveness probe is the CONDITION: the ping is sent
+# on a healthy run and on no other, so "the check found nothing wrong" and
+# "the check ran at all" are the same signal.
+
+
+async def test_a_healthy_run_pings_the_heartbeat() -> None:
+    heartbeat = FakeHeartbeat()
+
+    report = await _watchdog(heartbeat=heartbeat).check()
+
+    assert report.healthy is True
+    assert heartbeat.pings == 1
+
+
+@pytest.mark.parametrize(
+    "unhealthy",
+    [
+        pytest.param({"snapshots": FakeStaleSnapshots((BYBIT_POOL,))}, id="stale-pool"),
+        pytest.param(
+            {"jobs": FakeJobHealth(unscheduled=(JobKind.BALANCE_SYNC,))},
+            id="unscheduled-chain",
+        ),
+        pytest.param(
+            {"jobs": FakeJobHealth(failures=(FailedJobs(kind="balance.sync", count=1),))},
+            id="failed-job",
+        ),
+        pytest.param({"alert_channel": FakeAlertChannel(dropped=1)}, id="dropped-alert"),
+    ],
+)
+async def test_an_unhealthy_run_stays_silent_toward_the_outside(
+    unhealthy: dict[str, object],
+) -> None:
+    """The whole point of the design. Withholding the ping is how the external
+    service learns something is wrong WITHOUT this deployment having to reach
+    it — which is the case a ping could never cover, because the same failure
+    that kills the check kills its ability to report."""
+    heartbeat = FakeHeartbeat()
+
+    report = await _watchdog(heartbeat=heartbeat, **unhealthy).check()  # type: ignore[arg-type]
+
+    assert report.healthy is False
+    assert heartbeat.pings == 0
+
+
+async def test_no_heartbeat_configured_changes_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Empty setting means the feature is off, and off must be indistinguishable
+    from the deployment that existed before this was written."""
+    with caplog.at_level(logging.DEBUG, logger=WATCHDOG_LOGGER):
+        report = await _watchdog(heartbeat=None).check()
+
+    assert report.healthy is True
+    assert [record for record in caplog.records if record.levelno > logging.INFO] == []
+
+
+async def test_a_heartbeat_that_raises_neither_propagates_nor_logs_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unreachable monitoring endpoint must not take down the one chain
+    nothing else is watching, and must not page anyone: an ERROR here reaches
+    the bridge, so a monitoring outage would ring the owner's phone about the
+    monitoring rather than about the system."""
+    heartbeat = FakeHeartbeat(raises=RuntimeError("no route to host"))
+
+    with caplog.at_level(logging.DEBUG, logger=WATCHDOG_LOGGER):
+        report = await _watchdog(heartbeat=heartbeat).check()
+
+    assert report.healthy is True
+    assert _errors(caplog) == []
+    assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+
+async def test_the_ping_is_sent_only_after_the_run_has_been_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ordering, not decoration. Every finding is logged before anything is
+    sent over a socket, so a heartbeat that hangs for its whole timeout can
+    never delay or suppress the report it is confirming."""
+
+    class RecordingHeartbeat:
+        def __init__(self) -> None:
+            self.records_at_ping = -1
+
+        async def ping(self) -> None:
+            self.records_at_ping = len(caplog.records)
+
+    heartbeat = RecordingHeartbeat()
+
+    with caplog.at_level(logging.INFO, logger=WATCHDOG_LOGGER):
+        await _watchdog(heartbeat=heartbeat).check()  # type: ignore[arg-type]
+
+    assert heartbeat.records_at_ping == 1
