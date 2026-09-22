@@ -37,13 +37,45 @@ class HeldAllocation:
 class OrphanKind(Enum):
     """How a divergent holding (ledger and venue disagree) is classified.
 
-    Only ``REAL`` is ever acted on. The arithmetic that tells the three
-    apart (``classify_orphan``) is S4 scope and is not declared here.
+    Only ``REAL`` is ever acted on -- and even that is refused until S6
+    delivers closing it (owner decision A1).
     """
 
     REAL = "REAL"
     GHOST = "GHOST"
     AMBIGUOUS = "AMBIGUOUS"
+
+
+def classify_orphan(l_s: Decimal, l_p: Decimal, v: Decimal | None) -> OrphanKind:
+    """Classifies a divergent holding (spec: capital-allocation § Orphan
+    Classification; design.md § S4 "classification arithmetic").
+
+    ``l_s`` is the strategy's own ledger net on the symbol (guaranteed
+    non-zero by ``HoldingGuard``, which only reaches this once ``strategy_net``
+    already proved so). ``l_p`` is the pool's ledger net over EVERY strategy
+    on the symbol. ``v`` is the venue's own reported net, or ``None`` when the
+    read failed or timed out -- ``VenueNetPositionPort`` never raises, it
+    reports the failure this way instead.
+
+    ``O = l_p - l_s`` (every OTHER strategy's net on the symbol) is derived
+    here rather than accepted as a parameter: it is arithmetic on the two
+    numbers already given, not a third fact anyone reads independently.
+
+    **REAL** iff the venue agrees with the WHOLE POOL's ledger net --  every
+    strategy sharing the symbol is still open exactly as recorded. **GHOST**
+    iff the venue instead agrees with what the pool would net WITHOUT this
+    strategy's contribution -- exactly the shape a manual close or a
+    liquidation of this strategy's own leg leaves behind. Anything else,
+    including a failed read, is **AMBIGUOUS** -- conservative by
+    construction, since only ``REAL`` is ever acted on.
+    """
+    if v is None:
+        return OrphanKind.AMBIGUOUS
+    if v == l_p:
+        return OrphanKind.REAL
+    if v == l_p - l_s:
+        return OrphanKind.GHOST
+    return OrphanKind.AMBIGUOUS
 
 
 def strategy_net(holdings: Iterable[HeldAllocation], strategy_id: UUID) -> Decimal:

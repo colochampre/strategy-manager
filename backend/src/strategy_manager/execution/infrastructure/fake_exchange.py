@@ -28,6 +28,7 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.shared.domain.money import Exchange, Venue
 
 
@@ -57,16 +58,25 @@ class FakeExchangeAdapter:
     FAKE_LEVERAGE = Decimal("1")
 
     def __init__(
-        self, exchange: str = Exchange.BYBIT.value, fill_price: Decimal = Decimal("1")
+        self,
+        exchange: str = Exchange.BYBIT.value,
+        fill_price: Decimal = Decimal("1"),
+        book: FakeVenueBook | None = None,
     ) -> None:
         """``exchange`` is per instance, not per class: the registry is keyed by
         it, so a dry run needs one fake standing in for each configured
         exchange rather than one fake claiming to be all of them. Each also
         keeps its own placed orders, which is what a real pair of adapters
-        would do."""
+        would do.
+
+        ``book`` is optional (design.md § S4, DRY_RUN paragraph) so every
+        caller that predates it -- and every test that does not care about
+        orphan classification -- keeps today's behaviour unchanged."""
         self.exchange = exchange
         self._fill_price = fill_price
+        self._book = book
         self._placed: dict[str, Fill] = {}
+        self._signed_deltas: dict[str, Decimal] = {}
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
         """Builds whichever shape the symbol implies.
@@ -118,25 +128,37 @@ class FakeExchangeAdapter:
 
     async def place(self, order: PlaceableOrder) -> PlacedOrder:
         exchange_order_id = f"fake-order-{uuid4()}"
+        base_quantity = self._base_quantity(order)
         self._placed[order.client_order_id] = Fill(
             exchange_order_id=exchange_order_id,
             exchange_fill_id=f"fake-fill-{uuid4()}",
-            quantity=self._base_quantity(order),
+            quantity=base_quantity,
             price=self._fill_price,
             fee=Decimal("0"),
             fee_currency="USDT",
             filled_at=datetime.now(UTC),
         )
+        # Recorded here, revealed in ``fetch_fills`` -- ``record_fill`` is the
+        # book's word for "this fill became visible", and a placed order is
+        # not yet visible to anything that settles it (design.md § S4,
+        # DRY_RUN paragraph).
+        sign = Decimal("1") if order.side is OrderSide.BUY else Decimal("-1")
+        self._signed_deltas[order.client_order_id] = sign * base_quantity
         return PlacedOrder(
             exchange_order_id=exchange_order_id,
             client_order_id=order.client_order_id,
         )
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
-        del symbol  # the fake needs no symbol to find an order it recorded
         fill = self._placed.get(client_order_id)
         if fill is None:
             raise OrderNotFound(f"no fake order under client order id {client_order_id}")
+
+        if self._book is not None:
+            delta = self._signed_deltas.pop(client_order_id, None)
+            if delta is not None:
+                self._book.record_fill(self.exchange, symbol, delta)
+
         return [fill]
 
     def _base_quantity(self, order: PlaceableOrder) -> Decimal:

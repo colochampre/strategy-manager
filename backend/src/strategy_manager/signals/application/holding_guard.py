@@ -12,9 +12,12 @@ capital is allocated (design.md § "Guard order").
    and refuse with a WARNING instead of retrying forever.
 3. The strategy's ledger net on the symbol is zero -- proceed.
 4. Otherwise the holding is divergent (ledger and venue may disagree, but
-   nothing is in flight to explain it) -- refuse with a WARNING. Until S4
-   classifies it, nothing about WHY it diverges is known (owner decision A1:
-   "a divergent holding is REFUSED with nothing classified").
+   nothing is in flight to explain it) -- read the venue's own net (the
+   ONE remote call this guard makes, before the pool's advisory lock is ever
+   touched) and classify it (spec: capital-allocation § Orphan
+   Classification; design.md § S4). REAL, GHOST and AMBIGUOUS all refuse
+   with a WARNING today -- owner decision A1 keeps REAL refused until S6
+   delivers closing it, and A2 refuses AMBIGUOUS exactly like a ghost.
 
 A refusal here MUST NEVER reach ``AllocateCapital.allocate()`` -- the caller
 is expected to check ``GuardOutcome.proceed`` before doing anything else.
@@ -27,8 +30,18 @@ from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.shared.application.ports import ClockPort
-from strategy_manager.signals.application.ports import InFlightWorkPort, PoolKey, SymbolHoldingsPort
-from strategy_manager.signals.domain.holding import HeldAllocation, strategy_net
+from strategy_manager.signals.application.ports import (
+    InFlightWorkPort,
+    PoolKey,
+    SymbolHoldingsPort,
+    VenueNetPositionPort,
+)
+from strategy_manager.signals.domain.holding import (
+    HeldAllocation,
+    OrphanKind,
+    classify_orphan,
+    strategy_net,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +72,13 @@ class HoldingGuard:
         self,
         holdings: SymbolHoldingsPort,
         in_flight_work: InFlightWorkPort,
+        venue_net_position: VenueNetPositionPort,
         clock: ClockPort,
         delayed_open_max_signal_age_seconds: float,
     ) -> None:
         self._holdings = holdings
         self._in_flight_work = in_flight_work
+        self._venue_net_position = venue_net_position
         self._clock = clock
         self._delayed_open_max_signal_age_seconds = delayed_open_max_signal_age_seconds
 
@@ -87,7 +102,7 @@ class HoldingGuard:
         if net == 0:
             return GuardOutcome(proceed=True)
 
-        return self._refuse_divergent(pool, strategy_id, symbol, holdings, net)
+        return await self._classify_and_refuse(pool, strategy_id, symbol, holdings, net)
 
     def _on_in_flight(
         self,
@@ -113,7 +128,7 @@ class HoldingGuard:
         logger.warning("abandoning delayed open: %s", refused)
         return GuardOutcome(proceed=False, refused=refused)
 
-    def _refuse_divergent(
+    async def _classify_and_refuse(
         self,
         pool: PoolKey,
         strategy_id: UUID,
@@ -121,15 +136,32 @@ class HoldingGuard:
         holdings: list[HeldAllocation],
         net: Decimal,
     ) -> GuardOutcome:
-        own_allocations = ", ".join(
-            f"{holding.allocation_id}={holding.net_base}"
-            for holding in holdings
-            if holding.strategy_id == strategy_id
-        )
-        refused = (
-            f"strategy {strategy_id} holds a divergent net {net} on {symbol} in "
-            f"pool {pool} (allocations: {own_allocations}); refusing until it is "
-            "classified"
-        )
-        logger.warning("refusing divergent holding: %s", refused)
+        """The divergent branch's ONE remote call (design.md § "Every remote
+        read happens before ``_lock.acquire``"), followed by classification
+        (spec: capital-allocation § Orphan Classification). Every kind
+        refuses today -- only ``REAL``'s ACTION (close-then-open) is S6
+        scope; classifying it correctly is not."""
+        pool_net = sum((holding.net_base for holding in holdings), start=Decimal("0"))
+        venue_net = await self._venue_net_position.net_position(pool, symbol)
+        kind = classify_orphan(net, pool_net, venue_net)
+
+        if kind is OrphanKind.REAL:
+            refused = (
+                f"strategy {strategy_id} holds a REAL orphan on {symbol} in pool "
+                f"{pool} (pool net {pool_net}, venue net {venue_net}); refusing "
+                "until S6 closes it"
+            )
+        else:
+            own_allocations = ", ".join(
+                f"{holding.allocation_id}={holding.net_base}"
+                for holding in holdings
+                if holding.strategy_id == strategy_id
+            )
+            refused = (
+                f"strategy {strategy_id} holds a {kind.value} divergent net {net} "
+                f"on {symbol} in pool {pool} (allocations: {own_allocations}); "
+                f"pool net {pool_net}, other strategies' net {pool_net - net}, "
+                f"venue net {venue_net}; refusing"
+            )
+        logger.warning("refusing %s holding: %s", kind.value.lower(), refused)
         return GuardOutcome(proceed=False, refused=refused)

@@ -6,6 +6,7 @@ composition point for this module) is the only place that binds them.
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Protocol
 from uuid import UUID
@@ -135,3 +136,21 @@ class BalanceRefreshPort(Protocol):
     async def refresh(
         self, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome: ...
+
+
+class VenueNetPositionPort(Protocol):
+    """The ONE remote read the Existing-Position Guard's divergent branch
+    makes, right before orphan classification (spec: capital-allocation §
+    Orphan Classification; design.md § S4) -- before the pool's advisory
+    lock is ever touched, exactly like ``BalanceRefreshPort`` above.
+
+    ``None`` means the read could not be trusted: an unserved pool, a
+    transport failure, or the read's own timeout. The caller MUST treat that
+    as AMBIGUOUS (``classify_orphan`` already does) -- this port NEVER
+    raises out of the guard.
+
+    Implemented by
+    ``signals.infrastructure.venue_net_position.VenueNetPositionAdapter``.
+    """
+
+    async def net_position(self, pool: PoolKey, symbol: str) -> Decimal | None: ...

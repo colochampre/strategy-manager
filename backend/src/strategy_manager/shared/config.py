@@ -224,6 +224,14 @@ class Settings(BaseSettings):
     # the point where the fallback path would already have answered.
     balance_refresh_timeout_seconds: float = Field(default=3.0)
 
+    # How long ``VenueNetPositionAdapter`` waits for the Existing-Position
+    # Guard's divergent-branch venue read (design.md § S4) -- the last remote
+    # call this guard makes, before the pool's advisory lock. ANY failure or
+    # timeout degrades to AMBIGUOUS rather than raising, so this bound only
+    # decides how long a divergent signal waits before that refusal, not
+    # whether one happens.
+    venue_net_position_timeout_seconds: float = Field(default=3.0)
+
     # The owner's number (2026-09-21): the longest an opening signal may be
     # delayed waiting for in-flight work on the same strategy/symbol to
     # settle before ``HoldingGuard`` gives up and abandons it with a WARNING

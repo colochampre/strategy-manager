@@ -115,3 +115,11 @@ def test_balance_refresh_timeout_defaults_to_three_seconds() -> None:
     itself is retried (design.md § S3)."""
 
     assert Settings().balance_refresh_timeout_seconds == 3.0
+
+
+def test_venue_net_position_timeout_defaults_to_three_seconds() -> None:
+    """The Existing-Position Guard's divergent-branch venue read (design.md
+    § S4) -- the last remote call before the pool's advisory lock, exactly
+    like the balance refresh above."""
+
+    assert Settings().venue_net_position_timeout_seconds == 3.0

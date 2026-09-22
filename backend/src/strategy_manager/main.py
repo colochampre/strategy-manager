@@ -75,6 +75,7 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
+from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
@@ -87,7 +88,10 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
-from strategy_manager.reconciliation.application.ports import VenuePositionReaderPort
+from strategy_manager.reconciliation.application.ports import (
+    VenuePositionReaderPort,
+    VenuePositionReaderRegistryPort,
+)
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     ReconciliationScanHandler,
 )
@@ -97,6 +101,12 @@ from strategy_manager.reconciliation.infrastructure.binance_venue_position_reade
 )
 from strategy_manager.reconciliation.infrastructure.bybit_venue_position_reader import (
     BybitVenuePositionReader,
+)
+from strategy_manager.reconciliation.infrastructure.fake_venue_position_reader import (
+    FakeVenuePositionReader,
+)
+from strategy_manager.reconciliation.infrastructure.lazy_venue_position_reader import (
+    LazyVenuePositionReader,
 )
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
@@ -145,6 +155,7 @@ from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkA
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
+from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
 from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
@@ -212,6 +223,7 @@ def _build_process_signal_handler(
     exchanges: ExchangeRegistryPort,
     tradable_pools: frozenset[tuple[str, str]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
+    venue_position_readers: VenuePositionReaderRegistryPort,
 ) -> ProcessSignalHandler:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``signal.process`` job handler (design.md's job
@@ -259,6 +271,14 @@ def _build_process_signal_handler(
         in_flight_work=InFlightWorkAdapter(
             attempts=SqlAlchemyExecutionAttemptRepository(session),
             reservations=reservation_repository,
+        ),
+        # The divergent branch's ONE remote read (spec: capital-allocation §
+        # Orphan Classification; design.md § S4) -- built from a registry the
+        # caller already assembled, exactly like ``balance_refresh`` below
+        # reuses ``balance_refresh_reader``.
+        venue_net_position=VenueNetPositionAdapter(
+            venue_position_readers,
+            timeout_seconds=settings.venue_net_position_timeout_seconds,
         ),
         clock=SystemClock(),
         delayed_open_max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
@@ -443,8 +463,28 @@ def build_worker_runner(
     # Each holds its own placed orders, so place and settle must share the
     # instance for a given exchange; that is why they are built here, once,
     # rather than per job.
+    # Process-lifetime, exactly like ``fakes_by_exchange`` below: a DRY_RUN
+    # venue-side net must survive across many ``signal.process`` jobs, not
+    # just one, or every job would seed it fresh and never see a fill from an
+    # earlier one (design.md § S4, DRY_RUN paragraph). Its own ledger reader
+    # opens a short-lived session per call rather than sharing one job's --
+    # there is no job session yet at this point in composition, and each pool
+    # is seeded from it at most once over the life of this process anyway.
+    async def _fake_venue_book_ledger_reader(
+        pool: tuple[str, str, str],
+    ) -> list[tuple[str, Decimal]]:
+        async with factory() as seed_session:
+            positions = await ReadSymbolPositions(
+                SqlAlchemyLedgerRepository(seed_session)
+            ).net_positions_by_symbol(pool)
+            return [(position.symbol, position.net_base) for position in positions]
+
+    fake_venue_book = FakeVenueBook(_fake_venue_book_ledger_reader)
+
     fakes_by_exchange = {
-        pool.exchange.value: FakeExchangeAdapter(exchange=pool.exchange.value)
+        pool.exchange.value: FakeExchangeAdapter(
+            exchange=pool.exchange.value, book=fake_venue_book
+        )
         for pool in pools
     }
 
@@ -633,15 +673,93 @@ def build_worker_runner(
 
             yield ReaderByExchange(factories)
 
+    @asynccontextmanager
+    async def venue_net_position_reader_for(
+        session: AsyncSession,
+    ) -> AsyncIterator[VenuePositionReaderRegistryPort]:
+        """The registry ``VenueNetPositionAdapter`` asks for the ONE pool the
+        Existing-Position Guard's divergent branch actually reads -- built
+        fresh per job, exactly like ``balance_refresh_reader_for`` above and
+        for the same reason: which exchange (if any) is ever asked is not
+        known until deep inside ``_handle_consumes``, well after this context
+        manager is entered. Most jobs never call it at all.
+
+        Real readers are wrapped in ``LazyVenuePositionReader`` so a
+        credential is decrypted and a client opened only if that exchange's
+        pool is actually read (design.md § S4 correction, replaying S3's own
+        correction for this port).
+
+        Under DRY_RUN every reader wraps the shared, process-lifetime
+        ``fake_venue_book`` instead of a real client -- so a rehearsed REAL
+        orphan is reachable without a credential, exactly like every other
+        DRY_RUN path.
+        """
+        if settings.dry_run:
+            yield VenuePositionReaderRegistry(
+                [
+                    FakeVenuePositionReader(
+                        exchange=fake.exchange, venues=fake.venues, book=fake_venue_book
+                    )
+                    for fake in fakes_by_exchange.values()
+                ]
+            )
+            return
+
+        async with AsyncExitStack() as clients:
+
+            async def bybit_position_reader() -> VenuePositionReaderPort:
+                credential = await SqlAlchemyCredentialVault(
+                    session, cipher, SystemClock()
+                ).load(BYBIT_EXCHANGE)
+                bybit = await clients.enter_async_context(
+                    read_only_client(
+                        settings,
+                        BybitCredentials(
+                            api_key=credential.api_key, api_secret=credential.api_secret
+                        ),
+                    )
+                )
+                return BybitVenuePositionReader(bybit)
+
+            async def binance_position_reader() -> VenuePositionReaderPort:
+                binance = await clients.enter_async_context(
+                    binance_read_only_client(
+                        settings, binance_credentials_from_settings(settings)
+                    )
+                )
+                return BinanceVenuePositionReader(binance)
+
+            readers: list[VenuePositionReaderPort] = []
+            if any(key[0] == BYBIT_EXCHANGE for key in pools_by_key):
+                readers.append(
+                    LazyVenuePositionReader(
+                        BYBIT_EXCHANGE, frozenset({"usdt-m"}), bybit_position_reader
+                    )
+                )
+            if any(key[0] == BINANCE_EXCHANGE for key in pools_by_key):
+                readers.append(
+                    LazyVenuePositionReader(
+                        BINANCE_EXCHANGE, frozenset({"usdt-m"}), binance_position_reader
+                    )
+                )
+            yield VenuePositionReaderRegistry(readers)
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
         async with (
             factory() as session,
             exchange_for(session) as exchanges,
             balance_refresh_reader_for(session) as balance_refresh_reader,
+            venue_net_position_reader_for(session) as venue_position_readers,
         ):
             handler = _build_process_signal_handler(
-                session, pools_by_key, settings, exchanges, tradable_pools, balance_refresh_reader
+                session,
+                pools_by_key,
+                settings,
+                exchanges,
+                tradable_pools,
+                balance_refresh_reader,
+                venue_position_readers,
             )
             # The returned ProcessSignalResult is intentionally discarded here:
             # the handler owns every outcome (refused, failed, executed) and

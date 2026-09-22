@@ -2,14 +2,21 @@
 capital-allocation § Existing-Position Guard; design.md's component
 inventory § signals/domain/holding.py).
 
-``classify_orphan`` is S4 scope and is deliberately not declared or tested
-here.
+``classify_orphan`` (S4) is exercised over every row of design.md's
+classification table, plus a venue-read failure.
 """
 
 from decimal import Decimal
 from uuid import uuid4
 
-from strategy_manager.signals.domain.holding import HeldAllocation, OrphanKind, strategy_net
+import pytest
+
+from strategy_manager.signals.domain.holding import (
+    HeldAllocation,
+    OrphanKind,
+    classify_orphan,
+    strategy_net,
+)
 
 
 def test_held_allocation_carries_strategy_allocation_and_signed_net() -> None:
@@ -57,3 +64,64 @@ def test_strategy_net_is_zero_when_the_strategy_holds_nothing() -> None:
     ]
 
     assert strategy_net(holdings, uuid4()) == Decimal("0")
+
+
+# design.md § S4 — classification arithmetic. Every row of the nine-row
+# table, verbatim: (l_s, l_p, v) -> expected OrphanKind. ``l_p`` is the
+# pool's ledger net (summed over every strategy); ``v`` is the venue's
+# reported net; ``O = l_p - l_s`` is derived inside ``classify_orphan``
+# itself, never passed in -- there is no other strategy to attribute it to
+# once the arithmetic is spelled out this way.
+@pytest.mark.parametrize(
+    ("l_s", "l_p", "v", "expected"),
+    [
+        pytest.param(
+            Decimal("0.5"), Decimal("0.5"), Decimal("0.5"), OrphanKind.REAL,
+            id="single-strategy-position-exists",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0.5"), Decimal("0"), OrphanKind.GHOST,
+            id="closed-by-hand-or-liquidated",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0.5"), Decimal("0.3"), OrphanKind.AMBIGUOUS,
+            id="partial-liquidation-is-ambiguous-not-real",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0.7"), Decimal("0.7"), OrphanKind.REAL,
+            id="real-with-a-second-strategy-on-the-symbol",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0.7"), Decimal("0.2"), OrphanKind.GHOST,
+            id="ghost-with-a-second-strategy",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0.7"), Decimal("0"), OrphanKind.AMBIGUOUS,
+            id="both-legs-gone",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0"), Decimal("0"), OrphanKind.REAL,
+            id="opposite-sides-netted-in-one-way-mode",
+        ),
+        pytest.param(
+            Decimal("0.5"), Decimal("0"), Decimal("-0.5"), OrphanKind.GHOST,
+            id="opposite-sides-netted-then-this-legs-gone",
+        ),
+        pytest.param(
+            Decimal("0.2"), Decimal("0.4"), Decimal("0.2"), OrphanKind.GHOST,
+            id="two-strategies-same-net-one-leg-gone",
+        ),
+    ],
+)
+def test_classify_orphan_over_every_design_table_row(
+    l_s: Decimal, l_p: Decimal, v: Decimal, expected: OrphanKind
+) -> None:
+    assert classify_orphan(l_s, l_p, v) is expected
+
+
+def test_classify_orphan_is_ambiguous_when_the_venue_read_failed() -> None:
+    """``v=None`` is how a caller spells "the venue read timed out or
+    failed" (design.md § S4; ``VenueNetPositionPort`` never raises). Exact
+    Decimal arithmetic never gets a chance to misclassify what was never
+    read."""
+    assert classify_orphan(Decimal("0.5"), Decimal("0.5"), None) is OrphanKind.AMBIGUOUS

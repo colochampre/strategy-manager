@@ -181,10 +181,23 @@ class FakeBalanceRefreshPort:
         return self.outcome
 
 
+@dataclass
+class FakeVenueNetPositionPort:
+    """Defaults to AMBIGUOUS (``None``, "the read failed") -- harmless for
+    every test in this file that never reaches the divergent branch at all
+    (default holdings are empty, so the strategy is flat)."""
+
+    net: Decimal | None = None
+
+    async def net_position(self, pool: PoolKey, symbol: str) -> Decimal | None:
+        return self.net
+
+
 def _holding_guard(
     *,
     holdings: list[HeldAllocation] | None = None,
     in_flight: bool = False,
+    venue_net: Decimal | None = None,
 ) -> HoldingGuard:
     """A guard that proceeds by default -- every test in this file that does
     not care about the Existing-Position Guard gets today's behaviour
@@ -192,6 +205,7 @@ def _holding_guard(
     return HoldingGuard(
         holdings=FakeSymbolHoldingsPort(holdings or []),
         in_flight_work=FakeInFlightWorkPort(in_flight),
+        venue_net_position=FakeVenueNetPositionPort(venue_net),
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         delayed_open_max_signal_age_seconds=600.0,
     )
