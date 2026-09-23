@@ -122,9 +122,9 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 3a — `booking_proposals` schema (450–550 lines)
 
-- [ ] 3a.1 RED `tests/migrations/test_0023_booking_proposals.py` — every column, CHECKs (PENDING/decided_at, REJECTED-needs-reason, APPROVED-only execution_attempt_id, `kind` restricted to the two bookable kinds), `ux_booking_proposals_pending_per_discrepancy`, both other indexes, downgrade DROPs unconditionally (unlike 0022).
-- [ ] 3a.2 GREEN: `migrations/versions/0023_booking_proposals.py`.
-- [ ] 3a.3 GREEN: `BookingProposalRow` ORM in `reconciliation/infrastructure/models.py`.
+- [x] 3a.1 RED `tests/migrations/test_0023_booking_proposals.py` — every column, CHECKs (PENDING/decided_at, REJECTED-needs-reason, APPROVED-only execution_attempt_id, `kind` restricted to the two bookable kinds), `ux_booking_proposals_pending_per_discrepancy`, both other indexes, downgrade DROPs unconditionally (unlike 0022).
+- [x] 3a.2 GREEN: `migrations/versions/0023_booking_proposals.py`.
+- [x] 3a.3 GREEN: `BookingProposalRow` ORM in `reconciliation/infrastructure/models.py`.
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 3b — proposal repository (500–600 lines)

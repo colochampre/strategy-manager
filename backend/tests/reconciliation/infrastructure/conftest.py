@@ -83,7 +83,13 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "WHERE resolved_at IS NULL"
             )
         )
-        await conn.execute(text("TRUNCATE reconciliation_discrepancies"))
+        # CASCADE: migration 0023 added booking_proposals' FK to this table
+        # (no ON DELETE CASCADE there -- see that migration's docstring --
+        # but a plain TRUNCATE still refuses without one here, and this
+        # fixture's own booking_proposals rows, if any, are exactly as
+        # disposable as the reconciliation_discrepancies rows it already
+        # truncates every test).
+        await conn.execute(text("TRUNCATE reconciliation_discrepancies CASCADE"))
 
     yield engine
 
