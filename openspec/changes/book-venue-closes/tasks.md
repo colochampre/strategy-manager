@@ -77,9 +77,36 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 ## Unit 2a — live probe (250–350 lines)
 
 - [x] 2.1 Write `scripts/check_venue_fill_windows.py`, GET-only, both venues, reusing `probe_credentials.announce`/`vault_credentials` (prints which key it runs as). Answers all six items from design decision 10.
-- [ ] 2.2 RUN it on the worker's host; record output — the ONLY source for unit 5's five config defaults. Do not fix `reconciliation_booking_prepare_interval_seconds`, `..._window_pad_seconds`, `..._max_span_seconds`, `..._page_limit`, `..._max_pages` before this runs.
+- [x] 2.2 RUN it on the worker's host; record output — the ONLY source for unit 5's five config defaults. Do not fix `reconciliation_booking_prepare_interval_seconds`, `..._window_pad_seconds`, `..._max_span_seconds`, `..._page_limit`, `..._max_pages` before this runs.
 - [x] 2.3 Light unit tests only for pure helpers (bisection, arg parsing) if any exist.
 Gate: `ruff check .`, `mypy src`, `pytest`.
+
+### Probe results — run on the VPS, 2026-09-23 (second run, after fix `9be3d4a`)
+
+Keys: Bybit `***qDBU` (vault), Binance `***aWaE` (.env read-only). Symbol BTCUSDT, lookback 7d.
+
+| Item | Bybit | Binance |
+| --- | --- | --- |
+| (f) key accepted on fill endpoint | yes (retCode=0) | yes (HTTP 200) |
+| (e) clock skew, server − host | −2 ms ± 83 ms | −1 ms ± 118 ms |
+| (a) max window span | 7d; 8d refused, retCode=10001 | 7d; 8d refused, code=-4165 |
+| (b) pagination | `nextPageCursor=''` ends; empty window → `[]` | empty window → `[]`; `fromId` + `startTime`/`endTime` do NOT combine (HTTP 400, -1106) |
+| (c) rate-limit cost per call | UNKNOWN: per-second window resets between readings | 5 weight |
+| (d) liquidation fill + order id | UNKNOWN: none in history | UNKNOWN: none in history |
+
+Pagination WITH data was not observed (no fills in the window under DRY_RUN); `httpx.MockTransport` tests carry it. The first run's (e) and Bybit (c) were probe defects, fixed in `9be3d4a`.
+
+**Unit 5 constants, approved by the owner 2026-09-23:**
+
+| Constant | Value | Source |
+| --- | --- | --- |
+| `reconciliation_booking_prepare_max_span_seconds` | 604800 | Measured: both venues accept 7d, refuse 8d |
+| `reconciliation_booking_prepare_page_limit` | 100 | Bybit's documented maximum; Binance allows 1000. Documented, not probed |
+| `reconciliation_booking_prepare_max_pages` | 10 | Bound of 1,000 fills per window; reaching it RAISES, never truncates |
+| `reconciliation_booking_prepare_interval_seconds` | 60 | Fetches only for CONFIRMED attributable rows without a pending proposal; 5 weight per Binance call vs 2400/min |
+| `reconciliation_booking_prepare_window_pad_seconds` | 300 | Skew ~0.1 s; the pad covers the lag to the first scan (30 s cadence). A wrong pad only yields fewer proposals: an unmatched sum refuses with a WARNING |
+
+Consequence of the 7-day span: a re-proposal (after the 24h expiry) of a discrepancy first observed more than ~7 days earlier exceeds the span and is refused with a WARNING.
 
 ## Unit 2b — venue fill-window fetch (650–850 lines, AT RISK)
 
