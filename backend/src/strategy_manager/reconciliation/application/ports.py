@@ -203,3 +203,77 @@ class CommitPort(Protocol):
     structurally."""
 
     async def commit(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class VenueFill:
+    """One venue-reported fill from a WINDOW fetch (design decision 9,
+    Blocker c — corrects explore #230 Q3).
+
+    ``execution.domain.fill.Fill`` (seven fields) has no ``side``: an
+    order-scoped fetch inherits its side from the order it settled, which
+    already carries the direction. A window fetch has no order — it asks a
+    venue for everything that happened on a symbol in a time range — so
+    ``side`` has to travel on the fill itself. This is a separate DTO, not
+    a reuse of ``Fill``.
+    """
+
+    exchange_fill_id: str
+    exchange_order_id: str | None
+    symbol: str
+    side: str
+    """``'BUY'`` or ``'SELL'``, normalised by the adapter (reader) from
+    each venue's own spelling. Never anything else — an unrecognised side
+    is a shape the reader has never seen and must not guess at."""
+    quantity: Decimal
+    """Always positive. A non-positive quantity is refused by the reader
+    rather than passed through, the same discipline every venue adapter
+    here applies to a fill price or a fee."""
+    price: Decimal
+    fee: Decimal
+    fee_currency: str
+    filled_at: datetime
+    """Tz-aware UTC."""
+
+
+class VenueFillReadError(DomainError):
+    """Raised by ``VenueFillReaderPort.fills_in_window`` when the live call
+    to the venue itself fails, refuses, or answers with something the
+    reader cannot safely translate into a ``VenueFill`` (an unrecognised
+    side, a non-positive quantity, or — Bybit only — an execution type that
+    is neither a known trade type nor ``Funding``).
+
+    Mirrors ``VenuePositionReadError`` exactly: the ONE swallowable error a
+    booking sweep may eat per discrepancy, so one market's failed fetch
+    skips that discrepancy rather than killing the whole sweep. A registry
+    lookup failure for an unserved pool is a *different*, never-swallowed
+    exception — the same split ``VenuePositionReadError`` already draws
+    against ``UnservedPoolError``.
+    """
+
+
+class VenueFillReaderPort(Protocol):
+    """Reads every venue-reported fill for one symbol within a time window —
+    the read a booking proposal is built from (design decision 9).
+
+    REMOTE by nature, same caution as ``VenuePositionReaderPort``.
+
+    ``exchange``/``venues`` mirror ``VenuePositionReaderPort``'s own two
+    class attributes: ``VenueFillReaderRegistryPort`` is keyed by
+    ``(exchange, venue)`` and needs them to route.
+    """
+
+    exchange: str
+    venues: frozenset[str]
+
+    async def fills_in_window(
+        self, pool: PoolKey, symbol: str, start: datetime, end: datetime
+    ) -> list[VenueFill]: ...
+
+
+class VenueFillReaderRegistryPort(Protocol):
+    """Which reader serves a given pool's fill-window read. Mirrors
+    ``VenuePositionReaderRegistryPort`` exactly, including its refusal
+    rule: an unserved pool RAISES, there is no fallback."""
+
+    def for_pool(self, exchange: str, venue: str) -> VenueFillReaderPort: ...

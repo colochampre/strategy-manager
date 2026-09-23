@@ -110,13 +110,13 @@ Consequence of the 7-day span: a re-proposal (after the 24h expiry) of a discrep
 
 ## Unit 2b — venue fill-window fetch (650–850 lines, AT RISK)
 
-- [ ] 2b.1 **[Blocker c]** RED `tests/reconciliation/application/test_ports.py::test_venue_fill_carries_side_field_fill_does_not`.
-- [ ] 2b.2 GREEN: `VenueFill`, `VenueFillReadError`, `VenueFillReaderPort`, `VenueFillReaderRegistryPort` in `reconciliation/application/ports.py`.
-- [ ] 2b.3 RED+GREEN Bybit: `tests/reconciliation/infrastructure/test_bybit_venue_fill_reader.py` (`httpx.MockTransport`) — pagination via `nextPageCursor`, `max_pages` bound RAISES (never truncates silently), tolerant `_parse_window_execution` vs untouched strict parser. **Spelling**: fixture returns `STXUSDT`, test calls `fills_in_window(..., symbol="STXUSDT.P")` — assert contract-marker stripped before the venue call.
-- [ ] 2b.4 GREEN: `BybitReadOnlyClient.fills_in_window` + `BybitVenueFillReader`, VAULT credential.
+- [x] 2b.1 **[Blocker c]** RED `tests/reconciliation/application/test_ports.py::test_venue_fill_carries_side_field_fill_does_not`.
+- [x] 2b.2 GREEN: `VenueFill`, `VenueFillReadError`, `VenueFillReaderPort`, `VenueFillReaderRegistryPort` in `reconciliation/application/ports.py`.
+- [x] 2b.3 RED+GREEN Bybit: `tests/reconciliation/infrastructure/test_bybit_venue_fill_reader.py` (`httpx.MockTransport`) — pagination via `nextPageCursor`, `max_pages` bound RAISES (never truncates silently), tolerant `_parse_window_execution` vs untouched strict parser. **Spelling**: fixture returns `STXUSDT`, test calls `fills_in_window(..., symbol="STXUSDT.P")` — assert contract-marker stripped before the venue call.
+- [x] 2b.4 GREEN: `BybitReadOnlyClient.fills_in_window` + `BybitVenueFillReader`, VAULT credential.
 - [ ] 2b.5 RED+GREEN Binance: `tests/reconciliation/infrastructure/test_binance_venue_fill_reader.py` — full-page `startTime` advance + de-dup by `exchange_fill_id`; provisional on 2a's `fromId`+range finding. **Spelling**: fixture returns `STXUSDT_PERP`, test queries `"STXUSDT.P"`.
 - [ ] 2b.6 GREEN: `BinanceReadOnlyClient.fills_in_window` + `BinanceVenueFillReader`, `.env` read-only key.
-- [ ] 2b.7 RED+GREEN: `VenueFillReaderRegistry` — unserved pool raises, not swallowed.
+- [x] 2b.7 RED+GREEN: `VenueFillReaderRegistry` — unserved pool raises, not swallowed.
 Gate: `ruff check .`, `mypy src`, `pytest`.
 **If it overruns 850: split at the venue boundary** — commit `2b-bybit` (DTO+port+registry+Bybit, ~450) then `2b-binance` (Binance fetch+reader, ~350) as two commits.
 
