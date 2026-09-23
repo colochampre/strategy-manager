@@ -48,7 +48,11 @@ from strategy_manager.execution.application.ports import (
     ExecutionAttemptRepositoryPort,
     HeldPositionPort,
 )
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.market_symbol import base_currency_of
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import Job, JobKind
@@ -166,6 +170,7 @@ class ClosePosition:
                 # attempt, where it was actually used.
                 leverage=None,
                 status=ExecutionStatus.SUBMITTED,
+                origin=ExecutionOrigin.SYSTEM,
                 client_order_id=client_order_id,
             )
         )

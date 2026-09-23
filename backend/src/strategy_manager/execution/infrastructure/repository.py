@@ -8,11 +8,25 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.domain.errors import InvariantViolation
+
+# The live name of ``execution_attempts.client_order_id``'s unique
+# constraint (verified against both the local dev DB and production at
+# alembic head 0021, and unaffected by migration 0022). Migration 0005 used an
+# unnamed column-level ``unique=True``, so Postgres chose this name, not the
+# code -- which is why it was read from ``pg_constraint``, not derived. Recorded
+# here, once, so ``ApproveBooking`` (Unit 6a) can identify a replayed
+# approval by CONSTRAINT NAME -- never by message text, which a driver or
+# Postgres version upgrade could change without notice.
+CLIENT_ORDER_ID_UNIQUE_CONSTRAINT = "execution_attempts_client_order_id_key"
 
 
 def _to_domain(row: ExecutionAttemptRow) -> ExecutionAttempt:
@@ -29,6 +43,7 @@ def _to_domain(row: ExecutionAttemptRow) -> ExecutionAttempt:
         quote_amount=row.quote_amount,
         leverage=row.leverage,
         status=ExecutionStatus(row.status),
+        origin=ExecutionOrigin(row.origin),
         client_order_id=row.client_order_id,
         exchange_order_id=row.exchange_order_id,
         error=row.error,
@@ -58,6 +73,7 @@ class SqlAlchemyExecutionAttemptRepository:
                 quote_amount=attempt.quote_amount,
                 leverage=attempt.leverage,
                 status=attempt.status.value,
+                origin=attempt.origin.value,
                 client_order_id=attempt.client_order_id,
                 exchange_order_id=attempt.exchange_order_id,
                 error=attempt.error,

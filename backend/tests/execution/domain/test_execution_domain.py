@@ -18,7 +18,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import (
     MarketBuy,
@@ -170,6 +174,7 @@ def test_execution_attempt_holds_its_fields() -> None:
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.SUBMITTED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="c1",
     )
 
@@ -197,6 +202,7 @@ def test_an_attempt_carries_exactly_one_size() -> None:
             quote_amount=quote_amount,
             leverage=None,
             status=ExecutionStatus.SUBMITTED,
+            origin=ExecutionOrigin.SYSTEM,
             client_order_id="c1",
         )
 
@@ -224,6 +230,7 @@ def test_an_attempt_has_exactly_one_origin() -> None:
             quote_amount=None,
             leverage=None,
             status=ExecutionStatus.SUBMITTED,
+            origin=ExecutionOrigin.SYSTEM,
             client_order_id="c1",
         )
 
@@ -232,6 +239,57 @@ def test_an_attempt_has_exactly_one_origin() -> None:
 
     with pytest.raises(InvariantViolation, match="exactly one origin"):
         _attempt(uuid4(), uuid4())
+
+
+def test_venue_origin_requires_filled_status() -> None:
+    """New invariant beside the existing two (design.md § 2, ``origin is
+    VENUE`` => ``status is FILLED``): a venue-reported attempt never passes
+    through SUBMITTED -- the fill already happened at the venue before this
+    system learned about it, so it is recorded already FILLED."""
+    with pytest.raises(InvariantViolation, match="FILLED"):
+        ExecutionAttempt(
+            id=uuid4(),
+            reservation_id=None,
+            closes_allocation_id=uuid4(),
+            exchange="bybit",
+            venue="usdt-m",
+            settlement_currency="USDT",
+            symbol="BTC_USDT",
+            side=OrderSide.SELL,
+            quantity=Decimal("0.004"),
+            quote_amount=None,
+            leverage=None,
+            status=ExecutionStatus.SUBMITTED,
+            origin=ExecutionOrigin.VENUE,
+            client_order_id="c1",
+        )
+
+
+def test_venue_origin_requires_closes_allocation_id() -> None:
+    """New invariant beside the existing two (design.md § 2, ``origin is
+    VENUE`` => ``closes_allocation_id is not None``): a VENUE-origin attempt
+    always unwinds a position ``ApproveBooking`` already matched to an
+    allocation. An OPEN attempt with no allocation to unwind is
+    ``NO_MATCHING_ALLOCATION``, which is unbookable and can never reach
+    construction -- stated as an invariant, that stays true even if a future
+    auto-booking bug tries."""
+    with pytest.raises(InvariantViolation, match="closes_allocation_id"):
+        ExecutionAttempt(
+            id=uuid4(),
+            reservation_id=uuid4(),
+            closes_allocation_id=None,
+            exchange="bybit",
+            venue="usdt-m",
+            settlement_currency="USDT",
+            symbol="BTC_USDT",
+            side=OrderSide.SELL,
+            quantity=Decimal("0.004"),
+            quote_amount=None,
+            leverage=None,
+            status=ExecutionStatus.FILLED,
+            origin=ExecutionOrigin.VENUE,
+            client_order_id="c1",
+        )
 
 
 def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
@@ -252,9 +310,10 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
         quote_amount=Decimal("100"),
         leverage=None,
         status=ExecutionStatus.SUBMITTED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="c1",
     )
-    close_attempt = ExecutionAttempt(exchange="pionex", 
+    close_attempt = ExecutionAttempt(exchange="pionex",
         id=uuid4(),
         reservation_id=None,
         closes_allocation_id=opening,
@@ -266,6 +325,7 @@ def test_allocation_id_resolves_for_both_kinds_of_attempt() -> None:
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.SUBMITTED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="c2",
     )
 

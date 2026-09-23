@@ -25,7 +25,11 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.execution.application.close_position import CloseCommand, CloseResult
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.ports import PoolKey
@@ -127,6 +131,7 @@ def _close_attempt(allocation_id: UUID, status: ExecutionStatus) -> ExecutionAtt
         quote_amount=None,
         leverage=None,
         status=status,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id=f"client-{allocation_id}",
     )
 

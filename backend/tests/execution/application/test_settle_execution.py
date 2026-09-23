@@ -22,6 +22,7 @@ from strategy_manager.execution.application.settle_execution import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionOrigin,
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.fill import Fill
@@ -60,6 +61,7 @@ def _closing_attempt(
         quote_amount=None,
         leverage=None,
         status=status,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
     )
 
@@ -79,6 +81,7 @@ def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAt
         quote_amount=Decimal("100"),
         leverage=None,
         status=status,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
     )
 

@@ -65,13 +65,13 @@ explicit `size:exception` before starting — this is ~19x the 400-line budget i
 
 ## Unit 1 — `execution_attempts.origin` (350–450 lines)
 
-- [ ] 1.1 **[Blocker a]** Query the live schema (`SELECT conname FROM pg_constraint WHERE conrelid='execution_attempts'::regclass AND contype='u'`). RED: `tests/migrations/test_0022_execution_attempt_origin.py::test_client_order_id_constraint_name_matches_recorded_constant` asserting the live name equals a new `CLIENT_ORDER_ID_UNIQUE_CONSTRAINT` constant in `execution/infrastructure/repository.py`. GREEN: record the confirmed name.
-- [ ] 1.2 RED `tests/execution/domain/test_execution_domain.py::test_venue_origin_requires_filled_status`.
-- [ ] 1.3 RED same file `::test_venue_origin_requires_closes_allocation_id`.
-- [ ] 1.4 GREEN: `ExecutionOrigin` StrEnum + 2 new `__post_init__` invariants in `execution/domain/execution_attempt.py`; `origin` REQUIRED (no Python default).
-- [ ] 1.5 GREEN: pass `origin=SYSTEM` at every construction site — `place_order.py:107-125`, `close_position.py:140-171`, `infrastructure/repository.py` (`insert`/`_to_domain`), every test fixture constructing `ExecutionAttempt` directly.
-- [ ] 1.6 RED `tests/migrations/test_0022_execution_attempt_origin.py::test_upgrade_backfills_system_default`, `::test_downgrade_refuses_while_venue_rows_exist_naming_ids`, `::test_downgrade_succeeds_with_zero_venue_rows`.
-- [ ] 1.7 GREEN: `migrations/versions/0022_execution_attempt_origin.py` — `ADD COLUMN ... DEFAULT 'SYSTEM'`, CHECK; downgrade refuses, counts+ids, **no `-x` force flag** (deliberate, unlike 0021).
+- [x] 1.1 **[Blocker a]** Query the live schema (`SELECT conname FROM pg_constraint WHERE conrelid='execution_attempts'::regclass AND contype='u'`). RED: `tests/migrations/test_0022_execution_attempt_origin.py::test_client_order_id_constraint_name_matches_recorded_constant` asserting the live name equals a new `CLIENT_ORDER_ID_UNIQUE_CONSTRAINT` constant in `execution/infrastructure/repository.py`. GREEN: record the confirmed name.
+- [x] 1.2 RED `tests/execution/domain/test_execution_domain.py::test_venue_origin_requires_filled_status`.
+- [x] 1.3 RED same file `::test_venue_origin_requires_closes_allocation_id`.
+- [x] 1.4 GREEN: `ExecutionOrigin` StrEnum + 2 new `__post_init__` invariants in `execution/domain/execution_attempt.py`; `origin` REQUIRED (no Python default).
+- [x] 1.5 GREEN: pass `origin=SYSTEM` at every construction site — `place_order.py:107-125`, `close_position.py:140-171`, `infrastructure/repository.py` (`insert`/`_to_domain`), every test fixture constructing `ExecutionAttempt` directly.
+- [x] 1.6 RED `tests/migrations/test_0022_execution_attempt_origin.py::test_upgrade_backfills_system_default`, `::test_downgrade_refuses_while_venue_rows_exist_naming_ids`, `::test_downgrade_succeeds_with_zero_venue_rows`.
+- [x] 1.7 GREEN: `migrations/versions/0022_execution_attempt_origin.py` — `ADD COLUMN ... DEFAULT 'SYSTEM'`, CHECK; downgrade refuses, counts+ids, **no `-x` force flag** (deliberate, unlike 0021).
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 2a — live probe (250–350 lines)
