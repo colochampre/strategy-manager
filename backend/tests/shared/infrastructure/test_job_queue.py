@@ -51,6 +51,67 @@ async def test_concurrent_workers_claim_distinct_jobs_and_neither_blocks(
     assert len(claimed_ids) == 2
 
 
+async def test_one_job_is_never_handed_to_two_workers_at_once(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The structural half of continuation idempotency (spec: job-queue §
+    Continuation Idempotency, § SKIP LOCKED Claim).
+
+    ``ProcessSignalHandler.open_now`` must not submit two opens for one
+    signal. One way two deliveries could exist at once is the queue handing
+    the SAME ``signal.open_after_close`` row to two workers. It cannot:
+    ``claim()`` selects ``FOR UPDATE SKIP LOCKED``, so the second worker
+    steps over the locked row and finds nothing rather than waiting for it.
+
+    The interesting assertion is the last one. The loser is turned away by
+    the ROW LOCK, not by a status it can see: the winner has not committed,
+    so a third connection still reads the job as ``PENDING``. Without
+    ``SKIP LOCKED`` that same claim would block on the lock instead of
+    returning, and this test would hang rather than pass.
+
+    It is the exact counterpart of
+    ``test_concurrent_workers_claim_distinct_jobs_and_neither_blocks``
+    above: identical harness, two jobs there and two claims, one job here
+    and one claim. Neither result is reachable by accident from the other.
+    """
+    await _enqueue_committed(
+        pg_session_factory,
+        Job(
+            kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
+            payload={"signal_id": "5a1d1f1e-0000-4000-8000-000000000001", "poll": 0},
+            dedupe_key="signal.open_after_close:5a1d1f1e-0000-4000-8000-000000000001:0",
+        ),
+    )
+
+    session_a = pg_session_factory()
+    session_b = pg_session_factory()
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                PostgresJobQueue(session_a).claim(), PostgresJobQueue(session_b).claim()
+            ),
+            timeout=10.0,
+        )
+
+        # Read from a THIRD connection while the winner's CLAIMED write is
+        # still uncommitted.
+        async with pg_session_factory() as observer:
+            status_during_claim = (
+                await observer.execute(select(JobRow.status))
+            ).scalar_one()
+    finally:
+        await session_a.close()
+        await session_b.close()
+
+    claimed = [result for result in results if result is not None]
+    empty = [result for result in results if result is None]
+
+    assert len(claimed) == 1
+    assert len(empty) == 1
+    assert claimed[0].kind is JobKind.SIGNAL_OPEN_AFTER_CLOSE
+    assert status_during_claim == "PENDING"
+
+
 async def test_no_available_jobs_poll_returns_none_cleanly(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

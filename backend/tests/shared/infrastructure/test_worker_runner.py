@@ -6,9 +6,12 @@ testable in isolation.
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import uuid4
+
+import pytest
 
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.infrastructure.worker_runner import WorkerRunner
@@ -94,6 +97,51 @@ async def test_run_once_fails_the_job_when_the_handler_raises() -> None:
     assert processed is True
     assert queue.acked == []
     assert queue.failed == [(claimed.id, "exchange unreachable")]
+
+
+async def test_a_handler_exception_is_logged_before_the_job_is_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``queue.fail()`` writes the error to ``jobs.last_error`` and schedules a
+    retry. Nothing else happened: no log line, and the watchdog only ever sees
+    a job that exhausted ``max_attempts``, so a handler that threw once and
+    succeeded on redelivery left no trace anywhere an operator looks.
+
+    That is exactly the shape of a lost concurrent-redelivery race
+    (``tests/signals/application/test_open_now_concurrent_redelivery.py``):
+    the loser raises a UNIQUE violation, the retry resumes cleanly, and the
+    only evidence was a column nobody reads. The message is the same string
+    that already goes to ``last_error`` -- no traceback and no locals, because
+    a traceback out of this loop once printed a database DSN."""
+    claimed = ClaimedJob(
+        id=uuid4(), kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload={}, attempts=2, max_attempts=5
+    )
+    queue = FakeJobQueue(job_to_claim=claimed)
+
+    async def handler(job: ClaimedJob) -> None:
+        raise RuntimeError("duplicate key value violates unique constraint")
+
+    runner = WorkerRunner(
+        queue_factory=_queue_factory(queue),
+        handlers={JobKind.SIGNAL_OPEN_AFTER_CLOSE: handler},
+        poll_interval_seconds=0.01,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.shared.infrastructure"):
+        await runner.run_once()
+
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert str(claimed.id) in message
+    assert "signal.open_after_close" in message
+    assert "duplicate key value violates unique constraint" in message
+    # The attempt budget is in the line: "2 of 5" is a retry, "5 of 5" is the
+    # last thing said before the job goes FAILED for good.
+    assert "2" in message and "5" in message
+    assert queue.failed == [
+        (claimed.id, "duplicate key value violates unique constraint")
+    ]
 
 
 async def test_run_once_fails_a_job_with_no_registered_handler() -> None:

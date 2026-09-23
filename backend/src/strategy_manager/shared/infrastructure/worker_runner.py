@@ -58,6 +58,27 @@ class WorkerRunner:
             try:
                 await handler(claimed)
             except Exception as exc:  # noqa: BLE001 - any handler failure must retry, never crash the loop
+                # Said out loud, not only written to ``jobs.last_error``. The
+                # watchdog reports a job that exhausted ``max_attempts``; a
+                # handler that threw once and succeeded on redelivery never
+                # reaches that, so until this line the whole event lived in a
+                # column nobody reads. The lost half of a concurrent
+                # redelivery is exactly that shape: it raises a UNIQUE
+                # violation, the retry resumes, and nothing is wrong — but
+                # nothing said it happened either.
+                #
+                # The message is the same string ``fail()`` already persists,
+                # with no traceback and no locals: a traceback out of this
+                # loop once printed a database DSN.
+                logger.warning(
+                    "job %s (%s) failed on attempt %s of %s and will be retried "
+                    "if attempts remain: %s",
+                    claimed.id,
+                    claimed.kind.value,
+                    claimed.attempts,
+                    claimed.max_attempts,
+                    exc,
+                )
                 await queue.fail(claimed.id, str(exc))
                 return True
 

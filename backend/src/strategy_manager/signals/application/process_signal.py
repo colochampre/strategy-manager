@@ -377,6 +377,20 @@ class ProcessSignalHandler:
         .reservation_id``'s UNIQUE constraint (migration 0005) is the
         backstop if a race ever reached ``PlaceOrder`` twice regardless.
 
+        **This check is a read, not a lock, and two GENUINELY concurrent
+        deliveries both pass it** (verified 2026-09-22,
+        ``tests/signals/application/test_open_now_concurrent_redelivery.py``):
+        both read ``own_reservation_id is None`` before either commits.
+        What actually stops the second open one step earlier than
+        ``PlaceOrder`` is ``reservations.signal_id``'s UNIQUE constraint
+        (migration 0004) -- with that constraint dropped, the same race
+        produces two reservations, two attempts and two real orders. The
+        loser raises the UNIQUE violation out of this method; ``WorkerRunner``
+        logs it and ``queue.fail()`` schedules a retry, and the redelivery
+        then finds ``own_reservation_id`` set and takes the no-op above. So
+        the money invariant is held by the DATABASE here, not by this
+        branch -- do not "simplify" either one away.
+
         ``poll`` is the poll number the continuation had already reached
         when it called this method. The guard can defer AGAIN here (some
         OTHER work now in flight, or the vacuous empty-awaited-ids case
