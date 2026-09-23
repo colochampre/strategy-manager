@@ -23,7 +23,12 @@ import pytest
 from strategy_manager.accounts.application.ports import PoolBalanceReading
 from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
 from strategy_manager.accounts.infrastructure.reader_by_exchange import ReaderByExchange
-from strategy_manager.allocation.application.allocate_capital import AllocateCapital
+from strategy_manager.allocation.application.allocate_capital import (
+    AllocateCapital,
+    AllocateCommand,
+    AllocationResult,
+    InvalidAllocationRequestError,
+)
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
@@ -35,7 +40,7 @@ from strategy_manager.execution.application.place_order import PlaceCommand, Pla
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
-from strategy_manager.shared.domain.money import Exchange
+from strategy_manager.shared.domain.money import Currency, Exchange, Money
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
 from strategy_manager.signals.application.ports import PoolKey, RefreshOutcome, RefreshStatus
@@ -328,6 +333,28 @@ def _allocate_capital(
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
     )
+
+
+class SpyAllocateCapital(AllocateCapital):
+    """Wraps a REAL ``AllocateCapital`` and records every ``allocate`` call
+    before delegating to it.
+
+    ``SpyAdvisoryLock`` already proves the pool lock was not taken, but it
+    cannot prove ``allocate()`` was never entered: the engine's own pre-lock
+    guards (retry-resume, disabled-strategy skip, the currency and
+    non-positive checks) all return or raise BEFORE the lock. A caller that
+    reached the engine and was turned away by its ``InvalidAllocationRequest
+    Error`` leaves exactly the same empty lock spy behind as a caller that
+    refused before ever calling it -- so the "never reaches the engine"
+    assertion needs this spy, not the lock's."""
+
+    def __init__(self, inner: AllocateCapital) -> None:
+        self._inner = inner
+        self.calls: list[AllocateCommand] = []
+
+    async def allocate(self, command: AllocateCommand) -> AllocationResult:
+        self.calls.append(command)
+        return await self._inner.allocate(command)
 
 
 def _process_signal_handler(
@@ -2081,3 +2108,153 @@ async def test_a_rejected_holdable_reverse_close_is_reported_failed_not_refused(
     assert result.executed is False
     assert result.failed == "rejected"
     assert result.refused is None
+
+
+def _sized_handler(
+    *,
+    pool_total: Decimal,
+    allocation_percent: Decimal,
+    strategy_id: UUID,
+    symbol: str = "ETHUSDT",
+) -> tuple[ProcessSignalHandler, SpyAllocateCapital, SpyAdvisoryLock, SpyPlaceOrder]:
+    """A CONSUMES-path handler whose ask is sized from ``pool_total`` and
+    ``allocation_percent`` -- the two numbers whose product decides whether
+    the request is strictly positive at all."""
+    lock = SpyAdvisoryLock()
+    policy = _snapshot(allocation_percent=allocation_percent)
+    pool_balance = PoolBalance(
+        total=pool_total, available=pool_total, min_order_size=Decimal("1")
+    )
+    allocate_capital = SpyAllocateCapital(
+        _allocate_capital(lock, policy=policy, pool_balance=pool_balance)
+    )
+    place_order = SpyPlaceOrder()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol=symbol,
+        price=Decimal("2000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),  # open long -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=allocate_capital,
+        place_order=place_order,
+        policy=policy,
+        pool_balance=pool_balance,
+    )
+    return handler, allocate_capital, lock, place_order
+
+
+async def test_an_empty_pool_refuses_before_allocating_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Production 2026-09-23: the owner moved their capital into "Earn", the
+    pool snapshot read 0, ``requested = total * percent / 100`` was therefore
+    zero, and ``AllocateCapital`` raised ``InvalidAllocationRequestError``
+    ("requested amount must be positive"). Nothing on the signal path caught
+    it, so the worker retried the identical zero at 30s, 60s, 120s and 240s
+    before ending the job FAILED.
+
+    An empty pool is a state of the world, not a transient fault: it is
+    refused here, before the engine and before the pool's advisory lock, with
+    one WARNING carrying every number the owner needs to tell an empty pool
+    apart from a zero percent."""
+    strategy_id = uuid4()
+    handler, allocate_capital, lock, place_order = _sized_handler(
+        pool_total=Decimal("0"), allocation_percent=Decimal("100"), strategy_id=strategy_id
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused is not None
+    assert allocate_capital.calls == []
+    assert lock.acquired == []
+    assert place_order.calls == []
+    warning = next(r for r in caplog.records if r.levelname == "WARNING")
+    assert "(pionex, spot, USDT)" in warning.message
+    assert str(strategy_id) in warning.message
+    assert "ETHUSDT" in warning.message
+    assert "0" in warning.message
+    assert "100" in warning.message
+
+
+async def test_a_zero_allocation_percent_refuses_before_allocating(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The other way to reach a zero ask: a funded pool and a strategy
+    configured at 0%. Same permanent condition, same refusal -- and the
+    WARNING carries both numbers so the owner can tell which of the two it
+    was without reading the database."""
+    strategy_id = uuid4()
+    handler, allocate_capital, lock, place_order = _sized_handler(
+        pool_total=Decimal("1000"), allocation_percent=Decimal("0"), strategy_id=strategy_id
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.refused is not None
+    assert allocate_capital.calls == []
+    assert lock.acquired == []
+    assert place_order.calls == []
+    warning = next(r for r in caplog.records if r.levelname == "WARNING")
+    assert "1000" in warning.message
+    assert "0" in warning.message
+
+
+async def test_a_positive_request_still_allocates_exactly_as_before() -> None:
+    """The guard must be a floor, not a change of behaviour: a funded pool at
+    a non-zero percent reaches the engine, takes the lock and places the
+    order exactly as it does today."""
+    handler, allocate_capital, lock, place_order = _sized_handler(
+        pool_total=Decimal("1000"), allocation_percent=Decimal("20"), strategy_id=uuid4()
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert len(allocate_capital.calls) == 1
+    assert allocate_capital.calls[0].requested.amount == Decimal("200")
+    assert len(lock.acquired) == 1
+    assert len(place_order.calls) == 1
+    assert result.executed is True
+    assert result.refused is None
+
+
+async def test_an_empty_pool_is_refused_rather_than_raised() -> None:
+    """The refusal must be a RESULT, so ``handle_signal_process`` finishes
+    normally and the job ends DONE rather than being retried into FAILED.
+
+    The second half of this test is the defect itself: the very same request
+    the handler now declines to make still raises out of the untouched
+    engine. That is what the worker was retrying four times over eight
+    minutes."""
+    handler, _, _, _ = _sized_handler(
+        pool_total=Decimal("0"), allocation_percent=Decimal("100"), strategy_id=uuid4()
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is not None
+    assert result.executed is False
+
+    engine = _allocate_capital(
+        SpyAdvisoryLock(),
+        pool_balance=PoolBalance(
+            total=Decimal("0"), available=Decimal("0"), min_order_size=Decimal("1")
+        ),
+    )
+    with pytest.raises(InvalidAllocationRequestError):
+        await engine.allocate(
+            AllocateCommand(
+                signal_id=uuid4(),
+                strategy_id=uuid4(),
+                requested=Money(amount=Decimal("0"), currency=Currency("USDT")),
+            )
+        )

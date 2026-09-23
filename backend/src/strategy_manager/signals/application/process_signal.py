@@ -511,6 +511,11 @@ class ProcessSignalHandler:
             amount=requested_from_percent(pool_balance.total, policy.allocation_percent),
             currency=Currency(policy.settlement_currency),
         )
+        if requested.amount <= 0:
+            return self._refuse_non_positive_request(
+                context, transition, policy, pool_balance.total
+            )
+
         result = await self._allocate_capital.allocate(
             AllocateCommand(
                 signal_id=signal_id, strategy_id=context.strategy_id, requested=requested
@@ -635,6 +640,69 @@ class ProcessSignalHandler:
                 failed=close_result.error,
             )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
+
+    def _refuse_non_positive_request(
+        self,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+        pool_total: Decimal,
+    ) -> ProcessSignalResult:
+        """Refuse a signal whose ask sizes to nothing, before the engine and
+        before the pool's advisory lock.
+
+        Observed in production 2026-09-23: the owner moved their capital into
+        Binance/Bybit "Earn", so the pool snapshot read 0 and ``requested =
+        total * percent / 100`` was zero. ``AllocateCapital`` answers that
+        with ``InvalidAllocationRequestError`` — correctly, since "allocate
+        zero" is not a request it can serve — and nothing on this path caught
+        it, so the job raised into the queue's failure backoff and the worker
+        recomputed the identical zero at 30s, 60s, 120s and 240s before giving
+        up FAILED.
+
+        An empty pool (or a 0% strategy) is a STATE OF THE WORLD, not a
+        transient fault: no amount of retrying can change either number, so
+        retrying is pure noise and the eventual FAILED job says "this broke"
+        about something that merely had no capital to work with. Refusing is
+        the same shape the untradable-pool check and S3's UNAVAILABLE branch
+        already use — ``refused``, executed ``False``, no exception — so
+        ``handle_signal_process`` finishes normally and the job ends DONE.
+
+        WARNING, not ERROR, and that is deliberate rather than incidental. S3
+        logs ERROR because a balance it could not READ is an infrastructure
+        fault the owner must fix; this line reports a balance read perfectly
+        well that simply holds nothing, exactly like ``_refuse_untradable_
+        pool``'s configuration state, which is WARNING for the same reason.
+
+        Both numbers are named because the refusal has two causes that look
+        identical from the outside: an empty pool and a strategy configured at
+        0%. One line carrying the pool total AND the percent tells them apart
+        without a database query. The signal's payload is deliberately NOT
+        logged: nothing about the alert took part in this decision — the ask
+        comes from the pool and the policy alone.
+
+        **Scope of this guard.** It belongs here and only here. This is the
+        one place on the signal path that sizes an ask, and ``open_now``'s
+        continuation reaches it through this same method, so both entry points
+        are covered by the single check. ``_handle_releases`` needs no
+        counterpart: a close reserves nothing and takes its size from the
+        ledger rather than from a percent of a balance, so an empty pool
+        cannot make it ask for zero — and refusing a close because the wallet
+        is empty would strand an open position. ``AllocateCapital``'s other
+        pre-lock rejections are left exactly as they are: a currency mismatch
+        and an unknown pool are misconfigurations that MUST stay loud, and
+        they were never reachable from this arithmetic anyway.
+        """
+        pool = f"({policy.exchange}, {policy.venue}, {policy.settlement_currency})"
+        refused = (
+            f"pool {pool} sizes to nothing for strategy {context.strategy_id} on "
+            f"{context.symbol}: {policy.allocation_percent}% of a {pool_total} total "
+            "is not a positive amount. No order was placed and no capital was "
+            "reserved; this is not retried, because neither number can change "
+            "without the owner changing it."
+        )
+        logger.warning("refusing signal, nothing to allocate: %s", refused)
+        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
     def _refuse_untradable_pool(
         self,
