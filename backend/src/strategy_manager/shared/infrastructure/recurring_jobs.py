@@ -52,6 +52,13 @@ RECURRING_KINDS: tuple[JobKind, ...] = (
     # notice its own DEATH; see ``shared.application.watchdog``'s docstring for
     # why only something outside this process can.
     JobKind.WATCHDOG_CHECK,
+    # Sweeps CONFIRMED attributable discrepancies into frozen booking
+    # proposals (``reconciliation.application.booking_prepare_handler``).
+    # Seeded and watched exactly like ``RECONCILIATION_SCAN``: a dead
+    # booking chain is as silent as a dead scan chain, and this tuple is
+    # what both the seeder and the watchdog read (``main.py`` wires the
+    # SAME ``RECURRING_KINDS`` into ``Watchdog``'s own constructor).
+    JobKind.RECONCILIATION_PREPARE_BOOKING,
 )
 
 LIVE_STATUSES: tuple[str, ...] = ("PENDING", "CLAIMED")

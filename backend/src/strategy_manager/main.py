@@ -87,20 +87,38 @@ from strategy_manager.execution.infrastructure.venue_support import (
     unserved_pools,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
+from strategy_manager.ledger.application.read_recorded_fill_ids import ReadRecordedFillIds
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.reconciliation.application.booking_prepare_handler import (
+    BookingPrepareHandler,
+)
 from strategy_manager.reconciliation.application.ports import (
+    VenueFillReaderPort,
     VenuePositionReaderPort,
     VenuePositionReaderRegistryPort,
 )
+from strategy_manager.reconciliation.application.prepare_booking import PrepareBooking
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     ReconciliationScanHandler,
 )
 from strategy_manager.reconciliation.application.scan_pools import ScanPools
+from strategy_manager.reconciliation.infrastructure.allocation_owner_adapter import (
+    AllocationOwnerAdapter,
+)
+from strategy_manager.reconciliation.infrastructure.binance_venue_fill_reader import (
+    BinanceVenueFillReader,
+)
 from strategy_manager.reconciliation.infrastructure.binance_venue_position_reader import (
     BinanceVenuePositionReader,
+)
+from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
+    SqlAlchemyBookingProposalRepository,
+)
+from strategy_manager.reconciliation.infrastructure.bybit_venue_fill_reader import (
+    BybitVenueFillReader,
 )
 from strategy_manager.reconciliation.infrastructure.bybit_venue_position_reader import (
     BybitVenuePositionReader,
@@ -116,6 +134,9 @@ from strategy_manager.reconciliation.infrastructure.repository import (
 )
 from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
+)
+from strategy_manager.reconciliation.infrastructure.venue_fill_reader_registry import (
+    VenueFillReaderRegistry,
 )
 from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
     VenuePositionReaderRegistry,
@@ -1037,6 +1058,102 @@ def build_worker_runner(
                 await handler.handle(job)
                 await session.commit()
 
+    async def handle_reconciliation_prepare_booking(job: ClaimedJob) -> None:
+        """Wraps ``PrepareBooking`` behind ``BookingPrepareHandler``, which
+        owns the DRY_RUN hard skip and the successor enqueue (design
+        decisions 1, 11, 16 -- see that handler's own docstring).
+
+        The sweep and its self-re-enqueue share one session, exactly as
+        ``handle_reconciliation_scan`` does, so a successor is never
+        committed unless the sweep that preceded it committed too.
+
+        A real venue FILL reader is built only when DRY_RUN is off, mirroring
+        ``handle_reconciliation_scan``'s identical guard around its own
+        venue POSITION readers: building one means decrypting a trade
+        credential and opening a socket, and the handler below never calls
+        ``sweep()`` under DRY_RUN anyway, so doing that work first would
+        decrypt a credential for a sweep that is about to be skipped
+        outright.
+
+        Credentials follow each venue's existing position-read precedent
+        UNCHANGED (design decision 9): Bybit signs with the VAULT
+        credential, Binance with the ``.env`` read-only key -- the same two
+        sources ``handle_reconciliation_scan`` already uses above, not a new
+        decision.
+        """
+        async with factory() as session:
+            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+
+            async with AsyncExitStack() as clients:
+                fill_readers: list[VenueFillReaderPort] = []
+
+                if not settings.dry_run:
+                    if bybit_pools:
+                        credential = await SqlAlchemyCredentialVault(
+                            session, cipher, SystemClock()
+                        ).load(BYBIT_EXCHANGE)
+                        bybit = await clients.enter_async_context(
+                            read_only_client(
+                                settings,
+                                BybitCredentials(
+                                    api_key=credential.api_key,
+                                    api_secret=credential.api_secret,
+                                ),
+                            )
+                        )
+                        fill_readers.append(
+                            BybitVenueFillReader(
+                                bybit,
+                                page_limit=settings.reconciliation_booking_prepare_page_limit,
+                                max_pages=settings.reconciliation_booking_prepare_max_pages,
+                            )
+                        )
+
+                    if binance_pools:
+                        binance = await clients.enter_async_context(
+                            binance_read_only_client(
+                                settings, binance_credentials_from_settings(settings)
+                            )
+                        )
+                        fill_readers.append(
+                            BinanceVenueFillReader(
+                                binance,
+                                page_limit=settings.reconciliation_booking_prepare_page_limit,
+                                max_pages=settings.reconciliation_booking_prepare_max_pages,
+                            )
+                        )
+
+                handler = BookingPrepareHandler(
+                    prepare_booking=PrepareBooking(
+                        discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                        proposals=SqlAlchemyBookingProposalRepository(session),
+                        venue_fills=VenueFillReaderRegistry(fill_readers),
+                        recorded_fill_ids=ReadRecordedFillIds(
+                            SqlAlchemyLedgerRepository(session)
+                        ),
+                        allocation_owner=AllocationOwnerAdapter(session),
+                        clock=SystemClock(),
+                        commit=session,
+                        window_pad_seconds=(
+                            settings.reconciliation_booking_prepare_window_pad_seconds
+                        ),
+                        max_span_seconds=(
+                            settings.reconciliation_booking_prepare_max_span_seconds
+                        ),
+                        proposal_expiry_seconds=(
+                            settings.reconciliation_booking_proposal_expiry_seconds
+                        ),
+                        dry_run=settings.dry_run,
+                    ),
+                    queue=_job_queue(session, settings),
+                    clock=SystemClock(),
+                    interval_seconds=settings.reconciliation_booking_prepare_interval_seconds,
+                    dry_run=settings.dry_run,
+                )
+                await handler.handle(job)
+                await session.commit()
+
     async def handle_jobs_purge(job: ClaimedJob) -> None:
         # The purge and its self-re-enqueue share one session, exactly as
         # ``handle_reservation_sweep`` does, so a successor is never committed
@@ -1122,6 +1239,7 @@ def build_worker_runner(
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
+        JobKind.RECONCILIATION_PREPARE_BOOKING: handle_reconciliation_prepare_booking,
         JobKind.JOBS_PURGE: handle_jobs_purge,
         JobKind.WATCHDOG_CHECK: handle_watchdog_check,
     }

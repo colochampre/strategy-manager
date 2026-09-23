@@ -150,10 +150,10 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 5 — prepare wiring (600–800 lines, AT RISK — last change's overrun landed here)
 
-- [ ] 5.1 GREEN (no `main.py` yet): 5 config constants from 2a's measured output, not guessed.
-- [ ] 5.2 RED+GREEN `tests/reconciliation/application/test_booking_prepare_handler.py` — `JobKind.RECONCILIATION_PREPARE_BOOKING`, `BookingPrepareHandler` with its OWN `_SkipAnnouncement` (never shared with the scan handler's).
-- [ ] 5.3 RED+GREEN: `main.py` wiring, `RECURRING_KINDS`, watchdog recurring set.
-- [ ] 5.4 RED `tests/reconciliation/application/test_booking_prepare_integration.py::test_end_to_end_scan_to_prepared_proposal` — real DB, fake venue reader. **Spelling**: ledger fixture `"STXUSDT.P"`, fake venue reader `"STXUSDT"`.
+- [x] 5.1 GREEN (no `main.py` yet): 5 config constants from 2a's measured output, not guessed.
+- [x] 5.2 RED+GREEN `tests/reconciliation/application/test_booking_prepare_handler.py` — `JobKind.RECONCILIATION_PREPARE_BOOKING`, `BookingPrepareHandler` with its OWN `_SkipAnnouncement` (never shared with the scan handler's).
+- [x] 5.3 RED+GREEN: `main.py` wiring, `RECURRING_KINDS`, watchdog recurring set.
+- [x] 5.4 RED `tests/reconciliation/application/test_booking_prepare_integration.py::test_end_to_end_scan_to_prepared_proposal` — real DB, fake venue reader. **Spelling**: ledger fixture `"STXUSDT.P"`, fake venue reader `"STXUSDT"`.
 Gate: `ruff check .`, `mypy src`, `pytest`.
 **If it overruns 800: split at the `main.py` boundary** — commit `5a` (constants+JobKind+handler+unit tests, no `main.py`, ~350) then `5b` (`main.py` wiring, `RECURRING_KINDS`, watchdog, end-to-end integration test, ~350–450) — mirrors open-position-safely's own S5a/S5b split.
 
