@@ -20,6 +20,7 @@ Field meanings verified live on 2026-09-15 with a position open:
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Any
 
@@ -30,6 +31,14 @@ from strategy_manager.shared.infrastructure.binance.signer import BinanceSigner
 from strategy_manager.shared.infrastructure.binance.transport import BinanceTransport
 
 ACCOUNT_PATH = "/fapi/v3/account"
+
+# Same wire path as ``trade_client.py``'s ``USER_TRADES_PATH``, redeclared
+# here rather than imported: ``trade_client`` imports THIS module (reading is
+# a strict subset of what it needs), and this module has no reason to import
+# back the other way.
+USER_TRADES_WINDOW_PATH = "/fapi/v1/userTrades"
+
+_EPOCH = datetime.fromtimestamp(0, UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +218,32 @@ class Position:
         return self.signed_size != 0
 
 
+@dataclass(frozen=True, slots=True)
+class BinanceWindowTrade:
+    """One trade from a WINDOW fetch (``/fapi/v1/userTrades`` filtered by
+    time range, not by order) — a straight transcription of the wire
+    payload, side and business-rule translation left to the reader that
+    consumes it (``BinanceVenueFillReader``, ``reconciliation/infrastructure``).
+
+    Unlike ``trade_client.BinanceExecution``, ``order_id`` is optional: an
+    order-scoped fetch's caller already resolved the order by id, so an
+    order id is guaranteed there. A window fetch has no order at all, so
+    this parser stays tolerant of a missing one (design decision 4) — the
+    order-scoped ``_parse_execution`` in ``trade_client.py`` is untouched
+    and still requires it.
+    """
+
+    trade_id: int
+    order_id: int | None
+    symbol: str
+    side: str
+    price: Decimal
+    qty: Decimal
+    commission: Decimal
+    commission_asset: str
+    trade_time_ms: int
+
+
 def parse_contract(entry: Any) -> PerpContract:
     """One raw catalogue entry, as the trading rules an order is checked
     against. Public because the trade client's catalogue parses on demand."""
@@ -382,6 +417,146 @@ class BinanceReadOnlyClient:
             _parse_position(entry) for entry in payload if isinstance(entry, dict)
         ]
         return [position for position in positions if position.is_open]
+
+    async def fills_in_window(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        page_limit: int,
+        max_pages: int,
+    ) -> list[BinanceWindowTrade]:
+        """Every trade for ``symbol`` in ``[start, end]``, paginated by
+        RE-QUERYING with ``startTime`` advanced.
+
+        ``fromId`` cannot be combined with ``startTime``/``endTime`` on this
+        endpoint (live-verified: HTTP 400, code -1106), so pagination is not
+        an id-cursor walk -- it re-issues the time-range query with
+        ``startTime`` advanced to the LAST trade's own time, INCLUSIVE, and
+        de-duplicates by trade id.
+
+        Advancing past it (``+1ms``) would silently drop every trade sharing
+        that millisecond that fell onto the next page -- exactly the trades
+        the inclusive re-query is designed to catch a second time and then
+        discard as duplicates. If a full page still yields ZERO new ids,
+        every trade in that millisecond exceeds the page size and there is
+        no window left to advance into without dropping trades, so this
+        RAISES rather than looping forever or truncating silently. Bounded
+        by ``max_pages`` for the same reason.
+        """
+        trades: list[BinanceWindowTrade] = []
+        seen_ids: set[int] = set()
+        window_start = start
+        for _ in range(max_pages):
+            payload = await self._transport.get_signed(
+                USER_TRADES_WINDOW_PATH,
+                {
+                    "symbol": symbol,
+                    "startTime": str(_to_millis(window_start)),
+                    "endTime": str(_to_millis(end)),
+                    "limit": str(page_limit),
+                },
+            )
+            if not isinstance(payload, list):
+                raise BinanceApiError(
+                    f"{USER_TRADES_WINDOW_PATH} did not return a list, got "
+                    f"{type(payload).__name__}"
+                )
+            page = [_parse_window_execution(entry) for entry in payload]
+            new_trades = [trade for trade in page if trade.trade_id not in seen_ids]
+            for trade in new_trades:
+                seen_ids.add(trade.trade_id)
+            trades.extend(new_trades)
+
+            if len(page) < page_limit:
+                return trades
+
+            if not new_trades:
+                raise BinanceApiError(
+                    f"Binance fill window for {symbol} returned a full page "
+                    f"of {page_limit} trades with zero new ids; every trade "
+                    "in the last millisecond exceeds the page size and the "
+                    "window cannot be advanced without dropping trades"
+                )
+
+            window_start = _from_millis(max(trade.trade_time_ms for trade in page))
+
+        raise BinanceApiError(
+            f"Binance fill window for {symbol} did not end within "
+            f"{max_pages} pages of {page_limit}; truncating here risks "
+            "under-booking a close"
+        )
+
+
+def _parse_window_execution(entry: Any) -> BinanceWindowTrade:
+    """Tolerant of a missing ``orderId`` — the strict, order-scoped
+    ``_parse_execution`` in ``trade_client.py`` is a separate function and
+    stays untouched, because its caller already resolved the order by id."""
+    if not isinstance(entry, dict):
+        raise BinanceApiError("a userTrades entry is not an object")
+    order_id = entry.get("orderId")
+    return BinanceWindowTrade(
+        trade_id=_trade_integer(entry, "id"),
+        order_id=_trade_integer(entry, "orderId") if order_id is not None else None,
+        symbol=_trade_text(entry, "symbol"),
+        side=_trade_text(entry, "side"),
+        price=_trade_amount(entry, "price"),
+        qty=_trade_amount(entry, "qty"),
+        commission=_trade_amount(entry, "commission"),
+        commission_asset=_trade_text(entry, "commissionAsset"),
+        trade_time_ms=_trade_integer(entry, "time"),
+    )
+
+
+def _trade_text(fields: Mapping[str, Any], field: str) -> str:
+    value = fields.get(field)
+    if not isinstance(value, str) or not value:
+        raise BinanceApiError(f"{field} must be a non-empty string, got {value!r}")
+    return value
+
+
+def _trade_integer(fields: Mapping[str, Any], field: str) -> int:
+    """Trade and order ids, and the millisecond timestamp, arrive as JSON
+    integers. ``bool`` is rejected explicitly because it passes
+    ``isinstance(x, int)`` and would read as the id 0 or 1."""
+    value = fields.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BinanceApiError(
+            f"{field} must be an integer, got {type(value).__name__}"
+        )
+    return value
+
+
+def _trade_amount(fields: Mapping[str, Any], field: str) -> Decimal:
+    """A JSON number has already lost precision before it reaches this
+    process, so it is rejected rather than coerced. This is a fill price,
+    quantity or fee: it lands in the append-only ledger and can never be
+    corrected there."""
+    value = fields.get(field)
+    if not isinstance(value, str) or not value:
+        raise BinanceApiError(
+            f"{field} must be a non-empty string amount, got {value!r}"
+        )
+    try:
+        return Decimal(value)
+    except InvalidOperation as exc:
+        raise BinanceApiError(f"{field} is not a valid decimal: {value!r}") from exc
+
+
+def _to_millis(moment: datetime) -> int:
+    """Milliseconds since the epoch, by subtraction rather than
+    ``timestamp() * 1000`` so no float division stands between a caller's
+    instant and the signed query string."""
+    delta = moment - _EPOCH
+    return delta.days * 86_400_000 + delta.seconds * 1000 + delta.microseconds // 1000
+
+
+def _from_millis(timestamp_ms: int) -> datetime:
+    """Built by addition rather than ``fromtimestamp(ms / 1000)`` so no
+    float division stands between the exchange's timestamp and the next
+    window's ``startTime``."""
+    return _EPOCH + timedelta(milliseconds=timestamp_ms)
 
 
 def _parse_asset(entry: Any) -> FuturesAssetBalance:
