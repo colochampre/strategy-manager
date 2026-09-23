@@ -17,7 +17,11 @@ from strategy_manager.accounts.domain.exchange_credential import (
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed
-from strategy_manager.worker import _assert_sealed_credentials_open, _log_vault_self_test
+from strategy_manager.worker import (
+    _assert_sealed_credentials_open,
+    _configure_logging,
+    _log_vault_self_test,
+)
 
 
 class FakeVault:
@@ -85,6 +89,25 @@ async def test_one_unreadable_credential_stops_the_worker_for_all_of_them() -> N
         await _assert_sealed_credentials_open(
             FakeVault(opens=("bybit",), fails=("binance",))
         )
+
+
+def test_the_http_client_does_not_log_every_signed_request() -> None:
+    """httpx logs one INFO per request, and this process makes one balance
+    read per exchange every 60s -- about 10,800 lines a day, drowning the log
+    an operator reads during an incident. Those lines also carry the signed
+    venue URL, `timestamp` and `signature` included.
+
+    WARNING, not silence: a failing request must still say so.
+    """
+    _configure_logging()
+
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).level == logging.WARNING
+    # Only those two are pinned. This system's own loggers are left at NOTSET
+    # so they keep inheriting whatever the root is configured to -- asserting
+    # an effective level here would only measure the root handler pytest
+    # installed, not anything this function did.
+    assert logging.getLogger("strategy_manager.worker").level == logging.NOTSET
 
 
 def test_an_opened_vault_is_reported_at_info(caplog: pytest.LogCaptureFixture) -> None:

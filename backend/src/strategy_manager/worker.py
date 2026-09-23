@@ -262,11 +262,31 @@ def _install_signal_handlers() -> asyncio.Event:
     return stop
 
 
-def main() -> None:
+def _configure_logging() -> None:
+    """INFO for this system, WARNING for the HTTP client underneath it.
+
+    ``httpx`` logs one INFO line per request. This process reads a balance per
+    exchange every 60s and polls continuations every few seconds, which came to
+    roughly 10,800 lines a day on the production host -- and the log an
+    operator reads during an incident is the one thing that must not be
+    drowned. Those lines also render the signed venue URL, ``timestamp`` and
+    ``signature`` included; the signature is timestamp-bound and the API key
+    travels in a header, so it is noise rather than a leak, but it is noise
+    with no reason to exist.
+
+    WARNING rather than silence, deliberately: a request that FAILS still has
+    to say so, and that is the line nobody wants suppressed.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
+    for chatty in ("httpx", "httpcore"):
+        logging.getLogger(chatty).setLevel(logging.WARNING)
+
+
+def main() -> None:
+    _configure_logging()
     try:
         asyncio.run(run())
     except KeyboardInterrupt:  # pragma: no cover - a race with the handler above
