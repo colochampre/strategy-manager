@@ -92,6 +92,8 @@ All numbers are STRINGS — a JSON number has already lost precision, the exact 
 
 `vnu:{exchange}:{venue_order_id}`, falling back to `vnu:{exchange}:fill:{earliest_exchange_fill_id}` under the canonical ordering above. Computed at PREPARE and frozen, so approval writes exactly the id the dialog showed.
 
+> **Superseded during apply (2026-09-23, unit 4a review): the id is ALWAYS `vnu:{exchange}:fill:{earliest_exchange_fill_id}`.** A venue order filling across two scans (a limit close filled in pieces, a staged liquidation) yields two bookings. Keyed on the order id, both would share one `client_order_id`, so the second approval would collide and be read as a harmless replay: SUPERSEDED, zero writes, and that close could never be booked. A fill is recorded at most once, so the earliest unrecorded fill names exactly one booking. A replay of the same proposal still collides, because the id is frozen. The order ids stay in the snapshot and in the ledger. This also makes the "venue reports no order id" fallback below moot for the id; the tolerant parser is still needed for the snapshot.
+
 - `execution_attempts.client_order_id` is `Text`, unbounded; the 36-character limits live in the submit adapters and a VENUE attempt is never submitted.
 - The `:` in `vnu:` is **not** in Bybit's `_ORDER_LINK_ID_ALPHABET`, so any future path that tried to submit a VENUE attempt raises `BybitApiError` before an order leaves the process. Fail-closed by construction, not by accident.
 - `exchange` is embedded, so two venues issuing the same order id cannot collide — the same reason 0019 widened `ux_ledger_exchange_fill` to include `exchange`.

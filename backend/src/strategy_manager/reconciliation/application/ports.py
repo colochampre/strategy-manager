@@ -444,3 +444,57 @@ class BookingProposalRepositoryPort(Protocol):
         ``ExpireBookingProposals`` (Unit 6b) inside the prepare handler,
         before the sweep."""
         ...
+
+
+class RecordedFillIdsPort(Protocol):
+    """Which of a candidate set of venue-reported fill ids the ledger
+    ALREADY holds, keyed on ``(exchange, venue, exchange_fill_id)`` -- NEVER
+    on symbol (design.md § 13: a booked close may carry a different
+    spelling than the open it nets against, and keying this lookup on
+    symbol would reintroduce exactly the mismatch design.md § 13's testing
+    rule exists to catch). Mirrors ``ux_ledger_exchange_fill`` (migration
+    ``0019``) exactly.
+
+    Implemented by ``ledger``'s ``ReadRecordedFillIds``, sibling of
+    ``ReadSymbolPositions`` (design.md's component inventory): the consumer
+    (this module) declares the port, the provider (``ledger``) owns the
+    adapter, the same direction every other module already uses. Consumed
+    by ``domain.booking.match_fills``'s ``already_recorded_ids`` parameter
+    (``PrepareBooking``, Unit 4b, resolves it before calling ``match_fills``
+    -- the domain layer itself never reaches the ledger).
+    """
+
+    async def recorded_fill_ids(
+        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+    ) -> frozenset[str]: ...
+
+
+class AllocationOwnerPort(Protocol):
+    """Resolves the strategy that owns a still-open allocation -- what a
+    booking proposal's ``strategy_id`` column (migration ``0023``) is
+    populated from, given the ``allocation_id`` ``classify()`` attributed
+    the discrepancy to (design.md's component inventory).
+
+    Implemented by ``AllocationOwnerAdapter``, reading ``reservations``
+    directly -- the same cross-module read
+    ``SqlAlchemyExecutionAttemptRepository.submitted_for_strategy_symbol``
+    already performs by importing ``ReservationRow`` from ``allocation``'s
+    own infrastructure models.
+    """
+
+    async def strategy_for(self, allocation_id: UUID) -> UUID: ...
+
+
+class InFlightClosePort(Protocol):
+    """design.md § 7's freshness re-check, half (g): whether the strategy
+    already has a SUBMITTED closing execution attempt on this market within
+    this pool -- a signal-originated close racing this approval.
+
+    Implemented by ``InFlightCloseAdapter``, wrapping the EXISTING
+    ``SqlAlchemyExecutionAttemptRepository.submitted_for_strategy_symbol``
+    with NO new SQL (design.md § 7): that method already merges every
+    spelling a symbol wears (``market_spellings``) and already answers
+    exactly this question for the signals side's own in-flight check.
+    """
+
+    async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...

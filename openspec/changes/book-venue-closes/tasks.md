@@ -135,9 +135,9 @@ Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 4a — booking domain + small ports (400–500 lines)
 
-- [ ] 4a.1 RED `tests/reconciliation/domain/test_booking.py::test_match_fills_sum_equals_delta`, `::test_match_fills_refuses_mixed_sides`, `::test_match_fills_refuses_zero_unrecorded`, `::test_match_fills_refuses_nonpositive_quantity`, `::test_canonical_fill_ordering_len_then_id_tiebreak_binance_integer_ids`, `::test_canonical_fill_ordering_len_then_id_tiebreak_bybit_string_ids`, `::test_client_order_id_uses_venue_order_id`, `::test_client_order_id_falls_back_to_earliest_fill_id_when_no_order_id`.
-- [ ] 4a.2 GREEN: `domain/booking.py` — `BookingState`, `ProposedFill`, `match_fills()`, `BOOKABLE_KINDS`, `vnu:` id builder. Pure `Decimal`, no `market_key` import.
-- [ ] 4a.3 RED+GREEN: `RecordedFillIdsPort`/`ReadRecordedFillIds` (sibling of `ReadSymbolPositions`), `AllocationOwnerPort`, `InFlightClosePort` (wraps existing `submitted_for_strategy_symbol`).
+- [x] 4a.1 RED `tests/reconciliation/domain/test_booking.py::test_match_fills_sum_equals_delta`, `::test_match_fills_refuses_mixed_sides`, `::test_match_fills_refuses_zero_unrecorded`, `::test_match_fills_refuses_nonpositive_quantity`, `::test_canonical_fill_ordering_len_then_id_tiebreak_binance_integer_ids`, `::test_canonical_fill_ordering_len_then_id_tiebreak_bybit_string_ids`, `::test_client_order_id_uses_venue_order_id`, `::test_client_order_id_falls_back_to_earliest_fill_id_when_no_order_id`.
+- [x] 4a.2 GREEN: `domain/booking.py` — `BookingState`, `ProposedFill`, `match_fills()`, `BOOKABLE_KINDS`, `vnu:` id builder. Pure `Decimal`, no `market_key` import.
+- [x] 4a.3 RED+GREEN: `RecordedFillIdsPort`/`ReadRecordedFillIds` (sibling of `ReadSymbolPositions`), `AllocationOwnerPort`, `InFlightClosePort` (wraps existing `submitted_for_strategy_symbol`).
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 4b — `PrepareBooking` use case (450–550 lines)

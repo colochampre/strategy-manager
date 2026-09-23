@@ -5,6 +5,7 @@ triggers (spec: trade-ledger § Append-Only Enforcement).
 """
 
 from collections import defaultdict
+from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
@@ -211,3 +212,33 @@ class SqlAlchemyLedgerRepository:
             )
             for strategy_id, allocation_id, net in result.all()
         ]
+
+    async def recorded_fill_ids(
+        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+    ) -> frozenset[str]:
+        """Implements ``RecordedFillIdsReaderPort``.
+
+        Keyed on ``(exchange, venue, exchange_fill_id)`` --
+        ``ux_ledger_exchange_fill`` (migration ``0019``) exactly, never
+        symbol (design.md § 13's booking-domain testing rule: a booked close
+        may legitimately carry a different spelling than the open it nets
+        against, and keying this lookup on symbol would silently treat an
+        already-recorded fill as unrecorded the moment a spelling differs).
+
+        An empty ``exchange_fill_ids`` returns an empty set without a query
+        -- ``IN ()`` is either a SQL error or an unconditional false
+        depending on dialect/driver, and the caller (``match_fills``, via
+        ``PrepareBooking``) never has a reason to ask this with nothing to
+        check.
+        """
+        if not exchange_fill_ids:
+            return frozenset()
+
+        result = await self._session.execute(
+            select(LedgerEntryRow.exchange_fill_id).where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.exchange_fill_id.in_(exchange_fill_ids),
+            )
+        )
+        return frozenset(row[0] for row in result.all())
