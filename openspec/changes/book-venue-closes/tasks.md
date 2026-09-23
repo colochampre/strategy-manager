@@ -129,8 +129,8 @@ Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 3b — proposal repository (500–600 lines)
 
-- [ ] 3b.1 RED `tests/reconciliation/infrastructure/test_booking_proposal_repository_integration.py` — 6 methods incl. `get_for_update`, `mark_state`, rejected-suppression lookup, and the FOR UPDATE CAS racing two concurrent updates (second sees non-PENDING, writes nothing).
-- [ ] 3b.2 GREEN: `SqlAlchemyBookingProposalRepository`, `BookingProposalRepositoryPort`, DTOs.
+- [x] 3b.1 RED `tests/reconciliation/infrastructure/test_booking_proposal_repository_integration.py` — 6 methods incl. `get_for_update`, `mark_state`, rejected-suppression lookup, and the FOR UPDATE CAS racing two concurrent updates (second sees non-PENDING, writes nothing).
+- [x] 3b.2 GREEN: `SqlAlchemyBookingProposalRepository`, `BookingProposalRepositoryPort`, DTOs.
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 4a — booking domain + small ports (400–500 lines)
