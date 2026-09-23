@@ -216,9 +216,19 @@ def header_call_cost(
         second = int(lowered_after[key])
     except ValueError:
         return None
-    if direction == "increasing":
-        return second - first if second >= first else None
-    return first - second if first >= second else None
+    cost = second - first if direction == "increasing" else first - second
+    # Every call costs at least one unit, so zero means the window reset
+    # between the two readings: unmeasured, never "free".
+    return cost if cost > 0 else None
+
+
+def clock_skew_ms(server_ms: int, sent_ms: int, received_ms: int) -> tuple[int, int]:
+    """``(server - host, round_trip)`` in ms, the host side taken at the
+    MIDPOINT of the request. The server stamped its time somewhere inside the
+    round trip, so the skew is only known to within half of it -- which is why
+    the round trip is returned alongside rather than dropped."""
+    midpoint_ms = (sent_ms + received_ms) // 2
+    return server_ms - midpoint_ms, received_ms - sent_ms
 
 
 async def bisect_max_accepted_span(
@@ -390,8 +400,13 @@ def _bybit_envelope(response: httpx.Response) -> tuple[int | None, str, Mapping[
     )
 
 
-async def _bybit_clock_skew(http: httpx.AsyncClient, host_now: datetime) -> ItemVerdict:
+async def _bybit_clock_skew(http: httpx.AsyncClient) -> ItemVerdict:
+    # Warm the connection first: the TLS handshake would otherwise sit
+    # inside the measured round trip and widen its uncertainty.
+    await http.get(BYBIT_SERVER_TIME_PATH)
+    sent_ms = _epoch_ms(SystemClock().now())
     response = await http.get(BYBIT_SERVER_TIME_PATH)
+    received_ms = _epoch_ms(SystemClock().now())
     try:
         body: Any = response.json()
     except ValueError:
@@ -405,8 +420,12 @@ async def _bybit_clock_skew(http: httpx.AsyncClient, host_now: datetime) -> Item
         server_ms = int(time_nano) // 1_000_000
     except (TypeError, ValueError):
         return ItemVerdict("unknown", f"timeNano not an integer: {time_nano!r}")
-    skew_ms = server_ms - _epoch_ms(host_now)
-    return ItemVerdict("answered", f"server - host = {skew_ms} ms (positive: venue ahead)")
+    skew_ms, round_trip_ms = clock_skew_ms(server_ms, sent_ms, received_ms)
+    return ItemVerdict(
+        "answered",
+        f"server - host = {skew_ms} ms +/- {round_trip_ms // 2} ms "
+        f"(positive: venue ahead; round trip {round_trip_ms} ms)",
+    )
 
 
 async def _bybit_key_acceptance(
@@ -507,7 +526,9 @@ async def _bybit_weight_cost(
     )
     if cost is None:
         return ItemVerdict(
-            "unknown", f"{BYBIT_LIMIT_STATUS_HEADER} missing or non-monotonic across two calls"
+            "unknown",
+            f"{BYBIT_LIMIT_STATUS_HEADER} missing, unchanged (window reset between calls) "
+            "or moved the wrong way",
         )
     return ItemVerdict(
         "answered", f"{cost} unit(s) of {BYBIT_LIMIT_STATUS_HEADER} per call to {BYBIT_FILLS_PATH}"
@@ -581,7 +602,7 @@ async def check_bybit(
     end_ms = _epoch_ms(now)
     start_ms = end_ms - lookback_days * DAY_MS
 
-    results["e"] = await _safe_item(_bybit_clock_skew(http, now), "e")
+    results["e"] = await _safe_item(_bybit_clock_skew(http), "e")
     results["f"] = await _safe_item(
         _bybit_key_acceptance(http, signer, symbol, start_ms, end_ms), "f"
     )
@@ -655,8 +676,13 @@ def _binance_error(response: httpx.Response) -> tuple[int, str] | None:
     return None
 
 
-async def _binance_clock_skew(http: httpx.AsyncClient, host_now: datetime) -> ItemVerdict:
+async def _binance_clock_skew(http: httpx.AsyncClient) -> ItemVerdict:
+    # Warm the connection first: the TLS handshake would otherwise sit
+    # inside the measured round trip and widen its uncertainty.
+    await http.get(BINANCE_SERVER_TIME_PATH)
+    sent_ms = _epoch_ms(SystemClock().now())
     response = await http.get(BINANCE_SERVER_TIME_PATH)
+    received_ms = _epoch_ms(SystemClock().now())
     try:
         body: Any = response.json()
     except ValueError:
@@ -664,8 +690,12 @@ async def _binance_clock_skew(http: httpx.AsyncClient, host_now: datetime) -> It
     server_ms = body.get("serverTime") if isinstance(body, dict) else None
     if not isinstance(server_ms, int):
         return ItemVerdict("unknown", f"no integer serverTime in body: {body!r}")
-    skew_ms = server_ms - _epoch_ms(host_now)
-    return ItemVerdict("answered", f"server - host = {skew_ms} ms (positive: venue ahead)")
+    skew_ms, round_trip_ms = clock_skew_ms(server_ms, sent_ms, received_ms)
+    return ItemVerdict(
+        "answered",
+        f"server - host = {skew_ms} ms +/- {round_trip_ms // 2} ms "
+        f"(positive: venue ahead; round trip {round_trip_ms} ms)",
+    )
 
 
 async def _binance_key_acceptance(
@@ -750,7 +780,9 @@ async def _binance_weight_cost(
     )
     if cost is None:
         return ItemVerdict(
-            "unknown", f"{BINANCE_USED_WEIGHT_1M_HEADER} missing or non-monotonic across two calls"
+            "unknown",
+            f"{BINANCE_USED_WEIGHT_1M_HEADER} missing, unchanged (window reset between calls) "
+            "or moved the wrong way",
         )
     return ItemVerdict("answered", f"{cost} weight per call to {BINANCE_FILLS_PATH}")
 
@@ -828,7 +860,7 @@ async def check_binance(
     end_ms = _epoch_ms(now)
     start_ms = end_ms - lookback_days * DAY_MS
 
-    results["e"] = await _safe_item(_binance_clock_skew(http, now), "e")
+    results["e"] = await _safe_item(_binance_clock_skew(http), "e")
     results["f"] = await _safe_item(
         _binance_key_acceptance(http, signer, symbol, start_ms, end_ms), "f"
     )

@@ -11,6 +11,7 @@ from check_venue_fill_windows import (
     ItemVerdict,
     SpanProbe,
     bisect_max_accepted_span,
+    clock_skew_ms,
     describe_failure,
     format_item_verdict,
     header_call_cost,
@@ -236,3 +237,36 @@ def test_describe_failure_strips_a_signed_query_string_from_the_exception_text()
     assert described.startswith("RuntimeError: boom for url")
     assert "deadbeefcafe" not in described
     assert "signature=" not in described
+
+
+# --- clock_skew_ms -------------------------------------------------------------
+
+
+def test_clock_skew_compares_the_server_to_the_midpoint_of_the_request() -> None:
+    # The first live run compared the server against ONE timestamp taken before
+    # both venues ran, so Binance "measured" Bybit's whole run (1989 ms).
+    skew, round_trip = clock_skew_ms(server_ms=1_000, sent_ms=900, received_ms=1_100)
+
+    assert skew == 0
+    assert round_trip == 200
+
+
+def test_clock_skew_reports_a_venue_ahead_as_positive() -> None:
+    skew, round_trip = clock_skew_ms(server_ms=1_250, sent_ms=1_000, received_ms=1_100)
+
+    assert skew == 200
+    assert round_trip == 100
+
+
+# --- header_call_cost: a counter that did not move ------------------------------
+
+
+def test_header_call_cost_is_none_when_the_counter_did_not_move() -> None:
+    """Every call costs at least one unit, so an unchanged counter means the
+    window reset between the readings -- unmeasured, never "free". The first
+    live run reported Bybit at "0 units per call" exactly this way."""
+    before = {"x-bapi-limit-status": "49"}
+    after = {"x-bapi-limit-status": "49"}
+
+    assert header_call_cost(before, after, "x-bapi-limit-status", "decreasing") is None
+    assert header_call_cost(before, after, "x-bapi-limit-status", "increasing") is None
