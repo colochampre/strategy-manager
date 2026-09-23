@@ -280,6 +280,49 @@ class Settings(BaseSettings):
     # refusing to confirm off a single noisy read.
     reconciliation_confirmations: int = Field(default=2)
 
+    # How often ``reconciliation.prepare_booking`` sweeps still-open CONFIRMED
+    # attributable discrepancies for a venue fill window to match against
+    # (design.md § 1, § 10). It only fetches for a CONFIRMED row without a
+    # pending proposal, so at this cadence the cost stays far below the
+    # 2400/min ceiling ``reconciliation_scan_interval_seconds``'s own comment
+    # already measured this pool against.
+    reconciliation_booking_prepare_interval_seconds: int = Field(default=60)
+
+    # Padding subtracted from a discrepancy's ``first_observed_at`` before it
+    # becomes the venue fill fetch's window start (design.md § 9, "Fetch
+    # window"). The live probe (``scripts/check_venue_fill_windows.py``,
+    # tasks.md's "Probe results", 2026-09-23) measured clock skew of roughly
+    # ±0.1s between host and both venues -- the pad instead covers the lag to
+    # the first scan able to see the disagreement, not the skew itself. A pad
+    # that is too small only yields fewer proposals: an unmatched fill sum
+    # refuses with a WARNING rather than booking a wrong window.
+    reconciliation_booking_prepare_window_pad_seconds: int = Field(default=300)
+
+    # The longest fill-window span a fetch will request before refusing
+    # rather than sending a truncated one (design.md § 9). Measured live
+    # against both venues (tasks.md's "Probe results"): both accept 7 days
+    # and refuse 8 (Bybit ``retCode=10001``, Binance ``code=-4165``).
+    reconciliation_booking_prepare_max_span_seconds: int = Field(default=604800)
+
+    # Page size for each venue fill-window request. 100 is Bybit's own
+    # documented maximum (Binance allows up to 1000); capped to the tighter
+    # of the two so one constant serves both readers through the shared
+    # registry (design.md § 9).
+    reconciliation_booking_prepare_page_limit: int = Field(default=100)
+
+    # How many pages one fill-window fetch may turn before
+    # ``VenueFillReadError`` is raised rather than silently truncating the
+    # fill list -- a truncated fetch would under-book a close, which is worse
+    # than no proposal at all (design.md § 9). 10 pages at 100/page bounds
+    # one fetch to 1,000 fills.
+    reconciliation_booking_prepare_max_pages: int = Field(default=10)
+
+    # How long a PENDING booking proposal stays approvable before
+    # ``ExpireBookingProposals`` marks it EXPIRED (design.md § 11). Not one
+    # of the five venue-measured constants above -- this is a business
+    # default (spec: "24h, configurable"), not a venue limit.
+    reconciliation_booking_proposal_expiry_seconds: int = Field(default=86400)
+
     # --- Operator alerting --------------------------------------------------
     #
     # Every ERROR this process logs is forwarded to a Telegram chat. It exists
