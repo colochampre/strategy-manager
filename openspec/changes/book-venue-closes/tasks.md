@@ -76,9 +76,9 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 2a — live probe (250–350 lines)
 
-- [ ] 2.1 Write `scripts/check_venue_fill_windows.py`, GET-only, both venues, reusing `probe_credentials.announce`/`vault_credentials` (prints which key it runs as). Answers all six items from design decision 10.
+- [x] 2.1 Write `scripts/check_venue_fill_windows.py`, GET-only, both venues, reusing `probe_credentials.announce`/`vault_credentials` (prints which key it runs as). Answers all six items from design decision 10.
 - [ ] 2.2 RUN it on the worker's host; record output — the ONLY source for unit 5's five config defaults. Do not fix `reconciliation_booking_prepare_interval_seconds`, `..._window_pad_seconds`, `..._max_span_seconds`, `..._page_limit`, `..._max_pages` before this runs.
-- [ ] 2.3 Light unit tests only for pure helpers (bisection, arg parsing) if any exist.
+- [x] 2.3 Light unit tests only for pure helpers (bisection, arg parsing) if any exist.
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 2b — venue fill-window fetch (650–850 lines, AT RISK)
