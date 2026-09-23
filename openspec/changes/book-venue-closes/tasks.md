@@ -142,10 +142,10 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 4b — `PrepareBooking` use case (450–550 lines)
 
-- [ ] 4b.1 RED `tests/reconciliation/application/test_prepare_booking.py::test_ambiguous_partial_reduce_and_no_matching_allocation_never_proposed` — money-critical: the two unbookable verdicts.
-- [ ] 4b.2 RED `::test_prepare_writes_no_ledger_or_execution_rows` — money-critical: nothing reaches the ledger without approval.
-- [ ] 4b.3 RED `::test_at_most_one_pending_proposal_per_discrepancy`, `::test_rejection_suppresses_identical_observation`, `::test_moved_observation_gets_fresh_proposal_after_rejection`, `::test_dry_run_hard_skip_no_fetch_no_proposal`.
-- [ ] 4b.4 GREEN: `PrepareBooking` use case, all fakes. **Spelling**: fake `VenueFillReaderPort` returns `"STXUSDT_PERP"`, discrepancy fixture stores `"STXUSDT.P"`; assert the proposal's frozen `symbol` is the market key.
+- [x] 4b.1 RED `tests/reconciliation/application/test_prepare_booking.py::test_ambiguous_partial_reduce_and_no_matching_allocation_never_proposed` — money-critical: the two unbookable verdicts.
+- [x] 4b.2 RED `::test_prepare_writes_no_ledger_or_execution_rows` — money-critical: nothing reaches the ledger without approval.
+- [x] 4b.3 RED `::test_at_most_one_pending_proposal_per_discrepancy`, `::test_rejection_suppresses_identical_observation`, `::test_moved_observation_gets_fresh_proposal_after_rejection`, `::test_dry_run_hard_skip_no_fetch_no_proposal`.
+- [x] 4b.4 GREEN: `PrepareBooking` use case, all fakes. **Spelling**: fake `VenueFillReaderPort` returns `"STXUSDT_PERP"`, discrepancy fixture stores `"STXUSDT.P"`; assert the proposal's frozen `symbol` is the market key.
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 5 — prepare wiring (600–800 lines, AT RISK — last change's overrun landed here)
