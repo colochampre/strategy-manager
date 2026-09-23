@@ -226,6 +226,22 @@ class PrepareBooking:
                 raise InvariantViolation(
                     f"bookable discrepancy {discrepancy.id} carries no open allocation id"
                 )
+            if len(discrepancy.open_allocation_ids) > 1:
+                # ATTRIBUTABLE_FULL_CLOSE fires for ANY number of open
+                # allocations: a flat venue closed all of them. Booking the
+                # whole close against one allocation would drive it negative
+                # and leave the others open -- a permanent corruption of an
+                # append-only ledger. Splitting it needs an invented FIFO or
+                # pro-rata rule, which the owner ruled out, so it is refused.
+                logger.warning(
+                    "prepare booking: discrepancy %s closes %d open allocations "
+                    "at once; one booking can attribute a close to exactly one "
+                    "allocation, so this needs manual reconciliation",
+                    discrepancy.id,
+                    len(discrepancy.open_allocation_ids),
+                )
+                skipped += 1
+                continue
             allocation_id = discrepancy.open_allocation_ids[0]
             strategy_id = await self._allocation_owner.strategy_for(allocation_id)
             client_order_id = build_client_order_id(discrepancy.exchange, matched.fills)

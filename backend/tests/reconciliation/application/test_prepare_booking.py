@@ -774,3 +774,36 @@ async def test_a_bookable_discrepancy_with_no_open_allocation_id_raises() -> Non
 
     with pytest.raises(InvariantViolation):
         await use_case.sweep(uuid4())
+
+
+# --- Money-critical: a full close spread over several allocations -----------
+
+
+async def test_full_close_over_several_allocations_is_refused_never_booked_to_one(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Rung 2 fires for ANY number of open allocations: a flat venue closed
+    all of them. Booking the whole close against the first allocation would
+    drive it negative and leave the others open, a permanent corruption of
+    an append-only ledger. Splitting it would need an invented FIFO or
+    pro-rata rule, which the owner ruled out, so it is refused."""
+    first, second = uuid4(), uuid4()
+    discrepancy = _discrepancy(
+        ledger_net_base=Decimal("0.5"), open_allocation_ids=(first, second)
+    )
+    reader = FakeVenueFillReader([_fill(quantity=Decimal("0.5"))])
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={first: uuid4(), second: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        str(discrepancy.id) in r.getMessage() and "2 open allocations" in r.getMessage()
+        for r in warnings
+    )

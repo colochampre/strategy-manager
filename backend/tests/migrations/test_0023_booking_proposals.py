@@ -707,8 +707,31 @@ async def test_observed_allocation_ids_check_refuses_an_empty_array(
 
     with pytest.raises(IntegrityError) as excinfo:
         await conn.execute(_INSERT_PENDING, params)
-    assert (
-        _constraint_name(excinfo.value)
-        == "ck_booking_proposals_observed_allocation_ids_nonempty"
-    )
+    assert _constraint_name(excinfo.value) == "ck_booking_proposals_single_allocation"
+    await conn.rollback()
+
+
+async def test_single_allocation_check_refuses_several_observed_allocations(
+    conn: AsyncConnection,
+) -> None:
+    """A full close over several allocations cannot be attributed to one
+    without an invented split; the table refuses to hold such a proposal."""
+    params = await _proposal_params(conn)
+    params["observed_allocation_ids"] = [params["allocation_id"], uuid4()]
+
+    with pytest.raises(IntegrityError) as excinfo:
+        await conn.execute(_INSERT_PENDING, params)
+    assert _constraint_name(excinfo.value) == "ck_booking_proposals_single_allocation"
+    await conn.rollback()
+
+
+async def test_single_allocation_check_refuses_an_allocation_that_was_not_observed(
+    conn: AsyncConnection,
+) -> None:
+    params = await _proposal_params(conn)
+    params["observed_allocation_ids"] = [uuid4()]
+
+    with pytest.raises(IntegrityError) as excinfo:
+        await conn.execute(_INSERT_PENDING, params)
+    assert _constraint_name(excinfo.value) == "ck_booking_proposals_single_allocation"
     await conn.rollback()

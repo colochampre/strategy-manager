@@ -101,12 +101,18 @@ _EXECUTION_ATTEMPT_ONLY_APPROVED = "state = 'APPROVED' OR execution_attempt_id I
 # Added in review beyond design.md § 3, each closing a way to fail without a
 # log line. A misspelt state satisfies the three CHECKs above vacuously and
 # drops out of both partial indexes, so the proposal silently stops being
-# listed and stops blocking a second one. An empty `fills` or empty
-# `observed_allocation_ids` can only come from a bug: match_fills refuses zero
-# unrecorded fills, and both bookable verdicts have an open allocation.
+# listed and stops blocking a second one. An empty `fills` can only
+# come from a bug: match_fills refuses zero unrecorded fills.
 _STATE_CHECK = "state IN ('PENDING','APPROVED','REJECTED','SUPERSEDED','EXPIRED')"
 _FILLS_NONEMPTY_ARRAY = "jsonb_typeof(fills) = 'array' AND jsonb_array_length(fills) > 0"
-_ALLOCATIONS_NONEMPTY = "cardinality(observed_allocation_ids) > 0"
+# Exactly one observed allocation, and it is the one being booked. A
+# flat venue over SEVERAL allocations is ATTRIBUTABLE_FULL_CLOSE too, but
+# one booking can attribute a close to only one allocation without an
+# invented split, which the owner ruled out.
+_SINGLE_ALLOCATION = (
+    "cardinality(observed_allocation_ids) = 1 "
+    "AND observed_allocation_ids[1] = allocation_id"
+)
 
 _PENDING_UNIQUE_INDEX = "ux_booking_proposals_pending_per_discrepancy"
 _PENDING_LOOKUP_INDEX = "ix_booking_proposals_pending"
@@ -200,10 +206,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             _FILLS_NONEMPTY_ARRAY, name="ck_booking_proposals_fills_nonempty_array"
         ),
-        sa.CheckConstraint(
-            _ALLOCATIONS_NONEMPTY,
-            name="ck_booking_proposals_observed_allocation_ids_nonempty",
-        ),
+        sa.CheckConstraint(_SINGLE_ALLOCATION, name="ck_booking_proposals_single_allocation"),
     )
     op.create_index(
         _PENDING_UNIQUE_INDEX,
