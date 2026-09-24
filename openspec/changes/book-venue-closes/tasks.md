@@ -186,10 +186,10 @@ Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres, `TestClient`).
 
 ## Unit 8 — frontend client + auth (500–650 lines, needs 7's contract only)
 
-- [ ] 8.1 RED (Vitest) `shared/auth/token-store.test.ts` — persists to `localStorage` key `sm.admin_token`; grep-asserts no `import.meta.env` reference to the token.
-- [ ] 8.2 GREEN: `shared/auth/token-store.ts`, `TokenGate`.
-- [ ] 8.3 RED `shared/api/client.test.ts` — `apiFetch` sends `Authorization: Bearer`; any 401 clears the store and re-renders `TokenGate`.
-- [ ] 8.4 GREEN: `shared/api/client.ts` (reuses `shared/api/config.ts`'s existing `VITE_API_BASE_URL` pattern).
+- [x] 8.1 RED (Vitest) `shared/auth/token-store.test.ts` — persists to `localStorage` key `sm.admin_token`; grep-asserts no `import.meta.env` reference to the token.
+- [x] 8.2 GREEN: `shared/auth/token-store.ts`, `TokenGate`.
+- [x] 8.3 RED `shared/api/client.test.ts` — `apiFetch` sends `Authorization: Bearer`; any 401 clears the store and re-renders `TokenGate`.
+- [x] 8.4 GREEN: `shared/api/client.ts` (reuses `shared/api/config.ts`'s existing `VITE_API_BASE_URL` pattern).
 i18n: no new user-facing copy in this unit — verify none slipped in.
 Gate: `npm run lint`, `npm test`.
 

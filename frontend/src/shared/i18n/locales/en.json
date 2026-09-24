@@ -9,5 +9,14 @@
   },
   "status": {
     "dryRun": "Dry run"
+  },
+  "auth": {
+    "tokenGate": {
+      "title": "Admin token required",
+      "description": "Paste the admin token once. It is held only in this browser and is never bundled with the app.",
+      "placeholder": "Admin token",
+      "inputLabel": "Admin token",
+      "submit": "Unlock"
+    }
   }
 }

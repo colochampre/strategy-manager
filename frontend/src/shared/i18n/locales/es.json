@@ -9,5 +9,14 @@
   },
   "status": {
     "dryRun": "Modo simulación"
+  },
+  "auth": {
+    "tokenGate": {
+      "title": "Se requiere el token de administración",
+      "description": "Pegue el token de administración una vez. Se guarda solo en este navegador y nunca se incluye en la aplicación.",
+      "placeholder": "Token de administración",
+      "inputLabel": "Token de administración",
+      "submit": "Desbloquear"
+    }
   }
 }
