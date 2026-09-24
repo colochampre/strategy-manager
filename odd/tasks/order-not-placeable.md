@@ -168,7 +168,7 @@ One PR from `fix/order-not-placeable`. The forecast is about 600–900 authored 
   - Gate: `ruff check .` clean; `mypy src` — Success, 210 files; `pytest`
     exit 0, `--co -q` sums to 1,522 (T1's 1,518 + 4 new tests).
 
-- **T3 done**, commit `5e97f0f` (`fix(execution): end a dust close residual definitively`).
+- **T3 done**, commit `6f39fb7` (`fix(execution): end a dust close residual definitively`). The commit's own copy of this line read `5e97f0f`, a hash that an amend replaced; this line was corrected in a follow-up docs commit.
   - `ClosePosition.close()` wraps `exchange.build_close_order(...)` in
     `try/except OrderNotPlaceable`: logs exactly one ERROR (`strategy`,
     `allocation`, `symbol`, `residual` = the ledger's own `base_size`,
