@@ -222,6 +222,25 @@ class PrepareBooking:
                 skipped += 1
                 continue
 
+            without_order_id = [
+                fill.exchange_fill_id
+                for fill in matched.fills
+                if fill.exchange_order_id is None
+            ]
+            if without_order_id:
+                # ledger_entries.exchange_order_id is NOT NULL, so ApproveBooking
+                # could not write these fills. Proposing them would show the
+                # owner a booking that fails when approved.
+                logger.warning(
+                    "prepare booking: discrepancy %s matched fills with no venue "
+                    "order id %s, which the ledger cannot record; needs manual "
+                    "reconciliation",
+                    discrepancy.id,
+                    sorted(without_order_id),
+                )
+                skipped += 1
+                continue
+
             if not discrepancy.open_allocation_ids:
                 raise InvariantViolation(
                     f"bookable discrepancy {discrepancy.id} carries no open allocation id"
