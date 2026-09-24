@@ -169,11 +169,11 @@ Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 6b — `RejectBooking` + expiry (450–550 lines, needs 6a)
 
-- [ ] 6b.1 RED `tests/reconciliation/application/test_reject_booking.py::test_reject_writes_zero_rows_leaves_discrepancy_open_confirmed` — money-critical.
-- [ ] 6b.2 RED `::test_reject_without_reason_refused`.
-- [ ] 6b.3 RED `tests/reconciliation/application/test_expire_booking_proposals.py::test_pending_past_24h_expires_and_is_reproposable` — money-critical.
-- [ ] 6b.4 RED `::test_approve_refuses_expired_but_unswept_proposal`.
-- [ ] 6b.5 GREEN: `RejectBooking`, `ExpireBookingProposals` (runs inside the prepare handler before the sweep).
+- [x] 6b.1 RED `tests/reconciliation/application/test_reject_booking.py::test_reject_writes_zero_rows_leaves_discrepancy_open_confirmed` — money-critical.
+- [x] 6b.2 RED `::test_reject_without_reason_refused`.
+- [x] 6b.3 RED `tests/reconciliation/application/test_expire_booking_proposals.py::test_pending_past_24h_expires_and_is_reproposable` — money-critical.
+- [x] 6b.4 RED `::test_approve_refuses_expired_but_unswept_proposal`.
+- [x] 6b.5 GREEN: `RejectBooking`, `ExpireBookingProposals` (runs inside the prepare handler before the sweep).
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 7 — admin endpoints (450–600 lines, needs 6b)

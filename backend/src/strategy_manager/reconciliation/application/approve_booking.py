@@ -41,6 +41,7 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.reconciliation.application.mark_state_guard import require_marked
 from strategy_manager.reconciliation.application.ports import (
     BookingProposalRecord,
     BookingProposalRepositoryPort,
@@ -139,7 +140,7 @@ class ApproveBooking:
                 decided_by=decided_by,
                 decision_reason="expired before approval",
             )
-            self._require_marked(changed, proposal.id, _EXPIRED)
+            require_marked(changed, proposal.id, _EXPIRED)
             logger.warning(
                 "approve booking: proposal %s expired at %s (now %s) -- marking EXPIRED",
                 proposal.id,
@@ -156,7 +157,7 @@ class ApproveBooking:
             changed = await self._proposals.mark_state(
                 proposal.id, _SUPERSEDED, now, decided_by=decided_by, decision_reason=reason
             )
-            self._require_marked(changed, proposal.id, _SUPERSEDED)
+            require_marked(changed, proposal.id, _SUPERSEDED)
             logger.warning(
                 "approve booking: proposal %s is stale -- marking SUPERSEDED: %s",
                 proposal.id,
@@ -179,7 +180,7 @@ class ApproveBooking:
                 decided_by=decided_by,
                 execution_attempt_id=attempt.id,
             )
-            self._require_marked(changed, proposal.id, _APPROVED)
+            require_marked(changed, proposal.id, _APPROVED)
             logger.info(
                 "approve booking: proposal %s approved -- execution attempt %s, %d ledger rows",
                 proposal.id,
@@ -201,7 +202,7 @@ class ApproveBooking:
         changed = await self._proposals.mark_state(
             proposal.id, _SUPERSEDED, now, decided_by=decided_by, decision_reason=reason
         )
-        self._require_marked(changed, proposal.id, _SUPERSEDED)
+        require_marked(changed, proposal.id, _SUPERSEDED)
         logger.warning(
             "approve booking: proposal %s's write collided with an existing record "
             "(%s) -- marking SUPERSEDED, nothing double-booked",
@@ -265,16 +266,6 @@ class ApproveBooking:
                 f"attempt on {proposal.symbol}"
             )
         return mismatches
-
-    @staticmethod
-    def _require_marked(changed: bool, proposal_id: UUID, state: str) -> None:
-        if not changed:
-            raise InvariantViolation(
-                f"mark_state({state}) on proposal {proposal_id} changed no row despite "
-                "this transaction holding its FOR UPDATE lock since get_for_update -- "
-                "a bug elsewhere lost the row's PENDING state within this same "
-                "transaction; never silently accepted (review carryover)"
-            )
 
 
 def _build_write(

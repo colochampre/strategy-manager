@@ -95,6 +95,9 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.reconciliation.application.booking_prepare_handler import (
     BookingPrepareHandler,
 )
+from strategy_manager.reconciliation.application.expire_booking_proposals import (
+    ExpireBookingProposals,
+)
 from strategy_manager.reconciliation.application.ports import (
     VenueFillReaderPort,
     VenuePositionReaderPort,
@@ -1145,6 +1148,11 @@ def build_worker_runner(
                             settings.reconciliation_booking_proposal_expiry_seconds
                         ),
                         dry_run=settings.dry_run,
+                    ),
+                    expire_booking_proposals=ExpireBookingProposals(
+                        proposals=SqlAlchemyBookingProposalRepository(session),
+                        clock=SystemClock(),
+                        commit=session,
                     ),
                     queue=_job_queue(session, settings),
                     clock=SystemClock(),
