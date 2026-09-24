@@ -29,8 +29,9 @@ read and reported rather than filtered on faith.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -46,8 +47,22 @@ ACCOUNT_INFO_PATH = "/v5/account/info"
 API_KEY_INFO_PATH = "/v5/user/query-api"
 ACCOUNT_COINS_BALANCE_PATH = "/v5/asset/transfer/query-account-coins-balance"
 
+# Same wire path as ``trade_client.py``'s ``EXECUTIONS_PATH``, redeclared
+# here rather than imported: ``trade_client`` imports THIS module (reading
+# is a strict subset of what it needs), and this module has no reason to
+# import back the other way.
+EXECUTIONS_WINDOW_PATH = "/v5/execution/list"
+
 LINEAR = "linear"
 UNIFIED = "UNIFIED"
+
+_EPOCH = datetime.fromtimestamp(0, UTC)
+
+# Execution types that represent a genuine position change and are safe to
+# book. ``Funding`` is charged periodically on an open position and is not a
+# fill at all -- booking it as one would record a close that never happened.
+_TRADE_EXEC_TYPES: Final = frozenset({"Trade", "BustTrade", "AdlTrade"})
+_FUNDING_EXEC_TYPE: Final = "Funding"
 
 LINEAR_PERPETUAL = "LinearPerpetual"
 
@@ -224,11 +239,95 @@ class Position:
         return -self.size if self.side.upper() == "SELL" else self.size
 
 
+@dataclass(frozen=True, slots=True)
+class BybitWindowExecution:
+    """One execution from a WINDOW fetch (``/v5/execution/list`` filtered by
+    time range, not by order) — a straight transcription of the wire
+    payload, side and business-rule translation left to the reader that
+    consumes it (``BybitVenueFillReader``, ``reconciliation/infrastructure``).
+
+    Unlike ``trade_client.BybitExecution``, ``order_id`` is optional: an
+    order-scoped fetch's caller already resolved the order by id, so an
+    order id is guaranteed there. A window fetch has no order at all, so
+    this parser stays tolerant of a missing one (design decision 4) — the
+    order-scoped ``_parse_execution`` in ``trade_client.py`` is untouched
+    and still requires it.
+    """
+
+    exec_id: str
+    order_id: str | None
+    symbol: str
+    side: str
+    price: Decimal
+    qty: Decimal
+    fee: Decimal
+    fee_currency: str
+    exec_time_ms: int
+    exec_type: str
+
+
 class BybitReadOnlyClient:
     """Signed, read-only access to Bybit V5 market and account state."""
 
     def __init__(self, http: httpx.AsyncClient, signer: BybitSigner) -> None:
         self._transport = BybitTransport(http, signer)
+
+    async def fills_in_window(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        page_limit: int,
+        max_pages: int,
+    ) -> list[BybitWindowExecution]:
+        """Every trade-type execution for ``symbol`` in ``[start, end]``,
+        paginated on ``nextPageCursor`` while it is non-empty.
+
+        Bounded by ``max_pages``: silently truncating a fill list would
+        under-book a close, which is worse than refusing outright (design
+        decision 9), so the bound RAISES rather than stopping quietly.
+
+        ``Funding`` executions are filtered out here — a funding charge is
+        not a position change. Any OTHER execution type is neither a known
+        trade type nor ``Funding``, and is refused by name rather than
+        silently skipped or silently included, because guessing which one
+        it is risks under- or over-booking a close.
+        """
+        executions: list[BybitWindowExecution] = []
+        cursor = ""
+        for _ in range(max_pages):
+            params = {
+                "category": LINEAR,
+                "symbol": symbol,
+                "startTime": str(_to_millis(start)),
+                "endTime": str(_to_millis(end)),
+                "limit": str(page_limit),
+            }
+            if cursor:
+                params["cursor"] = cursor
+            data = await self._read(EXECUTIONS_WINDOW_PATH, params)
+            for entry in _list_of(data, "list"):
+                execution = _parse_window_execution(entry)
+                if execution.exec_type == _FUNDING_EXEC_TYPE:
+                    continue
+                if execution.exec_type not in _TRADE_EXEC_TYPES:
+                    raise BybitApiError(
+                        f"Bybit execution {execution.exec_id} on {symbol} has "
+                        f"unrecognised execType {execution.exec_type!r}; it is "
+                        "neither a known trade type nor Funding, and booking "
+                        "it blind risks under- or over-booking a close"
+                    )
+                executions.append(execution)
+            cursor = str(data.get("nextPageCursor") or "")
+            if not cursor:
+                return executions
+
+        raise BybitApiError(
+            f"Bybit fill window for {symbol} did not end within {max_pages} "
+            f"pages of {page_limit}; truncating here risks under-booking a "
+            "close"
+        )
 
     async def perp_contracts(self, limit: int = 1000) -> list[PerpContract]:
         """Every linear contract Bybit lists, perpetual or not.
@@ -460,6 +559,49 @@ def _parse_position(entry: Any) -> Position:
         unrealised_pnl=_optional_amount(fields, "unrealisedPnl"),
         liq_price=_optional_amount(fields, "liqPrice"),
     )
+
+
+def _parse_window_execution(entry: Any) -> BybitWindowExecution:
+    """Tolerant of a missing ``orderId`` — the strict, order-scoped
+    ``_parse_execution`` in ``trade_client.py`` is a separate function and
+    stays untouched, because its caller already resolved the order by id."""
+    fields = _object(entry, "execution")
+    order_id = fields.get("orderId")
+    return BybitWindowExecution(
+        exec_id=_text(fields, "execId"),
+        order_id=str(order_id) if order_id else None,
+        symbol=_text(fields, "symbol"),
+        side=_text(fields, "side"),
+        price=_amount(fields, "execPrice"),
+        qty=_amount(fields, "execQty"),
+        fee=_amount(fields, "execFee"),
+        fee_currency=_text(fields, "feeCurrency"),
+        exec_time_ms=_millis(fields, "execTime"),
+        exec_type=_text(fields, "execType"),
+    )
+
+
+def _to_millis(moment: datetime) -> int:
+    """Milliseconds since the epoch, by subtraction rather than
+    ``timestamp() * 1000`` so no float division stands between a caller's
+    instant and the signed query string."""
+    delta = moment - _EPOCH
+    return delta.days * 86_400_000 + delta.seconds * 1000 + delta.microseconds // 1000
+
+
+def _millis(fields: Mapping[str, Any], field: str) -> int:
+    """Bybit sends timestamps as STRINGS of milliseconds where Pionex sends
+    integers. Accepting both would hide a shape change; this accepts what
+    Bybit documents and says so when it is something else."""
+    value = fields.get(field)
+    if isinstance(value, bool) or not isinstance(value, str | int):
+        raise BybitApiError(
+            f"{field} must be a millisecond timestamp, got {type(value).__name__}"
+        )
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise BybitApiError(f"{field} is not a timestamp: {value!r}") from exc
 
 
 def _object(entry: Any, label: str) -> Mapping[str, Any]:

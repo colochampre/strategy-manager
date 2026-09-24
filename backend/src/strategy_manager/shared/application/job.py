@@ -31,6 +31,13 @@ class JobKind(StrEnum):
     # second process and no second thing that can die unnoticed. What it cannot
     # do is notice its OWN death -- see that module's docstring.
     WATCHDOG_CHECK = "watchdog.check"
+    # Sweeps still-open CONFIRMED attributable discrepancies, fetches each
+    # market's venue fill window, and freezes a ``booking_proposals`` row
+    # (design.md § 1, "Book venue-originated closes"). Self-scheduling like
+    # ``RECONCILIATION_SCAN``, with its OWN ``_SkipAnnouncement`` --
+    # ``reconciliation.application.booking_prepare_handler``'s own docstring
+    # explains why it never shares the scan handler's singleton.
+    RECONCILIATION_PREPARE_BOOKING = "reconciliation.prepare_booking"
 
 
 @dataclass(frozen=True, slots=True)

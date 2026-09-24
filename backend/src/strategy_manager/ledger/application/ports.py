@@ -12,6 +12,7 @@ way ``ReadHeldBase`` asks ``LedgerPositionReaderPort`` for a single
 allocation's number.
 """
 
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
@@ -90,3 +91,20 @@ class LedgerSymbolHoldingsReaderPort(Protocol):
     async def symbol_holdings(
         self, exchange: str, venue: str, settlement_currency: str, symbol: str
     ) -> list[HeldAllocation]: ...
+
+
+class RecordedFillIdsReaderPort(Protocol):
+    """Which of a candidate set of fill ids ``ledger_entries`` already
+    holds, keyed on ``(exchange, venue, exchange_fill_id)`` --
+    ``ux_ledger_exchange_fill`` (migration ``0019``) exactly, never symbol.
+
+    The same split every other port in this file already draws between the
+    consumer-declared protocol (``reconciliation.application.ports
+    .RecordedFillIdsPort``) and this internal one: what ``ReadRecordedFillIds``
+    asks the repository for, one level down from what
+    ``reconciliation`` asks ``ReadRecordedFillIds`` for.
+    """
+
+    async def recorded_fill_ids(
+        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+    ) -> frozenset[str]: ...

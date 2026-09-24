@@ -203,3 +203,298 @@ class CommitPort(Protocol):
     structurally."""
 
     async def commit(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class VenueFill:
+    """One venue-reported fill from a WINDOW fetch (design decision 9,
+    Blocker c — corrects explore #230 Q3).
+
+    ``execution.domain.fill.Fill`` (seven fields) has no ``side``: an
+    order-scoped fetch inherits its side from the order it settled, which
+    already carries the direction. A window fetch has no order — it asks a
+    venue for everything that happened on a symbol in a time range — so
+    ``side`` has to travel on the fill itself. This is a separate DTO, not
+    a reuse of ``Fill``.
+    """
+
+    exchange_fill_id: str
+    exchange_order_id: str | None
+    symbol: str
+    side: str
+    """``'BUY'`` or ``'SELL'``, normalised by the adapter (reader) from
+    each venue's own spelling. Never anything else — an unrecognised side
+    is a shape the reader has never seen and must not guess at."""
+    quantity: Decimal
+    """Always positive. A non-positive quantity is refused by the reader
+    rather than passed through, the same discipline every venue adapter
+    here applies to a fill price or a fee."""
+    price: Decimal
+    fee: Decimal
+    fee_currency: str
+    filled_at: datetime
+    """Tz-aware UTC."""
+
+
+class VenueFillReadError(DomainError):
+    """Raised by ``VenueFillReaderPort.fills_in_window`` when the live call
+    to the venue itself fails, refuses, or answers with something the
+    reader cannot safely translate into a ``VenueFill`` (an unrecognised
+    side, a non-positive quantity, or — Bybit only — an execution type that
+    is neither a known trade type nor ``Funding``).
+
+    Mirrors ``VenuePositionReadError`` exactly: the ONE swallowable error a
+    booking sweep may eat per discrepancy, so one market's failed fetch
+    skips that discrepancy rather than killing the whole sweep. A registry
+    lookup failure for an unserved pool is a *different*, never-swallowed
+    exception — the same split ``VenuePositionReadError`` already draws
+    against ``UnservedPoolError``.
+    """
+
+
+class VenueFillReaderPort(Protocol):
+    """Reads every venue-reported fill for one symbol within a time window —
+    the read a booking proposal is built from (design decision 9).
+
+    REMOTE by nature, same caution as ``VenuePositionReaderPort``.
+
+    ``exchange``/``venues`` mirror ``VenuePositionReaderPort``'s own two
+    class attributes: ``VenueFillReaderRegistryPort`` is keyed by
+    ``(exchange, venue)`` and needs them to route.
+    """
+
+    exchange: str
+    venues: frozenset[str]
+
+    async def fills_in_window(
+        self, pool: PoolKey, symbol: str, start: datetime, end: datetime
+    ) -> list[VenueFill]: ...
+
+
+class VenueFillReaderRegistryPort(Protocol):
+    """Which reader serves a given pool's fill-window read. Mirrors
+    ``VenuePositionReaderRegistryPort`` exactly, including its refusal
+    rule: an unserved pool RAISES, there is no fallback."""
+
+    def for_pool(self, exchange: str, venue: str) -> VenueFillReaderPort: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProposedFillSnapshot:
+    """One element of a booking proposal's frozen ``fills`` JSONB array
+    (design.md § 3, "The frozen snapshot's exact shape"). Every numeric
+    field is a ``Decimal`` here — the repository is the only thing that
+    may ever turn one into JSON, and it MUST do so as a STRING, never a
+    JSON number, the same rule ``_amount()`` already enforces on the wire:
+    a JSON number has already lost the precision an append-only ledger
+    depends on."""
+
+    exchange_fill_id: str
+    exchange_order_id: str | None
+    side: str
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+    fee_currency: str
+    filled_at: datetime
+    """Tz-aware UTC, same convention as ``VenueFill.filled_at``."""
+
+
+@dataclass(frozen=True, slots=True)
+class NewBookingProposal:
+    """Every frozen column of ``booking_proposals`` (migration ``0023``),
+    supplied to ``BookingProposalRepositoryPort.insert``. Server-assigned
+    columns (``id``, ``created_at``, ``state``) are absent — the database
+    assigns them, and the repository reads them back on a successful
+    write."""
+
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    """The MARKET KEY, like the discrepancy row it was prepared from
+    (design.md § 13) — never a venue spelling."""
+    kind: DiscrepancyKind
+    """Restricted at the database by ``ck_booking_proposals_kind`` to the
+    two BOOKABLE verdicts; this port accepts the full enum because it is
+    the type ``Observation.kind`` already carries, and the CHECK is the
+    real guard."""
+    allocation_id: UUID
+    strategy_id: UUID
+    side: str
+    quantity: Decimal
+    observed_venue_net_base: Decimal
+    observed_ledger_net_base: Decimal
+    observed_allocation_ids: Sequence[UUID]
+    fills: Sequence[ProposedFillSnapshot]
+    client_order_id: str
+    expires_at: datetime
+    prepared_by_job_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class BookingProposalRecord:
+    """One row of ``booking_proposals``, as read back — every frozen column
+    plus the five mutable ones (design.md § 3)."""
+
+    id: UUID
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    kind: DiscrepancyKind
+    allocation_id: UUID
+    strategy_id: UUID
+    side: str
+    quantity: Decimal
+    observed_venue_net_base: Decimal
+    observed_ledger_net_base: Decimal
+    observed_allocation_ids: tuple[UUID, ...]
+    fills: tuple[ProposedFillSnapshot, ...]
+    client_order_id: str
+    expires_at: datetime
+    prepared_by_job_id: UUID
+    created_at: datetime
+    state: str
+    decided_at: datetime | None
+    decided_by: str | None
+    decision_reason: str | None
+    execution_attempt_id: UUID | None
+
+
+class BookingProposalRepositoryPort(Protocol):
+    """Design.md's port inventory, § 3 "Concurrency without a lock table"
+    and § 11 "Rejection semantics and suppression". Implemented by
+    ``SqlAlchemyBookingProposalRepository`` (Unit 3b).
+
+    The frozen-vs-mutable split documented in migration ``0023``'s own
+    docstring is this port's discipline, not the database's: ``insert``
+    writes every frozen column exactly once; ``mark_state`` is the ONLY
+    method that ever changes ``state``/``decided_at``/``decided_by``/
+    ``decision_reason``/``execution_attempt_id``, and nothing else.
+    """
+
+    async def insert(self, proposal: NewBookingProposal) -> BookingProposalRecord | None:
+        """Writes a fresh PENDING proposal. Returns ``None``, having
+        written nothing, when ``ux_booking_proposals_pending_per_discrepancy``
+        already holds a PENDING row for this ``discrepancy_id`` — a
+        distinguishable, non-raising outcome identified by the violated
+        constraint's NAME, never its message text. Any other
+        ``IntegrityError`` (a bad FK, a violated CHECK) is a bug and
+        propagates. Runs inside its own SAVEPOINT so a caller sweeping
+        several discrepancies within one session/transaction can keep
+        going after this outcome (design decision 6's identical reasoning
+        for ``SqlAlchemyBookingWriter``)."""
+        ...
+
+    async def get_for_update(self, proposal_id: UUID) -> BookingProposalRecord:
+        """Row-locks the proposal (design.md § 3, "Concurrency without a
+        lock table") — the shape ``ReservationGatewayPort.get_for_update``
+        already documents: ``SELECT ... FOR UPDATE``, preceding the one
+        conditional UPDATE ``mark_state`` performs, inside the same
+        transaction."""
+        ...
+
+    async def mark_state(
+        self,
+        proposal_id: UUID,
+        state: str,
+        at: datetime,
+        *,
+        decided_by: str | None = None,
+        decision_reason: str | None = None,
+        execution_attempt_id: UUID | None = None,
+    ) -> bool:
+        """The repository's ONLY UPDATE: ``... WHERE id=:id AND
+        state='PENDING'``, meant to follow ``get_for_update`` in the same
+        transaction. Returns whether a row actually changed — ``False``
+        means a racing decision already won (design.md § 3's
+        ``ALREADY_DECIDED`` outcome), and the caller MUST inspect this
+        return value rather than assume success; a 0-row update is a
+        legitimate, silent-by-construction outcome that only this return
+        value makes visible."""
+        ...
+
+    async def list_pending(self, limit: int = 100) -> list[BookingProposalRecord]:
+        """PENDING rows only, ordered by ``expires_at`` ascending — the
+        admin list endpoint and the expiry sweep are the only two readers
+        of ``ix_booking_proposals_pending``, and neither ever needs a
+        non-PENDING row (migration ``0023``'s own index docstring)."""
+        ...
+
+    async def has_matching_rejection(
+        self, discrepancy_id: UUID, observation: Observation
+    ) -> bool:
+        """design.md § 11's suppression lookup: ``True`` when a REJECTED
+        proposal exists for ``discrepancy_id`` whose frozen ``(kind,
+        observed_venue_net_base, observed_ledger_net_base)`` equals
+        ``observation`` by DECIMAL VALUE equality — reusing the exact
+        ``Observation`` triple ``next_consecutive_scans`` already compares
+        this way. Reads every state via ``ix_booking_proposals_discrepancy``
+        (the non-partial index over ``discrepancy_id``); the suppression
+        key is this Observation triple, NEVER the frozen ``fills``
+        snapshot."""
+        ...
+
+    async def expire_pending(self, now: datetime) -> int:
+        """Marks every PENDING row with ``expires_at <= now`` as EXPIRED.
+        Returns how many rows actually changed. Called by
+        ``ExpireBookingProposals`` (Unit 6b) inside the prepare handler,
+        before the sweep."""
+        ...
+
+
+class RecordedFillIdsPort(Protocol):
+    """Which of a candidate set of venue-reported fill ids the ledger
+    ALREADY holds, keyed on ``(exchange, venue, exchange_fill_id)`` -- NEVER
+    on symbol (design.md § 13: a booked close may carry a different
+    spelling than the open it nets against, and keying this lookup on
+    symbol would reintroduce exactly the mismatch design.md § 13's testing
+    rule exists to catch). Mirrors ``ux_ledger_exchange_fill`` (migration
+    ``0019``) exactly.
+
+    Implemented by ``ledger``'s ``ReadRecordedFillIds``, sibling of
+    ``ReadSymbolPositions`` (design.md's component inventory): the consumer
+    (this module) declares the port, the provider (``ledger``) owns the
+    adapter, the same direction every other module already uses. Consumed
+    by ``domain.booking.match_fills``'s ``already_recorded_ids`` parameter
+    (``PrepareBooking``, Unit 4b, resolves it before calling ``match_fills``
+    -- the domain layer itself never reaches the ledger).
+    """
+
+    async def recorded_fill_ids(
+        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+    ) -> frozenset[str]: ...
+
+
+class AllocationOwnerPort(Protocol):
+    """Resolves the strategy that owns a still-open allocation -- what a
+    booking proposal's ``strategy_id`` column (migration ``0023``) is
+    populated from, given the ``allocation_id`` ``classify()`` attributed
+    the discrepancy to (design.md's component inventory).
+
+    Implemented by ``AllocationOwnerAdapter``, reading ``reservations``
+    directly -- the same cross-module read
+    ``SqlAlchemyExecutionAttemptRepository.submitted_for_strategy_symbol``
+    already performs by importing ``ReservationRow`` from ``allocation``'s
+    own infrastructure models.
+    """
+
+    async def strategy_for(self, allocation_id: UUID) -> UUID: ...
+
+
+class InFlightClosePort(Protocol):
+    """design.md § 7's freshness re-check, half (g): whether the strategy
+    already has a SUBMITTED closing execution attempt on this market within
+    this pool -- a signal-originated close racing this approval.
+
+    Implemented by ``InFlightCloseAdapter``, wrapping the EXISTING
+    ``SqlAlchemyExecutionAttemptRepository.submitted_for_strategy_symbol``
+    with NO new SQL (design.md § 7): that method already merges every
+    spelling a symbol wears (``market_spellings``) and already answers
+    exactly this question for the signals side's own in-flight check.
+    """
+
+    async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...

@@ -37,7 +37,11 @@ from strategy_manager.execution.application.close_position import (
     CloseResult,
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Exchange, Money
@@ -1929,6 +1933,7 @@ async def test_a_retried_reverse_with_a_committed_close_does_not_place_a_second(
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.SUBMITTED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
     )
     handler = _process_signal_handler(
@@ -1973,6 +1978,7 @@ async def test_a_retried_reverse_after_a_failed_close_does_not_place_a_new_one()
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.FAILED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
         error="rejected by venue",
     )
@@ -2021,6 +2027,7 @@ async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_se
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.SUBMITTED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
     )
     handler = _process_signal_handler(
@@ -2070,6 +2077,7 @@ async def test_a_plain_close_retried_after_a_failed_close_places_a_new_one() -> 
         quote_amount=None,
         leverage=None,
         status=ExecutionStatus.FAILED,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
     )
     handler = _process_signal_handler(

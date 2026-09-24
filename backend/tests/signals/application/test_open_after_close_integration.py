@@ -60,7 +60,11 @@ from strategy_manager.execution.application.close_position import CloseCommand, 
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.application.settle_execution import SettleExecution
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
@@ -279,6 +283,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 quote_amount=None,
                 leverage=Decimal("1"),
                 status=ExecutionStatus.FILLED,
+                origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"opening-{opening_attempt_id}",
             )
         )

@@ -22,6 +22,25 @@ class ExecutionStatus(StrEnum):
     ABORTED_EXPIRED = "ABORTED_EXPIRED"
 
 
+class ExecutionOrigin(StrEnum):
+    """Mirrors the ``execution_attempts.origin`` CHECK constraint (migration
+    ``0022``; design.md § 2).
+
+    ``SYSTEM`` is every attempt this system itself submitted to a venue --
+    ``PlaceOrder`` and ``ClosePosition``, both today. ``VENUE`` is an
+    attempt this system never submitted: a booked close the venue reports,
+    matched and approved through reconciliation's ``ApproveBooking``. The
+    DB column defaults to ``SYSTEM`` for every pre-``0022`` row, but the
+    Python field carries no default, so mypy forces every constructor to
+    name it explicitly -- the DB default makes the migration one statement,
+    the missing Python default is the discipline the DB default cannot
+    provide.
+    """
+
+    SYSTEM = "SYSTEM"
+    VENUE = "VENUE"
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionAttempt:
     """One attempt to submit an order, either opening a position or closing
@@ -63,6 +82,7 @@ class ExecutionAttempt:
     quote_amount: Decimal | None
     leverage: Decimal | None
     status: ExecutionStatus
+    origin: ExecutionOrigin
     client_order_id: str
     exchange_order_id: str | None = None
     error: str | None = None
@@ -81,6 +101,19 @@ class ExecutionAttempt:
             raise InvariantViolation(
                 "an ExecutionAttempt carries exactly one size: quantity for a "
                 "sell (base) or quote_amount for a buy (quote)"
+            )
+        if self.origin is ExecutionOrigin.VENUE and self.status is not ExecutionStatus.FILLED:
+            raise InvariantViolation(
+                "a VENUE-origin ExecutionAttempt must be constructed already "
+                "FILLED -- the fill already happened at the venue, so it never "
+                "passes through SUBMITTED and is never sent to ExchangePort"
+            )
+        if self.origin is ExecutionOrigin.VENUE and self.closes_allocation_id is None:
+            raise InvariantViolation(
+                "a VENUE-origin ExecutionAttempt must set closes_allocation_id "
+                "-- it always unwinds a position ApproveBooking already "
+                "matched to an allocation; an OPEN with no allocation to "
+                "unwind is NO_MATCHING_ALLOCATION, which is unbookable"
             )
 
     @property

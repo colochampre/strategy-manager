@@ -69,7 +69,11 @@ from strategy_manager.allocation.infrastructure.reservation_gateway import (
 from strategy_manager.execution.application.close_position import CloseCommand
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import FillRecord, PlacedOrder
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
@@ -338,6 +342,7 @@ async def _seed_settled_flat_holding(
                     quote_amount=None,
                     leverage=Decimal("1"),
                     status=ExecutionStatus.FILLED,
+                    origin=ExecutionOrigin.SYSTEM,
                     client_order_id=f"prior-{attempt_id}",
                 )
             )

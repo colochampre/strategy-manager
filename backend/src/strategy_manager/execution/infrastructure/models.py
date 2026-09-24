@@ -79,6 +79,13 @@ class ExecutionAttemptRow(Base):
     # set for a futures order, NULL for a spot one.
     leverage: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    # ``ck_execution_attempts_origin`` (migration ``0022``): ``SYSTEM`` for
+    # every attempt this system submitted itself, ``VENUE`` for a booked
+    # close the venue reported and ``ApproveBooking`` matched and approved.
+    # The DB default backfills every pre-0022 row as ``SYSTEM`` and stays --
+    # the ORM ``Mapped`` type carries no default of its own on purpose, so
+    # every constructor names it (design.md § 2).
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'SYSTEM'"))
     client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

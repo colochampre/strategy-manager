@@ -128,7 +128,12 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 async def _clean_table(engine: AsyncEngine) -> AsyncIterator[None]:
     yield
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE reconciliation_discrepancies"))
+        # CASCADE: migration 0023's booking_proposals FKs into this table
+        # (no ON DELETE CASCADE on that FK itself -- see 0023's docstring --
+        # but a plain TRUNCATE still refuses without one here). This fixture
+        # runs against a real `alembic upgrade head` database, so the table
+        # exists here even though this file never writes to it directly.
+        await conn.execute(text("TRUNCATE reconciliation_discrepancies CASCADE"))
 
 
 def _observation(

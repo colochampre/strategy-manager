@@ -41,7 +41,11 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     ReservationGatewayPort,
 )
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
@@ -146,6 +150,7 @@ class PlaceOrder:
                 quote_amount=quote_amount,
                 leverage=leverage,
                 status=ExecutionStatus.SUBMITTED,
+                origin=ExecutionOrigin.SYSTEM,
                 client_order_id=client_order_id,
             )
         )

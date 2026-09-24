@@ -21,7 +21,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
@@ -185,6 +189,7 @@ def _attempt(
         quote_amount=None,
         leverage=None,
         status=status,
+        origin=ExecutionOrigin.SYSTEM,
         client_order_id=f"client-{allocation_id}",
         created_at=created_at,
     )
