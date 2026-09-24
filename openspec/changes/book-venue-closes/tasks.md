@@ -178,10 +178,10 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 7 — admin endpoints (450–600 lines, needs 6b)
 
-- [ ] 7.1 RED `tests/reconciliation/infrastructure/test_router.py::test_list_pending_requires_bearer_token`, `::test_approve_requires_bearer_token`, `::test_reject_requires_bearer_token`.
-- [ ] 7.2 RED `::test_approve_returns_503_under_dry_run`, `::test_reject_returns_503_under_dry_run` (never 403).
-- [ ] 7.3 RED `::test_approve_unknown_id_404`, `::test_approve_not_pending_409`, `::test_reject_empty_reason_422`. **Spelling**: list endpoint queried with `?symbol=stxusdt.p`, fixture stores `STXUSDT.P`; assert normalization.
-- [ ] 7.4 GREEN: the 3 routes on the existing `reconciliation/infrastructure/router.py`.
+- [x] 7.1 RED `tests/reconciliation/infrastructure/test_router.py::test_list_pending_requires_bearer_token`, `::test_approve_requires_bearer_token`, `::test_reject_requires_bearer_token`.
+- [x] 7.2 RED `::test_approve_returns_503_under_dry_run`, `::test_reject_returns_503_under_dry_run` (never 403).
+- [x] 7.3 RED `::test_approve_unknown_id_404`, `::test_approve_not_pending_409`, `::test_reject_empty_reason_422`. **Spelling**: list endpoint queried with `?symbol=stxusdt.p`, fixture stores `STXUSDT.P`; assert normalization.
+- [x] 7.4 GREEN: the 3 routes on the existing `reconciliation/infrastructure/router.py`.
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres, `TestClient`).
 
 ## Unit 8 — frontend client + auth (500–650 lines, needs 7's contract only)

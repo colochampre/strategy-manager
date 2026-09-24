@@ -251,6 +251,13 @@ class VenueFill:
     """Tz-aware UTC."""
 
 
+class BookingProposalNotFound(DomainError):
+    """Raised by ``BookingProposalRepositoryPort.get_for_update`` for an id
+    that names no proposal. A port-level error on purpose: the admin router
+    maps exactly this to 404, so a ``NoResultFound`` raised by any deeper
+    read can never be disguised as "no such proposal"."""
+
+
 class VenueFillReadError(DomainError):
     """Raised by ``VenueFillReaderPort.fills_in_window`` when the live call
     to the venue itself fails, refuses, or answers with something the
