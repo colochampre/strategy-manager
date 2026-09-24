@@ -13,9 +13,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.execution.application.ports import FillRecord
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyKind,
     DiscrepancyStatus,
@@ -157,6 +160,18 @@ class DiscrepancyRepositoryPort(Protocol):
         status: DiscrepancyStatus | None = None,
         open_only: bool = False,
     ) -> list[DiscrepancyRecord]: ...
+
+    async def get(self, discrepancy_id: UUID) -> DiscrepancyRecord:
+        """Re-reads one row by id -- what ``ApproveBooking``'s freshness
+        re-check (design.md § 7) compares a booking proposal's frozen
+        columns against. Not in this port's original inventory (that
+        document only lists ``upsert_open``/``resolve_absent``/
+        ``list_discrepancies``); added during Unit 6a's apply because none
+        of those three answers "re-read THIS discrepancy by id" without
+        scanning the whole table. Raises ``InvariantViolation`` if the row
+        is gone -- a discrepancy is never deleted, only ``resolved_at``-
+        stamped, so a missing row here is a bug, not a business outcome."""
+        ...
 
     async def upsert_open(
         self,
@@ -498,3 +513,61 @@ class InFlightClosePort(Protocol):
     """
 
     async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...
+
+
+class BookingWriteOutcome(StrEnum):
+    """design.md § 6, step 5: ``BookingWritePort.write``'s two expected
+    outcomes. ``WRITTEN`` is the ordinary path; ``ALREADY_RECORDED`` is the
+    two named-constraint ``IntegrityError`` translations
+    (``SqlAlchemyBookingWriter``, Unit 6a), never a third value and never a
+    silently-swallowed exception."""
+
+    WRITTEN = "WRITTEN"
+    ALREADY_RECORDED = "ALREADY_RECORDED"
+
+
+@dataclass(frozen=True, slots=True)
+class BookingWriteResult:
+    outcome: BookingWriteOutcome
+    execution_attempt_id: UUID
+    """The id ``ApproveBooking`` generated for the ``ExecutionAttempt`` it
+    asked ``write`` to persist -- echoed back regardless of outcome, so the
+    caller never has to keep its own copy just to log or to pass into
+    ``mark_state``."""
+    fills_written: int
+    """How many ``ledger_entries`` rows were actually inserted. Zero on
+    ``ALREADY_RECORDED`` -- the SAVEPOINT rolled the whole attempt-plus-fills
+    write back, never a partial set of rows."""
+    reason: str | None = None
+    """Set only on ``ALREADY_RECORDED``: the violated constraint's name, for
+    the WARNING ``ApproveBooking`` logs before marking the proposal
+    SUPERSEDED."""
+
+
+class BookingWritePort(Protocol):
+    """design.md § 6, "``ApproveBooking`` -- transaction boundary and the two
+    expected IntegrityErrors". Implemented by ``SqlAlchemyBookingWriter``
+    (Unit 6a, infrastructure only -- SQLAlchemy and ``IntegrityError`` never
+    reach the use case).
+
+    ``write`` inserts exactly one ``execution_attempts`` row (``attempt``,
+    already constructed ``origin=VENUE``/``status=FILLED`` by the caller) and
+    one ``ledger_entries`` row per element of ``fill_records`` (via the
+    EXISTING ``ledger.application.record_fill.RecordFill``, never a second
+    ledger-writing code path), inside its own SAVEPOINT
+    (``session.begin_nested()``) nested in the caller's open transaction.
+
+    Exactly two ``IntegrityError``s are expected, identified by CONSTRAINT
+    NAME, never message text: ``execution_attempts_client_order_id_key`` (a
+    replayed approval colliding with itself) and ``ux_ledger_exchange_fill``
+    (someone else already recorded this fill). Both translate to
+    ``ALREADY_RECORDED``, having rolled the SAVEPOINT back to before this
+    call -- the caller's transaction stays open and usable (design.md § 6's
+    own "the SAVEPOINT is load-bearing" argument). Any other
+    ``IntegrityError`` -- an FK violation, a CHECK violation, the
+    append-only trigger -- is a bug and propagates unchanged.
+    """
+
+    async def write(
+        self, attempt: ExecutionAttempt, fill_records: Sequence[FillRecord]
+    ) -> BookingWriteResult: ...

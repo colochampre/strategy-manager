@@ -159,12 +159,12 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 6a — `ApproveBooking` (650–750 lines, needs 1 + 3b)
 
-- [ ] 6a.1 RED `tests/reconciliation/application/test_approve_booking_integration.py::test_stale_snapshot_refused_marks_superseded` — parametrized across freshness branches (a)-(h). Money-critical.
-- [ ] 6a.2 RED `::test_replayed_approval_writes_nothing_further_marks_superseded` — money-critical: approve twice, assert exactly 1 attempt + N ledger rows total; second call SUPERSEDED, zero writes.
-- [ ] 6a.3 RED `::test_client_order_id_collision_treated_as_expected_superseded` and `::test_ux_ledger_exchange_fill_collision_treated_as_expected_superseded` — both identified by CONSTRAINT NAME (imports Task 1.1's constant), never message text; assert an unrelated FK/CHECK violation still propagates.
-- [ ] 6a.4 RED `::test_concurrent_double_approval_second_sees_non_pending`.
-- [ ] 6a.5 RED `::test_dry_run_refuses_at_use_case_level`.
-- [ ] 6a.6 GREEN: `ApproveBooking`; `BookingWritePort`/`SqlAlchemyBookingWriter` owning the `session.begin_nested()` SAVEPOINT + the two named-constraint `IntegrityError` translations (infrastructure only).
+- [x] 6a.1 RED `tests/reconciliation/application/test_approve_booking_integration.py::test_stale_snapshot_refused_marks_superseded` — parametrized across freshness branches (a)-(h) plus the single-allocation re-check. Money-critical.
+- [x] 6a.2 RED `::test_replayed_approval_writes_nothing_further_marks_superseded` — money-critical: approve twice, assert exactly 1 attempt + N ledger rows total; second call ALREADY_DECIDED (not SUPERSEDED — the first call's `mark_state(APPROVED)` already moves the row out of PENDING before the second call's own `get_for_update`, so it never reaches the freshness re-check at all), zero writes.
+- [x] 6a.3 RED `::test_client_order_id_collision_treated_as_expected_superseded` and `::test_ux_ledger_exchange_fill_collision_treated_as_expected_superseded` — both identified by CONSTRAINT NAME (imports Task 1.1's constant), never message text; assert an unrelated FK/CHECK violation still propagates.
+- [x] 6a.4 RED `::test_concurrent_double_approval_second_sees_non_pending`.
+- [x] 6a.5 RED `::test_dry_run_refuses_at_use_case_level`.
+- [x] 6a.6 GREEN: `ApproveBooking`; `BookingWritePort`/`SqlAlchemyBookingWriter` owning the `session.begin_nested()` SAVEPOINT + the two named-constraint `IntegrityError` translations (infrastructure only).
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 6b — `RejectBooking` + expiry (450–550 lines, needs 6a)
