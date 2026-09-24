@@ -17,6 +17,7 @@ from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
     OpenOrderSpec,
+    OrderNotPlaceable,
     PlacedOrder,
     ReservationSnapshot,
 )
@@ -106,17 +107,25 @@ class SpyExchange:
     exchange = "pionex"
     venues = frozenset({"spot"})
 
-    def __init__(self, log: list[str], raises: Exception | None = None) -> None:
+    def __init__(
+        self,
+        log: list[str],
+        raises: Exception | None = None,
+        build_open_raises: Exception | None = None,
+    ) -> None:
         self.orders: list[PlaceableOrder] = []
         self.built: list[OpenOrderSpec] = []
         self._log = log
         self._raises = raises
+        self._build_open_raises = build_open_raises
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
         """Real adapters build the order because denomination is a venue
         property. This double keeps spot's rule so the existing expectations
         still describe what a spot venue does."""
         self.built.append(spec)
+        if self._build_open_raises is not None:
+            raise self._build_open_raises
         return market_order(
             side=spec.side,
             client_order_id=spec.client_order_id,
@@ -167,12 +176,13 @@ def _build(
     expires_at: datetime = NOW + timedelta(seconds=30),
     amount: Decimal = Decimal("100"),
     exchange_raises: Exception | None = None,
+    build_open_raises: Exception | None = None,
 ) -> tuple[PlaceOrder, FakeReservations, SpyAttempts, SpyQueue, SpyExchange, list[str]]:
     log: list[str] = []
     reservations = FakeReservations(expires_at, amount)
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
-    exchange = SpyExchange(log, exchange_raises)
+    exchange = SpyExchange(log, exchange_raises, build_open_raises)
     use_case = PlaceOrder(
         reservations=reservations,
         exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
@@ -323,3 +333,88 @@ async def test_a_zero_price_is_rejected_before_anything_is_written() -> None:
     assert queue.enqueued == []
     assert attempts.inserted == []
     assert reservations.marks == []
+
+
+async def test_an_order_not_placeable_ends_the_signal_without_raising() -> None:
+    """The bug this task exists to fix: ``build_open_order`` raises before any
+    write, outside the ``try/except ExchangeError`` that only ever wrapped
+    ``exchange.place``. Before this fix, ``OrderNotPlaceable`` propagated
+    straight out of ``place()`` into ``WorkerRunner``, which logged a WARNING
+    and retried with backoff until the job died FAILED -- a size the venue's
+    own catalogue will never accept, retried forever. It must never raise; it
+    must be translated into a refused result instead."""
+    reason = (
+        "BTCUSDT rounds a size of 0.0002 down to 0.000 at a step of 0.001; "
+        "the granted 20 is too small to open a position at 1x"
+    )
+    use_case, reservations, attempts, queue, _, _ = _build(
+        build_open_raises=OrderNotPlaceable(
+            reason,
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        )
+    )
+
+    try:
+        result = await use_case.place(_command())
+    except OrderNotPlaceable:
+        pytest.fail(
+            "OrderNotPlaceable must not propagate out of PlaceOrder.place() -- "
+            "it is a definitive refusal, not a retryable failure"
+        )
+
+    assert result.status == "REFUSED"
+    assert result.execution_attempt_id is None
+    assert result.error == reason
+
+
+async def test_an_order_not_placeable_releases_the_reservation_and_writes_no_attempt() -> None:
+    """Definitive, like a rejected order -- but unlike one, nothing was ever
+    written: build happens before the attempt insert and the settle-job
+    enqueue, so there is no attempt to mark failed and no orphan settle job
+    to leave scheduled."""
+    use_case, reservations, attempts, queue, _, _ = _build(
+        build_open_raises=OrderNotPlaceable(
+            "too small",
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        )
+    )
+
+    await use_case.place(_command())
+
+    assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
+    assert attempts.inserted == []
+    assert queue.enqueued == []
+
+
+async def test_an_order_not_placeable_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The only trace of a refused open, so it must be self-sufficient: which
+    reservation was released, which strategy, which symbol, and why."""
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.place_order")
+    reason = "BTCUSDT is too small to open a position"
+    use_case, _, _, _, _, _ = _build(
+        build_open_raises=OrderNotPlaceable(
+            reason,
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        )
+    )
+
+    await use_case.place(_command())
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 1
+    message = warning_records[0].getMessage()
+    assert str(RESERVATION_ID) in message
+    assert str(STRATEGY_ID) in message
+    assert "BTC_USDT" in message
+    assert reason in message

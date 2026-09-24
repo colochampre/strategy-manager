@@ -25,6 +25,46 @@ class ExchangeError(DomainError):
     branch)."""
 
 
+class OrderNotPlaceable(ExchangeError):
+    """The venue's own per-symbol rules make this order impossible, and no
+    retry changes a rule the market itself enforces: a size that floors to
+    zero at the contract's step, or one that falls below its minimum
+    quantity or notional (design.md's Approach, 2026-09-24).
+
+    Deliberately its own type rather than a bare ``ExchangeError``. A build
+    failure inside ``build_open_order``/``build_close_order`` that is NOT this
+    -- a leverage or instrument read that failed on the network, auth or a
+    5xx -- must keep propagating unchanged, because that is a "we do not
+    know" the same way ``place()`` treats an ambiguous rejection: the caller
+    retries. This is the opposite: the venue's catalogue already answered,
+    definitively, and retrying re-asks a question whose answer cannot change
+    without the grant, the leverage or the position itself changing first.
+
+    Carries the numbers an operator needs without a database query, so the
+    WARNING/ERROR line composed from this exception is self-sufficient:
+    ``symbol`` is the venue's own spelling (already stripped of TradingView's
+    ``.P`` marker), ``size`` is the quantity this attempt computed (zero for
+    the floored-to-zero case), ``minimum`` is the venue's floor that fired
+    (an order or notional minimum), and ``step`` is the rounding step the
+    size was truncated to.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        symbol: str,
+        size: Decimal,
+        minimum: Decimal,
+        step: Decimal,
+    ) -> None:
+        super().__init__(message)
+        self.symbol = symbol
+        self.size = size
+        self.minimum = minimum
+        self.step = step
+
+
 class OrderNotFound(DomainError):
     """The exchange has no order under this ``client_order_id``.
 

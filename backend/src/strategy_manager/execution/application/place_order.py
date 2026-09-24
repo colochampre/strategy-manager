@@ -28,6 +28,7 @@ The advisory lock never appears here: only capital-*consuming* work takes it
 only ever reduces or terminates one reservation it already owns.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -39,6 +40,7 @@ from strategy_manager.execution.application.ports import (
     ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     OpenOrderSpec,
+    OrderNotPlaceable,
     ReservationGatewayPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
@@ -51,6 +53,8 @@ from strategy_manager.execution.domain.order import MarketBuy, MarketSell, Order
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+
+logger = logging.getLogger(__name__)
 
 RELEASED = "RELEASED"
 SUBMITTED = "SUBMITTED"
@@ -70,7 +74,7 @@ class PlaceCommand:
 
 @dataclass(frozen=True, slots=True)
 class PlaceResult:
-    status: str  # 'PLACED' | 'FAILED' | 'ABORTED_EXPIRED'
+    status: str  # 'PLACED' | 'FAILED' | 'ABORTED_EXPIRED' | 'REFUSED'
     execution_attempt_id: UUID | None
     exchange_order_id: str | None = None
     error: str | None = None
@@ -124,15 +128,35 @@ class PlaceOrder:
         # why it happens here, before the transaction's writes, and not
         # inside them.
         exchange = self._exchanges.for_pool(reservation.exchange, reservation.venue)
-        order = await exchange.build_open_order(
-            OpenOrderSpec(
-                client_order_id=client_order_id,
-                symbol=command.symbol,
-                side=command.side,
-                granted=reservation.amount,
-                price=command.price,
+        try:
+            order = await exchange.build_open_order(
+                OpenOrderSpec(
+                    client_order_id=client_order_id,
+                    symbol=command.symbol,
+                    side=command.side,
+                    granted=reservation.amount,
+                    price=command.price,
+                )
             )
-        )
+        except OrderNotPlaceable as exc:
+            # Definitive: the venue's own per-symbol rules make this size
+            # impossible, and no retry changes a rule the market itself
+            # enforces. Nothing has been written yet -- build happens before
+            # every write in this method -- so there is no attempt to mark
+            # failed, only the reservation to release.
+            await self._reservations.mark(reservation.id, RELEASED, now)
+            await self._commit.commit()
+            logger.warning(
+                "order not placeable, releasing reservation: reservation=%s "
+                "strategy=%s symbol=%s reason=%s",
+                reservation.id,
+                reservation.strategy_id,
+                command.symbol,
+                exc,
+            )
+            return PlaceResult(
+                status="REFUSED", execution_attempt_id=None, error=str(exc)
+            )
         quantity, quote_amount, leverage = _sizes(order)
 
         await self._reservations.mark(reservation.id, SUBMITTED, now)

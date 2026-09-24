@@ -632,7 +632,11 @@ class ProcessSignalHandler:
                 side=_releasing_side(_prior_of(context)),
             )
         )
-        if close_result.status == "FAILED":
+        if close_result.status in ("FAILED", "NOT_CLOSABLE"):
+            # NOT_CLOSABLE is ClosePosition's OWN definitive end for a
+            # residual no order can close (dust) -- reported the same way a
+            # venue rejection is, so this job ends DONE rather than FAILED,
+            # and never retries a close that could never succeed.
             return ProcessSignalResult(
                 transition.kind.value,
                 context.prior_reservation_id,

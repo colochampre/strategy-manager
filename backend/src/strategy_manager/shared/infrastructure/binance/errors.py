@@ -31,6 +31,21 @@ class BinanceApiError(BinanceError):
         self.http_status = http_status
 
 
+class BinanceRuleRefusal(BinanceApiError):
+    """The venue evaluated a specific per-symbol rule and the order fails it:
+    not a perpetual, not trading, below the minimum quantity, above the
+    market ceiling, or below the minimum notional
+    (``PerpContract.assert_tradable``).
+
+    Kept distinct from a plain ``BinanceApiError`` so the futures adapter can
+    translate EXACTLY this -- a rule the venue's own catalogue enforces -- into
+    ``execution.application.ports.OrderNotPlaceable``, without also catching a
+    leverage or instrument read that failed for an unrelated reason (network,
+    auth, a 5xx). Still a ``BinanceApiError`` itself, so any caller that only
+    knows the wider vocabulary keeps working unchanged.
+    """
+
+
 class BinanceOrderNotFound(BinanceError):
     """Binance answered the lookup and said it has no such order.
 

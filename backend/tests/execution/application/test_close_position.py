@@ -28,6 +28,7 @@ from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
     OpenOrderSpec,
+    OrderNotPlaceable,
     PlacedOrder,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
@@ -110,11 +111,17 @@ class SpyExchange:
     exchange = "pionex"
     venues = frozenset({"spot"})
 
-    def __init__(self, log: list[str], raises: Exception | None = None) -> None:
+    def __init__(
+        self,
+        log: list[str],
+        raises: Exception | None = None,
+        build_close_raises: Exception | None = None,
+    ) -> None:
         self.orders: list[PlaceableOrder] = []
         self.built: list[OpenOrderSpec] = []
         self._log = log
         self._raises = raises
+        self._build_close_raises = build_close_raises
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
         """Real adapters build the order because denomination is a venue
@@ -130,6 +137,8 @@ class SpyExchange:
         )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        if self._build_close_raises is not None:
+            raise self._build_close_raises
         if spec.side is not OrderSide.SELL:
             raise ExchangeError(
                 "closing a short is not supported on spot: a market buy "
@@ -168,11 +177,12 @@ def _build(
     *,
     net_base: Decimal = Decimal("0.00199960"),
     exchange_raises: Exception | None = None,
+    build_close_raises: Exception | None = None,
 ) -> tuple[ClosePosition, SpyAttempts, SpyQueue, SpyExchange, FakeHeld, list[str]]:
     log: list[str] = []
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
-    exchange = SpyExchange(log, exchange_raises)
+    exchange = SpyExchange(log, exchange_raises, build_close_raises)
     held = FakeHeld(net_base)
     use_case = ClosePosition(
         exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
@@ -388,3 +398,77 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
     assert exchange.orders == []
     assert attempts.inserted == []
     assert queue.enqueued == []
+
+
+async def test_a_dust_residual_ends_the_close_without_raising_and_writes_no_attempt() -> None:
+    """The bug this task exists to fix: ``build_close_order`` raises before
+    any write, outside the ``try/except ExchangeError`` that only ever
+    wrapped ``exchange.place``. Before this fix, ``OrderNotPlaceable``
+    propagated straight out of ``close()`` into ``WorkerRunner``, which
+    retried with backoff while the position stayed open at the venue --
+    dust no order can ever close, retried forever. It must never raise; it
+    must end as a definitive 'not closable' result, and no attempt row may
+    exist for an order that was never built."""
+    reason = (
+        "BTCUSDT rounds a held size of 0.0002 down to 0.000 at a step of "
+        "0.001; the position is smaller than one tradable unit and cannot "
+        "be closed by an order"
+    )
+    use_case, attempts, queue, exchange, _, _ = _build(
+        net_base=Decimal("0.0002"),
+        build_close_raises=OrderNotPlaceable(
+            reason,
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        ),
+    )
+
+    try:
+        result = await use_case.close(_command())
+    except OrderNotPlaceable:
+        pytest.fail(
+            "OrderNotPlaceable must not propagate out of ClosePosition.close() "
+            "-- it is a definitive 'not closable' end, not a retryable failure"
+        )
+
+    assert result.status == "NOT_CLOSABLE"
+    assert result.execution_attempt_id is None
+    assert result.error == reason
+    assert result.base_size == Decimal("0.0002")
+    assert attempts.inserted == []
+    assert queue.enqueued == []
+    assert exchange.orders == []
+
+
+async def test_a_dust_residual_logs_exactly_one_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The only trace of a refused close, and it must be enough for a human
+    to act on without a database query: which strategy, which allocation,
+    which symbol, the residual size, and the venue's own minimum."""
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.close_position")
+    reason = "BTCUSDT is smaller than one tradable unit"
+    use_case, _, _, _, _, _ = _build(
+        net_base=Decimal("0.0002"),
+        build_close_raises=OrderNotPlaceable(
+            reason,
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        ),
+    )
+
+    result = await use_case.close(_command())
+
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+    message = error_records[0].getMessage()
+    assert str(STRATEGY_ID) in message
+    assert str(ALLOCATION_ID) in message
+    assert "BTC_USDT" in message
+    assert str(result.base_size) in message
+    assert "0.001" in message
+    assert reason in message

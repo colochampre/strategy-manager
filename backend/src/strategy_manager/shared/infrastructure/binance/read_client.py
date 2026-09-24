@@ -26,7 +26,10 @@ from typing import Any
 
 import httpx
 
-from strategy_manager.shared.infrastructure.binance.errors import BinanceApiError
+from strategy_manager.shared.infrastructure.binance.errors import (
+    BinanceApiError,
+    BinanceRuleRefusal,
+)
 from strategy_manager.shared.infrastructure.binance.signer import BinanceSigner
 from strategy_manager.shared.infrastructure.binance.transport import BinanceTransport
 
@@ -149,21 +152,21 @@ class PerpContract:
         then skipped rather than run against an invented number.
         """
         if not self.is_perpetual:
-            raise BinanceApiError(
+            raise BinanceRuleRefusal(
                 f"{self.symbol} is a {self.contract_type}, not a {PERPETUAL}; it "
                 "expires or settles underneath any position held in it"
             )
         if not self.is_trading:
-            raise BinanceApiError(
+            raise BinanceRuleRefusal(
                 f"{self.symbol} is {self.status}, not TRADING; it cannot be traded"
             )
         if qty < self.min_qty:
-            raise BinanceApiError(
+            raise BinanceRuleRefusal(
                 f"{self.symbol} requires an order of at least {self.min_qty} "
                 f"{self.base_asset}; this one is {qty}"
             )
         if qty > self.market_max_qty:
-            raise BinanceApiError(
+            raise BinanceRuleRefusal(
                 f"{self.symbol} caps a MARKET order at {self.market_max_qty} "
                 f"{self.base_asset} (lower than its limit-order ceiling); this "
                 f"one is {qty}"
@@ -174,7 +177,7 @@ class PerpContract:
 
         notional = qty * price
         if notional < self.min_notional:
-            raise BinanceApiError(
+            raise BinanceRuleRefusal(
                 f"{self.symbol} requires a notional of at least "
                 f"{self.min_notional}; this one is {notional} ({qty} at {price})"
             )

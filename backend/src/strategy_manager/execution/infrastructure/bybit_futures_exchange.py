@@ -49,6 +49,7 @@ from strategy_manager.execution.application.ports import (
     ExchangeError,
     OpenOrderSpec,
     OrderNotFound,
+    OrderNotPlaceable,
     PlacedOrder,
 )
 from strategy_manager.execution.domain.fill import Fill
@@ -63,6 +64,7 @@ from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
     BybitOrderNotFound,
+    BybitRuleRefusal,
 )
 from strategy_manager.shared.infrastructure.bybit.trade_client import (
     AMBIGUOUS_CODES,
@@ -112,12 +114,28 @@ class BybitFuturesExchangeAdapter:
         )
         qty = rules.round_qty(raw)
         if qty <= 0:
-            raise ExchangeError(
+            raise OrderNotPlaceable(
                 f"{symbol} rounds a size of {raw} down to {qty} at a step of "
                 f"{rules.qty_step}; the granted {spec.granted} is too small to "
-                f"open a position at {leverage}x"
+                f"open a position at {leverage}x",
+                symbol=symbol,
+                size=qty,
+                minimum=rules.min_order_qty,
+                step=rules.qty_step,
             )
-        rules.assert_tradable(qty, spec.price)
+        try:
+            rules.assert_tradable(qty, spec.price)
+        except BybitRuleRefusal as exc:
+            # The venue's own catalogue already decided -- definitively,
+            # unlike a leverage or instrument read that merely failed above.
+            # Retrying re-asks a question the venue has already answered.
+            raise OrderNotPlaceable(
+                str(exc),
+                symbol=symbol,
+                size=qty,
+                minimum=rules.min_order_qty,
+                step=rules.qty_step,
+            ) from exc
 
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
@@ -142,12 +160,25 @@ class BybitFuturesExchangeAdapter:
         rules = await self._client.perp_rules(symbol)
         qty = rules.round_qty(spec.base_size)
         if qty <= 0:
-            raise ExchangeError(
+            raise OrderNotPlaceable(
                 f"{symbol} rounds a held size of {spec.base_size} down to "
                 f"{qty} at a step of {rules.qty_step}; the position is smaller "
-                "than one tradable unit and cannot be closed by an order"
+                "than one tradable unit and cannot be closed by an order",
+                symbol=symbol,
+                size=qty,
+                minimum=rules.min_order_qty,
+                step=rules.qty_step,
             )
-        rules.assert_tradable(qty, price=None)
+        try:
+            rules.assert_tradable(qty, price=None)
+        except BybitRuleRefusal as exc:
+            raise OrderNotPlaceable(
+                str(exc),
+                symbol=symbol,
+                size=qty,
+                minimum=rules.min_order_qty,
+                step=rules.qty_step,
+            ) from exc
 
         return close_futures_order(
             side=spec.side,
