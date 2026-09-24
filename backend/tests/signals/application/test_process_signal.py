@@ -117,12 +117,22 @@ class FakeCommit:
 @dataclass
 class SpyPlaceOrder:
     """Stands in for ``PlaceOrder`` — records what it was asked to
-    execute against, without needing an exchange/ledger stack."""
+    execute against, without needing an exchange/ledger stack.
+
+    ``result`` lets a test hand back whatever ``PlaceOrder.place()`` would
+    have returned for a case already proven at that unit's own level (e.g. a
+    REFUSED result for an ``OrderNotPlaceable`` rule refusal) -- since the
+    real ``PlaceOrder`` never raises for that case after this task's fix,
+    this spy never raises either; it only ever returns a result, exactly
+    like the real one now does."""
 
     calls: list[PlaceCommand] = field(default_factory=list)
+    result: PlaceResult | None = None
 
     async def place(self, command: PlaceCommand) -> PlaceResult:
         self.calls.append(command)
+        if self.result is not None:
+            return self.result
         return PlaceResult(status="PLACED", execution_attempt_id=uuid4())
 
 
@@ -422,6 +432,46 @@ async def test_consumes_signal_acquires_the_advisory_lock() -> None:
     assert len(lock.acquired) == 1
     assert result.transition_kind == "open_long"
     assert len(place_order.calls) == 1
+
+
+async def test_a_refused_open_ends_the_job_without_raising() -> None:
+    """``PlaceOrder`` translates a definitive ``OrderNotPlaceable`` rule
+    refusal into a REFUSED ``PlaceResult`` rather than raising it (proven at
+    ``PlaceOrder``'s own level in ``test_place_order.py``) -- this pins the
+    contract one layer up: ``ProcessSignalHandler`` must never turn that
+    result into an exception of its own, since that would be exactly the bug
+    this task exists to fix, one layer removed. The handler does not inspect
+    an open's ``PlaceResult`` today (it only reports the reservation id), so
+    this is a regression guard against a future change adding a check here
+    that raises on a refused result."""
+    lock = SpyAdvisoryLock()
+    allocate_capital = _allocate_capital(lock)
+    place_order = SpyPlaceOrder(
+        result=PlaceResult(
+            status="REFUSED",
+            execution_attempt_id=None,
+            error="BTCUSDT is too small to open a position",
+        )
+    )
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),  # open long -> CONSUMES
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=allocate_capital,
+        place_order=place_order,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert len(place_order.calls) == 1
+    assert result.transition_kind == "open_long"
 
 
 async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
