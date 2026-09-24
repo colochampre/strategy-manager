@@ -8,7 +8,7 @@ decisions verbatim. This spec treats them as binding requirements, not
 recommendations.
 
 
-## Delta: venue-reconciliation — ADDED
+## ADDED Requirements
 
 ### Requirement: Confirmed Attributable Discrepancy Yields a Booking Proposal
 A discrepancy reaching CONFIRMED with verdict `ATTRIBUTABLE_SINGLE_ALLOCATION`

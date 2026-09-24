@@ -47,3 +47,12 @@ Each ledger row's monetary fields MUST be recorded in that row's own pool's nati
 - GIVEN one fill for pool `(spot, USDT)` and one fill for pool `(coin-m, BTC)`
 - WHEN both ledger entries are written
 - THEN the `(spot, USDT)` row's amounts are in USDT, the `(coin-m, BTC)` row's amounts are in BTC, and no combined total row is written
+### Requirement: usd_rate Provenance for a Booked Fill (rule 7 deviation, stated explicitly)
+For a ledger row originating from a VENUE-origin attempt, `usd_rate_at_fill`
+MUST be resolved at booking (approval) time, not at the venue's fill time —
+a deliberate deviation from the fill-time rule, because the fill already
+occurred and no historical-rate source exists. The row MUST also record the
+venue's `filled_at` distinct from the rate's observation time, so the gap is
+always computable and never presented as a fill-time rate.
+
+- GIVEN an approved venue-origin fill, WHEN the ledger row is written, THEN it carries both the venue's `filled_at` and a later, distinct rate-observation time.

@@ -93,3 +93,24 @@ A successful execution against pool `(venue, settlement_currency)` MUST record a
 - GIVEN `ExchangePort` reports a successful fill for pool `(coin-m, BTC)` under `allocation_id = A2`
 - WHEN the worker processes the result
 - THEN a fill is recorded via `FillRecorderPort` carrying `allocation_id = A2`, the owning `strategy_id`, and pool `(coin-m, BTC)`
+### Requirement: Execution Attempt Origin
+`execution_attempts` MUST carry `origin` (`SYSTEM`|`VENUE`), NOT NULL,
+defaulted `SYSTEM` for pre-existing rows. Downgrading the migration MUST
+refuse while any VENUE-origin attempt exists, rather than deleting trading
+history.
+
+- GIVEN a new system-submitted attempt, WHEN recorded, THEN `origin='SYSTEM'`.
+- GIVEN a VENUE-origin attempt exists, WHEN the migration is downgraded, THEN it refuses.
+
+### Requirement: Venue-Origin Attempt Is Constructed Already Filled
+A VENUE-origin attempt MUST be constructed directly in status FILLED; it MUST
+NEVER pass through SUBMITTED and MUST NEVER be sent to `ExchangePort`, because
+the fill already happened at the venue.
+
+- GIVEN an approved booking, WHEN the attempt is constructed, THEN it is FILLED immediately and no order is submitted to any exchange.
+
+### Requirement: Venue-Origin Attempt Client Order ID Synthesis (added during apply, 2026-09-23/24)
+A VENUE-origin attempt's `client_order_id` MUST be synthesized deterministically as `vnu:{exchange}:fill:{earliest_exchange_fill_id}`, under the canonical fill ordering, NEVER the venue order ID. One venue order can fill across two scans and so yield two bookings; keyed on the order ID, both would share one `client_order_id`, and the second approval would collide and be read as a harmless replay, so that close could never be booked. A fill is recorded at most once, so the earliest unrecorded fill names exactly one booking. A replay of the same proposal still collides, because the ID is frozen when the proposal is prepared.
+
+- GIVEN multiple fills combined into one VENUE-origin attempt, WHEN the attempt is recorded, THEN the `client_order_id` uses the earliest fill's ID, not any venue order ID.
+- GIVEN one venue order whose fills are booked by two separate proposals, WHEN both are approved, THEN the two attempts carry different `client_order_id`s.

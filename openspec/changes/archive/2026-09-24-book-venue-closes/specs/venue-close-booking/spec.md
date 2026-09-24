@@ -8,7 +8,7 @@ decisions verbatim. This spec treats them as binding requirements, not
 recommendations.
 
 
-## Delta: venue-close-booking — ADDED (new capability)
+## ADDED Requirements
 
 ### Requirement: Proposal Prepared From a Frozen Snapshot, At Most One Pending
 PrepareBooking MUST create a proposal only from a CONFIRMED attributable

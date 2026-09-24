@@ -336,3 +336,20 @@ still open, or `OBSERVED` and already resolved.
 - GIVEN a resolved record and an open record
 - WHEN the endpoint is called filtering for resolved records
 - THEN only the resolved record is returned, selected by its resolution state and never by the presence of a confirmation timestamp
+### Requirement: Confirmed Attributable Discrepancy Yields a Booking Proposal
+A discrepancy reaching CONFIRMED with verdict `ATTRIBUTABLE_SINGLE_ALLOCATION`
+or `ATTRIBUTABLE_FULL_CLOSE` MUST cause a booking proposal to be PREPARED,
+unless suppressed by rejection. `AMBIGUOUS_PARTIAL_REDUCE` and
+`NO_MATCHING_ALLOCATION` MUST NEVER be proposed.
+
+- GIVEN a CONFIRMED `ATTRIBUTABLE_SINGLE_ALLOCATION` row, WHEN prepare runs, THEN a proposal is created.
+- GIVEN a CONFIRMED `AMBIGUOUS_PARTIAL_REDUCE` or `NO_MATCHING_ALLOCATION` row, WHEN prepare runs, THEN no proposal is created.
+
+### Requirement: Rejection Suppresses Identical Re-Proposal
+GIVEN a CONFIRMED discrepancy holding a REJECTED proposal whose frozen
+Observation triple is byte-identical to the discrepancy's current observation,
+prepare MUST skip it. If the observation moves, a fresh proposal MUST be
+prepared.
+
+- GIVEN an unchanged rejected observation, WHEN prepare runs, THEN no new proposal appears.
+- GIVEN the observation moved since rejection, WHEN prepare runs, THEN a fresh proposal is created.
