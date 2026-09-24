@@ -5,9 +5,77 @@
   "nav": {
     "dashboard": "Panel",
     "strategies": "Estrategias",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "bookings": "Cierres pendientes"
   },
   "status": {
     "dryRun": "Modo simulación"
+  },
+  "auth": {
+    "tokenGate": {
+      "title": "Se requiere el token de administración",
+      "description": "Pegue el token de administración una vez. Se guarda solo en este navegador y nunca se incluye en la aplicación.",
+      "placeholder": "Token de administración",
+      "inputLabel": "Token de administración",
+      "submit": "Desbloquear"
+    }
+  },
+  "bookings": {
+    "loading": "Cargando cierres pendientes…",
+    "empty": "No hay cierres pendientes.",
+    "error": {
+      "title": "No se pudieron cargar los cierres pendientes.",
+      "status": "Estado: {{status}}"
+    },
+    "card": {
+      "expires": "Vence",
+      "strategy": "Estrategia",
+      "allocation": "Asignación",
+      "side": "Lado",
+      "quantity": "Cantidad",
+      "observedVenueNet": "Neto del exchange",
+      "observedLedgerNet": "Neto del libro",
+      "fills": "Ejecuciones",
+      "fee": "Comisión"
+    },
+    "actions": {
+      "approve": "Aprobar",
+      "reject": "Rechazar"
+    },
+    "dialogs": {
+      "cancel": "Cancelar",
+      "close": "Cerrar",
+      "genericError": "Ocurrió un error. Intente nuevamente.",
+      "attempt": {
+        "heading": "Nuevo intento de ejecución",
+        "origin": "Origen",
+        "status": "Estado"
+      },
+      "confirm": {
+        "title": "Confirmar aprobación del cierre",
+        "description": "Estas son las filas exactas que se escribirán en el libro si aprueba.",
+        "usdRateNote": "La tasa en USD se lee al momento de escribir y se registra solo como metadato; nunca se usa para calcular la ganancia o pérdida.",
+        "confirm": "Aprobar",
+        "submitting": "Aprobando…",
+        "success": "Cierre aprobado."
+      },
+      "reject": {
+        "title": "Rechazar propuesta de cierre",
+        "description": "La discrepancia permanece abierta y puede volver a proponerse más tarde.",
+        "reasonLabel": "Motivo",
+        "reasonPlaceholder": "¿Por qué se rechaza esta propuesta?",
+        "reasonRequired": "Se requiere un motivo.",
+        "confirm": "Rechazar",
+        "submitting": "Rechazando…",
+        "success": "Cierre rechazado."
+      }
+    },
+    "outcomes": {
+      "ALREADY_DECIDED": "Esta propuesta ya fue decidida en otro lugar. Esta acción no escribió nada.",
+      "SUPERSEDED": "El exchange o el libro cambiaron desde que esto se preparó; no se escribió nada; aparecerá una propuesta nueva.",
+      "EXPIRED": "Esta propuesta venció antes de poder aprobarse. Puede aparecer una propuesta nueva si la discrepancia sigue abierta.",
+      "DRY_RUN_REFUSED": "Este entorno está en modo simulación; la aprobación y el rechazo de cierres están deshabilitados.",
+      "REASON_REQUIRED": "Se requiere un motivo no vacío."
+    }
   }
 }

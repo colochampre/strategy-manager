@@ -5,9 +5,77 @@
   "nav": {
     "dashboard": "Dashboard",
     "strategies": "Strategies",
-    "settings": "Settings"
+    "settings": "Settings",
+    "bookings": "Bookings"
   },
   "status": {
     "dryRun": "Dry run"
+  },
+  "auth": {
+    "tokenGate": {
+      "title": "Admin token required",
+      "description": "Paste the admin token once. It is held only in this browser and is never bundled with the app.",
+      "placeholder": "Admin token",
+      "inputLabel": "Admin token",
+      "submit": "Unlock"
+    }
+  },
+  "bookings": {
+    "loading": "Loading pending bookings…",
+    "empty": "No pending bookings.",
+    "error": {
+      "title": "Could not load pending bookings.",
+      "status": "Status: {{status}}"
+    },
+    "card": {
+      "expires": "Expires",
+      "strategy": "Strategy",
+      "allocation": "Allocation",
+      "side": "Side",
+      "quantity": "Quantity",
+      "observedVenueNet": "Venue net",
+      "observedLedgerNet": "Ledger net",
+      "fills": "Fills",
+      "fee": "Fee"
+    },
+    "actions": {
+      "approve": "Approve",
+      "reject": "Reject"
+    },
+    "dialogs": {
+      "cancel": "Cancel",
+      "close": "Close",
+      "genericError": "Something went wrong. Please try again.",
+      "attempt": {
+        "heading": "New execution attempt",
+        "origin": "Origin",
+        "status": "Status"
+      },
+      "confirm": {
+        "title": "Confirm booking approval",
+        "description": "These are the exact rows that will be written to the ledger if you approve.",
+        "usdRateNote": "The USD rate is read at write time and recorded as metadata only — it is never used for PnL.",
+        "confirm": "Approve",
+        "submitting": "Approving…",
+        "success": "Booking approved."
+      },
+      "reject": {
+        "title": "Reject booking proposal",
+        "description": "The discrepancy stays open and can be re-proposed later.",
+        "reasonLabel": "Reason",
+        "reasonPlaceholder": "Why is this proposal being rejected?",
+        "reasonRequired": "A reason is required.",
+        "confirm": "Reject",
+        "submitting": "Rejecting…",
+        "success": "Booking rejected."
+      }
+    },
+    "outcomes": {
+      "ALREADY_DECIDED": "This proposal has already been decided elsewhere. Nothing was written by this action.",
+      "SUPERSEDED": "The venue or ledger changed since this was prepared; nothing was written; a fresh proposal will appear.",
+      "EXPIRED": "This proposal expired before it could be approved. A fresh proposal may appear if the discrepancy is still open.",
+      "DRY_RUN_REFUSED": "This deployment is running in dry-run mode; booking approval and rejection are disabled.",
+      "REASON_REQUIRED": "A non-empty reason is required."
+    }
   }
 }

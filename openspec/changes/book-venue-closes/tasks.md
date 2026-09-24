@@ -186,26 +186,26 @@ Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres, `TestClient`).
 
 ## Unit 8 — frontend client + auth (500–650 lines, needs 7's contract only)
 
-- [ ] 8.1 RED (Vitest) `shared/auth/token-store.test.ts` — persists to `localStorage` key `sm.admin_token`; grep-asserts no `import.meta.env` reference to the token.
-- [ ] 8.2 GREEN: `shared/auth/token-store.ts`, `TokenGate`.
-- [ ] 8.3 RED `shared/api/client.test.ts` — `apiFetch` sends `Authorization: Bearer`; any 401 clears the store and re-renders `TokenGate`.
-- [ ] 8.4 GREEN: `shared/api/client.ts` (reuses `shared/api/config.ts`'s existing `VITE_API_BASE_URL` pattern).
+- [x] 8.1 RED (Vitest) `shared/auth/token-store.test.ts` — persists to `localStorage` key `sm.admin_token`; grep-asserts no `import.meta.env` reference to the token.
+- [x] 8.2 GREEN: `shared/auth/token-store.ts`, `TokenGate`.
+- [x] 8.3 RED `shared/api/client.test.ts` — `apiFetch` sends `Authorization: Bearer`; any 401 clears the store and re-renders `TokenGate`.
+- [x] 8.4 GREEN: `shared/api/client.ts` (reuses `shared/api/config.ts`'s existing `VITE_API_BASE_URL` pattern).
 i18n: no new user-facing copy in this unit — verify none slipped in.
 Gate: `npm run lint`, `npm test`.
 
 ## Unit 9a — bookings list view (500–600 lines, needs 8)
 
-- [ ] 9a.1 RED (Vitest) `features/bookings/BookingsListView.test.tsx` — pending list, empty state, error path.
-- [ ] 9a.2 GREEN: `BookingsListView.tsx`, `BookingCard.tsx`, nav rework (`App.tsx` `active` becomes `useState` seeded from `location.hash`; `NAV_ITEMS` gains `bookings`; no router library added).
+- [x] 9a.1 RED (Vitest) `features/bookings/BookingsListView.test.tsx` — pending list, empty state, error path.
+- [x] 9a.2 GREEN: `BookingsListView.tsx`, `BookingCard.tsx`, nav rework (`App.tsx` `active` becomes `useState` seeded from `location.hash`; `NAV_ITEMS` gains `bookings`; no router library added).
 i18n: every string added to `shared/i18n/en.json` AND `es.json`; RED test asserting both locales carry the new keys before the copy lands. No hardcoded display text.
 Tailwind: no hex colours, no `var()` in `className` — palette tokens only from `index.css`'s `@theme`.
 Gate: `npm run lint`, `npm test`.
 
 ## Unit 9b — confirm + reject dialogs (500–600 lines, needs 9a)
 
-- [ ] 9b.1 RED `features/bookings/ConfirmBookingDialog.test.tsx` — renders every row from the proposal's own frozen snapshot (never recomputed client-side); `usd_rate` deliberately ABSENT with its i18n'd explanatory line; approve mutation callable ONLY from this dialog's confirm button.
-- [ ] 9b.2 RED `features/bookings/RejectBookingDialog.test.tsx` — submit refused on empty reason.
-- [ ] 9b.3 GREEN: both dialogs + mutations (`vi.stubGlobal("fetch")`, no MSW).
+- [x] 9b.1 RED `features/bookings/ConfirmBookingDialog.test.tsx` — renders every row from the proposal's own frozen snapshot (never recomputed client-side); `usd_rate` deliberately ABSENT with its i18n'd explanatory line; approve mutation callable ONLY from this dialog's confirm button.
+- [x] 9b.2 RED `features/bookings/RejectBookingDialog.test.tsx` — submit refused on empty reason.
+- [x] 9b.3 GREEN: both dialogs + mutations (`vi.stubGlobal("fetch")`, no MSW).
 i18n: dialog copy in EN/ES both; RED test before GREEN. No hardcoded display text.
 Tailwind: no hex colours, no `var()` in `className`.
 Gate: `npm run lint`, `npm test`.
