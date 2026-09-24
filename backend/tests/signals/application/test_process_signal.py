@@ -602,6 +602,49 @@ async def test_a_failed_close_is_reported_as_not_executed() -> None:
     assert result.failed == "market closed"
 
 
+async def test_a_dust_residual_close_is_reported_as_not_executed_without_retrying() -> None:
+    """``ClosePosition`` ends a dust residual as ``NOT_CLOSABLE`` -- a
+    definitive end, not a retryable failure (spec: this task's Approach).
+    Before this fix, ``_handle_releases`` only recognised ``FAILED``, so a
+    ``NOT_CLOSABLE`` result fell through to the final ``return`` and reported
+    ``executed=True`` for a close that never happened -- exactly the same
+    "silently declares success" failure mode ``NothingRecordedYet``'s own
+    docstring warns against. This proves the job ends DONE (no raise reaches
+    ``WorkerRunner``, so no retry) AND that the handler's own result honestly
+    reports the close did not execute."""
+    lock = SpyAdvisoryLock()
+    allocate_capital = _allocate_capital(lock)
+    place_order = SpyPlaceOrder()
+    not_closable_result = CloseResult(
+        status="NOT_CLOSABLE",
+        execution_attempt_id=None,
+        base_size=Decimal("0.0002"),
+        error="BTC_USDT residual is dust no order can close",
+    )
+    close_position = SpyClosePosition(result=not_closable_result)
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # close long -> RELEASES
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=allocate_capital,
+        place_order=place_order,
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.failed == "BTC_USDT residual is dust no order can close"
+
+
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)

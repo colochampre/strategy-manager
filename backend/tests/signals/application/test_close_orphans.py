@@ -41,9 +41,12 @@ POOL: PoolKey = ("bybit", "usdt-m", "USDT")
 @dataclass
 class SpyClosePosition:
     calls: list[CloseCommand] = field(default_factory=list)
+    result: CloseResult | None = None
 
     async def close(self, command: CloseCommand) -> CloseResult:
         self.calls.append(command)
+        if self.result is not None:
+            return self.result
         return CloseResult(status="PLACED", execution_attempt_id=uuid4(), base_size=Decimal("1"))
 
 
@@ -302,6 +305,37 @@ async def test_a_mix_of_skipped_and_fresh_allocations_only_closes_the_fresh_ones
     )
 
     assert [call.allocation_id for call in close_position.calls] == [still_open.allocation_id]
+
+
+async def test_a_dust_residual_close_does_not_raise_out_of_close_orphans() -> None:
+    """``CloseOrphans`` never inspects ``CloseResult.status`` -- it only ever
+    calls ``close_position.close(...)`` and moves on -- so it was never the
+    location of this task's bug. This pins that ``ClosePosition``'s own fix
+    (never raising ``OrderNotPlaceable``, per ``test_close_position.py``) is
+    sufficient for this caller too: a ``NOT_CLOSABLE`` result flows through
+    with no special handling needed here."""
+    strategy_id = uuid4()
+    holding = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.0002")
+    )
+    close_position = SpyClosePosition(
+        result=CloseResult(
+            status="NOT_CLOSABLE",
+            execution_attempt_id=None,
+            base_size=Decimal("0.0002"),
+            error="ETHUSDT residual is dust no order can close",
+        )
+    )
+    close_orphans = CloseOrphans(
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=SpyCommit(),
+    )
+
+    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+
+    assert len(close_position.calls) == 1
 
 
 async def test_when_every_allocation_is_already_closing_the_seed_is_committed_explicitly() -> None:

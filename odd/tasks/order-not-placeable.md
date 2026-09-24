@@ -50,7 +50,7 @@ Bybit linear USDT-M and Binance USDⓈ-M futures, the only adapters wired in `ma
 
 - [x] **T1: the typed refusal in both adapters.** Define `OrderNotPlaceable(ExchangeError)` in `execution/application/ports.py`. Both adapters' `build_open_order` / `build_close_order` raise it for a floored-to-zero size and for `assert_tradable` failures. The message names the symbol, the size, the minimum and the step. Live-call errors raised during build must NOT be translated, and a test must show it. Route: delegated direct (the writer trigger fires: 2+ non-trivial files).
 - [x] **T2: open refusal.** `PlaceOrder` catches `OrderNotPlaceable` from `build_open_order`, marks the reservation RELEASED in the same transaction, logs ONE WARNING naming the signal, symbol and reason, and returns a refused outcome. `process_signal` ends the job without an exception, so there is no retry. Also verify, and report, what a retry of a signal whose build raised a TRANSIENT error does to the reservation it already holds. Route: delegated direct.
-- [ ] **T3: close residual.** `ClosePosition` (and so `CloseOrphans`) catches `OrderNotPlaceable` from `build_close_order`, logs ONE ERROR naming the strategy, allocation, symbol, residual and minimum, writes no attempt, and returns a definitive "not closable" outcome. The job does not retry. Route: delegated direct.
+- [x] **T3: close residual.** `ClosePosition` (and so `CloseOrphans`) catches `OrderNotPlaceable` from `build_close_order`, logs ONE ERROR naming the strategy, allocation, symbol, residual and minimum, writes no attempt, and returns a definitive "not closable" outcome. The job does not retry. Route: delegated direct.
 
 ## Acceptance criteria
 
@@ -70,7 +70,7 @@ One PR from `fix/order-not-placeable`. The forecast is about 600–900 authored 
 ## Progress
 
 - Branch `fix/order-not-placeable` from `main` at `7df8c96`.
-- **T1 done**, commit `07a07c6` (`fix(execution): raise OrderNotPlaceable for venue rule refusals`).
+- **T1 done**, commit `3ce3dc3` (`fix(execution): raise OrderNotPlaceable for venue rule refusals`).
   - `OrderNotPlaceable(ExchangeError)` added to `execution/application/ports.py`,
     carrying `symbol`/`size`/`minimum`/`step`.
   - Both adapters (`bybit_futures_exchange.py`, `binance_futures_exchange.py`)
@@ -107,7 +107,7 @@ One PR from `fix/order-not-placeable`. The forecast is about 600–900 authored 
   - Gate: `ruff check .` clean; `mypy src` — Success, 210 files; `pytest`
     exit 0, `--co -q` sums to 1,518 (baseline 1,513 + 5 new tests).
 
-- **T2 done**, commit `93928ca` (`fix(execution): release the reservation on an unplaceable open`).
+- **T2 done**, commit `7b20a05` (`fix(execution): release the reservation on an unplaceable open`).
   - `PlaceOrder.place()` now wraps the `exchange.build_open_order(...)` call
     in `try/except OrderNotPlaceable`: marks the reservation `RELEASED`,
     commits, logs exactly one WARNING (`reservation`, `strategy`, `symbol`,
@@ -168,6 +168,59 @@ One PR from `fix/order-not-placeable`. The forecast is about 600–900 authored 
   - Gate: `ruff check .` clean; `mypy src` — Success, 210 files; `pytest`
     exit 0, `--co -q` sums to 1,522 (T1's 1,518 + 4 new tests).
 
+- **T3 done**, commit `5e97f0f` (`fix(execution): end a dust close residual definitively`).
+  - `ClosePosition.close()` wraps `exchange.build_close_order(...)` in
+    `try/except OrderNotPlaceable`: logs exactly one ERROR (`strategy`,
+    `allocation`, `symbol`, `residual` = the ledger's own `base_size`,
+    `venue_minimum` = `exc.minimum`, `pool`, and the exception's reason),
+    writes no attempt row, and returns `CloseResult(status="NOT_CLOSABLE",
+    execution_attempt_id=None, ...)`. Added `"NOT_CLOSABLE"` to
+    `CloseResult.status`'s documented values and widened
+    `execution_attempt_id` to `UUID | None` (no other caller reads that
+    field, confirmed by grep before the change).
+  - `ProcessSignalHandler._handle_releases` now treats `NOT_CLOSABLE` the
+    same as `FAILED` (`close_result.status in ("FAILED", "NOT_CLOSABLE")`):
+    without this the handler fell through to the final `return
+    ProcessSignalResult(..., True)` and reported `executed=True` for a close
+    that never happened. Genuinely RED before this one-line change (below).
+  - `CloseOrphans` needed NO change: it never inspects `CloseResult.status`
+    at all, so once `ClosePosition` stopped raising, this caller was
+    automatically safe. `test_a_dust_residual_close_does_not_raise_out_of_
+    close_orphans` pins that as a regression guard (not RED — no code here
+    changed).
+  - RED confirmed genuinely for all 3 non-vacuous tests, all failing at a
+    clean assertion/pytest.fail (not an ImportError or a raw traceback grep):
+    stashed `close_position.py` + `process_signal.py`, ran the new tests --
+    2 failed via the `try/except OrderNotPlaceable: pytest.fail(...)` pattern
+    at `ClosePosition`'s own level, and
+    `test_a_dust_residual_close_is_reported_as_not_executed_without_
+    retrying` failed with `AssertionError: assert True is False` at the
+    `process_signal.py` layer -- proving the one-line `_handle_releases`
+    change is load-bearing, not decorative. GREEN after restoring both
+    fixes.
+  - Non-vacuity: the "no attempt" test asserts `attempts.inserted == []`,
+    `queue.enqueued == []` AND `exchange.orders == []`; the logging test
+    asserts strategy id, allocation id, symbol, the residual size AND the
+    venue minimum are all present in the single ERROR record.
+  - **"What fails here without a log line?"** Nothing on the direct path:
+    both T2's release and T3's dust-refusal always log (WARNING / ERROR)
+    unconditionally before returning, so there is no silent branch. The one
+    second-order case: a REVERSE's reverse-wiring release half seeds its S5
+    continuation BEFORE calling `close_position.close(...)`
+    (process_signal.py's own documented ordering) -- if that close then
+    comes back `NOT_CLOSABLE`, the already-seeded continuation will never
+    see a FILLED close to resume on. This is NOT a new gap: it is byte-for-
+    byte the same situation the existing FAILED-close branch already
+    handles (same `if close_result.status in (...)` branch now covers both),
+    and `OpenAfterClose`'s own stuck/stale-continuation handling -- already
+    relied on for a FAILED close -- covers `NOT_CLOSABLE` identically,
+    because both statuses now take the exact same code path. No new
+    silent-failure mode was introduced.
+  - Gate: `ruff check .` clean; `mypy src` — Success, 210 files; `pytest`
+    exit 0, `--co -q` sums to 1,526 (T2's 1,522 + 4 new tests). No
+    `pg_terminate_backend` teardown flake observed in this run.
+
 ## Next step
 
-T3.
+None — all three tasks done. Ready for the owner to review the branch
+(`fix/order-not-placeable`, not pushed) and open a PR.

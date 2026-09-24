@@ -47,6 +47,7 @@ from strategy_manager.execution.application.ports import (
     ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     HeldPositionPort,
+    OrderNotPlaceable,
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
@@ -79,8 +80,8 @@ class CloseCommand:
 
 @dataclass(frozen=True, slots=True)
 class CloseResult:
-    status: str  # 'PLACED' | 'FAILED'
-    execution_attempt_id: UUID
+    status: str  # 'PLACED' | 'FAILED' | 'NOT_CLOSABLE'
+    execution_attempt_id: UUID | None
     base_size: Decimal
     exchange_order_id: str | None = None
     error: str | None = None
@@ -144,14 +145,42 @@ class ClosePosition:
         client_order_id = str(uuid4())
         attempt_id = uuid4()
         exchange = self._exchanges.for_pool(command.exchange, command.venue)
-        order = await exchange.build_close_order(
-            CloseOrderSpec(
-                client_order_id=client_order_id,
-                symbol=command.symbol,
-                side=command.side,
-                base_size=base_size,
+        try:
+            order = await exchange.build_close_order(
+                CloseOrderSpec(
+                    client_order_id=client_order_id,
+                    symbol=command.symbol,
+                    side=command.side,
+                    base_size=base_size,
+                )
             )
-        )
+        except OrderNotPlaceable as exc:
+            # Definitive, and worse than a rejected close: this residual is
+            # dust no order can close, not something a retry could ever
+            # place differently. No attempt row is written -- build happens
+            # before the insert -- and the position is left exactly as it
+            # is for a human to act on; ERROR because this one reaches
+            # Telegram and nothing else will ever flag it.
+            logger.error(
+                "close residual is dust no order can close; a human must "
+                "act: strategy=%s allocation=%s symbol=%s residual=%s "
+                "venue_minimum=%s pool=%s/%s/%s reason=%s",
+                command.strategy_id,
+                command.allocation_id,
+                command.symbol,
+                base_size,
+                exc.minimum,
+                command.exchange,
+                command.venue,
+                command.settlement_currency,
+                exc,
+            )
+            return CloseResult(
+                status="NOT_CLOSABLE",
+                execution_attempt_id=None,
+                base_size=base_size,
+                error=str(exc),
+            )
 
         await self._attempts.insert(
             ExecutionAttempt(
