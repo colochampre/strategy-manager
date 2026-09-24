@@ -35,6 +35,20 @@ class BybitApiError(BybitError):
         self.http_status = http_status
 
 
+class BybitRuleRefusal(BybitApiError):
+    """The venue evaluated a specific per-symbol rule and the order fails it:
+    not a perpetual, not trading, below the minimum quantity, above the
+    maximum, or below the minimum notional (``PerpContract.assert_tradable``).
+
+    Kept distinct from a plain ``BybitApiError`` so the futures adapter can
+    translate EXACTLY this -- a rule the venue's own catalogue enforces -- into
+    ``execution.application.ports.OrderNotPlaceable``, without also catching a
+    leverage or instrument read that failed for an unrelated reason (network,
+    auth, a 5xx). Still a ``BybitApiError`` itself, so any caller that only
+    knows the wider vocabulary keeps working unchanged.
+    """
+
+
 class BybitOrderNotFound(BybitError):
     """Bybit answered the lookup and said it has no such order.
 

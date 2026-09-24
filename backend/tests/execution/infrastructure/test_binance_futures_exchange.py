@@ -22,6 +22,7 @@ from strategy_manager.execution.application.ports import (
     ExchangeError,
     OpenOrderSpec,
     OrderNotFound,
+    OrderNotPlaceable,
 )
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import MarketBuy, OrderSide
@@ -79,6 +80,7 @@ class FakeTradeClient:
         leverage: Decimal = Decimal("2"),
         rules: PerpContract = LIVE_RULES,
         leverage_raises: Exception | None = None,
+        rules_raises: Exception | None = None,
         place_raises: Exception | None = None,
         executions: list[BinanceExecution] | None = None,
         order_id: int = 778899,
@@ -91,6 +93,7 @@ class FakeTradeClient:
         self._leverage = leverage
         self._rules = rules
         self._leverage_raises = leverage_raises
+        self._rules_raises = rules_raises
         self._place_raises = place_raises
         self._executions = executions or []
         self._order_id = order_id
@@ -103,6 +106,8 @@ class FakeTradeClient:
         return self._leverage
 
     async def perp_rules(self, symbol: str) -> PerpContract:
+        if self._rules_raises is not None:
+            raise self._rules_raises
         return self._rules
 
     async def place_market_order(
@@ -143,10 +148,12 @@ def _adapter(client: FakeTradeClient) -> BinanceFuturesExchangeAdapter:
     return BinanceFuturesExchangeAdapter(client)  # type: ignore[arg-type]
 
 
-def _open(side: OrderSide = OrderSide.BUY, granted: str = "100") -> OpenOrderSpec:
+def _open(
+    side: OrderSide = OrderSide.BUY, granted: str = "100", symbol: str = SYMBOL
+) -> OpenOrderSpec:
     return OpenOrderSpec(
         client_order_id=CLIENT_ORDER_ID,
-        symbol=SYMBOL,
+        symbol=symbol,
         side=side,
         granted=Decimal(granted),
         price=PRICE,
@@ -229,19 +236,39 @@ async def test_the_leverage_actually_changes_the_size() -> None:
 
 async def test_an_unreadable_leverage_refuses_the_order_rather_than_guessing() -> None:
     """A default would size a position at the wrong multiple of the capital
-    the allocation engine actually reserved, silently."""
+    the allocation engine actually reserved, silently. A live-call failure
+    during build is not a rule refusal: it must NOT be translated into
+    ``OrderNotPlaceable``, so ``PlaceOrder`` retries rather than releasing the
+    reservation on something merely unknown."""
     adapter = _adapter(FakeTradeClient(leverage_raises=BinanceApiError("unavailable")))
 
-    with pytest.raises(BinanceApiError):
+    with pytest.raises(BinanceApiError) as caught:
         await adapter.build_open_order(_open())
+
+    assert not isinstance(caught.value, OrderNotPlaceable)
+
+
+async def test_an_unreadable_perp_rules_refuses_the_order_rather_than_guessing() -> None:
+    """Same proof as the leverage read, for the catalogue read ``build_open_
+    order`` makes right after it. A network failure fetching the contract's
+    own rules must not be mistaken for the venue having evaluated and refused
+    the order."""
+    adapter = _adapter(FakeTradeClient(rules_raises=BinanceApiError("gateway timeout")))
+
+    with pytest.raises(BinanceApiError) as caught:
+        await adapter.build_open_order(_open())
+
+    assert not isinstance(caught.value, OrderNotPlaceable)
 
 
 async def test_a_dated_quarterly_is_refused_before_any_order() -> None:
     """It shares the catalogue with the perpetuals and settles underneath any
-    position held in it."""
+    position held in it. Refused as ``OrderNotPlaceable`` -- the venue's own
+    catalogue decided, definitively -- not the raw ``BinanceApiError``
+    ``assert_tradable`` itself raises."""
     adapter = _adapter(FakeTradeClient(rules=DATED_RULES))
 
-    with pytest.raises(BinanceApiError, match="not a PERPETUAL"):
+    with pytest.raises(OrderNotPlaceable, match="not a PERPETUAL"):
         await adapter.build_open_order(_open())
 
 
@@ -251,17 +278,25 @@ async def test_a_tradifi_perpetual_is_refused_before_any_order() -> None:
     as tradable."""
     adapter = _adapter(FakeTradeClient(rules=TRADIFI_RULES))
 
-    with pytest.raises(BinanceApiError, match="TRADIFI_PERPETUAL"):
+    with pytest.raises(OrderNotPlaceable, match="TRADIFI_PERPETUAL"):
         await adapter.build_open_order(_open())
 
 
 async def test_a_grant_too_small_to_reach_one_step_is_refused_by_name() -> None:
     """10 USDT at 1x on a 124.02 market is 0.08 AAVE, which truncates to
-    nothing at a step of 0.1."""
+    nothing at a step of 0.1. Also pins the symbol-spelling rule: the spec
+    carries TradingView's ``.P`` marker, and the exception must report the
+    venue's own spelling."""
     adapter = _adapter(FakeTradeClient(leverage=Decimal("1")))
 
-    with pytest.raises(ExchangeError, match="too small to open a position"):
-        await adapter.build_open_order(_open(granted="10"))
+    with pytest.raises(OrderNotPlaceable, match="too small to open a position") as caught:
+        await adapter.build_open_order(_open(granted="10", symbol=f"{SYMBOL}.P"))
+
+    exc = caught.value
+    assert exc.symbol == SYMBOL
+    assert exc.size == Decimal("0")
+    assert exc.minimum == LIVE_RULES.min_qty
+    assert exc.step == LIVE_RULES.qty_step
 
 
 async def test_a_notional_below_the_minimum_is_refused() -> None:
@@ -272,7 +307,7 @@ async def test_a_notional_below_the_minimum_is_refused() -> None:
     binding = replace(LIVE_RULES, min_notional=Decimal("500"))
     adapter = _adapter(FakeTradeClient(rules=binding))
 
-    with pytest.raises(BinanceApiError, match="notional of at least 500"):
+    with pytest.raises(OrderNotPlaceable, match="notional of at least 500"):
         await adapter.build_open_order(_open())
 
 
@@ -310,8 +345,22 @@ async def test_a_close_never_reads_an_account_setting() -> None:
 async def test_a_position_smaller_than_one_step_cannot_be_closed_by_an_order() -> None:
     adapter = _adapter(FakeTradeClient())
 
-    with pytest.raises(ExchangeError, match="smaller than one tradable unit"):
+    with pytest.raises(OrderNotPlaceable, match="smaller than one tradable unit") as caught:
         await adapter.build_close_order(_close(base_size="0.05"))
+
+    exc = caught.value
+    assert exc.symbol == SYMBOL
+    assert exc.size == Decimal("0")
+    assert exc.minimum == LIVE_RULES.min_qty
+
+
+async def test_a_close_of_a_dated_quarterly_is_refused_as_not_placeable() -> None:
+    """``assert_tradable`` on the close path runs the same rule checks as the
+    open path (minus the notional check, since a close carries no price)."""
+    adapter = _adapter(FakeTradeClient(rules=DATED_RULES))
+
+    with pytest.raises(OrderNotPlaceable, match="not a PERPETUAL"):
+        await adapter.build_close_order(_close(base_size="1.6"))
 
 
 @pytest.mark.parametrize(

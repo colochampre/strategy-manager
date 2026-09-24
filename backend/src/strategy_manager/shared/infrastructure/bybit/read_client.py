@@ -35,7 +35,10 @@ from typing import Any, Final
 
 import httpx
 
-from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
+from strategy_manager.shared.infrastructure.bybit.errors import (
+    BybitApiError,
+    BybitRuleRefusal,
+)
 from strategy_manager.shared.infrastructure.bybit.signer import BybitSigner
 from strategy_manager.shared.infrastructure.bybit.transport import BybitTransport
 
@@ -128,21 +131,21 @@ class PerpContract:
         then skipped rather than run against an invented number.
         """
         if not self.is_perpetual:
-            raise BybitApiError(
+            raise BybitRuleRefusal(
                 f"{self.symbol} is a {self.contract_type}, not a perpetual; it "
                 "expires underneath any position held in it"
             )
         if not self.is_trading:
-            raise BybitApiError(
+            raise BybitRuleRefusal(
                 f"{self.symbol} is {self.status}, not Trading; it cannot be traded"
             )
         if qty < self.min_order_qty:
-            raise BybitApiError(
+            raise BybitRuleRefusal(
                 f"{self.symbol} requires an order of at least {self.min_order_qty} "
                 f"{self.base_coin}; this one is {qty}"
             )
         if qty > self.max_order_qty:
-            raise BybitApiError(
+            raise BybitRuleRefusal(
                 f"{self.symbol} caps an order at {self.max_order_qty} "
                 f"{self.base_coin}; this one is {qty}"
             )
@@ -152,7 +155,7 @@ class PerpContract:
 
         notional = qty * price
         if notional < self.min_notional:
-            raise BybitApiError(
+            raise BybitRuleRefusal(
                 f"{self.symbol} requires a notional of at least "
                 f"{self.min_notional}; this one is {notional} ({qty} at {price})"
             )
