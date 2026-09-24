@@ -8,7 +8,7 @@ decisions verbatim. This spec treats them as binding requirements, not
 recommendations.
 
 
-## Delta: trade-ledger — ADDED
+## ADDED Requirements
 
 ### Requirement: usd_rate Provenance for a Booked Fill (rule 7 deviation, stated explicitly)
 For a ledger row originating from a VENUE-origin attempt, `usd_rate_at_fill`

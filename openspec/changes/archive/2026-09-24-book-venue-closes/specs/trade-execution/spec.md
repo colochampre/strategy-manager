@@ -8,7 +8,7 @@ decisions verbatim. This spec treats them as binding requirements, not
 recommendations.
 
 
-## Delta: trade-execution — ADDED
+## ADDED Requirements
 
 ### Requirement: Execution Attempt Origin
 `execution_attempts` MUST carry `origin` (`SYSTEM`|`VENUE`), NOT NULL,
