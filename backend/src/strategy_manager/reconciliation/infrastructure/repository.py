@@ -37,6 +37,7 @@ from strategy_manager.reconciliation.domain.discrepancy import (
 from strategy_manager.reconciliation.infrastructure.models import (
     ReconciliationDiscrepancyRow,
 )
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 _Row = ReconciliationDiscrepancyRow
 
@@ -91,6 +92,14 @@ class SqlAlchemyDiscrepancyRepository:
 
         result = await self._session.execute(stmt)
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def get(self, discrepancy_id: UUID) -> DiscrepancyRecord:
+        row = (
+            await self._session.execute(select(_Row).where(_Row.id == discrepancy_id))
+        ).scalar_one_or_none()
+        if row is None:
+            raise InvariantViolation(f"no reconciliation discrepancy {discrepancy_id}")
+        return _to_domain(row)
 
     async def upsert_open(
         self,

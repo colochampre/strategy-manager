@@ -159,29 +159,29 @@ Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 6a — `ApproveBooking` (650–750 lines, needs 1 + 3b)
 
-- [ ] 6a.1 RED `tests/reconciliation/application/test_approve_booking_integration.py::test_stale_snapshot_refused_marks_superseded` — parametrized across freshness branches (a)-(h). Money-critical.
-- [ ] 6a.2 RED `::test_replayed_approval_writes_nothing_further_marks_superseded` — money-critical: approve twice, assert exactly 1 attempt + N ledger rows total; second call SUPERSEDED, zero writes.
-- [ ] 6a.3 RED `::test_client_order_id_collision_treated_as_expected_superseded` and `::test_ux_ledger_exchange_fill_collision_treated_as_expected_superseded` — both identified by CONSTRAINT NAME (imports Task 1.1's constant), never message text; assert an unrelated FK/CHECK violation still propagates.
-- [ ] 6a.4 RED `::test_concurrent_double_approval_second_sees_non_pending`.
-- [ ] 6a.5 RED `::test_dry_run_refuses_at_use_case_level`.
-- [ ] 6a.6 GREEN: `ApproveBooking`; `BookingWritePort`/`SqlAlchemyBookingWriter` owning the `session.begin_nested()` SAVEPOINT + the two named-constraint `IntegrityError` translations (infrastructure only).
+- [x] 6a.1 RED `tests/reconciliation/application/test_approve_booking_integration.py::test_stale_snapshot_refused_marks_superseded` — parametrized across freshness branches (a)-(h) plus the single-allocation re-check. Money-critical.
+- [x] 6a.2 RED `::test_replayed_approval_writes_nothing_further_marks_superseded` — money-critical: approve twice, assert exactly 1 attempt + N ledger rows total; second call ALREADY_DECIDED (not SUPERSEDED — the first call's `mark_state(APPROVED)` already moves the row out of PENDING before the second call's own `get_for_update`, so it never reaches the freshness re-check at all), zero writes.
+- [x] 6a.3 RED `::test_client_order_id_collision_treated_as_expected_superseded` and `::test_ux_ledger_exchange_fill_collision_treated_as_expected_superseded` — both identified by CONSTRAINT NAME (imports Task 1.1's constant), never message text; assert an unrelated FK/CHECK violation still propagates.
+- [x] 6a.4 RED `::test_concurrent_double_approval_second_sees_non_pending`.
+- [x] 6a.5 RED `::test_dry_run_refuses_at_use_case_level`.
+- [x] 6a.6 GREEN: `ApproveBooking`; `BookingWritePort`/`SqlAlchemyBookingWriter` owning the `session.begin_nested()` SAVEPOINT + the two named-constraint `IntegrityError` translations (infrastructure only).
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres).
 
 ## Unit 6b — `RejectBooking` + expiry (450–550 lines, needs 6a)
 
-- [ ] 6b.1 RED `tests/reconciliation/application/test_reject_booking.py::test_reject_writes_zero_rows_leaves_discrepancy_open_confirmed` — money-critical.
-- [ ] 6b.2 RED `::test_reject_without_reason_refused`.
-- [ ] 6b.3 RED `tests/reconciliation/application/test_expire_booking_proposals.py::test_pending_past_24h_expires_and_is_reproposable` — money-critical.
-- [ ] 6b.4 RED `::test_approve_refuses_expired_but_unswept_proposal`.
-- [ ] 6b.5 GREEN: `RejectBooking`, `ExpireBookingProposals` (runs inside the prepare handler before the sweep).
+- [x] 6b.1 RED `tests/reconciliation/application/test_reject_booking.py::test_reject_writes_zero_rows_leaves_discrepancy_open_confirmed` — money-critical.
+- [x] 6b.2 RED `::test_reject_without_reason_refused`.
+- [x] 6b.3 RED `tests/reconciliation/application/test_expire_booking_proposals.py::test_pending_past_24h_expires_and_is_reproposable` — money-critical.
+- [x] 6b.4 RED `::test_approve_refuses_expired_but_unswept_proposal`.
+- [x] 6b.5 GREEN: `RejectBooking`, `ExpireBookingProposals` (runs inside the prepare handler before the sweep).
 Gate: `ruff check .`, `mypy src`, `pytest`.
 
 ## Unit 7 — admin endpoints (450–600 lines, needs 6b)
 
-- [ ] 7.1 RED `tests/reconciliation/infrastructure/test_router.py::test_list_pending_requires_bearer_token`, `::test_approve_requires_bearer_token`, `::test_reject_requires_bearer_token`.
-- [ ] 7.2 RED `::test_approve_returns_503_under_dry_run`, `::test_reject_returns_503_under_dry_run` (never 403).
-- [ ] 7.3 RED `::test_approve_unknown_id_404`, `::test_approve_not_pending_409`, `::test_reject_empty_reason_422`. **Spelling**: list endpoint queried with `?symbol=stxusdt.p`, fixture stores `STXUSDT.P`; assert normalization.
-- [ ] 7.4 GREEN: the 3 routes on the existing `reconciliation/infrastructure/router.py`.
+- [x] 7.1 RED `tests/reconciliation/infrastructure/test_router.py::test_list_pending_requires_bearer_token`, `::test_approve_requires_bearer_token`, `::test_reject_requires_bearer_token`.
+- [x] 7.2 RED `::test_approve_returns_503_under_dry_run`, `::test_reject_returns_503_under_dry_run` (never 403).
+- [x] 7.3 RED `::test_approve_unknown_id_404`, `::test_approve_not_pending_409`, `::test_reject_empty_reason_422`. **Spelling**: list endpoint queried with `?symbol=stxusdt.p`, fixture stores `STXUSDT.P`; assert normalization.
+- [x] 7.4 GREEN: the 3 routes on the existing `reconciliation/infrastructure/router.py`.
 Gate: `ruff check .`, `mypy src`, `pytest` (real Postgres, `TestClient`).
 
 ## Unit 8 — frontend client + auth (500–650 lines, needs 7's contract only)

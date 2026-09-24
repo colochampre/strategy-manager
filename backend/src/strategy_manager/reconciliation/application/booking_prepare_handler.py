@@ -32,6 +32,16 @@ its own venue position readers -- so under DRY_RUN, ``PrepareBooking`` is
 constructed with an EMPTY registry and this handler never calls ``sweep`` on
 it regardless.
 
+**Expiry, before the sweep (Unit 6b, design.md § 11).** Every non-DRY_RUN
+run first calls ``ExpireBookingProposals``, which marks every PENDING
+proposal whose ``expires_at`` has passed as EXPIRED -- so a sweep never
+sees, and can never re-freshness-check, a proposal that is already stale by
+its own clock. It shares this handler's DRY_RUN hard skip (under DRY_RUN no
+proposal can exist at all, so there is nothing to expire) and logs its own
+count at INFO only when it actually expired something -- an empty sweep at
+this 60-second cadence must not compete with a real WARNING, the same
+discipline the summary log below already follows.
+
 **The successor enqueue (mirrors design decision 8 for the scan handler).**
 Reached after every outcome that returns normally: a clean sweep, a sweep
 that skipped or suppressed some discrepancies internally (``PrepareBooking``
@@ -59,6 +69,9 @@ from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.reconciliation.application.expire_booking_proposals import (
+    ExpireBookingProposalsResult,
+)
 from strategy_manager.reconciliation.application.prepare_booking import PrepareBookingResult
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
@@ -103,6 +116,24 @@ class PrepareBookingPort(Protocol):
     async def sweep(self, job_id: UUID) -> PrepareBookingResult: ...
 
 
+class ExpireBookingProposalsPort(Protocol):
+    """What the handler needs from ``ExpireBookingProposals``, declared here
+    for the same reason ``PrepareBookingPort`` is: the handler never depends
+    on either use case's own construction."""
+
+    async def expire(self) -> ExpireBookingProposalsResult: ...
+
+
+def _log_expiry(result: ExpireBookingProposalsResult) -> None:
+    if result.expired:
+        logger.info("prepare booking: expired %d stale proposal(s)", result.expired)
+    # Zero expired is the routine case at this cadence -- deliberately no
+    # DEBUG line either, mirroring PrepareBooking's own "nothing else
+    # happened" branch below: this handler already logs a DEBUG summary for
+    # an empty run, and a second silent-by-design line here would only be
+    # noise competing with it.
+
+
 def _log_summary(result: PrepareBookingResult) -> None:
     if (
         result.proposals_prepared
@@ -132,12 +163,14 @@ class BookingPrepareHandler:
     def __init__(
         self,
         prepare_booking: PrepareBookingPort,
+        expire_booking_proposals: ExpireBookingProposalsPort,
         queue: JobQueuePort,
         clock: ClockPort,
         interval_seconds: float,
         dry_run: bool,
     ) -> None:
         self._prepare_booking = prepare_booking
+        self._expire_booking_proposals = expire_booking_proposals
         self._queue = queue
         self._clock = clock
         self._interval_seconds = interval_seconds
@@ -153,6 +186,11 @@ class BookingPrepareHandler:
             )
             result = None
         else:
+            # Expiry runs BEFORE the sweep (design.md § 11): a sweep must
+            # never see, and can never freshness-check, a proposal that is
+            # already stale by its own clock.
+            expiry_result = await self._expire_booking_proposals.expire()
+            _log_expiry(expiry_result)
             # The claimed job's own id, never a freshly minted one --
             # ``PrepareBooking.sweep`` lands it verbatim as
             # ``prepared_by_job_id`` on every proposal frozen this sweep,

@@ -30,7 +30,7 @@ from uuid import UUID, uuid4
 import asyncpg
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from strategy_manager.reconciliation.application.ports import (
+    BookingProposalNotFound,
     BookingProposalRecord,
     NewBookingProposal,
     ProposedFillSnapshot,
@@ -469,7 +470,10 @@ async def test_get_for_update_of_an_unknown_id_raises(
 ) -> None:
     async with session_factory() as session:
         repo = SqlAlchemyBookingProposalRepository(session)
-        with pytest.raises(NoResultFound):
+        # A port-level error, not SQLAlchemy's NoResultFound: the router maps
+        # exactly this to 404, so a NoResultFound raised anywhere deeper can
+        # never be disguised as "no such proposal".
+        with pytest.raises(BookingProposalNotFound):
             await repo.get_for_update(uuid4())
 
 

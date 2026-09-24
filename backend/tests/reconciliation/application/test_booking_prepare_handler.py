@@ -19,6 +19,9 @@ from strategy_manager.reconciliation.application.booking_prepare_handler import 
     BookingPrepareHandler,
     dry_run_skip_announcement,
 )
+from strategy_manager.reconciliation.application.expire_booking_proposals import (
+    ExpireBookingProposalsResult,
+)
 from strategy_manager.reconciliation.application.prepare_booking import PrepareBookingResult
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     dry_run_skip_announcement as scan_dry_run_skip_announcement,
@@ -52,17 +55,38 @@ class SpyQueue:
 
 class StubPrepareBooking:
     def __init__(
-        self, result: PrepareBookingResult | None = None, raises: Exception | None = None
+        self,
+        result: PrepareBookingResult | None = None,
+        raises: Exception | None = None,
+        events: list[str] | None = None,
     ) -> None:
         self._result = result or _EMPTY_RESULT
         self._raises = raises
+        self._events = events if events is not None else []
         self.job_ids: list[UUID] = []
 
     async def sweep(self, job_id: UUID) -> PrepareBookingResult:
         self.job_ids.append(job_id)
+        self._events.append("sweep")
         if self._raises is not None:
             raise self._raises
         return self._result
+
+
+class StubExpireBookingProposals:
+    """Records call order relative to ``StubPrepareBooking.sweep`` via a
+    shared ``events`` list, so ordering (Unit 6b: expiry BEFORE the sweep)
+    is provable without timing."""
+
+    def __init__(self, expired: int = 0, events: list[str] | None = None) -> None:
+        self._expired = expired
+        self._events = events if events is not None else []
+        self.calls = 0
+
+    async def expire(self) -> ExpireBookingProposalsResult:
+        self.calls += 1
+        self._events.append("expire")
+        return ExpireBookingProposalsResult(expired=self._expired)
 
 
 def _claimed_job() -> ClaimedJob:
@@ -76,11 +100,14 @@ def _claimed_job() -> ClaimedJob:
 
 
 def _build(
-    prepare: StubPrepareBooking, dry_run: bool = False
+    prepare: StubPrepareBooking,
+    dry_run: bool = False,
+    expire: StubExpireBookingProposals | None = None,
 ) -> tuple[BookingPrepareHandler, SpyQueue]:
     queue = SpyQueue()
     handler = BookingPrepareHandler(
         prepare_booking=prepare,  # type: ignore[arg-type]
+        expire_booking_proposals=expire or StubExpireBookingProposals(),  # type: ignore[arg-type]
         queue=queue,
         clock=FrozenClock(),
         interval_seconds=INTERVAL,
@@ -123,7 +150,8 @@ async def test_dry_run_skips_the_sweep_but_still_enqueues_the_successor(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     prepare = StubPrepareBooking()
-    handler, queue = _build(prepare, dry_run=True)
+    expire = StubExpireBookingProposals()
+    handler, queue = _build(prepare, dry_run=True, expire=expire)
 
     with caplog.at_level("WARNING"):
         result = await handler.handle(_claimed_job())
@@ -132,6 +160,9 @@ async def test_dry_run_skips_the_sweep_but_still_enqueues_the_successor(
     assert result is None
     assert len(queue.enqueued) == 1
     assert any("DRY_RUN" in record.message for record in caplog.records)
+    # Unit 6b, binding requirement 4: under DRY_RUN nothing can exist, so
+    # expiry is skipped along with the fetch -- never called, never logged.
+    assert expire.calls == 0
 
 
 async def test_only_the_first_dry_run_skip_of_a_process_is_a_warning(
@@ -204,6 +235,57 @@ async def test_a_programming_error_propagates_and_does_not_re_enqueue() -> None:
         await handler.handle(_claimed_job())
 
     assert queue.enqueued == []
+
+
+# --- Expiry: runs before the sweep, under the same DRY_RUN skip -------------
+
+
+async def test_expiry_runs_before_the_sweep() -> None:
+    """Unit 6b, design.md § 11: a sweep must never see a proposal that is
+    already stale by its own clock. Non-vacuity proven during apply by
+    temporarily swapping the two calls in ``BookingPrepareHandler.handle``
+    -- with the sweep called first, this assertion fails because ``events``
+    reads ``["sweep", "expire"]`` instead; reverted before this file was
+    left in its final state."""
+
+    events: list[str] = []
+    prepare = StubPrepareBooking(events=events)
+    expire = StubExpireBookingProposals(events=events)
+    handler, _ = _build(prepare, expire=expire)
+
+    await handler.handle(_claimed_job())
+
+    assert events == ["expire", "sweep"]
+
+
+async def test_expiry_of_zero_proposals_logs_nothing_above_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    expire = StubExpireBookingProposals(expired=0)
+    handler, _ = _build(StubPrepareBooking(), expire=expire)
+
+    with caplog.at_level("INFO"):
+        await handler.handle(_claimed_job())
+
+    assert not any("expired" in record.message for record in caplog.records)
+
+
+async def test_expiry_of_some_proposals_logs_the_count_at_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    expire = StubExpireBookingProposals(expired=3)
+    handler, _ = _build(StubPrepareBooking(), expire=expire)
+
+    with caplog.at_level("INFO"):
+        await handler.handle(_claimed_job())
+
+    expiry_lines = [
+        record
+        for record in caplog.records
+        if record.levelname == "INFO" and "expired" in record.message
+    ]
+    assert len(expiry_lines) == 1
+    assert "3" in expiry_lines[0].message
 
 
 # --- The summary log: no noise on an empty sweep, exactly one line otherwise

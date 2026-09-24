@@ -35,6 +35,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.reconciliation.application.ports import (
+    BookingProposalNotFound,
     BookingProposalRecord,
     NewBookingProposal,
     ProposedFillSnapshot,
@@ -185,7 +186,9 @@ class SqlAlchemyBookingProposalRepository:
             await self._session.execute(
                 select(_Row).where(_Row.id == proposal_id).with_for_update()
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if row is None:
+            raise BookingProposalNotFound(f"no booking proposal {proposal_id}")
         return _to_domain(row)
 
     async def mark_state(

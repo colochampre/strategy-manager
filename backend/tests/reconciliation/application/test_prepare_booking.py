@@ -807,3 +807,33 @@ async def test_full_close_over_several_allocations_is_refused_never_booked_to_on
         str(discrepancy.id) in r.getMessage() and "2 open allocations" in r.getMessage()
         for r in warnings
     )
+
+
+# --- A fill the ledger cannot hold is never proposed -----------------------
+
+
+async def test_fill_without_an_order_id_is_refused_at_prepare(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ledger_entries.exchange_order_id is NOT NULL, so ApproveBooking cannot
+    write a fill without one. Proposing it anyway would show the owner a
+    booking that crashes when approved; it is refused here instead."""
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    reader = FakeVenueFillReader([_fill(exchange_order_id=None)])
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert any(
+        r.levelno == logging.WARNING
+        and str(discrepancy.id) in r.getMessage()
+        and "no venue order id" in r.getMessage()
+        for r in caplog.records
+    )
