@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,10 +75,14 @@ describe("BookingsListView", () => {
     expect(en.bookings?.empty).toBeTruthy();
     expect(en.bookings?.loading).toBeTruthy();
     expect(en.bookings?.error?.title).toBeTruthy();
+    expect(en.bookings?.actions?.approve).toBeTruthy();
+    expect(en.bookings?.actions?.reject).toBeTruthy();
     expect(es.nav?.bookings).toBeTruthy();
     expect(es.bookings?.empty).toBeTruthy();
     expect(es.bookings?.loading).toBeTruthy();
     expect(es.bookings?.error?.title).toBeTruthy();
+    expect(es.bookings?.actions?.approve).toBeTruthy();
+    expect(es.bookings?.actions?.reject).toBeTruthy();
   });
 
   it("shows a loading state before the list resolves", () => {
@@ -157,5 +161,26 @@ describe("BookingsListView", () => {
     expect(screen.queryByText(en.bookings.empty)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(useTokenStore.getState().token).toBeNull();
+  });
+
+  it("treats a 200 whose body is not an array as an error, never the empty state", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ items: [] }, 200)));
+
+    renderWithQueryClient(<BookingsListView />);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText(en.bookings.empty)).not.toBeInTheDocument();
+  });
+
+  it("opens the confirm dialog on Approve and the reject dialog on Reject", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse([PROPOSAL], 200)));
+
+    renderWithQueryClient(<BookingsListView />);
+
+    await screen.findByText("STXUSDT.P");
+
+    fireEvent.click(screen.getByRole("button", { name: en.bookings.actions.approve }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(en.bookings.dialogs.confirm.title)).toBeInTheDocument();
   });
 });

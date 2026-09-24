@@ -203,9 +203,9 @@ Gate: `npm run lint`, `npm test`.
 
 ## Unit 9b — confirm + reject dialogs (500–600 lines, needs 9a)
 
-- [ ] 9b.1 RED `features/bookings/ConfirmBookingDialog.test.tsx` — renders every row from the proposal's own frozen snapshot (never recomputed client-side); `usd_rate` deliberately ABSENT with its i18n'd explanatory line; approve mutation callable ONLY from this dialog's confirm button.
-- [ ] 9b.2 RED `features/bookings/RejectBookingDialog.test.tsx` — submit refused on empty reason.
-- [ ] 9b.3 GREEN: both dialogs + mutations (`vi.stubGlobal("fetch")`, no MSW).
+- [x] 9b.1 RED `features/bookings/ConfirmBookingDialog.test.tsx` — renders every row from the proposal's own frozen snapshot (never recomputed client-side); `usd_rate` deliberately ABSENT with its i18n'd explanatory line; approve mutation callable ONLY from this dialog's confirm button.
+- [x] 9b.2 RED `features/bookings/RejectBookingDialog.test.tsx` — submit refused on empty reason.
+- [x] 9b.3 GREEN: both dialogs + mutations (`vi.stubGlobal("fetch")`, no MSW).
 i18n: dialog copy in EN/ES both; RED test before GREEN. No hardcoded display text.
 Tailwind: no hex colours, no `var()` in `className`.
 Gate: `npm run lint`, `npm test`.

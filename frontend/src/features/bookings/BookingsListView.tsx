@@ -1,12 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BookingCard } from "@/features/bookings/BookingCard";
+import { ConfirmBookingDialog } from "@/features/bookings/ConfirmBookingDialog";
+import { RejectBookingDialog } from "@/features/bookings/RejectBookingDialog";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type { BookingProposal } from "@/shared/api/types";
 
 async function fetchPendingBookings(): Promise<BookingProposal[]> {
-  return apiFetch<BookingProposal[]>("/reconciliation/bookings?state=pending");
+  const body = await apiFetch<unknown>("/reconciliation/bookings?state=pending");
+  // Never trust a 200's body shape -- a malformed payload (e.g. `{items:
+  // []}` instead of a bare array) must render as the error state, never as
+  // "no pending bookings" (carried forward from the unit 9a review).
+  if (!Array.isArray(body)) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /reconciliation/bookings: expected an array",
+    });
+  }
+  return body as BookingProposal[];
 }
 
 /**
@@ -23,6 +35,8 @@ export function BookingsListView() {
     queryKey: ["bookings", "pending"],
     queryFn: fetchPendingBookings,
   });
+  const [confirmTarget, setConfirmTarget] = useState<BookingProposal | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<BookingProposal | null>(null);
 
   if (query.status === "pending") {
     return (
@@ -56,8 +70,32 @@ export function BookingsListView() {
   return (
     <div className="flex flex-col gap-4">
       {proposals.map((proposal) => (
-        <BookingCard key={proposal.id} proposal={proposal} />
+        <div key={proposal.id} className="flex flex-col gap-2">
+          <BookingCard proposal={proposal} />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setRejectTarget(proposal)}
+              className="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-300 hover:bg-surface-850"
+            >
+              {t("bookings.actions.reject")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmTarget(proposal)}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-ink-100 hover:opacity-90"
+            >
+              {t("bookings.actions.approve")}
+            </button>
+          </div>
+        </div>
       ))}
+      {confirmTarget && (
+        <ConfirmBookingDialog proposal={confirmTarget} onClose={() => setConfirmTarget(null)} />
+      )}
+      {rejectTarget && (
+        <RejectBookingDialog proposal={rejectTarget} onClose={() => setRejectTarget(null)} />
+      )}
     </div>
   );
 }
