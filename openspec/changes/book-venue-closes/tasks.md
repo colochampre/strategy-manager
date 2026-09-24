@@ -195,8 +195,8 @@ Gate: `npm run lint`, `npm test`.
 
 ## Unit 9a — bookings list view (500–600 lines, needs 8)
 
-- [ ] 9a.1 RED (Vitest) `features/bookings/BookingsListView.test.tsx` — pending list, empty state, error path.
-- [ ] 9a.2 GREEN: `BookingsListView.tsx`, `BookingCard.tsx`, nav rework (`App.tsx` `active` becomes `useState` seeded from `location.hash`; `NAV_ITEMS` gains `bookings`; no router library added).
+- [x] 9a.1 RED (Vitest) `features/bookings/BookingsListView.test.tsx` — pending list, empty state, error path.
+- [x] 9a.2 GREEN: `BookingsListView.tsx`, `BookingCard.tsx`, nav rework (`App.tsx` `active` becomes `useState` seeded from `location.hash`; `NAV_ITEMS` gains `bookings`; no router library added).
 i18n: every string added to `shared/i18n/en.json` AND `es.json`; RED test asserting both locales carry the new keys before the copy lands. No hardcoded display text.
 Tailwind: no hex colours, no `var()` in `className` — palette tokens only from `index.css`'s `@theme`.
 Gate: `npm run lint`, `npm test`.

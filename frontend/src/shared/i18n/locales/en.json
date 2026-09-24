@@ -5,7 +5,8 @@
   "nav": {
     "dashboard": "Dashboard",
     "strategies": "Strategies",
-    "settings": "Settings"
+    "settings": "Settings",
+    "bookings": "Bookings"
   },
   "status": {
     "dryRun": "Dry run"
@@ -17,6 +18,25 @@
       "placeholder": "Admin token",
       "inputLabel": "Admin token",
       "submit": "Unlock"
+    }
+  },
+  "bookings": {
+    "loading": "Loading pending bookings…",
+    "empty": "No pending bookings.",
+    "error": {
+      "title": "Could not load pending bookings.",
+      "status": "Status: {{status}}"
+    },
+    "card": {
+      "expires": "Expires",
+      "strategy": "Strategy",
+      "allocation": "Allocation",
+      "side": "Side",
+      "quantity": "Quantity",
+      "observedVenueNet": "Venue net",
+      "observedLedgerNet": "Ledger net",
+      "fills": "Fills",
+      "fee": "Fee"
     }
   }
 }

@@ -1,14 +1,37 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { BookingsListView } from "@/features/bookings/BookingsListView";
+import { TokenGate } from "@/shared/auth/TokenGate";
 import { cn } from "@/shared/lib/cn";
 
-type NavKey = "dashboard" | "strategies" | "settings";
+type NavKey = "dashboard" | "strategies" | "settings" | "bookings";
 
-const NAV_ITEMS: readonly NavKey[] = ["dashboard", "strategies", "settings"] as const;
+const NAV_ITEMS: readonly NavKey[] = ["dashboard", "strategies", "settings", "bookings"] as const;
+const DEFAULT_NAV_ITEM: NavKey = "dashboard";
+
+function isNavKey(value: string): value is NavKey {
+  return (NAV_ITEMS as readonly string[]).includes(value);
+}
+
+/** No router library is added for a four-view shell (design.md § 12) --
+ * the existing `href="#..."` anchors drive this seed/update instead. */
+function navKeyFromHash(hash: string): NavKey {
+  const candidate = hash.replace(/^#/, "");
+  return isNavKey(candidate) ? candidate : DEFAULT_NAV_ITEM;
+}
 
 export function App() {
   const { t, i18n } = useTranslation();
-  const active: NavKey = "dashboard";
+  const [active, setActive] = useState<NavKey>(() => navKeyFromHash(window.location.hash));
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setActive(navKeyFromHash(window.location.hash));
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   const toggleLanguage = () => {
     void i18n.changeLanguage(i18n.resolvedLanguage === "es" ? "en" : "es");
@@ -59,7 +82,12 @@ export function App() {
         </header>
 
         <main className="flex-1 p-4 pb-20 lg:pb-4">
-          <h1 className="text-lg font-semibold">{t("nav.dashboard")}</h1>
+          <h1 className="mb-4 text-lg font-semibold">{t(`nav.${active}`)}</h1>
+          {active === "bookings" && (
+            <TokenGate>
+              <BookingsListView />
+            </TokenGate>
+          )}
         </main>
       </div>
 

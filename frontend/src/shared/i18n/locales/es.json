@@ -5,7 +5,8 @@
   "nav": {
     "dashboard": "Panel",
     "strategies": "Estrategias",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "bookings": "Cierres pendientes"
   },
   "status": {
     "dryRun": "Modo simulación"
@@ -17,6 +18,25 @@
       "placeholder": "Token de administración",
       "inputLabel": "Token de administración",
       "submit": "Desbloquear"
+    }
+  },
+  "bookings": {
+    "loading": "Cargando cierres pendientes…",
+    "empty": "No hay cierres pendientes.",
+    "error": {
+      "title": "No se pudieron cargar los cierres pendientes.",
+      "status": "Estado: {{status}}"
+    },
+    "card": {
+      "expires": "Vence",
+      "strategy": "Estrategia",
+      "allocation": "Asignación",
+      "side": "Lado",
+      "quantity": "Cantidad",
+      "observedVenueNet": "Neto del exchange",
+      "observedLedgerNet": "Neto del libro",
+      "fills": "Ejecuciones",
+      "fee": "Comisión"
     }
   }
 }
