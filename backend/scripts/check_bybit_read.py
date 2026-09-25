@@ -29,7 +29,6 @@ What each read decides:
 
 Usage:
     cd backend
-    # BYBIT_API_KEY / BYBIT_API_SECRET must be set
     uv run python scripts/check_bybit_read.py
     uv run python scripts/check_bybit_read.py --symbol ETHUSDT
 """
@@ -41,18 +40,19 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from probe_credentials import announce, vault_credentials
+
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
 from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
-from strategy_manager.shared.infrastructure.bybit.factory import (
-    credentials_from_settings,
-    read_only_client,
-)
+from strategy_manager.shared.infrastructure.bybit.factory import read_only_client
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     BybitReadOnlyClient,
     CoinBalance,
     PerpContract,
     Position,
 )
+from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 
 DEFAULT_SYMBOL = "BTCUSDT"
 
@@ -230,15 +230,18 @@ async def main() -> int:
     args = parser.parse_args()
 
     settings = get_settings()
-    credentials = credentials_from_settings(settings)
 
     print(f"Bybit base URL: {settings.bybit_base_url}")
-    print(f"Signing as ***{credentials.api_key[-4:]}  (from the environment)")
     print(f"Symbol under inspection: {args.symbol}")
     print("This probe is GET-only: it places nothing and changes no setting.")
 
-    async with read_only_client(settings, credentials) as client:
-        catalogue_ok = await _run(args.symbol, client)
+    async with vault_credentials(settings, BYBIT_EXCHANGE) as vaulted:
+        announce(vaulted, f"vault ({BYBIT_EXCHANGE})")
+        credentials = BybitCredentials(
+            api_key=vaulted.api_key, api_secret=vaulted.api_secret
+        )
+        async with read_only_client(settings, credentials) as client:
+            catalogue_ok = await _run(args.symbol, client)
 
     return 0 if catalogue_ok else 1
 

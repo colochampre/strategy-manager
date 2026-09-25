@@ -1,15 +1,10 @@
 """Builds configured Bybit clients.
 
-Credentials are passed in rather than read here, for the reason the Pionex
-factory gives: there are two legitimate sources and they are not
-interchangeable. The worker loads them from the envelope-encrypted vault,
-which is the system of record; a standalone probe reads them from the
-environment, which is a developer convenience and never signs an order.
-
-Keeping the choice at the call site means neither source can silently stand in
-for the other — a lesson that already cost one wrong conclusion on the other
-venue, where a write refused for using the read-only key looked exactly like a
-write the venue forbade.
+Credentials are passed in rather than read here: the single envelope-encrypted
+vault credential (CLAUDE.md rule 8, design decision 18) is the only source for
+every caller now, worker and probe alike. This module used to also read a
+second, `.env`-configured read-only pair via its own ``credentials_from_settings``;
+that source is retired, along with the `.env` key it read.
 """
 
 from collections.abc import AsyncIterator
@@ -19,7 +14,6 @@ import httpx
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.config import Settings
-from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.bybit.read_client import BybitReadOnlyClient
 from strategy_manager.shared.infrastructure.bybit.signer import (
     BybitCredentials,
@@ -28,23 +22,6 @@ from strategy_manager.shared.infrastructure.bybit.signer import (
 from strategy_manager.shared.infrastructure.bybit.trade_client import BybitTradeClient
 from strategy_manager.shared.infrastructure.bybit.transport import BybitTransport
 from strategy_manager.shared.infrastructure.clock import SystemClock
-
-
-def credentials_from_settings(settings: Settings) -> BybitCredentials:
-    """Reads the environment-configured key pair.
-
-    Raises rather than letting an unauthenticated request reach Bybit and come
-    back as an opaque signature failure.
-    """
-    if not settings.bybit_api_key or not settings.bybit_api_secret:
-        raise InvariantViolation(
-            "BYBIT_API_KEY and BYBIT_API_SECRET must be set to read Bybit "
-            "account state from the environment"
-        )
-    return BybitCredentials(
-        api_key=settings.bybit_api_key,
-        api_secret=settings.bybit_api_secret,
-    )
 
 
 @asynccontextmanager

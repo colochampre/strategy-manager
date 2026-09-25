@@ -1,9 +1,10 @@
 """Builds configured Binance transports.
 
-Credentials are passed in rather than read here, for the reason the Bybit and
-Pionex factories give: the environment holds a read-only key for probes and
-balance reads, the vault holds the key that signs orders, and neither may
-silently stand in for the other.
+Credentials are passed in rather than read here: the single envelope-encrypted
+vault credential (CLAUDE.md rule 8, design decision 18) is the only source for
+every caller now, worker and probe alike. This module used to also read a
+second, `.env`-configured read-only pair via its own ``credentials_from_settings``;
+that source is retired, along with the `.env` key it read.
 """
 
 from collections.abc import AsyncIterator
@@ -13,7 +14,6 @@ import httpx
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.config import Settings
-from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.binance.read_client import (
     BinanceReadOnlyClient,
 )
@@ -24,20 +24,6 @@ from strategy_manager.shared.infrastructure.binance.signer import (
 from strategy_manager.shared.infrastructure.binance.trade_client import BinanceTradeClient
 from strategy_manager.shared.infrastructure.binance.transport import BinanceTransport
 from strategy_manager.shared.infrastructure.clock import SystemClock
-
-
-def credentials_from_settings(settings: Settings) -> BinanceCredentials:
-    """Reads the environment-configured key pair, refusing to send an
-    unauthenticated request that would only come back as a signature error."""
-    if not settings.binance_api_key or not settings.binance_api_secret:
-        raise InvariantViolation(
-            "BINANCE_API_KEY and BINANCE_API_SECRET must be set to read Binance "
-            "account state from the environment"
-        )
-    return BinanceCredentials(
-        api_key=settings.binance_api_key,
-        api_secret=settings.binance_api_secret,
-    )
 
 
 @asynccontextmanager
@@ -89,10 +75,10 @@ async def trade_client(
     that it intends to move money.
 
     Which credentials arrive here is the caller's decision and it is not a
-    detail: the vault's trade key signs orders, while the environment's
-    read-only key would come back as ``-2015`` — a code that also means a
+    detail: a key that cannot trade (decision 18's "accepted with a warning"
+    read-only case) would come back as ``-2015`` — a code that also means a
     revoked key and a host outside the allowlist, and therefore reads like the
-    venue refusing the write rather than like the wrong key being used.
+    venue refusing the write rather than like the wrong capability being used.
     """
     signer = BinanceSigner(
         credentials,

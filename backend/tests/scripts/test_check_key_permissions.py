@@ -23,6 +23,23 @@ from check_key_permissions import (
     redact_permissions_payload,
 )
 
+# --- 1b.8: folded onto vault-only credentials --------------------------------
+
+
+def test_module_has_no_dotenv_credential_reader() -> None:
+    """PR 3 retires the `.env` Bybit/Binance key pair (decision 18). This
+    module's own ".env key, last use before PR 3 retires it" pass -- the
+    reason it imported ``credentials_from_settings`` under
+    ``bybit_env_credentials``/``binance_env_credentials`` in the first place
+    -- is now dead: that use already happened (tasks.md's "PR 1 -- Probe
+    results", 2026-09-25) and the factory functions it called are removed in
+    this same PR. Only ``vault_credentials`` may remain as a credential
+    source."""
+    import check_key_permissions as module
+
+    assert not hasattr(module, "bybit_env_credentials")
+    assert not hasattr(module, "binance_env_credentials")
+
 # --- redact_permissions_payload (task 1a.1) ----------------------------------
 
 

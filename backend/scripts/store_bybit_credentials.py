@@ -3,10 +3,11 @@
 **It prompts. It does not read the environment, and that is the point.**
 
 ``store_pionex_credentials.py`` takes its credential from ``PIONEX_API_KEY`` /
-``PIONEX_API_SECRET``, which was fine when those were the only keys. It is not
-fine here: ``BYBIT_API_KEY`` / ``BYBIT_API_SECRET`` hold the READ-ONLY key that
-the probes sign with, and overwriting them with a trading key would make every
-read probe run as a key that can move money. That confusion has already cost
+``PIONEX_API_SECRET``. This one does not: the vault holds ONE active key per
+exchange, and that key signs every read and every order (decision 18). Nothing
+reads a Bybit key from ``.env`` any more, so the key given here must be the
+TRADING key -- sealing the old ``.env`` read-only key would supersede it and
+leave Bybit able to read and unable to trade. That confusion has already cost
 this project one wrong conclusion, on the other venue, where a write refused
 for using the read-only key looked identical to a write the venue forbade.
 

@@ -11,8 +11,9 @@ do you actually say" before an adapter is written against what its docs claim.
 
 What each read decides:
 
-  KEY           Whether the key in the environment really is read-only. A key
-                with trading or transfer permissions has no business in .env.
+  KEY           The vault key's own restrictions, read back from the venue
+                (``apiRestrictions``) rather than assumed from what this
+                system stored.
   CLOCK         The skew against Binance's clock. A timestamp 1000ms ahead is
                 rejected, which would look like a signature problem.
   WALLETS       Whether the account really keeps spot, futures, funding and
@@ -29,7 +30,6 @@ What each read decides:
 
 Usage:
     cd backend
-    # BINANCE_API_KEY / BINANCE_API_SECRET must be set
     uv run python scripts/check_binance_read.py
     uv run python scripts/check_binance_read.py --symbol ETHUSDT --symbol SOLUSDT
 """
@@ -45,13 +45,16 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from probe_credentials import announce, vault_credentials
+
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
 from strategy_manager.shared.infrastructure.binance.errors import BinanceApiError
 from strategy_manager.shared.infrastructure.binance.factory import (
-    credentials_from_settings,
     futures_transport,
     spot_transport,
 )
+from strategy_manager.shared.infrastructure.binance.signer import BinanceCredentials
 from strategy_manager.shared.infrastructure.binance.transport import BinanceTransport
 
 DEFAULT_SYMBOL = "BTCUSDT"
@@ -280,7 +283,8 @@ async def _run(symbols: list[str], spot: BinanceTransport, futures: BinanceTrans
         ("YES" if not write_permissions else f"NO: {write_permissions}")
         if key.ok
         else "unknown",
-        "a key that can trade or transfer does not belong in .env.",
+        "informational only: decision 18 refuses a key that can withdraw "
+        "(8b) but accepts one that can trade, with a warning.",
     )
     _verdict(
         "clock skew",
@@ -332,19 +336,22 @@ async def main() -> int:
     symbols = [s.upper() for s in (args.symbols or [DEFAULT_SYMBOL])]
 
     settings = get_settings()
-    credentials = credentials_from_settings(settings)
 
     print(f"Binance futures URL: {settings.binance_futures_base_url}")
     print(f"Binance spot URL:    {settings.binance_spot_base_url}")
-    print(f"Signing as ***{credentials.api_key[-4:]}  (from the environment)")
     print(f"Symbols under inspection: {', '.join(symbols)}")
     print("This probe is GET-only: it places nothing and changes no setting.")
 
-    async with (
-        spot_transport(settings, credentials) as spot,
-        futures_transport(settings, credentials) as futures,
-    ):
-        ok = await _run(symbols, spot, futures)
+    async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+        announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
+        credentials = BinanceCredentials(
+            api_key=vaulted.api_key, api_secret=vaulted.api_secret
+        )
+        async with (
+            spot_transport(settings, credentials) as spot,
+            futures_transport(settings, credentials) as futures,
+        ):
+            ok = await _run(symbols, spot, futures)
 
     return 0 if ok else 1
 

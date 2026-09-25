@@ -31,12 +31,14 @@ in use, down to the last 4 (CLAUDE.md rule 8). Every raised exception is
 routed through ``alert_redaction.redact`` for the same reason.
 
 **Keys, and nowhere else.** Loaded ONLY from the vault
-(``probe_credentials.vault_credentials``) and, for their last use before PR 3
-retires them, the ``.env`` Bybit (``***Swka``) and Binance read keys via each
-venue's ``credentials_from_settings``. There is no prompt: a key stored
-nowhere is simply absent, and the item that needed it prints UNKNOWN naming
-what is missing, rather than asking anyone to paste a credential into a
-terminal. Before every call, ``format_signing_line`` prints
+(``probe_credentials.vault_credentials``). The ``.env`` Bybit (``***Swka``)
+and Binance read keys had their last use recorded in tasks.md's "PR 1 --
+Probe results" (2026-09-25); this same PR (3) retires both keys and the
+``credentials_from_settings`` each venue's factory used to read them with, so
+this script no longer carries a second, `.env`-sourced pass. There is no
+prompt: a key stored nowhere is simply absent, and the item that needed it
+prints UNKNOWN naming what is missing, rather than asking anyone to paste a
+credential into a terminal. Before every call, ``format_signing_line`` prints
 ``Signing as ***last4 (from the source)``.
 
 Usage (from ``backend/``):
@@ -71,17 +73,11 @@ from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.alert_redaction import redact
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
-from strategy_manager.shared.infrastructure.binance.factory import (
-    credentials_from_settings as binance_env_credentials,
-)
 from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
     BinanceSigner,
 )
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
-from strategy_manager.shared.infrastructure.bybit.factory import (
-    credentials_from_settings as bybit_env_credentials,
-)
 from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials, BybitSigner
 from strategy_manager.shared.infrastructure.clock import SystemClock
 
@@ -523,17 +519,6 @@ async def _run_bybit(settings: Settings) -> None:
     except Exception as exc:  # one venue's failure must not hide the other's items
         print(f"  FAILED before any per-item verdict: {describe_failure(exc)}")
 
-    print("\n  -- .env key ***Swka, last use before PR 3 retires it --")
-    try:
-        env = bybit_env_credentials(settings)
-        await _bybit_pass(
-            settings, env.api_key, env.api_secret, clock, "environment (***Swka)", ("P2",)
-        )
-    except (CredentialNotFound, InvariantViolation) as exc:
-        _print_missing(("P2",), BYBIT_EXCHANGE, "environment (***Swka)", exc)
-    except Exception as exc:
-        print(f"  UNKNOWN -- .env Bybit key unavailable: {describe_failure(exc)}")
-
 
 async def _run_binance(settings: Settings) -> None:
     print(f"\n=== BINANCE ({BINANCE_EXCHANGE}) ===")
@@ -548,17 +533,6 @@ async def _run_binance(settings: Settings) -> None:
         _print_missing(("P3", "P4", "P5"), BINANCE_EXCHANGE, "vault", exc)
     except Exception as exc:
         print(f"  FAILED before any per-item verdict: {describe_failure(exc)}")
-
-    print("\n  -- .env read key, last use before PR 3 retires it --")
-    try:
-        env = binance_env_credentials(settings)
-        await _binance_pass(
-            settings, env.api_key, env.api_secret, clock, "environment (read key)", ("P3",)
-        )
-    except (CredentialNotFound, InvariantViolation) as exc:
-        _print_missing(("P3",), BINANCE_EXCHANGE, "environment (read key)", exc)
-    except Exception as exc:
-        print(f"  UNKNOWN -- .env Binance key unavailable: {describe_failure(exc)}")
 
 
 async def _run(settings: Settings) -> int:
