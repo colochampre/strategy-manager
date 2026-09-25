@@ -31,6 +31,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow  # noqa: F401
+from strategy_manager.main import create_app
 from strategy_manager.reconciliation.application.ports import (
     NewBookingProposal,
     ProposedFillSnapshot,
@@ -109,6 +110,32 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=_app())
     async with AsyncClient(transport=transport, base_url="http://test") as api:
         yield api
+
+
+async def test_reconciliation_routes_live_under_api_prefix() -> None:
+    """The ``/api`` move (design.md §13, spec: admin-api). In the real
+    composition root, ``/reconciliation`` now resolves under
+    ``/api/reconciliation`` — still refused without a token, structural per
+    router exactly as the rest of this file already proves for the bare
+    ``_app()`` above — and the pre-move path is no longer registered at all.
+
+    Uses ``create_app()`` rather than this file's own bare ``_app()``/
+    ``client`` fixture on purpose: those exist to test the router's own
+    dependency in isolation, mount-independent, and every other test in this
+    file keeps calling the unprefixed path against that same isolated mount.
+    This is the one test that proves where ``main.py`` actually mounts it.
+    Proven by live requests rather than by inspecting ``app.routes`` — this
+    FastAPI version resolves an included router's routes lazily
+    (``_IncludedRouter``), so the table is not flat until a request actually
+    walks it.
+    """
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://test") as api:
+        under_api = await api.get("/api/reconciliation/discrepancies")
+        assert under_api.status_code == 401
+
+        pre_move = await api.get("/reconciliation/discrepancies")
+        assert pre_move.status_code == 404
 
 
 async def _authenticated_client(

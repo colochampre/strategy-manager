@@ -84,6 +84,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - The response is `Cache-Control: no-store` and is never logged.
     - It is hidden again when the view is left.
 
+24. **Binance keys are saved only with an explicit owner confirmation that withdrawals are disabled** (2026-09-25, after the probe).
+    - The probe found `GET /sapi/v1/account/apiRestrictions` answers 403 from the VPS, so rule 8b cannot be verified server-side for Binance.
+    - The Settings form requires the confirmation box ("I confirmed in Binance that this key has withdrawals disabled"). It is recorded with a timestamp, and the key is shown as "withdraw not verified".
+    - Mitigation: Binance requires an IP restriction before withdrawals can be enabled, and the key is bound to the VPS.
+    - Bybit stays verified server-side, fail-closed: `Wallet ⊆ {AccountTransfer, SubMemberTransfer}`. Its trade capability is `readOnly == 0`.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

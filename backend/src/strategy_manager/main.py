@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -1286,8 +1286,19 @@ def create_app() -> FastAPI:
         return {"status": "ok", "dry_run": settings.dry_run}
 
     app.include_router(signals_router)
-    app.include_router(strategies_router)
-    app.include_router(reconciliation_router)
+
+    # Every administrative router lives under one prefix (design.md §13, spec:
+    # admin-api). Each included router keeps its OWN
+    # ``dependencies=[Depends(require_admin_token)]``, so authentication stays
+    # structural per router rather than becoming a property of this wrapper --
+    # wrapping never removes or replaces a router's own guard, it only moves
+    # where its routes are reachable from. ``/webhook/tradingview`` and
+    # ``/health`` are deliberately mounted above this line, on ``app``
+    # directly, and never inside ``api_router``.
+    api_router = APIRouter(prefix="/api")
+    api_router.include_router(strategies_router)
+    api_router.include_router(reconciliation_router)
+    app.include_router(api_router)
 
     return app
 

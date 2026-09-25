@@ -5,3 +5,10 @@
  * frontend is served by the same host as the API.
  */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
+
+/**
+ * Every admin route is mounted under this prefix (design.md §13, spec:
+ * admin-api). `apiFetch` is the one place that adds it, so every caller keeps
+ * its existing relative path unchanged.
+ */
+export const API_PREFIX = "/api";
