@@ -19,6 +19,26 @@ async def test_health_endpoint_responds(client: AsyncClient) -> None:
     assert response.json()["status"] == "ok"
 
 
+async def test_webhook_and_health_paths_are_never_moved_under_api(
+    client: AsyncClient,
+) -> None:
+    """spec: admin-api § "Webhook and Health Are Not Under /api". The `/api`
+    move (design.md §13) wraps every ADMIN router — `/webhook/tradingview`
+    and `/health` stay mounted directly on `app`, exactly where they always
+    were, so this pins the composition root against ever swallowing either
+    one into the `/api` wrapper by accident. Proven by live requests: neither
+    prefixed path resolves to anything (404), and the real, unprefixed ones
+    still do."""
+    health = await client.get("/health")
+    assert health.status_code == 200
+
+    prefixed_health = await client.get("/api/health")
+    assert prefixed_health.status_code == 404
+
+    prefixed_webhook = await client.post("/api/webhook/tradingview")
+    assert prefixed_webhook.status_code == 404
+
+
 def test_dry_run_is_enabled_by_default() -> None:
     """The system must never place a real order unless dry-run is explicitly disabled."""
     settings = Settings(_env_file=None)

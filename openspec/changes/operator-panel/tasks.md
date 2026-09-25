@@ -202,13 +202,13 @@ wrapping `strategies_router`, `reconciliation_router`); `backend/src/strategy_ma
 (message names `/api`); `frontend/src/shared/api/config.ts` (`API_PREFIX = "/api"`); every
 frontend caller under `frontend/src/features/bookings/*`.
 
-- [ ] 4a.1 RED `backend/tests/strategies/infrastructure/test_router_auth.py::test_strategy_routes_live_under_api_prefix`.
-- [ ] 4a.2 RED `backend/tests/reconciliation/infrastructure/test_router.py::test_reconciliation_routes_live_under_api_prefix` and its conftest fixture updated for the new base path.
-- [ ] 4a.3 RED `backend/tests/shared/infrastructure/test_admin_auth.py::test_bearer_token_required_under_api_prefix`, `backend/tests/shared/infrastructure/test_access_log.py`, `backend/tests/shared/infrastructure/test_smoke.py` — each asserting the new prefix and that `GET /strategies` (pre-move path) no longer resolves.
-- [ ] 4a.4 GREEN: wrap both routers in `api_router`, mount in `main.py`; update `admin_token_invariant.py`'s startup message.
-- [ ] 4a.5 RED (Vitest) `frontend/src/shared/api/client.test.ts::test_apiFetch_prefixes_every_call_with_api_base_and_api_prefix`.
-- [ ] 4a.6 GREEN: `shared/api/config.ts` gains `API_PREFIX`; `apiFetch` builds `${API_BASE_URL}${API_PREFIX}${path}`; callers in `BookingsListView.tsx`, `ConfirmBookingDialog.tsx`, `RejectBookingDialog.tsx` keep their relative paths unchanged (`apiFetch` absorbs the prefix, per design's "smallest possible diff").
-- [ ] 4a.7 GREEN: update `client.test.ts` fixtures for the new prefixed URLs.
+- [x] 4a.1 RED `backend/tests/strategies/infrastructure/test_router_auth.py::test_strategy_routes_live_under_api_prefix`.
+- [x] 4a.2 RED `backend/tests/reconciliation/infrastructure/test_router.py::test_reconciliation_routes_live_under_api_prefix`. **Deviation**: no `tests/reconciliation/infrastructure/conftest.py` builds an app/client fixture — this file's own bare `_app()`/`client` fixture is local to `test_router.py` and stays untouched (every other test in the file still hits the unprefixed path against that isolated router mount, on purpose, per its own docstring). The new test builds its own `create_app()`-based transport instead.
+- [x] 4a.3 RED — **deviation from the file list above**: `backend/tests/shared/infrastructure/test_admin_auth.py` and `backend/tests/shared/infrastructure/test_access_log.py` test isolated units (`AdminTokenAuth`, query-secret redaction) with no HTTP route ever called — confirmed by searching the whole test tree for literal `/strategies`/`/reconciliation` path usage, which returned only `test_router_auth.py` and `test_router.py`. Adding an `/api`-prefix assertion to either would be unrelated to what the file tests. The actual `test_smoke.py` lives at `backend/tests/test_smoke.py` (not `.../shared/infrastructure/`); `test_webhook_and_health_paths_are_never_moved_under_api` was added there instead, pinning `/health` (200), `/api/health` (404) and `POST /api/webhook/tradingview` (404) against the real `create_app()`.
+- [x] 4a.4 GREEN: wrap both routers in `api_router`, mount in `main.py`; update `admin_token_invariant.py`'s startup message.
+- [x] 4a.5 RED (Vitest) `frontend/src/shared/api/client.test.ts::test_apiFetch_prefixes_every_call_with_api_base_and_api_prefix`.
+- [x] 4a.6 GREEN: `shared/api/config.ts` gains `API_PREFIX`; `apiFetch` builds `${API_BASE_URL}${API_PREFIX}${path}`; callers in `BookingsListView.tsx`, `ConfirmBookingDialog.tsx`, `RejectBookingDialog.tsx` keep their relative paths unchanged (`apiFetch` absorbs the prefix, per design's "smallest possible diff") — confirmed unchanged, no caller names `/api` itself.
+- [x] 4a.7 GREEN: no other `client.test.ts` fixture asserted a URL before this unit (confirmed by reading the whole file) — nothing else needed updating beyond the new 4a.5 test itself.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` + `cd frontend && npm run lint && npm test`.
 Harness: `httpx.AsyncClient` over the ASGI app (backend); `vi.stubGlobal("fetch")` (frontend), no MSW.

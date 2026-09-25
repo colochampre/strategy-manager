@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { API_BASE_URL } from "@/shared/api/config";
 import type { BookingProposal, ProposedFill } from "@/shared/api/types";
 import { useTokenStore } from "@/shared/auth/token-store";
 
@@ -20,6 +21,16 @@ describe("apiFetch", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("prefixes every call with the API base URL and the /api prefix", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/reconciliation/bookings");
+
+    const call = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(call[0]).toBe(`${API_BASE_URL}/api/reconciliation/bookings`);
   });
 
   it("sends the stored token as a Bearer Authorization header", async () => {

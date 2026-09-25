@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "@/shared/api/config";
+import { API_BASE_URL, API_PREFIX } from "@/shared/api/config";
 import { useTokenStore } from "@/shared/auth/token-store";
 
 interface RefusalLikeBody {
@@ -49,7 +49,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, { ...init, headers });
   } catch {
     throw new ApiError(0, { detail: "Network request failed" });
   }

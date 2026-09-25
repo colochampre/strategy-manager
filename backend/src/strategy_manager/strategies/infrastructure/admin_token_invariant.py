@@ -46,7 +46,7 @@ def assert_admin_api_token_configured(settings: Settings) -> None:
         return
 
     raise InvariantViolation(
-        "ADMIN_API_TOKEN is not set. Refusing to start: every /strategies "
+        "ADMIN_API_TOKEN is not set. Refusing to start: every /api "
         "endpoint authenticates on this bearer token, so an empty value makes "
         "the comparison vacuous and the only thing still keeping registration "
         "and arming off the public internet would be a reverse-proxy rule this "
