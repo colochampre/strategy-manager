@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0C1116;color:#E7EDF1;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:#1FA6B8}a:hover{color:#6FD0DC}
+button,input{font:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 760px; box-sizing: border-box; display: grid; grid-template-rows: 64px 1fr; background: #0C1116;">
+  <header style="display: flex; align-items: center; gap: 32px; padding: 0 28px; border-bottom: 1px solid #28333C;">
+    <div style="font-family: Archivo, sans-serif; font-weight: 700; font-size: 17px;">Strategy Manager</div>
+    <div style="flex-grow: 1;"></div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; color: #CE8018; border: 1px solid #CE8018; padding: 6px 10px; border-radius: 4px;">DRY RUN</div>
+  </header>
+  <div style="display: grid; grid-template-columns: 208px 1fr; min-height: 0;">
+    <nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px; padding: 24px 12px; border-right: 1px solid #28333C;">
+      <a href="Main.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Overview</a>
+      <a href="Strategy.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Strategies</a>
+      <a href="#" aria-current="page" style="padding: 12px 14px; border-radius: 6px; background: #1B242C; color: #E7EDF1; text-decoration: none; font-weight: 600;">Settings</a>
+    </nav>
+    <main style="display: flex; flex-direction: column; gap: 22px; padding: 28px 36px; max-width: 900px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <h1 style="margin: 0; font-family: Archivo, sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.015em;">Exchange keys</h1>
+        <p style="margin: 0; font-size: 14px; color: #A9B8C3;">One key per exchange. Keys are encrypted on the server and never shown again; you only see the last four characters.</p>
+      </div>
+      <article style="display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; padding: 20px; border: 1px solid #28333C; border-radius: 10px; background: #141B22;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 17px;">Bybit</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A9B8C3;">key ••••[LAST 4] · reads and trades · no withdrawal · checked 24 Sep 2026</span>
+        </div>
+        <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #E7EDF1; align-self: center;">Replace key</button>
+      </article>
+      <article style="display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; padding: 20px; border: 1px solid #CE8018; border-radius: 10px; background: #141B22;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 17px;">Binance</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A9B8C3;">key ••••[LAST 4] · reads only · no withdrawal · checked 24 Sep 2026</span>
+          <span style="font-size: 13px; color: #CE8018;">This key cannot trade. With dry run off, signals for Binance are refused until you add a key that can trade futures.</span>
+        </div>
+        <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #E7EDF1; align-self: center;">Replace key</button>
+      </article>
+      <section aria-label="Add a key" style="display: flex; flex-direction: column; gap: 14px; padding: 20px; border: 1px dashed #3D4E5C; border-radius: 10px;">
+        <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Replace the Binance key</h2>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;"><label for="k" style="font-size: 13px; color: #A9B8C3;">API key</label><input id="k" autocomplete="off" style="min-height: 44px; box-sizing: border-box; padding: 0 12px; border: 1px solid #28333C; border-radius: 6px; background: #0C1116; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace;"></div>
+          <div style="display: flex; flex-direction: column; gap: 6px;"><label for="s" style="font-size: 13px; color: #A9B8C3;">API secret</label><input id="s" type="password" autocomplete="off" style="min-height: 44px; box-sizing: border-box; padding: 0 12px; border: 1px solid #28333C; border-radius: 6px; background: #0C1116; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace;"></div>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: #7A8C99;">Before saving, the key is tried with a real read. A key that can withdraw funds is refused.</p>
+        <div style="display: flex; gap: 8px;"><button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 6px; border: 1px solid #1FA6B8; background: #1FA6B8; color: #0C1116; font-weight: 600;">Check and save</button><button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #A9B8C3;">Cancel</button></div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
