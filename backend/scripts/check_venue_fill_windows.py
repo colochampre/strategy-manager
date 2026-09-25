@@ -17,10 +17,10 @@ Every item prints one of three verdicts -- ANSWERED, REFUSED (with the
 venue's own code), or UNKNOWN -- and the three are never conflated: an
 unreachable call or an empty history is UNKNOWN, not a guessed "no".
 
-Credentials follow design decision 9's precedent exactly, unchanged: Bybit
-signs with the VAULT credential, Binance with the `.env` READ-ONLY key. Which
-key is running is printed before any call, via `probe_credentials.announce`
-(CLAUDE.md's two-keys lesson).
+Both venues sign with their VAULT credential (design decision 18, ONE key per
+exchange -- superseding decision 9's earlier Bybit-vault/Binance-`.env`
+split). Which key is running is printed before any call, via
+`probe_credentials.announce` (CLAUDE.md's two-keys lesson).
 
 Usage (from `backend/`):
     uv run python scripts/check_venue_fill_windows.py
@@ -88,17 +88,16 @@ from strategy_manager.shared.infrastructure.alert_redaction import redact  # noq
 from strategy_manager.shared.infrastructure.binance import (  # noqa: E402
     EXCHANGE as BINANCE_EXCHANGE,
 )
-from strategy_manager.shared.infrastructure.binance.factory import (  # noqa: E402
-    credentials_from_settings as binance_credentials_from_settings,
+from strategy_manager.shared.infrastructure.binance.signer import (  # noqa: E402
+    BinanceCredentials,
+    BinanceSigner,
 )
-from strategy_manager.shared.infrastructure.binance.signer import BinanceSigner  # noqa: E402
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE  # noqa: E402
 from strategy_manager.shared.infrastructure.bybit.signer import (  # noqa: E402
     BybitCredentials,
     BybitSigner,
 )
 from strategy_manager.shared.infrastructure.clock import SystemClock  # noqa: E402
-from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials  # noqa: E402
 
 DEFAULT_SYMBOL = "BTCUSDT"
 DEFAULT_LOOKBACK_DAYS = 7
@@ -958,28 +957,26 @@ async def _run(args: Args) -> int:
     print(f"\n=== BINANCE ({BINANCE_EXCHANGE}) ===")
     binance_results: dict[str, ItemVerdict] = {}
     try:
-        binance_credentials = binance_credentials_from_settings(settings)
-        announce(
-            PionexCredentials(
-                api_key=binance_credentials.api_key, api_secret=binance_credentials.api_secret
-            ),
-            "environment (the READ-ONLY key)",
-        )
-        binance_signer = BinanceSigner(
-            binance_credentials, clock, recv_window_ms=settings.binance_recv_window_ms
-        )
-        async with httpx.AsyncClient(
-            base_url=settings.binance_futures_base_url, timeout=settings.binance_timeout_seconds
-        ) as http:
-            binance_results = await check_binance(
-                http,
-                binance_signer,
-                args.symbol,
-                now,
-                args.span_candidates_days,
-                args.lookback_days,
-                args.page_limit,
+        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+            announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
+            binance_signer = BinanceSigner(
+                BinanceCredentials(api_key=vaulted.api_key, api_secret=vaulted.api_secret),
+                clock,
+                recv_window_ms=settings.binance_recv_window_ms,
             )
+            async with httpx.AsyncClient(
+                base_url=settings.binance_futures_base_url,
+                timeout=settings.binance_timeout_seconds,
+            ) as http:
+                binance_results = await check_binance(
+                    http,
+                    binance_signer,
+                    args.symbol,
+                    now,
+                    args.span_candidates_days,
+                    args.lookback_days,
+                    args.page_limit,
+                )
     except Exception as exc:  # deliberately broad, for the same reason as above
         print(f"  FAILED before any per-item verdict: {describe_failure(exc)}")
     _print_results(binance_results)

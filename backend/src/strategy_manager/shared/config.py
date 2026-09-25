@@ -110,13 +110,11 @@ class Settings(BaseSettings):
     # the adapter is being written.
     bybit_base_url: str = Field(default="https://api.bybit.com")
 
-    # Read-only Bybit credentials, same standing as the Pionex pair above: a
-    # development convenience for probes and balance reads. Anything that signs
-    # an order loads from the envelope-encrypted vault instead
-    # (CLAUDE.md rule 8).
-    bybit_api_key: str = Field(default="")
-    bybit_api_secret: str = Field(default="")
-
+    # No Bybit key lives here (decision 18: ONE key per exchange). The single
+    # envelope-encrypted vault credential signs every Bybit call, reads and
+    # orders alike (CLAUDE.md rule 8). This used to be a second, read-only
+    # `.env` pair standing alongside the vault, and no longer is; a leftover
+    # `.env` value is harmlessly ignored (`model_config.extra = "ignore"`).
     bybit_timeout_seconds: float = Field(default=10.0)
 
     # Bybit rejects a request whose timestamp falls outside this window,
@@ -131,12 +129,10 @@ class Settings(BaseSettings):
     binance_futures_base_url: str = Field(default="https://fapi.binance.com")
     binance_spot_base_url: str = Field(default="https://api.binance.com")
 
-    # Read-only Binance credentials, same standing as the Bybit and Pionex
-    # pairs above: probes and balance reads only. A key that signs orders loads
-    # from the envelope-encrypted vault (CLAUDE.md rule 8).
-    binance_api_key: str = Field(default="")
-    binance_api_secret: str = Field(default="")
-
+    # No Binance key lives here either (decision 18, same as Bybit above).
+    # The single vault credential signs every Binance read AND order; the
+    # `.env` read-only key this comment used to describe is retired, and a
+    # leftover `.env` value is harmlessly ignored, same as Bybit's.
     binance_timeout_seconds: float = Field(default=10.0)
 
     # Binance rejects a timestamp 1000ms or more ahead of its clock, or older

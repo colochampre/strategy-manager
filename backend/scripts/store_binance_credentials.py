@@ -2,12 +2,13 @@
 
 **It prompts. It does not read the environment, and that is the point.**
 
-``BINANCE_API_KEY`` / ``BINANCE_API_SECRET`` in ``.env`` hold the READ-ONLY key
-that the probes and the balance reader sign with. Overwriting them with a
-trading key would make every read run as a key that can move money -- and that
-confusion has already cost this project one wrong conclusion, on Pionex, where
-a write refused for using the read-only key looked identical to a write the
-venue forbade.
+The vault holds ONE active key per exchange, and that key signs every read and
+every order (decision 18). Nothing reads a Binance key from ``.env`` any more.
+So the key given here must be the TRADING key: sealing the old ``.env``
+read-only key would supersede the trading key and leave Binance able to read
+and unable to trade. That confusion has already cost this project one wrong
+conclusion, on Pionex, where a write refused for using the read-only key looked
+identical to a write the venue forbade.
 
 So a trading key goes from your clipboard to the vault without ever being
 written to a file. The secret is read with ``getpass`` and never echoed.

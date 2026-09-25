@@ -43,8 +43,9 @@ What it measures, per venue:
   BINANCE  ``GET /fapi/v3/positionRisk`` with NO symbol -- every position in
            one call, which is what reconciliation needs and is NOT what
            ``BinanceReadOnlyClient.position_for(symbol)`` sends today. Signed
-           with the READ-ONLY environment key, because a job that only reads
-           positions has no business holding a key that can open one.
+           with the VAULT key (design decision 18, ONE key per exchange --
+           superseding the `.env` read-only key this comment used to name),
+           the same key ``balance.sync`` and every other Binance read now use.
 
 Each endpoint is called more than once on purpose: one response reports a
 running total, two report a cost.
@@ -78,9 +79,6 @@ from probe_credentials import announce, vault_credentials
 
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
-from strategy_manager.shared.infrastructure.binance.factory import (
-    credentials_from_settings,
-)
 
 # The production paths, imported rather than retyped: a probe that measures a
 # path production does not call measures nothing.
@@ -104,7 +102,6 @@ from strategy_manager.shared.infrastructure.bybit.signer import (
     BybitSigner,
 )
 from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials
 
 DEFAULT_SETTLE_COIN = "USDT"
 
@@ -634,17 +631,17 @@ async def main() -> int:
 
     print(f"\n=== BINANCE ({BINANCE_EXCHANGE}) ===")
     try:
-        binance = credentials_from_settings(settings)
-        # announce() takes the vault's venue-neutral key/secret pair. Wrapping
-        # keeps the call type-honest instead of relying on the two dataclasses
-        # happening to share a field name.
-        announce(
-            PionexCredentials(api_key=binance.api_key, api_secret=binance.api_secret),
-            "environment (the READ-ONLY key)",
-        )
-        binance_observations, weight_limit = await _measure_binance(
-            settings, binance, args.samples
-        )
+        # The VAULT key, same as Bybit above (design decision 18: ONE key per
+        # exchange) -- and the same key balance.sync now signs with, so this
+        # measurement is against the budget that key actually spends.
+        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+            announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
+            binance = BinanceCredentials(
+                api_key=vaulted.api_key, api_secret=vaulted.api_secret
+            )
+            binance_observations, weight_limit = await _measure_binance(
+                settings, binance, args.samples
+            )
         _render(binance_observations)
     except Exception as exc:
         # Broad for the same reason as the Bybit block above.

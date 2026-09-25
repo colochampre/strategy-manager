@@ -158,9 +158,6 @@ from strategy_manager.shared.infrastructure.access_log import (
 from strategy_manager.shared.infrastructure.alerting import operator_alerts
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
 from strategy_manager.shared.infrastructure.binance.factory import (
-    credentials_from_settings as binance_credentials_from_settings,
-)
-from strategy_manager.shared.infrastructure.binance.factory import (
     read_only_client as binance_read_only_client,
 )
 from strategy_manager.shared.infrastructure.binance.factory import (
@@ -751,9 +748,15 @@ def build_worker_runner(
                 return BybitBalanceReader(bybit, SystemClock())
 
             async def binance_reader() -> ExchangeBalanceReaderPort:
+                credential = await SqlAlchemyCredentialVault(
+                    session, cipher, SystemClock()
+                ).load(BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
-                        settings, binance_credentials_from_settings(settings)
+                        settings,
+                        BinanceCredentials(
+                            api_key=credential.api_key, api_secret=credential.api_secret
+                        ),
                     )
                 )
                 return BinanceBalanceReader(binance, SystemClock())
@@ -817,9 +820,15 @@ def build_worker_runner(
                 return BybitVenuePositionReader(bybit)
 
             async def binance_position_reader() -> VenuePositionReaderPort:
+                credential = await SqlAlchemyCredentialVault(
+                    session, cipher, SystemClock()
+                ).load(BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
-                        settings, binance_credentials_from_settings(settings)
+                        settings,
+                        BinanceCredentials(
+                            api_key=credential.api_key, api_secret=credential.api_secret
+                        ),
                     )
                 )
                 return BinanceVenuePositionReader(binance)
@@ -936,28 +945,27 @@ def build_worker_runner(
                     )
 
                 if binance_pools:
-                    # The READ-ONLY environment key, deliberately, even though
-                    # the vault now DOES hold a Binance key that signs orders.
-                    # What separates them is SCOPE, not location: this one
-                    # cannot trade and cannot transfer, verified by probe
-                    # (2026-09-15), and a job that only reads a balance has no
-                    # business holding a key that can open a position.
+                    # The VAULT key, the same one Bybit's branch above already
+                    # loads (design decision 18: ONE key per exchange, used
+                    # for reads and orders alike -- superseding the two-key
+                    # `.env`-plus-vault era this comment used to describe).
                     #
-                    # Location used to separate them too, and no longer does.
-                    # Until 2026-09-17 the read-only key carried no IP
-                    # restriction while the trade key did; both are bound now.
-                    # So a host whose address is not on the allowlist loses
-                    # balance reads AND trading together, rather than losing
-                    # trading alone behind a balance sync that still looks fine.
-                    #
-                    # What has NOT changed, and is the thing to remember: a
-                    # green balance sync still says nothing about whether this
-                    # host can trade. The two keys carry SEPARATE allowlists, so
-                    # the trade key can be missing an address the read key has,
-                    # and that only surfaces as -2015 on the first order.
+                    # What that changes: a green balance sync now DOES prove
+                    # the key that trades can also read, because they are the
+                    # same key and share the same allowlist. What has NOT
+                    # changed is that a sync only proves the READ path; the
+                    # first order can still surface a venue-side rejection
+                    # this sync never exercised.
+                    credential = await SqlAlchemyCredentialVault(
+                        session, cipher, SystemClock()
+                    ).load(BINANCE_EXCHANGE)
                     binance = await clients.enter_async_context(
                         binance_read_only_client(
-                            settings, binance_credentials_from_settings(settings)
+                            settings,
+                            BinanceCredentials(
+                                api_key=credential.api_key,
+                                api_secret=credential.api_secret,
+                            ),
                         )
                     )
                     syncs.append(
@@ -1034,9 +1042,16 @@ def build_worker_runner(
                         readers.append(BybitVenuePositionReader(bybit))
 
                     if binance_pools:
+                        credential = await SqlAlchemyCredentialVault(
+                            session, cipher, SystemClock()
+                        ).load(BINANCE_EXCHANGE)
                         binance = await clients.enter_async_context(
                             binance_read_only_client(
-                                settings, binance_credentials_from_settings(settings)
+                                settings,
+                                BinanceCredentials(
+                                    api_key=credential.api_key,
+                                    api_secret=credential.api_secret,
+                                ),
                             )
                         )
                         readers.append(BinanceVenuePositionReader(binance))
@@ -1078,11 +1093,10 @@ def build_worker_runner(
         decrypt a credential for a sweep that is about to be skipped
         outright.
 
-        Credentials follow each venue's existing position-read precedent
-        UNCHANGED (design decision 9): Bybit signs with the VAULT
-        credential, Binance with the ``.env`` read-only key -- the same two
-        sources ``handle_reconciliation_scan`` already uses above, not a new
-        decision.
+        Both venues sign with their VAULT credential (design decision 18,
+        ONE key per exchange -- superseding decision 9's earlier
+        Bybit-vault/Binance-``.env`` split), the same source
+        ``handle_reconciliation_scan`` already uses above.
         """
         async with factory() as session:
             bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
@@ -1114,9 +1128,16 @@ def build_worker_runner(
                         )
 
                     if binance_pools:
+                        credential = await SqlAlchemyCredentialVault(
+                            session, cipher, SystemClock()
+                        ).load(BINANCE_EXCHANGE)
                         binance = await clients.enter_async_context(
                             binance_read_only_client(
-                                settings, binance_credentials_from_settings(settings)
+                                settings,
+                                BinanceCredentials(
+                                    api_key=credential.api_key,
+                                    api_secret=credential.api_secret,
+                                ),
                             )
                         )
                         fill_readers.append(
