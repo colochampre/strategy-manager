@@ -11,7 +11,11 @@ from uuid import uuid4
 import pytest
 
 from strategy_manager.accounts.application.balance_sync_handler import BalanceSyncHandler
-from strategy_manager.accounts.application.sync_balances import SyncBalances, SyncResult
+from strategy_manager.accounts.application.sync_balances import (
+    CompositeBalanceSync,
+    SyncBalances,
+    SyncResult,
+)
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
@@ -99,3 +103,33 @@ async def test_SyncBalances_satisfies_the_handler_port() -> None:
     """Guards the stub above from drifting away from the real use case."""
 
     assert hasattr(SyncBalances, "sync")
+
+
+# --- PR 3 unit 1b: a DEGRADED exchange omitted from ``syncs`` -----------
+
+
+async def test_a_degraded_exchange_omitted_from_syncs_still_lets_the_successor_enqueue() -> (
+    None
+):
+    """main.py's own fix for the urgent balance.sync bug (a missing Binance
+    key raising BEFORE ``handler.handle`` ran, killing the recurring chain):
+    the composition root now OMITS a DEGRADED exchange's ``SyncBalances``
+    from the list entirely, rather than including one that fails.
+    ``CompositeBalanceSync`` with only the healthy exchange still runs the
+    healthy sync AND the handler still enqueues its successor -- proving the
+    fix's mechanism, not just this pre-existing class's own contract."""
+    healthy = StubSyncBalances(synced=3)
+    queue = SpyQueue()
+    handler = BalanceSyncHandler(
+        sync_balances=CompositeBalanceSync([healthy]),
+        queue=queue,
+        clock=FrozenClock(),
+        interval_seconds=INTERVAL,
+    )
+
+    result = await handler.handle(_claimed_job())
+
+    assert healthy.syncs == 1
+    assert result.synced == 3
+    assert len(queue.enqueued) == 1
+    assert queue.enqueued[0].kind is JobKind.BALANCE_SYNC

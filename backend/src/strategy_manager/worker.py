@@ -17,9 +17,17 @@ Startup order is deliberate:
 1. Load the configured pools and assert their advisory-lock keys are
    distinct. This process is the one that actually takes those locks, so a
    collision here silently serializes two unrelated pools against each other.
-2. Assert the ``DRY_RUN`` invariant before any job can be claimed.
-3. Open every sealed credential once, so a master key that does not match the
+2. Open every sealed credential once, so a master key that does not match the
    vault is a refusal to start rather than a per-job failure.
+3. Log, but never refuse, a CONFIGURED exchange with no active key at all
+   (``_assert_keys_present``) — DEGRADED (decision 20), not a startup
+   refusal. The composition root re-checks this per job, so a key saved or
+   deleted while the worker runs is seen on the next job, not only after a
+   restart; this step only seeds that per-job tracker so the first check
+   never re-logs what startup already reported. It has to run before the
+   composition root is built, which is why the next step comes after it.
+3b. Build the composition root, which asserts the ``DRY_RUN`` invariant —
+   still before any job can be claimed.
 4. Seed the recurring chains, so a restart is also the recovery path for a
    chain that died.
 5. Only then start claiming — re-seeding on a cadence from inside that loop,
@@ -35,8 +43,11 @@ import asyncio
 import functools
 import logging
 import signal
+from collections.abc import Sequence
 
 from strategy_manager.accounts.application.ports import CredentialVaultPort
+from strategy_manager.accounts.domain.exchange_credential import CredentialHint
+from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
@@ -96,18 +107,12 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
         "worker starting: %d enabled pools, dry_run=%s", len(pools), settings.dry_run
     )
 
-    # Registers the handlers and asserts the DRY_RUN invariant, so an unsafe
-    # configuration fails here rather than on the first claimed signal. It also
-    # builds the cipher, so a missing or malformed MASTER_ENCRYPTION_KEY has
-    # already failed before the block below runs.
-    runner = build_worker_runner(pools, alert_channel=alert_channel)
-
-    # A master key that is well-formed but WRONG survives all of that: it
-    # builds a cipher fine and only fails when a credential is actually opened
-    # — per job, inside a handler, as DecryptionFailed. That is five retries
-    # and a FAILED job per signal, and for balance.sync it kills the recurring
-    # chain with nothing scheduled to revive it. Opening every sealed
-    # credential once, here, turns a mismatched key into a refusal to start.
+    # A master key that is well-formed but WRONG only fails when a credential
+    # is actually opened — per job, inside a handler, as DecryptionFailed.
+    # That is five retries and a FAILED job per signal, and for balance.sync
+    # it kills the recurring chain with nothing scheduled to revive it.
+    # Opening every sealed credential once, here, BEFORE the composition root
+    # is even built, turns a mismatched key into a refusal to start.
     #
     # Not a degradation: crypto.py states that a wrong master key, a tampered
     # row and a value moved between rows are the same instruction — stop.
@@ -124,14 +129,33 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
         # it is one key derivation, and the alternative is widening the
         # composition root's return type so a startup check can borrow a
         # handle to a secret.
-        opened = await _assert_sealed_credentials_open(
-            SqlAlchemyCredentialVault(
-                session,
-                EnvelopeCipher.from_base64(settings.master_encryption_key),
-                SystemClock(),
-            )
+        vault = SqlAlchemyCredentialVault(
+            session,
+            EnvelopeCipher.from_base64(settings.master_encryption_key),
+            SystemClock(),
         )
+        opened = await _assert_sealed_credentials_open(vault)
+        # ``hints()`` is a second, cheap call (no decrypt) on the same
+        # already-open session, deliberately kept separate from ``opened``:
+        # that list is the DECRYPT self-test's own evidence, and re-purposing
+        # it here would tie a MISSING-key report to a decrypt attempt that
+        # never happened for the exchange in question.
+        hints = await vault.hints()
     _log_vault_self_test(opened, dry_run=settings.dry_run)
+
+    # Which CONFIGURED exchanges have no active key AT ALL — DEGRADED
+    # (decision 20), never a startup refusal (see ``_assert_keys_present``'s
+    # own docstring for the full reasoning and its per-job continuation).
+    degraded = _assert_keys_present(hints, pools)
+
+    # Registers the handlers and asserts the DRY_RUN invariant, so an unsafe
+    # configuration fails here rather than on the first claimed signal.
+    # ``initial_degraded`` seeds the composition root's own per-job tracker,
+    # so the very first job-level check never re-logs what this function
+    # already reported above.
+    runner = build_worker_runner(
+        pools, alert_channel=alert_channel, initial_degraded=degraded
+    )
 
     clock = SystemClock()
 
@@ -242,6 +266,46 @@ async def _assert_sealed_credentials_open(vault: CredentialVaultPort) -> list[st
             ) from exc
         opened.append(hint.exchange)
     return opened
+
+
+def _assert_keys_present(
+    hints: Sequence[CredentialHint], pools: Sequence[PoolConfig]
+) -> frozenset[str]:
+    """Which CONFIGURED exchanges (an enabled pool exists) have NO active
+    vault credential at all, right now.
+
+    Never raises: a missing key is DEGRADED (decision 20), not a startup
+    refusal. The worker still starts, still trades every OTHER exchange, and
+    this only logs one ERROR per missing exchange -- reaching Telegram
+    through the alert bridge -- so an operator learns about it immediately
+    rather than discovering it the first time a signal on that exchange
+    silently reserves capital it can never place (``_vault_credential``'s own
+    docstring, main.py, names that exact cost for the trade-client side of
+    this same degradation).
+
+    A per-exchange check, not a single boolean: an unrelated exchange's
+    missing key must never be reported against the wrong name, or fixing
+    "binance" would send an operator chasing the wrong row.
+
+    This is the STARTUP report only. The composition root re-checks the same
+    active-key listing on its own per-job cadence (``main._active_exchanges``
+    / ``main._track_degraded_exchanges``), seeded with this function's return
+    value so a key saved or deleted while the worker is already running is
+    seen on the next job -- not only after a restart -- and the very first
+    per-job check never repeats what this function already logged.
+    """
+    configured = {pool.exchange.value for pool in pools}
+    active = {hint.exchange for hint in hints}
+    degraded = frozenset(configured - active)
+    for exchange in sorted(degraded):
+        logger.error(
+            "'%s' has an enabled pool but no active vault credential; its "
+            "reads and orders are skipped until one is stored "
+            "(uv run python scripts/store_%s_credentials.py)",
+            exchange,
+            exchange,
+        )
+    return degraded
 
 
 def _install_signal_handlers() -> asyncio.Event:

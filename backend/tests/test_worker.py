@@ -8,6 +8,7 @@ looking alive. This check moves that failure to startup.
 """
 
 import logging
+from decimal import Decimal
 
 import pytest
 
@@ -15,12 +16,28 @@ from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
 )
+from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed
 from strategy_manager.worker import (
+    _assert_keys_present,
     _assert_sealed_credentials_open,
     _configure_logging,
     _log_vault_self_test,
+)
+
+_BYBIT_POOL = PoolConfig(
+    exchange=Exchange.BYBIT,
+    venue=Venue.USDT_M,
+    settlement_currency=Currency.USDT,
+    min_order_size=Decimal("10"),
+)
+_BINANCE_POOL = PoolConfig(
+    exchange=Exchange.BINANCE,
+    venue=Venue.USDT_M,
+    settlement_currency=Currency.USDT,
+    min_order_size=Decimal("10"),
 )
 
 
@@ -148,3 +165,62 @@ async def test_an_empty_vault_is_not_a_failure() -> None:
     this database and this configuration to run at all. Refusing here would
     make the first boot — the one that has to happen first — impossible."""
     assert await _assert_sealed_credentials_open(FakeVault()) == []
+
+
+# --- 1b.3/1b.4: _assert_keys_present (decision 20, startup DEGRADED set) ----
+
+
+def test_missing_key_for_enabled_pool_logs_one_error_and_still_starts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Binance has an enabled pool but no active vault credential at all
+    (never sealed, as opposed to sealed-but-undecryptable). Unlike
+    ``_assert_sealed_credentials_open``, this must NEVER raise: the worker
+    still starts and keeps trading every other exchange (decision 20)."""
+    hints = [CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz")]
+
+    with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
+        degraded = _assert_keys_present(hints, [_BYBIT_POOL, _BINANCE_POOL])
+
+    assert degraded == frozenset({"binance"})
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) == 1
+    message = error_records[0].getMessage()
+    assert "binance" in message
+    assert "store_binance_credentials.py" in message
+
+
+def test_degraded_exchange_does_not_affect_any_other_exchange(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Binance DEGRADED, Bybit healthy: the function must name ONLY the
+    exchange that is actually missing a key, never the one that has one --
+    the same per-exchange isolation ``_vault_credential`` already applies to
+    orders, applied here to the startup report."""
+    hints = [CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz")]
+
+    with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
+        degraded = _assert_keys_present(hints, [_BYBIT_POOL, _BINANCE_POOL])
+
+    assert "binance" in degraded
+    assert "bybit" not in degraded
+    assert any("binance" in r.getMessage() for r in caplog.records)
+    assert not any("bybit" in r.getMessage() for r in caplog.records)
+
+
+def test_every_configured_exchange_holding_a_key_logs_nothing_and_degrades_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Triangulation: a fully healthy vault must not be reported as
+    DEGRADED, and must not log a single ERROR -- proves the function is not
+    unconditionally returning an empty/non-empty set regardless of input."""
+    hints = [
+        CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz"),
+        CredentialHint(exchange="binance", label="default", api_key_last4="abcd"),
+    ]
+
+    with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
+        degraded = _assert_keys_present(hints, [_BYBIT_POOL, _BINANCE_POOL])
+
+    assert degraded == frozenset()
+    assert not any(r.levelno == logging.ERROR for r in caplog.records)

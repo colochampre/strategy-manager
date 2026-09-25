@@ -85,11 +85,14 @@ def test_binance_booking_prepare_signs_with_vault_key_not_settings() -> None:
 
     assert "BinanceVenueFillReader(" in body
     assert "binance_credentials_from_settings" not in body
-    # Both venues' fill readers load through the vault in this block -- one
-    # ``SqlAlchemyCredentialVault(...)`` construction for Bybit, another for
-    # Binance -- and each is immediately followed by its own exchange load.
-    assert body.count("SqlAlchemyCredentialVault(") >= 2
-    assert "load(BINANCE_EXCHANGE)" in body
+    # One shared ``SqlAlchemyCredentialVault(...)`` construction serves both
+    # venues (PR 3 unit 1b work unit 2's per-job active-key check needs the
+    # SAME vault instance both branches load from) -- so the proof that both
+    # actually load through it is each exchange's own ``vault.load(...)``
+    # call, not a count of constructions.
+    assert "SqlAlchemyCredentialVault(" in body
+    assert "vault.load(BYBIT_EXCHANGE)" in body
+    assert "vault.load(BINANCE_EXCHANGE)" in body
 
 
 # --- 1b.2: the four remaining Binance read sites, each pinned the same way --
@@ -112,10 +115,15 @@ def test_binance_balance_refresh_signs_with_vault_key() -> None:
     body = body[: body.index("async def venue_net_position_reader_for")]
 
     assert "async def binance_reader()" in body
+    # The vault is constructed ONCE per job, ABOVE both nested factories (PR
+    # 3 unit 1b work unit 2: the per-job active-key check needs the SAME
+    # vault instance the factories load from) -- so the construction lives
+    # in the WIDER site body, while the narrower factory body only proves
+    # its own load call.
+    assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "SqlAlchemyCredentialVault(" in reader_body
-    assert "load(BINANCE_EXCHANGE)" in reader_body
+    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_venue_position_signs_with_vault_key() -> None:
@@ -129,10 +137,10 @@ def test_binance_venue_position_signs_with_vault_key() -> None:
     body = body[: body.index("async def handle_signal_process")]
 
     assert "async def binance_position_reader()" in body
+    assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_position_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "SqlAlchemyCredentialVault(" in reader_body
-    assert "load(BINANCE_EXCHANGE)" in reader_body
+    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_balance_sync_signs_with_vault_key() -> None:
@@ -143,11 +151,11 @@ def test_binance_balance_sync_signs_with_vault_key() -> None:
     body = source[source.index("async def handle_balance_sync") :]
     body = body[: body.index("async def handle_reservation_sweep")]
 
-    assert "if binance_pools:" in body
-    binance_block = body[body.index("if binance_pools:") :]
+    assert "SqlAlchemyCredentialVault(" in body
+    assert "if binance_pools and BINANCE_EXCHANGE in active:" in body
+    binance_block = body[body.index("if binance_pools and BINANCE_EXCHANGE in active:") :]
     assert "binance_credentials_from_settings" not in binance_block
-    assert "SqlAlchemyCredentialVault(" in binance_block
-    assert "load(BINANCE_EXCHANGE)" in binance_block
+    assert "vault.load(BINANCE_EXCHANGE)" in binance_block
 
 
 def test_binance_reconciliation_scan_signs_with_vault_key() -> None:
@@ -158,8 +166,8 @@ def test_binance_reconciliation_scan_signs_with_vault_key() -> None:
     body = source[source.index("async def handle_reconciliation_scan") :]
     body = body[: body.index("async def handle_reconciliation_prepare_booking")]
 
+    assert "SqlAlchemyCredentialVault(" in body
     assert "if binance_pools:" in body
     binance_block = body[body.index("if binance_pools:") :]
     assert "binance_credentials_from_settings" not in binance_block
-    assert "SqlAlchemyCredentialVault(" in binance_block
-    assert "load(BINANCE_EXCHANGE)" in binance_block
+    assert "vault.load(BINANCE_EXCHANGE)" in binance_block

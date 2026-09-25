@@ -7,6 +7,7 @@ business logic, authentication and secrets; the frontend is a pure client.
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -99,7 +100,10 @@ from strategy_manager.reconciliation.application.expire_booking_proposals import
     ExpireBookingProposals,
 )
 from strategy_manager.reconciliation.application.ports import (
+    PoolKey,
+    VenueFill,
     VenueFillReaderPort,
+    VenueFillReadError,
     VenuePositionReaderPort,
     VenuePositionReaderRegistryPort,
 )
@@ -489,11 +493,96 @@ async def _vault_credential(
         return None
 
 
+async def _active_exchanges(vault: SqlAlchemyCredentialVault) -> frozenset[str]:
+    """Every exchange holding an ACTIVE vault credential right now, read
+    fresh on every call (no decrypt -- ``hints()`` only reads the row).
+
+    DEGRADED IS NOT A STARTUP SNAPSHOT (the orchestrator's binding correction
+    on this unit, replaying F11's own lesson for pool enablement against
+    credential presence): a key saved or deleted while the worker is already
+    running (decisions 21/22) must be seen on the very next job that asks,
+    not only after a restart. Querying fresh here is what buys that; caching
+    this set at composition time is exactly the mistake this function exists
+    to avoid.
+    """
+    return frozenset(hint.exchange for hint in await vault.hints())
+
+
+def _track_degraded_exchanges(
+    tracker: set[str], *, configured: frozenset[str], active: frozenset[str]
+) -> None:
+    """Mutates the shared, process-lifetime DEGRADED set and logs each
+    transition EXACTLY once: an ERROR the instant a configured exchange's key
+    disappears while running, an INFO the instant it comes back. Steady state
+    -- the common case, since ``balance.sync`` alone calls this every 60s --
+    logs nothing at all.
+
+    No flood, by construction: ``tracker`` is the only thing consulted to
+    decide whether an exchange is ALREADY known degraded, so a repeated call
+    with the same ``active`` set is a no-op every time after the first. That
+    set is also what lets ``build_worker_runner``'s ``initial_degraded``
+    (``worker._assert_keys_present``'s own startup report) be SEEDED in
+    rather than re-discovered: an exchange already known missing at boot is
+    not re-logged by the first per-job check that runs after it.
+    """
+    newly_degraded = (configured - active) - tracker
+    for exchange in sorted(newly_degraded):
+        logger.error(
+            "'%s' has an enabled pool but no active vault credential; its "
+            "reads are skipped until one is stored "
+            "(uv run python scripts/store_%s_credentials.py)",
+            exchange,
+            exchange,
+        )
+        tracker.add(exchange)
+
+    recovered = tracker & active
+    for exchange in sorted(recovered):
+        logger.info(
+            "'%s' has an active vault credential again; reads resume", exchange
+        )
+        tracker.discard(exchange)
+
+
+class _DegradedVenueFillReader:
+    """Stands in for a REAL ``VenueFillReaderPort`` when its exchange has no
+    active vault credential this cycle.
+
+    Registered in place of the real reader rather than omitted: unlike
+    ``ReaderByExchange``/``VenuePositionReaderRegistry`` (whose consumers
+    catch a broad ``Exception`` and so tolerate a plain missing entry),
+    ``PrepareBooking.sweep`` reads CONFIRMED discrepancies straight from the
+    database rather than from a pool list this composition root controls --
+    so a discrepancy on this exchange left over from before it lost its key
+    would still reach ``VenueFillReaderRegistry.for_pool`` and raise
+    ``UnservedFillPoolError``, which ``sweep`` does NOT swallow (that
+    registry's own docstring: "never swallowed... must propagate loud enough
+    to kill the job"). Raising ``VenueFillReadError`` instead reuses the
+    swallow path ``sweep`` already has for an ordinary failed fetch: the
+    discrepancy is skipped and logged as a WARNING, not crashed -- the same
+    "no read and no raise" outcome, reached the only way this port allows.
+    """
+
+    def __init__(self, exchange: str, venues: frozenset[str]) -> None:
+        self.exchange = exchange
+        self.venues = venues
+
+    async def fills_in_window(
+        self, pool: PoolKey, symbol: str, start: datetime, end: datetime
+    ) -> list[VenueFill]:
+        del pool, symbol, start, end
+        raise VenueFillReadError(
+            f"'{self.exchange}' has no active vault credential this cycle; "
+            "no fetch was attempted"
+        )
+
+
 def build_worker_runner(
     pools: Sequence[PoolConfig],
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
     alert_channel: AlertChannelPort | None = None,
+    initial_degraded: frozenset[str] = frozenset(),
 ) -> WorkerRunner:
     """Registers ``signal.process``, ``reservation.sweep``, ``balance.sync``,
     ``execution.settle`` and ``reconciliation.scan``. One fresh session per
@@ -511,7 +600,17 @@ def build_worker_runner(
     watchdog asks it one thing — how many alerts it has thrown away — and
     ``None`` simply means alerting is off, which is not a fault: the watchdog
     still runs and still logs, because delivery is the bridge's problem and
-    this check is not."""
+    this check is not.
+
+    ``initial_degraded`` seeds the per-job DEGRADED tracker
+    (``_track_degraded_exchanges``) from the worker's own startup report
+    (``worker._assert_keys_present``), so the FIRST per-job active-key check
+    after boot never re-logs an exchange startup already reported missing.
+    Every read site below re-checks the vault's active-key listing on its
+    OWN cadence from there on — DEGRADED is never a fixed, startup-only
+    snapshot (the orchestrator's binding correction to this unit): a key
+    saved or deleted while the worker runs is seen on the very next job that
+    asks, not only after a restart."""
 
     settings = get_settings()
     factory = session_factory_override or session_factory
@@ -628,6 +727,18 @@ def build_worker_runner(
     # fails here rather than on the first job that needs a credential.
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
 
+    # The two Bybit/Binance exchanges this deployment has an ENABLED pool on
+    # -- fixed for the life of this process (unlike the pool set itself,
+    # which unit 1b.9/1b.10 re-reads per cycle; that correction is orthogonal
+    # to this one and does not change which exchanges COULD ever need a key).
+    configured_exchanges = frozenset(key[0] for key in pools_by_key)
+
+    # The shared, process-lifetime DEGRADED set every read site below
+    # consults and updates via ``_track_degraded_exchanges``. Seeded from the
+    # worker's own startup report (``worker._assert_keys_present``) so the
+    # very first per-job check never re-logs what startup already did.
+    _degraded: set[str] = set(initial_degraded)
+
     # The fakes above hold their placed orders in memory, so place and settle
     # have to share the same instance per exchange or settlement finds
     # nothing. The live adapter is the opposite: it is stateless, the venue
@@ -729,14 +840,24 @@ def build_worker_runner(
         INSIDE ``RefreshPoolBalance.refresh`` as an ordinary reader error,
         which is exactly what lets it degrade through FALLBACK/UNAVAILABLE
         instead of raising out of job entry.
+
+        Which exchange gets a factory AT ALL is now decided PER JOB, from the
+        vault's active-key listing (``_active_exchanges``, no decrypt) rather
+        than from pool configuration alone: a DEGRADED exchange is skipped
+        here -- no factory, so no read and no raise -- rather than reaching
+        the lazy ``.load()`` above only to fail the moment it is actually
+        invoked. Checked before the closures below so this context manager's
+        one ``hints()`` query serves both exchanges, not two.
         """
+
+        vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+        active = await _active_exchanges(vault)
+        _track_degraded_exchanges(_degraded, configured=configured_exchanges, active=active)
 
         async with AsyncExitStack() as clients:
 
             async def bybit_reader() -> ExchangeBalanceReaderPort:
-                credential = await SqlAlchemyCredentialVault(
-                    session, cipher, SystemClock()
-                ).load(BYBIT_EXCHANGE)
+                credential = await vault.load(BYBIT_EXCHANGE)
                 bybit = await clients.enter_async_context(
                     read_only_client(
                         settings,
@@ -748,9 +869,7 @@ def build_worker_runner(
                 return BybitBalanceReader(bybit, SystemClock())
 
             async def binance_reader() -> ExchangeBalanceReaderPort:
-                credential = await SqlAlchemyCredentialVault(
-                    session, cipher, SystemClock()
-                ).load(BINANCE_EXCHANGE)
+                credential = await vault.load(BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
                         settings,
@@ -763,10 +882,16 @@ def build_worker_runner(
 
             factories: dict[str, ReaderFactory] = {}
 
-            if any(key[0] == BYBIT_EXCHANGE for key in pools_by_key):
+            if (
+                any(key[0] == BYBIT_EXCHANGE for key in pools_by_key)
+                and BYBIT_EXCHANGE in active
+            ):
                 factories[BYBIT_EXCHANGE] = bybit_reader
 
-            if any(key[0] == BINANCE_EXCHANGE for key in pools_by_key):
+            if (
+                any(key[0] == BINANCE_EXCHANGE for key in pools_by_key)
+                and BINANCE_EXCHANGE in active
+            ):
                 factories[BINANCE_EXCHANGE] = binance_reader
 
             yield ReaderByExchange(factories)
@@ -791,6 +916,13 @@ def build_worker_runner(
         ``fake_venue_book`` instead of a real client -- so a rehearsed REAL
         orphan is reachable without a credential, exactly like every other
         DRY_RUN path.
+
+        Live, which exchange gets a ``LazyVenuePositionReader`` AT ALL is
+        decided PER JOB from the vault's active-key listing
+        (``_active_exchanges``, no decrypt), exactly like
+        ``balance_refresh_reader_for`` above: a DEGRADED exchange is skipped
+        here rather than reaching its own lazy ``.load()`` only to fail when
+        actually invoked.
         """
         if settings.dry_run:
             yield VenuePositionReaderRegistry(
@@ -803,12 +935,14 @@ def build_worker_runner(
             )
             return
 
+        vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+        active = await _active_exchanges(vault)
+        _track_degraded_exchanges(_degraded, configured=configured_exchanges, active=active)
+
         async with AsyncExitStack() as clients:
 
             async def bybit_position_reader() -> VenuePositionReaderPort:
-                credential = await SqlAlchemyCredentialVault(
-                    session, cipher, SystemClock()
-                ).load(BYBIT_EXCHANGE)
+                credential = await vault.load(BYBIT_EXCHANGE)
                 bybit = await clients.enter_async_context(
                     read_only_client(
                         settings,
@@ -820,9 +954,7 @@ def build_worker_runner(
                 return BybitVenuePositionReader(bybit)
 
             async def binance_position_reader() -> VenuePositionReaderPort:
-                credential = await SqlAlchemyCredentialVault(
-                    session, cipher, SystemClock()
-                ).load(BINANCE_EXCHANGE)
+                credential = await vault.load(BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
                         settings,
@@ -834,13 +966,19 @@ def build_worker_runner(
                 return BinanceVenuePositionReader(binance)
 
             readers: list[VenuePositionReaderPort] = []
-            if any(key[0] == BYBIT_EXCHANGE for key in pools_by_key):
+            if (
+                any(key[0] == BYBIT_EXCHANGE for key in pools_by_key)
+                and BYBIT_EXCHANGE in active
+            ):
                 readers.append(
                     LazyVenuePositionReader(
                         BYBIT_EXCHANGE, frozenset({"usdt-m"}), bybit_position_reader
                     )
                 )
-            if any(key[0] == BINANCE_EXCHANGE for key in pools_by_key):
+            if (
+                any(key[0] == BINANCE_EXCHANGE for key in pools_by_key)
+                and BINANCE_EXCHANGE in active
+            ):
                 readers.append(
                     LazyVenuePositionReader(
                         BINANCE_EXCHANGE, frozenset({"usdt-m"}), binance_position_reader
@@ -902,7 +1040,8 @@ def build_worker_runner(
             await _build_settle_execution(session, exchanges).settle(attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
-        """One sync per exchange that has enabled pools.
+        """One sync per exchange that has enabled pools AND an active vault
+        credential right now.
 
         Each exchange answers for its own account only, so a reader is never
         handed a pool whose money it does not hold -- the same rule the
@@ -911,21 +1050,37 @@ def build_worker_runner(
         The HTTP clients are built per job rather than held open across the
         worker's life: a sync runs every few seconds, so the reconnect is
         cheap, and no socket outlives the job that opened it.
+
+        A DEGRADED exchange is OMITTED from ``syncs`` (no read, no raise)
+        rather than included with a credential load that would raise --
+        this is the fix for the bug that motivated this unit: the OLD code
+        loaded unconditionally, BEFORE ``handler.handle(job)`` ran, so a
+        missing key raised out of this function entirely and the successor
+        job -- enqueued only INSIDE ``handler.handle`` -- was never
+        scheduled, silently killing the whole recurring chain (Bybit's sync
+        included, even though Bybit's own key was fine). Omitting the
+        exchange instead means ``handler.handle(job)`` always runs, and
+        ``CompositeBalanceSync`` over a partial (or even empty) ``syncs``
+        list still succeeds and still enqueues the next cycle.
         """
         async with factory() as session:
             snapshots = SqlAlchemyBalanceSnapshotRepository(session)
             bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
             binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
 
+            vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+            active = await _active_exchanges(vault)
+            _track_degraded_exchanges(
+                _degraded, configured=configured_exchanges, active=active
+            )
+
             async with AsyncExitStack() as clients:
                 syncs: list[SyncBalances] = []
 
-                if bybit_pools:
+                if bybit_pools and BYBIT_EXCHANGE in active:
                     # Decrypted here and used immediately — the plaintext lives
                     # only for the length of this call (CLAUDE.md rule 8).
-                    credential = await SqlAlchemyCredentialVault(
-                        session, cipher, SystemClock()
-                    ).load(BYBIT_EXCHANGE)
+                    credential = await vault.load(BYBIT_EXCHANGE)
                     bybit = await clients.enter_async_context(
                         read_only_client(
                             settings,
@@ -944,7 +1099,7 @@ def build_worker_runner(
                         )
                     )
 
-                if binance_pools:
+                if binance_pools and BINANCE_EXCHANGE in active:
                     # The VAULT key, the same one Bybit's branch above already
                     # loads (design decision 18: ONE key per exchange, used
                     # for reads and orders alike -- superseding the two-key
@@ -956,9 +1111,7 @@ def build_worker_runner(
                     # changed is that a sync only proves the READ path; the
                     # first order can still surface a venue-side rejection
                     # this sync never exercised.
-                    credential = await SqlAlchemyCredentialVault(
-                        session, cipher, SystemClock()
-                    ).load(BINANCE_EXCHANGE)
+                    credential = await vault.load(BINANCE_EXCHANGE)
                     binance = await clients.enter_async_context(
                         binance_read_only_client(
                             settings,
@@ -1017,19 +1170,39 @@ def build_worker_runner(
         socket, and the handler below never calls ``scan()`` under DRY_RUN
         anyway, so doing that work first would decrypt a credential for a
         scan that is about to be skipped outright.
+
+        Live, a DEGRADED exchange's pools are filtered OUT of both
+        ``bybit_pools``/``binance_pools`` (per-job, from
+        ``_active_exchanges``) BEFORE either the reader-building below or
+        ``ScanPools(pools=...)`` sees them -- not only skipped for reader
+        construction. ``ScanPools`` never swallows ``UnservedPoolError``
+        (only ``VenuePositionReadError``, per pool, for a live call that
+        merely FAILED): a pool with a pool-list entry but no registered
+        reader would still raise it and kill this chain, the same failure
+        mode this unit fixes for balance.sync. Filtering the pool list keeps
+        the two collections in agreement by construction.
         """
         async with factory() as session:
             bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
             binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+
+            vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+            if not settings.dry_run:
+                active = await _active_exchanges(vault)
+                _track_degraded_exchanges(
+                    _degraded, configured=configured_exchanges, active=active
+                )
+                if BYBIT_EXCHANGE not in active:
+                    bybit_pools = []
+                if BINANCE_EXCHANGE not in active:
+                    binance_pools = []
 
             async with AsyncExitStack() as clients:
                 readers: list[VenuePositionReaderPort] = []
 
                 if not settings.dry_run:
                     if bybit_pools:
-                        credential = await SqlAlchemyCredentialVault(
-                            session, cipher, SystemClock()
-                        ).load(BYBIT_EXCHANGE)
+                        credential = await vault.load(BYBIT_EXCHANGE)
                         bybit = await clients.enter_async_context(
                             read_only_client(
                                 settings,
@@ -1042,9 +1215,7 @@ def build_worker_runner(
                         readers.append(BybitVenuePositionReader(bybit))
 
                     if binance_pools:
-                        credential = await SqlAlchemyCredentialVault(
-                            session, cipher, SystemClock()
-                        ).load(BINANCE_EXCHANGE)
+                        credential = await vault.load(BINANCE_EXCHANGE)
                         binance = await clients.enter_async_context(
                             binance_read_only_client(
                                 settings,
@@ -1097,56 +1268,88 @@ def build_worker_runner(
         ONE key per exchange -- superseding decision 9's earlier
         Bybit-vault/Binance-``.env`` split), the same source
         ``handle_reconciliation_scan`` already uses above.
+
+        A DEGRADED exchange gets a ``_DegradedVenueFillReader`` stand-in
+        instead of being omitted: ``PrepareBooking.sweep`` reads CONFIRMED
+        discrepancies straight from the database, not from the pool list
+        below, so a discrepancy already on record for this exchange could
+        still reach the registry even though this cycle scans none of its
+        pools. Omitting the reader would raise ``UnservedFillPoolError`` --
+        never swallowed by ``sweep`` -- and kill this chain; the stand-in
+        raises the ``VenueFillReadError`` ``sweep`` already tolerates per
+        discrepancy instead (see that class's own docstring).
         """
         async with factory() as session:
             bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
             binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+
+            vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+            active: frozenset[str] = frozenset()
+            if not settings.dry_run:
+                active = await _active_exchanges(vault)
+                _track_degraded_exchanges(
+                    _degraded, configured=configured_exchanges, active=active
+                )
 
             async with AsyncExitStack() as clients:
                 fill_readers: list[VenueFillReaderPort] = []
 
                 if not settings.dry_run:
                     if bybit_pools:
-                        credential = await SqlAlchemyCredentialVault(
-                            session, cipher, SystemClock()
-                        ).load(BYBIT_EXCHANGE)
-                        bybit = await clients.enter_async_context(
-                            read_only_client(
-                                settings,
-                                BybitCredentials(
-                                    api_key=credential.api_key,
-                                    api_secret=credential.api_secret,
-                                ),
+                        if BYBIT_EXCHANGE in active:
+                            credential = await vault.load(BYBIT_EXCHANGE)
+                            bybit = await clients.enter_async_context(
+                                read_only_client(
+                                    settings,
+                                    BybitCredentials(
+                                        api_key=credential.api_key,
+                                        api_secret=credential.api_secret,
+                                    ),
+                                )
                             )
-                        )
-                        fill_readers.append(
-                            BybitVenueFillReader(
-                                bybit,
-                                page_limit=settings.reconciliation_booking_prepare_page_limit,
-                                max_pages=settings.reconciliation_booking_prepare_max_pages,
+                            fill_readers.append(
+                                BybitVenueFillReader(
+                                    bybit,
+                                    page_limit=(
+                                        settings.reconciliation_booking_prepare_page_limit
+                                    ),
+                                    max_pages=settings.reconciliation_booking_prepare_max_pages,
+                                )
                             )
-                        )
+                        else:
+                            fill_readers.append(
+                                _DegradedVenueFillReader(
+                                    BYBIT_EXCHANGE, BybitVenueFillReader.venues
+                                )
+                            )
 
                     if binance_pools:
-                        credential = await SqlAlchemyCredentialVault(
-                            session, cipher, SystemClock()
-                        ).load(BINANCE_EXCHANGE)
-                        binance = await clients.enter_async_context(
-                            binance_read_only_client(
-                                settings,
-                                BinanceCredentials(
-                                    api_key=credential.api_key,
-                                    api_secret=credential.api_secret,
-                                ),
+                        if BINANCE_EXCHANGE in active:
+                            credential = await vault.load(BINANCE_EXCHANGE)
+                            binance = await clients.enter_async_context(
+                                binance_read_only_client(
+                                    settings,
+                                    BinanceCredentials(
+                                        api_key=credential.api_key,
+                                        api_secret=credential.api_secret,
+                                    ),
+                                )
                             )
-                        )
-                        fill_readers.append(
-                            BinanceVenueFillReader(
-                                binance,
-                                page_limit=settings.reconciliation_booking_prepare_page_limit,
-                                max_pages=settings.reconciliation_booking_prepare_max_pages,
+                            fill_readers.append(
+                                BinanceVenueFillReader(
+                                    binance,
+                                    page_limit=(
+                                        settings.reconciliation_booking_prepare_page_limit
+                                    ),
+                                    max_pages=settings.reconciliation_booking_prepare_max_pages,
+                                )
                             )
-                        )
+                        else:
+                            fill_readers.append(
+                                _DegradedVenueFillReader(
+                                    BINANCE_EXCHANGE, BinanceVenueFillReader.venues
+                                )
+                            )
 
                 handler = BookingPrepareHandler(
                     prepare_booking=PrepareBooking(
