@@ -5,6 +5,7 @@ routes the close of an open position to the wrong adapter, which leaves a real
 holding open while the system believes it closed.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -24,10 +25,11 @@ from strategy_manager.strategies.domain.strategy import (
 )
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
+FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 
 
 def _strategy(**overrides: object) -> Strategy:
-    policy = AllocationPolicy(exchange=Exchange.PIONEX, 
+    policy = AllocationPolicy(exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,
@@ -53,6 +55,14 @@ class FakeRepository:
             return self.existing
         return None
 
+    async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
+        """The fake has no real row lock to take -- concurrency itself is
+        proven only against real Postgres (tasks.md 2d.3,
+        ``tests/strategies/infrastructure/test_update_strategy_concurrency.py``).
+        This exists so ``UpdateStrategy`` can call the same port method it
+        calls in production."""
+        return await self.get_by_id(strategy_id)
+
     async def insert(self, strategy: Strategy) -> None:  # pragma: no cover
         raise NotImplementedError
 
@@ -61,6 +71,10 @@ class FakeRepository:
 
     async def update(self, strategy: Strategy) -> None:
         self.updated.append(strategy)
+        # Persists for subsequent reads within the same test, the way a real
+        # store would -- 2d.1's two sequential toggles depend on the SECOND
+        # call seeing the FIRST call's write.
+        self.existing = strategy
 
 
 class SpyCommit:
@@ -71,15 +85,40 @@ class SpyCommit:
         self.commits += 1
 
 
+class SpyEnablementLog:
+    def __init__(self) -> None:
+        self.calls: list[tuple[UUID, bool, datetime]] = []
+
+    async def append(self, strategy_id: UUID, enabled: bool, occurred_at: datetime) -> None:
+        self.calls.append((strategy_id, enabled, occurred_at))
+
+
+class FixedClock:
+    def __init__(self, instant: datetime) -> None:
+        self._instant = instant
+
+    def now(self) -> datetime:
+        return self._instant
+
+
 def _build(
     existing: Strategy | None = None,
-) -> tuple[UpdateStrategy, FakeRepository, SpyCommit]:
+) -> tuple[UpdateStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
     repository = FakeRepository(_strategy() if existing is None else existing)
     commit = SpyCommit()
+    log = SpyEnablementLog()
+    clock = FixedClock(FIXED_NOW)
     return (
-        UpdateStrategy(repository=repository, commit=commit),  # type: ignore[arg-type]
+        UpdateStrategy(
+            repository=repository,  # type: ignore[arg-type]
+            commit=commit,  # type: ignore[arg-type]
+            enablement_log=log,  # type: ignore[arg-type]
+            clock=clock,  # type: ignore[arg-type]
+        ),
         repository,
         commit,
+        log,
+        clock,
     )
 
 
@@ -95,7 +134,7 @@ def test_the_command_offers_no_way_to_change_the_pool() -> None:
 
 
 async def test_enabling_is_a_single_field_change() -> None:
-    use_case, repository, commit = _build()
+    use_case, repository, commit, _, _ = _build()
 
     updated = await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=True))
 
@@ -108,7 +147,7 @@ async def test_omitted_fields_are_left_exactly_as_they_were() -> None:
     """``None`` means unchanged, so a caller flipping one switch cannot
     silently reset the rest to defaults it never sent."""
     existing = _strategy(name="original", enabled=True)
-    use_case, repository, _ = _build(existing)
+    use_case, repository, _, _, _ = _build(existing)
 
     updated = await use_case.update(
         UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("40"))
@@ -124,7 +163,7 @@ async def test_omitted_fields_are_left_exactly_as_they_were() -> None:
 async def test_the_pool_survives_every_update() -> None:
     """Belt and braces alongside the structural test: whatever else changes,
     the venue and settlement currency come out the other side untouched."""
-    use_case, _, _ = _build()
+    use_case, _, _, _, _ = _build()
 
     updated = await use_case.update(
         UpdateCommand(
@@ -143,7 +182,7 @@ async def test_the_pool_survives_every_update() -> None:
 async def test_disabling_stops_it_without_deleting_it() -> None:
     """The ledger keeps every fill this strategy ever produced, and PnL is a
     query over it. Turning a strategy off must not take its history with it."""
-    use_case, _, _ = _build(_strategy(enabled=True))
+    use_case, _, _, _, _ = _build(_strategy(enabled=True))
 
     updated = await use_case.update(
         UpdateCommand(strategy_id=STRATEGY_ID, enabled=False)
@@ -154,7 +193,7 @@ async def test_disabling_stops_it_without_deleting_it() -> None:
 
 
 async def test_an_unregistered_id_is_refused_rather_than_created() -> None:
-    use_case, repository, commit = _build()
+    use_case, repository, commit, _, _ = _build()
 
     with pytest.raises(UnknownStrategy, match="no strategy registered"):
         await use_case.update(UpdateCommand(strategy_id=uuid4(), enabled=True))
@@ -168,7 +207,7 @@ async def test_an_invalid_percent_is_refused_by_the_domain() -> None:
     goes through it rather than around it."""
     from strategy_manager.shared.domain.errors import InvariantViolation
 
-    use_case, repository, _ = _build()
+    use_case, repository, _, _, _ = _build()
 
     with pytest.raises(InvariantViolation):
         await use_case.update(
@@ -176,3 +215,41 @@ async def test_an_invalid_percent_is_refused_by_the_domain() -> None:
         )
 
     assert repository.updated == []
+
+
+# --------------------------------------------------------------------------
+# 2d.1 / 2d.2 -- the enablement log, wired
+# --------------------------------------------------------------------------
+
+
+async def test_toggling_enabled_twice_writes_two_events_same_transaction_as_enabled_write() -> (
+    None
+):
+    """spec: strategy-lifecycle § "Enable/Disable Event Log" — "Toggling
+    enabled twice writes two events: one disable event and one enable event,
+    each in the same transaction as its enabled write." Each event append
+    happens inside the SAME ``update()`` call as its own row write and its
+    own commit -- there is exactly one commit per toggle, and the log call
+    for that toggle happened before it."""
+    use_case, _, commit, log, clock = _build(_strategy(enabled=True))
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=True))
+
+    assert log.calls == [
+        (STRATEGY_ID, False, clock.now()),
+        (STRATEGY_ID, True, clock.now()),
+    ]
+    assert commit.commits == 2
+
+
+async def test_noop_patch_setting_enabled_true_again_writes_no_event() -> None:
+    """spec: "A PATCH that does not change the effective enabled value MUST
+    write no event." The PATCH itself still succeeds and commits -- only the
+    event write is skipped."""
+    use_case, _, commit, log, _ = _build(_strategy(enabled=True))
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=True))
+
+    assert log.calls == []
+    assert commit.commits == 1

@@ -300,13 +300,14 @@ Forecast: 900–1,200 lines.
 **Files**: Modify `backend/src/strategy_manager/strategies/application/update_strategy.py`,
 `register_strategy.py`; Create `backend/src/strategy_manager/strategies/infrastructure/enablement_log.py`.
 
-- [ ] 2d.1 RED `backend/tests/strategies/application/test_update_strategy.py::test_toggling_enabled_twice_writes_two_events_same_transaction_as_enabled_write`.
-- [ ] 2d.2 RED same file `::test_noop_patch_setting_enabled_true_again_writes_no_event`.
-- [ ] 2d.3 RED same file `::test_update_strategy_takes_for_update_lock_on_strategy_row` (two concurrent toggles must not both read `false` and both append an "enabled" event).
-- [ ] 2d.4 RED `backend/tests/strategies/application/test_register_strategy.py::test_creation_writes_no_event_and_first_enable_writes_the_first_one` (F8 — POST cannot create enabled; this replaces the withdrawn "creating enabled writes the first event" scenario).
-- [ ] 2d.5 RED `backend/tests/strategies/domain/test_enablement.py::test_uptime_sums_closed_and_open_intervals`, `::test_never_enabled_strategy_has_zero_uptime_no_activation_date`, `::test_uptime_ignores_repeated_same_state_events_defensively`, `::test_uptime_baseline_flag_renders_as_active_at_least_x_days`.
-- [ ] 2d.6 GREEN: `SqlAlchemyEnablementLog`, `StrategyEnablementEventRow`; `UpdateStrategy` gains `ClockPort` and `SELECT ... FOR UPDATE`, appends an event only when `enabled` actually changes, in the same transaction; `RegisterStrategy` appends defensively if `enabled` is ever true (dead code path today, kept for safety per F8).
-- [ ] 2d.7 GREEN: `uptime(events, now)` pure function in `enablement.py`.
+- [x] 2d.1 RED `backend/tests/strategies/application/test_update_strategy.py::test_toggling_enabled_twice_writes_two_events_same_transaction_as_enabled_write`.
+- [x] 2d.2 RED same file `::test_noop_patch_setting_enabled_true_again_writes_no_event`.
+- [x] 2d.3 RED `backend/tests/strategies/infrastructure/test_update_strategy_concurrency.py::test_update_strategy_takes_for_update_lock_on_strategy_row` (two concurrent toggles must not both read `false` and both append an "enabled" event). Deviation: lives under `tests/strategies/infrastructure/`, not `application/`, to reuse that directory's real-Postgres fixtures — the same convention `AllocateCapital`'s own concurrency tests already follow (`tests/allocation/infrastructure/test_concurrency_race.py`).
+- [x] 2d.4 RED `backend/tests/strategies/application/test_register_strategy.py::test_creation_writes_no_event_and_first_enable_writes_the_first_one` (F8 — POST cannot create enabled; this replaces the withdrawn "creating enabled writes the first event" scenario).
+- [x] 2d.5 RED `backend/tests/strategies/domain/test_enablement.py::test_uptime_sums_closed_and_open_intervals`, `::test_never_enabled_strategy_has_zero_uptime_no_activation_date`, `::test_uptime_ignores_repeated_same_state_events_defensively`, `::test_uptime_baseline_flag_renders_as_active_at_least_x_days`. `enablement.py` written test-first here, as corrected.
+- [x] Orchestrator addition: atomicity — `test_event_append_failure_rolls_back_the_enabled_write_too` (same concurrency test file), proving the event write and the `enabled` write commit or roll back together.
+- [x] 2d.6 GREEN: `SqlAlchemyEnablementLog`, `StrategyEnablementEventRow`; `UpdateStrategy` gains `ClockPort` and `SELECT ... FOR UPDATE` (via new port method `get_by_id_for_update`), appends an event only when `enabled` actually changes, in the same transaction, before commit; `RegisterStrategy` appends defensively if `enabled` is ever true (dead code path today, kept for safety per F8, `# pragma: no cover`). `router.py` wired to both with `SqlAlchemyEnablementLog`/`SystemClock`.
+- [x] 2d.7 GREEN: `uptime(events, now)` pure function in `enablement.py`.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/strategies/`.
 Harness: real PostgreSQL for the FOR-UPDATE race test; pure for `uptime()`.

@@ -18,6 +18,9 @@ from sqlalchemy.ext.asyncio import (
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
+from strategy_manager.strategies.infrastructure.enablement_log import (
+    StrategyEnablementEventRow,  # noqa: F401  registers the table on Base.metadata
+)
 from strategy_manager.strategies.infrastructure.models import StrategyRow  # noqa: F401
 from tests.pg_schema import rebuild_schema_once
 

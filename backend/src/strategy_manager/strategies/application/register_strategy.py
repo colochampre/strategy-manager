@@ -28,10 +28,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     CommitPort,
+    EnablementLogPort,
     PoolCatalogPort,
     StrategyRepositoryPort,
 )
@@ -78,17 +80,29 @@ class RegisterCommand:
 
 
 class RegisterStrategy:
-    """Registers a strategy against the pool it will draw capital from."""
+    """Registers a strategy against the pool it will draw capital from.
+
+    ``enablement_log``/``clock`` back a defensive append: every ACTUAL
+    change to ``enabled`` must append exactly one event (spec:
+    strategy-lifecycle § "Enable/Disable Event Log"), and creation is one
+    such change only if it were ever enabled. Today it never is —
+    ``RegisterCommand`` carries no ``enabled`` field at all (F8) — so this
+    is dead code kept for safety, not something the current API can trigger.
+    """
 
     def __init__(
         self,
         repository: StrategyRepositoryPort,
         pools: PoolCatalogPort,
         commit: CommitPort,
+        enablement_log: EnablementLogPort,
+        clock: ClockPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
         self._commit = commit
+        self._enablement_log = enablement_log
+        self._clock = clock
 
     async def register(self, command: RegisterCommand) -> Strategy:
         existing = await self._repository.get_by_id(command.strategy_id)
@@ -116,6 +130,12 @@ class RegisterStrategy:
         )
 
         await self._repository.insert(strategy)
+
+        if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
+            await self._enablement_log.append(
+                strategy.id, True, self._clock.now()
+            )
+
         await self._commit.commit()
         return strategy
 

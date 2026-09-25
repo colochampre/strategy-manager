@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -46,6 +47,9 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.infrastructure.enablement_log import (
+    SqlAlchemyEnablementLog,
+)
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
 )
@@ -138,6 +142,8 @@ async def register_strategy(
         repository=SqlAlchemyStrategyRepository(session),
         pools=SqlAlchemyPoolCatalog(session),
         commit=session,
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=SystemClock(),
     )
     try:
         strategy = await use_case.register(
@@ -186,7 +192,10 @@ async def update_strategy(
     strategy_id: UUID, body: UpdateRequest, session: SessionDep
 ) -> StrategyView:
     use_case = UpdateStrategy(
-        repository=SqlAlchemyStrategyRepository(session), commit=session
+        repository=SqlAlchemyStrategyRepository(session),
+        commit=session,
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=SystemClock(),
     )
     try:
         strategy = await use_case.update(

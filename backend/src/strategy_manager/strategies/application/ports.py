@@ -2,6 +2,7 @@
 provider owns the adapter — ``main.py`` binds them together.
 """
 
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -18,6 +19,17 @@ class StrategyRepositoryPort(Protocol):
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None: ...
     async def insert(self, strategy: Strategy) -> None: ...
     async def list_all(self) -> list[Strategy]: ...
+
+    async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
+        """Same as ``get_by_id``, but takes a row lock (``SELECT ... FOR
+        UPDATE``) for the caller's transaction. ``UpdateStrategy`` is the
+        only consumer: two concurrent toggles of the SAME strategy must not
+        both read the pre-toggle ``enabled`` value and both append an
+        enablement event (design.md § 9; tasks.md 2d.3) — the second
+        transaction blocks here until the first commits, then re-reads the
+        already-changed value and writes no event of its own.
+        """
+        ...
 
     async def update(self, strategy: Strategy) -> None:
         """Writes the mutable fields of an already-registered strategy.
@@ -52,3 +64,19 @@ class CommitPort(Protocol):
     with an async ``commit()`` satisfies it structurally."""
 
     async def commit(self) -> None: ...
+
+
+class EnablementLogPort(Protocol):
+    """Appends one OBSERVED event to the append-only enablement log
+    (``strategy_enablement_events``, migration 0024). Every event this port
+    writes is OBSERVED — BASELINE rows are written exclusively, once, by
+    that migration itself, for strategies already enabled at deploy time
+    (design.md § 9; spec: strategy-lifecycle § "Enable/Disable Event Log").
+
+    ``occurred_at`` is supplied by the CALLER (from an injected
+    ``ClockPort``), not defaulted here or left to the database's ``now()``
+    — so a test driving this port with a fixed clock gets a deterministic,
+    assertable timestamp instead of one it would have to re-read back.
+    """
+
+    async def append(self, strategy_id: UUID, enabled: bool, occurred_at: datetime) -> None: ...

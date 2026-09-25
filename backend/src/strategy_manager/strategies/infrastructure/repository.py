@@ -41,6 +41,20 @@ class SqlAlchemyStrategyRepository:
         row = await self._session.get(StrategyRow, strategy_id)
         return None if row is None else _to_domain(row)
 
+    async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
+        """``SELECT ... FOR UPDATE`` -- see ``StrategyRepositoryPort``'s own
+        docstring for why. Two concurrent transactions calling this for the
+        SAME id serialize here: the second blocks until the first commits or
+        rolls back, then re-reads whatever the first one left behind
+        (tasks.md 2d.3; verified against real Postgres by
+        ``tests/strategies/infrastructure/test_update_strategy_concurrency.py``)."""
+        row = (
+            await self._session.execute(
+                select(StrategyRow).where(StrategyRow.id == strategy_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _to_domain(row)
+
     async def list_all(self) -> list[Strategy]:
         """Ordered by name so the listing is stable between calls. Creation
         order would put a renamed strategy somewhere the reader does not
