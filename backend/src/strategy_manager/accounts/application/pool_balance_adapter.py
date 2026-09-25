@@ -1,7 +1,11 @@
-"""Implements ``allocation.application.PoolBalancePort`` by combining a
-startup-loaded ``PoolConfig`` snapshot (``capital_pools`` is the single
-source of truth, loaded once via ``CapitalPoolRepository`` in ``main.py``'s
-lifespan) with a live ``BalanceSourcePort`` read.
+"""Implements ``allocation.application.PoolBalancePort`` by combining the
+enabled ``PoolConfig`` map with a live ``BalanceSourcePort`` read.
+
+``capital_pools`` is the single source of truth. The worker hands in a map it
+refreshes on every ``balance.sync`` cycle (``main._PoolSet``), so a pool
+enabled or disabled while it runs is seen within one sync interval. A pool
+missing from the map raises rather than degrading: an opening signal on a
+disabled pool fails loudly instead of allocating against unconfigured capital.
 """
 
 from collections.abc import Mapping

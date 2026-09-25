@@ -55,6 +55,7 @@ from strategy_manager.allocation.application.expire_reservations import ExpireRe
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
+    PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
 )
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
@@ -524,6 +525,13 @@ def _track_degraded_exchanges(
     (``worker._assert_keys_present``'s own startup report) be SEEDED in
     rather than re-discovered: an exchange already known missing at boot is
     not re-logged by the first per-job check that runs after it.
+
+    ``configured`` now follows the LIVE pool set (PR 3 unit 1b.9/1b.10's
+    per-cycle reload, ``_PoolSet.configured_exchanges``), so an exchange can
+    also leave it entirely -- its last pool disabled. That exchange is
+    dropped from ``tracker`` SILENTLY if it was degraded there: it did not
+    recover, it simply stopped needing a key at all, and logging "reads
+    resume" for it would be actively misleading.
     """
     newly_degraded = (configured - active) - tracker
     for exchange in sorted(newly_degraded):
@@ -542,6 +550,58 @@ def _track_degraded_exchanges(
             "'%s' has an active vault credential again; reads resume", exchange
         )
         tracker.discard(exchange)
+
+    tracker.difference_update(tracker - configured)
+
+
+class _PoolSet:
+    """The mutable, process-lifetime pool configuration every consumer in
+    ``build_worker_runner`` reads through (design.md's F11 fix, binding for
+    PR 3 unit 1b.9/1b.10).
+
+    Refreshed ONLY by ``handle_balance_sync``, on its own ~60s cadence,
+    rather than by every job independently: ``signal.process`` runs once per
+    claimed signal -- far more often than an operator ever changes which
+    pools are enabled -- and a fresh ``CapitalPoolRepository.list_enabled()``
+    query on every one of them would be needless DB load for a change that
+    happens, at most, a few times a day. Every consumer reads the SAME
+    shared instance, so a refresh lands for all of them the instant it
+    happens, with no restart and no per-consumer plumbing.
+    """
+
+    def __init__(self, pools: Sequence[PoolConfig]) -> None:
+        self.pools: tuple[PoolConfig, ...] = ()
+        self.by_key: dict[tuple[str, str, str], PoolConfig] = {}
+        self.configured_exchanges: frozenset[str] = frozenset()
+        self.replace(pools)
+
+    def replace(self, pools: Sequence[PoolConfig]) -> None:
+        self.pools = tuple(pools)
+        self.by_key = {
+            (pool.exchange.value, pool.venue.value, pool.settlement_currency.value): pool
+            for pool in pools
+        }
+        self.configured_exchanges = frozenset(key[0] for key in self.by_key)
+
+
+def _track_pool_changes(
+    previous: frozenset[tuple[str, str, str]], current: frozenset[tuple[str, str, str]]
+) -> None:
+    """Logs a pool's enable/disable transition exactly once, the moment
+    ``_PoolSet.replace`` adopts a new set (design.md's F11 fix, binding
+    requirement 2): INFO for a newly enabled pool, WARNING for a newly
+    disabled one. Comparing the PREVIOUS adopted set to the new one is what
+    makes this a transition log rather than a snapshot dump -- a steady
+    state (no change between two reloads) produces an empty difference on
+    both sides, so it stays silent, the same property
+    ``_track_degraded_exchanges`` already has for exchanges. The very first
+    reload after startup compares against the STARTUP set itself (``_PoolSet``
+    is constructed from it), so nothing is re-logged there either.
+    """
+    for key in sorted(current - previous):
+        logger.info("pool %s newly enabled; reads resume within one sync interval", key)
+    for key in sorted(previous - current):
+        logger.warning("pool %s newly disabled; reads stop from this cycle", key)
 
 
 class _DegradedVenueFillReader:
@@ -614,10 +674,12 @@ def build_worker_runner(
 
     settings = get_settings()
     factory = session_factory_override or session_factory
-    pools_by_key = {
-        (pool.exchange.value, pool.venue.value, pool.settlement_currency.value): pool
-        for pool in pools
-    }
+
+    # The shared, mutable, process-lifetime pool configuration every
+    # consumer below reads through -- see ``_PoolSet``'s own docstring for
+    # why it is refreshed only by ``handle_balance_sync`` rather than per
+    # job (design.md's F11 fix, binding requirement 1).
+    pool_set = _PoolSet(pools)
 
     # DRY_RUN is what selects the adapter, and it is the only thing that does.
     # This is the composition root the DRY_RUN invariant names: the one place
@@ -672,11 +734,21 @@ def build_worker_runner(
 
     fake_venue_book = FakeVenueBook(_fake_venue_book_ledger_reader)
 
+    # BYBIT_EXCHANGE and BINANCE_EXCHANGE are unconditional, on top of
+    # whatever else the startup pool list names (e.g. Pionex's spot pools):
+    # decision 21 auto-enables a futures pool for either one the moment a
+    # key is saved, at ANY point while the worker is already running, so a
+    # deployment that started with neither configured still needs a DRY_RUN
+    # adapter ready for it (binding requirement 6) -- the live path already
+    # has this for free, since ``registered`` above is the fixed
+    # ``(BybitFuturesExchangeAdapter, BinanceFuturesExchangeAdapter)`` tuple
+    # regardless of ``pools``.
     fakes_by_exchange = {
-        pool.exchange.value: FakeExchangeAdapter(
-            exchange=pool.exchange.value, book=fake_venue_book
-        )
-        for pool in pools
+        exchange: FakeExchangeAdapter(exchange=exchange, book=fake_venue_book)
+        for exchange in {pool.exchange.value for pool in pools} | {
+            BYBIT_EXCHANGE,
+            BINANCE_EXCHANGE,
+        }
     }
 
     # ``venue`` reaches the reservation, the attempt and the ledger row without
@@ -727,17 +799,70 @@ def build_worker_runner(
     # fails here rather than on the first job that needs a credential.
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
 
-    # The two Bybit/Binance exchanges this deployment has an ENABLED pool on
-    # -- fixed for the life of this process (unlike the pool set itself,
-    # which unit 1b.9/1b.10 re-reads per cycle; that correction is orthogonal
-    # to this one and does not change which exchanges COULD ever need a key).
-    configured_exchanges = frozenset(key[0] for key in pools_by_key)
+    # Unserved-pools is a STARTUP-only sanity warning (a pool whose venue no
+    # adapter serves at all -- a genuine misconfiguration, not a credential
+    # or enablement state), deliberately left unrefreshed by the per-cycle
+    # reload below: re-running it every cycle for a persistently-unserved
+    # pool would flood the log the same way an undeduped ERROR would, and
+    # this unit's binding requirements do not ask for it. A pool enabled at
+    # runtime for a venue nothing serves would not get this warning until
+    # the next restart -- a known, accepted gap, not a silent one.
 
     # The shared, process-lifetime DEGRADED set every read site below
-    # consults and updates via ``_track_degraded_exchanges``. Seeded from the
-    # worker's own startup report (``worker._assert_keys_present``) so the
-    # very first per-job check never re-logs what startup already did.
+    # consults and updates via ``_track_degraded_exchanges``, reading
+    # ``pool_set.configured_exchanges`` fresh each time (never a frozen
+    # local) so an exchange enabled or fully disabled at runtime is seen
+    # immediately (binding requirement 3). Seeded from the worker's own
+    # startup report (``worker._assert_keys_present``) so the very first
+    # per-job check never re-logs what startup already did.
     _degraded: set[str] = set(initial_degraded)
+
+    # The last lock-key collision message reported by ``_reload_pools``, or
+    # ``None`` once a reload has succeeded since. Compared against on every
+    # refusal so the SAME collision is reported once, not every cycle
+    # (binding requirement 4) -- reset the moment a reload succeeds, so a
+    # collision that reappears later (a different pair, or the same one
+    # again) is reported again.
+    _last_lock_collision: str | None = None
+
+    async def _reload_pools() -> None:
+        """Re-reads ``capital_pools`` at the start of every ``balance.sync``
+        cycle (design.md's F11 fix) and, if lock keys stay distinct, adopts
+        the new set for every consumer sharing ``pool_set``.
+
+        On a collision the PREVIOUS set is kept -- adopting a colliding set
+        would silently serialize two unrelated pools against each other,
+        exactly the invariant ``worker._run_worker`` already refuses to
+        start over -- and the refusal is logged once, not every cycle, by
+        comparing the collision's own message against the last one already
+        reported.
+
+        Uses ``engine`` (the module-level connection pool), not the job's
+        own ORM ``session``: this is the SAME raw-connection check
+        ``worker._run_worker``/``lifespan`` already run at startup, over a
+        query ``CapitalPoolRepository`` only accepts a raw connection for.
+        """
+        nonlocal _last_lock_collision
+        async with engine.connect() as conn:
+            reloaded = await CapitalPoolRepository(conn).list_enabled()
+            try:
+                await assert_pool_lock_keys_distinct(conn, reloaded)
+            except PoolLockKeyCollisionError as exc:
+                message = str(exc)
+                if message != _last_lock_collision:
+                    logger.error(
+                        "reloaded pool set refused, keeping the previous %d "
+                        "pool(s): %s",
+                        len(pool_set.pools),
+                        message,
+                    )
+                    _last_lock_collision = message
+                return
+
+        _last_lock_collision = None
+        previous_keys = frozenset(pool_set.by_key)
+        pool_set.replace(reloaded)
+        _track_pool_changes(previous_keys, frozenset(pool_set.by_key))
 
     # The fakes above hold their placed orders in memory, so place and settle
     # have to share the same instance per exchange or settlement finds
@@ -852,7 +977,9 @@ def build_worker_runner(
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
         active = await _active_exchanges(vault)
-        _track_degraded_exchanges(_degraded, configured=configured_exchanges, active=active)
+        _track_degraded_exchanges(
+            _degraded, configured=pool_set.configured_exchanges, active=active
+        )
 
         async with AsyncExitStack() as clients:
 
@@ -883,13 +1010,13 @@ def build_worker_runner(
             factories: dict[str, ReaderFactory] = {}
 
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pools_by_key)
+                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
                 and BYBIT_EXCHANGE in active
             ):
                 factories[BYBIT_EXCHANGE] = bybit_reader
 
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pools_by_key)
+                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
                 and BINANCE_EXCHANGE in active
             ):
                 factories[BINANCE_EXCHANGE] = binance_reader
@@ -937,7 +1064,9 @@ def build_worker_runner(
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
         active = await _active_exchanges(vault)
-        _track_degraded_exchanges(_degraded, configured=configured_exchanges, active=active)
+        _track_degraded_exchanges(
+            _degraded, configured=pool_set.configured_exchanges, active=active
+        )
 
         async with AsyncExitStack() as clients:
 
@@ -967,7 +1096,7 @@ def build_worker_runner(
 
             readers: list[VenuePositionReaderPort] = []
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pools_by_key)
+                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
                 and BYBIT_EXCHANGE in active
             ):
                 readers.append(
@@ -976,7 +1105,7 @@ def build_worker_runner(
                     )
                 )
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pools_by_key)
+                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
                 and BINANCE_EXCHANGE in active
             ):
                 readers.append(
@@ -996,7 +1125,7 @@ def build_worker_runner(
         ):
             handler, _ = _build_process_signal_handler(
                 session,
-                pools_by_key,
+                pool_set.by_key,
                 settings,
                 exchanges,
                 tradable_pools,
@@ -1024,7 +1153,7 @@ def build_worker_runner(
         ):
             _, open_after_close = _build_process_signal_handler(
                 session,
-                pools_by_key,
+                pool_set.by_key,
                 settings,
                 exchanges,
                 tradable_pools,
@@ -1062,16 +1191,25 @@ def build_worker_runner(
         exchange instead means ``handler.handle(job)`` always runs, and
         ``CompositeBalanceSync`` over a partial (or even empty) ``syncs``
         list still succeeds and still enqueues the next cycle.
+
+        This is also THE reload point (design.md's F11 fix, binding for
+        unit 1b.9/1b.10): ``_reload_pools()`` re-reads ``capital_pools`` and
+        adopts the new set into ``pool_set`` before anything else below
+        runs, so ``bybit_pools``/``binance_pools`` and every other
+        consumer's own read of ``pool_set`` see the CURRENT configuration,
+        not a startup snapshot.
         """
+        await _reload_pools()
+
         async with factory() as session:
             snapshots = SqlAlchemyBalanceSnapshotRepository(session)
-            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             active = await _active_exchanges(vault)
             _track_degraded_exchanges(
-                _degraded, configured=configured_exchanges, active=active
+                _degraded, configured=pool_set.configured_exchanges, active=active
             )
 
             async with AsyncExitStack() as clients:
@@ -1183,14 +1321,14 @@ def build_worker_runner(
         the two collections in agreement by construction.
         """
         async with factory() as session:
-            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             if not settings.dry_run:
                 active = await _active_exchanges(vault)
                 _track_degraded_exchanges(
-                    _degraded, configured=configured_exchanges, active=active
+                    _degraded, configured=pool_set.configured_exchanges, active=active
                 )
                 if BYBIT_EXCHANGE not in active:
                     bybit_pools = []
@@ -1280,15 +1418,15 @@ def build_worker_runner(
         discrepancy instead (see that class's own docstring).
         """
         async with factory() as session:
-            bybit_pools = [key for key in pools_by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pools_by_key if key[0] == BINANCE_EXCHANGE]
+            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
+            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             active: frozenset[str] = frozenset()
             if not settings.dry_run:
                 active = await _active_exchanges(vault)
                 _track_degraded_exchanges(
-                    _degraded, configured=configured_exchanges, active=active
+                    _degraded, configured=pool_set.configured_exchanges, active=active
                 )
 
             async with AsyncExitStack() as clients:
