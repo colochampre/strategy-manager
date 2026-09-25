@@ -1,20 +1,15 @@
-"""The one canonical key a reconciliation scan compares a market under.
+"""Re-export of ``execution.domain.market_symbol.market_key``.
 
-The two sides of a scan spell one market differently. The ledger records the
-SIGNAL's symbol, in TradingView's form (``STXUSDT.P``); the venue reports its
-own name for the same market (``STXUSDT``). Compared as raw strings they never
-match, and every open position becomes two false discrepancies: a venue
-position with no allocation, and a ledger allocation on a flat venue.
-
-The key is the market with its contract marker removed, upper-cased. Which
-markers exist is ``execution.domain.market_symbol``'s knowledge, not this
-module's: it is reused rather than copied so a marker added there reaches
-reconciliation too.
+This module used to DEFINE ``market_key`` itself. It moved into
+``execution/domain`` in migration 0024 (design.md § 6 "Normalization") so
+that module owns the one real implementation the allowed-pairs seeding
+migration's frozen copy is checked against
+(``tests/migrations/test_0024_strategy_lifecycle.py``), without the
+migration importing application code. This re-export keeps every existing
+import path (``scan_pools.py``, ``prepare_booking.py``,
+``reconciliation/infrastructure/router.py``) unchanged.
 """
 
-from strategy_manager.execution.domain.market_symbol import strip_contract_marker
+from strategy_manager.execution.domain.market_symbol import market_key
 
-
-def market_key(symbol: str) -> str:
-    """``STXUSDT.P``, ``STXUSDT`` and ``stxusdt`` all map to ``STXUSDT``."""
-    return strip_contract_marker(symbol).upper()
+__all__ = ["market_key"]

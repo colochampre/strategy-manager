@@ -286,6 +286,16 @@ def test_downgrade_succeeds_with_zero_venue_rows(database_url: str) -> None:
         engine = create_async_engine(database_url, pool_pre_ping=True)
         try:
             async with engine.connect() as connection:
+                # ``strategy_enablement_events`` (migration 0024) is
+                # append-only -- its trigger refuses a plain DELETE, same as
+                # ``ledger_entries``' own guard. TRUNCATE is deliberately
+                # NOT guarded on this table (design.md § 9: eight
+                # integration conftests already TRUNCATE ``strategies``
+                # CASCADE), so it is cleared that way here, before
+                # ``strategies`` -- which the FK into it (no ON DELETE
+                # CASCADE, the same convention every other FK into
+                # ``strategies`` already follows) would otherwise refuse.
+                await connection.execute(text("TRUNCATE strategy_enablement_events"))
                 for table in ("execution_attempts", "reservations", "signals", "strategies"):
                     await connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
                 await connection.commit()

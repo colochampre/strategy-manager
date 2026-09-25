@@ -71,6 +71,7 @@ class Strategy:
     name: str
     policy: AllocationPolicy
     enabled: bool = False
+    archived_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
