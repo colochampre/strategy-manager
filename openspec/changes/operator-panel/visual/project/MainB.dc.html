@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview, direction B</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0A0F24;color:#EEF1FA;font-family:Manrope,system-ui,sans-serif}
+a{color:#7FA2FF}a:hover{color:#B3C6FF}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; display: grid; grid-template-rows: 64px 1fr; background: #0A0F24;">
+  <header style="display: flex; align-items: center; gap: 36px; padding: 0 32px; border-bottom: 1px solid #243056;">
+    <div style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 24px;">Strategy Manager</div>
+    <nav aria-label="Exchanges" style="display: flex; gap: 8px; flex-grow: 1;">
+      <a href="#" aria-current="page" style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 20px; background: #182148; text-decoration: none; color: #EEF1FA; font-weight: 600; font-size: 14px;">Bybit <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 400; color: #AEB6D6;">USDT</span></a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 20px; text-decoration: none; color: #AEB6D6; font-weight: 600; font-size: 14px;">Binance <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 400; color: #F2D16B;">read-only</span></a>
+    </nav>
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #0A0F24; background: #F2D16B; padding: 6px 10px; border-radius: 12px; font-weight: 600;">DRY RUN</div>
+  </header>
+  <div style="display: grid; grid-template-columns: 196px 1fr 360px; min-height: 0;">
+    <nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 4px; padding: 28px 14px; border-right: 1px solid #243056;">
+      <a href="#" aria-current="page" style="padding: 12px 14px; border-radius: 10px; background: #182148; color: #EEF1FA; text-decoration: none; font-weight: 600;">Overview</a>
+      <a href="Strategy.dc.html" style="padding: 12px 14px; border-radius: 10px; color: #AEB6D6; text-decoration: none;">Strategies</a>
+      <a href="Settings.dc.html" style="padding: 12px 14px; border-radius: 10px; color: #AEB6D6; text-decoration: none;">Settings</a>
+    </nav>
+    <main style="display: flex; flex-direction: column; gap: 26px; padding: 30px 40px; min-width: 0;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 13px; color: #7D86AB;">Available in the Bybit USDT pool · sample data</span>
+          <div style="display: flex; align-items: baseline; gap: 12px;">
+            <span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 72px; line-height: 1;">1,284.52</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #AEB6D6;">USDT</span>
+          </div>
+          <p style="margin: 6px 0 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #AEB6D6;">30D <span style="color:#7FA2FF;font-weight:600;">+41.20 USDT · +3.4%</span>   deepest <span style="color:#FF7A45;font-weight:600;">−2.0%</span></p>
+        </div>
+        <div role="group" aria-label="Range" style="display: flex; gap: 4px; padding: 4px; border-radius: 22px; background: #121A38;">
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 18px; background: transparent; color: #AEB6D6; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px;">7D</button>
+          <button type="button" aria-pressed="true" style="min-height: 40px; padding: 0 14px; border-radius: 18px; background: #7FA2FF; color: #0A0F24; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;">30D</button>
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 18px; background: transparent; color: #AEB6D6; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px;">90D</button>
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 18px; background: transparent; color: #AEB6D6; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px;">1Y</button>
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 18px; background: transparent; color: #AEB6D6; border: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px;">All</button>
+        </div>
+      </div>
+      <section aria-label="Strategy return" style="display: flex; flex-direction: column; gap: 6px;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Return of the strategies <span style="font-weight: 400; color: #7D86AB;">· compounded, UTC days</span></h2>
+        <svg viewBox="0 0 804 300" width="804" height="300" role="img" aria-label="Compounded return above the baseline; each day's drawdown as a tick below it">
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#7D86AB">
+            <text x="0" y="44">+30%</text><text x="0" y="104">+20%</text><text x="0" y="164">+10%</text><text x="0" y="224">0%</text>
+            <line x1="48" y1="41" x2="804" y2="41" stroke="#172045"/><line x1="48" y1="101" x2="804" y2="101" stroke="#172045"/><line x1="48" y1="161" x2="804" y2="161" stroke="#172045"/>
+          </g>
+          <line x1="48" y1="221" x2="804" y2="221" stroke="#3A4777" stroke-width="1.5"/>
+          <polyline fill="none" stroke="#7FA2FF" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" points="48,221 84,215 120,207 156,210 192,195 228,187 264,192 300,199 336,183 372,171 408,161 444,165 480,152 516,143 552,149 588,163 624,157 660,135 696,123 732,115 768,109 804,97"/>
+          <g stroke="#FF7A45" stroke-width="3" stroke-linecap="round">
+            <line x1="156" y1="224" x2="156" y2="230"/>
+            <line x1="264" y1="224" x2="264" y2="232"/><line x1="282" y1="224" x2="282" y2="240"/><line x1="300" y1="224" x2="300" y2="250"/><line x1="318" y1="224" x2="318" y2="236"/>
+            <line x1="444" y1="224" x2="444" y2="232"/>
+            <line x1="552" y1="224" x2="552" y2="238"/><line x1="570" y1="224" x2="570" y2="258"/><line x1="588" y1="224" x2="588" y2="276"/><line x1="606" y1="224" x2="606" y2="266"/><line x1="624" y1="224" x2="624" y2="248"/><line x1="642" y1="224" x2="642" y2="232"/>
+          </g>
+          <text x="590" y="294" font-family="JetBrains Mono, monospace" font-size="10" fill="#FF7A45">−2.0%</text>
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#7D86AB"><text x="48" y="294">Jul</text><text x="228" y="294">Aug</text><text x="408" y="294">Sep</text><text x="760" y="294">Nov</text></g>
+        </svg>
+      </section>
+      <section aria-label="Month by month" style="display: flex; flex-direction: column; gap: 10px;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Month by month</h2>
+        <div style="display: grid; grid-template-columns: 48px repeat(12, minmax(0, 1fr)) 72px; gap: 4px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: center;">
+          <span></span><span style="color:#7D86AB;">J</span><span style="color:#7D86AB;">F</span><span style="color:#7D86AB;">M</span><span style="color:#7D86AB;">A</span><span style="color:#7D86AB;">M</span><span style="color:#7D86AB;">J</span><span style="color:#7D86AB;">J</span><span style="color:#7D86AB;">A</span><span style="color:#7D86AB;">S</span><span style="color:#7D86AB;">O</span><span style="color:#7D86AB;">N</span><span style="color:#7D86AB;">D</span><span style="color:#7D86AB;">YEAR</span>
+          <span style="color:#AEB6D6;text-align:left;">2026</span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"><span style="width:26px;height:26px;border-radius:50%;background:#7FA2FF;"></span><span style="color:#AEB6D6;">+3.1</span></span>
+          <span style="height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"><span style="width:38px;height:38px;border-radius:50%;background:#7FA2FF;"></span><span style="color:#AEB6D6;">+5.4</span></span>
+          <span style="height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"><span style="width:20px;height:20px;border-radius:50%;border:3px solid #FF7A45;box-sizing:border-box;"></span><span style="color:#AEB6D6;">−1.9</span></span>
+          <span style="height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"><span style="width:32px;height:32px;border-radius:50%;background:#7FA2FF;"></span><span style="color:#AEB6D6;">+4.2</span></span>
+          <span style="height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"><span style="width:12px;height:12px;border-radius:50%;background:#7FA2FF;"></span><span style="color:#AEB6D6;">+0.8</span></span>
+          <span style="height:56px;display:flex;align-items:center;justify-content:center;"><span style="width:4px;height:4px;border-radius:50%;background:#243056;"></span></span>
+          <span style="font-family:'Instrument Serif',serif;font-style:italic;font-size:22px;color:#7FA2FF;">+12.0%</span>
+        </div>
+        <p style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7D86AB;">Filled dot: gaining month · ring: losing month · size: how much</p>
+      </section>
+    </main>
+    <aside aria-label="Needs your decision" style="display: flex; flex-direction: column; gap: 14px; padding: 30px 24px; border-left: 1px solid #243056; background: #0E1430;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 30px; color: #F2D16B;">2</span>
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600;">closes need your decision</h2>
+        <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #AEB6D6;">The venue closed these and the ledger has not recorded them. Approving writes them for good.</p>
+      </div>
+      <article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 14px; background: #121A38;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-weight: 700;">SOLUSDT.P</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #F2D16B;">21h left</span></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.7; color: #AEB6D6;">RSI Divergence · SELL 0.5<br>full close · 2 fills · last 142.37</div>
+        <div style="display: flex; gap: 8px;"><button type="button" style="min-height: 44px; flex-grow: 1; border-radius: 22px; border: 0; background: #7FA2FF; color: #0A0F24; font-weight: 700;">Review and approve</button><button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #243056; background: transparent; color: #AEB6D6;">Reject</button></div>
+      </article>
+      <article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 14px; background: #121A38;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-weight: 700;">ETHUSDT.P</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7D86AB;">6h left</span></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.7; color: #AEB6D6;">RSI Divergence · BUY 0.006<br>single allocation · 1 fill · 2467.10</div>
+        <div style="display: flex; gap: 8px;"><button type="button" style="min-height: 44px; flex-grow: 1; border-radius: 22px; border: 0; background: #7FA2FF; color: #0A0F24; font-weight: 700;">Review and approve</button><button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid #243056; background: transparent; color: #AEB6D6;">Reject</button></div>
+      </article>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

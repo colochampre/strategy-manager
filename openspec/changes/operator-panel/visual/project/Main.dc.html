@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0C1116;color:#E7EDF1;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:#1FA6B8}a:hover{color:#6FD0DC}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; display: grid; grid-template-rows: 64px 1fr; background: #0C1116;">
+  <header style="display: flex; align-items: center; gap: 32px; padding: 0 28px; border-bottom: 1px solid #28333C;">
+    <div style="font-family: Archivo, sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -0.01em;">Strategy Manager</div>
+    <nav aria-label="Exchanges" style="display: flex; gap: 4px; flex-grow: 1;">
+      <a href="#" aria-current="page" style="display: flex; flex-direction: column; justify-content: center; padding: 8px 16px; border-bottom: 2px solid #1FA6B8; text-decoration: none; color: #E7EDF1;">
+        <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">Bybit</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7A8C99;">USDT pool</span>
+      </a>
+      <a href="#" style="display: flex; flex-direction: column; justify-content: center; padding: 8px 16px; border-bottom: 2px solid transparent; text-decoration: none; color: #A9B8C3;">
+        <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">Binance</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #CE8018;">USDT-M · read-only key</span>
+      </a>
+    </nav>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; color: #CE8018; border: 1px solid #CE8018; padding: 6px 10px; border-radius: 4px;">DRY RUN</div>
+  </header>
+  <div style="display: grid; grid-template-columns: 208px 1fr 360px; min-height: 0;">
+    <nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px; padding: 24px 12px; border-right: 1px solid #28333C;">
+      <a href="#" aria-current="page" style="padding: 12px 14px; border-radius: 6px; background: #1B242C; color: #E7EDF1; text-decoration: none; font-weight: 600;">Overview</a>
+      <a href="Strategy.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Strategies</a>
+      <a href="Settings.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Settings</a>
+    </nav>
+    <main style="display: flex; flex-direction: column; gap: 28px; padding: 28px 36px; min-width: 0;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #7A8C99;">BYBIT · LINEAR · USDT · SAMPLE DATA</div>
+          <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; line-height: 1.7; color: #A9B8C3;">
+            <span style="color: #E7EDF1; font-size: 26px; font-weight: 600;">1,284.52</span> USDT available
+            <span style="color: #28333C;"> · </span> PnL 30D <span style="color: #1FA6B8; font-weight: 600;">+41.20</span>
+            <span style="color: #28333C;"> · </span> return 30D <span style="color: #1FA6B8; font-weight: 600;">+3.4%</span>
+            <span style="color: #28333C;"> · </span> deepest <span style="color: #E0644B; font-weight: 600;">−2.0%</span>
+          </p>
+        </div>
+        <div role="group" aria-label="Range" style="display: flex; border: 1px solid #28333C; border-radius: 6px; overflow: hidden;">
+          <button type="button" style="min-height: 44px; padding: 0 14px; background: transparent; color: #A9B8C3; border: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">7D</button>
+          <button type="button" aria-pressed="true" style="min-height: 44px; padding: 0 14px; background: #1B242C; color: #E7EDF1; border: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">30D</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; background: transparent; color: #A9B8C3; border: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">90D</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; background: transparent; color: #A9B8C3; border: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">1Y</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; background: transparent; color: #A9B8C3; border: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">All</button>
+        </div>
+      </div>
+      <section aria-label="Strategy return" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Return of the strategies, compounded</h2>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7A8C99;">UTC days · deposits and withdrawals excluded</span>
+        </div>
+        <svg viewBox="0 0 796 330" width="796" height="330" role="img" aria-label="Compounded return above the waterline, drawdown from the previous peak below it">
+          <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#7A8C99">
+            <line x1="44" y1="30" x2="796" y2="30" stroke="#1E272F"/><text x="0" y="33">+30%</text>
+            <line x1="44" y1="90" x2="796" y2="90" stroke="#1E272F"/><text x="0" y="93">+20%</text>
+            <line x1="44" y1="150" x2="796" y2="150" stroke="#1E272F"/><text x="0" y="153">+10%</text>
+            <text x="0" y="213">0%</text>
+            <text x="0" y="263">−5%</text>
+            <text x="0" y="313">−10%</text>
+            <line x1="44" y1="260" x2="796" y2="260" stroke="#1E272F"/>
+            <line x1="44" y1="310" x2="796" y2="310" stroke="#1E272F"/>
+          </g>
+          <line x1="44" y1="210" x2="796" y2="210" stroke="#3D4E5C" stroke-width="1.5"/>
+          <polyline fill="none" stroke="#1FA6B8" stroke-width="2.2" stroke-linejoin="round" points="44,210 80,204 116,196 152,199 188,184 224,176 260,181 296,188 332,172 368,160 404,150 440,154 476,141 512,132 548,138 584,152 620,146 656,124 692,112 728,104 764,98 796,86"/>
+          <path d="M44,210 L80,210 L116,210 L152,214 L188,210 L224,210 L260,215 L296,222 L332,210 L368,210 L404,210 L440,213 L476,210 L512,210 L548,216 L584,236 L620,230 L656,210 L692,210 L728,210 L764,210 L796,210 Z" fill="#E0644B" fill-opacity="0.22" stroke="none"/>
+          <polyline fill="none" stroke="#E0644B" stroke-width="1.4" points="44,210 80,210 116,210 152,214 188,210 224,210 260,215 296,222 332,210 368,210 404,210 440,213 476,210 512,210 548,216 584,236 620,230 656,210 692,210 728,210 764,210 796,210"/>
+          <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#7A8C99">
+            <text x="44" y="328">Jul</text><text x="224" y="328">Aug</text><text x="404" y="328">Sep</text><text x="584" y="328">Oct</text><text x="752" y="328">Nov</text>
+          </g>
+        </svg>
+      </section>
+      <section aria-label="Month by month" style="display: flex; flex-direction: column; gap: 10px;">
+        <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Month by month</h2>
+        <div style="display: grid; grid-template-columns: 48px repeat(12, minmax(0, 1fr)) 64px; gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;">
+          <span></span><span style="color:#7A8C99;text-align:center;">J</span><span style="color:#7A8C99;text-align:center;">F</span><span style="color:#7A8C99;text-align:center;">M</span><span style="color:#7A8C99;text-align:center;">A</span><span style="color:#7A8C99;text-align:center;">M</span><span style="color:#7A8C99;text-align:center;">J</span><span style="color:#7A8C99;text-align:center;">J</span><span style="color:#7A8C99;text-align:center;">A</span><span style="color:#7A8C99;text-align:center;">S</span><span style="color:#7A8C99;text-align:center;">O</span><span style="color:#7A8C99;text-align:center;">N</span><span style="color:#7A8C99;text-align:center;">D</span><span style="color:#7A8C99;text-align:center;">YEAR</span>
+          <span style="color:#A9B8C3;align-self:center;">2026</span>
+          <span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span><span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span><span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span><span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span><span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span><span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:color-mix(in srgb,#1FA6B8 34%,#1E272F);">+3.1</span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:color-mix(in srgb,#1FA6B8 52%,#1E272F);color:#0C1116;font-weight:600;">+5.4</span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:color-mix(in srgb,#E0644B 30%,#1E272F);">−1.9</span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:color-mix(in srgb,#1FA6B8 44%,#1E272F);">+4.2</span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:color-mix(in srgb,#1FA6B8 20%,#1E272F);">+0.8</span>
+          <span style="height:40px;border:1px dashed #28333C;border-radius:3px;"></span>
+          <span style="height:40px;display:flex;align-items:center;justify-content:center;color:#1FA6B8;font-weight:600;">+12.0</span>
+        </div>
+        <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7A8C99;">4 of 5 months positive · best +5.4% · worst −1.9% · 3 open trades not in the curve</p>
+      </section>
+    </main>
+    <aside aria-label="Needs your decision" style="display: flex; flex-direction: column; gap: 14px; padding: 28px 24px; border-left: 1px solid #28333C; background: #141B22;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Needs your decision</h2>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #CE8018;">2 pending</span>
+      </div>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #A9B8C3;">Closes the venue made that the ledger has not recorded. Approving writes them to the ledger for good.</p>
+      <article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid #28333C; border-radius: 8px; background: #0C1116;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">SOLUSDT.P</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #CE8018;">expires in 21h</span>
+        </div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7; color: #A9B8C3;">RSI Divergence<br>SELL 0.5 · full close<br>2 venue fills · last 142.37</div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" style="min-height: 44px; flex-grow: 1; border-radius: 6px; border: 1px solid #1FA6B8; background: #1FA6B8; color: #0C1116; font-weight: 600;">Review and approve</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #A9B8C3;">Reject</button>
+        </div>
+      </article>
+      <article style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid #28333C; border-radius: 8px; background: #0C1116;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">ETHUSDT.P</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7A8C99;">expires in 6h</span>
+        </div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7; color: #A9B8C3;">RSI Divergence<br>BUY 0.006 · single allocation<br>1 venue fill · 2467.10</div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" style="min-height: 44px; flex-grow: 1; border-radius: 6px; border: 1px solid #1FA6B8; background: #1FA6B8; color: #0C1116; font-weight: 600;">Review and approve</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #A9B8C3;">Reject</button>
+        </div>
+      </article>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

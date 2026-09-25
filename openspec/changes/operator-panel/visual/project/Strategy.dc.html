@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Strategy detail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0C1116;color:#E7EDF1;font-family:"IBM Plex Sans",system-ui,sans-serif}
+a{color:#1FA6B8}a:hover{color:#6FD0DC}
+button,input{font:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; display: grid; grid-template-rows: 64px 1fr; background: #0C1116;">
+  <header style="display: flex; align-items: center; gap: 32px; padding: 0 28px; border-bottom: 1px solid #28333C;">
+    <div style="font-family: Archivo, sans-serif; font-weight: 700; font-size: 17px;">Strategy Manager</div>
+    <nav aria-label="Exchanges" style="display: flex; gap: 4px; flex-grow: 1;">
+      <a href="#" aria-current="page" style="display: flex; flex-direction: column; padding: 8px 16px; border-bottom: 2px solid #1FA6B8; text-decoration: none; color: #E7EDF1;"><span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">Bybit</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7A8C99;">USDT pool</span></a>
+      <a href="#" style="display: flex; flex-direction: column; padding: 8px 16px; border-bottom: 2px solid transparent; text-decoration: none; color: #A9B8C3;"><span style="font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;">Binance</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #CE8018;">USDT-M · read-only key</span></a>
+    </nav>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; color: #CE8018; border: 1px solid #CE8018; padding: 6px 10px; border-radius: 4px;">DRY RUN</div>
+  </header>
+  <div style="display: grid; grid-template-columns: 208px 1fr; min-height: 0;">
+    <nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px; padding: 24px 12px; border-right: 1px solid #28333C;">
+      <a href="Main.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Overview</a>
+      <a href="#" aria-current="page" style="padding: 12px 14px; border-radius: 6px; background: #1B242C; color: #E7EDF1; text-decoration: none; font-weight: 600;">Strategies</a>
+      <a href="Settings.dc.html" style="padding: 12px 14px; border-radius: 6px; color: #A9B8C3; text-decoration: none;">Settings</a>
+    </nav>
+    <main style="display: grid; grid-template-columns: 1fr 400px; gap: 36px; padding: 28px 36px; align-content: start;">
+      <div style="display: flex; flex-direction: column; gap: 24px; min-width: 0;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <a href="#" style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-decoration: none; color: #7A8C99;">← All strategies</a>
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <h1 style="margin: 0; font-family: Archivo, sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.015em;">RSI Divergence</h1>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em; color: #1FA6B8; border: 1px solid #1FA6B8; padding: 4px 8px; border-radius: 4px;">ENABLED</span>
+          </div>
+          <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A9B8C3;">Bybit USDT pool · 30% per trade · active 41 days since 12 Aug 2026 · 58 trades</p>
+        </div>
+        <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; color: #A9B8C3;">PnL <span style="color:#1FA6B8;font-weight:600;font-size:22px;">+118.40</span> USDT · contribution to the pool <span style="color:#1FA6B8;font-weight:600;">+9.6%</span> · deepest <span style="color:#E0644B;font-weight:600;">−2.4%</span></p>
+        <section aria-label="By pair" style="display: flex; flex-direction: column; gap: 8px;">
+          <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">By pair</h2>
+          <table style="width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 13px;">
+            <thead>
+              <tr style="color: #7A8C99; font-size: 10px; letter-spacing: 0.09em; text-align: right;">
+                <th scope="col" style="text-align: left; padding: 8px 0; border-bottom: 1px solid #28333C; font-weight: 500;">PAIR</th>
+                <th scope="col" style="padding: 8px 0; border-bottom: 1px solid #28333C; font-weight: 500;">TRADES</th>
+                <th scope="col" style="padding: 8px 0; border-bottom: 1px solid #28333C; font-weight: 500;">WIN RATE</th>
+                <th scope="col" style="padding: 8px 0; border-bottom: 1px solid #28333C; font-weight: 500;">PNL USDT</th>
+                <th scope="col" style="padding: 8px 0; border-bottom: 1px solid #28333C; font-weight: 500;">OPEN</th>
+              </tr>
+            </thead>
+            <tbody style="text-align: right;">
+              <tr><td style="text-align:left;padding:10px 0;border-bottom:1px solid #1E272F;">SOLUSDT</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">24</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">58%</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#1FA6B8;">+71.10</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#A9B8C3;">1</td></tr>
+              <tr><td style="text-align:left;padding:10px 0;border-bottom:1px solid #1E272F;">ETHUSDT</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">19</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">53%</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#1FA6B8;">+52.60</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#A9B8C3;">0</td></tr>
+              <tr><td style="text-align:left;padding:10px 0;border-bottom:1px solid #1E272F;">BTCUSDT</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">15</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;">47%</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#E0644B;">−5.30</td><td style="padding:10px 0;border-bottom:1px solid #1E272F;color:#A9B8C3;">0</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section aria-label="Connect TradingView" style="display: flex; flex-direction: column; gap: 10px;">
+          <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Connect a TradingView alert</h2>
+          <p style="margin: 0; font-size: 13px; color: #A9B8C3;">Use the same URL and message for every pair's alert. The ticker travels in the message.</p>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <code style="flex-grow: 1; padding: 12px 14px; border: 1px solid #28333C; border-radius: 6px; background: #141B22; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A9B8C3;">https://[WEBHOOK HOST]/webhook/tradingview?secret=••••••••••••</code>
+            <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #E7EDF1;">Show secret</button>
+            <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #E7EDF1;">Copy</button>
+          </div>
+          <pre style="margin: 0; padding: 14px; border: 1px solid #28333C; border-radius: 6px; background: #141B22; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; color: #A9B8C3; white-space: pre-wrap;">{{alertMessage}}</pre>
+        </section>
+      </div>
+      <aside aria-label="Settings of this strategy" style="display: flex; flex-direction: column; gap: 18px; padding: 22px; border: 1px solid #28333C; border-radius: 10px; background: #141B22; align-self: start;">
+        <h2 style="margin: 0; font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600;">Settings</h2>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label for="pct" style="font-size: 13px; color: #A9B8C3;">Share of the pool per trade</label>
+          <div style="display: flex; align-items: center; gap: 8px;"><input id="pct" value="30" style="width: 88px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border: 1px solid #28333C; border-radius: 6px; background: #0C1116; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace;"><span style="font-family: 'IBM Plex Mono', monospace; color: #7A8C99;">%</span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <span style="font-size: 13px; color: #A9B8C3;">Allowed pairs</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <button type="button" aria-label="Remove SOLUSDT" style="min-height: 36px; padding: 0 10px; border-radius: 18px; border: 1px solid #28333C; background: #1B242C; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">SOLUSDT ×</button>
+            <button type="button" aria-label="Remove ETHUSDT" style="min-height: 36px; padding: 0 10px; border-radius: 18px; border: 1px solid #28333C; background: #1B242C; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">ETHUSDT ×</button>
+            <button type="button" aria-label="Remove BTCUSDT" style="min-height: 36px; padding: 0 10px; border-radius: 18px; border: 1px solid #28333C; background: #1B242C; color: #E7EDF1; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">BTCUSDT ×</button>
+            <button type="button" style="min-height: 36px; padding: 0 10px; border-radius: 18px; border: 1px dashed #3D4E5C; background: transparent; color: #1FA6B8; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">+ Add pair</button>
+          </div>
+          <span style="font-size: 12px; color: #7A8C99;">Removing a pair stops new entries on it. An open position still closes.</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid #28333C;">
+          <button type="button" style="min-height: 44px; border-radius: 6px; border: 1px solid #28333C; background: transparent; color: #E7EDF1;">Disable strategy</button>
+          <button type="button" disabled style="min-height: 44px; border-radius: 6px; border: 1px solid #1E272F; background: transparent; color: #7A8C99;">Archive</button>
+          <span style="font-size: 12px; color: #7A8C99;">Archive is available once the strategy is disabled and has no open position.</span>
+        </div>
+      </aside>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const o = '{' + '{', c = '}' + '}';
+    const v = (name) => o + name + c;
+    return {
+      alertMessage: '{"data":{"action":"' + v('strategy.order.action') + '","contracts":"' + v('strategy.order.contracts') +
+        '","position_size":"' + v('strategy.position_size') + '"},"price":"' + v('close') +
+        '","signal_param":"{}","signal_type":"9f3c…e21a","symbol":"' + v('ticker') + '","time":"' + v('timenow') + '"}'
+    };
+  }
+}
+</script>
+</body>
+</html>
