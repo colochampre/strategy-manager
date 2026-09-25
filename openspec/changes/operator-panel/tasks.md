@@ -172,15 +172,23 @@ Harness: the redaction/announce tests run with no real credential (fixture paylo
 Rollback boundary: the script is a dev tool with zero importers in `src/`; deleting it reverts nothing else.
 Forecast: 250–400 lines.
 
-### PR 1 — Probe results (owner fills in after running the script on the VPS)
+### PR 1 — Probe results (owner ran it on the VPS, 2026-09-25)
 
 | Item | Bybit | Binance |
 | --- | --- | --- |
-| P1 withdraw shape | _pending_ | n/a |
-| P2 trade capability field | _pending_ | n/a |
-| P3 `apiRestrictions` shape | n/a | _pending_ |
-| P4 live reads with the vault key | _pending — gates PR 3_ | _pending — gates PR 3_ |
-| P5 binding/expiry fields | _pending_ | _pending_ |
+| P1 withdraw shape | `permissions.Wallet` is a list of tokens; the vault key has `['AccountTransfer','SubMemberTransfer']`. No withdraw-enabled key was observed. | n/a |
+| P2 trade capability field | `readOnly` (0 = can trade, 1 = read-only). The read-only key STILL lists `ContractTrade ['Order','Position']` and `Derivatives ['DerivativesTrade']`, so the permission lists do NOT reveal trade capability. | n/a |
+| P3 `apiRestrictions` shape | n/a | **Unreachable**: HTTP 403 with an HTML page for both keys. `api.binance.com` is refused from the VPS, while `fapi` works. |
+| P4 live reads with the vault key | wallet-balance UNIFIED OK. **PR 3 gate passes.** | account, positionRisk and symbolConfig all OK with the vault key. **PR 3 gate passes.** |
+| P5 binding/expiry fields | `ips` bound (includes the VPS); `expiredAt` 1970 / `deadlineDay` −2 means no expiry. | Unreachable (same 403). |
+
+**Consequences for PR 8a, binding (owner decision 24):**
+
+- **Bybit 8b is FAIL-CLOSED.** A key is accepted only when `Wallet ⊆ {AccountTransfer, SubMemberTransfer}`; any other token is refused.
+- **Bybit trade capability is `readOnly == 0`.** The permission lists are never used for it.
+- **Binance 8b cannot be verified from the VPS.** A Binance key is saved only with an explicit owner confirmation that withdrawals are disabled. The confirmation is recorded with its timestamp, and the key is shown as "withdraw not verified".
+- **Binance trade capability is also unverifiable**, because the same endpoint answers 403. How `trade_capable` is derived for Binance is to be designed in PR 8a, never assumed.
+- **Never display a raw permissions payload.** It carries the owner's whitelisted IPs, userID and KYC region.
 
 ---
 
