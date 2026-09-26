@@ -1,15 +1,23 @@
-"""Real-Postgres proof of two ``UpdateStrategy`` guarantees that a fake
-repository cannot exercise (tasks.md 2d.3, atomicity requirement;
-design.md § 9):
+"""Real-Postgres proof of guarantees a fake repository cannot exercise
+(tasks.md 2d.3, atomicity requirement; design.md § 9; owner correction
+2026-09-25 on unit 2e):
 
 1. ``get_by_id_for_update``'s ``SELECT ... FOR UPDATE`` lock serializes two
    concurrent toggles of the SAME strategy row, so they cannot both read
    the pre-toggle ``enabled`` value and both append an "enabled" event.
 2. The event append and the ``enabled`` write commit or roll back together
    -- a failure appending the event must leave ``enabled`` unchanged.
+3. ``ReplaceAllowedPairs`` (``PUT .../allowed-pairs``) takes the SAME row
+   lock as ``UpdateStrategy``. Without it, ``repository.update()`` assigns
+   EVERY mutable field including ``enabled`` -- a PUT that reads a stale
+   ``enabled`` and writes it straight back would silently revert a
+   concurrent PATCH's change, with no error, the instant SQLAlchemy's
+   dirty-tracking optimization does not happen to skip that assignment.
+   Relying on that skip by accident is not acceptable for the field the
+   append-only audit log exists to guard.
 
 Placed under ``infrastructure/`` (not ``application/``, where the fake-based
-tests for this use case otherwise live) to reuse
+tests for these use cases otherwise live) to reuse
 ``tests/strategies/infrastructure/conftest.py``'s real-Postgres fixtures --
 the same convention ``AllocateCapital``'s own concurrency tests follow
 (``tests/allocation/infrastructure/test_concurrency_race.py``). Deviation
@@ -25,6 +33,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.strategies.application.replace_allowed_pairs import (
+    ReplaceAllowedPairs,
+    ReplaceAllowedPairsCommand,
+)
 from strategy_manager.strategies.application.update_strategy import (
     UpdateCommand,
     UpdateStrategy,
@@ -95,8 +107,10 @@ class _PausingRepository:
     async def insert(self, strategy: Strategy) -> None:  # pragma: no cover -- unused here
         await self._inner.insert(strategy)
 
-    async def list_all(self) -> list[Strategy]:  # pragma: no cover -- unused here
-        return await self._inner.list_all()
+    async def list_all(
+        self, include_archived: bool = False
+    ) -> list[Strategy]:  # pragma: no cover -- unused here
+        return await self._inner.list_all(include_archived=include_archived)
 
     async def update(self, strategy: Strategy) -> None:
         await self._inner.update(strategy)
@@ -197,3 +211,70 @@ async def test_event_append_failure_rolls_back_the_enabled_write_too(
         assert row.enabled is False  # unchanged: the write was never committed
 
     assert await _event_count(pg_session_factory, strategy_id) == 0
+
+
+async def test_replace_allowed_pairs_and_update_strategy_serialize_on_the_same_row_lock(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Owner correction (2026-09-25): ``ReplaceAllowedPairs`` must take the
+    SAME row lock ``UpdateStrategy`` does. Without it, ``repository.update()``
+    assigns every mutable field -- ``enabled`` included -- so a PUT
+    allowed-pairs that reads a stale ``enabled`` and writes it straight back
+    would silently revert a concurrent PATCH's change, with no error, the
+    instant SQLAlchemy's dirty-tracking optimization does not happen to skip
+    that particular assignment. Proven the same deterministic way as
+    ``test_update_strategy_takes_for_update_lock_on_strategy_row`` above: the
+    PUT holds the row lock open (paused via ``_PausingRepository``), and a
+    concurrent PATCH enabled must be observed genuinely BLOCKED on it -- not
+    merely racing and happening to lose.
+
+    Against the pre-fix ``ReplaceAllowedPairs`` (a plain ``get_by_id``, no
+    lock), the PUT holds nothing to block on: it reads, writes and commits
+    immediately, so the PATCH is never blocked and this test's own
+    ``assert not task_patch.done()`` fails -- the RED this fix is proven
+    against.
+    """
+    strategy_id = uuid4()
+    await _insert_strategy(pg_session_factory, strategy_id, enabled=False)
+
+    resume_put = asyncio.Event()
+
+    async def put_allowed_pairs() -> None:
+        async with pg_session_factory() as session:
+            use_case = ReplaceAllowedPairs(
+                repository=_PausingRepository(
+                    SqlAlchemyStrategyRepository(session), resume_put
+                ),  # type: ignore[arg-type]
+                commit=session,  # type: ignore[arg-type]
+            )
+            await use_case.replace(
+                ReplaceAllowedPairsCommand(strategy_id=strategy_id, pairs=["ETHUSDT"])
+            )
+
+    async def patch_enabled() -> None:
+        async with pg_session_factory() as session:
+            use_case = UpdateStrategy(
+                repository=SqlAlchemyStrategyRepository(session),
+                commit=session,  # type: ignore[arg-type]
+                enablement_log=SqlAlchemyEnablementLog(session),
+                clock=SystemClock(),
+            )
+            await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))
+
+    task_put = asyncio.create_task(put_allowed_pairs())
+    await asyncio.sleep(0.2)  # let the PUT reach and hold the lock, paused on resume_put
+
+    task_patch = asyncio.create_task(patch_enabled())
+    await asyncio.sleep(0.3)  # the PATCH should now be genuinely blocked on the SAME row lock
+    assert not task_patch.done(), "PATCH completed without waiting for PUT's held row lock"
+
+    resume_put.set()  # let the PUT finish (write allowed_pairs + commit), releasing the lock
+    await asyncio.gather(task_put, task_patch)
+
+    async with pg_session_factory() as verify_session:
+        row = await verify_session.get(StrategyRow, strategy_id)
+        assert row is not None
+        assert row.allowed_pairs == ["ETHUSDT"]
+        assert row.enabled is True  # the PATCH's change survived the PUT
+
+    assert await _event_count(pg_session_factory, strategy_id) == 1

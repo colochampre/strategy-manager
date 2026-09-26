@@ -18,7 +18,12 @@ class StrategyRepositoryPort(Protocol):
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None: ...
     async def insert(self, strategy: Strategy) -> None: ...
-    async def list_all(self) -> list[Strategy]: ...
+
+    async def list_all(self, include_archived: bool = False) -> list[Strategy]:
+        """Ordered by name. Excludes archived strategies unless
+        ``include_archived=True`` (spec: strategy-lifecycle § "Strategy
+        Listing Excludes Archived By Default")."""
+        ...
 
     async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
         """Same as ``get_by_id``, but takes a row lock (``SELECT ... FOR

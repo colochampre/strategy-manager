@@ -76,6 +76,20 @@ async def test_there_is_at_least_one_route_to_protect() -> None:
     assert len(_routes()) >= 4
 
 
+async def test_unit_2e_routes_are_covered_by_the_dynamic_enumeration() -> None:
+    """Confirms ``_routes()`` -- read from ``router.routes`` itself, not a
+    hand-written list -- actually picked up the two routes unit 2e adds:
+    ``PUT .../allowed-pairs`` and ``GET .../events``. Because the auth
+    dependency is declared on the ROUTER (module docstring), not per-route,
+    there is no way to add an unprotected route to this router at all; the
+    real risk this guards against is the enumeration itself silently
+    missing a route, not a route shipping unauthenticated."""
+    suffixes = {(method, path.rsplit("/", 1)[-1]) for method, path in _routes()}
+
+    assert ("PUT", "allowed-pairs") in suffixes
+    assert ("GET", "events") in suffixes
+
+
 async def test_every_registered_route_refuses_a_request_without_a_token(
     client: AsyncClient,
 ) -> None:

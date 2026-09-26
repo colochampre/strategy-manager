@@ -17,6 +17,7 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateCommand,
     UpdateStrategy,
 )
+from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
 
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
@@ -94,6 +95,7 @@ def _command(**overrides: object) -> RegisterCommand:
         "settlement_currency": Currency.USDT,
         "fill_mode": FillMode.PARTIAL,
         "allocation_percent": Decimal("100"),
+        "allowed_pairs": ["ETHUSDT"],
     }
     fields.update(overrides)
     return RegisterCommand(exchange=Exchange.PIONEX, **fields)  # type: ignore[arg-type]
@@ -227,6 +229,33 @@ async def test_a_second_strategy_on_the_same_pool_is_allowed() -> None:
     await use_case.register(_command(strategy_id=uuid4(), name="SOL 4h"))
 
     assert len(repository.inserted) == 2
+
+
+# --------------------------------------------------------------------------
+# 2e.1 -- POST requires at least one allowed pair
+# --------------------------------------------------------------------------
+
+
+async def test_creating_with_empty_allowed_pairs_is_refused() -> None:
+    """spec: strategy-lifecycle § "New Strategies Require At Least One
+    Allowed Pair" -- "a create request with an empty allowed-pairs list
+    MUST be refused"."""
+    use_case, repository, commit, _, _ = _build()
+
+    with pytest.raises(EmptyAllowedPairs):
+        await use_case.register(_command(allowed_pairs=[]))
+
+    assert repository.inserted == []
+    assert commit.commits == 0
+
+
+async def test_creating_with_at_least_one_pair_succeeds() -> None:
+    use_case, repository, _, _, _ = _build()
+
+    strategy = await use_case.register(_command(allowed_pairs=["ETHUSDT"]))
+
+    assert strategy.allowed_pairs.sorted() == ["ETHUSDT"]
+    assert repository.inserted[0].allowed_pairs.sorted() == ["ETHUSDT"]
 
 
 # --------------------------------------------------------------------------

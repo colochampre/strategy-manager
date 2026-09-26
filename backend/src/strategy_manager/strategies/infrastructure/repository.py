@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
@@ -33,6 +34,7 @@ class SqlAlchemyStrategyRepository:
                 enabled=strategy.enabled,
                 fill_mode=strategy.policy.fill_mode.value,
                 allocation_percent=strategy.policy.allocation_percent.value,
+                allowed_pairs=strategy.allowed_pairs.sorted(),
             )
         )
         await self._session.flush()
@@ -55,13 +57,18 @@ class SqlAlchemyStrategyRepository:
         ).scalar_one_or_none()
         return None if row is None else _to_domain(row)
 
-    async def list_all(self) -> list[Strategy]:
+    async def list_all(self, include_archived: bool = False) -> list[Strategy]:
         """Ordered by name so the listing is stable between calls. Creation
         order would put a renamed strategy somewhere the reader does not
-        expect, and there are tens of these, not thousands."""
-        result = await self._session.execute(
-            select(StrategyRow).order_by(StrategyRow.name)
-        )
+        expect, and there are tens of these, not thousands.
+
+        Excludes archived strategies unless ``include_archived=True``
+        (spec: strategy-lifecycle § "Strategy Listing Excludes Archived By
+        Default")."""
+        stmt = select(StrategyRow).order_by(StrategyRow.name)
+        if not include_archived:
+            stmt = stmt.where(StrategyRow.archived_at.is_(None))
+        result = await self._session.execute(stmt)
         return [_to_domain(row) for row in result.scalars().all()]
 
     async def update(self, strategy: Strategy) -> None:
@@ -80,6 +87,7 @@ class SqlAlchemyStrategyRepository:
         row.enabled = strategy.enabled
         row.fill_mode = strategy.policy.fill_mode.value
         row.allocation_percent = strategy.policy.allocation_percent.value
+        row.allowed_pairs = strategy.allowed_pairs.sorted()
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
 
@@ -96,6 +104,8 @@ def _to_domain(row: StrategyRow) -> Strategy:
             allocation_percent=AllocationPercent(row.allocation_percent),
         ),
         enabled=row.enabled,
+        allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
+        archived_at=row.archived_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

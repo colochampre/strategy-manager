@@ -12,7 +12,17 @@ value looks like" and "how one gets produced".
 
 from dataclasses import dataclass
 
-from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
+
+
+class EmptyAllowedPairs(DomainError):
+    """Raised by the APPLICATION layer (``RegisterStrategy``,
+    ``ReplaceAllowedPairs``) when a request's allowed-pairs list is empty,
+    or every entry normalizes to nothing (design.md § 6: "The >=1 rule is
+    application-level ... not a DB CHECK, because seeded rows may
+    legitimately be empty."). The VO itself does not raise this -- an empty
+    ``AllowedPairs`` is a valid VALUE (a seeded strategy with no prior
+    signals); only the REQUEST to end up with one is refused."""
 
 
 @dataclass(frozen=True, slots=True)

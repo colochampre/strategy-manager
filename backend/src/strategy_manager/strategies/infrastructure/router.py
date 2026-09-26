@@ -22,6 +22,7 @@ UUID. The webhook looks a strategy up under exactly that id, so an id chosen
 here rather than copied from the alert would never match anything.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
@@ -41,11 +42,17 @@ from strategy_manager.strategies.application.register_strategy import (
     RegisterStrategy,
     StrategyAlreadyRegistered,
 )
+from strategy_manager.strategies.application.replace_allowed_pairs import (
+    ReplaceAllowedPairs,
+    ReplaceAllowedPairsCommand,
+)
 from strategy_manager.strategies.application.update_strategy import (
     UnknownStrategy,
     UpdateCommand,
     UpdateStrategy,
 )
+from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
+from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
@@ -81,6 +88,23 @@ router = APIRouter(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
+class UptimeView(BaseModel):
+    """Mirrors ``enablement.Uptime`` (design.md § 9). ``baseline=True``
+    means the earliest known enable is a BASELINE row written by migration
+    0024 -- the true first-enabled date is unknown, and the panel renders
+    "active >= X days" rather than claiming an exact one."""
+
+    seconds: float
+    first_enabled_at: datetime | None
+    baseline: bool
+
+    @classmethod
+    def of(cls, value: Uptime) -> "UptimeView":
+        return cls(
+            seconds=value.seconds, first_enabled_at=value.first_enabled_at, baseline=value.baseline
+        )
+
+
 class StrategyView(BaseModel):
     """What a strategy looks like from outside. Deliberately flat: the
     ``policy`` value object is an internal grouping, not an API shape."""
@@ -93,9 +117,12 @@ class StrategyView(BaseModel):
     fill_mode: FillMode
     allocation_percent: Decimal
     enabled: bool
+    archived_at: datetime | None
+    allowed_pairs: list[str]
+    uptime: UptimeView
 
     @classmethod
-    def of(cls, strategy: Strategy) -> "StrategyView":
+    def of(cls, strategy: Strategy, uptime_value: Uptime) -> "StrategyView":
         return cls(
             id=strategy.id,
             name=strategy.name,
@@ -105,7 +132,22 @@ class StrategyView(BaseModel):
             fill_mode=strategy.policy.fill_mode,
             allocation_percent=strategy.policy.allocation_percent.value,
             enabled=strategy.enabled,
+            archived_at=strategy.archived_at,
+            allowed_pairs=strategy.allowed_pairs.sorted(),
+            uptime=UptimeView.of(uptime_value),
         )
+
+
+class EnablementEventView(BaseModel):
+    """One row of ``GET /strategies/{id}/events`` (design.md § 14)."""
+
+    enabled: bool
+    occurred_at: datetime
+    origin: str
+
+    @classmethod
+    def of(cls, event: EnablementEvent) -> "EnablementEventView":
+        return cls(enabled=event.enabled, occurred_at=event.occurred_at, origin=event.origin.value)
 
 
 class RegisterRequest(BaseModel):
@@ -119,6 +161,7 @@ class RegisterRequest(BaseModel):
     settlement_currency: Currency
     fill_mode: FillMode
     allocation_percent: Decimal = Field(default=Decimal("100"), gt=0, le=100)
+    allowed_pairs: list[str] = Field(min_length=1)
 
 
 class UpdateRequest(BaseModel):
@@ -132,6 +175,14 @@ class UpdateRequest(BaseModel):
     fill_mode: FillMode | None = None
     allocation_percent: Decimal | None = Field(default=None, gt=0, le=100)
     enabled: bool | None = None
+
+
+class ReplacePairsRequest(BaseModel):
+    """``PUT /strategies/{id}/allowed-pairs`` -- the panel sends the
+    COMPLETE list it wants; this replaces the whole column, never merges
+    (design.md § 6)."""
+
+    pairs: list[str] = Field(min_length=1)
 
 
 @router.post("", response_model=StrategyView, status_code=201)
@@ -155,11 +206,14 @@ async def register_strategy(
                 settlement_currency=body.settlement_currency,
                 fill_mode=body.fill_mode,
                 allocation_percent=body.allocation_percent,
+                allowed_pairs=body.allowed_pairs,
             )
         )
     except StrategyAlreadyRegistered as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PoolNotAvailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrityError as exc:
         # ``name`` is UNIQUE at the database level. Reported as a conflict
@@ -170,13 +224,32 @@ async def register_strategy(
             status_code=409, detail=f"a strategy named {body.name!r} already exists"
         ) from exc
 
-    return StrategyView.of(strategy)
+    # A just-created strategy has zero events by construction (creation
+    # writes no event, F8) -- no query needed for its uptime.
+    return StrategyView.of(strategy, uptime([], datetime.now(UTC)))
 
 
 @router.get("", response_model=list[StrategyView])
-async def list_strategies(session: SessionDep) -> list[StrategyView]:
-    strategies = await SqlAlchemyStrategyRepository(session).list_all()
-    return [StrategyView.of(strategy) for strategy in strategies]
+async def list_strategies(
+    session: SessionDep, include_archived: bool = False
+) -> list[StrategyView]:
+    strategies = await SqlAlchemyStrategyRepository(session).list_all(
+        include_archived=include_archived
+    )
+    # ONE query for every strategy's events (design.md § 14:
+    # "list_all(include_archived) + one events query -> uptime()"), not one
+    # per strategy -- acceptable either way at today's scale (tens of
+    # strategies), but this is the bulk form.
+    events_by_strategy = await SqlAlchemyEnablementLog(session).list_for_many(
+        [strategy.id for strategy in strategies]
+    )
+    now = datetime.now(UTC)
+    return [
+        StrategyView.of(
+            strategy, uptime(events_by_strategy.get(strategy.id, []), now)
+        )
+        for strategy in strategies
+    ]
 
 
 @router.get("/{strategy_id}", response_model=StrategyView)
@@ -184,7 +257,39 @@ async def get_strategy(strategy_id: UUID, session: SessionDep) -> StrategyView:
     strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
-    return StrategyView.of(strategy)
+    events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
+    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
+
+
+@router.get("/{strategy_id}/events", response_model=list[EnablementEventView])
+async def get_strategy_events(
+    strategy_id: UUID, session: SessionDep
+) -> list[EnablementEventView]:
+    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="no such strategy")
+    events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
+    return [EnablementEventView.of(event) for event in events]
+
+
+@router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)
+async def replace_allowed_pairs(
+    strategy_id: UUID, body: ReplacePairsRequest, session: SessionDep
+) -> StrategyView:
+    use_case = ReplaceAllowedPairs(
+        repository=SqlAlchemyStrategyRepository(session), commit=session
+    )
+    try:
+        strategy = await use_case.replace(
+            ReplaceAllowedPairsCommand(strategy_id=strategy_id, pairs=body.pairs)
+        )
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EmptyAllowedPairs as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
+    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
 
 
 @router.patch("/{strategy_id}", response_model=StrategyView)
@@ -215,4 +320,5 @@ async def update_strategy(
             status_code=409, detail=f"a strategy named {body.name!r} already exists"
         ) from exc
 
-    return StrategyView.of(strategy)
+    events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
+    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))

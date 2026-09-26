@@ -14,15 +14,17 @@ index). This model maps column shape only, so there is exactly one place
 those rules can drift from what the database actually enforces.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Text
+from sqlalchemy import Boolean, DateTime, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from strategy_manager.shared.db import Base
+from strategy_manager.strategies.domain.enablement import EnablementEvent, EnablementOrigin
 
 
 class StrategyEnablementEventRow(Base):
@@ -58,3 +60,43 @@ class SqlAlchemyEnablementLog:
             )
         )
         await self._session.flush()
+
+    async def list_for(self, strategy_id: UUID) -> list[EnablementEvent]:
+        """Every event for one strategy, ordered by ``occurred_at`` --
+        backs ``GET /strategies/{id}/events`` and a single strategy's
+        ``uptime`` on the detail view."""
+        result = await self._session.execute(
+            select(StrategyEnablementEventRow)
+            .where(StrategyEnablementEventRow.strategy_id == strategy_id)
+            .order_by(StrategyEnablementEventRow.occurred_at)
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def list_for_many(
+        self, strategy_ids: Sequence[UUID]
+    ) -> dict[UUID, list[EnablementEvent]]:
+        """Every event for every id in ``strategy_ids``, grouped -- ONE
+        query backs ``uptime`` for the WHOLE ``GET /strategies`` list
+        (design.md § 14: "``list_all(include_archived)`` + one events
+        query -> ``uptime()``"), rather than one query per strategy."""
+        grouped: dict[UUID, list[EnablementEvent]] = {sid: [] for sid in strategy_ids}
+        if not strategy_ids:
+            return grouped
+
+        result = await self._session.execute(
+            select(StrategyEnablementEventRow)
+            .where(StrategyEnablementEventRow.strategy_id.in_(strategy_ids))
+            .order_by(StrategyEnablementEventRow.occurred_at)
+        )
+        for row in result.scalars().all():
+            grouped[row.strategy_id].append(_to_domain(row))
+        return grouped
+
+
+def _to_domain(row: StrategyEnablementEventRow) -> EnablementEvent:
+    return EnablementEvent(
+        strategy_id=row.strategy_id,
+        enabled=row.enabled,
+        occurred_at=row.occurred_at,
+        origin=EnablementOrigin(row.origin),
+    )
