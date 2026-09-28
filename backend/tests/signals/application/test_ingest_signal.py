@@ -3,6 +3,7 @@
 Covers spec: signal-ingress § Idempotent Signal Persistence.
 """
 
+import inspect
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -128,3 +129,44 @@ async def test_duplicate_delivery_resumes_without_a_second_row_or_job() -> None:
     assert second.duplicate is True
     assert len(repository.inserted_signals) == 1
     assert len(job_queue.enqueued) == 1
+
+
+async def test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_added() -> None:
+    """decision 11: a signal for an ARCHIVED strategy is persisted by the
+    webhook exactly like any other -- the refusal happens later, during
+    processing (``process_signal.py``'s ``_refuse_archived_strategy``,
+    unit 2b), never at ingress. ``IngestSignal`` does not know, and must
+    never be made to know, whether ``command.strategy_id`` is archived: a
+    lookup here would still leave the idempotency window open on the read
+    (the strategy could archive between the read and the insert), and would
+    duplicate the one authoritative archived check design.md § 8 already
+    places on the processing path.
+
+    This is a REGRESSION guard, not new behaviour -- ``IngestSignal``
+    already performs no strategy lookup of any kind, so a positive
+    behavioural assertion alone cannot catch a lookup being ADDED later; the
+    constructor-signature assertion below is what actually would. Proven
+    non-vacuous by temporarily adding a ``strategy_policy`` parameter to
+    ``IngestSignal.__init__`` and watching this test fail on that assertion,
+    then reverting -- see this unit's apply-progress for the RED line."""
+    repository = FakeSignalRepository()
+    job_queue = FakeJobQueue()
+    uow = FakeUnitOfWork()
+    use_case = IngestSignal(repository=repository, job_queue=job_queue, uow=uow)
+
+    result = await use_case.ingest(_command(strategy_id=uuid4()))
+
+    assert result.duplicate is False
+    assert len(repository.inserted_signals) == 1
+    assert len(job_queue.enqueued) == 1
+    assert uow.committed is True
+
+    # Structural half of the guard: ``IngestSignal`` must accept no
+    # strategy-lookup port at all, so there is nothing to call even by
+    # accident.
+    constructor_params = set(inspect.signature(IngestSignal.__init__).parameters)
+    assert not constructor_params & {
+        "strategy_policy",
+        "strategy_repository",
+        "strategy_lookup",
+    }

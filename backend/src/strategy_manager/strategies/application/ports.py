@@ -2,12 +2,20 @@
 provider owns the adapter — ``main.py`` binds them together.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import Strategy
+
+# ``(exchange, venue, settlement_currency)`` — mirrors
+# ``signals.application.ports.PoolKey``/``reconciliation``'s own alias
+# exactly, redeclared here rather than imported so ``strategies`` never
+# reaches across another module's boundary for a bare type alias (the same
+# convention every other consumer of a pool triple already follows).
+PoolKey = tuple[str, str, str]
 
 
 class StrategyRepositoryPort(Protocol):
@@ -85,3 +93,65 @@ class EnablementLogPort(Protocol):
     """
 
     async def append(self, strategy_id: UUID, enabled: bool, occurred_at: datetime) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyExposure:
+    """What ``ArchiveStrategy`` checks before archiving (design.md § 8,
+    decision 14's precondition: "disabled AND flat"). Any field non-empty
+    means the strategy still holds exposure on its pool, and archiving now
+    would make every future signal for it refused (decision 11) while
+    nothing could ever close what is still open.
+
+    ``symbols``/``allocations`` come from the ledger: a non-zero net base
+    PER ALLOCATION (never one summed net per symbol — the multiplicity
+    lesson, design.md § 8, tasks.md 2c.11), merged across every spelling a
+    market wears, across EVERY market this strategy has ever touched in
+    this pool, not only the ones currently on its ``allowed_pairs`` list —
+    decision 15 lets a pair be delisted while a position it opened is still
+    live. ``live_reservations`` is PENDING/SUBMITTED with ``terminal_at
+    NULL``. ``in_flight_attempts`` is a SUBMITTED execution attempt, opening
+    or closing, tied to this strategy through whichever reservation it
+    belongs to.
+    """
+
+    symbols: frozenset[str]
+    allocations: tuple[UUID, ...]
+    live_reservations: tuple[UUID, ...]
+    in_flight_attempts: tuple[UUID, ...]
+
+    def is_empty(self) -> bool:
+        return not (
+            self.symbols
+            or self.allocations
+            or self.live_reservations
+            or self.in_flight_attempts
+        )
+
+
+class StrategyExposurePort(Protocol):
+    """Implemented by
+    ``strategies.infrastructure.exposure_adapter.StrategyExposureAdapter``,
+    which composes ledger ``ReadSymbolHoldings``, reservations and
+    attempts, following the ``InFlightWorkAdapter`` precedent
+    (design.md's component inventory)."""
+
+    async def exposure(self, strategy_id: UUID, pool: PoolKey) -> StrategyExposure: ...
+
+
+class PoolLockPort(Protocol):
+    """Takes EXACTLY the advisory lock ``AllocateCapital`` takes for this
+    pool -- derived through the SAME ``allocation.domain.lock_key.LockKey
+    .from_pool_key`` code path, never re-derived by hand (design.md § 8,
+    "same key AllocateCapital takes"). A different derivation would compile
+    and pass every fake-backed test while silently serializing nothing
+    against a concurrent allocation -- proven only against real Postgres,
+    by ``test_archive_vs_allocate_concurrency.py``.
+
+    Implemented by ``strategies.infrastructure.pool_lock_adapter
+    .PoolLockAdapter``, which wraps ``allocation.infrastructure
+    .advisory_lock.PgAdvisoryLockAdapter`` directly rather than
+    reimplementing the SQL.
+    """
+
+    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...

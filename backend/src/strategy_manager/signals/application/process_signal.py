@@ -77,7 +77,7 @@ from strategy_manager.execution.application.close_position import (
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
-from strategy_manager.execution.domain.market_symbol import is_perpetual
+from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
@@ -101,6 +101,15 @@ def _consuming_side(next_position_size: Decimal) -> OrderSide:
 def _releasing_side(prior_position_size: Decimal) -> OrderSide:
     """Closing a long sells; closing a short buys."""
     return OrderSide.SELL if prior_position_size > 0 else OrderSide.BUY
+
+
+def _pairs_text(policy: StrategyPolicySnapshot) -> str:
+    """Renders a strategy's allowed pairs for a WARNING line. A seeded
+    strategy can legitimately hold no prior signals at all, and ``[]`` reads
+    as "nothing was computed" rather than "this strategy allows nothing
+    yet" -- ``EMPTY`` says the second thing in words, so the owner is not
+    left guessing which one happened (orchestrator addition to unit 2b)."""
+    return ", ".join(sorted(policy.allowed_pairs)) if policy.allowed_pairs else "EMPTY"
 
 
 def _new_side_holdable(symbol: str, next_position_size: Decimal) -> bool:
@@ -326,6 +335,16 @@ class ProcessSignalHandler:
         )
         policy = await self._strategy_policy.policy_for(context.strategy_id)
 
+        # Archived-strategy refusal (decision 11; design.md § 8, "Signal
+        # refusal"): runs immediately after ``policy_for``, before the
+        # untradable-pool check -- the owner's instruction for a retired
+        # strategy is "remove the alert", whatever its pool. It applies to
+        # EVERY signal, opening or closing: decision 14 already guarantees an
+        # archived strategy holds no position, so there is never a close for
+        # this refusal to strand.
+        if policy.archived:
+            return self._refuse_archived_strategy(signal_id, context, transition, policy)
+
         if (policy.exchange, policy.venue) not in self._tradable_pools:
             return self._refuse_untradable_pool(
                 context, transition, policy.exchange, policy.venue
@@ -408,6 +427,11 @@ class ProcessSignalHandler:
             )
 
         policy = await self._strategy_policy.policy_for(context.strategy_id)
+        # Archived also refuses here (design.md § 8: "It also runs in
+        # open_now()") -- a strategy archived while this continuation was
+        # in flight must not open once the awaited close(s) settle.
+        if policy.archived:
+            return self._refuse_archived_strategy(signal_id, context, transition, policy)
         return await self._handle_consumes(
             signal_id, context, transition, policy, next_poll=poll + 1
         )
@@ -420,6 +444,15 @@ class ProcessSignalHandler:
         policy: StrategyPolicySnapshot,
         next_poll: int = 0,
     ) -> ProcessSignalResult:
+        # Unlisted-pair refusal (decision 1; design.md § 7, "Where the
+        # allowlist applies: opens only") runs BEFORE even the Existing-
+        # Position Guard -- it gates the OPENING effect only, so it belongs
+        # in this method and never in ``_handle_releases``. Covers both a
+        # fresh ``handle()`` call and the ``open_now()`` continuation, since
+        # both reach this same method.
+        if market_key(context.symbol) not in policy.allowed_pairs:
+            return self._refuse_unlisted_pair(signal_id, context, transition, policy)
+
         # The Existing-Position Guard (spec: capital-allocation §
         # Existing-Position Guard) runs BEFORE anything else in this branch --
         # neither a refusal nor a deferral here may ever reach
@@ -565,6 +598,25 @@ class ProcessSignalHandler:
         if context.prior_reservation_id is None:
             return ProcessSignalResult(transition.kind.value, None, False)
 
+        # Unlisted-pair WARNING, closing anyway (decision 15; design.md §
+        # 7, "A releasing signal is never refused by the allowlist"). A
+        # close for an unlisted pair exists only because the pair WAS
+        # listed when the position opened -- refusing it would strand the
+        # position, exactly what decision 14 exists to prevent for archive.
+        # This is a WARNING, not a refusal: it never returns early, and the
+        # close below always proceeds.
+        pair_key = market_key(context.symbol)
+        if pair_key not in policy.allowed_pairs:
+            logger.warning(
+                "pair %s (%s) is no longer in strategy %s's allowed pairs [%s]; "
+                "closing anyway (signal %s)",
+                context.symbol,
+                pair_key,
+                context.strategy_id,
+                _pairs_text(policy),
+                signal_id,
+            )
+
         is_reverse_wiring = transition.kind is TransitionKind.REVERSE and _new_side_holdable(
             context.symbol, context.position_size
         )
@@ -706,6 +758,68 @@ class ProcessSignalHandler:
             "without the owner changing it."
         )
         logger.warning("refusing signal, nothing to allocate: %s", refused)
+        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+
+    def _refuse_archived_strategy(
+        self,
+        signal_id: UUID,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+    ) -> ProcessSignalResult:
+        """Decision 11: an archived strategy's signal is persisted unchanged
+        by the webhook (``ingest_signal.py`` performs no strategy lookup at
+        ingress) and refused HERE, during processing -- so a refused signal
+        follows exactly the same shape every other pre-lock refusal on this
+        path already does: one WARNING, ``ProcessSignalResult.refused`` set,
+        no exception raised, the job ends DONE like any other. Called from
+        both ``handle()`` (design.md § 8, "immediately after policy_for,
+        before the untradable-pool check") and ``open_now()`` (the same
+        section: "It also runs in open_now()"), so a strategy archived while
+        an S5 continuation was in flight is refused once the awaited close(s)
+        settle, instead of opening a position nothing will ever be allowed to
+        close.
+
+        The WARNING text is verbatim per design.md § 8: whoever reads the
+        log (there is no persisted signal-status column that distinguishes
+        a refusal from a fully processed signal today -- see this unit's
+        apply-progress for that finding) gets the exact instruction to act
+        on, not a paraphrase.
+        """
+        refused = (
+            f"signal {signal_id} for ARCHIVED strategy {policy.name} "
+            f"({context.strategy_id}) refused; remove its TradingView alert"
+        )
+        logger.warning(refused)
+        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+
+    def _refuse_unlisted_pair(
+        self,
+        signal_id: UUID,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+    ) -> ProcessSignalResult:
+        """Decision 1/15: an OPENING signal for a pair not on the strategy's
+        allowed-pairs list is refused before the Existing-Position Guard,
+        the balance refresh and the pool's advisory lock -- no reservation
+        is ever created for it (design.md § 7). Compared via ``market_key()``
+        on both sides, so a signal spelled ``ETHUSDT.P`` (TradingView/Bybit)
+        or ``ETHUSDT_PERP`` (Pionex) matches a pair stored as ``ETHUSDT``.
+
+        A strategy with an EMPTY allowed-pairs list (a seeded strategy with
+        no prior signals, decision 13) refuses every opening signal it
+        receives -- ``_pairs_text`` renders that state as the word ``EMPTY``
+        rather than an ambiguous ``[]``, so the owner is never left guessing
+        whether the list failed to load or was deliberately left empty.
+        """
+        pair_key = market_key(context.symbol)
+        refused = (
+            f"signal {signal_id} for strategy {context.strategy_id} opens "
+            f"{context.symbol} ({pair_key}), which is not in its allowed pairs "
+            f"[{_pairs_text(policy)}]; refusing the open, no capital reserved"
+        )
+        logger.warning(refused)
         return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
     def _refuse_untradable_pool(

@@ -473,6 +473,12 @@ async def _setup(
         settlement_currency="USDT",
         fill_mode="PARTIAL",
         enabled=True,
+        # The race this test proves is on ``open_now()`` itself -- unit 2b's
+        # allowlist gate sits before it, so the strategy must be allowed to
+        # open on ``STXUSDT`` (the ``market_key()`` every spelling this test
+        # exercises normalizes to) or every concurrent call is refused
+        # before the race is ever reached.
+        allowed_pairs=frozenset({"STXUSDT"}),
     )
     async with session_factory() as session:
         await session.execute(

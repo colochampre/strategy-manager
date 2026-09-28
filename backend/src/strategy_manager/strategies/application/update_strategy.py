@@ -50,6 +50,14 @@ class UnknownStrategy(DomainError):
     """No strategy is registered under this id."""
 
 
+class StrategyArchived(DomainError):
+    """Archive is terminal (decision 14): once a strategy is archived, no
+    PATCH and no allowed-pairs PUT may change it -- the ``terminal_at``
+    precedent (design.md § 8, "Archived strategies are read-only"). This is
+    stricter than merely refusing to re-enable one: EVERY field is frozen,
+    so a client cannot rename or re-scope a retired strategy either."""
+
+
 @dataclass(frozen=True, slots=True)
 class UpdateCommand:
     """Every field except ``strategy_id`` is optional. ``None`` means "leave
@@ -94,6 +102,11 @@ class UpdateStrategy:
         if strategy is None:
             raise UnknownStrategy(
                 f"no strategy registered under id {command.strategy_id}"
+            )
+        if strategy.archived_at is not None:
+            raise StrategyArchived(
+                f"strategy {command.strategy_id} ({strategy.name!r}) is archived "
+                "and read-only; nothing about it may be edited"
             )
 
         policy = strategy.policy

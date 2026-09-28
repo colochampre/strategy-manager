@@ -183,3 +183,34 @@ class SqlAlchemyReservationRepository:
             .limit(1)
         )
         return result.first() is not None
+
+    async def live_for_strategy(
+        self, exchange: str, venue: str, settlement_currency: str, strategy_id: UUID
+    ) -> list[UUID]:
+        """Every reservation still holding capital for this strategy in this
+        pool -- ``status IN (PENDING, SUBMITTED) AND terminal_at IS NULL``
+        (design.md § 8's exposure query shape, tasks.md 2c.11/2c.12),
+        exactly ``StrategyExposurePort.exposure``'s ``live_reservations``.
+
+        Deliberately NOT ``has_pending_for_strategy``'s ``expires_at > now``
+        criterion: that method exists to bound how long an OPENING signal
+        keeps deferring on in-flight work, and a reservation past its TTL
+        but not yet swept is intentionally excluded there. Here the
+        question is different -- "does this row still hold capital right
+        now, as far as the row itself says" -- and ``terminal_at IS NULL``
+        answers it directly without depending on the sweeper's cadence: a
+        PENDING row past expiry that the sweeper has not yet reached still
+        holds capital until something terminates it, so archive must still
+        see it and refuse.
+        """
+        result = await self._session.execute(
+            select(ReservationRow.id).where(
+                ReservationRow.exchange == exchange,
+                ReservationRow.venue == venue,
+                ReservationRow.settlement_currency == settlement_currency,
+                ReservationRow.strategy_id == strategy_id,
+                ReservationRow.status.in_(_ACTIVE_STATUSES),
+                ReservationRow.terminal_at.is_(None),
+            )
+        )
+        return [row[0] for row in result.all()]

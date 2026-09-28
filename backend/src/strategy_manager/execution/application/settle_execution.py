@@ -17,6 +17,7 @@ treating "not yet" as "never" would release a reservation whose money is
 already committed. Retrying is the only reading that cannot lose a position.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -38,6 +39,8 @@ from strategy_manager.execution.domain.execution_attempt import (
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.shared.application.ports import ClockPort, UsdRateProviderPort
 from strategy_manager.shared.domain.money import Currency
+
+logger = logging.getLogger(__name__)
 
 RELEASED = "RELEASED"
 FILLED = "FILLED"
@@ -125,6 +128,15 @@ class SettleExecution:
             await self._reservations.mark(attempt.allocation_id, FILLED, now)
         await self._commit.commit()
 
+        # 2f.4 (orchestrator's outcome map, finding 16): this file imported
+        # no ``logging`` at all before this -- the ONE place that learns an
+        # order's true fate left no trace whatsoever. INFO, not WARNING: a
+        # fill is the expected, successful outcome.
+        logger.info(
+            "execution attempt %s settled: %s fill(s) recorded",
+            attempt_id,
+            len(fills),
+        )
         return SettleResult(
             status="FILLED", execution_attempt_id=attempt_id, fills=len(fills)
         )
@@ -150,6 +162,14 @@ class SettleExecution:
             attempt.id, "the exchange has no order under this client order id"
         )
         await self._commit.commit()
+        # 2f.4 (orchestrator's outcome map, finding 17): same silent file --
+        # WARNING, since an order that never reached the exchange is worth
+        # the owner's attention even though nothing here raises.
+        logger.warning(
+            "execution attempt %s never reached the exchange; %s",
+            attempt.id,
+            "reservation released" if not attempt.is_closing else "position remains open",
+        )
         return SettleResult(status="NEVER_PLACED", execution_attempt_id=attempt.id)
 
     async def _record(

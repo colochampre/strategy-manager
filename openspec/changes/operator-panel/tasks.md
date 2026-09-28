@@ -342,21 +342,31 @@ Forecast: 600–800 lines.
 **Files**: Modify `backend/src/strategy_manager/signals/application/process_signal.py`;
 Modify `backend/src/strategy_manager/allocation/application/ports.py` (`StrategyPolicySnapshot.archived`, `.allowed_pairs`).
 
-- [ ] 2b.1 RED `backend/tests/signals/application/test_process_signal.py::test_listed_pair_proceeds_normally`.
-- [ ] 2b.2 RED same file `::test_unlisted_pair_opening_signal_refused_before_lock_no_reservation_one_warning`.
-- [ ] 2b.3 RED same file `::test_close_on_pair_removed_from_list_still_closes_with_one_warning`.
-- [ ] 2b.4 RED same file `::test_reverse_on_unlisted_pair_closes_then_refuses_open_ends_flat`.
-- [ ] 2b.5 RED same file `::test_spelling_variant_ethusdt_dot_p_matches_allowed_pair_ethusdt` (spelling rule: allowed pair stored as `ETHUSDT`, signal spelled `ETHUSDT.P`).
-- [ ] 2b.6 RED same file `::test_archived_strategy_signal_refused_before_untradable_pool_check_one_warning` — WARNING text asserted verbatim: "signal `<id>` for ARCHIVED strategy `<name>` (`<id>`) refused; remove its TradingView alert".
-- [ ] 2b.7 RED same file `::test_archived_strategy_refusal_also_applies_in_open_now_continuation`.
-- [ ] 2b.8 RED `backend/tests/signals/infrastructure/test_ingest_signal.py::test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_added` — asserts no strategy lookup at ingress.
-- [ ] 2b.9 GREEN: `_refuse_unlisted_pair` and the archived-strategy refusal at the top of `handle()`/`_handle_consumes` (archived check first — "whatever its pool" — then unlisted-pair, per design's ordering); each refusal logs exactly one WARNING and never calls `allocate`.
-- [ ] 2b.10 GREEN: `StrategyPolicySnapshot.archived`, `.allowed_pairs` fields threaded through `policy_adapter.py`.
+- [x] 2b.1 RED `backend/tests/signals/application/test_process_signal.py::test_listed_pair_proceeds_normally`.
+- [x] 2b.2 RED same file `::test_unlisted_pair_opening_signal_refused_before_lock_no_reservation_one_warning`.
+- [x] 2b.3 RED same file `::test_close_on_pair_removed_from_list_still_closes_with_one_warning`.
+- [x] 2b.4 RED same file `::test_reverse_on_unlisted_pair_closes_then_refuses_open_ends_flat`.
+- [x] 2b.5 RED same file `::test_spelling_variant_ethusdt_dot_p_matches_allowed_pair_ethusdt` (spelling rule: allowed pair stored as `ETHUSDT`, signal spelled `ETHUSDT.P`). Deviation: also covers the Pionex `_PERP` form in the same test (orchestrator addition), looping both spellings against the same stored `ETHUSDT` pair.
+- [x] 2b.6 RED same file `::test_archived_strategy_signal_refused_before_untradable_pool_check_one_warning` — WARNING text asserted verbatim: "signal `<id>` for ARCHIVED strategy `<name>` (`<id>`) refused; remove its TradingView alert".
+- [x] 2b.7 RED same file `::test_archived_strategy_refusal_also_applies_in_open_now_continuation`.
+- [x] 2b.8 RED `backend/tests/signals/application/test_ingest_signal.py::test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_added` — asserts no strategy lookup at ingress. Deviation: the file lives under `signals/application/`, not `signals/infrastructure/` as written (that is where `IngestSignal`'s own unit tests already live; no `signals/infrastructure/test_ingest_signal.py` exists).
+- [x] 2b.9 GREEN: `_refuse_unlisted_pair` and the archived-strategy refusal at the top of `handle()`/`_handle_consumes` (archived check first — "whatever its pool" — then unlisted-pair, per design's ordering); each refusal logs exactly one WARNING and never calls `allocate`.
+- [x] 2b.10 GREEN: `StrategyPolicySnapshot.archived`, `.allowed_pairs` fields threaded through `policy_adapter.py`. Deviation: also added `StrategyPolicySnapshot.name` (default `""`), threaded from `Strategy.name` — the verbatim archived-strategy WARNING text required by 2b.6 names the strategy, and no other field on the snapshot carries it. Both new fields default (`archived=False`, `allowed_pairs=frozenset()`) so every pre-2b caller (`AllocateCapital`'s tests, unit 2c's in-lock re-check) keeps constructing the DTO unchanged.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/signals/`.
 Harness: fakes for every port.
 Rollback boundary: two named refusal methods in `process_signal.py`; revert removes both, signals flow as today.
 Forecast: 700–1,000 lines.
+
+Deviation (undeclared blast radius): the new allowlist gate refused two PRE-EXISTING live-Postgres
+integration tests that open a real position through a real, DB-seeded strategy without ever naming
+an allowed pair (`test_open_after_close_integration.py`, `test_open_now_concurrent_redelivery.py`) —
+their shared `seed_strategy` helper (`backend/tests/signals/infrastructure/conftest.py`) always left
+`allowed_pairs` at the DB's `'{}'` default. Fixed by adding an optional `allowed_pairs` parameter to
+that helper (defaulting to the prior empty-array behaviour) and passing `frozenset({"STXUSDT"})` at
+both call sites — the `market_key()` both scenarios' three symbol spellings already normalize to. A
+full-suite run (1654 tests, up from the 1643 baseline by the 11 tests this unit adds) confirmed no
+other integration test elsewhere in the tree was affected.
 
 ### Unit 2c — `ArchiveStrategy`, exposure adapter, pool lock, in-lock re-check, concurrency (1,100–1,500 lines)
 
@@ -365,25 +375,47 @@ Create `backend/src/strategy_manager/strategies/infrastructure/{exposure_adapter
 Modify `backend/src/strategy_manager/allocation/application/allocate_capital.py`; Modify
 `backend/src/strategy_manager/strategies/infrastructure/router.py`.
 
-- [ ] 2c.1 RED `backend/tests/strategies/application/test_archive_strategy_integration.py::test_archiving_disabled_flat_strategy_succeeds`.
-- [ ] 2c.2 RED same file `::test_archiving_enabled_strategy_refused_409_still_enabled`.
-- [ ] 2c.3 RED same file `::test_archiving_disabled_strategy_with_open_position_refused_409_names_symbols`.
-- [ ] 2c.4 RED same file `::test_dust_that_close_position_reports_not_closable_keeps_ledger_net_nonzero_archive_refuses`.
-- [ ] 2c.5 RED same file `::test_archive_is_idempotent_same_archived_at_on_second_call`.
-- [ ] 2c.6 RED same file `::test_archived_strategy_patch_refused_409_strategy_archived`, `::test_archived_strategy_pairs_put_refused_409_strategy_archived`.
-- [ ] 2c.7 RED same file `::test_enabling_archived_strategy_refused_enabled_unchanged`.
-- [ ] 2c.8 RED `backend/tests/strategies/application/test_archive_vs_allocate_concurrency.py::test_allocation_wins_lock_first_archive_then_refused_sees_live_reservation` — **live PostgreSQL, both orderings**.
-- [ ] 2c.9 RED same file `::test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_skips_no_reservation`.
-- [ ] 2c.10 RED `backend/tests/allocation/application/test_allocate_capital.py::test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_prelock_read`, `::test_in_lock_reread_skips_with_strategy_archived_when_archived_after_prelock_read`.
-- [ ] 2c.11 GREEN: `ArchiveStrategy.archive(id)` — `SELECT ... FOR UPDATE`, idempotent if already archived, 409 `STILL_ENABLED`, `pg_advisory_xact_lock(LockKey(pool))`, `StrategyExposurePort.exposure` (ledger net ≠ 0 per allocation across every allocation — the multiplicity lesson — live reservations, SUBMITTED attempts), 409 `OPEN_POSITION` naming symbols/allocations/live_reservations/in_flight_attempts, else `archived_at = now`.
-- [ ] 2c.12 GREEN: `StrategyExposureAdapter` (composes `ReadSymbolHoldings`, reservations, attempts, following the `InFlightWorkAdapter` precedent), `PoolLockAdapter`.
-- [ ] 2c.13 GREEN: `AllocateCapital` re-reads policy right after `acquire`, before the balance read; skips with `STRATEGY_DISABLED`/`STRATEGY_ARCHIVED`.
-- [ ] 2c.14 GREEN: `POST /api/strategies/{id}/archive` endpoint; PATCH and pairs-PUT refuse 409 `STRATEGY_ARCHIVED` for an archived strategy.
+- [x] 2c.1 RED `backend/tests/strategies/application/test_archive_strategy_integration.py::test_archiving_disabled_flat_strategy_succeeds`.
+- [x] 2c.2 RED same file `::test_archiving_enabled_strategy_refused_409_still_enabled`. Also asserts the raised type is exactly `StillEnabled`, never `IntegrityError` (binding 3).
+- [x] 2c.3 RED same file `::test_archiving_disabled_strategy_with_open_position_refused_409_names_symbols`. Deviation (addition): also added `test_archiving_refuses_on_an_unlisted_delisted_pair_too` (decision 15's delisted-pair case) and `test_live_reservation_with_no_fill_yet_still_refuses_archive` (live-reservation-only exposure, no ledger fill).
+- [x] 2c.4 RED same file `::test_dust_that_close_position_reports_not_closable_keeps_ledger_net_nonzero_archive_refuses`.
+- [x] 2c.5 RED same file `::test_archive_is_idempotent_same_archived_at_on_second_call`. Also added `test_archive_unknown_strategy_raises` (404 path).
+- [x] 2c.6 RED same file `::test_archived_strategy_patch_refused_409_strategy_archived`, `::test_archived_strategy_pairs_put_refused_409_strategy_archived`.
+- [x] 2c.7 RED same file `::test_enabling_archived_strategy_refused_enabled_unchanged`.
+- [x] 2c.8 RED `backend/tests/strategies/application/test_archive_vs_allocate_concurrency.py::test_allocation_wins_lock_first_archive_then_refused_sees_live_reservation` — **live PostgreSQL, both orderings**.
+- [x] 2c.9 RED same file `::test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_skips_no_reservation`.
+- [x] 2c.10 RED `backend/tests/allocation/application/test_allocate_capital.py::test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_prelock_read`, `::test_in_lock_reread_skips_with_strategy_archived_when_archived_after_prelock_read`. Both assert the in-lock skip's exactly-one WARNING via `caplog` (binding 4).
+- [x] 2c.11 GREEN: `ArchiveStrategy.archive(id)` — `SELECT ... FOR UPDATE`, idempotent if already archived, 409 `STILL_ENABLED`, `pg_advisory_xact_lock(LockKey(pool))`, `StrategyExposurePort.exposure` (ledger net ≠ 0 per allocation across every allocation — the multiplicity lesson — live reservations, SUBMITTED attempts), 409 `OPEN_POSITION` naming symbols/allocations/live_reservations/in_flight_attempts, else `archived_at = now`. Also added `backend/tests/strategies/application/test_archive_strategy_integration.py::test_two_allocations_same_symbol_offsetting_nets_both_still_flagged_open` (offsetting +/- nets on the same market) as the discriminating multiplicity proof — see apply-progress report.
+- [x] 2c.12 GREEN: `StrategyExposureAdapter` (composes `ReadSymbolHoldings`, reservations, attempts, following the `InFlightWorkAdapter` precedent), `PoolLockAdapter`. Deviation: `StrategyExposureAdapter` also needed one new ledger-repository method, `distinct_symbols_for_strategy` (`ledger/application/ports.py` + `ledger/infrastructure/repository.py`), plus two new strategy-wide repository methods, `SqlAlchemyReservationRepository.live_for_strategy` and `SqlAlchemyExecutionAttemptRepository.submitted_for_strategy` — `ReadSymbolHoldings` alone can only answer per-market, and exposure must enumerate every market a strategy has ever touched (decision 15).
+- [x] 2c.13 GREEN: `AllocateCapital` re-reads policy right after `acquire`, before the balance read; skips with `STRATEGY_DISABLED`/`STRATEGY_ARCHIVED`, logging exactly one WARNING naming the signal and strategy (binding 4).
+- [x] 2c.14 GREEN: `POST /api/strategies/{id}/archive` endpoint; PATCH and pairs-PUT refuse 409 `STRATEGY_ARCHIVED` for an archived strategy. Deviation (addition): router-level RED/GREEN coverage added in `backend/tests/strategies/infrastructure/test_router.py` (archive happy path, idempotency, STILL_ENABLED, 404, OPEN_POSITION body shape, PATCH/PUT STRATEGY_ARCHIVED at the HTTP layer) — this caught and fixed a real bug: `HTTPException.detail` with raw `UUID` values raises `TypeError` at response-render time (Starlette uses plain `json.dumps`, not `jsonable_encoder`), fixed by stringifying every id in the `OPEN_POSITION` body.
+- [x] 2c.15 (post-review addition) RED/GREEN: fixed a reviewer-found reachable deadlock — `ArchiveStrategy` took the strategy row's `FOR UPDATE` lock before the pool's advisory lock, the opposite order `AllocateCapital`'s own advisory lock + its reservation INSERT's implicit `FOR KEY SHARE` row lock impose, so a concurrent disable-then-archive racing an in-flight allocation could deadlock (Postgres aborts one side with `DeadlockDetected`). RED: `backend/tests/strategies/application/test_archive_vs_allocate_concurrency.py::test_archive_takes_pool_lock_before_row_lock_no_deadlock_with_inflight_allocation`, reproduced a genuine `DeadlockDetectedError` against the original order (recorded verbatim in the apply-progress report). GREEN: `ArchiveStrategy.archive` now reads the strategy unlocked first (pool is immutable, so this is safe), takes the pool advisory lock, THEN the row `FOR UPDATE` lock, and re-reads everything it decides on (`enabled`, `archived_at`) from that locked read; 404 comes only from the unlocked read.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/strategies/ backend/tests/allocation/`.
 Harness: **real PostgreSQL, live concurrency test** (`rules.tasks`: advisory locks have no meaningful fake) — both lock-win orderings proven.
 Rollback boundary: `archive_strategy.py`, the two new infra adapters, and the in-lock re-check in `allocate_capital.py`; revert removes archive entirely, `AllocateCapital` returns to its pre-check shape. `DB CHECK (archived_at IS NULL OR enabled = false)` was already added in 2a and stays.
 Forecast: 1,100–1,500 lines.
+
+### Unit 2f — a log line on every silent signal path (150–250 lines)
+
+Added 2026-09-28 by owner decision 25. A read-only map of every terminal signal path found
+five that end with no log line at all. This unit gives each one a log line, and nothing else:
+no schema, no status write. Recording the outcome in the database is PR 5b and PR 5c.
+
+**Files**: Modify `backend/src/strategy_manager/signals/application/process_signal.py`,
+`allocation/application/allocate_capital.py`, `execution/application/place_order.py`,
+`execution/application/settle_execution.py`.
+
+- [x] 2f.1 RED `AllocateCapital` SKIP, which `process_signal.py` drops at `result.reservation_id is None`. Assert one log line naming the signal, the strategy and the skip reason, for the pre-lock `STRATEGY_DISABLED` skip and for each `decide()` skip (`NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`). The in-lock skip from 2c already logs; do not log it twice. Four RED tests, one per skip reason, `test_allocate_capital.py`.
+- [x] 2f.2 RED `PlaceOrder` `ABORTED_EXPIRED`: the reservation expired before submit. Assert one log line naming the reservation.
+- [x] 2f.3 RED `PlaceOrder` `FAILED` on a venue `ExchangeError` at submit. Assert one ERROR naming the reservation, the symbol and the venue's error. It is an ERROR so it reaches Telegram, because an order the venue rejected is a trade that did not happen.
+- [x] 2f.4 RED `SettleExecution` FILLED and NEVER_PLACED. Assert one INFO for FILLED, and one WARNING for NEVER_PLACED naming the attempt.
+- [x] 2f.5 GREEN: the log lines. Where one call site already logs the same fact, log in exactly one place. Deviation: `process_signal.py` was NOT modified — every log line was placed in the class that already owns the fact and already discards it today (`AllocateCapital.allocate`'s two SKIP branches; `PlaceOrder.place`'s `ABORTED_EXPIRED` and `ExchangeError` branches; `SettleExecution.settle`'s FILLED path and `_release_never_placed`'s NEVER_PLACED path), never at the `process_signal.py` call sites that merely drop the already-discarded result. This keeps ownership consistent with 2c's own in-lock WARNING, which logs where the fact is decided, not where it is read.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: fakes and caplog. Each test asserts exactly one record at the stated level.
+Rollback boundary: log lines only.
+Forecast: 150–250 lines.
 
 ---
 

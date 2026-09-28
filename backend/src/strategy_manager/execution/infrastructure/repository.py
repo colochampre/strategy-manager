@@ -204,6 +204,40 @@ class SqlAlchemyExecutionAttemptRepository:
         )
         return [row[0] for row in result.all()]
 
+    async def submitted_for_strategy(
+        self,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        strategy_id: UUID,
+    ) -> list[UUID]:
+        """Every SUBMITTED execution attempt tied to this strategy in this
+        pool -- opening or closing, across EVERY symbol, not just one
+        (design.md § 8's exposure query shape, tasks.md 2c.11/2c.12):
+        ``StrategyExposurePort.exposure``'s ``in_flight_attempts``.
+
+        ``submitted_for_strategy_symbol``'s strategy-wide twin, generalised
+        from one market to the whole pool the same way ``AllocateCapital``'s
+        pool-wide reads generalise from one strategy's own concerns --
+        archive must catch in-flight work on ANY market the strategy might
+        be trading, not only the one a signal happens to name.
+        """
+        origin = func.coalesce(
+            ExecutionAttemptRow.reservation_id, ExecutionAttemptRow.closes_allocation_id
+        )
+        result = await self._session.execute(
+            select(ExecutionAttemptRow.id)
+            .join(ReservationRow, ReservationRow.id == origin)
+            .where(
+                ExecutionAttemptRow.exchange == exchange,
+                ExecutionAttemptRow.venue == venue,
+                ExecutionAttemptRow.settlement_currency == settlement_currency,
+                ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
+                ReservationRow.strategy_id == strategy_id,
+            )
+        )
+        return [row[0] for row in result.all()]
+
     async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
         """The most recent closing execution attempt for ``allocation_id``,
         in ANY status, or ``None`` if it has never been closed -- what the

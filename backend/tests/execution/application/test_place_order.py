@@ -417,4 +417,50 @@ async def test_an_order_not_placeable_logs_exactly_one_warning(
     assert str(RESERVATION_ID) in message
     assert str(STRATEGY_ID) in message
     assert "BTC_USDT" in message
-    assert reason in message
+
+
+# --------------------------------------------------------------------------
+# 2f.2 / 2f.3 -- a log line on ABORTED_EXPIRED and on a venue rejection at
+# submit (orchestrator's outcome map, findings 9 and 11: both currently
+# silent, and both discarded again by ``process_signal.py`` since it never
+# even reads ``PlaceResult``).
+# --------------------------------------------------------------------------
+
+
+async def test_an_expired_reservation_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The only trace an expired reservation ever leaves: no order was
+    placed, and nothing else records why."""
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.place_order")
+    use_case, reservations, _, _, _, _ = _build(expires_at=NOW - timedelta(seconds=1))
+
+    result = await use_case.place(_command())
+
+    assert result.status == "ABORTED_EXPIRED"
+    assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 1
+    assert str(RESERVATION_ID) in warning_records[0].getMessage()
+
+
+async def test_a_rejected_order_logs_exactly_one_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ERROR, not WARNING: a definitive venue rejection reaches Telegram
+    because an order that did not happen is exactly the kind of thing an
+    owner needs paged for, not merely logged."""
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.place_order")
+    use_case, _, _, _, _, _ = _build(exchange_raises=ExchangeError("insufficient balance"))
+
+    result = await use_case.place(_command())
+
+    assert result.status == "FAILED"
+
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+    message = error_records[0].getMessage()
+    assert str(RESERVATION_ID) in message
+    assert "BTC_USDT" in message
+    assert "insufficient balance" in message

@@ -92,6 +92,26 @@ class LedgerSymbolHoldingsReaderPort(Protocol):
         self, exchange: str, venue: str, settlement_currency: str, symbol: str
     ) -> list[HeldAllocation]: ...
 
+    async def distinct_symbols_for_strategy(
+        self, exchange: str, venue: str, settlement_currency: str, strategy_id: UUID
+    ) -> frozenset[str]:
+        """Every RAW symbol spelling this strategy has ever recorded a fill
+        under, in this pool -- unnormalized (design.md § "the exposure
+        adapter composes ledger ReadSymbolHoldings", tasks.md 2c.12).
+
+        ``StrategyExposureAdapter`` is this method's one caller: it
+        normalizes each spelling through ``market_key()`` and dedupes into
+        the set of MARKETS to ask ``symbol_holdings`` about, one call per
+        market -- so a strategy that opened under one spelling and would
+        close under another is still checked under both without this query
+        needing to know ``market_key`` exists.
+
+        A strategy with no ledger rows at all in this pool returns an empty
+        set -- the ordinary case for one that never opened a position, not
+        an error.
+        """
+        ...
+
 
 class RecordedFillIdsReaderPort(Protocol):
     """Which of a candidate set of fill ids ``ledger_entries`` already

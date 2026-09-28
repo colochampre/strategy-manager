@@ -236,6 +236,10 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         settlement_currency="USDT",
         fill_mode="PARTIAL",
         enabled=True,
+        # This scenario's whole point is the S5 continuation's OPEN half
+        # (unit 2b's allowlist gate sits before it) -- ``STXUSDT`` is the
+        # ``market_key()`` every spelling this test exercises normalizes to.
+        allowed_pairs=frozenset({"STXUSDT"}),
     )
 
     # ---- the position about to be closed: opened under yet another spelling ----

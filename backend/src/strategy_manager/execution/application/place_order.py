@@ -110,6 +110,14 @@ class PlaceOrder:
         if reservation.expires_at <= now:
             await self._reservations.mark(reservation.id, RELEASED, now)
             await self._commit.commit()
+            # 2f.2 (orchestrator's outcome map, finding 9): ``_handle_
+            # consumes`` never reads ``PlaceResult`` at all, so this WARNING
+            # is the only trace an expired reservation ever leaves.
+            logger.warning(
+                "reservation %s expired before submission; releasing it, no "
+                "order placed",
+                reservation.id,
+            )
             return PlaceResult(status="ABORTED_EXPIRED", execution_attempt_id=None)
 
         client_order_id = str(uuid4())
@@ -200,6 +208,19 @@ class PlaceOrder:
             await self._reservations.mark(reservation.id, RELEASED, now)
             await self._attempts.mark_failed(attempt_id, str(exc))
             await self._commit.commit()
+            # 2f.3 (orchestrator's outcome map, finding 11): this except
+            # block was the one call site in this file with no log line at
+            # all -- ``_handle_consumes`` discards ``PlaceResult``, so this
+            # ERROR is the only trace a rejected OPEN order leaves. ERROR,
+            # not WARNING: a trade that did not happen reaches Telegram, the
+            # same severity the venue rejection in ``close_position.py``
+            # already uses.
+            logger.error(
+                "order rejected by venue: reservation=%s symbol=%s error=%s",
+                reservation.id,
+                command.symbol,
+                exc,
+            )
             return PlaceResult(
                 status="FAILED", execution_attempt_id=attempt_id, error=str(exc)
             )
