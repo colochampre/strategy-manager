@@ -111,6 +111,18 @@ class AllocateCapital:
         policy = await self._strategy_policy.policy_for(command.strategy_id)
 
         if not policy.enabled:
+            # 2f.1 (orchestrator's outcome map, finding 8): the ONLY record
+            # of this skip -- ``process_signal.py`` discards
+            # ``AllocationResult`` entirely once ``reservation_id is None``,
+            # and ``signals.status`` never leaves ACCEPTED. Distinct from
+            # 2c's in-lock re-check WARNING below: this one fires BEFORE the
+            # lock is ever taken.
+            logger.warning(
+                "allocation skipped for signal %s (strategy %s): %s",
+                command.signal_id,
+                command.strategy_id,
+                STRATEGY_DISABLED_SKIP_REASON,
+            )
             return AllocationResult(
                 outcome=DecisionOutcome.SKIP,
                 granted=Decimal("0"),
@@ -207,6 +219,17 @@ class AllocateCapital:
                     status=ReservationStatus.PENDING,
                     expires_at=now + timedelta(seconds=self._reservation_ttl_seconds),
                 )
+            )
+        else:
+            # 2f.1: the engine's own SKIP, as opposed to the two lifecycle
+            # skips above -- same "otherwise nothing records this" reason.
+            # ``decide()`` guarantees ``skip_reason`` is set whenever the
+            # outcome is SKIP.
+            logger.warning(
+                "allocation skipped for signal %s (strategy %s): %s",
+                command.signal_id,
+                command.strategy_id,
+                decision.skip_reason.value if decision.skip_reason is not None else "SKIP",
             )
 
         await self._commit.commit()

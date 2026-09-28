@@ -406,11 +406,11 @@ no schema, no status write. Recording the outcome in the database is PR 5b and P
 `allocation/application/allocate_capital.py`, `execution/application/place_order.py`,
 `execution/application/settle_execution.py`.
 
-- [ ] 2f.1 RED `AllocateCapital` SKIP, which `process_signal.py` drops at `result.reservation_id is None`. Assert one log line naming the signal, the strategy and the skip reason, for the pre-lock `STRATEGY_DISABLED` skip and for each `decide()` skip (`NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`). The in-lock skip from 2c already logs; do not log it twice.
-- [ ] 2f.2 RED `PlaceOrder` `ABORTED_EXPIRED`: the reservation expired before submit. Assert one log line naming the reservation.
-- [ ] 2f.3 RED `PlaceOrder` `FAILED` on a venue `ExchangeError` at submit. Assert one ERROR naming the reservation, the symbol and the venue's error. It is an ERROR so it reaches Telegram, because an order the venue rejected is a trade that did not happen.
-- [ ] 2f.4 RED `SettleExecution` FILLED and NEVER_PLACED. Assert one INFO for FILLED, and one WARNING for NEVER_PLACED naming the attempt.
-- [ ] 2f.5 GREEN: the log lines. Where one call site already logs the same fact, log in exactly one place.
+- [x] 2f.1 RED `AllocateCapital` SKIP, which `process_signal.py` drops at `result.reservation_id is None`. Assert one log line naming the signal, the strategy and the skip reason, for the pre-lock `STRATEGY_DISABLED` skip and for each `decide()` skip (`NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`). The in-lock skip from 2c already logs; do not log it twice. Four RED tests, one per skip reason, `test_allocate_capital.py`.
+- [x] 2f.2 RED `PlaceOrder` `ABORTED_EXPIRED`: the reservation expired before submit. Assert one log line naming the reservation.
+- [x] 2f.3 RED `PlaceOrder` `FAILED` on a venue `ExchangeError` at submit. Assert one ERROR naming the reservation, the symbol and the venue's error. It is an ERROR so it reaches Telegram, because an order the venue rejected is a trade that did not happen.
+- [x] 2f.4 RED `SettleExecution` FILLED and NEVER_PLACED. Assert one INFO for FILLED, and one WARNING for NEVER_PLACED naming the attempt.
+- [x] 2f.5 GREEN: the log lines. Where one call site already logs the same fact, log in exactly one place. Deviation: `process_signal.py` was NOT modified — every log line was placed in the class that already owns the fact and already discards it today (`AllocateCapital.allocate`'s two SKIP branches; `PlaceOrder.place`'s `ABORTED_EXPIRED` and `ExchangeError` branches; `SettleExecution.settle`'s FILLED path and `_release_never_placed`'s NEVER_PLACED path), never at the `process_signal.py` call sites that merely drop the already-discarded result. This keeps ownership consistent with 2c's own in-lock WARNING, which logs where the fact is decided, not where it is read.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Harness: fakes and caplog. Each test asserts exactly one record at the stated level.

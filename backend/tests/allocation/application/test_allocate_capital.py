@@ -403,3 +403,151 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
     assert str(signal_id) in warnings[0].getMessage()
     assert str(strategy_id) in warnings[0].getMessage()
     assert "STRATEGY_ARCHIVED" in warnings[0].getMessage()
+
+
+# --------------------------------------------------------------------------
+# 2f.1 -- a log line on every SKIP `AllocateCapital` produces that is not
+# already covered by 2c's in-lock re-check WARNING above (orchestrator's
+# outcome map, finding 8: ``process_signal.py`` drops every one of these at
+# ``result.reservation_id is None``, with no log at all).
+# --------------------------------------------------------------------------
+
+
+async def test_pre_lock_disabled_skip_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The PRE-lock disabled skip (``policy.enabled`` false before the lock
+    is ever taken) -- distinct from 2c's IN-lock re-check WARNING, which
+    only fires once the lock is already held. This is the only trace of a
+    signal for an already-disabled strategy today."""
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    use_case, lock, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id, enabled=False), pool_balance=None
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.skip_reason == "STRATEGY_DISABLED"
+    assert lock.acquired == []  # pre-lock: never reached the lock at all
+    assert reservations.inserted == []
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "STRATEGY_DISABLED" in warnings[0].getMessage()
+
+
+async def test_decide_skip_no_availability_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``decide()`` Rule 2: the pool is empty. Skipped inside the lock, after
+    the in-lock re-check already passed -- a different WARNING from 2c's,
+    since this one comes from the ENGINE's own decision, not a lifecycle
+    re-check."""
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    use_case, lock, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id),
+        pool_balance=PoolBalance(
+            total=Decimal("0"), available=Decimal("0"), min_order_size=Decimal("10")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.skip_reason == "NO_AVAILABILITY"
+    assert len(lock.acquired) == 1  # this skip only happens INSIDE the lock
+    assert reservations.inserted == []
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "NO_AVAILABILITY" in warnings[0].getMessage()
+
+
+async def test_decide_skip_insufficient_availability_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``decide()`` Rule 4: available > 0 but below the request, and
+    ``fill_mode`` is SKIP rather than PARTIAL."""
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    use_case, lock, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id, fill_mode="SKIP"),
+        pool_balance=PoolBalance(
+            total=Decimal("50"), available=Decimal("50"), min_order_size=Decimal("10")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.skip_reason == "INSUFFICIENT_AVAILABILITY"
+    assert len(lock.acquired) == 1
+    assert reservations.inserted == []
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "INSUFFICIENT_AVAILABILITY" in warnings[0].getMessage()
+
+
+async def test_decide_skip_below_min_order_size_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``decide()`` Rule 1: the request itself is below the pool's minimum
+    order size -- refused before availability is even read."""
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    use_case, lock, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("300")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.skip_reason == "REQUEST_BELOW_MIN_ORDER_SIZE"
+    assert len(lock.acquired) == 1
+    assert reservations.inserted == []
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "REQUEST_BELOW_MIN_ORDER_SIZE" in warnings[0].getMessage()

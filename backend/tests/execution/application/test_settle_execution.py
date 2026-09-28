@@ -380,3 +380,45 @@ async def test_a_close_the_exchange_never_saw_releases_nothing() -> None:
     assert reservations.marks == []
     assert ledger.records == []
     assert attempts.failed[0][0] == ATTEMPT_ID
+
+
+# --------------------------------------------------------------------------
+# 2f.4 -- a log line on FILLED and on NEVER_PLACED (orchestrator's outcome
+# map, findings 16 and 17: this file imports no ``logging`` at all today,
+# so the ONE place that learns an order's true fate leaves no trace).
+# --------------------------------------------------------------------------
+
+
+async def test_a_filled_order_logs_exactly_one_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="strategy_manager.execution.application.settle_execution")
+    exchange = FakeExchange(fills=[_fill("2", "50")])
+    use_case, _, _, _, _ = _build(exchange)
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "FILLED"
+
+    info_records = [r for r in caplog.records if r.levelname == "INFO"]
+    assert len(info_records) == 1
+    assert str(ATTEMPT_ID) in info_records[0].getMessage()
+
+
+async def test_a_never_placed_order_logs_exactly_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The only trace an order the exchange never saw leaves: whether its
+    reservation was released depends on ``attempt.is_closing``, but the
+    fact that nothing was ever placed does not."""
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.settle_execution")
+    exchange = FakeExchange(raises=OrderNotFound("no such client order id"))
+    use_case, _, _, _, _ = _build(exchange)
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "NEVER_PLACED"
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 1
+    assert str(ATTEMPT_ID) in warning_records[0].getMessage()
