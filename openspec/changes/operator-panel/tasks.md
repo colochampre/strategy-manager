@@ -65,9 +65,12 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 | 1b | Binance reads onto the vault | PR 3 | `cd backend && uv run pytest --tb=short backend/tests/main/test_booking_prepare_wiring.py` | Fakes + real vault (envelope decrypt), gated by PR 1's P4 | `main.py`'s five Binance factory call sites; revert restores `.env` reads while `.env` values are kept until proven |
 | 2a+2d+2e | Lifecycle schema, enablement log, pairs/list endpoints | PR 4 | `cd backend && uv run pytest --tb=short backend/tests/migrations/test_0024_strategy_lifecycle.py backend/tests/strategies/` | Real PostgreSQL, migration up/down, seeding rehearsal | `migrations/versions/0024_*.py` + new strategies columns; downgrade refuses while OBSERVED events exist |
 | 2b+2c | Allowlist/archived refusals, `ArchiveStrategy`, concurrency | PR 5 | `cd backend && uv run pytest --tb=short backend/tests/signals/application/test_process_signal.py backend/tests/strategies/application/test_archive_strategy_integration.py` | Real PostgreSQL, live concurrency test (advisory lock) | Pre-lock refusal methods + `ArchiveStrategy`; revert removes both, signals flow as before |
+| 2f | Log lines on the five silent signal paths (decision 25) | PR 5 | `cd backend && uv run pytest --tb=short backend/tests/allocation/ backend/tests/execution/` | Fakes + caplog | Log lines only |
+| 5b | Signal outcomes decided in signal.process, migration 0025 (decision 25) | PR 5b | `cd backend && uv run pytest --tb=short backend/tests/migrations/test_0025_signal_outcomes.py backend/tests/signals/` | Real PostgreSQL for the migration and atomicity tests | Migration 0025 (downgrade refuses while outcomes exist) + the outcome writes |
+| 5c | Asynchronous signal outcomes: settle, continuation, close linkage, exhausted jobs | PR 5c | `cd backend && uv run pytest --tb=short backend/tests/execution/ backend/tests/signals/` | Real PostgreSQL | The writes only |
 | 3a+3b+3c+3d | Pool capital at open, PnL, curve/drawdown/grid, stats | PR 6 | `cd backend && uv run pytest --tb=short backend/tests/allocation/ backend/tests/performance/` | Real PostgreSQL for 3a; pure for 3b–3d | `reservations.pool_total_at_open` (additive) + new `performance/` module; downgrade refuses while non-null values exist |
 | 5-reads | Pools/performance/webhook-secret read endpoints | PR 7 | `cd backend && uv run pytest --tb=short backend/tests/accounts/infrastructure/test_pools_router.py backend/tests/performance/infrastructure/test_performance_router.py backend/tests/signals/infrastructure/test_webhook_secret_router.py` | `httpx.AsyncClient` over ASGI | New routers only; revert 404s the paths, no view depends on them yet |
-| 6a+6b+6c | Key policy, inspectors, 0026, `SaveCredential`, `TradeCapabilityPort` | PR 8a | `cd backend && uv run pytest --tb=short backend/tests/accounts/` | `httpx.MockTransport` for inspectors, real vault for the migration, gated by PR 1's P1–P3 | Migration 0026 (refuses downgrade while any `trade_capable=false` row exists) + new use case; revert leaves scripts working unchanged |
+| 6a+6b+6c | Key policy, inspectors, 0027, `SaveCredential`, `TradeCapabilityPort` | PR 8a | `cd backend && uv run pytest --tb=short backend/tests/accounts/` | `httpx.MockTransport` for inspectors, real vault for the migration, gated by PR 1's P1–P3 | Migration 0027 (refuses downgrade while any `trade_capable=false` row exists) + new use case; revert leaves scripts working unchanged |
 | 6d+6e | Pool auto-enable, `DeleteCredential`, exposure adapter | PR 8b | `cd backend && uv run pytest --tb=short backend/tests/accounts/application/test_delete_credential_integration.py` | Real PostgreSQL, concurrent delete-vs-allocate test (advisory lock) | `CapitalPoolWriterPort` + `DeleteCredential`; revert removes both, keys already stored remain valid |
 | 4b | SPA serving, fallback, CSP, invariant 5 | PR 9 | `cd backend && uv run pytest --tb=short backend/tests/shared/infrastructure/test_spa.py` | `httpx.AsyncClient` over ASGI with a temp `dist` directory | `shared/infrastructure/spa.py` + `mount_panel()` call; revert removes the mount, `/api` untouched |
 | 7-shell | Router, shell, exchange scope, bookings re-homed, theme swap | PR 10 | `cd frontend && npm test -- router AppShell exchange-store` | N/A — frontend-only, `vi.stubGlobal("fetch")` | New `app/router.tsx`, `shared/layout/*`; revert restores the hash-based nav |
@@ -87,7 +90,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 - **P5** (binding/expiry fields) is informational only; it gates nothing, but its shape must
   be recorded before PR 13's Settings card renders it.
 
-## Migration rehearsal (0024, 0025, 0026)
+## Migration rehearsal (0024, 0025, 0026, 0027)
 
 Every migration in this change is rehearsed **locally** first (Tier B: up, down, refusals)
 and then **on the VPS against a throwaway restore**, per design's "Migration / rollout":
@@ -107,8 +110,11 @@ string in a log line, a commit message, or this file.
   and the BASELINE event count, **the owner reviews the seeded pairs in the panel/`GET
   /api/strategies` before PR 5 deploys** (Q1's resolution — the migration itself is what
   answers Q1, not a separate owner decision).
-- **0025** (PR 6, `pool_total_at_open`): rehearse; additive column, no seeding to review.
-- **0026** (PR 8a, credential snapshot): rehearse; confirm the backfill sets every existing
+- **0025** (PR 5b, signal outcomes, decision 25): rehearse; additive nullable columns and a
+  nullable FK, no seeding. Existing signals stay `ACCEPTED`. The downgrade refuses once any
+  outcome is recorded.
+- **0026** (PR 6, `pool_total_at_open`): rehearse; additive column, no seeding to review.
+- **0027** (PR 8a, credential snapshot): rehearse; confirm the backfill sets every existing
   row `trade_capable=true` (correct by construction — every current store script already
   refuses a key that cannot trade) and that the downgrade refuses while `trade_capable=false`
   exists.
@@ -419,23 +425,138 @@ Forecast: 150–250 lines.
 
 ---
 
+## Signal outcome map (decision 25; the input to PR 5b and PR 5c)
+
+Read-only mapping of the code at 17681ef (2026-09-28). `signals.status` is written `ACCEPTED`
+at ingest (`ingest_signal.py`) and never changes. The CHECK in `0002_signals.py` already allows
+`ACCEPTED`, `PROCESSING`, `PROCESSED` and `REJECTED`. `main.py::handle_signal_process`
+discards `ProcessSignalResult`, and the job ends `DONE` whether the signal executed or was
+refused. Line numbers are those of 17681ef; re-check them before editing.
+
+| # | Where | Kind | Final in which job | Reason code |
+|---|---|---|---|---|
+| 1 | `process_signal.py` `_refuse_untradable_pool` | refusal | signal.process | `UNTRADABLE_POOL` |
+| 2 | `process_signal.py` `_refuse_archived_strategy` (`handle`, `open_now`) | refusal | signal.process or continuation | `STRATEGY_ARCHIVED` |
+| 3 | `process_signal.py` `_refuse_unlisted_pair` | refusal, opens only | signal.process or continuation | `PAIR_NOT_ALLOWED` |
+| 4 | `holding_guard.py` `_classify_divergence` GHOST / AMBIGUOUS | refusal | signal.process | `DIVERGENT_HOLDING_GHOST` / `_AMBIGUOUS` |
+| 5 | `holding_guard.py` `_on_in_flight`, past the age bound | refusal | signal.process | `IN_FLIGHT_TIMEOUT` |
+| 6 | `process_signal.py` balance refresh UNAVAILABLE | refusal (logs ERROR) | signal.process | `BALANCE_UNAVAILABLE` |
+| 7 | `process_signal.py` `_refuse_non_positive_request` | refusal | signal.process | `NOTHING_TO_ALLOCATE` |
+| 8 | `allocate_capital.py` SKIP: pre-lock, in-lock, and `decide()` | skip | signal.process | the existing `skip_reason` value (`STRATEGY_DISABLED`, `STRATEGY_ARCHIVED`, `NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`, `PARTIAL_BELOW_MIN_ORDER_SIZE`) |
+| 9 | `place_order.py` `ABORTED_EXPIRED` | definitive | signal.process | `RESERVATION_EXPIRED_BEFORE_SUBMIT` |
+| 10 | `place_order.py` `REFUSED` (`OrderNotPlaceable`) | definitive | signal.process | `ORDER_NOT_PLACEABLE` |
+| 11 | `place_order.py` `FAILED` (venue `ExchangeError`) | definitive | signal.process | `ORDER_REJECTED_BY_VENUE` |
+| 12 | `place_order.py` `PLACED` | NOT final: schedules settle | → PROCESSING | — |
+| 13 | `close_position.py` `NOT_CLOSABLE` (dust) | definitive | signal.process | `CLOSE_DUST_NOT_CLOSABLE` |
+| 14 | `close_position.py` `FAILED` | definitive | signal.process | `CLOSE_REJECTED_BY_VENUE` |
+| 15 | `close_position.py` `PLACED` | NOT final: schedules settle | → PROCESSING | — |
+| 16 | `settle_execution.py` FILLED | terminal | execution.settle | → PROCESSED |
+| 17 | `settle_execution.py` `_release_never_placed` | terminal | execution.settle | `ORDER_NEVER_REACHED_EXCHANGE` |
+| 18 | `process_signal.py` `_note_unexecuted_tail` | annotation on a REVERSE's open half | — | none of its own |
+| 19 | duplicate delivery, `ingest_signal.py` `inserted=False` | no-op at ingress | — | none: same row, no second outcome |
+| 20 | idempotent close replay (existing close not FAILED) | re-reports a prior close | — | never overwrites a recorded outcome |
+
+**Deferrals.** Two `_handle_consumes` branches hand the open to the `signal.open_after_close`
+continuation: in-flight work not yet timed out, and a REAL orphan closed by `CloseOrphans`.
+The `signal.process` job ends `DONE` with the signal undecided. The continuation
+(`open_after_close.py` `poll`, its own job and session) either calls `open_now` and lands on
+rows 2–15, or abandons: signal deleted, superseded by a newer signal, an awaited close FAILED,
+or timed out. Today the abandonments log but write nothing to `signals`.
+
+**Exceptions.** No `try/except` in `process_signal.py`, `handle_signal_process` or
+`handle_execution_settle`: errors reach `WorkerRunner.run_once`, and `queue.fail()` retries,
+then marks the job `FAILED`, with `jobs.last_error`. `queue.fail()` is job-kind-agnostic and has
+no `signal_id` in scope. The raising paths include `UnknownStrategyError`, `UnknownPoolError`,
+`NothingRecordedYet` (close before the open's fills settle) and `NotSettledYet`.
+
+**Transactions.** One `signal.process` run uses one session but several commits:
+`AllocateCapital` commits once, `PlaceOrder` up to four times, `ClosePosition` three times, and
+the handler once more at the end. A status write is atomic with an outcome only when staged
+on that session immediately before the commit that makes the outcome durable. Venue calls run
+outside any transaction. Writing `PROCESSED` from the handler's trailing commit when
+`PlaceOrder` returns `PLACED` would be WRONG: the order is only submitted, and its fate is
+known in `execution.settle`.
+
+**Close linkage.** `SettleExecution` sees `attempt_id` and `allocation_id`. For an open,
+`reservation.signal_id` gives the signal. For a close, `allocation_id` is the OPENING
+allocation, so its reservation names the opening signal, not the closing one. A close attempt
+carries no link to its own signal today.
+
+---
+
+## PR 5b — Signal outcomes decided inside signal.process (900–1,300 lines)
+
+Decision 25. Records the outcome of every path in the map that is decided inside the
+`signal.process` job (rows 1–15, and the deferrals as `PROCESSING`). Migration **0025**.
+
+**Rules** (binding for 5b and 5c):
+- Status machine: `ACCEPTED → PROCESSING → PROCESSED | REJECTED`, or `ACCEPTED → PROCESSED |
+  REJECTED` directly. `PROCESSED` and `REJECTED` are terminal and never overwritten; a
+  write against a terminal signal is a no-op and logs a WARNING if the new outcome differs.
+- Each outcome write is staged on the same session immediately before the commit that makes
+  that outcome durable (the reservation mark, the attempt write, the fills write). Never a
+  separate, later transaction.
+- A submitted order is `PROCESSING`, never `PROCESSED`.
+- A `REJECTED` outcome stores a stable reason code (the table above) and the human message
+  already logged for it.
+- Signals received before 0025 stay `ACCEPTED`; nothing is reconstructed.
+
+- [ ] 5b.1 Design addendum in design.md: the status machine, the reason-code table, the same-commit rule, and the REVERSE rule. Proposed REVERSE rule: the close half moves the signal to `PROCESSING`, and the open half decides the final status. If the open is refused after the close executed, the signal is `REJECTED` with the open's reason, and the detail says the close executed. The owner confirms the REVERSE rule before 5b.4.
+- [ ] 5b.2 RED `backend/tests/migrations/test_0025_signal_outcomes.py`: `signals.outcome_reason TEXT NULL`, `outcome_detail TEXT NULL`, `decided_at timestamptz NULL`; CHECK `status <> 'REJECTED' OR outcome_reason IS NOT NULL`; CHECK `status NOT IN ('PROCESSED','REJECTED') OR decided_at IS NOT NULL`; `execution_attempts.signal_id UUID NULL` with an FK to `signals` (filled from 5c, NULL for history); downgrade refuses while any signal is not `ACCEPTED` or any attempt carries a `signal_id`, naming the counts.
+- [ ] 5b.3 GREEN: migration 0025, ORM columns, a `SignalOutcome` value object and `SignalOutcomePort.record(signal_id, outcome)` on the signal repository, with the terminal-state guard.
+- [ ] 5b.4 RED refusals, rows 1–7: each ends `REJECTED` with its code and message. At least one runs on real Postgres; the rest use fakes.
+- [ ] 5b.5 RED skips, row 8: `REJECTED` with the existing `skip_reason` value; the in-lock skip too.
+- [ ] 5b.6 RED `PlaceOrder`, rows 9–12: expired, refused and venue-rejected end `REJECTED`; `PLACED` ends `PROCESSING`. Atomicity test: inject a failing commit and assert that the status and the reservation mark land together or not at all.
+- [ ] 5b.7 RED `ClosePosition`, rows 13–15, with the same atomicity test.
+- [ ] 5b.8 RED deferrals: the in-flight wait and the orphan close leave the signal `PROCESSING`.
+- [ ] 5b.9 RED rows 19–20: a duplicate delivery and an idempotent close replay never change a recorded outcome.
+- [ ] 5b.10 GREEN: the writes, each on its deciding commit.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL for the migration and the atomicity tests; fakes elsewhere.
+Rollback boundary: migration 0025 (its downgrade refuses while outcomes exist) and the outcome writes.
+Deploy: rehearse 0025 on a throwaway restore like 0024; no seeding to review.
+Forecast: 900–1,300 lines.
+
+---
+
+## PR 5c — Asynchronous signal outcomes (900–1,400 lines)
+
+Decision 25. Closes the outcomes decided outside `signal.process` (rows 16–17, the
+continuation, exhausted jobs). No new migration: 0025 already added `execution_attempts.signal_id`.
+
+- [ ] 5c.1 RED settle of an OPEN: FILLED ends `PROCESSED`, in the same commit as the fills, with the signal resolved through `reservation.signal_id`.
+- [ ] 5c.2 RED `NEVER_PLACED` ends `REJECTED` `ORDER_NEVER_REACHED_EXCHANGE`, in the same commit as the release.
+- [ ] 5c.3 RED close linkage: `PlaceOrder` and `ClosePosition` write `execution_attempts.signal_id`. Settle of a CLOSE resolves the closing signal, never the opening one. The test must fail if settle reads the opening reservation's `signal_id` for a close.
+- [ ] 5c.4 RED continuation abandonments end `REJECTED`: `SIGNAL_SUPERSEDED`, `AWAITED_CLOSE_FAILED`, `CONTINUATION_TIMED_OUT`. A deleted signal writes nothing.
+- [ ] 5c.5 RED the continuation's `open_now` reuses 5b's writes, rows 2–15, in the continuation job's own commits.
+- [ ] 5c.6 RED exhausted jobs: a signal whose `signal.process`, `signal.open_after_close` or `execution.settle` job ends `FAILED` becomes `REJECTED` `JOB_FAILED`, with `jobs.last_error` as the detail, exactly once. `job_queue` stays job-kind-agnostic: a separate reader resolves the job's payload to its signal.
+- [ ] 5c.7 GREEN.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL for the settle, linkage and exhausted-job tests.
+Rollback boundary: the writes only; the schema stays from 0025.
+Forecast: 900–1,400 lines.
+
+---
+
 ## PR 6 — Units 3a + 3b + 3c + 3d: pool capital at open, PnL, curve, stats (2,150–3,100 lines)
 
 **Gate before deploy**: `SELECT count(*) FROM ledger_entries WHERE exchange_fill_id LIKE 'fake-fill-%'` run and recorded (F2 — any rehearsal rows are excluded by design, this just confirms the count for the record).
 
-### Unit 3a — `pool_total_at_open`, migration 0025 (350–500 lines)
+### Unit 3a — `pool_total_at_open`, migration 0026 (350–500 lines)
 
-**Files**: Create `backend/migrations/versions/0025_reservation_pool_total.py`; Modify
+**Files**: Create `backend/migrations/versions/0026_reservation_pool_total.py`; Modify
 `backend/src/strategy_manager/allocation/domain/reservation.py`, `allocation/infrastructure/{models,repository}.py`, `allocate_capital.py`.
 
-- [ ] 3a.1 RED `backend/tests/migrations/test_0025_reservation_pool_total.py::test_pool_total_at_open_check_allows_null_or_positive`, `::test_downgrade_refuses_while_any_non_null_value_exists`.
+- [ ] 3a.1 RED `backend/tests/migrations/test_0026_reservation_pool_total.py::test_pool_total_at_open_check_allows_null_or_positive`, `::test_downgrade_refuses_while_any_non_null_value_exists`.
 - [ ] 3a.2 RED `backend/tests/allocation/application/test_allocate_capital.py::test_reservation_records_in_lock_pool_capital_not_prelock_read` — pool reads 510 pre-lock, 500 in-lock; asserts 500 stored, no extra read (F1).
 - [ ] 3a.3 RED same file `::test_pool_total_at_open_written_under_lock_survives_concurrent_allocation_on_same_pool` — **live PostgreSQL**.
 - [ ] 3a.4 RED same file `::test_resume_of_retried_allocation_returns_existing_row_unchanged`.
-- [ ] 3a.5 GREEN: `migrations/versions/0025_*.py` — `reservations.pool_total_at_open Numeric(38,18) NULL` + `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`; downgrade refuses while non-null values exist.
+- [ ] 3a.5 GREEN: `migrations/versions/0026_*.py` — `reservations.pool_total_at_open Numeric(38,18) NULL` + `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`; downgrade refuses while non-null values exist.
 - [ ] 3a.6 GREEN: `Reservation.pool_total_at_open: Decimal | None`; `AllocateCapital` writes it from the existing in-lock `pool_balance.total` read (`allocate_capital.py:131`), no new read.
 
-Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/migrations/test_0025_reservation_pool_total.py backend/tests/allocation/`.
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/migrations/test_0026_reservation_pool_total.py backend/tests/allocation/`.
 Harness: real PostgreSQL, live concurrency test.
 Rollback boundary: additive column; downgrade refuses while non-null values exist (values cannot be recomputed).
 Forecast: 350–500 lines.
@@ -517,30 +638,30 @@ Forecast: 950–1,350 lines.
 
 ---
 
-## PR 8a — Units 6a + 6b + 6c: key policy, inspectors, 0026, `SaveCredential`, trade-capability refusal (1,900–2,600 lines)
+## PR 8a — Units 6a + 6b + 6c: key policy, inspectors, 0027, `SaveCredential`, trade-capability refusal (1,900–2,600 lines)
 
 **Gate before rules are written**: PR 1's **P1–P3** recorded. No line of `key_policy.py` is
 written before "PR 1 — Probe results" carries P1–P3.
 
-### Unit 6a — key policy + inspectors + migration 0026 (800–1,100 lines)
+### Unit 6a — key policy + inspectors + migration 0027 (800–1,100 lines)
 
 **Files**: Create `backend/src/strategy_manager/accounts/domain/key_policy.py`; Create
 `backend/src/strategy_manager/accounts/infrastructure/key_inspectors/{bybit,binance,registry}.py`;
 Modify `backend/src/strategy_manager/accounts/domain/exchange_credential.py`; Create
-`backend/migrations/versions/0026_credential_snapshot.py`.
+`backend/migrations/versions/0027_credential_snapshot.py`.
 
 - [ ] 6a.1 RED `backend/tests/accounts/domain/test_key_policy.py::test_evaluate_key_refuses_withdraw_permission_bybit_wallet_withdraw` (using the P1-recorded fixture), `::test_evaluate_key_allows_internal_transfer_only_accounttransfer`, `::test_evaluate_key_refuses_withdraw_binance_enable_withdrawals`, `::test_evaluate_key_allows_internal_transfer_binance`.
 - [ ] 6a.2 RED same file `::test_evaluate_key_derives_trade_capable_true_bybit_readonly_zero_and_permission_present` (using the P2-recorded field), `::test_evaluate_key_derives_trade_capable_false_readonly_key`, `::test_evaluate_key_derives_trade_capable_binance_enablefutures_true` (P3), `::test_evaluate_key_derives_trade_capable_false_binance_enablefutures_false`.
 - [ ] 6a.3 RED `backend/tests/accounts/infrastructure/test_key_inspectors.py::test_bybit_inspector_calls_wallet_balance_and_query_api_never_an_order` (`httpx.MockTransport`, probe-recorded payload shapes), `::test_binance_inspector_calls_api_restrictions_never_an_order`, `::test_registry_dispatches_by_exchange_unserved_raises`.
-- [ ] 6a.4 RED `backend/tests/migrations/test_0026_credential_snapshot.py::test_permissions_and_validated_at_check_constraint_paired`, `::test_backfill_sets_trade_capable_true_for_every_existing_row`, `::test_default_is_dropped_insert_without_trade_capable_fails`, `::test_downgrade_refuses_while_any_trade_capable_false_row_exists_naming_count`.
+- [ ] 6a.4 RED `backend/tests/migrations/test_0027_credential_snapshot.py::test_permissions_and_validated_at_check_constraint_paired`, `::test_backfill_sets_trade_capable_true_for_every_existing_row`, `::test_default_is_dropped_insert_without_trade_capable_fails`, `::test_downgrade_refuses_while_any_trade_capable_false_row_exists_naming_count`.
 - [ ] 6a.5 GREEN: `PermissionSnapshot`, `KeyVerdict`, `evaluate_key(snapshot)` — pure, 8(a)/8(b) refusals and trade-capability derivation.
 - [ ] 6a.6 GREEN: `trade_capable`, `validated_at`, `permissions` on `ExchangeCredential`/`CredentialHint` (`trade_capable` has no default — every constructor call names it).
 - [ ] 6a.7 GREEN: `BybitKeyInspector`, `BinanceKeyInspector`, `KeyInspectorRegistry` — a GET balance read plus permission introspection, never an order.
-- [ ] 6a.8 GREEN: `migrations/versions/0026_*.py` — `permissions JSONB NULL`, `validated_at timestamptz NULL`, `CHECK ((permissions IS NULL) = (validated_at IS NULL))`, `trade_capable boolean NOT NULL` added `DEFAULT true`, backfilled, default dropped; downgrade refuses while any `false` row exists.
+- [ ] 6a.8 GREEN: `migrations/versions/0027_*.py` — `permissions JSONB NULL`, `validated_at timestamptz NULL`, `CHECK ((permissions IS NULL) = (validated_at IS NULL))`, `trade_capable boolean NOT NULL` added `DEFAULT true`, backfilled, default dropped; downgrade refuses while any `false` row exists.
 
-Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/accounts/ backend/tests/migrations/test_0026_credential_snapshot.py`.
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/accounts/ backend/tests/migrations/test_0027_credential_snapshot.py`.
 Harness: `httpx.MockTransport` for inspectors (no real credential, rule 1); real PostgreSQL for the migration.
-Rollback boundary: migration 0026 (refuses downgrade while `trade_capable=false` rows exist) + new domain/infra files; revert leaves every existing store script working unchanged.
+Rollback boundary: migration 0027 (refuses downgrade while `trade_capable=false` rows exist) + new domain/infra files; revert leaves every existing store script working unchanged.
 Forecast: 800–1,100 lines.
 
 ### Unit 6b — `SaveCredential`, credential endpoints, redacted 422, store scripts (750–1,000 lines)
@@ -635,7 +756,7 @@ Forecast: 700–1,000 lines.
 
 **PR 8a+8b deploy runbook** (owner-run): `alembic upgrade head` then restart both processes. The
 old code never inserts a credential row (only the store scripts do), so no ordering hazard exists;
-run the store scripts only from the new code, because 0026 makes `trade_capable` mandatory.
+run the store scripts only from the new code, because 0027 makes `trade_capable` mandatory.
 Re-saving each already-active key through Settings is optional (unvalidated rows remain
 trade-capable by construction); doing so for Bybit/Binance also runs `CapitalPoolWriterPort.enable`,
 a no-op on their already-enabled pool rows (migrations 0017/0018).
@@ -835,7 +956,7 @@ Forecast: 200–250 lines.
 **Files**: Create `frontend/src/features/settings/{SettingsPage,ExchangeKeyCard}.tsx`.
 
 - [ ] 10c.1 RED `frontend/src/features/settings/SettingsPage.test.tsx::test_no_exchange_tabs_lists_every_exchange` (Settings.dc.html).
-- [ ] 10c.2 RED `frontend/src/features/settings/ExchangeKeyCard.test.tsx::test_no_key_ever_stored_shows_neutral_empty_state_no_amber_border`, `::test_readonly_key_shows_amber_border_and_cannot_trade_sentence`, `::test_degraded_no_key_but_enabled_pool_shows_amber_border_and_no_key_stored_sentence` (decision 20 — distinguishing amber "no key" from neutral "no key" by whether the pool is enabled), `::test_active_key_shows_last4_reads_and_trades_or_reads_only_no_withdrawal_checked_date`, `::test_key_sealed_before_0026_shows_not_validated`.
+- [ ] 10c.2 RED `frontend/src/features/settings/ExchangeKeyCard.test.tsx::test_no_key_ever_stored_shows_neutral_empty_state_no_amber_border`, `::test_readonly_key_shows_amber_border_and_cannot_trade_sentence`, `::test_degraded_no_key_but_enabled_pool_shows_amber_border_and_no_key_stored_sentence` (decision 20 — distinguishing amber "no key" from neutral "no key" by whether the pool is enabled), `::test_active_key_shows_last4_reads_and_trades_or_reads_only_no_withdrawal_checked_date`, `::test_key_sealed_before_0027_shows_not_validated`.
 - [ ] 10c.3 GREEN: `SettingsPage` (`['credentials']` query, no exchange scope per 7s.1); `ExchangeKeyCard` per design's three-state rendering (neutral / read-only amber / DEGRADED amber).
 
 Gate: `cd frontend && npm run lint && npm test`.
