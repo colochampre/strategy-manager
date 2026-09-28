@@ -213,6 +213,33 @@ class SqlAlchemyLedgerRepository:
             for strategy_id, allocation_id, net in result.all()
         ]
 
+    async def distinct_symbols_for_strategy(
+        self, exchange: str, venue: str, settlement_currency: str, strategy_id: UUID
+    ) -> frozenset[str]:
+        """Implements ``LedgerSymbolHoldingsReaderPort.distinct_symbols_for_strategy``.
+
+        A plain ``SELECT DISTINCT symbol``, unnormalized -- ``market_key()``
+        normalization and deduping into markets is the CALLER's job
+        (``StrategyExposureAdapter``), not this repository's, exactly like
+        ``symbol_holdings`` accepts an already-normalized ``symbol`` rather
+        than normalizing internally.
+
+        Backed by ``ix_ledger_pool_symbol`` (migration ``0020``), whose
+        leading columns are ``(exchange, venue, settlement_currency)`` --
+        the same index every other query in this file already relies on.
+        """
+        result = await self._session.execute(
+            select(LedgerEntryRow.symbol)
+            .where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+                LedgerEntryRow.strategy_id == strategy_id,
+            )
+            .distinct()
+        )
+        return frozenset(row[0] for row in result.all())
+
     async def recorded_fill_ids(
         self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:

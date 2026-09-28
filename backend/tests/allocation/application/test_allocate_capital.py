@@ -43,6 +43,25 @@ class FakeStrategyPolicyPort:
 
 
 @dataclass
+class SequencedStrategyPolicyPort:
+    """Answers a DIFFERENT snapshot on each successive call -- what proves
+    the in-lock re-check (design.md § 8 point (ii)) genuinely re-reads
+    rather than reusing the pre-lock policy it already has in hand. A
+    ``FakeStrategyPolicyPort`` returning one fixed snapshot cannot
+    distinguish "read once" from "read twice, same answer" -- this fake
+    can, by answering enabled the first time and disabled/archived the
+    second."""
+
+    snapshots: list[StrategyPolicySnapshot]
+    calls: int = 0
+
+    async def policy_for(self, strategy_id: UUID) -> StrategyPolicySnapshot:
+        snapshot = self.snapshots[min(self.calls, len(self.snapshots) - 1)]
+        self.calls += 1
+        return snapshot
+
+
+@dataclass
 class FakePoolBalancePort:
     balance: PoolBalance | None = None
 
@@ -264,3 +283,123 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
     assert len(reservations.inserted) == 1
     assert reservations.inserted[0].amount == Decimal("200")
     assert commit.committed is True
+
+
+# --------------------------------------------------------------------------
+# 2c.10 -- the in-lock re-check (design.md § 8 point (ii))
+# --------------------------------------------------------------------------
+
+
+async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_prelock_read(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The pre-lock read sees ``enabled=True`` (so the pre-lock guard lets
+    it through and the lock is taken); the IN-LOCK re-read then sees
+    ``enabled=False`` -- exactly what a concurrent ``UpdateStrategy``
+    committing between the two reads would produce. The allocation must
+    skip WITHOUT writing a reservation, and log exactly one WARNING naming
+    the strategy and the signal (binding requirement 4 -- this is the ONLY
+    record of the refusal, since ``signals.status`` never leaves ACCEPTED)."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    policy = SequencedStrategyPolicyPort(
+        snapshots=[
+            _enabled_snapshot(strategy_id=strategy_id, enabled=True),
+            _enabled_snapshot(strategy_id=strategy_id, enabled=False),
+        ]
+    )
+    lock = FakeAdvisoryLock()
+    reservations = FakeReservationRepository()
+    commit = FakeCommit()
+    use_case = AllocateCapital(
+        strategy_policy=policy,  # type: ignore[arg-type]
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+            )
+        ),
+        lock=lock,
+        reservations=reservations,
+        commit=commit,
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert policy.calls == 2  # pre-lock AND in-lock -- proves the re-read happened
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.skip_reason == "STRATEGY_DISABLED"
+    assert result.reservation_id is None
+    assert reservations.inserted == []  # no reservation ever written
+    assert len(lock.acquired) == 1  # the lock WAS taken (pre-lock guard passed)
+    assert commit.committed is True  # released via commit, not left hanging
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "STRATEGY_DISABLED" in warnings[0].getMessage()
+
+
+async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_prelock_read(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Same race, the other closing half (design.md § 8, "archive wins the
+    lock first"): the pre-lock read still sees ``enabled=True`` (an
+    archived strategy is always disabled too, but the pre-lock guard only
+    checked ``enabled`` before this strategy was archived), and the in-lock
+    re-read sees ``archived=True`` -- distinct skip reason, one WARNING."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    policy = SequencedStrategyPolicyPort(
+        snapshots=[
+            _enabled_snapshot(strategy_id=strategy_id, enabled=True, archived=False),
+            _enabled_snapshot(strategy_id=strategy_id, enabled=False, archived=True),
+        ]
+    )
+    lock = FakeAdvisoryLock()
+    reservations = FakeReservationRepository()
+    commit = FakeCommit()
+    use_case = AllocateCapital(
+        strategy_policy=policy,  # type: ignore[arg-type]
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+            )
+        ),
+        lock=lock,
+        reservations=reservations,
+        commit=commit,
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert policy.calls == 2
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.skip_reason == "STRATEGY_ARCHIVED"
+    assert result.reservation_id is None
+    assert reservations.inserted == []
+    assert commit.committed is True
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(signal_id) in warnings[0].getMessage()
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "STRATEGY_ARCHIVED" in warnings[0].getMessage()

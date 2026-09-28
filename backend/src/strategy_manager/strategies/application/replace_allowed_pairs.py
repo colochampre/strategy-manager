@@ -30,7 +30,10 @@ from uuid import UUID
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.strategies.application.ports import CommitPort, StrategyRepositoryPort
-from strategy_manager.strategies.application.update_strategy import UnknownStrategy
+from strategy_manager.strategies.application.update_strategy import (
+    StrategyArchived,
+    UnknownStrategy,
+)
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs, EmptyAllowedPairs
 from strategy_manager.strategies.domain.strategy import Strategy
 
@@ -51,6 +54,11 @@ class ReplaceAllowedPairs:
         if strategy is None:
             raise UnknownStrategy(
                 f"no strategy registered under id {command.strategy_id}"
+            )
+        if strategy.archived_at is not None:
+            raise StrategyArchived(
+                f"strategy {command.strategy_id} ({strategy.name!r}) is archived "
+                "and read-only; its allowed pairs cannot be replaced"
             )
 
         normalized = {market_key(pair) for pair in command.pairs}

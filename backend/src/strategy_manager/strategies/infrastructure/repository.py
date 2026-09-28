@@ -88,6 +88,12 @@ class SqlAlchemyStrategyRepository:
         row.fill_mode = strategy.policy.fill_mode.value
         row.allocation_percent = strategy.policy.allocation_percent.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
+        # Archive is terminal (design.md § 8): every OTHER caller of
+        # ``update()`` (``UpdateStrategy``, ``ReplaceAllowedPairs``) reads
+        # ``strategy`` from this same row first and only replaces unrelated
+        # fields, so ``archived_at`` round-trips unchanged for them --
+        # ``ArchiveStrategy`` is the only caller that ever sets it.
+        row.archived_at = strategy.archived_at
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
 

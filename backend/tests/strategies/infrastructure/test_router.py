@@ -303,3 +303,121 @@ async def test_strategy_view_uptime_reflects_events_on_detail_and_list(
     assert listing.status_code == 200
     by_id = {row["id"]: row for row in listing.json()}
     assert by_id[str(strategy_id)]["uptime"]["seconds"] == detail.json()["uptime"]["seconds"]
+
+
+# --------------------------------------------------------------------------
+# 2c.14 -- POST /{id}/archive, and archived-strategy refusals at the HTTP
+# layer (design.md § 8, § 14 "Endpoints")
+# --------------------------------------------------------------------------
+
+
+async def test_archive_endpoint_succeeds_on_disabled_flat_strategy(client: AsyncClient) -> None:
+    """A freshly registered strategy is disabled by construction (F8) --
+    archiving it right away needs no PATCH first."""
+    strategy_id = await _register(client)
+
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    assert response.status_code == 200
+    assert response.json()["archived_at"] is not None
+
+
+async def test_archive_endpoint_is_idempotent_same_archived_at(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+
+    first = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    second = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["archived_at"] == second.json()["archived_at"]
+
+
+async def test_archive_endpoint_refuses_enabled_strategy_409_still_enabled(
+    client: AsyncClient,
+) -> None:
+    strategy_id = await _register(client)
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
+
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STILL_ENABLED"
+
+
+async def test_archive_endpoint_unknown_strategy_404(client: AsyncClient) -> None:
+    response = await client.post(f"/strategies/{uuid4()}/archive", headers=_auth())
+
+    assert response.status_code == 404
+
+
+async def test_archive_endpoint_refuses_open_position_409_names_symbols(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A lightweight, router-level check that the 409 ``OPEN_POSITION`` body
+    is wired through with the structured fields design.md specifies --
+    ``test_archive_strategy_integration.py`` already covers the exposure
+    logic itself in depth; this only proves the endpoint doesn't lose it in
+    translation. Seeds a live PENDING reservation directly by SQL, which is
+    enough exposure to refuse without needing a full ledger fill."""
+    strategy_id = await _register(client)
+    signal_id = uuid4()
+    reservation_id = uuid4()
+    async with pg_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO signals (id, strategy_id, idempotency_key, raw_payload, "
+                "action, contracts, position_size, price, symbol, signal_type) "
+                "VALUES (:id, :strategy_id, :key, '{}'::jsonb, 'buy', 1, 1, 1, 'SEED', "
+                ":signal_type)"
+            ),
+            {
+                "id": signal_id,
+                "strategy_id": strategy_id,
+                "key": f"k-{signal_id}",
+                "signal_type": str(strategy_id),
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
+                "settlement_currency, amount, status, expires_at) "
+                "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
+                "'PENDING', now() + interval '30 seconds')"
+            ),
+            {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
+        )
+        await session.commit()
+
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    assert response.status_code == 409
+    body = response.json()["detail"]
+    assert body["error"] == "OPEN_POSITION"
+    assert body["live_reservations"] == [str(reservation_id)]
+
+
+async def test_archived_strategy_patch_refused_409_at_http_layer(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+    await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"name": "renamed"}, headers=_auth()
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
+
+
+async def test_archived_strategy_pairs_put_refused_409_at_http_layer(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+    await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+
+    response = await client.put(
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT"]},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"

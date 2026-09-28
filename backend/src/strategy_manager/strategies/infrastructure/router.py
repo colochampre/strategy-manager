@@ -32,10 +32,23 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.allocation.infrastructure.repository import (
+    SqlAlchemyReservationRepository,
+)
+from strategy_manager.execution.infrastructure.repository import (
+    SqlAlchemyExecutionAttemptRepository,
+)
+from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
+from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.strategies.application.archive_strategy import (
+    ArchiveStrategy,
+    OpenPosition,
+    StillEnabled,
+)
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -47,6 +60,7 @@ from strategy_manager.strategies.application.replace_allowed_pairs import (
     ReplaceAllowedPairsCommand,
 )
 from strategy_manager.strategies.application.update_strategy import (
+    StrategyArchived,
     UnknownStrategy,
     UpdateCommand,
     UpdateStrategy,
@@ -57,9 +71,13 @@ from strategy_manager.strategies.domain.strategy import FillMode, Strategy
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
 )
+from strategy_manager.strategies.infrastructure.exposure_adapter import (
+    StrategyExposureAdapter,
+)
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
 )
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
@@ -285,6 +303,10 @@ async def replace_allowed_pairs(
         )
     except UnknownStrategy as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StrategyArchived as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
+        ) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -314,6 +336,10 @@ async def update_strategy(
         )
     except UnknownStrategy as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StrategyArchived as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
+        ) from exc
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(
@@ -322,3 +348,50 @@ async def update_strategy(
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
+
+
+@router.post("/{strategy_id}/archive", response_model=StrategyView)
+async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyView:
+    """Decision 14: archive only a disabled, flat strategy. Idempotent --
+    calling this again on an already-archived strategy answers 200 with the
+    SAME ``archived_at``, never a fresh one (design.md § 8's sequence
+    diagram; design.md's API table)."""
+    use_case = ArchiveStrategy(
+        repository=SqlAlchemyStrategyRepository(session),
+        pool_lock=PoolLockAdapter(session),
+        exposure=StrategyExposureAdapter(
+            ledger=SqlAlchemyLedgerRepository(session),
+            symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+            reservations=SqlAlchemyReservationRepository(session),
+            attempts=SqlAlchemyExecutionAttemptRepository(session),
+        ),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        result = await use_case.archive(strategy_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StillEnabled as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except OpenPosition as exc:
+        # ``HTTPException.detail`` is serialized by Starlette's plain
+        # ``json.dumps``, not ``jsonable_encoder`` -- a raw ``UUID`` in the
+        # dict raises ``TypeError`` at response-render time, well after this
+        # handler returns, so every id is stringified explicitly here.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "OPEN_POSITION",
+                "message": str(exc),
+                "symbols": sorted(exc.exposure.symbols),
+                "allocations": [str(a) for a in exc.exposure.allocations],
+                "live_reservations": [str(r) for r in exc.exposure.live_reservations],
+                "in_flight_attempts": [str(a) for a in exc.exposure.in_flight_attempts],
+            },
+        ) from exc
+
+    events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
+    return StrategyView.of(result.strategy, uptime(events, datetime.now(UTC)))

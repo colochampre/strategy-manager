@@ -13,6 +13,7 @@ advisory lock" (design.md's rationale: the decision must be consistent with
 the balance it was made from).
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -35,7 +36,15 @@ from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 
+logger = logging.getLogger(__name__)
+
 STRATEGY_DISABLED_SKIP_REASON = "STRATEGY_DISABLED"
+# design.md § 8 point (ii): the in-lock re-check's second skip reason,
+# distinct from the pre-lock STRATEGY_DISABLED skip above -- an archived
+# strategy is always disabled too (the DB CHECK enforces it), but naming
+# the reason ARCHIVED rather than DISABLED tells the owner which of the
+# two states actually stopped this signal.
+STRATEGY_ARCHIVED_SKIP_REASON = "STRATEGY_ARCHIVED"
 
 
 class UnknownPoolError(DomainError):
@@ -127,6 +136,43 @@ class AllocateCapital:
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
         await self._lock.acquire(LockKey.from_pool_key(pool_key))
+
+        # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
+        # re-reads the policy inside the lock"): the pre-lock read above can
+        # be stale by the time this signal reaches the lock -- the owner may
+        # have disabled or, if this strategy also just became flat,
+        # archived it in between. Re-reading here, right after ``acquire``
+        # and before the balance read, is what closes the race decision 14
+        # exists to prevent: whichever of this allocation or a concurrent
+        # ``ArchiveStrategy`` reaches the SAME pool lock first is
+        # authoritative, and the loser observes the winner's already-
+        # committed state. The extra read is one local row read and takes
+        # no new lock (design.md § 8, "Rule 4 ... is untouched").
+        policy = await self._strategy_policy.policy_for(command.strategy_id)
+        if not policy.enabled or policy.archived:
+            skip_reason = (
+                STRATEGY_ARCHIVED_SKIP_REASON
+                if policy.archived
+                else STRATEGY_DISABLED_SKIP_REASON
+            )
+            # The ONLY record of this refusal: signals.status never leaves
+            # ACCEPTED and the job handler discards its result (orchestrator
+            # binding requirement 4), so a skipped WARNING here is the sole
+            # trace that this signal was ever seen and set aside.
+            logger.warning(
+                "in-lock re-check skips signal %s for strategy %s: %s",
+                command.signal_id,
+                command.strategy_id,
+                skip_reason,
+            )
+            await self._commit.commit()
+            return AllocationResult(
+                outcome=DecisionOutcome.SKIP,
+                granted=Decimal("0"),
+                reservation_id=None,
+                skip_reason=skip_reason,
+            )
+
         try:
             pool_balance = await self._pool_balance.read(
                 policy.exchange, policy.venue, policy.settlement_currency
