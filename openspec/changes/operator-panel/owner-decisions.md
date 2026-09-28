@@ -90,6 +90,15 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Mitigation: Binance requires an IP restriction before withdrawals can be enabled, and the key is bound to the VPS.
     - Bybit stays verified server-side, fail-closed: `Wallet ⊆ {AccountTransfer, SubMemberTransfer}`. Its trade capability is `readOnly == 0`.
 
+25. **Every processed signal records its outcome** (2026-09-28, found during PR 5).
+    - Found in PR 5: `signals.status` never left `ACCEPTED`, and the job handler discarded the processing result, so a refused signal was indistinguishable from an executed one. The log line was the only record, and a WARNING does not reach Telegram.
+    - A signal now ends `PROCESSED` or `REJECTED`, and a rejection stores a stable reason code and its human-readable message. The panel can then answer "what happened to this signal".
+    - This covers every refusal path, old and new, not only the ones PR 5 added.
+    - Signals received before this change stay `ACCEPTED`; their outcome is not reconstructed.
+    - The mapping found five paths that left no log line at all: `AllocateCapital` skips, a reservation that expired before submit, a venue rejection of an order, and both settle outcomes (FILLED, NEVER_PLACED). These get their log lines first, as unit 2f in PR 5, with no schema change.
+    - The outcome is final in three different jobs (`signal.process`, `execution.settle`, the open-after-close continuation), and each write shares the commit of the step that decided it. A submitted order is `PROCESSING`, not `PROCESSED`.
+    - Split, agreed 2026-09-28: **PR 5b** records the outcomes decided inside `signal.process` (a migration adds the reason and decision time). **PR 5c** closes the asynchronous ones: settle, continuation abandonments, the close-to-signal link a close attempt lacks today, and jobs that exhaust their retries.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

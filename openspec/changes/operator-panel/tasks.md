@@ -396,6 +396,27 @@ Harness: **real PostgreSQL, live concurrency test** (`rules.tasks`: advisory loc
 Rollback boundary: `archive_strategy.py`, the two new infra adapters, and the in-lock re-check in `allocate_capital.py`; revert removes archive entirely, `AllocateCapital` returns to its pre-check shape. `DB CHECK (archived_at IS NULL OR enabled = false)` was already added in 2a and stays.
 Forecast: 1,100–1,500 lines.
 
+### Unit 2f — a log line on every silent signal path (150–250 lines)
+
+Added 2026-09-28 by owner decision 25. A read-only map of every terminal signal path found
+five that end with no log line at all. This unit gives each one a log line, and nothing else:
+no schema, no status write. Recording the outcome in the database is PR 5b and PR 5c.
+
+**Files**: Modify `backend/src/strategy_manager/signals/application/process_signal.py`,
+`allocation/application/allocate_capital.py`, `execution/application/place_order.py`,
+`execution/application/settle_execution.py`.
+
+- [ ] 2f.1 RED `AllocateCapital` SKIP, which `process_signal.py` drops at `result.reservation_id is None`. Assert one log line naming the signal, the strategy and the skip reason, for the pre-lock `STRATEGY_DISABLED` skip and for each `decide()` skip (`NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`). The in-lock skip from 2c already logs; do not log it twice.
+- [ ] 2f.2 RED `PlaceOrder` `ABORTED_EXPIRED`: the reservation expired before submit. Assert one log line naming the reservation.
+- [ ] 2f.3 RED `PlaceOrder` `FAILED` on a venue `ExchangeError` at submit. Assert one ERROR naming the reservation, the symbol and the venue's error. It is an ERROR so it reaches Telegram, because an order the venue rejected is a trade that did not happen.
+- [ ] 2f.4 RED `SettleExecution` FILLED and NEVER_PLACED. Assert one INFO for FILLED, and one WARNING for NEVER_PLACED naming the attempt.
+- [ ] 2f.5 GREEN: the log lines. Where one call site already logs the same fact, log in exactly one place.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: fakes and caplog. Each test asserts exactly one record at the stated level.
+Rollback boundary: log lines only.
+Forecast: 150–250 lines.
+
 ---
 
 ## PR 6 — Units 3a + 3b + 3c + 3d: pool capital at open, PnL, curve, stats (2,150–3,100 lines)
