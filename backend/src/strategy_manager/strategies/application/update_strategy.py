@@ -32,9 +32,11 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import UUID
 
+from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.strategies.application.ports import (
     CommitPort,
+    EnablementLogPort,
     StrategyRepositoryPort,
 )
 from strategy_manager.strategies.domain.strategy import (
@@ -63,16 +65,32 @@ class UpdateCommand:
 
 
 class UpdateStrategy:
-    """Edits the mutable half of a registered strategy."""
+    """Edits the mutable half of a registered strategy.
+
+    ``enablement_log``/``clock`` exist because ``enabled`` is not an
+    ordinary field: every ACTUAL change to it must append exactly one event
+    to the append-only enablement log, in the SAME transaction as the write
+    (spec: strategy-lifecycle § "Enable/Disable Event Log"). Reading the
+    strategy row through ``get_by_id_for_update`` (a ``SELECT ... FOR
+    UPDATE``) rather than ``get_by_id`` is what makes "the same transaction"
+    also mean "serialized against a concurrent toggle of the same row" —
+    design.md § 9, tasks.md 2d.3.
+    """
 
     def __init__(
-        self, repository: StrategyRepositoryPort, commit: CommitPort
+        self,
+        repository: StrategyRepositoryPort,
+        commit: CommitPort,
+        enablement_log: EnablementLogPort,
+        clock: ClockPort,
     ) -> None:
         self._repository = repository
         self._commit = commit
+        self._enablement_log = enablement_log
+        self._clock = clock
 
     async def update(self, command: UpdateCommand) -> Strategy:
-        strategy = await self._repository.get_by_id(command.strategy_id)
+        strategy = await self._repository.get_by_id_for_update(command.strategy_id)
         if strategy is None:
             raise UnknownStrategy(
                 f"no strategy registered under id {command.strategy_id}"
@@ -95,5 +113,16 @@ class UpdateStrategy:
         )
 
         await self._repository.update(updated)
+
+        # Only an ACTUAL change writes an event (spec: "A PATCH that does
+        # not change the effective enabled value MUST write no event").
+        # This append happens BEFORE commit, in the same session/
+        # transaction as the row write above — if it raises, neither
+        # persists (tasks.md 2d, atomicity requirement).
+        if updated.enabled != strategy.enabled:
+            await self._enablement_log.append(
+                strategy.id, updated.enabled, self._clock.now()
+            )
+
         await self._commit.commit()
         return updated

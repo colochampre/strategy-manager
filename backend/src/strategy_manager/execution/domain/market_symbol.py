@@ -62,6 +62,21 @@ def is_perpetual(symbol: str) -> bool:
     return strip_contract_marker(symbol) != symbol
 
 
+def market_key(symbol: str) -> str:
+    """The one canonical key a symbol is compared under: the contract
+    marker stripped, upper-cased. ``STXUSDT.P``, ``STXUSDT_PERP`` and
+    ``stxusdt`` all map to ``STXUSDT``.
+
+    Moved here from ``reconciliation.application.market_key`` (design.md §
+    6 "Normalization", migration 0024) — that module now re-exports THIS
+    function rather than defining its own, so every existing import path
+    stays valid, and the allowed-pairs seeding migration's frozen copy has
+    one real implementation to be checked against
+    (``tests/migrations/test_0024_strategy_lifecycle.py``'s parity test).
+    """
+    return strip_contract_marker(symbol).upper()
+
+
 def market_spellings(symbol: str) -> frozenset[str]:
     """Every spelling this market can wear, upper-cased: the venue's bare
     name plus one candidate per known contract marker (``STXUSDT``,

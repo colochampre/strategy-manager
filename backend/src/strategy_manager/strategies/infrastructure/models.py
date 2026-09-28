@@ -1,5 +1,6 @@
 """SQLAlchemy ORM model owned by ``strategies``. Mirrors migration
-``0003_strategies_pools``, extended by ``0007_allocation_percent``.
+``0003_strategies_pools``, extended by ``0007_allocation_percent`` and
+``0024_strategy_lifecycle``.
 
 ``id`` has NO ``gen_random_uuid()`` server default: it MUST be supplied
 explicitly by the caller as the strategy's ``signal_type`` UUID (design.md
@@ -14,6 +15,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKeyConstraint, Numeric, Text, text
+from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -49,6 +51,16 @@ class StrategyRow(Base):
     fill_mode: Mapped[str] = mapped_column(Text, nullable=False)
     allocation_percent: Mapped[Decimal] = mapped_column(
         Numeric, nullable=False, server_default=text("100")
+    )
+    # ``ck_strategies_allowed_pairs_no_null`` (migration 0024): entries are
+    # market_key()-normalized symbols this strategy may OPEN on.
+    allowed_pairs: Mapped[list[str]] = mapped_column(
+        PGARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    # ``ck_strategies_archived_requires_disabled`` (migration 0024): never
+    # cleared once set -- archive is terminal.
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

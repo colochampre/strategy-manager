@@ -13,6 +13,7 @@ from uuid import UUID
 
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 
 
 class FillMode(StrEnum):
@@ -71,6 +72,8 @@ class Strategy:
     name: str
     policy: AllocationPolicy
     enabled: bool = False
+    allowed_pairs: AllowedPairs = AllowedPairs(frozenset())
+    archived_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

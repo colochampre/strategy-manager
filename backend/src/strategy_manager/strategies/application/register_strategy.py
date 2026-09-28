@@ -28,13 +28,17 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.execution.domain.market_symbol import market_key
+from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     CommitPort,
+    EnablementLogPort,
     PoolCatalogPort,
     StrategyRepositoryPort,
 )
+from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs, EmptyAllowedPairs
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
@@ -75,20 +79,33 @@ class RegisterCommand:
     settlement_currency: Currency
     fill_mode: FillMode
     allocation_percent: Decimal
+    allowed_pairs: list[str]
 
 
 class RegisterStrategy:
-    """Registers a strategy against the pool it will draw capital from."""
+    """Registers a strategy against the pool it will draw capital from.
+
+    ``enablement_log``/``clock`` back a defensive append: every ACTUAL
+    change to ``enabled`` must append exactly one event (spec:
+    strategy-lifecycle § "Enable/Disable Event Log"), and creation is one
+    such change only if it were ever enabled. Today it never is —
+    ``RegisterCommand`` carries no ``enabled`` field at all (F8) — so this
+    is dead code kept for safety, not something the current API can trigger.
+    """
 
     def __init__(
         self,
         repository: StrategyRepositoryPort,
         pools: PoolCatalogPort,
         commit: CommitPort,
+        enablement_log: EnablementLogPort,
+        clock: ClockPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
         self._commit = commit
+        self._enablement_log = enablement_log
+        self._clock = clock
 
     async def register(self, command: RegisterCommand) -> Strategy:
         existing = await self._repository.get_by_id(command.strategy_id)
@@ -101,6 +118,19 @@ class RegisterStrategy:
 
         await self._assert_pool_available(command)
 
+        # spec: strategy-lifecycle § "New Strategies Require At Least One
+        # Allowed Pair" -- normalizing is THIS use case's job (design.md §
+        # 6 "Normalization"); the VO only asserts entry SHAPE.
+        normalized = {market_key(pair) for pair in command.allowed_pairs}
+        try:
+            allowed_pairs = AllowedPairs(frozenset(normalized))
+        except InvariantViolation as exc:
+            raise EmptyAllowedPairs(str(exc)) from exc
+        if not allowed_pairs.pairs:
+            raise EmptyAllowedPairs(
+                "allowed_pairs must contain at least one pair"
+            )
+
         strategy = Strategy(
             id=command.strategy_id,
             name=command.name,
@@ -111,11 +141,18 @@ class RegisterStrategy:
                 fill_mode=command.fill_mode,
                 allocation_percent=AllocationPercent(command.allocation_percent),
             ),
+            allowed_pairs=allowed_pairs,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
         )
 
         await self._repository.insert(strategy)
+
+        if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
+            await self._enablement_log.append(
+                strategy.id, True, self._clock.now()
+            )
+
         await self._commit.commit()
         return strategy
 

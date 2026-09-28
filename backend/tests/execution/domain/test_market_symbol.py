@@ -8,6 +8,7 @@ import pytest
 
 from strategy_manager.execution.domain.market_symbol import (
     base_currency_of,
+    market_key,
     market_spellings,
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -117,3 +118,18 @@ def test_market_spellings_is_the_same_set_regardless_of_which_spelling_is_asked(
     row recorded under another."""
     assert market_spellings("STXUSDT.P") == market_spellings("STXUSDT_PERP")
     assert market_spellings("stxusdt") == market_spellings("STXUSDT")
+
+
+def test_market_key_moved_reconciliation_reexport_still_works() -> None:
+    """``market_key`` moved into this module from
+    ``reconciliation.application.market_key`` (design.md § 6
+    "Normalization", migration 0024); that module now RE-EXPORTS the same
+    function object rather than defining its own, so every existing import
+    path (``scan_pools.py``, ``prepare_booking.py``,
+    ``reconciliation/infrastructure/router.py``) keeps working unchanged
+    (tasks.md 2a.1, 2a.10)."""
+    from strategy_manager.reconciliation.application.market_key import (
+        market_key as reconciliation_market_key,
+    )
+
+    assert reconciliation_market_key is market_key
