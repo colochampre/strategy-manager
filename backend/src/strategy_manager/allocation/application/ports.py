@@ -21,7 +21,17 @@ from strategy_manager.allocation.domain.reservation import Reservation, Reservat
 class StrategyPolicySnapshot:
     """What ``AllocateCapital`` needs to know about a strategy, decoupled
     from the ``strategies`` module's own aggregate — no provider type leaks
-    across the module boundary."""
+    across the module boundary.
+
+    ``archived`` and ``allowed_pairs`` back the two ``signals.application.
+    process_signal`` refusals added in unit 2b (design.md § 7-8): the
+    allowlist gates the OPENING effect only, and an archived strategy is
+    refused whatever its pool. Both default so every pre-existing caller
+    that does not care about lifecycle (``AllocateCapital``'s own in-lock
+    re-check, unit 2c) keeps constructing this DTO unchanged. ``name`` is
+    carried only for the archived-strategy WARNING text (design.md § 8),
+    which names the strategy for the owner rather than just its id.
+    """
 
     strategy_id: UUID
     enabled: bool
@@ -30,6 +40,9 @@ class StrategyPolicySnapshot:
     venue: str
     settlement_currency: str
     allocation_percent: Decimal  # 0 < value <= 100 (tasks.md 7.6)
+    name: str = ""
+    archived: bool = False
+    allowed_pairs: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

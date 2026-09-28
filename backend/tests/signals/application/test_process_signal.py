@@ -309,6 +309,14 @@ def _holding_guard(
 TRADABLE = frozenset({("pionex", "spot")})
 
 
+# Covers every symbol any test in this file constructs a ``SignalContext``
+# with (``BTC_USDT``, ``BTCUSDT``, ``ETHUSDT``, and ``ETHUSDT.P`` which
+# normalizes to ``ETHUSDT``) -- the unit 2b default, so every pre-existing
+# CONSUMES-path test in this file keeps passing through the new allowed-
+# pairs gate unchanged, exactly as it did before the gate existed.
+_DEFAULT_ALLOWED_PAIRS = frozenset({"BTC_USDT", "BTCUSDT", "ETHUSDT"})
+
+
 def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
     defaults: dict[str, object] = dict(
         # Pionex, because the default venue is spot: the tradable-pool check
@@ -323,6 +331,9 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         venue="spot",
         settlement_currency="USDT",
         allocation_percent=Decimal("100"),
+        name="Test Strategy",
+        archived=False,
+        allowed_pairs=_DEFAULT_ALLOWED_PAIRS,
     )
     defaults.update(overrides)
     return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
@@ -2359,3 +2370,322 @@ async def test_an_empty_pool_is_refused_rather_than_raised() -> None:
                 requested=Money(amount=Decimal("0"), currency=Currency("USDT")),
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# Unit 2b: the allowlist and archived-strategy refusals (opens only).
+#
+# decision 1 / 15 (allowlist gates OPENING signals only) and decision 11 / 14
+# (an archived strategy's signal is refused, whatever its pool, because it
+# can never hold a position to strand). design.md § 7-8 fixes the ordering
+# these tests assert: archived first (before the untradable-pool check,
+# unconditionally for every signal), then the allowlist (at the top of
+# ``_handle_consumes``, so only an OPENING effect is ever gated).
+# ---------------------------------------------------------------------------
+
+
+async def test_listed_pair_proceeds_normally() -> None:
+    """Baseline for the allowlist gate: a CONSUMES signal whose
+    ``market_key()`` IS on the strategy's allowed pairs opens exactly as it
+    did before this gate existed -- the gate is a floor, not a behaviour
+    change for the listed case."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=_snapshot(allowed_pairs=frozenset({"BTCUSDT"})),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.executed is True
+    assert result.refused is None
+    assert len(place_order.calls) == 1
+    assert len(lock.acquired) == 1
+
+
+async def test_unlisted_pair_opening_signal_refused_before_lock_no_reservation_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """decision 1: an opening signal for a pair not on the strategy's
+    allowed-pairs list is refused before the Existing-Position Guard, the
+    balance refresh and the pool's advisory lock -- no reservation is ever
+    created for it (design.md § 7). The persisted outcome this leaves
+    behind is exactly what today's other pre-lock refusals leave: no
+    reservation row (asserted directly on the fake repository, not only on
+    the in-memory result), one WARNING, and the job still ends DONE because
+    nothing here raises."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    reservations = FakeReservationRepository()
+    engine = SpyAllocateCapital(_allocate_capital(lock, reservations=reservations))
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTCUSDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=engine,
+        place_order=place_order,
+        policy=_snapshot(allowed_pairs=frozenset({"ETHUSDT"})),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.handle(uuid4())
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused is not None
+    assert "BTCUSDT" in result.refused
+    assert lock.acquired == []
+    assert place_order.calls == []
+    # The engine was never even entered -- a caller turned away by its own
+    # ``InvalidAllocationRequestError`` would leave the same empty lock spy
+    # behind, so the lock alone cannot prove this (see ``SpyAllocateCapital``'s
+    # own docstring).
+    assert engine.calls == []
+    assert reservations.inserted == []
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+
+
+async def test_close_on_pair_removed_from_list_still_closes_with_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """decision 15: the allowlist gates the OPENING effect only. A close on
+    a pair later pruned from the list still closes -- refusing it would
+    strand the position, exactly what decision 14 exists to prevent for
+    archive. Covers both a non-empty list missing the pair and an EMPTY
+    list (orchestrator addition): a seeded strategy pruned down to nothing
+    must still be able to close whatever it already holds."""
+    for allowed_pairs in (frozenset({"ETHUSDT"}), frozenset()):
+        lock = SpyAdvisoryLock()
+        close_position = SpyClosePosition()
+        prior_reservation_id = uuid4()
+        context = SignalContext(
+            strategy_id=uuid4(),
+            symbol="BTC_USDT",
+            price=Decimal("50000"),
+            position_size=Decimal("0"),
+            prior_position_size=Decimal("1"),  # close long -> RELEASES
+            prior_reservation_id=prior_reservation_id,
+            settlement_currency="USDT",
+        )
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(lock),
+            place_order=SpyPlaceOrder(),
+            close_position=close_position,
+            policy=_snapshot(allowed_pairs=allowed_pairs),
+        )
+
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            result = await handler.handle(uuid4())
+
+        assert result.executed is True, allowed_pairs
+        assert result.refused is None, allowed_pairs
+        assert len(close_position.calls) == 1, allowed_pairs
+        assert close_position.calls[0].allocation_id == prior_reservation_id
+        assert lock.acquired == [], allowed_pairs
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1, allowed_pairs
+        assert "BTC_USDT" in warnings[0].message
+        if not allowed_pairs:
+            assert "EMPTY" in warnings[0].message
+
+
+async def test_reverse_on_unlisted_pair_closes_then_refuses_open_ends_flat(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """decision 15: a REVERSE on an unlisted pair closes the prior leg
+    unaffected (design.md § 7, "A releasing signal is never refused by the
+    allowlist") -- only the CONSUMING half, run later from the S5
+    continuation's own ``open_now()`` once the close settles, is refused.
+    The strategy ends FLAT: the close already happened for real, and
+    nothing ever opens the other side."""
+    lock = SpyAdvisoryLock()
+    close_position = SpyClosePosition()
+    seeder = SpyContinuationSeeder()
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    prior_reservation_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),  # opposite signs -> REVERSE
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    policy = _snapshot(strategy_id=strategy_id, allowed_pairs=frozenset({"BTC_USDT"}))
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        open_after_close=seeder,
+        policy=policy,
+    )
+
+    with caplog.at_level("WARNING"):
+        close_result = await handler.handle(signal_id)
+        open_result = await handler.open_now(signal_id, poll=0)
+
+    # The close half ran for real.
+    assert close_result.refused is None
+    assert close_result.executed is True
+    assert len(close_position.calls) == 1
+    assert close_position.calls[0].allocation_id == prior_reservation_id
+
+    # The open half never reached the engine: no lock, no reservation.
+    assert open_result.executed is False
+    assert open_result.refused is not None
+    assert "ETHUSDT" in open_result.refused
+    assert lock.acquired == []
+
+    # One WARNING for "closing anyway", one for the refused open.
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2
+
+
+async def test_spelling_variant_ethusdt_dot_p_matches_allowed_pair_ethusdt() -> None:
+    """design.md § 7: comparison happens via ``market_key()`` on both sides.
+    A pair is stored canonically (``ETHUSDT``); a signal may arrive spelled
+    however its own venue spells a perpetual -- TradingView/Bybit's ``.P``
+    suffix or Pionex's ``_PERP`` suffix. Both must match the SAME stored
+    pair, proving the gate compares normalized keys, not raw strings."""
+    for spelling in ("ETHUSDT.P", "ETHUSDT_PERP"):
+        lock = SpyAdvisoryLock()
+        place_order = SpyPlaceOrder()
+        context = SignalContext(
+            strategy_id=uuid4(),
+            symbol=spelling,
+            price=Decimal("2000"),
+            position_size=Decimal("1"),
+            prior_position_size=Decimal("0"),
+            prior_reservation_id=None,
+            settlement_currency="USDT",
+        )
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(lock),
+            place_order=place_order,
+            policy=_snapshot(allowed_pairs=frozenset({"ETHUSDT"})),
+        )
+
+        result = await handler.handle(uuid4())
+
+        assert result.executed is True, spelling
+        assert result.refused is None, spelling
+        assert len(place_order.calls) == 1, spelling
+
+
+async def test_archived_strategy_signal_refused_before_untradable_pool_check_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """decision 11: the archived check runs immediately after ``policy_for``,
+    before the untradable-pool check -- proven by making BOTH conditions
+    true at once (an archived strategy on a venue no adapter serves) and
+    asserting the refusal carries the ARCHIVED wording, never the
+    untradable-pool wording. The WARNING text is verbatim per design.md § 8."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    policy = _snapshot(
+        strategy_id=strategy_id,
+        name="btc-grid",
+        archived=True,
+        venue="usdt-m",  # not in TRADABLE -- proves archived is checked FIRST
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=policy,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.handle(signal_id)
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused == (
+        f"signal {signal_id} for ARCHIVED strategy btc-grid ({strategy_id}) "
+        "refused; remove its TradingView alert"
+    )
+    assert "usdt-m" not in result.refused
+    assert lock.acquired == []
+    assert place_order.calls == []
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert warnings[0].message == result.refused
+
+
+async def test_archived_strategy_refusal_also_applies_in_open_now_continuation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """design.md § 8: "It also runs in open_now()" -- a strategy archived
+    while an S5 continuation was in flight must not open once the awaited
+    close(s) settle."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    policy = _snapshot(strategy_id=strategy_id, name="btc-grid", archived=True)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=policy,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.open_now(signal_id, poll=0)
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused == (
+        f"signal {signal_id} for ARCHIVED strategy btc-grid ({strategy_id}) "
+        "refused; remove its TradingView alert"
+    )
+    assert lock.acquired == []
+    assert place_order.calls == []
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1

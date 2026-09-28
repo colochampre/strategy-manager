@@ -342,21 +342,31 @@ Forecast: 600–800 lines.
 **Files**: Modify `backend/src/strategy_manager/signals/application/process_signal.py`;
 Modify `backend/src/strategy_manager/allocation/application/ports.py` (`StrategyPolicySnapshot.archived`, `.allowed_pairs`).
 
-- [ ] 2b.1 RED `backend/tests/signals/application/test_process_signal.py::test_listed_pair_proceeds_normally`.
-- [ ] 2b.2 RED same file `::test_unlisted_pair_opening_signal_refused_before_lock_no_reservation_one_warning`.
-- [ ] 2b.3 RED same file `::test_close_on_pair_removed_from_list_still_closes_with_one_warning`.
-- [ ] 2b.4 RED same file `::test_reverse_on_unlisted_pair_closes_then_refuses_open_ends_flat`.
-- [ ] 2b.5 RED same file `::test_spelling_variant_ethusdt_dot_p_matches_allowed_pair_ethusdt` (spelling rule: allowed pair stored as `ETHUSDT`, signal spelled `ETHUSDT.P`).
-- [ ] 2b.6 RED same file `::test_archived_strategy_signal_refused_before_untradable_pool_check_one_warning` — WARNING text asserted verbatim: "signal `<id>` for ARCHIVED strategy `<name>` (`<id>`) refused; remove its TradingView alert".
-- [ ] 2b.7 RED same file `::test_archived_strategy_refusal_also_applies_in_open_now_continuation`.
-- [ ] 2b.8 RED `backend/tests/signals/infrastructure/test_ingest_signal.py::test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_added` — asserts no strategy lookup at ingress.
-- [ ] 2b.9 GREEN: `_refuse_unlisted_pair` and the archived-strategy refusal at the top of `handle()`/`_handle_consumes` (archived check first — "whatever its pool" — then unlisted-pair, per design's ordering); each refusal logs exactly one WARNING and never calls `allocate`.
-- [ ] 2b.10 GREEN: `StrategyPolicySnapshot.archived`, `.allowed_pairs` fields threaded through `policy_adapter.py`.
+- [x] 2b.1 RED `backend/tests/signals/application/test_process_signal.py::test_listed_pair_proceeds_normally`.
+- [x] 2b.2 RED same file `::test_unlisted_pair_opening_signal_refused_before_lock_no_reservation_one_warning`.
+- [x] 2b.3 RED same file `::test_close_on_pair_removed_from_list_still_closes_with_one_warning`.
+- [x] 2b.4 RED same file `::test_reverse_on_unlisted_pair_closes_then_refuses_open_ends_flat`.
+- [x] 2b.5 RED same file `::test_spelling_variant_ethusdt_dot_p_matches_allowed_pair_ethusdt` (spelling rule: allowed pair stored as `ETHUSDT`, signal spelled `ETHUSDT.P`). Deviation: also covers the Pionex `_PERP` form in the same test (orchestrator addition), looping both spellings against the same stored `ETHUSDT` pair.
+- [x] 2b.6 RED same file `::test_archived_strategy_signal_refused_before_untradable_pool_check_one_warning` — WARNING text asserted verbatim: "signal `<id>` for ARCHIVED strategy `<name>` (`<id>`) refused; remove its TradingView alert".
+- [x] 2b.7 RED same file `::test_archived_strategy_refusal_also_applies_in_open_now_continuation`.
+- [x] 2b.8 RED `backend/tests/signals/application/test_ingest_signal.py::test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_added` — asserts no strategy lookup at ingress. Deviation: the file lives under `signals/application/`, not `signals/infrastructure/` as written (that is where `IngestSignal`'s own unit tests already live; no `signals/infrastructure/test_ingest_signal.py` exists).
+- [x] 2b.9 GREEN: `_refuse_unlisted_pair` and the archived-strategy refusal at the top of `handle()`/`_handle_consumes` (archived check first — "whatever its pool" — then unlisted-pair, per design's ordering); each refusal logs exactly one WARNING and never calls `allocate`.
+- [x] 2b.10 GREEN: `StrategyPolicySnapshot.archived`, `.allowed_pairs` fields threaded through `policy_adapter.py`. Deviation: also added `StrategyPolicySnapshot.name` (default `""`), threaded from `Strategy.name` — the verbatim archived-strategy WARNING text required by 2b.6 names the strategy, and no other field on the snapshot carries it. Both new fields default (`archived=False`, `allowed_pairs=frozenset()`) so every pre-2b caller (`AllocateCapital`'s tests, unit 2c's in-lock re-check) keeps constructing the DTO unchanged.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/signals/`.
 Harness: fakes for every port.
 Rollback boundary: two named refusal methods in `process_signal.py`; revert removes both, signals flow as today.
 Forecast: 700–1,000 lines.
+
+Deviation (undeclared blast radius): the new allowlist gate refused two PRE-EXISTING live-Postgres
+integration tests that open a real position through a real, DB-seeded strategy without ever naming
+an allowed pair (`test_open_after_close_integration.py`, `test_open_now_concurrent_redelivery.py`) —
+their shared `seed_strategy` helper (`backend/tests/signals/infrastructure/conftest.py`) always left
+`allowed_pairs` at the DB's `'{}'` default. Fixed by adding an optional `allowed_pairs` parameter to
+that helper (defaulting to the prior empty-array behaviour) and passing `frozenset({"STXUSDT"})` at
+both call sites — the `market_key()` both scenarios' three symbol spellings already normalize to. A
+full-suite run (1654 tests, up from the 1643 baseline by the 11 tests this unit adds) confirmed no
+other integration test elsewhere in the tree was affected.
 
 ### Unit 2c — `ArchiveStrategy`, exposure adapter, pool lock, in-lock re-check, concurrency (1,100–1,500 lines)
 

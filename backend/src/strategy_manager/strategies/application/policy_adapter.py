@@ -34,4 +34,11 @@ class StrategyPolicyAdapter:
             venue=strategy.policy.venue.value,
             settlement_currency=strategy.policy.settlement_currency.value,
             allocation_percent=strategy.policy.allocation_percent.value,
+            name=strategy.name,
+            # ``archived_at`` is presence-tested here rather than carried as a
+            # timestamp: every consumer of this snapshot (process_signal.py,
+            # AllocateCapital's in-lock re-check) only ever needs "is it
+            # archived", never when.
+            archived=strategy.archived_at is not None,
+            allowed_pairs=frozenset(strategy.allowed_pairs.pairs),
         )

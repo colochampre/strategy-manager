@@ -130,6 +130,12 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
+    # ``None`` keeps the DB's own ``'{}'`` default (unit 2b, migration 0024)
+    # -- a caller that never opens a position through this strategy does not
+    # need to name a pair. A caller whose scenario opens one MUST pass it
+    # explicitly, or the new allowlist gate (``process_signal.py``,
+    # ``_refuse_unlisted_pair``) refuses every one of its opening signals.
+    allowed_pairs: frozenset[str] | None = None,
 ) -> None:
     async with session_factory() as session:
         session.add(
@@ -141,6 +147,7 @@ async def seed_strategy(
                 settlement_currency=settlement_currency,
                 enabled=enabled,
                 fill_mode=fill_mode,
+                allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],
             )
         )
         await session.commit()
