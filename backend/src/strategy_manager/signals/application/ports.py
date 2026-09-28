@@ -12,6 +12,7 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.signals.domain.holding import HeldAllocation
+from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
 
 PoolKey = tuple[str, str, str]
@@ -61,6 +62,31 @@ class SignalRepositoryPort(Protocol):
         continuation.
         """
         ...
+
+
+class SignalOutcomePort(Protocol):
+    """Records the outcome ``signal.process`` (and, from PR 5c, the settle
+    and continuation jobs) decided for a signal -- decision 25, design.md
+    "Addendum: signal outcomes" § D. Implemented by
+    ``signals.infrastructure.outcome_repository.SqlAlchemySignalOutcomeAdapter``.
+
+    ``record`` stages the write on the caller's own session, immediately
+    before the specific commit that makes the decided outcome durable (the
+    same-commit rule, design.md § C) -- it never commits itself, so a
+    caller's rollback discards the write along with everything else in that
+    unit of work.
+
+    The terminal-state guard lives in the adapter, the one place that can
+    read the current row and write the new one inside the same flushed unit
+    of work without a second round trip (design.md § D): ``PROCESSED`` and
+    ``REJECTED`` are never overwritten. A write against a terminal signal
+    with a DIFFERENT outcome is a no-op that logs one WARNING naming the
+    signal, the outcome already recorded and the one refused; an IDENTICAL
+    repeat is a silent no-op. Writing ``PROCESSING`` over an existing
+    ``PROCESSING`` is not a terminal write and always succeeds.
+    """
+
+    async def record(self, signal_id: UUID, outcome: SignalOutcome) -> None: ...
 
 
 class WebhookAuthPort(Protocol):
