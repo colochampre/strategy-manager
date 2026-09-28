@@ -78,6 +78,28 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 | 9-strategies | Strategies list + detail + dialogs + webhook message | PR 12 | `cd frontend && npm test -- StrategiesPage StrategyDetailPage WebhookMessage` | N/A — frontend-only | New `features/strategies/*`; revert removes the route content |
 | 10-settings | Settings: key card, form, delete flow | PR 13 | `cd frontend && npm test -- SettingsPage ExchangeKeyCard DeleteKeyDialog` | N/A — frontend-only | New `features/settings/*`; revert removes the route content |
 
+## Delivery log
+
+Updated after every merge and deploy. With this and `git log`, the state can be resumed from
+any machine.
+
+**Production now** (2026-09-28): `main` at `17681ef`, alembic `0024`, `DRY_RUN=true`, the
+frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
+holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
+allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
+
+| Plan PR | GitHub | Merge commit | Migration | Deployed | Notes |
+|---|---|---|---|---|---|
+| PR 1 | #9 | `a09b5eb` | — | 2026-09-25 | Probe script. The owner ran it on the VPS; results in "PR 1 — Probe results". |
+| PR 2 | #10 | `897514d` | — | 2026-09-25 | Pull, restart the API. |
+| PR 3 | #11 | `733064b` | — | 2026-09-25 | Restart both. Then `BYBIT_/BINANCE_API_KEY/SECRET` were removed from `backend/.env`. |
+| PR 4 | #12 | `fbde874` | 0024 | 2026-09-28 | Rehearsed on `sm_rehearsal_0024`. Backup `/root/sm_pre0024_20260928_1552.dump`. The owner confirmed the seeded pairs. |
+| PR 5 | #13 | `17681ef` | — | 2026-09-28 | Restart both. The allowed-pairs gate is live. |
+| PR 5b | — | — | 0025 | — | In progress on `feat/operator-panel-signal-outcomes`. |
+
+Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
+`pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
+
 ## Probe gates (owner-run, GET-only, never places an order)
 
 - **Before PR 3 deploys**: probe item **P4** (live reads against the Bybit and Binance vault
