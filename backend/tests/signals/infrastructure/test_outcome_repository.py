@@ -9,6 +9,7 @@ not a terminal write and always succeeds) and the same-commit rule (the
 adapter never commits -- a caller's rollback discards the write).
 """
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -229,3 +230,83 @@ async def test_record_against_unknown_signal_raises_invariant_violation(
         adapter = SqlAlchemySignalOutcomeAdapter(session, _FixedClock(_NOW))
         with pytest.raises(InvariantViolation):
             await adapter.record(uuid4(), SignalOutcome.processed())
+
+
+async def test_guard_reads_fresh_when_the_identity_map_holds_a_stale_row(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``expire_on_commit=False`` plus one session per ``signal.process`` run
+    means ``get_by_id`` leaves the signal cached in the identity map. Another
+    session then commits a terminal outcome; the guard must see THAT row, not
+    the cached ACCEPTED one, or it overwrites silently."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="k8"
+    )
+
+    async with pg_session_factory() as session_a:
+        # What ``SqlAlchemySignalRepository.get_by_id`` does at the run's start.
+        cached = await session_a.get(SignalRow, signal_id)
+        assert cached is not None and cached.status == "ACCEPTED"
+
+        async with pg_session_factory() as session_b:
+            await SqlAlchemySignalOutcomeAdapter(session_b, _FixedClock(_NOW)).record(
+                signal_id, SignalOutcome.rejected("PAIR_NOT_ALLOWED", "b decided first")
+            )
+            await session_b.commit()
+
+        with caplog.at_level("WARNING"):
+            await SqlAlchemySignalOutcomeAdapter(session_a, _FixedClock(_NOW)).record(
+                signal_id, SignalOutcome.rejected("UNTRADABLE_POOL", "a decided second")
+            )
+        await session_a.commit()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    row = await _row(pg_session_factory, signal_id)
+    assert row.status == "REJECTED"
+    assert row.outcome_reason == "PAIR_NOT_ALLOWED"
+    assert row.outcome_detail == "b decided first"
+
+
+async def test_guard_waits_for_a_concurrent_writer_holding_the_signal_row(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Lock-hold harness: B has recorded and keeps its transaction open (row
+    locked). A's ``record`` must WAIT (``not task.done()`` after a real
+    delay), then resolve as a no-op with one WARNING once B commits."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="k9"
+    )
+
+    async with pg_session_factory() as session_b, pg_session_factory() as session_a:
+        await SqlAlchemySignalOutcomeAdapter(session_b, _FixedClock(_NOW)).record(
+            signal_id, SignalOutcome.rejected("PAIR_NOT_ALLOWED", "b holds the lock")
+        )
+
+        async def _a_records() -> None:
+            await SqlAlchemySignalOutcomeAdapter(session_a, _FixedClock(_NOW)).record(
+                signal_id, SignalOutcome.rejected("UNTRADABLE_POOL", "a waited")
+            )
+            await session_a.commit()
+
+        with caplog.at_level("WARNING"):
+            task = asyncio.create_task(_a_records())
+            await asyncio.sleep(0.5)
+            assert not task.done(), "A must block on the row B holds locked"
+
+            await session_b.commit()
+            await asyncio.wait_for(task, timeout=10)
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    row = await _row(pg_session_factory, signal_id)
+    assert row.status == "REJECTED"
+    assert row.outcome_reason == "PAIR_NOT_ALLOWED"

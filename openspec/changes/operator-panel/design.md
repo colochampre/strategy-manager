@@ -948,6 +948,14 @@ guard `AllocateCapital.allocate` already applies to a resumed reservation —
 one must also log, because a *different* second outcome for the same signal
 is exactly the class of bug decision 25 exists to catch).
 
+*Correction to 5b.3:* the guard reads the row fresh and `FOR UPDATE`
+(`populate_existing=True, with_for_update=True`), because the run's shared
+session caches the row from `get_by_id` and a plain `get` would read a stale,
+non-terminal status. Every `record` call is staged immediately before its
+commit, so the signals row lock is always the LAST lock a transaction takes
+(after any pool advisory lock and reservation/attempt row locks), which keeps
+the lock order.
+
 A signal reaches `PROCESSED` or `REJECTED` directly, with no `PROCESSING` in
 between, whenever nothing was ever submitted to an exchange (every refusal
 and skip, rows 1–8 below). It passes through `PROCESSING` only when an order

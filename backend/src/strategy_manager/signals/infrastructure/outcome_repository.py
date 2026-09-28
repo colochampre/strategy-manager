@@ -48,7 +48,14 @@ class SqlAlchemySignalOutcomeAdapter:
         self._clock = clock
 
     async def record(self, signal_id: UUID, outcome: SignalOutcome) -> None:
-        row = await self._session.get(SignalRow, signal_id)
+        # Fresh AND locked. ``expire_on_commit=False`` and one session per
+        # ``signal.process`` run leave the row cached from ``get_by_id`` at the
+        # run's start, so a plain ``get`` would read a stale status while
+        # another session commits a terminal outcome. ``populate_existing``
+        # re-reads it; ``FOR UPDATE`` makes a concurrent writer finish first.
+        row = await self._session.get(
+            SignalRow, signal_id, populate_existing=True, with_for_update=True
+        )
         if row is None:
             raise InvariantViolation(f"cannot record an outcome for unknown signal {signal_id}")
 
