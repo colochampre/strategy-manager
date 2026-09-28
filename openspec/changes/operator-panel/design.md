@@ -1011,7 +1011,8 @@ a neighbouring commit.
 
 | Rows | Physical commit | Notes |
 |---|---|---|
-| 4, 5 | inside `HoldingGuard` / its caller before `AllocateCapital` is ever reached — no reservation exists yet | no schema write beyond the signal row itself |
+| 1, 2, 3, 6, 7 | **none exists** on these `signal.process` paths (added in 5b.4: `ProcessSignalHandler._reject` stages the write and commits) | not listed by the original map; nothing else is written on them |
+| 4, 5 | inside `HoldingGuard` / its caller before `AllocateCapital` is ever reached — no reservation exists yet; 5b.4 commits in `_reject`, the caller | no schema write beyond the signal row itself |
 | 8, pre-lock (`STRATEGY_DISABLED`) | **none exists** — `allocate_capital.py:113-131` returns before acquiring the lock or calling `commit()` | 5b.10 must add a commit here |
 | 8, in-lock (`STRATEGY_DISABLED` / `STRATEGY_ARCHIVED`) | `allocate_capital.py:180` | |
 | 8, `decide()` SKIP | `allocate_capital.py:235` (the same commit a granted reservation's insert would use) | |

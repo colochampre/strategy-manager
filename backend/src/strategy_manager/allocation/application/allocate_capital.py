@@ -24,6 +24,7 @@ from strategy_manager.allocation.application.ports import (
     CommitPort,
     PoolBalancePort,
     ReservationRepositoryPort,
+    SkipRecorderPort,
     StrategyPolicyPort,
 )
 from strategy_manager.allocation.domain.capital_pool import CapitalPool
@@ -94,6 +95,7 @@ class AllocateCapital:
         commit: CommitPort,
         clock: ClockPort,
         reservation_ttl_seconds: int,
+        skip_recorder: SkipRecorderPort,
     ) -> None:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -102,6 +104,7 @@ class AllocateCapital:
         self._commit = commit
         self._clock = clock
         self._reservation_ttl_seconds = reservation_ttl_seconds
+        self._skip_recorder = skip_recorder
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
         existing = await self._reservations.find_by_signal_id(command.signal_id)
@@ -117,12 +120,19 @@ class AllocateCapital:
             # and ``signals.status`` never leaves ACCEPTED. Distinct from
             # 2c's in-lock re-check WARNING below: this one fires BEFORE the
             # lock is ever taken.
-            logger.warning(
-                "allocation skipped for signal %s (strategy %s): %s",
-                command.signal_id,
-                command.strategy_id,
-                STRATEGY_DISABLED_SKIP_REASON,
+            detail = (
+                f"allocation skipped for signal {command.signal_id} "
+                f"(strategy {command.strategy_id}): {STRATEGY_DISABLED_SKIP_REASON}"
             )
+            logger.warning("%s", detail)
+            # Decision 25 (design.md § C): this skip returns before the lock
+            # and had no commit of its own, so the outcome gets one right
+            # here rather than riding on a neighbouring commit. It takes no
+            # lock, so it cannot disturb the lock order.
+            await self._skip_recorder.record_skip(
+                command.signal_id, STRATEGY_DISABLED_SKIP_REASON, detail
+            )
+            await self._commit.commit()
             return AllocationResult(
                 outcome=DecisionOutcome.SKIP,
                 granted=Decimal("0"),
@@ -171,12 +181,14 @@ class AllocateCapital:
             # ACCEPTED and the job handler discards its result (orchestrator
             # binding requirement 4), so a skipped WARNING here is the sole
             # trace that this signal was ever seen and set aside.
-            logger.warning(
-                "in-lock re-check skips signal %s for strategy %s: %s",
-                command.signal_id,
-                command.strategy_id,
-                skip_reason,
+            detail = (
+                f"in-lock re-check skips signal {command.signal_id} for strategy "
+                f"{command.strategy_id}: {skip_reason}"
             )
+            logger.warning("%s", detail)
+            # Decision 25: staged immediately before the commit that also
+            # releases the pool lock (design.md § C).
+            await self._skip_recorder.record_skip(command.signal_id, skip_reason, detail)
             await self._commit.commit()
             return AllocationResult(
                 outcome=DecisionOutcome.SKIP,
@@ -225,12 +237,15 @@ class AllocateCapital:
             # skips above -- same "otherwise nothing records this" reason.
             # ``decide()`` guarantees ``skip_reason`` is set whenever the
             # outcome is SKIP.
-            logger.warning(
-                "allocation skipped for signal %s (strategy %s): %s",
-                command.signal_id,
-                command.strategy_id,
-                decision.skip_reason.value if decision.skip_reason is not None else "SKIP",
+            skip_reason = decision.skip_reason.value if decision.skip_reason is not None else "SKIP"
+            detail = (
+                f"allocation skipped for signal {command.signal_id} "
+                f"(strategy {command.strategy_id}): {skip_reason}"
             )
+            logger.warning("%s", detail)
+            # Decision 25: staged before the commit just below, the same one
+            # a granted reservation's insert would use (design.md § C).
+            await self._skip_recorder.record_skip(command.signal_id, skip_reason, detail)
 
         await self._commit.commit()
         # ---- TXN-A ends; the advisory lock is released by commit

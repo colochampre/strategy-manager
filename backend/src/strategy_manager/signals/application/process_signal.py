@@ -82,8 +82,14 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.signals.application.holding_guard import HoldingGuard
-from strategy_manager.signals.application.ports import BalanceRefreshPort, PoolKey, RefreshStatus
+from strategy_manager.signals.application.ports import (
+    BalanceRefreshPort,
+    PoolKey,
+    RefreshStatus,
+    SignalOutcomePort,
+)
 from strategy_manager.signals.domain.holding import HeldAllocation
+from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
@@ -91,6 +97,10 @@ from strategy_manager.signals.domain.position_transition import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Fallback code for a guard refusal that carries no ``reason`` (a stand-in
+# guard, or a future branch that forgot one): still ``REJECTED``, never silent.
+_UNCODED_GUARD_REFUSAL = "HOLDING_GUARD_REFUSED"
 
 
 def _consuming_side(next_position_size: Decimal) -> OrderSide:
@@ -313,6 +323,7 @@ class ProcessSignalHandler:
         closing_attempts: ClosingAttemptsPort,
         close_orphans: CloseOrphansPort,
         tradable_pools: frozenset[tuple[str, str]],
+        outcomes: SignalOutcomePort,
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
@@ -327,6 +338,7 @@ class ProcessSignalHandler:
         self._closing_attempts = closing_attempts
         self._close_orphans = close_orphans
         self._tradable_pools = tradable_pools
+        self._outcomes = outcomes
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -343,11 +355,11 @@ class ProcessSignalHandler:
         # archived strategy holds no position, so there is never a close for
         # this refusal to strand.
         if policy.archived:
-            return self._refuse_archived_strategy(signal_id, context, transition, policy)
+            return await self._refuse_archived_strategy(signal_id, context, transition, policy)
 
         if (policy.exchange, policy.venue) not in self._tradable_pools:
-            return self._refuse_untradable_pool(
-                context, transition, policy.exchange, policy.venue
+            return await self._refuse_untradable_pool(
+                signal_id, context, transition, policy.exchange, policy.venue
             )
 
         # ``transition.effects`` is ORDERED, and that ordering is the domain's
@@ -430,10 +442,21 @@ class ProcessSignalHandler:
         # Archived also refuses here (design.md § 8: "It also runs in
         # open_now()") -- a strategy archived while this continuation was
         # in flight must not open once the awaited close(s) settle.
+        # ``close_executed``: the continuation only runs after every awaited
+        # close settled, so for a REVERSE the close half has executed by now
+        # (decision 26, design.md § E).
+        close_executed = transition.kind is TransitionKind.REVERSE
         if policy.archived:
-            return self._refuse_archived_strategy(signal_id, context, transition, policy)
+            return await self._refuse_archived_strategy(
+                signal_id, context, transition, policy, close_executed=close_executed
+            )
         return await self._handle_consumes(
-            signal_id, context, transition, policy, next_poll=poll + 1
+            signal_id,
+            context,
+            transition,
+            policy,
+            next_poll=poll + 1,
+            close_executed=close_executed,
         )
 
     async def _handle_consumes(
@@ -443,6 +466,7 @@ class ProcessSignalHandler:
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
         next_poll: int = 0,
+        close_executed: bool = False,
     ) -> ProcessSignalResult:
         # Unlisted-pair refusal (decision 1; design.md § 7, "Where the
         # allowlist applies: opens only") runs BEFORE even the Existing-
@@ -451,7 +475,9 @@ class ProcessSignalHandler:
         # fresh ``handle()`` call and the ``open_now()`` continuation, since
         # both reach this same method.
         if market_key(context.symbol) not in policy.allowed_pairs:
-            return self._refuse_unlisted_pair(signal_id, context, transition, policy)
+            return await self._refuse_unlisted_pair(
+                signal_id, context, transition, policy, close_executed=close_executed
+            )
 
         # The Existing-Position Guard (spec: capital-allocation §
         # Existing-Position Guard) runs BEFORE anything else in this branch --
@@ -467,8 +493,12 @@ class ProcessSignalHandler:
         )
         if not guard_outcome.proceed:
             if guard_outcome.refused is not None:
-                return ProcessSignalResult(
-                    transition.kind.value, None, False, refused=guard_outcome.refused
+                return await self._reject(
+                    signal_id,
+                    transition,
+                    guard_outcome.reason or _UNCODED_GUARD_REFUSAL,
+                    guard_outcome.refused,
+                    close_executed=close_executed,
                 )
             if guard_outcome.real_orphan_holdings is not None:
                 # Real-Orphan Resolution via Close-Then-Open (spec:
@@ -531,7 +561,13 @@ class ProcessSignalHandler:
                 f"{context.symbol}"
             )
             logger.error("refusing signal, balance unavailable: %s", refused)
-            return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+            return await self._reject(
+                signal_id,
+                transition,
+                "BALANCE_UNAVAILABLE",
+                refused,
+                close_executed=close_executed,
+            )
 
         pool_balance = await self._pool_balance.read(
             policy.exchange, policy.venue, policy.settlement_currency
@@ -545,8 +581,13 @@ class ProcessSignalHandler:
             currency=Currency(policy.settlement_currency),
         )
         if requested.amount <= 0:
-            return self._refuse_non_positive_request(
-                context, transition, policy, pool_balance.total
+            return await self._refuse_non_positive_request(
+                signal_id,
+                context,
+                transition,
+                policy,
+                pool_balance.total,
+                close_executed=close_executed,
             )
 
         result = await self._allocate_capital.allocate(
@@ -697,12 +738,15 @@ class ProcessSignalHandler:
             )
         return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
 
-    def _refuse_non_positive_request(
+    async def _refuse_non_positive_request(
         self,
+        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
         pool_total: Decimal,
+        *,
+        close_executed: bool = False,
     ) -> ProcessSignalResult:
         """Refuse a signal whose ask sizes to nothing, before the engine and
         before the pool's advisory lock.
@@ -758,14 +802,18 @@ class ProcessSignalHandler:
             "without the owner changing it."
         )
         logger.warning("refusing signal, nothing to allocate: %s", refused)
-        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+        return await self._reject(
+            signal_id, transition, "NOTHING_TO_ALLOCATE", refused, close_executed=close_executed
+        )
 
-    def _refuse_archived_strategy(
+    async def _refuse_archived_strategy(
         self,
         signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        *,
+        close_executed: bool = False,
     ) -> ProcessSignalResult:
         """Decision 11: an archived strategy's signal is persisted unchanged
         by the webhook (``ingest_signal.py`` performs no strategy lookup at
@@ -791,14 +839,18 @@ class ProcessSignalHandler:
             f"({context.strategy_id}) refused; remove its TradingView alert"
         )
         logger.warning(refused)
-        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+        return await self._reject(
+            signal_id, transition, "STRATEGY_ARCHIVED", refused, close_executed=close_executed
+        )
 
-    def _refuse_unlisted_pair(
+    async def _refuse_unlisted_pair(
         self,
         signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        *,
+        close_executed: bool = False,
     ) -> ProcessSignalResult:
         """Decision 1/15: an OPENING signal for a pair not on the strategy's
         allowed-pairs list is refused before the Existing-Position Guard,
@@ -820,10 +872,13 @@ class ProcessSignalHandler:
             f"[{_pairs_text(policy)}]; refusing the open, no capital reserved"
         )
         logger.warning(refused)
-        return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
+        return await self._reject(
+            signal_id, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
+        )
 
-    def _refuse_untradable_pool(
+    async def _refuse_untradable_pool(
         self,
+        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         exchange: str,
@@ -854,6 +909,40 @@ class ProcessSignalHandler:
             "No order was placed and no capital was reserved."
         )
         logger.warning("refusing signal for %s: %s", context.symbol, refused)
+        return await self._reject(signal_id, transition, "UNTRADABLE_POOL", refused)
+
+    async def _reject(
+        self,
+        signal_id: UUID,
+        transition: PositionTransition,
+        reason: str,
+        refused: str,
+        *,
+        close_executed: bool = False,
+    ) -> ProcessSignalResult:
+        """The one place a refusal (rows 1-7 of design.md § B) becomes a
+        durable outcome: the signal ends ``REJECTED`` with ``reason`` and the
+        human message already logged for it.
+
+        Same-commit rule (design.md § C): none of these refusals has a
+        commit of its own today, since nothing else is written on these
+        paths, so the outcome write is staged on the run's session and
+        committed right here, before the result is returned. Never
+        ``PROCESSED``.
+
+        ``close_executed`` is decision 26's REVERSE rule: when the refused
+        half is the OPEN of a REVERSE whose close already executed, the
+        detail says so, so the status column and its detail together tell a
+        REVERSE that ended flat from a signal that did nothing at all. The
+        returned ``refused`` text stays exactly what was logged."""
+        detail = refused
+        if close_executed:
+            detail = (
+                f"{refused}; the close half of this REVERSE already executed, so the "
+                "position is flat rather than flipped"
+            )
+        await self._outcomes.record(signal_id, SignalOutcome.rejected(reason, detail))
+        await self._commit.commit()
         return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
     def _note_unexecuted_tail(

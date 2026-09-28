@@ -26,6 +26,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.allocation.fakes import RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -51,6 +52,7 @@ def _build_allocate_capital(session: AsyncSession, balance: Decimal) -> Allocate
         commit=session,
         clock=SystemClock(),
         reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
     )
 
 

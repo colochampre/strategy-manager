@@ -114,3 +114,17 @@ class CommitPort(Protocol):
     satisfies it structurally."""
 
     async def commit(self) -> None: ...
+
+class SkipRecorderPort(Protocol):
+    """Records, on the caller's own session, that ``AllocateCapital`` set a
+    signal aside (decision 25, design.md "Addendum: signal outcomes" § C,
+    row 8). Declared here, consumer-side, so ``allocation`` never imports
+    ``signals``; ``signals.infrastructure.skip_recorder.SignalSkipRecorder``
+    adapts it onto ``SignalOutcomePort``.
+
+    Like ``SignalOutcomePort.record`` it stages the write and NEVER commits:
+    ``AllocateCapital`` calls it immediately before the commit that makes the
+    skip durable. ``reason`` is the existing ``skip_reason`` value and
+    ``detail`` the human message already logged for the skip."""
+
+    async def record_skip(self, signal_id: UUID, reason: str, detail: str) -> None: ...

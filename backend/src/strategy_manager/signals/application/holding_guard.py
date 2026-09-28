@@ -87,6 +87,9 @@ class GuardOutcome:
 
     proceed: bool
     refused: str | None = None
+    # Stable code for a refusal (decision 25, design.md § B rows 4-5): set
+    # together with ``refused``, never on its own.
+    reason: str | None = None
     awaited_allocation_ids: list[UUID] | None = None
     real_orphan_holdings: list[HeldAllocation] | None = None
 
@@ -158,7 +161,7 @@ class HoldingGuard:
             "this signal rather than retrying it forever"
         )
         logger.warning("abandoning delayed open: %s", refused)
-        return GuardOutcome(proceed=False, refused=refused)
+        return GuardOutcome(proceed=False, refused=refused, reason="IN_FLIGHT_TIMEOUT")
 
     async def _classify_divergence(
         self,
@@ -196,4 +199,6 @@ class HoldingGuard:
             f"venue net {venue_net}; refusing"
         )
         logger.warning("refusing %s holding: %s", kind.value.lower(), refused)
-        return GuardOutcome(proceed=False, refused=refused)
+        return GuardOutcome(
+            proceed=False, refused=refused, reason=f"DIVERGENT_HOLDING_{kind.value}"
+        )
