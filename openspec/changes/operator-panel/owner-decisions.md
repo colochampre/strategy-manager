@@ -99,6 +99,15 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - The outcome is final in three different jobs (`signal.process`, `execution.settle`, the open-after-close continuation), and each write shares the commit of the step that decided it. A submitted order is `PROCESSING`, not `PROCESSED`.
     - Split, agreed 2026-09-28: **PR 5b** records the outcomes decided inside `signal.process` (a migration adds the reason and decision time). **PR 5c** closes the asynchronous ones: settle, continuation abandonments, the close-to-signal link a close attempt lacks today, and jobs that exhaust their retries.
 
+26. **The REVERSE outcome rule** (2026-09-28, PR 5b task 5b.1).
+    - The close half moves the signal to `PROCESSING`; the open half decides the final status.
+    - If the open is refused after the close executed, the signal is `REJECTED` with the open's reason, and the detail says the close executed.
+    - A REVERSE whose close is refused ends `REJECTED` with the close's code; the open half never runs.
+    - A spot REVERSE whose new side cannot be held ends `REJECTED` `REVERSE_NEW_SIDE_UNHOLDABLE`.
+    - Consequence for PR 5c: a REVERSE's close fill never writes a terminal status while its open half is pending.
+    - Why: the status column must tell a REVERSE that ended flat from one that flipped. The declined alternative (`PROCESSED` whenever an order executed) would show both as `PROCESSED`, and only the detail would tell them apart.
+    - Design: design.md, "Addendum: signal outcomes (decision 25)", § E.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

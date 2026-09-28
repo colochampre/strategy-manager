@@ -922,3 +922,324 @@ Recorded carve-outs, not questions: Pionex `.env` keys stay (decision 2); `NO_KE
 > - `capital-allocation`: the read-only-exchange requirement retitled and widened to cover `NO_KEY` explicitly, not only by cross-reference (decision 20).
 > - `strategy-lifecycle`: unchanged — none of decisions 20–23 touch allowed pairs, archive, or the enablement log.
 > - `performance-reporting`: unchanged.
+
+## Addendum: signal outcomes (decision 25) — 2026-09-28
+
+Task 5b.1. Verified against the code at HEAD `ea2adb5` (the outcome map in `tasks.md`
+was built read-only from `17681ef`; nothing changed on the routing paths below
+between those two commits). Covers the status machine, the reason-code table,
+the same-commit rule with its two zero-commit exceptions, the 0025 schema, and
+the REVERSE rule the owner confirmed as decision 26. Only PR 5b's rows (1–15,
+plus the deferrals) are implemented here; PR 5c's rows are listed for
+completeness because the Rules block in `tasks.md` binds both PRs at once.
+
+### A. Status machine
+
+```
+ACCEPTED → PROCESSING → PROCESSED | REJECTED
+ACCEPTED →              PROCESSED | REJECTED     (direct; no interim PROCESSING)
+```
+
+`PROCESSED` and `REJECTED` are terminal and are never overwritten. A write
+against a terminal signal is a no-op; it logs one WARNING when the outcome it
+would have written differs from the one already recorded (same shape as the
+guard `AllocateCapital.allocate` already applies to a resumed reservation —
+`allocate_capital.py:106-109` — except that guard resumes silently and this
+one must also log, because a *different* second outcome for the same signal
+is exactly the class of bug decision 25 exists to catch).
+
+A signal reaches `PROCESSED` or `REJECTED` directly, with no `PROCESSING` in
+between, whenever nothing was ever submitted to an exchange (every refusal
+and skip, rows 1–8 below). It passes through `PROCESSING` only when an order
+was placed and its fate is still open (rows 9–15 landing on `PLACED`).
+Signals ingested before migration 0025 stay `ACCEPTED` forever; nothing
+reconstructs their outcome.
+
+### B. Reason-code table
+
+| # | Reason code | Decided by | Job | Recorded in |
+|---|---|---|---|---|
+| 1 | `UNTRADABLE_POOL` | `process_signal.py::_refuse_untradable_pool` | signal.process | 5b |
+| 2 | `STRATEGY_ARCHIVED` | `process_signal.py::_refuse_archived_strategy` (`handle`, `open_now`) | signal.process or continuation | 5b writes it; 5c.5 reuses the same write inside the continuation's own commit |
+| 3 | `PAIR_NOT_ALLOWED` | `process_signal.py::_refuse_unlisted_pair` | signal.process or continuation | 5b writes it; 5c.5 reuses it |
+| 4 | `DIVERGENT_HOLDING_GHOST` / `DIVERGENT_HOLDING_AMBIGUOUS` | `holding_guard.py::_classify_divergence` | signal.process | 5b |
+| 5 | `IN_FLIGHT_TIMEOUT` | `holding_guard.py::_on_in_flight`, past the age bound | signal.process | 5b |
+| 6 | `BALANCE_UNAVAILABLE` | `process_signal.py`, balance refresh UNAVAILABLE | signal.process | 5b |
+| 7 | `NOTHING_TO_ALLOCATE` | `process_signal.py::_refuse_non_positive_request` | signal.process | 5b |
+| 8 | the existing `skip_reason` value (`STRATEGY_DISABLED`, `STRATEGY_ARCHIVED`, `NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`, `PARTIAL_BELOW_MIN_ORDER_SIZE`) | `allocate_capital.py`, three SKIP sites (pre-lock, in-lock, `decide()`) | signal.process | 5b |
+| 9 | `RESERVATION_EXPIRED_BEFORE_SUBMIT` | `place_order.py`, `ABORTED_EXPIRED` | signal.process | 5b |
+| 10 | `ORDER_NOT_PLACEABLE` | `place_order.py`, `REFUSED` (`OrderNotPlaceable`) | signal.process | 5b |
+| 11 | `ORDER_REJECTED_BY_VENUE` | `place_order.py`, `FAILED` (venue `ExchangeError`) | signal.process | 5b |
+| 12 | — (`PLACED` → `PROCESSING`, not final) | `place_order.py` | signal.process | 5b |
+| 13 | `CLOSE_DUST_NOT_CLOSABLE` | `close_position.py`, `NOT_CLOSABLE` | signal.process | 5b |
+| 14 | `CLOSE_REJECTED_BY_VENUE` | `close_position.py`, `FAILED` | signal.process | 5b |
+| 15 | — (`PLACED` → `PROCESSING`, not final) | `close_position.py` | signal.process | 5b |
+| 16 | — (`FILLED` → `PROCESSED`) | `settle_execution.py`, `settle()` | execution.settle | 5c |
+| 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` | execution.settle | 5c |
+| 18 | `REVERSE_NEW_SIDE_UNHOLDABLE` (added by decision 26; the map recorded none, see "Map corrections") | `process_signal.py::_note_unexecuted_tail` | signal.process | 5b |
+| — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c |
+| — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c |
+| — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` or `settle_timeout_seconds` | signal.open_after_close | 5c |
+| — | `JOB_FAILED` | any of `signal.process` / `signal.open_after_close` / `execution.settle` exhausting retries to `FAILED` | (job-kind-agnostic reader) | 5c |
+
+Rows 19–20 (a duplicate webhook delivery, an idempotent close replay) never
+produce a *second* outcome for a signal; they are the ordinary case the
+terminal-write guard in § A already covers, not new codes.
+
+**`refused` vs. `failed`.** `ProcessSignalResult` carries these as two
+separate fields (`process_signal.py:289-293`). Rows 1–7 and row 18 set
+`refused`; rows 9–11 and 13–14 set `failed`. The 5b.10 writer must read
+whichever field the result actually populated for that branch and pick the
+reason code from the table above accordingly — the two fields are not
+interchangeable and neither is ever set with the other in the same result.
+
+### C. Same-commit rule
+
+Every write in the table below is staged on the SAME SQLAlchemy session,
+immediately before the specific `commit()` call named, never a separate
+later transaction. Two rows have no existing commit to attach to at all;
+5b.10 must add one, right at that point, rather than folding the write into
+a neighbouring commit.
+
+| Rows | Physical commit | Notes |
+|---|---|---|
+| 4, 5 | inside `HoldingGuard` / its caller before `AllocateCapital` is ever reached — no reservation exists yet | no schema write beyond the signal row itself |
+| 8, pre-lock (`STRATEGY_DISABLED`) | **none exists** — `allocate_capital.py:113-131` returns before acquiring the lock or calling `commit()` | 5b.10 must add a commit here |
+| 8, in-lock (`STRATEGY_DISABLED` / `STRATEGY_ARCHIVED`) | `allocate_capital.py:180` | |
+| 8, `decide()` SKIP | `allocate_capital.py:235` (the same commit a granted reservation's insert would use) | |
+| 9 | `place_order.py:111-112` (`mark(RELEASED)` + commit, pre-submit) | |
+| 10 | `place_order.py:155-156` (`mark(RELEASED)` + commit, before the network call) | |
+| 11 | `place_order.py:208-210` (`mark(RELEASED)` + `mark_failed` + commit, after the network call) | |
+| 12 (PROCESSING) | `place_order.py:228-229` (`mark_placed` + commit) | not the earlier pre-network commit at line 196, which only records `SUBMITTED` to the attempt table, not that the exchange accepted the order |
+| 13 (`NOT_CLOSABLE`) | **none exists** — `close_position.py:178-183` returns before `self._attempts.insert(...)` or any `commit()` | 5b.10 must add a commit here |
+| 14 | `close_position.py:225-226` (`mark_failed` + commit, after the network call) | |
+| 15 (PROCESSING) | `close_position.py:246-247` (`mark_placed` + commit) | |
+
+**A dependency this implies.** `PlaceOrder` can already reach `signal_id`
+without a new parameter: the `Reservation` it loads carries `signal_id`
+(`reservation.py:61`, populated at `allocate_capital.py:216`), so
+`SignalOutcomePort.record(reservation.signal_id, outcome)` needs only a new
+port dependency on `PlaceOrder`, not a `PlaceCommand` field. `ClosePosition`
+has no such route — `CloseCommand` (`close_position.py:66-78`) carries
+`allocation_id` but never `signal_id`, and nothing else it reads does either
+— so `CloseCommand` needs a new `signal_id: UUID` field, threaded in by
+`_handle_releases` (which already has it as a parameter). Both use cases need
+the same `SignalOutcomePort` handed in and called immediately before each of
+their own existing `commit()` calls, which is what makes 5b.6/5b.7's
+atomicity test ("inject a failing commit, assert the status and the
+reservation mark land together or not at all") meaningful: the outcome write
+and the reservation/attempt write must be part of the same flushed unit of
+work, not two round trips.
+
+### D. Schema (migration 0025)
+
+Per task 5b.2/5b.3:
+
+- `signals.outcome_reason TEXT NULL` — the stable code from § B.
+- `signals.outcome_detail TEXT NULL` — the human-readable message already
+  logged for that branch (`refused` or `failed`, § B).
+- `signals.decided_at timestamptz NULL`.
+- CHECK `status <> 'REJECTED' OR outcome_reason IS NOT NULL`.
+- CHECK `status NOT IN ('PROCESSED','REJECTED') OR decided_at IS NOT NULL`.
+- `execution_attempts.signal_id UUID NULL`, FK to `signals`, filled starting
+  5c (rows 16–17, and via the new `CloseCommand.signal_id` above for closes);
+  `NULL` for every attempt written before 5c.
+
+`signals.status` CHECK already allows all four values
+(`0002_signals.py:65-66`); 0025 adds no new status value, only the three
+columns and their two guards.
+
+**Domain and port (5b.3):**
+
+- `SignalOutcome` — a frozen value object in `signals/domain/`, importing no
+  framework: `status: SignalStatus`, `reason: str | None`,
+  `detail: str | None`, constructed only through named factories
+  (`SignalOutcome.processing()`, `.processed()`,
+  `.rejected(reason, detail)`) so an invalid combination (e.g. `REJECTED`
+  with no reason) cannot be built at all, ahead of the CHECK constraint.
+- `SignalOutcomePort.record(signal_id: UUID, outcome: SignalOutcome) -> None`
+  — declared on the signal repository's port in `signals/application/ports.py`,
+  implemented by the SQLAlchemy adapter in `signals/infrastructure/`. The
+  terminal-state guard (§ A) lives in the adapter, since it is the one place
+  that can read the current row and write the new one inside the same
+  flushed unit of work without a second round trip.
+
+### E. REVERSE rule — CONFIRMED (decision 26, 2026-09-28)
+
+**The rule:** the close half moves the signal to `PROCESSING`; the open half
+decides the final status. If the open is refused after the close executed,
+the signal is `REJECTED` with the open's reason, and the detail says the
+close executed. The alternative below was offered and declined: the status
+column must tell a partial REVERSE (flat, not flipped) from a complete one,
+which is the distinction decision 25 exists to make.
+
+**What the rule requires of the implementation:**
+
+- **A REVERSE's close fill never writes a terminal status** while its open
+  half is pending. The terminal guard (§ A) never overwrites, so a
+  `PROCESSED` written at the close's settle would permanently block the
+  open half's `REJECTED`. The close's settle leaves the signal `PROCESSING`;
+  only the open half (`open_now`, inside the continuation) ends it. This
+  binds 5c.1 and 5c.3.
+- **A REVERSE whose close is refused** (rows 13/14) ends `REJECTED` with the
+  close's own code, synchronously, in `signal.process`. The open half never
+  runs (see below), so there is nothing else to wait for.
+- **A spot REVERSE whose new side cannot be held** (row 18,
+  `_note_unexecuted_tail`) ends `REJECTED` `REVERSE_NEW_SIDE_UNHOLDABLE`,
+  written by `signal.process` after the close is placed. Its detail says
+  the close was submitted and spot cannot hold the new short. No pool is
+  on spot today, so this path is dormant, but it still gets its code.
+
+**How a REVERSE actually flows today.**
+`PositionTransition.classify` gives a REVERSE `effects = (RELEASES,
+CONSUMES)` — releases always first (`position_transition.py:57-61`).
+`ProcessSignalHandler.handle` routes on `effects[0]`, so a REVERSE always
+runs `_handle_releases` before anything else (`process_signal.py:362-365`).
+(The file's own module docstring at the top, lines 50-54, still says "a
+REVERSE transition is routed through the CONSUMES branch only" — that text
+is stale; the routing above has closed the prior leg first since before this
+map was written. Not part of this addendum's scope to fix, flagged for
+whoever next touches that docstring.)
+
+Inside `_handle_releases` (`process_signal.py:571-698`):
+
+1. `is_reverse_wiring = kind is REVERSE and _new_side_holdable(symbol, next_position_size)`
+   — `True` on a perpetual pool, or on spot when the new side is a LONG;
+   `False` only for a spot REVERSE whose new side is a SHORT (spot cannot
+   hold one).
+2. When `is_reverse_wiring` is `True`, the `signal.open_after_close`
+   continuation is seeded (`seed(signal_id, [prior_reservation_id], poll=0,
+   replay_expected=True)`) **before** `close_position.close()` is even
+   called (`process_signal.py:664-674`). `seed()` itself never commits; it
+   rides on whichever of `ClosePosition`'s own commits lands first — the
+   pre-network `SUBMITTED` commit at `close_position.py:205-213` — so the
+   continuation row becomes durable **regardless of how the close turns
+   out**: PLACED, FAILED, or NOT_CLOSABLE all commit that same seed.
+3. `close_position.close()` runs. `NOT_CLOSABLE` never writes an attempt row
+   at all (§ C); `FAILED` writes and commits `mark_failed`; `PLACED` writes
+   and commits `mark_placed`.
+4. Back in `handle()`: with two effects, `kind is REVERSE and
+   _new_side_holdable(...)` (line 369) returns whatever `_handle_releases`
+   returned, unchanged, whenever the new side is holdable. Otherwise
+   `_note_unexecuted_tail` (line 859) sets `refused` on that same result via
+   `dataclasses.replace`, **without touching `executed`**.
+
+**On the three flagged questions, with evidence:**
+
+- **Does `REJECTED` for a REVERSE whose close executed misrepresent that the
+  position changed?** Yes, in two places the proposed rule does not name.
+  First, the spot-short case (`is_reverse_wiring` `False`): a successful
+  close (`PLACED`, later `FILLED`) leaves `ProcessSignalResult.executed =
+  True` intact — a real order was placed and a real position change is in
+  flight — while `_note_unexecuted_tail` still sets `refused` on it
+  (`process_signal.py:886-896`). Whatever writer reads `refused != None` and
+  maps it to `REJECTED` (the pattern every row 1–7 follows) would record
+  `REJECTED` on a signal that DID move real capital. Second, the case the
+  proposed rule's own second sentence names ("the open is refused after the
+  close executed") is real but only reachable through the
+  `is_reverse_wiring = True` path, where the open runs inside the
+  continuation (`open_now` → `_handle_consumes`, 5c.5) — a close that
+  genuinely filled, followed by an open refused for an ordinary reason such
+  as `PAIR_NOT_ALLOWED`, ends `REJECTED` by design under the proposed rule,
+  and that status alone cannot tell an operator "the position moved to flat"
+  from "nothing happened at all" — decision 25's own stated goal
+  ("the panel can then answer what happened to this signal") is exactly the
+  thing this ambiguity defeats.
+- **What happens if the close itself is refused (rows 13/14) — does the open
+  half ever run?** No. Because the continuation is seeded BEFORE
+  `close_position.close()` runs (point 2 above), a FAILED or NOT_CLOSABLE
+  close still leaves a durable continuation row awaiting exactly that
+  allocation. When that row is later polled, `open_after_close.py:239-244`
+  finds the awaited close's status is `FAILED` and abandons with one ERROR
+  ("an awaited close failed"), returning without ever calling `self._open_now`
+  — `_handle_consumes`/`open_now` never runs. So for rows 13/14 inside a
+  REVERSE, the outcome is entirely decided, synchronously, by the close
+  itself, inside `signal.process` — there is no "open half" to defer to, and
+  the eventual continuation abandonment (5c.4, `AWAITED_CLOSE_FAILED`) will
+  find the signal already terminal and log the benign no-op WARNING § A
+  defines, which is expected here, not a bug to chase. One caveat this
+  addendum cannot verify without running the code: whether `NOT_CLOSABLE`
+  persists as `ExecutionStatus.FAILED` on the (nonexistent) attempt row —
+  since `close_position.py:178-183` writes NO attempt row at all for
+  `NOT_CLOSABLE`, `latest_close_for(prior_reservation_id)` finds nothing,
+  which is `close is None`, not `close.status is FAILED`
+  (`open_after_close.py:239, 251-253`). That is neither branch (2)'s
+  abandon-on-FAILED nor branch (3)'s all-filled — it falls to branch (4),
+  which only abandons past the hard age/settle-timeout bound. **So a REVERSE
+  whose close is dust (`NOT_CLOSABLE`) leaves its seeded continuation
+  waiting for a close that will never exist, until it times out and 5c.4's
+  `CONTINUATION_TIMED_OUT` fires minutes later** — even though
+  `signal.process` already knew, synchronously, that this signal was
+  definitively `REJECTED CLOSE_DUST_NOT_CLOSABLE`. The terminal-write guard
+  (§ A) keeps this harmless for the signal's own recorded status (the later
+  write is a no-op, same reason, no WARNING), but it is a live queue row
+  sitting idle for no reason for the whole timeout window. Worth a
+  cross-reference note on 5c.4, not a blocker for 5b.
+- **What is the status while the close is PLACED but not settled, and who
+  decides the final status?** `PROCESSING`, written at `close_position.py`'s
+  `mark_placed` commit (§ C, row 15). When `is_reverse_wiring` is `True`,
+  the FINAL status is decided later, in the `signal.open_after_close`
+  continuation's own job and commits, once every awaited close is `FILLED`
+  and `open_now` runs `_handle_consumes` again (`open_after_close.py:256-266`,
+  `process_signal.py:380-437`) — landing on rows 2–15 a second time, this
+  time inside the continuation's transaction rather than the original
+  `signal.process` run. That is 5c territory (5c.5: "the continuation's
+  `open_now` reuses 5b's writes ... in the continuation job's own commits"),
+  even though the reused code is unmodified 5b code. When
+  `is_reverse_wiring` is `False` (spot short target), there is no
+  continuation and no open half at all; the close's own eventual settlement
+  (`execution.settle`, row 16) is what resolves `PROCESSING` away — and it
+  is 5c.1's job, resolving through `reservation.signal_id`, exactly like any
+  other close settle.
+
+**The alternative, offered because of the evidence above, and declined by
+the owner (decision 26):**
+
+Keep `PROCESSING` as the close's interim status (unchanged from the proposed
+rule), but classify the FINAL status by whether any order actually executed
+and changed the position, not by whether the intended REVERSE completed in
+full. Concretely: `REJECTED` only when nothing at all was placed (rows 13/14
+— the close never executed, so nothing changed); `PROCESSED` whenever the
+close settled `FILLED`, whether or not the open half ever ran or ran and was
+itself refused, with `outcome_detail` naming exactly what happened (which
+half ran, which half did not and why — e.g. "closed 0.5 SOL; the new short
+cannot be held on spot" or "closed the prior long; the open was refused:
+PAIR_NOT_ALLOWED"). This also gives row 18's currently code-less
+`_note_unexecuted_tail` branch a defined outcome for the first time (see
+"Map corrections" below), where the proposed rule as written leaves it
+undefined.
+
+Tradeoff: this reads correctly at the status level — `PROCESSED` never lies
+about a position that moved — but it gives up the proposed rule's one
+advantage, which is that `REJECTED` currently doubles as a visual flag on
+the panel for "look at this signal, something needs attention." Under the
+alternative, a partially-completed reverse (a real, deliberate, product-level
+gap — the position ends flat rather than flipped) looks identical, at the
+status column, to a fully successful one; only the detail text (which
+requires opening the row) tells them apart. The proposed rule keeps that
+visual flag at the cost of the misrepresentation risk above; the alternative
+removes the misrepresentation at the cost of the flag. Both are internally
+consistent with the status machine in § A — neither needs a third terminal
+value.
+
+### Map corrections
+
+- **Row 18 has no reason code of its own, and neither proposed REVERSE rule
+  fully defines one for it.** The outcome map (`tasks.md`, row 18) states
+  this explicitly ("none of its own"); this addendum's own REVERSE analysis
+  above confirms the gap is real rather than an oversight — whichever
+  REVERSE rule the owner picks, `_note_unexecuted_tail`'s branch (a spot
+  REVERSE whose new side cannot be held) needs a first reason code. Under
+  decision 26 it is `REJECTED` `REVERSE_NEW_SIDE_UNHOLDABLE` (§ E).
+- **A REVERSE whose close is dust (`NOT_CLOSABLE`) leaves a dead continuation
+  row behind it until it times out**, even though `signal.process` already
+  knows the definitive outcome synchronously (see the second flagged
+  question above). Not a defect in the outcome map itself — the map's rows
+  13 and 15 are both accurate — but a behaviour 5c.4's implementer should
+  know about before treating every `CONTINUATION_TIMED_OUT` as a genuine
+  "still waiting on the venue" case.
+- No other discrepancy was found: the routing, commit counts, and job
+  ownership for rows 1–17 and 19–20 match the map exactly, including the two
+  zero-commit branches (row 8's pre-lock skip, row 13's `NOT_CLOSABLE`) the
+  map itself does not call out as needing a new commit — that is new
+  information from this addendum, not a correction of a wrong claim.
