@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `a969e40`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `b0cbda1`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -103,7 +103,9 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6b | #19 | `50a68db` | — | 2026-09-29 | Units 3b + 3c, plus decision 28 recorded. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. Pull, restart both. |
 | PR 6c | #20 | `849ad1a` | — | 2026-09-29 | Unit 3d. Pull, restart both. The original PR 6 is complete. |
 | PR 6d | #21 | `a969e40` | — | 2026-09-29 | Decision 28. The guard ran against the production ledger before the restart: clean for `DRY_RUN=true`, and a `DRY_RUN=false` start would also be allowed. Restart both. The worker unit has `Restart=always`, `RestartSec=5` and no `StartLimit*`, so a refused start would loop and alert every few seconds. |
-| PR 6e | — | — | — | — | Decision 29, on `feat/operator-panel-startup-exit-code`. In review. No migration: pull, restart both, then the owner adds the `RestartPreventExitStatus=78` drop-in to the worker unit and reloads systemd. |
+| PR 6e | #22 | `b0cbda1` | — | 2026-09-29 | Decision 29. Restart both. Drop-in `/etc/systemd/system/strategy-worker.service.d/startup-refusal.conf` installed (`RestartPreventExitStatus=78`), systemd reloaded, and the worker stayed active. The API unit also runs `Restart=always`, `RestartSec=5`, with no drop-in: its lifespan refusals would loop silently (see decision 29's note on the API). |
+| PR 7a | — | — | — | — | Tasks 7.1, 7.2 and the pools/performance half of 7.4, on `feat/operator-panel-read-endpoints`. In review. No migration: pull, restart both. |
+| PR 7b | — | — | — | — | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Cut from `main` after PR 7a merges. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -765,6 +767,13 @@ Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --t
 Rollback boundary: the exit mapping only. Without the unit setting, 78 behaves like any other non-zero exit.
 Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads systemd.
 
+**Known risk, accepted by the owner (2026-09-29).** The API unit has the same restart loop:
+`Restart=always` and `RestartSec=5`, with no drop-in. Its lifespan refusals reach no alert channel.
+Those refusals are a missing `WEBHOOK_SECRET` or `ADMIN_API_TOKEN`, or a pool lock-key collision.
+They can only happen after an owner edit of `.env`, and every deploy command ends with
+`systemctl is-active`, which shows it. While the API is down, TradingView's webhooks are lost.
+Fixing it properly needs the API to compose the alert bridge, so it is left for a separate change.
+
 ---
 
 ## PR 7 — Read endpoints: pools, performance, `GET /webhook-secret` (950–1,350 lines)
@@ -773,10 +782,27 @@ Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads sys
 Create `backend/src/strategy_manager/performance/infrastructure/performance_router.py`; Create
 `backend/src/strategy_manager/signals/infrastructure/webhook_secret_router.py`.
 
-- [ ] 7.1 RED `backend/tests/accounts/infrastructure/test_pools_router.py::test_get_pools_requires_bearer_token`, `::test_get_pools_computes_allocatable_as_max_zero_available_minus_reserved_server_side`, `::test_get_pools_never_sums_two_pools_on_same_exchange` (rule 7).
-- [ ] 7.2 RED `backend/tests/performance/infrastructure/test_performance_router.py::test_get_pool_performance_requires_bearer_token`, `::test_get_pool_performance_404_unknown_pool`, `::test_get_strategy_performance_includes_by_pair`, `::test_get_strategy_trades_keyset_pagination_422_half_a_cursor`, `::test_empty_ledger_returns_zeros_and_empty_arrays_never_an_error`.
+**Split, 2026-09-29 (auto-chain).** The PR is split in two sequential PRs, each cut from `main`
+after the previous one merges.
+
+- **PR 7a** holds tasks 7.1 and 7.2, and the pools and performance half of 7.4.
+- **PR 7b** holds task 7.3 and the webhook-secret half of 7.4 (decision 23). It is the only endpoint
+  that returns a secret, so it is reviewed and deployed on its own.
+
+Two carry-overs from PR 6c land in PR 7a:
+
+- `direction` is in the design's trades response but missing from `ClosedTrade`. It is added as the
+  side of the allocation's earliest leg, through `derive_trade`.
+- The strategy endpoints resolve the strategy first and return 404 for an unknown one. They then
+  pass that strategy's own pool, because a wrong pool yields an empty result, not an error.
+
+- [x] 7.1 RED `backend/tests/accounts/infrastructure/test_pools_router.py::test_get_pools_requires_bearer_token`, `::test_get_pools_computes_allocatable_as_max_zero_available_minus_reserved_server_side`, `::test_get_pools_never_sums_two_pools_on_same_exchange` (rule 7).
+  - Done 2026-09-29 (PR 7a): `tests/accounts/infrastructure/test_pools_router.py` (7 tests, real PostgreSQL through `create_app()`, so the `/api` prefix is part of what is proven). RED against a stub router that had no auth and returned `[]`: every failure an assertion (`assert 200 == 401`, `assert 0 == 3`, and a `_Pools` lookup that raises `AssertionError` naming the missing pool rather than a bare `KeyError`). GREEN: `accounts/domain/pool_overview.py` (pure `allocatable`, `PoolOverview`), `accounts/infrastructure/{pool_overview,pools_router}.py`, mounted in `main.py`. "Reserved" is `SqlAlchemyReservationRepository.sum_active`, the allocator's own query (PENDING or SUBMITTED, `expires_at` in the future), so the panel and `AllocateCapital` cannot disagree. Mutations caught: auth dependency removed (1), no `max(0, ...)` clamp (1), `stale` hardwired false (1), reserved read for one fixed pool (3).
+- [x] 7.2 RED `backend/tests/performance/infrastructure/test_performance_router.py::test_get_pool_performance_requires_bearer_token`, `::test_get_pool_performance_404_unknown_pool`, `::test_get_strategy_performance_includes_by_pair`, `::test_get_strategy_trades_keyset_pagination_422_half_a_cursor`, `::test_empty_ledger_returns_zeros_and_empty_arrays_never_an_error`.
+  - Done 2026-09-29 (PR 7a): `tests/performance/infrastructure/test_performance_router.py` (20 tests, real PostgreSQL through `create_app()`, fixed clock), `tests/shared/infrastructure/test_wire.py`, and 7 domain tests for `direction` in `test_derive_trade.py`. RED against a stub router with no auth that returned `{"stub": true}`: every failure an assertion (`assert 200 == 401`, `assert 200 == 422`, a `_Json` lookup raising `AssertionError` naming the missing key, `assert [] == [PoolKey(...)]`); direction RED against `derive_trade` returning a fixed LONG (`LONG == SHORT` x4), the LONG/tie tests proven by mutation. Mutations caught: auth removed (2), wrong pool for a strategy (1), half-cursor check removed (1), `direction` hardwired (1), no ERROR log (2), `total_pnl`/`max_drawdown` as raw `Decimal` (1/3), `return` alias dropped (5), no 404 for an unknown pool (1), direction compared on `last_filled_at` (1, after adding a scale-out test). Not caught, and why: dropping the `Query(ge=1, le=200)` bounds, because `ReadStrategyTrades` refuses the same sizes with `InvalidPageRequest` and the router maps it to 422 (belt and braces, both kept). The half-cursor 422 test first used a random UUID against a tied timestamp and failed 1 run in 2; its cursor is now strictly older than the trade. Carry-overs: `ClosedTrade.direction` (LONG/SHORT, the side of the earliest leg by `first_filled_at`, ties to BUY) and strategy routes that load the strategy first (404) and read ITS pool. Gate: ruff, mypy clean; full suite 2122 tests, exit 0 (one intermittent PostgreSQL teardown `permission denied to terminate process` on the first run, gone on re-run). Latency: 1,000 closed trades in one pool, median 44 ms pool report, 46 ms strategy report, 39 ms trades page, 7 ms `GET /pools` (7 requests each, test database, not optimized).
 - [ ] 7.3 RED `backend/tests/signals/infrastructure/test_webhook_secret_router.py::test_get_webhook_secret_requires_bearer_token`, `::test_get_webhook_secret_returns_cache_control_no_store`, `::test_no_other_api_response_body_contains_the_configured_secret_value` (parametrized over every other `/api` route's response), `::test_access_log_never_records_the_secret_value`.
 - [ ] 7.4 GREEN: `SqlAlchemyPoolOverview`, `pools_router` (`GET /pools`); `performance_router` (`GET /performance/pools/{exchange}/{venue}/{ccy}`, `GET /performance/strategies/{id}`, `GET /performance/strategies/{id}/trades`); `webhook_secret_router` (`GET /webhook-secret`, reads `settings.webhook_secret` directly, `Cache-Control: no-store`).
+  - PR 7a (2026-09-29): the pools and performance half is DONE (`SqlAlchemyPoolOverview`, `pools_router`, `performance_router`, plus `pool_lookup.py` and `shared/infrastructure/wire.py`). The webhook-secret half (`webhook_secret_router`) is PR 7b, task 7.3. This task stays unticked until 7b.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/accounts/infrastructure/ backend/tests/performance/infrastructure/ backend/tests/signals/infrastructure/test_webhook_secret_router.py`.
 Harness: `httpx.AsyncClient` over the ASGI app.

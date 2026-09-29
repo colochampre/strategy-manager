@@ -9,7 +9,18 @@ pools; ``usd_rate_at_fill`` is not even a field.
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID
+
+
+class Direction(StrEnum):
+    """Which way a trade was opened: ``LONG`` when its earliest leg was a BUY,
+    ``SHORT`` when it was a SELL. The ledger's ``side`` of the opening leg
+    expressed as a position sign, so a reader of a trade list does not have to
+    know that a futures trade opened by selling is a short."""
+
+    LONG = "LONG"
+    SHORT = "SHORT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +64,8 @@ class ClosedTrade:
     ``pnl`` and the flag says so.
 
     ``pair`` is the ``market_key`` of the allocation's symbol, so the two
-    spellings of one market are one pair. ``pool_total_at_open`` is the
+    spellings of one market are one pair. ``direction`` is how the trade was
+    opened (see ``Direction`` and ``derive_trade``). ``pool_total_at_open`` is the
     denominator of the trade's return; ``None`` means the trade has no return.
     """
 
@@ -63,6 +75,7 @@ class ClosedTrade:
     venue: str
     settlement_currency: str
     pair: str
+    direction: Direction
     opened_at: datetime
     closed_at: datetime
     pnl: Decimal

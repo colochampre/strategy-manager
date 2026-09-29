@@ -15,7 +15,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from strategy_manager.performance.domain.by_pair import PairStats, by_pair
-from strategy_manager.performance.domain.closed_trade import ClosedTrade, FillGroup
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
 from strategy_manager.performance.domain.derive_trade import derive_trades
 
 OPENED = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
@@ -54,6 +54,7 @@ def _trade(
         venue="usdt-m",
         settlement_currency="USDT",
         pair=pair,
+        direction=Direction.LONG,
         opened_at=OPENED,
         closed_at=closed_at,
         pnl=Decimal(pnl),

@@ -44,7 +44,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
-from strategy_manager.performance.domain.closed_trade import ClosedTrade, FillGroup
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 BUY = "BUY"
@@ -67,6 +67,20 @@ class DerivedTrades:
     closed: tuple[ClosedTrade, ...]
     open_trade_count: int
     unresolved_allocation_ids: tuple[UUID, ...]
+
+
+def _direction(groups: Sequence[FillGroup]) -> Direction:
+    """How the allocation was opened: the side of its EARLIEST leg, a BUY
+    meaning ``LONG`` and a SELL ``SHORT``.
+
+    The earliest leg is the group with the smallest ``first_filled_at``, not the
+    first one in the sequence: the source orders groups by side and fee
+    currency, which says nothing about time. Two legs at the same instant have
+    no earliest; the tie goes to the BUY, so the answer never depends on the
+    order the source returned them in.
+    """
+    opening = min(groups, key=lambda g: (g.first_filled_at, g.side != BUY))
+    return Direction.LONG if opening.side == BUY else Direction.SHORT
 
 
 def derive_trade(groups: Sequence[FillGroup]) -> ClosedTrade | None:
@@ -115,6 +129,7 @@ def derive_trade(groups: Sequence[FillGroup]) -> ClosedTrade | None:
         venue=first.venue,
         settlement_currency=first.settlement_currency,
         pair=market_key(first.symbol),
+        direction=_direction(groups),
         opened_at=min(g.first_filled_at for g in groups),
         closed_at=max(g.last_filled_at for g in groups),
         pnl=sold - bought - settlement_fees,

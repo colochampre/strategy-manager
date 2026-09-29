@@ -9,13 +9,14 @@ Pure ``Decimal`` domain, no I/O. Every expected figure is an exact ``Decimal``.
 of one trade below are written under DIFFERENT spellings on purpose.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.closed_trade import Direction, FillGroup
 from strategy_manager.performance.domain.derive_trade import derive_trade, derive_trades
 
 OPENED = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
@@ -393,3 +394,153 @@ def test_an_underivable_symbol_is_reported_not_raised_and_not_dropped_silently()
     assert derived.unresolved_allocation_ids == (bad,)
     assert [t.allocation_id for t in derived.closed] == [good]
     assert derived.open_trade_count == 0
+
+
+# --- direction: the side of the allocation's earliest leg ------------------------
+
+
+def test_a_trade_opened_by_a_buy_is_long() -> None:
+    a = uuid4()
+    groups = [
+        _group(allocation_id=a, side="BUY", quantity="1", notional="100"),
+        _group(
+            allocation_id=a,
+            side="SELL",
+            quantity="1",
+            notional="106",
+            symbol="SOLUSDT",
+            filled_at=CLOSED,
+        ),
+    ]
+
+    trade = derive_trade(groups)
+
+    assert trade is not None
+    assert trade.direction == Direction.LONG
+
+
+def test_a_trade_opened_by_a_sell_is_short() -> None:
+    """A futures short: SELL first (spelled ``SOLUSDT.P``), BUY to close (booked
+    as ``SOLUSDT``). Its PnL is positive when the price fell."""
+    a = uuid4()
+    groups = [
+        _group(allocation_id=a, side="SELL", quantity="1", notional="100"),
+        _group(
+            allocation_id=a,
+            side="BUY",
+            quantity="1",
+            notional="94",
+            symbol="SOLUSDT",
+            filled_at=CLOSED,
+        ),
+    ]
+
+    trade = derive_trade(groups)
+
+    assert trade is not None
+    assert trade.direction == Direction.SHORT
+    assert trade.pnl == Decimal("6")
+
+
+def test_direction_follows_the_earliest_leg_not_the_order_the_groups_arrive_in() -> None:
+    """The source orders groups by side (BUY before SELL), which says nothing
+    about time. Both orders of the same two legs give the same answer."""
+    a = uuid4()
+    opened_short = _group(allocation_id=a, side="SELL", quantity="1", notional="100")
+    closed_by_buy = _group(
+        allocation_id=a,
+        side="BUY",
+        quantity="1",
+        notional="94",
+        symbol="SOLUSDT",
+        filled_at=CLOSED,
+    )
+
+    forward = derive_trade([opened_short, closed_by_buy])
+    backward = derive_trade([closed_by_buy, opened_short])
+
+    assert forward is not None and backward is not None
+    assert forward.direction == backward.direction == Direction.SHORT
+
+
+def test_direction_reads_the_first_fill_of_a_side_split_over_several_fee_currencies() -> None:
+    """The SELL side is two groups (fees in two currencies), the earlier one
+    listed last. The BUY sits between them in time, so only the earliest group
+    of the whole allocation says which way it was opened."""
+    a = uuid4()
+    at = lambda hour, minute: datetime(2026, 9, 1, hour, minute, tzinfo=UTC)  # noqa: E731
+    groups = [
+        _group(allocation_id=a, side="BUY", quantity="1", notional="94", filled_at=at(10, 3)),
+        _group(
+            allocation_id=a,
+            side="SELL",
+            quantity="0.5",
+            notional="50",
+            fee_currency="USDT",
+            filled_at=at(10, 5),
+        ),
+        _group(
+            allocation_id=a,
+            side="SELL",
+            quantity="0.5",
+            notional="50",
+            fee_currency="USDC",
+            filled_at=at(10, 0),
+        ),
+    ]
+
+    trade = derive_trade(groups)
+
+    assert trade is not None
+    assert trade.direction == Direction.SHORT
+
+
+def test_legs_at_the_same_instant_resolve_the_same_way_whatever_the_order() -> None:
+    """A tie has no earliest leg. The answer must still not depend on which
+    group the source happened to return first: BUY wins, in either order."""
+    a = uuid4()
+    buy = _group(allocation_id=a, side="BUY", quantity="1", notional="100")
+    sell = _group(allocation_id=a, side="SELL", quantity="1", notional="100")
+
+    first = derive_trade([buy, sell])
+    second = derive_trade([sell, buy])
+
+    assert first is not None and second is not None
+    assert first.direction == second.direction == Direction.LONG
+
+
+def test_derive_trades_carries_each_allocations_own_direction() -> None:
+    long_id, short_id = uuid4(), uuid4()
+    groups = [
+        _group(allocation_id=long_id, side="BUY", quantity="1", notional="100"),
+        _group(
+            allocation_id=long_id, side="SELL", quantity="1", notional="103", filled_at=CLOSED
+        ),
+        _group(allocation_id=short_id, side="SELL", quantity="2", notional="200"),
+        _group(
+            allocation_id=short_id, side="BUY", quantity="2", notional="190", filled_at=CLOSED
+        ),
+    ]
+
+    derived = derive_trades(groups)
+
+    directions = {t.allocation_id: t.direction for t in derived.closed}
+    assert directions == {long_id: Direction.LONG, short_id: Direction.SHORT}
+
+
+def test_direction_compares_when_each_side_started_not_when_it_finished() -> None:
+    """A SELL scaled out over 10:00-10:30 and a BUY at 10:10: the SELL started
+    first, so the trade was opened short, although the SELL FINISHED after the
+    BUY started."""
+    a = uuid4()
+    at = lambda minute: datetime(2026, 9, 1, 10, minute, tzinfo=UTC)  # noqa: E731
+    sell = replace(
+        _group(allocation_id=a, side="SELL", quantity="1", notional="100", filled_at=at(0)),
+        last_filled_at=at(30),
+    )
+    buy = _group(allocation_id=a, side="BUY", quantity="1", notional="94", filled_at=at(10))
+
+    trade = derive_trade([buy, sell])
+
+    assert trade is not None
+    assert trade.direction == Direction.SHORT

@@ -18,7 +18,7 @@ from uuid import uuid4
 import pytest
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.performance.domain.closed_trade import ClosedTrade
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction
 from strategy_manager.performance.domain.curve import (
     RangeName,
     build_pool_performance,
@@ -54,6 +54,7 @@ def _trade(
         venue=venue,
         settlement_currency=settlement_currency,
         pair="SOLUSDT",
+        direction=Direction.LONG,
         opened_at=closed_at - timedelta(hours=1),
         closed_at=closed_at,
         pnl=Decimal(pnl),
@@ -202,6 +203,7 @@ def test_a_naive_close_time_is_refused_rather_than_read_in_the_hosts_zone() -> N
         venue="usdt-m",
         settlement_currency="USDT",
         pair="SOLUSDT",
+        direction=Direction.LONG,
         opened_at=datetime(2026, 9, 1, 10, 0),
         closed_at=datetime(2026, 9, 1, 11, 0),
         pnl=Decimal("1"),
