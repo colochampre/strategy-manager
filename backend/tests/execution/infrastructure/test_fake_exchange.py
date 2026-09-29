@@ -186,3 +186,39 @@ async def test_no_book_configured_leaves_fetch_fills_unaffected() -> None:
     fills = await adapter.fetch_fills("c1", "ETHUSDT.P")
 
     assert len(fills) == 1
+
+
+async def test_fake_fill_ids_use_the_named_rehearsal_prefix_constant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Performance reads exclude rehearsal fills by ``REHEARSAL_FILL_ID_PREFIX``
+    (design.md § 12). The exclusion only works if the fake mints its ids with
+    that SAME constant, so this patches the constant the adapter uses and
+    watches the minted id follow it: a second, literal ``"fake-fill-"`` in
+    the adapter would ignore the patch and leave the exclusion pointing at
+    ids nobody mints any more.
+    """
+    from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
+    from strategy_manager.execution.infrastructure import fake_exchange
+
+    async def mint() -> str:
+        adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+        order = await adapter.build_open_order(
+            OpenOrderSpec(
+                side=OrderSide.BUY,
+                client_order_id="c1",
+                symbol="ETHUSDT.P",
+                granted=Decimal("200"),
+                price=Decimal("100"),
+            )
+        )
+        await adapter.place(order)
+        return (await adapter.fetch_fills("c1", "ETHUSDT.P"))[0].exchange_fill_id
+
+    # The value is a data contract: rows already in the ledger carry it.
+    assert REHEARSAL_FILL_ID_PREFIX == "fake-fill-"
+    assert (await mint()).startswith(REHEARSAL_FILL_ID_PREFIX)
+
+    monkeypatch.setattr(fake_exchange, "REHEARSAL_FILL_ID_PREFIX", "rehearsal-probe-")
+
+    assert (await mint()).startswith("rehearsal-probe-")

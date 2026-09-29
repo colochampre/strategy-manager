@@ -114,6 +114,15 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Why `REJECTED`: the system did nothing, and TradingView and the system disagree about the position. Decision 26 already reserves `REJECTED` for "the intent was not carried out".
     - Added to PR 5b2 as task 5b.11. It is covered by decision 25's "every refusal path"; the outcome map had missed it.
 
+28. **The worker refuses to start when `DRY_RUN` does not match the origin of an open position** (2026-09-29, found in PR 6b).
+    - `DRY_RUN` is configuration read at startup, not a panel action. So the guard is a startup check beside `assert_dry_run_safe`, not a use-case refusal like archiving (decision 14).
+    - With `DRY_RUN=false`, any open allocation that holds a rehearsal fill (`fake-fill-`) refuses the start.
+    - With `DRY_RUN=true`, any open allocation that holds a live fill refuses the start. This is the dangerous direction: its close would go to the fake exchange, the ledger would show it flat, and the real position would stay open on the venue.
+    - The refusal logs one ERROR naming every offending allocation (strategy, pool, symbol) and the way out: close those positions in the mode that opened them, then flip `DRY_RUN`.
+    - "Open" uses the ledger's own rule, a net base quantity that is not zero, the same rule `derive_trade` uses.
+    - Why refuse to start, when decision 20 prefers a degraded start: flipping `DRY_RUN` is a deliberate manual act done with a restart. The owner is present to read the ERROR, and a degraded worker would have to guard every signal instead.
+    - Planned as PR 6d, after PR 6c.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

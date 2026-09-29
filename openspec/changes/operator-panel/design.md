@@ -415,6 +415,22 @@ Range W (7D/30D/90D/1Y=365D/All), ending now:
 
 **The read** is one SQL aggregate per scope. `SqlAlchemyAllocationFillsSource` does `SELECT allocation_id, strategy_id, side, fee_currency, min(symbol), sum(quantity), sum(notional), sum(fee), min(filled_at), max(filled_at)` from `ledger_entries` joined to `reservations` for `pool_total_at_open`, `WHERE pool = ... AND exchange_fill_id NOT LIKE :rehearsal_prefix || '%'` (bound from `REHEARSAL_FILL_ID_PREFIX`), grouped by `(allocation_id, strategy_id, side, fee_currency)`. The domain then folds the rows into `ClosedTrade`s: net base with the base-fee rule via `base_currency_of`, the closed test, pnl and flags. The work is bounded by the trade count (hundreds to thousands), and it rides `ix_ledger_pool_symbol` / `ix_ledger_allocation`. The UTC day of `closed_at` is taken in the domain (`closed_at.astimezone(UTC).date()`), never with a database-session time zone.
 
+**As built (PR 6b, unit 3b).**
+- The port is `AllocationFillsSourcePort.pool_fills(pool: PoolKey) -> PoolFills`. It takes exactly ONE pool and there is no method that reads several, so a cross-pool total cannot be requested (rule 7). `PoolFills` holds the `FillGroup` aggregates and `rehearsal_fill_count`, a second `count(*)` over the same pool of the fills the `NOT LIKE` left out. Without it a rehearsal fill could never be reported as excluded, because the aggregate never sees it.
+- **Closed** is net base EXACTLY zero (no tolerance, no venue step) with a BUY and a SELL behind it. It is the ledger's own rule (`net_positions_by_symbol` drops a group only at exact zero, and `ClosePosition` sizes from that net), so a trade is closed precisely when it has left the open positions. A tolerance would book a realized PnL for money still at risk.
+- Fee rules in `derive_trade`: a settlement-currency fee is subtracted; a base-currency fee is not subtracted from PnL but IS part of the net-base test; a third-currency fee with `fee > 0` sets `fees_complete=False` and is omitted; a zero fee in any currency changes nothing.
+- An allocation opened by a rehearsal fill and closed by a live one reaches the domain as a lone SELL. It is OPEN, not a trade.
+- A symbol that has no base currency in the pool's settlement currency cannot be tested. `derive_trades` returns those allocation ids in `unresolved_allocation_ids` instead of raising for the whole pool or dropping them silently.
+
+**As built (PR 6b, unit 3c).**
+- The five pure functions and `build_pool_performance` live in one module, `performance/domain/curve.py`. `ReadPoolPerformance(fills, clock).read(pool)` composes them; "now" comes from `ClockPort`.
+- Drawdown takes `E_0 = 1` as the first peak, so a loss on the very first day is already a drawdown.
+- The monthly grid has one entry per UTC month that has at least one closing day. A month with no closing trade is absent, not a fabricated 0%.
+- A range includes its start instant and `now`, and is compounded from the trades inside it, not sliced from the all-time curve. `pnl` counts trades without capital; `return` cannot.
+- Exclusions as built: `open_trade_count`, `rehearsal_fill_count`, `no_capital_at_open`, `unconverted_fee`, `unresolved_allocation_count`. The design listed the middle two only as prose; the rehearsal count needed the source to count what it filtered.
+- Rule 7 in the read: the signature takes one `PoolKey`; the port has no multi-pool method; every source row is checked against the requested pool before deriving; `build_pool_performance` re-checks every trade. Either check raises `InvariantViolation`.
+- A naive `closed_at` raises, because `astimezone` would read it in the host zone.
+
 ### 12. Rehearsal fills excluded by a named marker
 
 `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` moves into `execution/domain/fill.py`. `FakeExchangeAdapter` mints ids with it (`fake_exchange.py:144`), and the performance source excludes it.

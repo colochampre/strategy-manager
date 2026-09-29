@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `22a94b0`, alembic `0025`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `4041a3a`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -99,6 +99,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 5b2 | #15 | `5978ac8` | — | 2026-09-29 | Tasks 5b.6–5b.11 (5b.11 is decision 27). Pull, restart both. |
 | PR 5c | #16 | `d9fb55d` | — | 2026-09-29 | Tasks 5c.1–5c.5. Pull, restart both. |
 | PR 5c2 | #17 | `22a94b0` | — | 2026-09-29 | Tasks 5c.6–5c.7. Pull, restart both. Decision 25 is fully delivered. |
+| PR 6a | #18 | `4041a3a` | 0026 | 2026-09-29 | Unit 3a. Rehearsed on `sm_rehearsal_0026`, including the downgrade refusal once a value exists. Backup `/root/sm_pre0026_20260929_1534.dump` (an earlier `..._1532.dump` is from a run that aborted on the HEAD check before touching anything). Restart both. The 2 existing reservations stay NULL; only new ones record `pool_total_at_open`. |
+| PR 6b | — | — | — | — | Units 3b + 3c, on `feat/operator-panel-trade-curve`. In review. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. No migration: pull, restart both. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -628,13 +630,20 @@ Forecast: 350–500 lines.
 Modify `backend/src/strategy_manager/execution/domain/fill.py` (`REHEARSAL_FILL_ID_PREFIX`);
 Modify `backend/src/strategy_manager/execution/infrastructure/fake_exchange.py`.
 
-- [ ] 3b.1 RED `backend/tests/execution/infrastructure/test_fake_exchange.py::test_fake_fill_ids_use_the_named_rehearsal_prefix_constant`.
-- [ ] 3b.2 RED `backend/tests/performance/domain/test_derive_trade.py::test_realized_pnl_long_trade_100_to_106_with_settlement_fee`, `::test_third_currency_fee_flagged_fees_complete_false_not_converted`, `::test_base_currency_fee_not_subtracted_again_already_in_notional_diff`, `::test_open_allocation_yields_no_realized_pnl_counted_as_open`, `::test_partial_close_counted_as_open_not_closed`, `::test_rehearsal_fill_excluded_from_derivation`.
-- [ ] 3b.3 RED same file `::test_pair_derived_from_market_key_of_allocation_fills_spelling_merge` — fills spelled `SOLUSDT.P` on open and `SOLUSDT` on the booked close, asserts one pair `SOLUSDT` (F4, spelling rule).
-- [ ] 3b.4 RED `backend/tests/performance/infrastructure/test_allocation_fills_source.py::test_source_excludes_fake_fill_prefix_rows`, `::test_source_groups_by_allocation_strategy_side_fee_currency`, `::test_source_reads_pool_total_at_open_from_reservation_join`.
-- [ ] 3b.5 GREEN: `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` moved into `execution/domain/fill.py`; `fake_exchange.py:144` mints with the constant.
-- [ ] 3b.6 GREEN: `ClosedTrade`, `derive_trade()` pure domain function (base-fee rule via `base_currency_of`, closed test, pnl, `fees_complete` flag).
-- [ ] 3b.7 GREEN: `SqlAlchemyAllocationFillsSource` — the one SQL aggregate joining `ledger_entries` to `reservations`, `WHERE exchange_fill_id NOT LIKE :rehearsal_prefix || '%'`, grouped by `(allocation_id, strategy_id, side, fee_currency)`.
+- [x] 3b.1 RED `backend/tests/execution/infrastructure/test_fake_exchange.py::test_fake_fill_ids_use_the_named_rehearsal_prefix_constant`.
+  - Done 2026-09-29: RED on assertion (the fake minted `fake-fill-...` while the test patched the constant the adapter uses and expected `rehearsal-probe-...`; a stub of the constant plus an unused import made it importable). GREEN: `fake_exchange.py` mints with the constant. The test also pins the value `"fake-fill-"`, because ledger rows already carry it.
+- [x] 3b.2 RED `backend/tests/performance/domain/test_derive_trade.py::test_realized_pnl_long_trade_100_to_106_with_settlement_fee`, `::test_third_currency_fee_flagged_fees_complete_false_not_converted`, `::test_base_currency_fee_not_subtracted_again_already_in_notional_diff`, `::test_open_allocation_yields_no_realized_pnl_counted_as_open`, `::test_partial_close_counted_as_open_not_closed`, `::test_rehearsal_fill_excluded_from_derivation`.
+  - Done 2026-09-29: `tests/performance/domain/test_derive_trade.py`. All six named tests plus six more, 15 in the file. RED with a stub `derive_trade` on assertions (`None is not None`, `0 == 2`). Non-vacuous by mutation: tolerance `> 0.001` fails the exact-zero test; subtracting a base fee again fails the base-fee test; flagging a zero third-currency fee fails its test; a case-sensitive fee currency fails its test. `test_rehearsal_fill_excluded_from_derivation` tests the domain half of the rule: an allocation opened by a rehearsal fill and closed by a live one reaches the domain as a lone SELL and must stay OPEN, never a trade whose PnL is the whole sale. The exclusion itself is SQL (3b.4).
+- [x] 3b.3 RED same file `::test_pair_derived_from_market_key_of_allocation_fills_spelling_merge` — fills spelled `SOLUSDT.P` on open and `SOLUSDT` on the booked close, asserts one pair `SOLUSDT` (F4, spelling rule).
+  - Done 2026-09-29: parametrized over three close spellings (`SOLUSDT`, `SOLUSDT_PERP`, `solusdt`) against an open spelled `SOLUSDT.P`. Mutation `pair=first.symbol` fails all three. Repeated end to end through the real ledger in 3b.4.
+- [x] 3b.4 RED `backend/tests/performance/infrastructure/test_allocation_fills_source.py::test_source_excludes_fake_fill_prefix_rows`, `::test_source_groups_by_allocation_strategy_side_fee_currency`, `::test_source_reads_pool_total_at_open_from_reservation_join`.
+  - Done 2026-09-29: `tests/performance/infrastructure/test_allocation_fills_source.py`, 6 tests on real PostgreSQL, written through `RecordFill`. Beyond the three named: a fill id that only CONTAINS the prefix is not rehearsal; pool isolation across three pools sharing currency (one differs only by exchange); an empty pool. RED on assertions with a stub source. Mutations: no `NOT LIKE` fails the exclusion test; `contains` instead of `startswith` fails the prefix test; dropping the exchange filter fails the isolation test (it did NOT until the third pool was added: bybit vs pionex also differ by venue); dropping `fee_currency` from the grouping fails the grouping test.
+- [x] 3b.5 GREEN: `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` moved into `execution/domain/fill.py`; `fake_exchange.py:144` mints with the constant.
+  - Done 2026-09-29: `REHEARSAL_FILL_ID_PREFIX` in `execution/domain/fill.py`; `fake_exchange.py` mints with it.
+- [x] 3b.6 GREEN: `ClosedTrade`, `derive_trade()` pure domain function (base-fee rule via `base_currency_of`, closed test, pnl, `fees_complete` flag).
+  - Done 2026-09-29: `performance/domain/{closed_trade,derive_trade}.py`. `FillGroup` (input), `ClosedTrade`, `DerivedTrades`, `derive_trade` (one allocation), `derive_trades` (folds a pool). Closed = net base EXACTLY zero (ledger rule, no tolerance and no venue step) with a buy and a sell behind it. Fee table in the module docstring. A symbol with no base currency in the pool is returned in `unresolved_allocation_ids`, not raised and not dropped.
+- [x] 3b.7 GREEN: `SqlAlchemyAllocationFillsSource` — the one SQL aggregate joining `ledger_entries` to `reservations`, `WHERE exchange_fill_id NOT LIKE :rehearsal_prefix || '%'`, grouped by `(allocation_id, strategy_id, side, fee_currency)`.
+  - Done 2026-09-29: `SqlAlchemyAllocationFillsSource.pool_fills(pool) -> PoolFills(groups, rehearsal_fill_count)`. One grouped SELECT joined to `reservations`, plus a `count(*)` of the rehearsal fills it left out. `startswith(..., autoescape=True)` renders `NOT LIKE :p || '%' ESCAPE '/'`. Gate: ruff clean, mypy clean, full suite 1911 tests (1889 collected at HEAD + 22), exit 0.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/performance/ backend/tests/execution/`.
 Harness: pure for `derive_trade`; real PostgreSQL for the SQL aggregate (rides `ix_ledger_pool_symbol`/`ix_ledger_allocation`).
@@ -647,15 +656,24 @@ Forecast: 700–1,000 lines.
 (or one `curve.py` module housing all five pure functions); Create
 `backend/src/strategy_manager/performance/application/{read_pool_performance}.py`.
 
-- [ ] 3c.1 RED `backend/tests/performance/domain/test_curve.py::test_two_trades_different_days_compound_1_05_times_1_02` (the design worked example).
-- [ ] 3c.2 RED same file `::test_two_trades_same_utc_day_summed_not_chained_0_03_index_1_03` (the +20/+10 on a 1,000 USDT pool worked example — asserts 1.03, explicitly NOT 1.0302).
-- [ ] 3c.3 RED same file `::test_drawdown_from_previous_peak_1_20_to_1_14_is_5_percent`, `::test_no_drawdown_at_new_peak_is_zero`.
-- [ ] 3c.4 RED same file `::test_utc_month_boundary_close_at_2026_08_31_22_30_minus_3_counts_september` (decision 16, UTC boundary case).
-- [ ] 3c.5 RED same file `::test_exclusions_reported_two_open_one_missing_capital_at_open`.
-- [ ] 3c.6 RED same file `::test_range_summary_7d_30d_90d_1y_all_computed_independently`.
-- [ ] 3c.7 RED `backend/tests/performance/domain/test_curve.py::test_no_qualifying_trades_yields_empty_result_not_error`, `::test_only_rehearsal_fills_yields_same_empty_result`.
-- [ ] 3c.8 GREEN: `daily_returns()`, `compound()`, `drawdowns()`, `monthly_grid()`, `range_summary()` — pure `Decimal`, UTC day taken via `closed_at.astimezone(UTC).date()`, never a database session time zone.
-- [ ] 3c.9 GREEN: `ReadPoolPerformance` application read composing the domain functions over `AllocationFillsSourcePort`.
+- [x] 3c.1 RED `backend/tests/performance/domain/test_curve.py::test_two_trades_different_days_compound_1_05_times_1_02` (the design worked example).
+  - Done 2026-09-29: `tests/performance/domain/test_curve.py` (22 tests). RED with a stub module on assertions (`[] == [Decimal('1.05'), ...]`). `1.05 * 1.02` asserted as an exact `Decimal` (1.0710).
+- [x] 3c.2 RED same file `::test_two_trades_same_utc_day_summed_not_chained_0_03_index_1_03` (the +20/+10 on a 1,000 USDT pool worked example — asserts 1.03, explicitly NOT 1.0302).
+  - Done 2026-09-29: asserts 1.03 and `!= 1.0302`; triangulated with different capitals (20/1000 + 10/2000 = 0.025). Mutation: chaining inside a day fails this test and two others.
+- [x] 3c.3 RED same file `::test_drawdown_from_previous_peak_1_20_to_1_14_is_5_percent`, `::test_no_drawdown_at_new_peak_is_zero`.
+  - Done 2026-09-29: 1.20 -> 1.14 is exactly -0.05; a new peak is 0; plus the design's day-2 example (1.0094, -2%) and a first-day loss measured against `E_0 = 1`. Mutation: peak seeded from the first point fails the first-day-loss test.
+- [x] 3c.4 RED same file `::test_utc_month_boundary_close_at_2026_08_31_22_30_minus_3_counts_september` (decision 16, UTC boundary case).
+  - Done 2026-09-29: 22:30 at UTC-3 counts in September; triangulated with 20:59 (23:59 UTC, August) and 21:00 (00:00 UTC, September) at UTC-3. Mutation `closed_at.date()` (local) fails it, the UTC-day test and the naive-datetime test.
+- [x] 3c.5 RED same file `::test_exclusions_reported_two_open_one_missing_capital_at_open`.
+  - Done 2026-09-29: two open, one closed trade without capital: counts 2 and 1, curve has only the trade with capital, `total_pnl` still includes the 7. Also: an unconverted-fee trade stays in the curve and is counted. Mutation: treating a missing capital as a zero return adds a curve point and fails it.
+- [x] 3c.6 RED same file `::test_range_summary_7d_30d_90d_1y_all_computed_independently`.
+  - Done 2026-09-29: trades 3/20/60/200/500 days back; PnL 10/30/60/100/150 and compounded returns per window; window includes its start instant and excludes one second before. Mutations: exclusive start fails the boundary test; dropping a trade from All fails the range test.
+- [x] 3c.7 RED `backend/tests/performance/domain/test_curve.py::test_no_qualifying_trades_yields_empty_result_not_error`, `::test_only_rehearsal_fills_yields_same_empty_result`.
+  - Done 2026-09-29: empty input and rehearsal-only input give the same empty figures; the rehearsal count is the only difference. The empty test alone passes against the stub, so it is backed by the non-empty tests: the same functions produce non-empty output for the same shape of input.
+- [x] 3c.8 GREEN: `daily_returns()`, `compound()`, `drawdowns()`, `monthly_grid()`, `range_summary()` — pure `Decimal`, UTC day taken via `closed_at.astimezone(UTC).date()`, never a database session time zone.
+  - Done 2026-09-29: one module, `performance/domain/curve.py`, holding `daily_returns`, `compound`, `drawdowns`, `monthly_grid`, `range_summary` and `build_pool_performance`. UTC day from `closed_at.astimezone(UTC).date()`; a naive datetime raises. `build_pool_performance` raises on a trade from another pool (rule 7).
+- [x] 3c.9 GREEN: `ReadPoolPerformance` application read composing the domain functions over `AllocationFillsSourcePort`.
+  - Done 2026-09-29: `ReadPoolPerformance(fills, clock).read(pool)`, tests in `tests/performance/application/test_read_pool_performance.py` (10). Rule 7: one `PoolKey` per call, a port with no multi-pool method, and a check on every ROW the source returns before deriving (a stray opening leg would otherwise pass as an open trade). Logs: WARNING with allocation ids for unresolvable symbols, INFO counts for missing capital and unconverted fees, silence otherwise. Mutations: no row check, always-log, and wall-clock `now` each fail exactly their test. Gate: ruff clean, mypy clean, full suite 1943 tests, exit 0.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/performance/`.
 Harness: pure, no DB.
@@ -677,6 +695,30 @@ Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --t
 Harness: pure for `by_pair`; real PostgreSQL for the pagination boundary test.
 Rollback boundary: two new application reads; revert removes both, no endpoint depends on them until PR 7.
 Forecast: 400–600 lines.
+
+---
+
+## PR 6d — The `DRY_RUN` mode guard (decision 28) (300–500 lines)
+
+Added 2026-09-29. The worker refuses to start when `DRY_RUN` does not match the origin of an
+open position. It runs after PR 6c, cut from `main` once PR 6c merges.
+
+**Files**: Create `execution/infrastructure/mode_origin_invariant.py` (or extend
+`dry_run_invariant.py`, whichever reads better) and a read port for open allocations with the
+origin of their fills; Modify `main.py::build_worker_runner` beside `assert_dry_run_safe`.
+
+- [ ] 6d.1 RED `DRY_RUN=false` with an open allocation that holds a `fake-fill-` fill: the worker refuses to start. It logs one ERROR naming the strategy, the pool and the symbol, and says to close the position with `DRY_RUN=true` first.
+- [ ] 6d.2 RED `DRY_RUN=true` with an open allocation that holds a live fill: the worker refuses to start. The ERROR says to close it with `DRY_RUN=false` first, since a fake close would leave the real position open on the venue.
+- [ ] 6d.3 RED no open allocation, or only open allocations of the current mode: the worker starts, and the check logs nothing.
+- [ ] 6d.4 RED "open" is a net base quantity that is not exactly zero, the same rule as `derive_trade` and `net_positions_by_symbol`. A closed rehearsal allocation never blocks a live start.
+- [ ] 6d.5 GREEN the startup check, on real PostgreSQL, using `REHEARSAL_FILL_ID_PREFIX` (from PR 6b). The ERROR reaches Telegram through the alert bridge before the process exits.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL for the open-allocation read; fakes for the startup wiring.
+Rollback boundary: the startup check only; reverting it restores today's start.
+Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. If any of them still
+belongs to an open allocation, the worker keeps starting while `DRY_RUN=true` and would refuse
+a later `DRY_RUN=false` start until that position is closed. That is the intended behaviour.
 
 ---
 
