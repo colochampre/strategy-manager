@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `1eab7a9`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `5deb0fe`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -106,7 +106,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6e | #22 | `b0cbda1` | — | 2026-09-29 | Decision 29. Restart both. Drop-in `/etc/systemd/system/strategy-worker.service.d/startup-refusal.conf` installed (`RestartPreventExitStatus=78`), systemd reloaded, and the worker stayed active. The API unit also runs `Restart=always`, `RestartSec=5`, with no drop-in: its lifespan refusals would loop silently (see decision 29's note on the API). |
 | PR 7a | #23 | `94ca953` | — | 2026-09-29 | Tasks 7.1, 7.2 and the pools/performance half of 7.4. Pull, restart both; the API and the worker came up active. |
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
-| PR 8a-0 | — | — | — | — | Probe P6 (task 8a.0a), on `feat/operator-panel-probe-p6`. In review. Deploy: pull only, no restart (no service imports the script). Then the owner runs it with the vault key and a temporary Binance key that has only "Enable Reading", and deletes that key afterwards. |
+| PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
+| PR 8a | — | — | — | — | On `feat/operator-panel-key-policy`. Design addendum (8a.0b) first; the owner confirms it before 6a. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -859,13 +860,34 @@ confirmation. A design addendum (8a.0) settles both before 6a is rewritten.
   capability for Binance by itself. With one key per exchange (decision 18), there is no
   futures-readable read-only key.
 
-- [ ] 8a.0a Probe P6, GET-only, owner-run on the VPS. It compares the vault key (trade-enabled)
+- [x] 8a.0a Probe P6, GET-only, owner-run on the VPS. It compares the vault key (trade-enabled)
   with a temporary Binance key that has only "Enable Reading". It calls
   `GET /fapi/v3/account`, `/fapi/v2/account`, `/fapi/v3/balance`, `/fapi/v3/positionRisk`,
   `/fapi/v1/apiTradingStatus` and `/fapi/v1/account/permissions`. For each call it records the
   HTTP status, the code and msg, and `canTrade`/`canDeposit`/`canWithdraw`. It never sends
   anything but GET, prints each key's last four characters only, and never prints a payload
   beyond those fields. The owner deletes the temporary key afterwards.
+  - **Results (owner ran it on the VPS, 2026-09-29, PR #25 merged as `5deb0fe`).** The vault key
+    was `***3h2M`; the temporary key, with only "Enable Reading", was `***aWaE`.
+
+    | Call | Vault key | Read-only key |
+    | --- | --- | --- |
+    | `GET /fapi/v3/account` | 200, no `can*` fields | 200, no `can*` fields |
+    | `GET /fapi/v2/account` | 200, `canTrade`/`canDeposit`/`canWithdraw` all True | 200, **all True** |
+    | `GET /fapi/v3/balance` | 200, 11 entries | 200, 11 entries |
+    | `GET /fapi/v3/positionRisk` | 200, 0 entries | 200, 0 entries |
+    | `GET /fapi/v1/apiTradingStatus` | 200 | 200 |
+    | `GET /fapi/v1/account/permissions` | 404 | 404 |
+
+  - **Verdict.** A key WITHOUT "Enable Futures" reads every fapi endpoint. The community reports
+    were wrong, at least today. `canTrade` and `canWithdraw` are ACCOUNT-level: both are True on a
+    key that can neither trade futures nor withdraw.
+  - **Consequences.**
+    - Nothing reachable from the VPS reveals a Binance key's trade or withdraw permission.
+    - The save-time live read (8a) proves nothing about trading.
+    - `canWithdraw` does not replace decision 24's confirmation.
+    - v3 account no longer carries the `can*` fields.
+  - The owner chose a manual confirmation for trade capability (decision 30).
 - [ ] 8a.0b Design addendum from P6:
   - how Binance `trade_capable` is derived;
   - how decision 24's withdraw confirmation is stored (a column in 0027, with its timestamp);
