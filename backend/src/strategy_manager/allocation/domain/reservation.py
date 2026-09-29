@@ -67,6 +67,10 @@ class Reservation:
     updated_at: datetime | None = None
     terminal_at: datetime | None = None
     release_reason: ReleaseReason | None = None
+    # The capital of THIS reservation's own pool (its settlement currency), as
+    # read inside the allocation lock (migration ``0026``). ``None`` only on
+    # rows written before that migration, which cannot be backfilled.
+    pool_total_at_open: Decimal | None = None
 
     def transition_to(self, new_status: ReservationStatus) -> "Reservation":
         """Returns a new ``Reservation`` with the target status. Raises on any
