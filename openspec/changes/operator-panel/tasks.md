@@ -108,7 +108,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
 | PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
 | PR 8a-1 | #26 | `e9307c7` | 0027 | 2026-09-29 | Unit 6a. Rehearsed on `sm_rehearsal_0027`, including the downgrade refusal once a fact is recorded. Backup `/root/sm_pre0027_20260929_2210.dump`. Restart both; the vault self-test opened all 3 keys through the new columns. All 4 credential rows (binance, bybit, pionex active, plus one inactive pionex) are `trade_capable`, both sources `UNRECORDED`. S2 (httpx INFO logs) is a follow-up for 8a-3. |
-| PR 8a-2 | — | — | — | — | `SaveCredential` and the script fold (6b.1, 6b.4, 6b.7), on `feat/operator-panel-save-credential`. Applied in two commits, not pushed. Re-save the Binance key with both confirmations after the deploy (Q1-A). |
+| PR 8a-2 | — | — | — | — | `SaveCredential` and the script fold (6b.1, 6b.4, 6b.7), on `feat/operator-panel-save-credential`. In review. No migration: pull, restart both. After the deploy, the owner re-saves the Binance trade key (the vault key, last four `3h2M`) with both confirmations, so it leaves `UNRECORDED` (Q1-A). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
