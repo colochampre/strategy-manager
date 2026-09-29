@@ -1746,7 +1746,8 @@ Written as the code landed, so the addendum and the repository do not disagree s
 - **`readOnly` is trusted only as the integers 0 and 1** (the shape P2 recorded). A bool, a string or any other value is treated as missing, so it fails closed.
 - **A Binance `PermissionSnapshot` that is not empty is an `InvariantViolation`,** not a quiet pass. § D says a Binance snapshot is empty; this enforces it, so a verified input that reaches the confirmed branch is a loud bug and not a stored fact the venue never supplied.
 - **`FactSource` is a `StrEnum`** in `exchange_credential.py` (`VERIFIED`, `OWNER_CONFIRMED`, `UNRECORDED`), spelled exactly as the database CHECK spells them. `KeyAccepted` and `KeyFacts` share it.
-- **The set of Bybit auth codes is the three § A lists** (10003, 10004, 33004). Any other `retCode`, a non-200 status, a transport failure or a body of the wrong shape is `VenueUnreachable` with a code or status in the message. Nothing is stored either way. A Bybit IP mismatch (`10010`) is therefore reported as unreachable; adding it to `KeyRejected` is a one-line change if the owner prefers.
+- **The Bybit auth codes are the three § A lists (10003, 10004, 33004) plus 10010.** An unmatched source IP is the likeliest mistake when saving a new key, and as "unreachable" it would invite a retry that can never succeed, so it is `KeyRejected` with a static message naming the IP binding (added after verification). Any other `retCode`, a non-200 status, a transport failure or a body of the wrong shape is `VenueUnreachable` with a code or status in the message. Nothing is stored either way.
+- **`SqlAlchemyCredentialVault.store` refuses constraints 5 and 6 in code,** raising `InvariantViolation` for a Binance `VERIFIED` source or a Bybit `OWNER_CONFIRMED` source before the previous active key is deactivated, so a wrong-branch write fails before anything changes instead of at flush.
 
 Migration 0027 and `KeyFacts` (same PR, third commit):
 

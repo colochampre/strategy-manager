@@ -23,6 +23,7 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import (
     MASTER_KEY_BYTES,
@@ -316,9 +317,96 @@ async def test_the_orm_mirrors_the_venue_constraints_the_domain_cannot_see(
     constraint: str,
 ) -> None:
     """``KeyFacts`` has no exchange, so constraints 5 and 6 are the table's
-    alone. This proves the ORM schema (what these tests build) carries them."""
+    alone. This proves the ORM schema (what these tests build) carries them.
+    The row is added directly: the vault refuses these states in code first."""
     async with pg_session_factory() as session:
+        session.add(
+            ExchangeCredentialRow(
+                exchange=exchange,
+                label="default",
+                is_active=False,
+                wrapped_dek=b"x",
+                dek_nonce=b"x",
+                api_key_ciphertext=b"x",
+                api_key_nonce=b"x",
+                api_secret_ciphertext=b"x",
+                api_secret_nonce=b"x",
+                api_key_last4="abcd",
+                trade_capable=facts.trade_capable,
+                trade_capability_source=facts.trade_capability_source.value,
+                trade_confirmed_at=facts.trade_confirmed_at,
+                withdraw_check=facts.withdraw_check.value,
+                withdraw_confirmed_at=facts.withdraw_confirmed_at,
+                validated_at=facts.validated_at,
+                internal_transfer=facts.internal_transfer,
+            )
+        )
         with pytest.raises(IntegrityError) as raised:
-            await _vault(session, master_key).store(_credential_on(exchange), facts)
+            await session.flush()
 
     assert getattr(raised.value.orig.__cause__, "constraint_name", None) == constraint
+
+
+@pytest.mark.parametrize(
+    ("exchange", "facts"),
+    [
+        (
+            "binance",
+            KeyFacts(
+                True, FactSource.VERIFIED, None, FactSource.OWNER_CONFIRMED, CONFIRMED_AT,
+                CONFIRMED_AT, None,
+            ),
+        ),
+        (
+            "binance",
+            KeyFacts(
+                True, FactSource.OWNER_CONFIRMED, CONFIRMED_AT, FactSource.VERIFIED, None,
+                CONFIRMED_AT, None,
+            ),
+        ),
+        (
+            "bybit",
+            KeyFacts(
+                True, FactSource.OWNER_CONFIRMED, CONFIRMED_AT, FactSource.VERIFIED, None,
+                CONFIRMED_AT, None,
+            ),
+        ),
+        (
+            "bybit",
+            KeyFacts(
+                True, FactSource.VERIFIED, None, FactSource.OWNER_CONFIRMED, CONFIRMED_AT,
+                CONFIRMED_AT, None,
+            ),
+        ),
+    ],
+)
+async def test_a_wrong_branch_write_fails_before_the_active_key_is_deactivated(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    master_key: bytes,
+    exchange: str,
+    facts: KeyFacts,
+) -> None:
+    """Constraints 5 and 6 checked in code: the old key must stay active."""
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        good = (
+            KeyFacts(True, FactSource.VERIFIED, None, FactSource.VERIFIED, None, CONFIRMED_AT, None)
+            if exchange == "bybit"
+            else KeyFacts(
+                True, FactSource.OWNER_CONFIRMED, CONFIRMED_AT, FactSource.OWNER_CONFIRMED,
+                CONFIRMED_AT, CONFIRMED_AT, None,
+            )
+        )
+        await vault.store(_credential_on(exchange, api_key="OLD-KEY-0000"), good)
+        await session.commit()
+
+        with pytest.raises(InvariantViolation):
+            await vault.store(_credential_on(exchange, api_key="NEW-KEY-1111"), facts)
+
+        # Read from the database, not the identity map: nothing was flushed.
+        rows = (
+            await session.execute(
+                text("SELECT api_key_last4, is_active FROM exchange_credentials")
+            )
+        ).all()
+    assert [(r.api_key_last4, r.is_active) for r in rows] == [("0000", True)]

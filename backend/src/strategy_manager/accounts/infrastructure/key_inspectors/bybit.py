@@ -40,8 +40,10 @@ from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 
 logger = logging.getLogger(__name__)
 
-# retCode 10003 invalid api key, 10004 invalid sign, 33004 api key expired.
-_AUTH_CODES: Final = frozenset({"10003", "10004", "33004"})
+# retCode 10003 invalid api key, 10004 invalid sign, 33004 api key expired,
+# 10010 unmatched source IP.
+_UNMATCHED_IP: Final = "10010"
+_AUTH_CODES: Final = frozenset({"10003", "10004", "33004", "10010"})
 
 
 class BybitKeyInspector:
@@ -92,6 +94,11 @@ class BybitKeyInspector:
 
 
 def _translate(exc: BybitApiError) -> KeyRejected | VenueUnreachable:
+    if exc.code == _UNMATCHED_IP:
+        return KeyRejected(
+            f"bybit rejected the key (retCode {_UNMATCHED_IP}): "
+            "the source IP is not bound to this key"
+        )
     if exc.code in _AUTH_CODES:
         return KeyRejected(f"bybit rejected the key (retCode {exc.code})")
     if exc.http_status is not None:

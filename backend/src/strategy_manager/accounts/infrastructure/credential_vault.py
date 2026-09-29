@@ -94,6 +94,7 @@ class SqlAlchemyCredentialVault:
         is the encryption context: the ciphertexts must be bound to the row
         that will hold them, which means knowing the id before encrypting.
         """
+        _refuse_wrong_branch(credential.exchange, facts)
         await self._deactivate_existing(credential.exchange, self._clock.now())
 
         row_id = uuid4()
@@ -148,6 +149,19 @@ class SqlAlchemyCredentialVault:
         # The partial unique index is checked per statement, so the old row
         # must be deactivated and flushed before the new one is inserted.
         await self._session.flush()
+
+
+def _refuse_wrong_branch(exchange: str, facts: KeyFacts) -> None:
+    """Constraints 5 and 6, checked in code BEFORE the previous active key is
+    deactivated. ``KeyFacts`` has no exchange, so it cannot see these; without
+    this the failure would come at flush, after the old key stepped down."""
+    sources = (facts.trade_capability_source, facts.withdraw_check)
+    if exchange == "binance" and FactSource.VERIFIED in sources:
+        raise InvariantViolation("a binance key cannot be recorded as VERIFIED (constraint 5)")
+    if exchange == "bybit" and FactSource.OWNER_CONFIRMED in sources:
+        raise InvariantViolation(
+            "a bybit key cannot be recorded as OWNER_CONFIRMED (constraint 6)"
+        )
 
 
 def _facts_of(row: ExchangeCredentialRow) -> KeyFacts:

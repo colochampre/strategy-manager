@@ -213,6 +213,21 @@ async def test_bybit_inspector_maps_auth_codes_to_key_rejected_on_either_call(
     assert API_SECRET not in str(raised.value)
 
 
+async def test_bybit_inspector_maps_10010_to_key_rejected_naming_the_ip_binding() -> None:
+    """An IP mismatch is the likeliest mistake when saving a new key. As
+    "unreachable" it would invite a retry that can never succeed."""
+    body = {"retCode": 10010, "retMsg": f"Unmatched IP {WHITELISTED_IP}", "result": {}}
+    recorder = Recorder(lambda _r: httpx.Response(200, json=body))
+
+    with pytest.raises(KeyRejected) as raised:
+        await _bybit(recorder).inspect(_credential("bybit"))
+
+    assert str(raised.value) == (
+        "bybit rejected the key (retCode 10010): the source IP is not bound to this key"
+    )
+    assert WHITELISTED_IP not in str(raised.value)
+
+
 async def test_bybit_inspector_maps_5xx_and_transport_failures_to_venue_unreachable() -> None:
     down = Recorder(lambda _r: httpx.Response(503, text="upstream down"))
     with pytest.raises(VenueUnreachable):
