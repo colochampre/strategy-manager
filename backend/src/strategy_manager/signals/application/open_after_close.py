@@ -52,6 +52,8 @@ from uuid import UUID
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+from strategy_manager.signals.application.ports import SignalOutcomePort
+from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
 
 logger = logging.getLogger(__name__)
@@ -109,6 +111,7 @@ class OpenAfterClose:
         settle_timeout_seconds: float,
         poll_interval_seconds: float,
         max_signal_age_seconds: float,
+        outcomes: SignalOutcomePort,
     ) -> None:
         self._signals = signals
         self._attempts = attempts
@@ -118,6 +121,7 @@ class OpenAfterClose:
         self._settle_timeout_seconds = settle_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._max_signal_age_seconds = max_signal_age_seconds
+        self._outcomes = outcomes
 
     async def seed(
         self,
@@ -213,6 +217,7 @@ class OpenAfterClose:
 
         signal = await self._signals.get_by_id(signal_id)
         if signal is None or signal.received_at is None:
+            # Nothing to write to: the row this outcome would land on is gone.
             logger.error(
                 "abandoning continuation for signal %s: the signal no longer exists",
                 signal_id,
@@ -223,13 +228,11 @@ class OpenAfterClose:
         # one (owner decision A3) -- executing it would act on an intention
         # TradingView has already replaced.
         if await self._signals.has_newer(signal.strategy_id, signal.symbol, signal.received_at):
-            logger.warning(
-                "abandoning continuation for signal %s: a newer signal for "
-                "strategy %s on %s has arrived",
-                signal_id,
-                signal.strategy_id,
-                signal.symbol,
+            superseded = (
+                f"abandoning continuation for signal {signal_id}: a newer signal for "
+                f"strategy {signal.strategy_id} on {signal.symbol} has arrived"
             )
+            await self._abandon(signal_id, "SIGNAL_SUPERSEDED", superseded, logging.WARNING)
             return
 
         closes = [await self._attempts.latest_close_for(a) for a in awaited_allocation_ids]
@@ -237,10 +240,10 @@ class OpenAfterClose:
         # (2) Any awaited close that was definitively rejected ends this
         # continuation -- there is nothing left to wait for.
         if any(close is not None and close.status is ExecutionStatus.FAILED for close in closes):
-            logger.error(
-                "abandoning continuation for signal %s: an awaited close failed",
-                signal_id,
+            close_failed = (
+                f"abandoning continuation for signal {signal_id}: an awaited close failed"
             )
+            await self._abandon(signal_id, "AWAITED_CLOSE_FAILED", close_failed, logging.ERROR)
             return
 
         now = self._clock.now()
@@ -255,29 +258,44 @@ class OpenAfterClose:
         # (3) Every awaited close has settled.
         if all_filled:
             if signal_age_seconds > self._max_signal_age_seconds:
-                logger.warning(
-                    "abandoning continuation for signal %s: %.0fs old, past the "
-                    "%.0fs bound",
-                    signal_id,
-                    signal_age_seconds,
-                    self._max_signal_age_seconds,
+                too_old = (
+                    f"abandoning continuation for signal {signal_id}: "
+                    f"{signal_age_seconds:.0f}s old, past the "
+                    f"{self._max_signal_age_seconds:.0f}s bound"
                 )
+                if awaited_allocation_ids:
+                    # Decision 26: the close(s) executed, so for a REVERSE the
+                    # position is flat, not flipped. Say so, or the row cannot
+                    # tell that from a signal that did nothing at all.
+                    too_old += (
+                        "; the awaited close(s) already settled, so the position they "
+                        "held is closed and this signal's own open was not placed"
+                    )
+                await self._abandon(signal_id, "CONTINUATION_TIMED_OUT", too_old, logging.WARNING)
                 return
             await self._open_now(signal_id, poll)
             return
 
         # (4) Still waiting -- abandon only past a hard bound, never on
         # ordinary latency.
-        timed_out = signal_age_seconds > self._max_signal_age_seconds or any(
+        aged_out = signal_age_seconds > self._max_signal_age_seconds
+        settled_too_long = any(
             _settling_too_long(close, now, self._settle_timeout_seconds) for close in closes
         )
-        if timed_out:
-            logger.error(
-                "abandoning continuation for signal %s: an awaited close has not "
-                "settled within %.0fs",
-                signal_id,
-                self._settle_timeout_seconds,
-            )
+        if aged_out or settled_too_long:
+            if aged_out:
+                timed_out = (
+                    f"abandoning continuation for signal {signal_id}: "
+                    f"{signal_age_seconds:.0f}s old, past the "
+                    f"{self._max_signal_age_seconds:.0f}s bound while an awaited close "
+                    "had not settled"
+                )
+            else:
+                timed_out = (
+                    f"abandoning continuation for signal {signal_id}: an awaited close "
+                    f"has not settled within {self._settle_timeout_seconds:.0f}s"
+                )
+            await self._abandon(signal_id, "CONTINUATION_TIMED_OUT", timed_out, logging.ERROR)
             return
 
         # A worker crash between this method's own commit and its job's ack
@@ -285,3 +303,24 @@ class OpenAfterClose:
         # re-seeding the SAME next poll -- the continuation's own
         # idempotency working, not a chain restart (design.md § S5b).
         await self.seed(signal_id, awaited_allocation_ids, poll=poll + 1, replay_expected=True)
+
+    async def _abandon(self, signal_id: UUID, reason: str, message: str, level: int) -> None:
+        """Ends the signal ``REJECTED`` with ``reason`` and logs ``message``:
+        built once, it is both the log line and the outcome's detail, so the
+        two cannot drift (decision 25).
+
+        Staged on this run's session and made durable by the job handler's
+        own trailing ``commit()`` (``main.py::handle_signal_open_after_close``);
+        nothing else is written on these paths, so that is the commit it
+        rides. ``record_unless_terminal`` and not ``record``, because the
+        signal may already have ended and that is the ordinary case here: a
+        REVERSE whose refused close ended it ``REJECTED``
+        ``CLOSE_REJECTED_BY_VENUE`` / ``CLOSE_DUST_NOT_CLOSABLE`` in
+        ``signal.process``, whose seeded continuation only abandons later (a
+        dust close writes no attempt, so it waits for the timeout), or a
+        signal already ``PROCESSED``. Those must not WARN; the WARNING is
+        reserved for a genuine conflict."""
+        await self._outcomes.record_unless_terminal(
+            signal_id, SignalOutcome.rejected(reason, message)
+        )
+        logger.log(level, "%s", message)

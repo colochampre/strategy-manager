@@ -492,6 +492,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             settle_timeout_seconds=300.0,
             poll_interval_seconds=POLL_INTERVAL_SECONDS,
             max_signal_age_seconds=600.0,
+            outcomes=RecordingSignalOutcomes(),
         )
         handler = ProcessSignalHandler(
             signal_context=SignalContextAdapter(

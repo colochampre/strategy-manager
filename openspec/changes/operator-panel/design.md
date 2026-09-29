@@ -956,6 +956,24 @@ commit, so the signals row lock is always the LAST lock a transaction takes
 (after any pool advisory lock and reservation/attempt row locks), which keeps
 the lock order.
 
+**The non-warning path (PR 5c unit G).** Two callers meet an already-terminal
+signal as the ORDINARY case, not a conflict: a continuation abandoning a signal
+that `signal.process` already ended (a REVERSE whose close was refused is
+`REJECTED` `CLOSE_REJECTED_BY_VENUE` / `CLOSE_DUST_NOT_CLOSABLE`, and its
+seeded continuation later abandons as `AWAITED_CLOSE_FAILED` or
+`CONTINUATION_TIMED_OUT`; a signal already `PROCESSED`), and a job that
+exhausted its retries after the signal was decided (`JOB_FAILED`). Routed
+through `record`, each would log a WARNING for a differing code. So
+`SignalOutcomePort` has a second method, `record_unless_terminal(signal_id,
+outcome)`: the same fresh `FOR UPDATE` read, a terminal signal is left alone
+silently whatever it holds, a non-terminal one is written exactly as `record`
+would. It was chosen over "read the status in the caller" because "terminal or
+not" must be decided on the LOCKED row: a status read outside the lock races
+with a concurrent writer, and the test holds a second session's row lock and
+asserts the writer waits (`not task.done()`) and then stays silent. `settle` and
+`signal.process` keep `record` and still WARN on a genuine conflict; both sides
+are tested on one terminal row.
+
 A signal reaches `PROCESSED` or `REJECTED` directly, with no `PROCESSING` in
 between, whenever nothing was ever submitted to an exchange (every refusal
 and skip, rows 1–8 below). It passes through `PROCESSING` only when an order
@@ -986,9 +1004,9 @@ reconstructs their outcome.
 | 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` (an open, and a close linked to a signal) | execution.settle | 5c (unit F) |
 | 18 | `REVERSE_NEW_SIDE_UNHOLDABLE` (added by decision 26; the map recorded none, see "Map corrections") | `process_signal.py::_note_unexecuted_tail` | signal.process | 5b |
 | 21 | `NO_POSITION_TO_CLOSE` (decision 27: a releasing CLOSE or REVERSE with no prior reservation; a REVERSE's detail says the new side was not opened) | `process_signal.py::_handle_releases`, the `prior_reservation_id is None` early return | signal.process | 5b |
-| — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c |
-| — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c |
-| — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` or `settle_timeout_seconds` | signal.open_after_close | 5c |
+| — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c (unit G) |
+| — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c (unit G) |
+| — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` (branch 3 after the closes filled, or branch 4) or `settle_timeout_seconds` | signal.open_after_close | 5c (unit G) |
 | — | `JOB_FAILED` | any of `signal.process` / `signal.open_after_close` / `execution.settle` exhausting retries to `FAILED` | (job-kind-agnostic reader) | 5c |
 
 Rows 19–20 (a duplicate webhook delivery, an idempotent close replay) never
@@ -1027,6 +1045,8 @@ a neighbouring commit.
 | 21 (`NO_POSITION_TO_CLOSE`) | **none exists** on this path: `_handle_releases` returned with no write; it now goes through `_reject`, which stages the outcome and commits | one WARNING, the logged message is the detail; nothing closes or opens |
 | 16 (`PROCESSED`) | `settle_execution.py`: the one commit after `mark_filled` and the reservation mark | the outcome is staged last, so the signals row lock is the last one taken; an open resolves the signal through `reservation.signal_id`, a close through `execution_attempts.signal_id` |
 | 17 (`ORDER_NEVER_REACHED_EXCHANGE`) | `settle_execution.py::_release_never_placed`: the release commit | the message is built once, recorded as the detail, then logged with `"%s"` |
+| Continuation abandonments (`SIGNAL_SUPERSEDED`, `AWAITED_CLOSE_FAILED`, `CONTINUATION_TIMED_OUT`) | `main.py::handle_signal_open_after_close`: the trailing `session.commit()` after `open_after_close.poll(job)` | `poll` never commits and nothing else is written on these paths, so the staged outcome rides that one commit. A deleted signal writes nothing. Written with `record_unless_terminal` (§ A) |
+| Continuation `open_now` (rows 2-15 reused) | the same commits as in `signal.process` (`_reject`, `AllocateCapital`, `PlaceOrder`, `ClosePosition`), on the continuation job's own session | no new write: `open_now` reaches the same `_handle_consumes`; proven end to end on real PostgreSQL |
 | Deferral: in-flight wait | `process_signal.py`, `_handle_consumes`: the `commit()` that follows `open_after_close.seed(...)` | `PROCESSING` is staged between the seed and that commit, so the status and the continuation row are durable together (also on the `open_now` re-deferral, at `poll + 1`) |
 | Deferral: real orphan | the FIRST commit inside `CloseOrphans.close`: a close's own first commit (`SUBMITTED`, or the NOT_CLOSABLE commit), or the final commit when no close was placed | `PROCESSING` is staged in `_handle_consumes` immediately BEFORE `close_orphans.close(...)`, so it rides the same commit as the seed `CloseOrphans` stages first |
 | 18 | **none exists** on the handler side: `signal.process` commits right after `ClosePosition` returns (PR 5b2 added `await self._commit.commit()` in `_note_unexecuted_tail`) | written only when the close was placed (`result.executed`); a refused close already ended the signal with the CLOSE's code |
@@ -1098,6 +1118,27 @@ differences, all verified against the code:
   executed and no open half follows.
 - The open half of a REVERSE, placed from the continuation, is an ordinary open, so
   its settle reaches `PROCESSED` through `reservation.signal_id` like any other.
+
+**As built in PR 5c (unit G, the continuation).**
+
+- `OpenAfterClose` takes `outcomes: SignalOutcomePort` (required, wired in
+  `main.py::_build_process_signal_handler`). Each abandonment builds its message once,
+  records it as the detail through `record_unless_terminal`, and logs it with `"%s"`.
+  The commit is `handle_signal_open_after_close`'s trailing `session.commit()`.
+- A deleted signal writes nothing (its row is gone) and keeps its existing ERROR.
+- The two `CONTINUATION_TIMED_OUT` messages were made exact: branch 4 now says which
+  bound fired (the age bound, or the settle timeout), where before it always said "has
+  not settled within Ns" even when the age bound fired. Branch 3 (every awaited close
+  FILLED, then past the age bound) appends that the awaited close(s) already settled and
+  this signal's own open was not placed, when the continuation awaited any close: for a
+  REVERSE that is decision 26's "the close executed", and a vacuous await (the in-flight
+  deferral) never claims it.
+- 5c.5 needed no production code: `open_now` reuses `_reject`, `AllocateCapital` and
+  `PlaceOrder` on the continuation's session. It is proven on real PostgreSQL through the
+  production composition root: a REVERSE whose close FILLED and whose open is refused
+  (`PAIR_NOT_ALLOWED`) ends `REJECTED` with the OPEN's code and a detail saying the close
+  executed; one whose open proceeds ends `PROCESSING` with a new SUBMITTED reservation and
+  an attempt linked to the REVERSE signal.
 
 **A dependency this implies.** `PlaceOrder` can already reach `signal_id`
 without a new parameter: the `Reservation` it loads carries `signal_id`
@@ -1240,8 +1281,14 @@ Inside `_handle_releases` (`process_signal.py:571-698`):
   REVERSE, the outcome is entirely decided, synchronously, by the close
   itself, inside `signal.process` — there is no "open half" to defer to, and
   the eventual continuation abandonment (5c.4, `AWAITED_CLOSE_FAILED`) will
-  find the signal already terminal and log the benign no-op WARNING § A
-  defines, which is expected here, not a bug to chase. One caveat this
+  find the signal already terminal. *Corrected in PR 5c unit G:* the original
+  text called that write "a benign no-op WARNING" and later "a no-op, no
+  WARNING", and the second was wrong for differing codes: the terminal guard
+  warns on any DIFFERENT second outcome, and `AWAITED_CLOSE_FAILED` differs from
+  `CLOSE_REJECTED_BY_VENUE`, so every such abandonment would have logged a
+  WARNING and the WARNING would have stopped meaning "two writers disagreed".
+  The abandonment therefore goes through the explicit non-warning path of
+  § A ("The non-warning path"), silent by construction. One caveat this
   addendum cannot verify without running the code: whether `NOT_CLOSABLE`
   persists as `ExecutionStatus.FAILED` on the (nonexistent) attempt row —
   since `close_position.py:178-183` writes NO attempt row at all for
@@ -1254,9 +1301,10 @@ Inside `_handle_releases` (`process_signal.py:571-698`):
   waiting for a close that will never exist, until it times out and 5c.4's
   `CONTINUATION_TIMED_OUT` fires minutes later** — even though
   `signal.process` already knew, synchronously, that this signal was
-  definitively `REJECTED CLOSE_DUST_NOT_CLOSABLE`. The terminal-write guard
-  (§ A) keeps this harmless for the signal's own recorded status (the later
-  write is a no-op, same reason, no WARNING), but it is a live queue row
+  definitively `REJECTED CLOSE_DUST_NOT_CLOSABLE`. The abandonment's write
+  (`CONTINUATION_TIMED_OUT`, a DIFFERENT code) is a silent no-op through
+  `record_unless_terminal` (§ A), so the recorded status stays harmless and
+  nothing warns, but it is a live queue row
   sitting idle for no reason for the whole timeout window. Worth a
   cross-reference note on 5c.4, not a blocker for 5b.
 - **What is the status while the close is PLACED but not settled, and who

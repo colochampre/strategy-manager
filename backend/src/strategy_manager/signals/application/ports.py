@@ -88,6 +88,26 @@ class SignalOutcomePort(Protocol):
 
     async def record(self, signal_id: UUID, outcome: SignalOutcome) -> None: ...
 
+    async def record_unless_terminal(self, signal_id: UUID, outcome: SignalOutcome) -> None:
+        """Like ``record``, but a signal that is ALREADY terminal is left
+        alone SILENTLY: no write and no WARNING, whatever the outcome it
+        already holds (design.md § E, PR 5c unit G).
+
+        For the writers whose "the signal may already have ended" is the
+        ordinary case rather than a bug: a continuation abandoning a REVERSE
+        whose refused close already ended it ``REJECTED``
+        ``CLOSE_REJECTED_BY_VENUE``, or a job that exhausted its retries after
+        the signal was decided. Sending those through ``record`` would log a
+        WARNING for each, and that WARNING is reserved for a genuine
+        conflict: ``settle`` and ``signal.process`` keep using ``record`` and
+        still warn when they contradict a recorded outcome.
+
+        Same contract otherwise: stages on the caller's session, takes the
+        row lock (fresh, ``FOR UPDATE``), never commits, raises on an unknown
+        signal, and writes ``PROCESSING`` / ``PROCESSED`` / ``REJECTED`` over
+        a non-terminal row exactly as ``record`` does."""
+        ...
+
 
 class WebhookAuthPort(Protocol):
     """Authenticates a webhook request by source IP and shared secret."""

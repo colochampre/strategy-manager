@@ -416,6 +416,9 @@ def _build_process_signal_handler(
         settle_timeout_seconds=settings.open_after_close_settle_timeout_seconds,
         poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
+        # Decision 25 (5c.4): abandonments write their outcome through the
+        # silent-on-terminal path, on this run's session.
+        outcomes=signal_outcomes,
     )
 
     # The REAL branch of the Existing-Position Guard (design.md § S6): shares

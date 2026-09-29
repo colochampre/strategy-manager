@@ -30,6 +30,7 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
+from tests.signals.fakes import RecordingSignalOutcomes
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
 SETTLE_TIMEOUT_SECONDS = 300.0
@@ -202,6 +203,7 @@ def _continuation(
     queue: SpyJobQueue | None = None,
     open_now: SpyOpenNow | FakeGuardedOpenNow | None = None,
     clock: FrozenClock | None = None,
+    outcomes: RecordingSignalOutcomes | None = None,
 ) -> tuple[OpenAfterClose, FakeClosingAttemptsPort, SpyJobQueue, SpyOpenNow | FakeGuardedOpenNow]:
     attempts_port = attempts or FakeClosingAttemptsPort()
     queue_port = queue or SpyJobQueue()
@@ -215,6 +217,7 @@ def _continuation(
         settle_timeout_seconds=SETTLE_TIMEOUT_SECONDS,
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         max_signal_age_seconds=MAX_SIGNAL_AGE_SECONDS,
+        outcomes=outcomes if outcomes is not None else RecordingSignalOutcomes(),
     )
     return continuation, attempts_port, queue_port, open_now_port
 
@@ -588,6 +591,7 @@ async def test_in_flight_that_never_clears_keeps_rescheduling_until_the_age_boun
         settle_timeout_seconds=SETTLE_TIMEOUT_SECONDS,
         poll_interval_seconds=1.0,
         max_signal_age_seconds=3.0,
+        outcomes=RecordingSignalOutcomes(),
     )
     open_now.continuation = continuation
 

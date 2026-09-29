@@ -47,7 +47,22 @@ class SqlAlchemySignalOutcomeAdapter:
         self._session = session
         self._clock = clock
 
+    async def record_unless_terminal(self, signal_id: UUID, outcome: SignalOutcome) -> None:
+        """The explicit non-warning path (design.md § E): an already-terminal
+        signal is left alone silently, whatever it holds, because for these
+        callers (a continuation abandoning a signal that may already have
+        ended, a job that exhausted its retries after the signal was decided)
+        that is the ordinary case, not a conflicting outcome. Everything else
+        is exactly ``record``, including the fresh ``FOR UPDATE`` read, so
+        "terminal or not" is decided on the locked row, never a stale one."""
+        await self._record(signal_id, outcome, warn_on_conflict=False)
+
     async def record(self, signal_id: UUID, outcome: SignalOutcome) -> None:
+        await self._record(signal_id, outcome, warn_on_conflict=True)
+
+    async def _record(
+        self, signal_id: UUID, outcome: SignalOutcome, *, warn_on_conflict: bool
+    ) -> None:
         # Fresh AND locked. ``expire_on_commit=False`` and one session per
         # ``signal.process`` run leave the row cached from ``get_by_id`` at the
         # run's start, so a plain ``get`` would read a stale status while
@@ -67,6 +82,8 @@ class SqlAlchemySignalOutcomeAdapter:
                 and row.outcome_detail == outcome.detail
             ):
                 return  # identical repeat: silent no-op
+            if not warn_on_conflict:
+                return  # the caller expects a terminal signal: silent no-op
             logger.warning(
                 "signal %s already terminal at %s (reason=%s); refused to overwrite with "
                 "%s (reason=%s)",

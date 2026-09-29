@@ -230,6 +230,7 @@ async def seed_execution_attempt(
     settlement_currency: str = "USDT",
     symbol: str = "BTCUSDT",
     status: str = "SUBMITTED",
+    signal_id: UUID | None = None,
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
@@ -248,6 +249,7 @@ async def seed_execution_attempt(
                 quantity=Decimal("0.004"),
                 status=status,
                 client_order_id=f"client-{attempt_id}",
+                signal_id=signal_id,
             )
         )
         await session.commit()
