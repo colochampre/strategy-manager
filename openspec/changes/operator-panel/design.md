@@ -415,6 +415,13 @@ Range W (7D/30D/90D/1Y=365D/All), ending now:
 
 **The read** is one SQL aggregate per scope. `SqlAlchemyAllocationFillsSource` does `SELECT allocation_id, strategy_id, side, fee_currency, min(symbol), sum(quantity), sum(notional), sum(fee), min(filled_at), max(filled_at)` from `ledger_entries` joined to `reservations` for `pool_total_at_open`, `WHERE pool = ... AND exchange_fill_id NOT LIKE :rehearsal_prefix || '%'` (bound from `REHEARSAL_FILL_ID_PREFIX`), grouped by `(allocation_id, strategy_id, side, fee_currency)`. The domain then folds the rows into `ClosedTrade`s: net base with the base-fee rule via `base_currency_of`, the closed test, pnl and flags. The work is bounded by the trade count (hundreds to thousands), and it rides `ix_ledger_pool_symbol` / `ix_ledger_allocation`. The UTC day of `closed_at` is taken in the domain (`closed_at.astimezone(UTC).date()`), never with a database-session time zone.
 
+**As built (PR 6b, unit 3b).**
+- The port is `AllocationFillsSourcePort.pool_fills(pool: PoolKey) -> PoolFills`. It takes exactly ONE pool and there is no method that reads several, so a cross-pool total cannot be requested (rule 7). `PoolFills` holds the `FillGroup` aggregates and `rehearsal_fill_count`, a second `count(*)` over the same pool of the fills the `NOT LIKE` left out. Without it a rehearsal fill could never be reported as excluded, because the aggregate never sees it.
+- **Closed** is net base EXACTLY zero (no tolerance, no venue step) with a BUY and a SELL behind it. It is the ledger's own rule (`net_positions_by_symbol` drops a group only at exact zero, and `ClosePosition` sizes from that net), so a trade is closed precisely when it has left the open positions. A tolerance would book a realized PnL for money still at risk.
+- Fee rules in `derive_trade`: a settlement-currency fee is subtracted; a base-currency fee is not subtracted from PnL but IS part of the net-base test; a third-currency fee with `fee > 0` sets `fees_complete=False` and is omitted; a zero fee in any currency changes nothing.
+- An allocation opened by a rehearsal fill and closed by a live one reaches the domain as a lone SELL. It is OPEN, not a trade.
+- A symbol that has no base currency in the pool's settlement currency cannot be tested. `derive_trades` returns those allocation ids in `unresolved_allocation_ids` instead of raising for the whole pool or dropping them silently.
+
 ### 12. Rehearsal fills excluded by a named marker
 
 `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` moves into `execution/domain/fill.py`. `FakeExchangeAdapter` mints ids with it (`fake_exchange.py:144`), and the performance source excludes it.
