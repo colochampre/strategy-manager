@@ -656,15 +656,24 @@ Forecast: 700–1,000 lines.
 (or one `curve.py` module housing all five pure functions); Create
 `backend/src/strategy_manager/performance/application/{read_pool_performance}.py`.
 
-- [ ] 3c.1 RED `backend/tests/performance/domain/test_curve.py::test_two_trades_different_days_compound_1_05_times_1_02` (the design worked example).
-- [ ] 3c.2 RED same file `::test_two_trades_same_utc_day_summed_not_chained_0_03_index_1_03` (the +20/+10 on a 1,000 USDT pool worked example — asserts 1.03, explicitly NOT 1.0302).
-- [ ] 3c.3 RED same file `::test_drawdown_from_previous_peak_1_20_to_1_14_is_5_percent`, `::test_no_drawdown_at_new_peak_is_zero`.
-- [ ] 3c.4 RED same file `::test_utc_month_boundary_close_at_2026_08_31_22_30_minus_3_counts_september` (decision 16, UTC boundary case).
-- [ ] 3c.5 RED same file `::test_exclusions_reported_two_open_one_missing_capital_at_open`.
-- [ ] 3c.6 RED same file `::test_range_summary_7d_30d_90d_1y_all_computed_independently`.
-- [ ] 3c.7 RED `backend/tests/performance/domain/test_curve.py::test_no_qualifying_trades_yields_empty_result_not_error`, `::test_only_rehearsal_fills_yields_same_empty_result`.
-- [ ] 3c.8 GREEN: `daily_returns()`, `compound()`, `drawdowns()`, `monthly_grid()`, `range_summary()` — pure `Decimal`, UTC day taken via `closed_at.astimezone(UTC).date()`, never a database session time zone.
-- [ ] 3c.9 GREEN: `ReadPoolPerformance` application read composing the domain functions over `AllocationFillsSourcePort`.
+- [x] 3c.1 RED `backend/tests/performance/domain/test_curve.py::test_two_trades_different_days_compound_1_05_times_1_02` (the design worked example).
+  - Done 2026-09-29: `tests/performance/domain/test_curve.py` (22 tests). RED with a stub module on assertions (`[] == [Decimal('1.05'), ...]`). `1.05 * 1.02` asserted as an exact `Decimal` (1.0710).
+- [x] 3c.2 RED same file `::test_two_trades_same_utc_day_summed_not_chained_0_03_index_1_03` (the +20/+10 on a 1,000 USDT pool worked example — asserts 1.03, explicitly NOT 1.0302).
+  - Done 2026-09-29: asserts 1.03 and `!= 1.0302`; triangulated with different capitals (20/1000 + 10/2000 = 0.025). Mutation: chaining inside a day fails this test and two others.
+- [x] 3c.3 RED same file `::test_drawdown_from_previous_peak_1_20_to_1_14_is_5_percent`, `::test_no_drawdown_at_new_peak_is_zero`.
+  - Done 2026-09-29: 1.20 -> 1.14 is exactly -0.05; a new peak is 0; plus the design's day-2 example (1.0094, -2%) and a first-day loss measured against `E_0 = 1`. Mutation: peak seeded from the first point fails the first-day-loss test.
+- [x] 3c.4 RED same file `::test_utc_month_boundary_close_at_2026_08_31_22_30_minus_3_counts_september` (decision 16, UTC boundary case).
+  - Done 2026-09-29: 22:30 at UTC-3 counts in September; triangulated with 20:59 (23:59 UTC, August) and 21:00 (00:00 UTC, September) at UTC-3. Mutation `closed_at.date()` (local) fails it, the UTC-day test and the naive-datetime test.
+- [x] 3c.5 RED same file `::test_exclusions_reported_two_open_one_missing_capital_at_open`.
+  - Done 2026-09-29: two open, one closed trade without capital: counts 2 and 1, curve has only the trade with capital, `total_pnl` still includes the 7. Also: an unconverted-fee trade stays in the curve and is counted. Mutation: treating a missing capital as a zero return adds a curve point and fails it.
+- [x] 3c.6 RED same file `::test_range_summary_7d_30d_90d_1y_all_computed_independently`.
+  - Done 2026-09-29: trades 3/20/60/200/500 days back; PnL 10/30/60/100/150 and compounded returns per window; window includes its start instant and excludes one second before. Mutations: exclusive start fails the boundary test; dropping a trade from All fails the range test.
+- [x] 3c.7 RED `backend/tests/performance/domain/test_curve.py::test_no_qualifying_trades_yields_empty_result_not_error`, `::test_only_rehearsal_fills_yields_same_empty_result`.
+  - Done 2026-09-29: empty input and rehearsal-only input give the same empty figures; the rehearsal count is the only difference. The empty test alone passes against the stub, so it is backed by the non-empty tests: the same functions produce non-empty output for the same shape of input.
+- [x] 3c.8 GREEN: `daily_returns()`, `compound()`, `drawdowns()`, `monthly_grid()`, `range_summary()` — pure `Decimal`, UTC day taken via `closed_at.astimezone(UTC).date()`, never a database session time zone.
+  - Done 2026-09-29: one module, `performance/domain/curve.py`, holding `daily_returns`, `compound`, `drawdowns`, `monthly_grid`, `range_summary` and `build_pool_performance`. UTC day from `closed_at.astimezone(UTC).date()`; a naive datetime raises. `build_pool_performance` raises on a trade from another pool (rule 7).
+- [x] 3c.9 GREEN: `ReadPoolPerformance` application read composing the domain functions over `AllocationFillsSourcePort`.
+  - Done 2026-09-29: `ReadPoolPerformance(fills, clock).read(pool)`, tests in `tests/performance/application/test_read_pool_performance.py` (10). Rule 7: one `PoolKey` per call, a port with no multi-pool method, and a check on every ROW the source returns before deriving (a stray opening leg would otherwise pass as an open trade). Logs: WARNING with allocation ids for unresolvable symbols, INFO counts for missing capital and unconverted fees, silence otherwise. Mutations: no row check, always-log, and wall-clock `now` each fail exactly their test. Gate: ruff clean, mypy clean, full suite 1943 tests, exit 0.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/performance/`.
 Harness: pure, no DB.

@@ -422,6 +422,15 @@ Range W (7D/30D/90D/1Y=365D/All), ending now:
 - An allocation opened by a rehearsal fill and closed by a live one reaches the domain as a lone SELL. It is OPEN, not a trade.
 - A symbol that has no base currency in the pool's settlement currency cannot be tested. `derive_trades` returns those allocation ids in `unresolved_allocation_ids` instead of raising for the whole pool or dropping them silently.
 
+**As built (PR 6b, unit 3c).**
+- The five pure functions and `build_pool_performance` live in one module, `performance/domain/curve.py`. `ReadPoolPerformance(fills, clock).read(pool)` composes them; "now" comes from `ClockPort`.
+- Drawdown takes `E_0 = 1` as the first peak, so a loss on the very first day is already a drawdown.
+- The monthly grid has one entry per UTC month that has at least one closing day. A month with no closing trade is absent, not a fabricated 0%.
+- A range includes its start instant and `now`, and is compounded from the trades inside it, not sliced from the all-time curve. `pnl` counts trades without capital; `return` cannot.
+- Exclusions as built: `open_trade_count`, `rehearsal_fill_count`, `no_capital_at_open`, `unconverted_fee`, `unresolved_allocation_count`. The design listed the middle two only as prose; the rehearsal count needed the source to count what it filtered.
+- Rule 7 in the read: the signature takes one `PoolKey`; the port has no multi-pool method; every source row is checked against the requested pool before deriving; `build_pool_performance` re-checks every trade. Either check raises `InvariantViolation`.
+- A naive `closed_at` raises, because `astimezone` would read it in the host zone.
+
 ### 12. Rehearsal fills excluded by a named marker
 
 `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` moves into `execution/domain/fill.py`. `FakeExchangeAdapter` mints ids with it (`fake_exchange.py:144`), and the performance source excludes it.
