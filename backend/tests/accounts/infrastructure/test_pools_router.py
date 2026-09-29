@@ -327,3 +327,25 @@ async def test_get_pools_money_is_json_strings_and_disabled_pools_are_listed(
         synced["allocatable"],
     ):
         assert isinstance(value, str)
+
+
+async def test_get_pools_writes_zero_and_whole_amounts_in_plain_notation(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """``Numeric(38, 18)`` hands back ``Decimal("0E-18")`` for zero, and
+    ``str()`` of it is ``"0E-18"``. Every amount is written in positional
+    notation, so a client never has to parse an exponent."""
+    await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="5", available="0")
+
+    response = await client.get("/api/pools", headers=_auth())
+
+    synced = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
+    amounts = [
+        synced["balance"]["total"],
+        synced["balance"]["available"],
+        synced["reserved"],
+        synced["allocatable"],
+    ]
+    assert [Decimal(a) for a in amounts] == [Decimal("5"), Decimal("0"), Decimal("0"), Decimal("0")]
+    assert not any("e" in a.lower() for a in amounts), amounts

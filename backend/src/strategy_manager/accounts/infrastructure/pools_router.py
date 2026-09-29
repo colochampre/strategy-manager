@@ -4,15 +4,14 @@ allocate (design.md section 14).
 Read-only. Every pool is its own object, in its own settlement currency, and
 the body is a plain list: there is no envelope that could carry a total, and no
 field that sums two pools, including two on one exchange (CLAUDE.md rule 7).
-Money is serialized as JSON strings (pydantic v2 writes a ``Decimal`` as text).
+Money is serialized as JSON strings in plain notation and instants in UTC
+(``shared.infrastructure.wire``): ``Decimal("0E-18")`` never reaches a client.
 
 Authentication is attached to the ROUTER, exactly as in
 ``strategies/infrastructure/router.py``, which explains why it is structural and
 why no route below repeats it.
 """
 
-from datetime import datetime
-from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -25,6 +24,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.wire import Instant, Money
 
 router = APIRouter(
     prefix="/pools",
@@ -36,9 +36,9 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 class BalanceBody(BaseModel):
-    total: Decimal
-    available: Decimal
-    observed_at: datetime
+    total: Money
+    available: Money
+    observed_at: Instant
     stale: bool
 
     @classmethod
@@ -59,8 +59,8 @@ class PoolBody(BaseModel):
     settlement_currency: str
     enabled: bool
     balance: BalanceBody | None
-    reserved: Decimal
-    allocatable: Decimal | None
+    reserved: Money
+    allocatable: Money | None
 
     @classmethod
     def of(cls, pool: PoolOverview) -> "PoolBody":
