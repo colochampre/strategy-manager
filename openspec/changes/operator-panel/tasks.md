@@ -603,12 +603,18 @@ The gate below applies to PR 6b, the first PR that reads fills.
 **Files**: Create `backend/migrations/versions/0026_reservation_pool_total.py`; Modify
 `backend/src/strategy_manager/allocation/domain/reservation.py`, `allocation/infrastructure/{models,repository}.py`, `allocate_capital.py`.
 
-- [ ] 3a.1 RED `backend/tests/migrations/test_0026_reservation_pool_total.py::test_pool_total_at_open_check_allows_null_or_positive`, `::test_downgrade_refuses_while_any_non_null_value_exists`.
-- [ ] 3a.2 RED `backend/tests/allocation/application/test_allocate_capital.py::test_reservation_records_in_lock_pool_capital_not_prelock_read` — pool reads 510 pre-lock, 500 in-lock; asserts 500 stored, no extra read (F1).
-- [ ] 3a.3 RED same file `::test_pool_total_at_open_written_under_lock_survives_concurrent_allocation_on_same_pool` — **live PostgreSQL**.
-- [ ] 3a.4 RED same file `::test_resume_of_retried_allocation_returns_existing_row_unchanged`.
-- [ ] 3a.5 GREEN: `migrations/versions/0026_*.py` — `reservations.pool_total_at_open Numeric(38,18) NULL` + `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`; downgrade refuses while non-null values exist.
-- [ ] 3a.6 GREEN: `Reservation.pool_total_at_open: Decimal | None`; `AllocateCapital` writes it from the existing in-lock `pool_balance.total` read (`allocate_capital.py:131`), no new read.
+- [x] 3a.1 RED `backend/tests/migrations/test_0026_reservation_pool_total.py::test_pool_total_at_open_check_allows_null_or_positive`, `::test_downgrade_refuses_while_any_non_null_value_exists`.
+  - Done 2026-09-29: `test_0026_reservation_pool_total.py` (6 tests). RED with the migration file absent: all 6 failed (UndefinedColumn; the accepted technique for a migration). GREEN with 0026. Non-vacuous: CHECK loosened to `>= 0` makes the zero-refusal test fail (DID NOT RAISE). Downgrade refusal names the count and offers no force flag; a NULL-only database downgrades cleanly and drops the column.
+- [x] 3a.2 RED `backend/tests/allocation/application/test_allocate_capital.py::test_reservation_records_in_lock_pool_capital_not_prelock_read` — pool reads 510 pre-lock, 500 in-lock; asserts 500 stored, no extra read (F1).
+  - Done 2026-09-29: RED on assertion (`None == Decimal('500')`). Pool reads 510 before the lock and 500 inside it; 500 is stored and `reads == 1`, so no read was added. Triangulated with total 1000 / available 700 (stores the total) and a zero-total case (stores NULL plus one WARNING, never 0).
+- [x] 3a.3 RED same file `::test_pool_total_at_open_written_under_lock_survives_concurrent_allocation_on_same_pool` — **live PostgreSQL**.
+  - Done 2026-09-29: `tests/allocation/infrastructure/test_pool_total_at_open_integration.py` (placed beside the other live-PG allocation tests, not in the unit file the task named). Real PostgreSQL, lock-hold harness: the second actor is `not task.done()` while the first holds the pool lock, then each reservation stores what it saw inside its own lock (1000 and 900). Negative control with a no-op lock proves the wait assertion is the advisory lock. A BTC pool reservation stores 0.5, not the USDT pool's value. RED on assertion (`None == Decimal('1000')`).
+- [x] 3a.4 RED same file `::test_resume_of_retried_allocation_returns_existing_row_unchanged`.
+  - Done 2026-09-29: passed on first run because the plumbing field already existed and `_resume` never wrote. Proven non-vacuous by removing the early `_resume` return in `allocate()`: the test failed (`resumed` False). Asserts no insert, no pool read, no lock, and the existing row's 500 untouched.
+- [x] 3a.5 GREEN: `migrations/versions/0026_*.py` — `reservations.pool_total_at_open Numeric(38,18) NULL` + `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`; downgrade refuses while non-null values exist.
+  - Done 2026-09-29: `0026_reservation_pool_total.py`, `down_revision` 0025, `Numeric(38,18) NULL` + `ck_reservations_pool_total_at_open_positive`; downgrade refuses while non-null values exist, names the count, no force flag.
+- [x] 3a.6 GREEN: `Reservation.pool_total_at_open: Decimal | None`; `AllocateCapital` writes it from the existing in-lock `pool_balance.total` read (`allocate_capital.py:131`), no new read.
+  - Done 2026-09-29: `Reservation.pool_total_at_open`, ORM column, repository `_to_domain` and `insert`, and `AllocateCapital` writes the in-lock `pool_balance.total` (read at `allocate_capital.py:201`, no new read). Non-positive total stores NULL with a WARNING (unreachable from the production source: `decision.py:53` and `total >= available` CHECK). Gate: ruff clean, mypy clean, full suite 1888 tests, exit 0.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/migrations/test_0026_reservation_pool_total.py backend/tests/allocation/`.
 Harness: real PostgreSQL, live concurrency test.

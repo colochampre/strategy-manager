@@ -356,7 +356,9 @@ The table is `strategy_enablement_events(id uuid pk, strategy_id FK strategies N
 
 `reservations.pool_total_at_open Numeric(38,18) NULL`, `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`. It is safe as `> 0` because a reservation exists only when `granted > 0` and `granted ≤ available ≤ total`.
 
-**Written**: inside `AllocateCapital`'s locked transaction, `Reservation(..., pool_total_at_open=pool_balance.total)` from the read at `allocate_capital.py:131` (F1). It is the same balance the decision was made from, and there is no new read or lock.
+**Written**: inside `AllocateCapital`'s locked transaction, `Reservation(..., pool_total_at_open=pool_balance.total)` from the `self._pool_balance.read(...)` call in `allocate()` (`allocate_capital.py:201` after PR 5b's additions; the line drifts, the call does not) (F1). It is the same balance the decision was made from, and there is no new read or lock. The value belongs to the reservation's own pool, in that pool's settlement currency (rule 5), and is never summed across pools (rule 7).
+
+**Never zero (as built, PR 6a).** `AllocateCapital._pool_total_to_record` stores the total only when it is `> 0`; otherwise it stores `NULL` and logs one WARNING. A non-positive total cannot reach a granted insert from the production source: `decide()` grants only when `available > 0` (`decision.py:53`), and the snapshot the source reads has `CHECK total >= available` (`accounts/infrastructure/models.py:67-68`, migration 0016). `PoolBalancePort` does not promise that on its own, so the guard keeps a broken source from aborting a granted allocation on the column's CHECK.
 
 **Why this read and not the pre-lock one** used to size `requested`. The pre-lock and in-lock reads can differ by one snapshot refresh. The in-lock value is the one consistent with `granted` under rule 4. So `granted / pool_total_at_open` may differ slightly from `allocation_percent`, and that is correct: the denominator is the pool, not the policy.
 

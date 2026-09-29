@@ -57,3 +57,8 @@ class ReservationRow(Base):
         DateTime(timezone=True), nullable=True
     )
     release_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Added by migration 0026: the capital of this reservation's own pool
+    # (its settlement currency) as read inside the allocation lock. NULL on
+    # every row written before that migration -- it cannot be backfilled. A
+    # CHECK there enforces NULL-or-positive; nothing sums it across pools.
+    pool_total_at_open: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)

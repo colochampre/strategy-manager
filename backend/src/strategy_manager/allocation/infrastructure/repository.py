@@ -37,6 +37,7 @@ def _to_domain(row: ReservationRow) -> Reservation:
         expires_at=row.expires_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        pool_total_at_open=row.pool_total_at_open,
     )
 
 
@@ -93,6 +94,7 @@ class SqlAlchemyReservationRepository:
                 amount=reservation.amount,
                 status=reservation.status.value,
                 expires_at=reservation.expires_at,
+                pool_total_at_open=reservation.pool_total_at_open,
             )
         )
         await self._session.flush()

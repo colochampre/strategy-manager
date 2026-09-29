@@ -555,3 +555,177 @@ async def test_decide_skip_below_min_order_size_logs_exactly_one_warning(
     assert str(signal_id) in warnings[0].getMessage()
     assert str(strategy_id) in warnings[0].getMessage()
     assert "REQUEST_BELOW_MIN_ORDER_SIZE" in warnings[0].getMessage()
+
+
+# --------------------------------------------------------------------------
+# 3a.2 / 3a.4 -- ``pool_total_at_open`` (design.md section 10, finding F1):
+# the pool capital recorded on a reservation is the read made INSIDE the lock.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class LockAwarePoolBalancePort:
+    """Answers ``before_lock`` until the advisory lock is held and
+    ``inside_lock`` afterwards, and counts every read. What lets a test tell
+    the pre-lock sizing read from the in-lock read that ``AllocateCapital``
+    already makes, and prove no third read was added."""
+
+    lock: FakeAdvisoryLock
+    before_lock: PoolBalance
+    inside_lock: PoolBalance
+    reads: int = 0
+
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolBalance:
+        self.reads += 1
+        return self.inside_lock if self.lock.acquired else self.before_lock
+
+
+async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> None:
+    strategy_id = uuid4()
+    lock = FakeAdvisoryLock()
+    balance = LockAwarePoolBalancePort(
+        lock=lock,
+        before_lock=PoolBalance(
+            total=Decimal("510"), available=Decimal("510"), min_order_size=Decimal("10")
+        ),
+        inside_lock=PoolBalance(
+            total=Decimal("500"), available=Decimal("500"), min_order_size=Decimal("10")
+        ),
+    )
+    reservations = FakeReservationRepository()
+    use_case = AllocateCapital(
+        strategy_policy=FakeStrategyPolicyPort(_enabled_snapshot(strategy_id=strategy_id)),
+        pool_balance=balance,
+        lock=lock,
+        reservations=reservations,
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=strategy_id,
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert len(reservations.inserted) == 1
+    assert reservations.inserted[0].pool_total_at_open == Decimal("500")
+    assert balance.reads == 1  # the existing in-lock read; none was added
+
+
+async def test_reservation_records_the_total_not_the_available_of_the_pool() -> None:
+    """``total`` is the pool's capital; ``available`` is what is left to grant.
+    A pool with 300 committed elsewhere has total 1000 and available 700, and
+    the reservation must record the 1000."""
+    strategy_id = uuid4()
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("700"), min_order_size=Decimal("10")
+        ),
+    )
+
+    await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=strategy_id,
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert reservations.inserted[0].amount == Decimal("200")
+    assert reservations.inserted[0].pool_total_at_open == Decimal("1000")
+
+
+async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The port does not enforce ``total >= available`` (the database does, on
+    the snapshot the production source reads). A source that broke it would
+    otherwise hand the insert a value the ``> 0`` CHECK refuses, failing an
+    allocation that ``decide()`` granted. NULL says "unknown" and the trade
+    is merely left out of the curve; a zero would abort the allocation."""
+    strategy_id = uuid4()
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id),
+        pool_balance=PoolBalance(
+            total=Decimal("0"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=uuid4(),
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert reservations.inserted[0].pool_total_at_open is None
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert str(strategy_id) in warnings[0].getMessage()
+    assert "pool_total_at_open" in warnings[0].getMessage()
+
+
+async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> None:
+    signal_id = uuid4()
+    strategy_id = uuid4()
+    existing = Reservation(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        pool_key=PoolKey(
+            exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT
+        ),
+        amount=Decimal("200"),
+        status=ReservationStatus.PENDING,
+        expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
+        pool_total_at_open=Decimal("500"),
+    )
+    reservations = FakeReservationRepository(existing=existing)
+    lock = FakeAdvisoryLock()
+    # The pool has since grown to 900; a resume that re-read it would see that.
+    balance = LockAwarePoolBalancePort(
+        lock=lock,
+        before_lock=PoolBalance(
+            total=Decimal("900"), available=Decimal("900"), min_order_size=Decimal("10")
+        ),
+        inside_lock=PoolBalance(
+            total=Decimal("900"), available=Decimal("900"), min_order_size=Decimal("10")
+        ),
+    )
+    use_case = AllocateCapital(
+        strategy_policy=FakeStrategyPolicyPort(_enabled_snapshot(strategy_id=strategy_id)),
+        pool_balance=balance,
+        lock=lock,
+        reservations=reservations,
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=signal_id,
+            strategy_id=strategy_id,
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.resumed is True
+    assert result.reservation_id == existing.id
+    assert reservations.inserted == []  # nothing rewritten
+    assert existing.pool_total_at_open == Decimal("500")
+    assert balance.reads == 0  # the pool was never read again
+    assert lock.acquired == []

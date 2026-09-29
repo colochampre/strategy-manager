@@ -221,6 +221,9 @@ class AllocateCapital:
         reservation_id: UUID | None = None
         if decision.outcome in (DecisionOutcome.FULL, DecisionOutcome.PARTIAL):
             reservation_id = uuid4()
+            pool_total_at_open = self._pool_total_to_record(
+                pool_balance.total, command.signal_id, command.strategy_id
+            )
             await self._reservations.insert(
                 Reservation(
                     id=reservation_id,
@@ -230,6 +233,7 @@ class AllocateCapital:
                     amount=decision.granted,
                     status=ReservationStatus.PENDING,
                     expires_at=now + timedelta(seconds=self._reservation_ttl_seconds),
+                    pool_total_at_open=pool_total_at_open,
                 )
             )
         else:
@@ -256,6 +260,34 @@ class AllocateCapital:
             reservation_id=reservation_id,
             skip_reason=decision.skip_reason.value if decision.skip_reason is not None else None,
         )
+
+    @staticmethod
+    def _pool_total_to_record(
+        total: Decimal, signal_id: UUID, strategy_id: UUID
+    ) -> Decimal | None:
+        """The value for ``reservations.pool_total_at_open``: the ``total`` of
+        the balance already read inside the lock (design.md section 10, F1),
+        or ``None`` when it is not positive.
+
+        The column's CHECK refuses zero, and an allocation ``decide()`` granted
+        must not fail on a number only the performance curve reads. A granted
+        reservation implies positive availability, and the snapshot's
+        ``total >= available`` CHECK makes a non-positive total impossible from
+        the production source; the port itself does not promise it, so this
+        stores NULL ("not recorded", the trade is left out of the curve) and
+        says so, rather than aborting the allocation.
+        """
+
+        if total > 0:
+            return total
+        logger.warning(
+            "pool_total_at_open not recorded for signal %s (strategy %s): "
+            "in-lock pool total was %s, not positive",
+            signal_id,
+            strategy_id,
+            total,
+        )
+        return None
 
     @staticmethod
     def _resume(reservation: Reservation, command: AllocateCommand) -> AllocationResult:
