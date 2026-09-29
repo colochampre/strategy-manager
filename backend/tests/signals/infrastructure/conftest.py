@@ -160,22 +160,29 @@ async def seed_signal_row(
     strategy_id: UUID,
     idempotency_key: str,
     symbol: str = "BTCUSDT",
+    # Optional so every caller that predates them is unchanged. A test that
+    # needs a REVERSE has to control the transition kind, which is derived
+    # from this signal's ``position_size`` against the previous signal's, and
+    # therefore also the order the two were received in.
+    position_size: Decimal = Decimal("1"),
+    received_at: datetime | None = None,
 ) -> None:
     async with session_factory() as session:
-        session.add(
-            SignalRow(
-                id=signal_id,
-                strategy_id=strategy_id,
-                idempotency_key=idempotency_key,
-                raw_payload={},
-                action="buy",
-                contracts=Decimal("1"),
-                position_size=Decimal("1"),
-                price=Decimal("1"),
-                symbol=symbol,
-                signal_type=str(strategy_id),
-            )
+        row = SignalRow(
+            id=signal_id,
+            strategy_id=strategy_id,
+            idempotency_key=idempotency_key,
+            raw_payload={},
+            action="buy",
+            contracts=Decimal("1"),
+            position_size=position_size,
+            price=Decimal("1"),
+            symbol=symbol,
+            signal_type=str(strategy_id),
         )
+        if received_at is not None:
+            row.received_at = received_at
+        session.add(row)
         await session.commit()
 
 
@@ -223,6 +230,7 @@ async def seed_execution_attempt(
     settlement_currency: str = "USDT",
     symbol: str = "BTCUSDT",
     status: str = "SUBMITTED",
+    signal_id: UUID | None = None,
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
@@ -241,6 +249,7 @@ async def seed_execution_attempt(
                 quantity=Decimal("0.004"),
                 status=status,
                 client_order_id=f"client-{attempt_id}",
+                signal_id=signal_id,
             )
         )
         await session.commit()

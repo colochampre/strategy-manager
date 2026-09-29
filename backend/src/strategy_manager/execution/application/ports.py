@@ -334,3 +334,33 @@ class OrderOutcomeRecorderPort(Protocol):
     async def record_processing(self, signal_id: UUID) -> None: ...
 
     async def record_rejected(self, signal_id: UUID, reason: str, detail: str) -> None: ...
+
+
+class SettleOutcomeRecorderPort(Protocol):
+    """Records, on the caller's own session, what ``execution.settle`` learned
+    about the SIGNAL an order was placed for (decision 25, design.md "Addendum:
+    signal outcomes" § B rows 16-17). Consumer-side, like
+    ``OrderOutcomeRecorderPort``, so ``execution`` never imports ``signals``;
+    ``signals.infrastructure.settle_outcome_recorder`` adapts it.
+
+    Every method stages the write and NEVER commits: settle calls it
+    immediately before the commit that makes the fills (or the release)
+    durable, so the outcome lands with them or not at all.
+
+    - ``record_open_filled``: an opening order FILLED. The signal ends
+      ``PROCESSED``. Also how a REVERSE's open half, placed from the
+      continuation, reaches its final status.
+    - ``record_close_filled``: a closing order FILLED. A plain CLOSE ends
+      ``PROCESSED``; a REVERSE's close writes NOTHING (decision 26: its open
+      half decides), which is why the adapter, not settle, owns the
+      knowledge of what kind of signal this is.
+    - ``record_never_placed``: the exchange never saw the order. The signal
+      ends ``REJECTED`` ``ORDER_NEVER_REACHED_EXCHANGE`` with ``detail`` (the
+      message settle also logs) -- for an open, and for a close alike.
+    """
+
+    async def record_open_filled(self, signal_id: UUID) -> None: ...
+
+    async def record_close_filled(self, signal_id: UUID) -> None: ...
+
+    async def record_never_placed(self, signal_id: UUID, detail: str) -> None: ...

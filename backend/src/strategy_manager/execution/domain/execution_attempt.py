@@ -86,6 +86,11 @@ class ExecutionAttempt:
     client_order_id: str
     exchange_order_id: str | None = None
     error: str | None = None
+    # ``execution_attempts.signal_id`` (migration ``0025``, decision 25): the
+    # signal this attempt was placed for. ``None`` for an attempt written
+    # before PR 5c, for an orphan close (no signal asked for it) and for a
+    # VENUE-origin booking -- and ``None`` records nothing at settle.
+    signal_id: UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

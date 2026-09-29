@@ -200,6 +200,9 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
+from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
+    SignalSettleOutcomeRecorder,
+)
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
@@ -413,6 +416,9 @@ def _build_process_signal_handler(
         settle_timeout_seconds=settings.open_after_close_settle_timeout_seconds,
         poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
+        # Decision 25 (5c.4): abandonments write their outcome through the
+        # silent-on-terminal path, on this run's session.
+        outcomes=signal_outcomes,
     )
 
     # The REAL branch of the Existing-Position Guard (design.md § S6): shares
@@ -464,6 +470,13 @@ def _build_settle_execution(
         usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
         clock=SystemClock(),
         commit=session,
+        # Decision 25, rows 16-17: one outcome adapter on this job's session,
+        # so the signal's outcome is staged on the same unit of work as the
+        # fills (or the release) it is decided by.
+        outcomes=SignalSettleOutcomeRecorder(
+            SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+            SqlAlchemySignalRepository(session),
+        ),
     )
 
 

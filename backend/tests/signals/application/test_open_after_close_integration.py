@@ -90,7 +90,7 @@ from strategy_manager.signals.infrastructure.signal_context import SignalContext
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import RecordingSkipRecorder
-from tests.execution.fakes import RecordingOrderOutcomes
+from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
 from tests.signals.fakes import RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -492,6 +492,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             settle_timeout_seconds=300.0,
             poll_interval_seconds=POLL_INTERVAL_SECONDS,
             max_signal_age_seconds=600.0,
+            outcomes=RecordingSignalOutcomes(),
         )
         handler = ProcessSignalHandler(
             signal_context=SignalContextAdapter(
@@ -527,6 +528,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 usd_rate_provider=FixedUsdRate(),
                 clock=clock,
                 commit=session,
+                outcomes=RecordingSettleOutcomes(),
             )
             await settle.settle(UUID(str(job.payload["execution_attempt_id"])))
 
