@@ -101,7 +101,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 5c2 | #17 | `22a94b0` | — | 2026-09-29 | Tasks 5c.6–5c.7. Pull, restart both. Decision 25 is fully delivered. |
 | PR 6a | #18 | `4041a3a` | 0026 | 2026-09-29 | Unit 3a. Rehearsed on `sm_rehearsal_0026`, including the downgrade refusal once a value exists. Backup `/root/sm_pre0026_20260929_1534.dump` (an earlier `..._1532.dump` is from a run that aborted on the HEAD check before touching anything). Restart both. The 2 existing reservations stay NULL; only new ones record `pool_total_at_open`. |
 | PR 6b | #19 | `50a68db` | — | 2026-09-29 | Units 3b + 3c, plus decision 28 recorded. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. Pull, restart both. |
-| PR 6c | — | — | — | — | Unit 3d, on `feat/operator-panel-strategy-stats`. Committed, not yet pushed. |
+| PR 6c | — | — | — | — | Unit 3d, on `feat/operator-panel-strategy-stats`. In review. No migration: pull, restart both. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -722,9 +722,12 @@ origin of their fills; Modify `main.py::build_worker_runner` beside `assert_dry_
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Harness: real PostgreSQL for the open-allocation read; fakes for the startup wiring.
 Rollback boundary: the startup check only; reverting it restores today's start.
-Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. If any of them still
-belongs to an open allocation, the worker keeps starting while `DRY_RUN=true` and would refuse
-a later `DRY_RUN=false` start until that position is closed. That is the intended behaviour.
+Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. The owner checked
+them on 2026-09-29: they are two rehearsal round trips, both closed (net base exactly 0, no live
+fill). One is AAVE on `AAVEUSDT.P`, the other SFP on `SFPUSDT.P`, both on `binance/usdt-m/USDT`.
+They are also the only two reservations in production. So none of them blocks a later
+`DRY_RUN=false` start. A position still open on TradingView that the system never opened is not
+in the ledger; its close ends `REJECTED` `NO_POSITION_TO_CLOSE` (decision 27).
 
 ---
 
