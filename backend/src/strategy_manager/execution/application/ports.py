@@ -6,6 +6,7 @@ the adapter — ``FillRecorderPort``/``FillRecord`` are implemented by
 implemented against the ``reservations`` table ``allocation`` already owns.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -14,6 +15,10 @@ from uuid import UUID
 
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.fill import Fill
+from strategy_manager.execution.domain.mode_origin import (
+    InFlightAttemptOrigin,
+    OpenAllocationOrigin,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.errors import DomainError
@@ -364,3 +369,23 @@ class SettleOutcomeRecorderPort(Protocol):
     async def record_close_filled(self, signal_id: UUID) -> None: ...
 
     async def record_never_placed(self, signal_id: UUID, detail: str) -> None: ...
+
+
+class ModeOriginReaderPort(Protocol):
+    """What the ledger and the attempt table hold, seen by ORIGIN (rehearsal
+    or live), for the ``DRY_RUN`` mode guard (owner decision 28).
+
+    Every pool is covered, enabled or not: a position stays open at a venue
+    whether or not anyone still trades the pool it sits in.
+    """
+
+    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+        """Allocations whose net base quantity is not exactly zero, with the
+        origin of the fills they hold."""
+        ...
+
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
+        """Attempts still waiting for ``execution.settle`` whose order the
+        exchange already accepted. An attempt with no ``exchange_order_id``
+        yet is not returned: its origin is not recorded anywhere."""
+        ...

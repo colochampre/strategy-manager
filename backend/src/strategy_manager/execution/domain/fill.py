@@ -15,6 +15,13 @@ from decimal import Decimal
 # The value is a data contract, too: ledger rows already written carry it.
 REHEARSAL_FILL_ID_PREFIX = "fake-fill-"
 
+# The same contract for an ORDER: the fake exchange mints every
+# ``exchange_order_id`` with this prefix. It is what tells a rehearsal order
+# still waiting for ``execution.settle`` from a live one BEFORE any fill exists
+# (the mode guard, decision 28). Bybit's ``orderId`` is a UUID and Binance's an
+# integer, so no live order can start with it.
+REHEARSAL_ORDER_ID_PREFIX = "fake-order-"
+
 
 @dataclass(frozen=True, slots=True)
 class Fill:

@@ -222,3 +222,35 @@ async def test_fake_fill_ids_use_the_named_rehearsal_prefix_constant(
     monkeypatch.setattr(fake_exchange, "REHEARSAL_FILL_ID_PREFIX", "rehearsal-probe-")
 
     assert (await mint()).startswith("rehearsal-probe-")
+
+
+async def test_fake_order_ids_use_the_named_rehearsal_prefix_constant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mode guard (decision 28) tells a rehearsal order still waiting to
+    settle from a live one by ``REHEARSAL_ORDER_ID_PREFIX``. It only works if
+    the fake mints its order ids with that SAME constant, so this patches the
+    constant the adapter uses and watches the minted id follow it."""
+    from strategy_manager.execution.domain.fill import REHEARSAL_ORDER_ID_PREFIX
+    from strategy_manager.execution.infrastructure import fake_exchange
+
+    async def mint() -> str:
+        adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+        order = await adapter.build_open_order(
+            OpenOrderSpec(
+                side=OrderSide.BUY,
+                client_order_id="c1",
+                symbol="ETHUSDT.P",
+                granted=Decimal("200"),
+                price=Decimal("100"),
+            )
+        )
+        return (await adapter.place(order)).exchange_order_id
+
+    # The value is a data contract: attempts already written carry it.
+    assert REHEARSAL_ORDER_ID_PREFIX == "fake-order-"
+    assert (await mint()).startswith(REHEARSAL_ORDER_ID_PREFIX)
+
+    monkeypatch.setattr(fake_exchange, "REHEARSAL_ORDER_ID_PREFIX", "rehearsal-probe-")
+
+    assert (await mint()).startswith("rehearsal-probe-")
