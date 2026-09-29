@@ -1512,3 +1512,15 @@ genuine conflict worth seeing.
   zero-commit branches (row 8's pre-lock skip, row 13's `NOT_CLOSABLE`) the
   map itself does not call out as needing a new commit — that is new
   information from this addendum, not a correction of a wrong claim.
+
+## Addendum: the `DRY_RUN` mode guard (decision 28) - as built in PR 6d
+
+The worker refuses to start when `DRY_RUN` does not match the origin of what the ledger holds.
+
+- **Layering.** `execution/domain/mode_origin.py` is the pure decision (`fold_open_allocations`, `find_mismatches`, `describe_refusal`). `ModeOriginReaderPort` is declared in `execution/application/ports.py`. `execution/infrastructure/mode_origin_reader.py` holds the SQL. `execution/application/assert_mode_matches_ledger.py` logs and refuses. `main.assert_dry_run_matches_ledger` composes them.
+- **Where it runs.** Called from `worker._run_worker` right after the "worker starting" line, not from inside `build_worker_runner` as tasks.md first said: that function is synchronous, and it is also built by tests that have no database. The worker calls it inside `operator_alerts`, so the bridge exists when the ERROR is logged.
+- **"Open".** Net base quantity not exactly zero, with `derive_trade`'s base-fee rule (`fee_currency == base_currency_of(symbol, settlement)`), grouped by allocation and never by symbol. SQL only aggregates by side, fee currency and fill origin; the fold is Python because the base currency of a symbol is not a column. Every pool in the ledger is read, enabled or not. A symbol whose base currency cannot be split fails closed: the allocation is reported as open.
+- **Origin of a fill.** A PREFIX test on `exchange_fill_id` with `REHEARSAL_FILL_ID_PREFIX`. An allocation holding both kinds, while open, refuses in either mode.
+- **In-flight orders (task 6d.6).** A `SUBMITTED` attempt with an `exchange_order_id` is judged by `REHEARSAL_ORDER_ID_PREFIX` (`fake-order-`), which the fake mints and no venue does. The origin of a `SUBMITTED` attempt with a NULL `exchange_order_id` is not recorded anywhere; that gap is left open and reported, not closed with a new column.
+- **Exit.** One ERROR (its own record, because an exception is not a log record and only a log record reaches the alert bridge), then `InvariantViolation` out of `worker.run`. That is the mechanism `assert_dry_run_safe` and the pool lock-key check already use, and it ends the process with exit status 1.
+- **Not covered, deliberately.** An allocation that is FLAT by the ledger's rule but holds both kinds of fill (a live open closed by a fake close, the exact incident this guard prevents) is not open and is not read. The guard prevents that state; it does not audit past ones. The fake exchange keeps its placed orders in memory, so any restart already turns a rehearsal order still in flight into `NEVER_PLACED`; the guard does not change that.

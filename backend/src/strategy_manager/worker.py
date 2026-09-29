@@ -17,6 +17,10 @@ Startup order is deliberate:
 1. Load the configured pools and assert their advisory-lock keys are
    distinct. This process is the one that actually takes those locks, so a
    collision here silently serializes two unrelated pools against each other.
+1b. Refuse to start when ``DRY_RUN`` does not match the origin of an open
+   position or an unsettled order in the ledger (decision 28). Deliberately a
+   refusal and not a degraded start: the flip is a manual act done with a
+   restart, and a degraded worker would have to guard every signal instead.
 2. Open every sealed credential once, so a master key that does not match the
    vault is a refusal to start rather than a per-job failure.
 3. Log, but never refuse, a CONFIGURED exchange with no active key at all
@@ -55,7 +59,7 @@ from strategy_manager.accounts.infrastructure.pool_repository import CapitalPool
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     assert_pool_lock_keys_distinct,
 )
-from strategy_manager.main import build_worker_runner
+from strategy_manager.main import assert_dry_run_matches_ledger, build_worker_runner
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.application.watchdog import AlertChannelPort
 from strategy_manager.shared.config import Settings, get_settings
@@ -106,6 +110,15 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
     logger.info(
         "worker starting: %d enabled pools, dry_run=%s", len(pools), settings.dry_run
     )
+
+    # Decision 28. DRY_RUN is configuration, and flipping it with a position
+    # still open sends that position's close to the other exchange: a live
+    # position closed against the fake one is booked flat while it stays open
+    # at the venue. So a mismatch REFUSES to start (unlike decision 20's
+    # degraded start), through the same exception every other startup
+    # invariant here uses. It runs inside ``operator_alerts`` -- see ``run`` --
+    # so the ERROR it logs first reaches Telegram before the process exits.
+    await assert_dry_run_matches_ledger(dry_run=settings.dry_run)
 
     # A master key that is well-formed but WRONG only fails when a credential
     # is actually opened — per job, inside a handler, as DecryptionFailed.

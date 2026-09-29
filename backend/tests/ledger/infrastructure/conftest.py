@@ -231,21 +231,27 @@ async def seed_execution_attempt(
     settlement_currency: str = "USDT",
     symbol: str = "BTCUSDT",
     status: str = "SUBMITTED",
+    exchange_order_id: str | None = None,
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
-    unwinds. Exactly one of the two ids belongs on a row."""
+    unwinds. Exactly one of the two ids belongs on a row.
+
+    ``exchange_order_id`` stays NULL until the venue has accepted the order
+    (``mark_placed``), exactly as in production."""
     async with session_factory() as session:
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
                 "(id, reservation_id, closes_allocation_id, exchange, venue, "
-                "settlement_currency, symbol, side, quantity, status, client_order_id) "
+                "settlement_currency, symbol, side, quantity, status, client_order_id, "
+                "exchange_order_id) "
                 "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
                 ":settlement_currency, :symbol, 'BUY', 0.004, :status, "
-                ":client_order_id)"
+                ":client_order_id, :exchange_order_id)"
             ),
             {
+                "exchange_order_id": exchange_order_id,
                 "id": attempt_id,
                 "reservation_id": reservation_id,
                 "closes_allocation_id": closes_allocation_id,

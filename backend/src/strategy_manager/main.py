@@ -62,6 +62,9 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
+from strategy_manager.execution.application.assert_mode_matches_ledger import (
+    assert_mode_matches_ledger,
+)
 from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import (
@@ -81,6 +84,9 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
+from strategy_manager.execution.infrastructure.mode_origin_reader import (
+    SqlAlchemyModeOriginReader,
+)
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
@@ -670,6 +676,30 @@ class _DegradedVenueFillReader:
         raise VenueFillReadError(
             f"'{self.exchange}' has no active vault credential this cycle; "
             "no fetch was attempted"
+        )
+
+
+async def assert_dry_run_matches_ledger(
+    *,
+    dry_run: bool,
+    session_factory_override: async_sessionmaker[AsyncSession] | None = None,
+) -> None:
+    """Owner decision 28: refuse to start when ``DRY_RUN`` does not match the
+    origin of an open position or an unsettled order in the ledger.
+
+    Async, so it cannot live inside ``build_worker_runner``: the ledger read
+    needs the event loop, and that function is synchronous and is also built by
+    tests that have no database. The worker calls it from its own startup
+    sequence, inside ``operator_alerts``, so the ERROR it logs reaches the
+    alert bridge before the process exits.
+
+    Its own short-lived session, closed before any job is claimed. Every pool
+    is covered, enabled or not (``SqlAlchemyModeOriginReader``).
+    """
+    factory = session_factory_override or session_factory
+    async with factory() as session:
+        await assert_mode_matches_ledger(
+            dry_run=dry_run, reader=SqlAlchemyModeOriginReader(session)
         )
 
 

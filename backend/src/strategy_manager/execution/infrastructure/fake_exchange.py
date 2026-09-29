@@ -14,7 +14,11 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     PlacedOrder,
 )
-from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX, Fill
+from strategy_manager.execution.domain.fill import (
+    REHEARSAL_FILL_ID_PREFIX,
+    REHEARSAL_ORDER_ID_PREFIX,
+    Fill,
+)
 from strategy_manager.execution.domain.futures_order import (
     FuturesMarketOrder,
     close_futures_order,
@@ -137,7 +141,7 @@ class FakeExchangeAdapter:
         )
 
     async def place(self, order: PlaceableOrder) -> PlacedOrder:
-        exchange_order_id = f"fake-order-{uuid4()}"
+        exchange_order_id = f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}"
         base_quantity = self._base_quantity(order)
         self._placed[order.client_order_id] = Fill(
             exchange_order_id=exchange_order_id,
