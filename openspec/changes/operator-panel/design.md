@@ -1522,5 +1522,34 @@ The worker refuses to start when `DRY_RUN` does not match the origin of what the
 - **"Open".** Net base quantity not exactly zero, with `derive_trade`'s base-fee rule (`fee_currency == base_currency_of(symbol, settlement)`), grouped by allocation and never by symbol. SQL only aggregates by side, fee currency and fill origin; the fold is Python because the base currency of a symbol is not a column. Every pool in the ledger is read, enabled or not. A symbol whose base currency cannot be split fails closed: the allocation is reported as open.
 - **Origin of a fill.** A PREFIX test on `exchange_fill_id` with `REHEARSAL_FILL_ID_PREFIX`. An allocation holding both kinds, while open, refuses in either mode.
 - **In-flight orders (task 6d.6).** A `SUBMITTED` attempt with an `exchange_order_id` is judged by `REHEARSAL_ORDER_ID_PREFIX` (`fake-order-`), which the fake mints and no venue does. The origin of a `SUBMITTED` attempt with a NULL `exchange_order_id` is not recorded anywhere; that gap is left open and reported, not closed with a new column.
-- **Exit.** One ERROR (its own record, because an exception is not a log record and only a log record reaches the alert bridge), then `InvariantViolation` out of `worker.run`. That is the mechanism `assert_dry_run_safe` and the pool lock-key check already use, and it ends the process with exit status 1.
+- **Exit.** One ERROR (its own record, because an exception is not a log record and only a log record reaches the alert bridge), then `InvariantViolation` out of `worker.run`. That is the mechanism `assert_dry_run_safe` and the pool lock-key check already use, and it ends the process with exit status 1. **Superseded by decision 29 (PR 6e, next addendum):** the exception is now `StartupRefused` and the exit status is 78. Exit status 1 was the defect: under `Restart=always` the worker looped on it.
 - **Not covered, deliberately.** An allocation that is FLAT by the ledger's rule but holds both kinds of fill (a live open closed by a fake close, the exact incident this guard prevents) is not open and is not read. The guard prevents that state; it does not audit past ones. The fake exchange keeps its placed orders in memory, so any restart already turns a rehearsal order still in flight into `NEVER_PLACED`; the guard does not change that.
+
+## Addendum: a startup refusal exits 78 (decision 29) - as built in PR 6e
+
+- **The type.** `shared/domain/startup_refusal.py::StartupRefused`, standard library only. It is not an `InvariantViolation`: that class is raised by runtime code too (`Money`, the signers, `EnvelopeCipher`, `CredentialNotFound`), and a runtime failure must keep exiting non-zero and being restarted. It carries `logged`, whether the refusal already wrote its own ERROR.
+- **Wrap, do not raise.** `worker._startup_refusal()` is a context manager around each refusal-capable call in `_run_worker`. It converts `InvariantViolation` and `PoolLockKeyCollisionError` into `StartupRefused` and logs the ERROR. Raising `StartupRefused` from inside the checks was rejected because most of them are shared with code that runs after startup: `EnvelopeCipher.from_base64` runs per job, `assert_pool_lock_keys_distinct` re-runs every `balance.sync` cycle, and `assert_dry_run_safe` sits in `build_worker_runner`. A running worker would then exit 78 too. The wrapper cannot catch a runtime failure: it is lexical, and it is over before `run_forever`. It is deliberately not around the whole startup phase, or around seeding: a database outage there raises other exceptions, and one raising `InvariantViolation` would be a bug, not a configuration to wait on. The one exception is `assert_mode_matches_ledger`, which only the worker's startup calls and which raises `StartupRefused(logged=True)` itself.
+- **Exit.** `worker.main` catches `StartupRefused` and only that, and calls `sys.exit(78)` (`EX_CONFIG`). Nothing is printed by `main`: the ERROR was logged inside `operator_alerts`, which drains the bridge on the way out. Every other exception escapes unhandled and exits 1, as before.
+- **Refusals, and how each now ends.**
+
+  | Refusal | Raised as | ERROR before this PR | Now |
+  | --- | --- | --- | --- |
+  | pool lock-key collision | `PoolLockKeyCollisionError` (not even an `InvariantViolation`) | none | wrapper logs it, exit 78 |
+  | no enabled capital pools | `InvariantViolation` | none | `StartupRefused`, wrapper logs it, exit 78 |
+  | mode guard (decision 28) | `InvariantViolation` | one, its own | `StartupRefused(logged=True)`, no second ERROR, exit 78 |
+  | `MASTER_ENCRYPTION_KEY` unset, not base64 or the wrong length | `InvariantViolation` | none | wrapper logs it, exit 78 |
+  | vault self-test | `InvariantViolation` | none | wrapper logs it, exit 78 |
+  | `assert_dry_run_safe`, inside `build_worker_runner`; also the cipher built there | `InvariantViolation` | none | wrapper logs it, exit 78 |
+
+  Five of the six raised without logging an ERROR. Each would have stopped the worker in silence once 78 prevented the restart, so the wrapper writes the ERROR: `refusing to start: <the exception message>`, no `exc_info`, no traceback.
+- **Not a refusal, on purpose.** `get_settings()` runs before alerting can be installed: a settings validation error escapes as today and cannot alert. Seeding and everything after it keep their current exit. A database outage during startup raises SQLAlchemy or driver errors, which are not converted, so the restart that recovers from it still happens.
+- **The unit drop-in the owner adds.**
+
+  ```
+  /etc/systemd/system/strategy-worker.service.d/startup-refusal.conf
+  [Service]
+  RestartPreventExitStatus=78
+  ```
+
+  then `systemctl daemon-reload`. Order does not matter for safety. The drop-in before the deploy is inert, because the old code never exits 78. The deploy before the drop-in leaves today's behaviour: a refusal exits 78, which systemd treats as any other failure and restarts. The protection exists only once both are in place. After a refusal the unit stays `failed` (`status=78`) until the owner starts it; a manual `systemctl restart strategy-worker` is unaffected by the setting.
+- **The API has the same loop, unfixed.** The lifespan in `main.py` raises `InvariantViolation` for `WEBHOOK_SECRET` and `ADMIN_API_TOKEN`. It logs no ERROR of its own, and uvicorn's lifespan ERROR goes to the `uvicorn` logger, which has `propagate=False`, so it never reaches the root logger the alert bridge is installed on. Those two refusals therefore do not reach any alert channel. Uvicorn ends the process with exit status 3 on a failed lifespan. If `strategy-api.service` also runs `Restart=always` it loops the same way, silently. Decision 29 does not cover it and this PR does not touch it.

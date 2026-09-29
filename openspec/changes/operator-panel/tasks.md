@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `849ad1a`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `a969e40`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -102,7 +102,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6a | #18 | `4041a3a` | 0026 | 2026-09-29 | Unit 3a. Rehearsed on `sm_rehearsal_0026`, including the downgrade refusal once a value exists. Backup `/root/sm_pre0026_20260929_1534.dump` (an earlier `..._1532.dump` is from a run that aborted on the HEAD check before touching anything). Restart both. The 2 existing reservations stay NULL; only new ones record `pool_total_at_open`. |
 | PR 6b | #19 | `50a68db` | — | 2026-09-29 | Units 3b + 3c, plus decision 28 recorded. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. Pull, restart both. |
 | PR 6c | #20 | `849ad1a` | — | 2026-09-29 | Unit 3d. Pull, restart both. The original PR 6 is complete. |
-| PR 6d | — | — | — | — | Decision 28, on `feat/operator-panel-dry-run-guard`. In review. No migration. Deploy runs the guard against the production ledger BEFORE restarting and restarts only if it is clean: a false positive would keep the worker from starting at all. |
+| PR 6d | #21 | `a969e40` | — | 2026-09-29 | Decision 28. The guard ran against the production ledger before the restart: clean for `DRY_RUN=true`, and a `DRY_RUN=false` start would also be allowed. Restart both. The worker unit has `Restart=always`, `RestartSec=5` and no `StartLimit*`, so a refused start would loop and alert every few seconds. |
+| PR 6e | — | — | — | — | Decision 29, on `feat/operator-panel-startup-exit-code`. In review. No migration: pull, restart both, then the owner adds the `RestartPreventExitStatus=78` drop-in to the worker unit and reloads systemd. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -737,6 +738,32 @@ fill). One is AAVE on `AAVEUSDT.P`, the other SFP on `SFPUSDT.P`, both on `binan
 They are also the only two reservations in production. So none of them blocks a later
 `DRY_RUN=false` start. A position still open on TradingView that the system never opened is not
 in the ledger; its close ends `REJECTED` `NO_POSITION_TO_CLOSE` (decision 27).
+
+---
+
+## PR 6e — A startup refusal exits 78 (decision 29) (150–350 lines)
+
+Added 2026-09-29. Every refusal the worker raises during its startup phase exits the process
+with code 78, after the ERROR it already logs. The owner adds `RestartPreventExitStatus=78` to
+the worker unit. A failure after startup keeps its current exit and keeps being restarted.
+
+- [x] 6e.1 RED each startup refusal ends the process with exit code 78:
+  - Done 2026-09-29: `tests/test_worker_startup_exit.py::test_every_startup_refusal_exits_78`, six cases through `worker.main`, the real `operator_alerts` and the real `_run_worker` sequence (only PostgreSQL and venue leaves replaced): vault self-test, pool lock-key collision, no enabled pools, unreadable `MASTER_ENCRYPTION_KEY`, the decision 28 mode guard (the real use case over a fake reader), and `assert_dry_run_safe` (the real `build_worker_runner` with a non-live adapter registered). RED on assertions: `assert 'InvariantViolation' == 78` (and `'PoolLockKeyCollisionError' == 78`) x6. Two refusals beyond the four named were found: no enabled pools, and the master key.
+  - the vault self-test;
+  - the pool advisory-lock key check (invariant 1);
+  - `assert_dry_run_safe` (invariant 2);
+  - the decision 28 mode guard;
+  - any other refusal found in the startup sequence.
+- [x] 6e.2 RED an exception raised AFTER startup, from the running loop, does NOT exit 78: it keeps today's non-zero exit, so systemd restarts it. The test must fail if startup and runtime failures share an exit path.
+  - Done 2026-09-29: `test_a_failure_from_the_running_loop_is_not_a_startup_refusal` (`InvariantViolation`, `DecryptionFailed`, `PoolLockKeyCollisionError`, `RuntimeError` from `run_forever`), `test_a_failure_while_seeding_the_chains_is_not_a_startup_refusal`, `test_a_failure_from_the_running_loop_logs_no_startup_refusal`. These pass against today's code by construction (nothing maps to 78 yet). Proven non-vacuous by mutation: wrapping `run_forever` and the seeding in `_startup_refusal()` fails 5 of them.
+- [x] 6e.3 RED each startup refusal still logs exactly one ERROR that reaches the alert bridge before the exit. A refusal that raises without an ERROR is a finding: it would stop the worker in silence.
+  - Done 2026-09-29: `test_every_startup_refusal_logs_one_error_that_reaches_the_alert_channel` (one ERROR in `caplog` and one message on the recording alerter, per refusal, inside the real `operator_alerts`), `test_the_mode_guard_keeps_its_own_error_text`, `test_a_refusal_never_puts_the_master_key_or_a_traceback_in_the_alert`. RED on `assert 0 == 1` for the five refusals that logged nothing. **Finding: five of the six raised without any ERROR** (lock-key collision, no pools, master key, vault self-test, `assert_dry_run_safe`); only the mode guard logged. The worker now logs `refusing to start: <message>` with no `exc_info`. Mutation: logging unconditionally instead of honouring `logged` fails the mode guard cases (two ERRORs).
+- [x] 6e.4 GREEN a dedicated startup-refusal type raised only by the startup phase. It is not the generic `InvariantViolation`, which runtime code also raises. `worker.main` maps it to `sys.exit(78)`.
+  - Done 2026-09-29: `shared/domain/startup_refusal.py::StartupRefused` (stdlib only, `logged` flag); `worker._startup_refusal()` converts `InvariantViolation` and `PoolLockKeyCollisionError` around each startup check (wrap, not raise: the checks are shared with runtime code); `assert_mode_matches_ledger` raises it directly with `logged=True`; `worker.main` maps only it to `sys.exit(78)`. design.md addendum "a startup refusal exits 78 (decision 29)" gives the unit drop-in and the deploy-order answer. The six mode guard tests that expected `InvariantViolation` now expect `StartupRefused`.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Rollback boundary: the exit mapping only. Without the unit setting, 78 behaves like any other non-zero exit.
+Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads systemd.
 
 ---
 

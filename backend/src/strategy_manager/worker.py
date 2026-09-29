@@ -38,6 +38,13 @@ Startup order is deliberate:
    because a restart being the ONLY recovery path meant a dead chain waited
    for a human. One did, for 19 hours.
 
+Exit codes (owner decision 29). A refusal in steps 1 to 3b raises
+``StartupRefused`` after exactly one ERROR, and ``main`` exits 78 (``EX_CONFIG``)
+so a unit with ``RestartPreventExitStatus=78`` stays stopped instead of looping
+on it. Anything else -- a database outage during startup, seeding, or any
+failure of the running loop -- keeps escaping as an unhandled exception, exits
+non-zero and is restarted, which is the recovery for a dead recurring chain.
+
 Run it with::
 
     cd backend && uv run python -m strategy_manager.worker
@@ -47,7 +54,9 @@ import asyncio
 import functools
 import logging
 import signal
-from collections.abc import Sequence
+import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from strategy_manager.accounts.application.ports import CredentialVaultPort
 from strategy_manager.accounts.domain.exchange_credential import CredentialHint
@@ -57,6 +66,7 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
 )
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
+    PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
 )
 from strategy_manager.main import assert_dry_run_matches_ledger, build_worker_runner
@@ -65,6 +75,7 @@ from strategy_manager.shared.application.watchdog import AlertChannelPort
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from strategy_manager.shared.infrastructure.alerting import operator_alerts
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed, EnvelopeCipher
@@ -75,6 +86,10 @@ from strategy_manager.shared.infrastructure.recurring_jobs import (
 )
 
 logger = logging.getLogger("strategy_manager.worker")
+
+# sysexits.h ``EX_CONFIG``: the process was configured in a way it cannot run.
+# ``os.EX_CONFIG`` does not exist on Windows, where this is developed.
+EX_CONFIG = 78
 
 
 async def run() -> None:
@@ -96,16 +111,49 @@ async def run() -> None:
         await _run_worker(settings, bridge)
 
 
+@contextmanager
+def _startup_refusal() -> Iterator[None]:
+    """Turns a startup CHECK's failure into ``StartupRefused``, logging its
+    ERROR first when the check did not (owner decision 29).
+
+    Wrapped around each refusal-capable call in ``_run_worker`` and nowhere
+    else, and lexically over before ``run_forever``, so a failure of the running
+    loop cannot pass through it. It converts instead of having each check raise
+    ``StartupRefused`` itself because the checks are shared with code that runs
+    after startup: ``EnvelopeCipher.from_base64`` runs per job, the lock-key
+    check re-runs every ``balance.sync`` cycle, and both signal failure with
+    the generic exceptions caught here. Raising the startup type from inside
+    them would make the running worker exit 78 too.
+
+    The ERROR is logged here, in the process that is about to exit, because the
+    alert bridge forwards log records and never exceptions. It carries the
+    message only, no ``exc_info``: a traceback is where a local variable
+    holding a secret would surface. The original exception stays as
+    ``__cause__``.
+    """
+    try:
+        yield
+    except StartupRefused as refused:
+        if not refused.logged:
+            logger.error("refusing to start: %s", refused)
+        raise
+    except (InvariantViolation, PoolLockKeyCollisionError) as exc:
+        logger.error("refusing to start: %s", exc)
+        raise StartupRefused(str(exc), logged=True) from exc
+
+
 async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None) -> None:
     async with engine.connect() as conn:
         pools = await CapitalPoolRepository(conn).list_enabled()
-        await assert_pool_lock_keys_distinct(conn, pools)
+        with _startup_refusal():
+            await assert_pool_lock_keys_distinct(conn, pools)
 
     if not pools:
-        raise InvariantViolation(
-            "no enabled capital pools are configured; the worker would claim "
-            "signals it can never allocate"
-        )
+        with _startup_refusal():
+            raise StartupRefused(
+                "no enabled capital pools are configured; the worker would claim "
+                "signals it can never allocate"
+            )
 
     logger.info(
         "worker starting: %d enabled pools, dry_run=%s", len(pools), settings.dry_run
@@ -118,7 +166,12 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
     # degraded start), through the same exception every other startup
     # invariant here uses. It runs inside ``operator_alerts`` -- see ``run`` --
     # so the ERROR it logs first reaches Telegram before the process exits.
-    await assert_dry_run_matches_ledger(dry_run=settings.dry_run)
+    #
+    # That guard raises ``StartupRefused`` itself (it is startup-only and has
+    # already logged its ERROR); the wrapper only keeps it from being logged
+    # twice.
+    with _startup_refusal():
+        await assert_dry_run_matches_ledger(dry_run=settings.dry_run)
 
     # A master key that is well-formed but WRONG only fails when a credential
     # is actually opened — per job, inside a handler, as DecryptionFailed.
@@ -142,12 +195,11 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
         # it is one key derivation, and the alternative is widening the
         # composition root's return type so a startup check can borrow a
         # handle to a secret.
-        vault = SqlAlchemyCredentialVault(
-            session,
-            EnvelopeCipher.from_base64(settings.master_encryption_key),
-            SystemClock(),
-        )
-        opened = await _assert_sealed_credentials_open(vault)
+        with _startup_refusal():
+            cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
+        vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+        with _startup_refusal():
+            opened = await _assert_sealed_credentials_open(vault)
         # ``hints()`` is a second, cheap call (no decrypt) on the same
         # already-open session, deliberately kept separate from ``opened``:
         # that list is the DECRYPT self-test's own evidence, and re-purposing
@@ -166,9 +218,10 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
     # ``initial_degraded`` seeds the composition root's own per-job tracker,
     # so the very first job-level check never re-logs what this function
     # already reported above.
-    runner = build_worker_runner(
-        pools, alert_channel=alert_channel, initial_degraded=degraded
-    )
+    with _startup_refusal():
+        runner = build_worker_runner(
+            pools, alert_channel=alert_channel, initial_degraded=degraded
+        )
 
     clock = SystemClock()
 
@@ -366,6 +419,15 @@ def main() -> None:
     _configure_logging()
     try:
         asyncio.run(run())
+    except StartupRefused:
+        # Already logged at ERROR inside ``operator_alerts``, which drained the
+        # alert bridge on the way out, so nothing is printed here: an unhandled
+        # exception would add a traceback to a refusal whose message is the
+        # whole story. 78 (EX_CONFIG) is what the unit's
+        # ``RestartPreventExitStatus=78`` recognises (owner decision 29). It is
+        # the ONLY exception mapped: everything else still escapes as an
+        # unhandled exception, exits non-zero and is restarted.
+        sys.exit(EX_CONFIG)
     except KeyboardInterrupt:  # pragma: no cover - a race with the handler above
         logger.info("interrupted")
 

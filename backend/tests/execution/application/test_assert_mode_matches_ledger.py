@@ -21,7 +21,7 @@ from strategy_manager.execution.domain.mode_origin import (
     OpenAllocationOrigin,
 )
 from strategy_manager.shared.config import Settings
-from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from strategy_manager.shared.infrastructure import alerting
 from strategy_manager.shared.infrastructure.alerting import operator_alerts
 
@@ -82,7 +82,7 @@ async def test_live_start_over_an_open_rehearsal_position_logs_one_error_and_ref
 ) -> None:
     reader = FakeReader(opened=[_open(rehearsal=True, live=False)])
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await assert_mode_matches_ledger(dry_run=False, reader=reader)
 
     errors = _errors(caplog)
@@ -102,7 +102,7 @@ async def test_dry_run_start_over_an_open_live_position_logs_one_error_and_refus
 ) -> None:
     reader = FakeReader(opened=[_open(rehearsal=False, live=True)])
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await assert_mode_matches_ledger(dry_run=True, reader=reader)
 
     errors = _errors(caplog)
@@ -147,7 +147,7 @@ async def test_an_allocation_holding_both_kinds_refuses_in_either_mode() -> None
     reader = FakeReader(opened=[_open(rehearsal=True, live=True)])
 
     for dry_run in (True, False):
-        with pytest.raises(InvariantViolation):
+        with pytest.raises(StartupRefused):
             await assert_mode_matches_ledger(dry_run=dry_run, reader=reader)
 
 
@@ -162,7 +162,7 @@ async def test_one_error_names_every_offender_not_one_error_each(
         in_flight=[_order(f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}")],
     )
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await assert_mode_matches_ledger(dry_run=False, reader=reader)
 
     errors = _errors(caplog)
@@ -177,7 +177,7 @@ async def test_live_start_over_an_unsettled_rehearsal_order_refuses(
 ) -> None:
     reader = FakeReader(in_flight=[_order(f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}")])
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await assert_mode_matches_ledger(dry_run=False, reader=reader)
 
     assert len(_errors(caplog)) == 1
@@ -189,7 +189,7 @@ async def test_dry_run_start_over_an_unsettled_live_order_refuses(
 ) -> None:
     reader = FakeReader(in_flight=[_order("8f0c2a3e-6a51-4c1b-9d0a-2f7c1e5b7a10")])
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await assert_mode_matches_ledger(dry_run=True, reader=reader)
 
     assert len(_errors(caplog)) == 1
@@ -239,7 +239,7 @@ async def test_the_refusal_reaches_the_alert_channel_before_the_context_exits(
     settings = Settings(_env_file=None, alerts_enabled=True)  # type: ignore[call-arg]
     reader = FakeReader(opened=[_open(rehearsal=True, live=False)])
 
-    with pytest.raises(InvariantViolation):
+    with pytest.raises(StartupRefused):
         async with operator_alerts(settings) as bridge:
             assert bridge is not None
             await assert_mode_matches_ledger(dry_run=False, reader=reader)
