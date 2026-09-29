@@ -31,6 +31,7 @@ from strategy_manager.execution.application.ports import (
     FillRecorderPort,
     OrderNotFound,
     ReservationGatewayPort,
+    SettleOutcomeRecorderPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
@@ -72,6 +73,7 @@ class SettleExecution:
         usd_rate_provider: UsdRateProviderPort,
         clock: ClockPort,
         commit: CommitPort,
+        outcomes: SettleOutcomeRecorderPort,
     ) -> None:
         self._reservations = reservations
         self._exchanges = exchanges
@@ -80,6 +82,7 @@ class SettleExecution:
         self._usd_rate_provider = usd_rate_provider
         self._clock = clock
         self._commit = commit
+        self._outcomes = outcomes
 
     async def settle(self, attempt_id: UUID) -> SettleResult:
         attempt = await self._attempts.get(attempt_id)
@@ -126,6 +129,19 @@ class SettleExecution:
             # unwinding went FILLED when the position opened. Re-marking it
             # would rewrite settled history to say something it already says.
             await self._reservations.mark(attempt.allocation_id, FILLED, now)
+        # Decision 25, rows 16-17 (5c.1, 5c.3): the signal's outcome rides the
+        # SAME commit as the fills, staged last so its row lock is the last
+        # one taken. An open resolves its signal through the reservation; a
+        # close through the attempt's own link, because ``reservation`` here
+        # is the OPENING allocation's and names the OPENING signal. A NULL
+        # link (an orphan close, an attempt written before 5c) records
+        # nothing. Whether a REVERSE's close writes anything is the adapter's
+        # call (decision 26: its open half decides).
+        if attempt.is_closing:
+            if attempt.signal_id is not None:
+                await self._outcomes.record_close_filled(attempt.signal_id)
+        else:
+            await self._outcomes.record_open_filled(reservation.signal_id)
         await self._commit.commit()
 
         # 2f.4 (orchestrator's outcome map, finding 16): this file imported
@@ -156,20 +172,31 @@ class SettleExecution:
         why. Marking the opening reservation RELEASED here would be a lie about
         capital that is demonstrably still deployed.
         """
+        signal_id = attempt.signal_id
         if not attempt.is_closing:
+            # Read before the release so the reservation's row lock is taken
+            # first; an open resolves its signal through the reservation.
+            signal_id = (
+                await self._reservations.get_for_update(attempt.allocation_id)
+            ).signal_id
             await self._reservations.mark(attempt.allocation_id, RELEASED, now)
         await self._attempts.mark_failed(
             attempt.id, "the exchange has no order under this client order id"
         )
-        await self._commit.commit()
         # 2f.4 (orchestrator's outcome map, finding 17): same silent file --
         # WARNING, since an order that never reached the exchange is worth
-        # the owner's attention even though nothing here raises.
-        logger.warning(
-            "execution attempt %s never reached the exchange; %s",
-            attempt.id,
-            "reservation released" if not attempt.is_closing else "position remains open",
+        # the owner's attention even though nothing here raises. The message
+        # is built once: it is both the log line and the signal's
+        # ``outcome_detail`` (decision 25, row 17), staged on the release
+        # commit so the two land together.
+        never_placed = (
+            f"execution attempt {attempt.id} never reached the exchange; "
+            + ("reservation released" if not attempt.is_closing else "position remains open")
         )
+        if signal_id is not None:
+            await self._outcomes.record_never_placed(signal_id, never_placed)
+        await self._commit.commit()
+        logger.warning("%s", never_placed)
         return SettleResult(status="NEVER_PLACED", execution_attempt_id=attempt.id)
 
     async def _record(

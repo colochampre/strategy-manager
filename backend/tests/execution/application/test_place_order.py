@@ -570,3 +570,13 @@ async def test_a_placed_order_leaves_the_signal_processing_on_the_placed_commit(
         "outcome.processing",
         "commit",
     ]
+
+
+async def test_the_opening_attempt_is_linked_to_the_signal_of_its_reservation() -> None:
+    """Decision 25, 5c.3: the attempt insert carries ``signal_id`` so a later
+    reader can resolve the attempt to the signal it was placed for."""
+    use_case, _, attempts, _, _, _ = _build()
+
+    await use_case.place(_command())
+
+    assert attempts.inserted[0].signal_id == SIGNAL_ID

@@ -31,12 +31,14 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
 from strategy_manager.shared.domain.money import Currency
+from tests.execution.fakes import RecordingSettleOutcomes
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 ATTEMPT_ID = uuid4()
 RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
+CLOSING_SIGNAL_ID = uuid4()
 CLIENT_ORDER_ID = "client-order-1"
 
 
@@ -47,6 +49,7 @@ class FrozenClock:
 
 def _closing_attempt(
     status: ExecutionStatus = ExecutionStatus.SUBMITTED,
+    signal_id: UUID | None = CLOSING_SIGNAL_ID,
 ) -> ExecutionAttempt:
     """A close: bound to the allocation it unwinds, not to a reservation, and
     denominated in the base currency it is selling."""
@@ -64,6 +67,7 @@ def _closing_attempt(
         status=status,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
+        signal_id=signal_id,
     )
 
 
@@ -172,11 +176,14 @@ class FakeExchange:
 
 
 class SpyLedger:
-    def __init__(self) -> None:
+    def __init__(self, log: list[str] | None = None) -> None:
         self.records: list[FillRecord] = []
+        self._log = log
 
     async def record(self, fill: FillRecord) -> None:
         self.records.append(fill)
+        if self._log is not None:
+            self._log.append("ledger.record")
 
 
 class StubUsdRate:
@@ -189,20 +196,28 @@ class StubUsdRate:
 
 
 class SpyCommit:
-    def __init__(self) -> None:
+    def __init__(self, log: list[str] | None = None) -> None:
         self.commits = 0
+        self._log = log
 
     async def commit(self) -> None:
         self.commits += 1
+        if self._log is not None:
+            self._log.append("commit")
 
 
 def _build(
-    exchange: FakeExchange, attempt: ExecutionAttempt | None = None
+    exchange: FakeExchange,
+    attempt: ExecutionAttempt | None = None,
+    outcomes: RecordingSettleOutcomes | None = None,
+    log: list[str] | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
     reservations = FakeReservations()
     attempts = FakeAttempts(attempt or _attempt())
-    ledger = SpyLedger()
+    ledger = SpyLedger(log)
     usd_rate = StubUsdRate()
+    outcomes = outcomes if outcomes is not None else RecordingSettleOutcomes()
+    outcomes.log = log
     use_case = SettleExecution(
         reservations=reservations,
         exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
@@ -210,7 +225,8 @@ def _build(
         fill_recorder=ledger,  # type: ignore[arg-type]
         usd_rate_provider=usd_rate,
         clock=FrozenClock(),
-        commit=SpyCommit(),
+        commit=SpyCommit(log),
+        outcomes=outcomes,
     )
     return use_case, reservations, attempts, ledger, usd_rate
 
@@ -424,3 +440,144 @@ async def test_a_never_placed_order_logs_exactly_one_warning(
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warning_records) == 1
     assert str(ATTEMPT_ID) in warning_records[0].getMessage()
+
+
+# --------------------------------------------------------------------------
+# Decision 25, tasks 5c.1-5c.3 (design.md "Addendum: signal outcomes" § B
+# rows 16-17): what settle tells the SIGNAL, staged on the very commit that
+# makes the fills (or the release) durable.
+# --------------------------------------------------------------------------
+
+
+async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> None:
+    """5c.1. The signal is resolved through ``reservation.signal_id`` (the
+    attempt here carries none, like every attempt written before 5c), and the
+    write sits after the ledger rows and BEFORE the one commit."""
+    outcomes = RecordingSettleOutcomes()
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), outcomes=outcomes, log=log
+    )
+
+    await use_case.settle(ATTEMPT_ID)
+
+    assert outcomes.open_filled == [SIGNAL_ID]
+    assert outcomes.close_filled == []
+    assert log == ["ledger.record", "outcome.open_filled", "commit"]
+
+
+async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one() -> None:
+    """5c.3. ``allocation_id`` of a close is the OPENING allocation, so its
+    reservation names the OPENING signal (``SIGNAL_ID`` in this fake). The
+    signal to tell is the one the attempt carries. Must fail if settle reads
+    the reservation's signal for a close."""
+    outcomes = RecordingSettleOutcomes()
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange([_fill("0.00199960", "50010")]),
+        attempt=_closing_attempt(),
+        outcomes=outcomes,
+        log=log,
+    )
+
+    await use_case.settle(ATTEMPT_ID)
+
+    assert outcomes.close_filled == [CLOSING_SIGNAL_ID]
+    assert SIGNAL_ID not in outcomes.close_filled + outcomes.open_filled
+    assert outcomes.open_filled == []
+    assert log == ["ledger.record", "outcome.close_filled", "commit"]
+
+
+async def test_a_filled_close_with_no_linked_signal_records_nothing() -> None:
+    """An orphan close, or an attempt written before this PR: a NULL link
+    records nothing, and the fills still land."""
+    outcomes = RecordingSettleOutcomes()
+    use_case, _, _, ledger, _ = _build(
+        FakeExchange([_fill("0.00199960", "50010")]),
+        attempt=_closing_attempt(signal_id=None),
+        outcomes=outcomes,
+    )
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "FILLED"
+    assert len(ledger.records) == 1
+    assert outcomes.nothing
+
+
+async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """5c.2. Resolved through the reservation; the detail is the exact
+    message logged, and the write sits before the release's one commit."""
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.settle_execution")
+    outcomes = RecordingSettleOutcomes()
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such client order id")),
+        outcomes=outcomes,
+        log=log,
+    )
+
+    await use_case.settle(ATTEMPT_ID)
+
+    assert len(outcomes.never_placed) == 1
+    [(signal_id, detail)] = outcomes.never_placed
+    assert signal_id == SIGNAL_ID
+    assert log == ["outcome.never_placed", "commit"]
+    [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert detail == warning.getMessage()
+    assert "reservation released" in detail
+
+
+async def test_a_never_placed_close_ends_the_closing_signal_rejected() -> None:
+    outcomes = RecordingSettleOutcomes()
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing_attempt(),
+        outcomes=outcomes,
+        log=log,
+    )
+
+    await use_case.settle(ATTEMPT_ID)
+
+    assert len(outcomes.never_placed) == 1
+    [(signal_id, detail)] = outcomes.never_placed
+    assert signal_id == CLOSING_SIGNAL_ID  # never the opening signal
+    assert "position remains open" in detail
+    assert log == ["outcome.never_placed", "commit"]
+
+
+async def test_a_never_placed_close_with_no_linked_signal_records_nothing() -> None:
+    outcomes = RecordingSettleOutcomes()
+    use_case, _, attempts, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing_attempt(signal_id=None),
+        outcomes=outcomes,
+    )
+
+    result = await use_case.settle(ATTEMPT_ID)
+
+    assert result.status == "NEVER_PLACED"
+    assert attempts.failed[0][0] == ATTEMPT_ID
+    assert outcomes.nothing
+
+
+async def test_settle_writes_no_outcome_when_it_has_not_decided_anything() -> None:
+    """Not settled yet (retry) and already settled (redelivery): no fate was
+    learned, so no outcome is written."""
+    retry = RecordingSettleOutcomes()
+    use_case, _, _, _, _ = _build(FakeExchange(fills=[]), outcomes=retry)
+    with pytest.raises(NotSettledYet):
+        await use_case.settle(ATTEMPT_ID)
+
+    settled = RecordingSettleOutcomes()
+    use_case, _, _, _, _ = _build(
+        FakeExchange(fills=[_fill("2", "50")]),
+        attempt=_attempt(ExecutionStatus.FILLED),
+        outcomes=settled,
+    )
+    await use_case.settle(ATTEMPT_ID)
+
+    assert retry.nothing and settled.nothing

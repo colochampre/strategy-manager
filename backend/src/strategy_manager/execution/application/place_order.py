@@ -195,6 +195,10 @@ class PlaceOrder:
                 status=ExecutionStatus.SUBMITTED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=client_order_id,
+                # Decision 25, row 16: settle reads the signal back from the
+                # reservation for an open, but the attempt carries it too so
+                # every attempt is resolvable without a join.
+                signal_id=reservation.signal_id,
             )
         )
         await self._queue.enqueue(

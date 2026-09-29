@@ -217,6 +217,11 @@ class ClosePosition:
                 status=ExecutionStatus.SUBMITTED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=client_order_id,
+                # Decision 25, 5c.3: the CLOSING signal. ``allocation_id``
+                # names the opening allocation, so this is the only route from
+                # a close to the signal that asked for it. ``None`` (an orphan
+                # close) writes NULL, which records nothing at settle.
+                signal_id=command.signal_id,
             )
         )
         await self._queue.enqueue(

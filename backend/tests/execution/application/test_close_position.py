@@ -597,3 +597,22 @@ async def test_a_close_with_no_signal_records_nothing_when_placed_or_rejected() 
     assert result.status == "FAILED"  # the branch ran; it just had nobody to tell
     assert (placed.processing, placed.rejected) == ([], [])
     assert (failed.processing, failed.rejected) == ([], [])
+
+
+async def test_the_closing_attempt_is_linked_to_the_closing_signal() -> None:
+    """Decision 25, 5c.3: the attempt insert carries the CLOSING signal, the
+    only route from a close to the signal that asked for it -- its
+    ``allocation_id`` names the OPENING allocation."""
+    use_case, attempts, _, _, _, _ = _build()
+
+    await use_case.close(_command(signal_id=SIGNAL_ID))
+
+    assert attempts.inserted[0].signal_id == SIGNAL_ID
+
+
+async def test_a_close_with_no_signal_writes_a_null_link() -> None:
+    use_case, attempts, _, _, _, _ = _build()
+
+    await use_case.close(_command(signal_id=None))
+
+    assert attempts.inserted[0].signal_id is None

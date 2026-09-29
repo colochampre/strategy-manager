@@ -982,8 +982,8 @@ reconstructs their outcome.
 | 13 | `CLOSE_DUST_NOT_CLOSABLE` | `close_position.py`, `NOT_CLOSABLE` | signal.process | 5b |
 | 14 | `CLOSE_REJECTED_BY_VENUE` | `close_position.py`, `FAILED` | signal.process | 5b |
 | 15 | — (`PLACED` → `PROCESSING`, not final) | `close_position.py` | signal.process | 5b |
-| 16 | — (`FILLED` → `PROCESSED`) | `settle_execution.py`, `settle()` | execution.settle | 5c |
-| 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` | execution.settle | 5c |
+| 16 | — (`FILLED` → `PROCESSED`; a REVERSE's close writes nothing, decision 26) | `settle_execution.py`, `settle()` | execution.settle | 5c (unit F) |
+| 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` (an open, and a close linked to a signal) | execution.settle | 5c (unit F) |
 | 18 | `REVERSE_NEW_SIDE_UNHOLDABLE` (added by decision 26; the map recorded none, see "Map corrections") | `process_signal.py::_note_unexecuted_tail` | signal.process | 5b |
 | 21 | `NO_POSITION_TO_CLOSE` (decision 27: a releasing CLOSE or REVERSE with no prior reservation; a REVERSE's detail says the new side was not opened) | `process_signal.py::_handle_releases`, the `prior_reservation_id is None` early return | signal.process | 5b |
 | — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c |
@@ -1025,6 +1025,8 @@ a neighbouring commit.
 | 14 | `close_position.py:225-226` (`mark_failed` + commit, after the network call) | |
 | 15 (PROCESSING) | `close_position.py:246-247` (`mark_placed` + commit) | |
 | 21 (`NO_POSITION_TO_CLOSE`) | **none exists** on this path: `_handle_releases` returned with no write; it now goes through `_reject`, which stages the outcome and commits | one WARNING, the logged message is the detail; nothing closes or opens |
+| 16 (`PROCESSED`) | `settle_execution.py`: the one commit after `mark_filled` and the reservation mark | the outcome is staged last, so the signals row lock is the last one taken; an open resolves the signal through `reservation.signal_id`, a close through `execution_attempts.signal_id` |
+| 17 (`ORDER_NEVER_REACHED_EXCHANGE`) | `settle_execution.py::_release_never_placed`: the release commit | the message is built once, recorded as the detail, then logged with `"%s"` |
 | Deferral: in-flight wait | `process_signal.py`, `_handle_consumes`: the `commit()` that follows `open_after_close.seed(...)` | `PROCESSING` is staged between the seed and that commit, so the status and the continuation row are durable together (also on the `open_now` re-deferral, at `poll + 1`) |
 | Deferral: real orphan | the FIRST commit inside `CloseOrphans.close`: a close's own first commit (`SUBMITTED`, or the NOT_CLOSABLE commit), or the final commit when no close was placed | `PROCESSING` is staged in `_handle_consumes` immediately BEFORE `close_orphans.close(...)`, so it rides the same commit as the seed `CloseOrphans` stages first |
 | 18 | **none exists** on the handler side: `signal.process` commits right after `ClosePosition` returns (PR 5b2 added `await self._commit.commit()` in `_note_unexecuted_tail`) | written only when the close was placed (`result.executed`); a refused close already ended the signal with the CLOSE's code |
@@ -1069,6 +1071,33 @@ differences, all verified against the code:
   `_handle_releases` stage nothing. The proof is negative and therefore lives
   in tests that hold a terminal outcome, replay, and assert the row and the
   terminal guard's WARNING channel are both untouched.
+
+**As built in PR 5c (unit F, rows 16-17 and the close linkage).**
+
+- `execution` declares `SettleOutcomeRecorderPort` (`record_open_filled`,
+  `record_close_filled`, `record_never_placed`) in `execution/application/ports.py`,
+  adapted by `signals/infrastructure/settle_outcome_recorder.py`: the same
+  consumer-side shape as `OrderOutcomeRecorderPort`. `SettleExecution` takes it as a
+  required constructor argument, wired in `main.py::_build_settle_execution`.
+- `ExecutionAttempt.signal_id` (default `None`) is written on the attempt insert by
+  `PlaceOrder` and `ClosePosition`. A close resolves its signal through this link,
+  never through `reservation.signal_id`: for a close `allocation_id` is the OPENING
+  allocation, so its reservation names the opening signal. A NULL link (an orphan
+  close, or any attempt written before 5c) records nothing at settle.
+- **How settle learns a signal is a REVERSE (decision 26).** The kind is stored on
+  neither the signal row nor the attempt; it is derived by `SignalContextAdapter` at
+  routing time from the signal's `position_size` against the previous signal's.
+  `SignalSettleOutcomeRecorder._is_reverse` repeats that derivation
+  (`find_prior` + `PositionTransition.classify`), so settle stays kind-agnostic and
+  the answer cannot differ from the one routing used (both inputs are immutable).
+  A filled REVERSE close writes nothing, which covers both the `PROCESSING` case
+  (its open half decides) and a spot REVERSE already `REJECTED`
+  `REVERSE_NEW_SIDE_UNHOLDABLE`, where a differing `PROCESSED` would reach the
+  terminal guard and warn on every such trade. A REVERSE close that ends
+  `NEVER_PLACED` does end `REJECTED` `ORDER_NEVER_REACHED_EXCHANGE`: nothing
+  executed and no open half follows.
+- The open half of a REVERSE, placed from the continuation, is an ordinary open, so
+  its settle reaches `PROCESSED` through `reservation.signal_id` like any other.
 
 **A dependency this implies.** `PlaceOrder` can already reach `signal_id`
 without a new parameter: the `Reservation` it loads carries `signal_id`
