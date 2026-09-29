@@ -698,6 +698,30 @@ Forecast: 400–600 lines.
 
 ---
 
+## PR 6d — The `DRY_RUN` mode guard (decision 28) (300–500 lines)
+
+Added 2026-09-29. The worker refuses to start when `DRY_RUN` does not match the origin of an
+open position. It runs after PR 6c, cut from `main` once PR 6c merges.
+
+**Files**: Create `execution/infrastructure/mode_origin_invariant.py` (or extend
+`dry_run_invariant.py`, whichever reads better) and a read port for open allocations with the
+origin of their fills; Modify `main.py::build_worker_runner` beside `assert_dry_run_safe`.
+
+- [ ] 6d.1 RED `DRY_RUN=false` with an open allocation that holds a `fake-fill-` fill: the worker refuses to start. It logs one ERROR naming the strategy, the pool and the symbol, and says to close the position with `DRY_RUN=true` first.
+- [ ] 6d.2 RED `DRY_RUN=true` with an open allocation that holds a live fill: the worker refuses to start. The ERROR says to close it with `DRY_RUN=false` first, since a fake close would leave the real position open on the venue.
+- [ ] 6d.3 RED no open allocation, or only open allocations of the current mode: the worker starts, and the check logs nothing.
+- [ ] 6d.4 RED "open" is a net base quantity that is not exactly zero, the same rule as `derive_trade` and `net_positions_by_symbol`. A closed rehearsal allocation never blocks a live start.
+- [ ] 6d.5 GREEN the startup check, on real PostgreSQL, using `REHEARSAL_FILL_ID_PREFIX` (from PR 6b). The ERROR reaches Telegram through the alert bridge before the process exits.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL for the open-allocation read; fakes for the startup wiring.
+Rollback boundary: the startup check only; reverting it restores today's start.
+Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. If any of them still
+belongs to an open allocation, the worker keeps starting while `DRY_RUN=true` and would refuse
+a later `DRY_RUN=false` start until that position is closed. That is the intended behaviour.
+
+---
+
 ## PR 7 — Read endpoints: pools, performance, `GET /webhook-secret` (950–1,350 lines)
 
 **Files**: Create `backend/src/strategy_manager/accounts/infrastructure/{pools_router,pool_overview}.py`;
