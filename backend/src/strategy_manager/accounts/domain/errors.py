@@ -27,6 +27,16 @@ class KeyRejected(DomainError):
     """
 
 
+class ConcurrentCredentialSave(DomainError):
+    """A second save for the same exchange lost the race to the first.
+
+    Raised by the credential store when the one-active-key-per-exchange
+    constraint refuses the insert. The store identifies the collision by the
+    constraint's NAME, never by the driver's message text, so a reworded message
+    or another failing constraint cannot be mistaken for it.
+    """
+
+
 class VenueUnreachable(DomainError):
     """The key could not be checked because the venue did not answer in a
     usable way: a transport failure, a timeout, a 5xx, or a body that is not

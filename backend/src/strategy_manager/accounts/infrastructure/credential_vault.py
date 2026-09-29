@@ -13,8 +13,10 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.accounts.domain.errors import ConcurrentCredentialSave
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
@@ -29,6 +31,10 @@ from strategy_manager.shared.infrastructure.crypto import (
     EnvelopeCipher,
     SealedValue,
 )
+
+# The partial unique index behind "one active key per exchange" (migration 0010).
+# A second concurrent save is recognised by THIS name, never by message text.
+ONE_ACTIVE_PER_EXCHANGE_CONSTRAINT = "ux_exchange_credentials_one_active_per_exchange"
 
 API_KEY = "api_key"
 API_SECRET = "api_secret"
@@ -95,37 +101,46 @@ class SqlAlchemyCredentialVault:
         that will hold them, which means knowing the id before encrypting.
         """
         _refuse_wrong_branch(credential.exchange, facts)
-        await self._deactivate_existing(credential.exchange, self._clock.now())
 
         row_id = uuid4()
         envelope = self._cipher.seal(
             {API_KEY: credential.api_key, API_SECRET: credential.api_secret},
             _context(row_id),
         )
-
-        self._session.add(
-            ExchangeCredentialRow(
-                id=row_id,
-                exchange=credential.exchange,
-                label=credential.label,
-                is_active=True,
-                wrapped_dek=envelope.wrapped_dek,
-                dek_nonce=envelope.dek_nonce,
-                api_key_ciphertext=envelope.values[API_KEY].ciphertext,
-                api_key_nonce=envelope.values[API_KEY].nonce,
-                api_secret_ciphertext=envelope.values[API_SECRET].ciphertext,
-                api_secret_nonce=envelope.values[API_SECRET].nonce,
-                api_key_last4=credential.last4,
-                trade_capable=facts.trade_capable,
-                trade_capability_source=facts.trade_capability_source.value,
-                trade_confirmed_at=facts.trade_confirmed_at,
-                withdraw_check=facts.withdraw_check.value,
-                withdraw_confirmed_at=facts.withdraw_confirmed_at,
-                validated_at=facts.validated_at,
-                internal_transfer=facts.internal_transfer,
-            )
+        row = ExchangeCredentialRow(
+            id=row_id,
+            exchange=credential.exchange,
+            label=credential.label,
+            is_active=True,
+            wrapped_dek=envelope.wrapped_dek,
+            dek_nonce=envelope.dek_nonce,
+            api_key_ciphertext=envelope.values[API_KEY].ciphertext,
+            api_key_nonce=envelope.values[API_KEY].nonce,
+            api_secret_ciphertext=envelope.values[API_SECRET].ciphertext,
+            api_secret_nonce=envelope.values[API_SECRET].nonce,
+            api_key_last4=credential.last4,
+            trade_capable=facts.trade_capable,
+            trade_capability_source=facts.trade_capability_source.value,
+            trade_confirmed_at=facts.trade_confirmed_at,
+            withdraw_check=facts.withdraw_check.value,
+            withdraw_confirmed_at=facts.withdraw_confirmed_at,
+            validated_at=facts.validated_at,
+            internal_transfer=facts.internal_transfer,
         )
-        await self._session.flush()
+
+        try:
+            # A SAVEPOINT, so a lost race undoes its own deactivation and
+            # leaves the caller's transaction usable instead of aborted.
+            async with self._session.begin_nested():
+                await self._deactivate_existing(credential.exchange, self._clock.now())
+                self._session.add(row)
+                await self._session.flush()
+        except IntegrityError as error:
+            if _constraint_name(error) == ONE_ACTIVE_PER_EXCHANGE_CONSTRAINT:
+                raise ConcurrentCredentialSave(
+                    f"another save for {credential.exchange} was stored first"
+                ) from None
+            raise
         return credential.hint(facts)
 
     async def _active_row(self, exchange: str) -> ExchangeCredentialRow | None:
@@ -149,6 +164,19 @@ class SqlAlchemyCredentialVault:
         # The partial unique index is checked per statement, so the old row
         # must be deactivated and flushed before the new one is inserted.
         await self._session.flush()
+
+
+def _constraint_name(error: IntegrityError) -> str | None:
+    """The violated constraint's NAME, from the driver's own error.
+
+    asyncpg wraps its ``PostgresError`` (which carries ``constraint_name``) as
+    ``__cause__`` of SQLAlchemy's DBAPI wrapper, so that is where it is read.
+    Message text is never consulted: a reworded message, or another failing
+    constraint whose message happens to mention this index, must not be taken
+    for a lost race. Same reading as ``reconciliation``'s booking repository.
+    """
+    cause = error.orig.__cause__  # type: ignore[union-attr]
+    return getattr(cause, "constraint_name", None)
 
 
 def _refuse_wrong_branch(exchange: str, facts: KeyFacts) -> None:
