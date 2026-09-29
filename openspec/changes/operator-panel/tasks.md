@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `94ca953`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `1eab7a9`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -105,7 +105,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6d | #21 | `a969e40` | — | 2026-09-29 | Decision 28. The guard ran against the production ledger before the restart: clean for `DRY_RUN=true`, and a `DRY_RUN=false` start would also be allowed. Restart both. The worker unit has `Restart=always`, `RestartSec=5` and no `StartLimit*`, so a refused start would loop and alert every few seconds. |
 | PR 6e | #22 | `b0cbda1` | — | 2026-09-29 | Decision 29. Restart both. Drop-in `/etc/systemd/system/strategy-worker.service.d/startup-refusal.conf` installed (`RestartPreventExitStatus=78`), systemd reloaded, and the worker stayed active. The API unit also runs `Restart=always`, `RestartSec=5`, with no drop-in: its lifespan refusals would loop silently (see decision 29's note on the API). |
 | PR 7a | #23 | `94ca953` | — | 2026-09-29 | Tasks 7.1, 7.2 and the pools/performance half of 7.4. Pull, restart both; the API and the worker came up active. |
-| PR 7b | — | — | — | — | Task 7.3 and the webhook-secret half of 7.4 (decision 23), on `feat/operator-panel-webhook-secret`. In review. Independent security verification: no blocker; follow-ups 7f.1–7f.5. No migration: pull, restart both. |
+| PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
+| PR 8a-0 | — | — | — | — | Probe P6 (task 8a.0a), on `feat/operator-panel-probe-p6`. In review. Deploy: pull only, no restart (no service imports the script). Then the owner runs it with the vault key and a temporary Binance key that has only "Enable Reading", and deletes that key afterwards. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -829,6 +830,48 @@ Forecast: 950–1,350 lines.
 
 **Gate before rules are written**: PR 1's **P1–P3** recorded. No line of `key_policy.py` is
 written before "PR 1 — Probe results" carries P1–P3.
+
+**Stale against decision 24 (found 2026-09-29, before any 8a code).** Tasks 6a.1–6a.3 below were
+written before the PR 1 probe, and three of their parts are now wrong:
+- they test a Binance refusal on `enableWithdrawals`;
+- they derive Binance trade capability from `enableFutures`;
+- they have the Binance inspector call `GET /sapi/v1/account/apiRestrictions`, which answers
+  HTTP 403 from the VPS (P3).
+
+Decision 24 replaces the Binance withdraw check with an explicit owner confirmation, recorded
+with its timestamp, and marks the key "withdraw not verified". It leaves Binance trade
+capability "to be designed in PR 8a, never assumed". Migration 0027 does not yet record that
+confirmation. A design addendum (8a.0) settles both before 6a is rewritten.
+
+**Research on Binance trade capability (2026-09-29, primary docs; verdict UNCERTAIN, leaning NO):**
+- `GET /fapi/v2|v3/account` returns `canTrade`, `canDeposit` and `canWithdraw`. The only
+  documentation is "Whether trading is enabled", and it does not say whether that is the API
+  key's permission or the account's status
+  (https://developers.binance.com/docs/derivatives/usds-margined-futures/account/rest-api/Account-Information-V3).
+- No fapi endpoint reports the key's own permissions. The only documented one is SAPI
+  `apiRestrictions`, which is unreachable from the VPS.
+- `-2015` means "Invalid API-key, IP, or permissions for action". It does not separate a bad
+  key from a missing permission
+  (https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code).
+- Community reports, which are not primary, say a key without "Enable Futures" gets `-2015` on
+  every signed fapi call, reads included (https://github.com/ccxt/ccxt/issues/7822).
+- If that holds, the live fapi read that rule 8a already requires on save proves trade
+  capability for Binance by itself. With one key per exchange (decision 18), there is no
+  futures-readable read-only key.
+
+- [ ] 8a.0a Probe P6, GET-only, owner-run on the VPS. It compares the vault key (trade-enabled)
+  with a temporary Binance key that has only "Enable Reading". It calls
+  `GET /fapi/v3/account`, `/fapi/v2/account`, `/fapi/v3/balance`, `/fapi/v3/positionRisk`,
+  `/fapi/v1/apiTradingStatus` and `/fapi/v1/account/permissions`. For each call it records the
+  HTTP status, the code and msg, and `canTrade`/`canDeposit`/`canWithdraw`. It never sends
+  anything but GET, prints each key's last four characters only, and never prints a payload
+  beyond those fields. The owner deletes the temporary key afterwards.
+- [ ] 8a.0b Design addendum from P6:
+  - how Binance `trade_capable` is derived;
+  - how decision 24's withdraw confirmation is stored (a column in 0027, with its timestamp);
+  - how "withdraw not verified" reaches the credential view;
+  - tasks 6a.1–6a.3 and 6a.8 rewritten to match.
+  The owner confirms the addendum before 6a starts.
 
 ### Unit 6a — key policy + inspectors + migration 0027 (800–1,100 lines)
 
