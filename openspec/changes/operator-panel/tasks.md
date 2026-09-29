@@ -103,6 +103,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6b | #19 | `50a68db` | — | 2026-09-29 | Units 3b + 3c, plus decision 28 recorded. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. Pull, restart both. |
 | PR 6c | #20 | `849ad1a` | — | 2026-09-29 | Unit 3d. Pull, restart both. The original PR 6 is complete. |
 | PR 6d | #21 | `a969e40` | — | 2026-09-29 | Decision 28. The guard ran against the production ledger before the restart: clean for `DRY_RUN=true`, and a `DRY_RUN=false` start would also be allowed. Restart both. The worker unit has `Restart=always`, `RestartSec=5` and no `StartLimit*`, so a refused start would loop and alert every few seconds. |
+| PR 6e | — | — | — | — | Decision 29, on `feat/operator-panel-startup-exit-code`. In review. No migration: pull, restart both, then the owner adds the `RestartPreventExitStatus=78` drop-in to the worker unit and reloads systemd. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
