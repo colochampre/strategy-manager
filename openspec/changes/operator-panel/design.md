@@ -1721,6 +1721,12 @@ Why this order:
 
 ### J. Open questions for the owner
 
+**Resolved 2026-09-29.** The owner confirmed the addendum as written:
+- Q1: A. The existing Binance key stays `trade_capable = true` and `UNRECORDED` until it is re-saved with both confirmations.
+- Q2: no confirm-only path.
+- Q3: Pionex keeps sealing directly with `UNRECORDED` facts.
+- The four-PR split of § I stands.
+
 **Q1. What does the existing Binance key become?** It is the key the worker trades with, and no confirmation is on record. The migration backfills `trade_capable = true` with both sources `UNRECORDED`. The choices:
 - **A (planned, recommended).** Keep that. The card shows "not validated" and both "not verified" marks until the owner re-saves the key with the two confirmations. Live behaviour does not change, and the record never claims a confirmation that was not given. The cost: a re-save means pasting the key and secret again.
 - **B.** Backfill it as `OWNER_CONFIRMED` in the migration, on the owner's instruction now. The card would look clean at once, but the timestamp would be the migration's, not the moment the owner looked at Binance. Not recommended.

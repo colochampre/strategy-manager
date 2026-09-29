@@ -107,7 +107,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 7a | #23 | `94ca953` | — | 2026-09-29 | Tasks 7.1, 7.2 and the pools/performance half of 7.4. Pull, restart both; the API and the worker came up active. |
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
 | PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
-| PR 8a | — | — | — | — | On `feat/operator-panel-key-policy`. Design addendum (8a.0b) first; the owner confirms it before 6a. Proposed split: 8a-1 (6a, migration 0027), 8a-2 (`SaveCredential`, scripts), 8a-3 (HTTP surface), 8a-4 (6c). |
+| PR 8a-1 | — | — | 0027 | — | Unit 6a with migration 0027, on `feat/operator-panel-key-policy`. The design addendum (8a.0b) was confirmed on 2026-09-29. In progress. Next come 8a-2 (`SaveCredential`, scripts), 8a-3 (HTTP surface) and 8a-4 (6c). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -890,7 +890,7 @@ confirmation. A design addendum (8a.0b) settles both, and 6a, 6b, 6c, 10c and 10
     - `canWithdraw` does not replace decision 24's confirmation.
     - v3 account no longer carries the `can*` fields.
   - The owner chose a manual confirmation for trade capability (decision 30).
-- [ ] 8a.0b Design addendum from P6. **Written 2026-09-29** as design.md "Addendum: key policy after probe P6 (decisions 24 and 30)"; **awaiting the owner's confirmation** (this box stays open until then). It settles:
+- [x] 8a.0b Design addendum from P6. **Written 2026-09-29** as design.md "Addendum: key policy after probe P6 (decisions 24 and 30)". **Confirmed by the owner on 2026-09-29** with the recommended answers to Q1–Q3 and the four-PR split (§ J). It settles:
   - how Binance `trade_capable` is derived;
   - how decision 24's withdraw confirmation is stored (a column in 0027, with its timestamp);
   - how "withdraw not verified" reaches the credential view;
