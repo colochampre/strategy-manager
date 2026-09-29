@@ -1,6 +1,7 @@
 """In-memory stand-ins for ``performance`` ports."""
 
 from datetime import datetime
+from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import PoolFills
@@ -12,14 +13,22 @@ class FakeFillsSource:
     can hand ``ReadPoolPerformance`` a source that misbehaves (returns another
     pool's rows) and see the read refuse. Records each pool it was asked for."""
 
-    def __init__(self, groups: list[FillGroup], rehearsal_fill_count: int = 0) -> None:
+    def __init__(
+        self,
+        groups: list[FillGroup],
+        rehearsal_fill_count: int = 0,
+        rehearsal_by_strategy: dict[UUID, int] | None = None,
+    ) -> None:
         self._groups = groups
         self._rehearsal_fill_count = rehearsal_fill_count
+        self._rehearsal_by_strategy = tuple((rehearsal_by_strategy or {}).items())
         self.asked: list[PoolKey] = []
 
     async def pool_fills(self, pool: PoolKey) -> PoolFills:
         self.asked.append(pool)
-        return PoolFills(tuple(self._groups), self._rehearsal_fill_count)
+        return PoolFills(
+            tuple(self._groups), self._rehearsal_fill_count, self._rehearsal_by_strategy
+        )
 
 
 class FixedClock:

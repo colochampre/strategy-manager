@@ -4,6 +4,7 @@ infrastructure adapter implements it (same direction as ``FillRecorderPort``).
 
 from dataclasses import dataclass
 from typing import Protocol
+from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.domain.closed_trade import FillGroup
@@ -20,6 +21,12 @@ class PoolFills:
 
     groups: tuple[FillGroup, ...]
     rehearsal_fill_count: int
+    rehearsal_by_strategy: tuple[tuple[UUID, int], ...] = ()
+
+    def rehearsal_for(self, strategy_id: UUID) -> int:
+        """How many rehearsal fills of ONE strategy the source left out. A
+        strategy's report states its own count, never the pool's."""
+        return sum(count for sid, count in self.rehearsal_by_strategy if sid == strategy_id)
 
 
 class AllocationFillsSourcePort(Protocol):

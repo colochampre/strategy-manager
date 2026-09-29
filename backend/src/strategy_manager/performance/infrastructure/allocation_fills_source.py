@@ -118,6 +118,13 @@ class SqlAlchemyAllocationFillsSource:
         )
 
         rehearsal = await self._session.execute(
-            select(func.count()).select_from(LedgerEntryRow).where(*in_pool, is_rehearsal)
+            select(LedgerEntryRow.strategy_id, func.count())
+            .where(*in_pool, is_rehearsal)
+            .group_by(LedgerEntryRow.strategy_id)
         )
-        return PoolFills(groups=groups, rehearsal_fill_count=int(rehearsal.scalar_one()))
+        by_strategy = tuple((strategy_id, int(count)) for strategy_id, count in rehearsal.all())
+        return PoolFills(
+            groups=groups,
+            rehearsal_fill_count=sum(count for _, count in by_strategy),
+            rehearsal_by_strategy=by_strategy,
+        )
