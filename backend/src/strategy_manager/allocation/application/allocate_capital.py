@@ -275,12 +275,14 @@ class AllocateCapital:
         ``total >= available`` CHECK makes a non-positive total impossible from
         the production source; the port itself does not promise it, so this
         stores NULL ("not recorded", the trade is left out of the curve) and
-        says so, rather than aborting the allocation.
+        says so, rather than aborting the allocation. It says so at ERROR:
+        the value can never be backfilled, so the trade is lost to the curve
+        for good, and only ERROR reaches the operator's alerts.
         """
 
         if total > 0:
             return total
-        logger.warning(
+        logger.error(
             "pool_total_at_open not recorded for signal %s (strategy %s): "
             "in-lock pool total was %s, not positive",
             signal_id,

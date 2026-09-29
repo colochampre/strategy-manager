@@ -644,6 +644,31 @@ async def test_reservation_records_the_total_not_the_available_of_the_pool() -> 
     assert reservations.inserted[0].pool_total_at_open == Decimal("1000")
 
 
+async def test_a_partial_grant_records_the_pool_total_too() -> None:
+    """A PARTIAL grant goes through the same insert as a FULL one, and its
+    trade belongs on the curve just the same: 100 of 200 granted from a
+    pool whose total is 1000 records 1000."""
+    strategy_id = uuid4()
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(strategy_id=strategy_id, fill_mode="PARTIAL"),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("100"), min_order_size=Decimal("10")
+        ),
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=strategy_id,
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.PARTIAL
+    assert reservations.inserted[0].amount == Decimal("100")
+    assert reservations.inserted[0].pool_total_at_open == Decimal("1000")
+
+
 async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -651,7 +676,9 @@ async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
     the snapshot the production source reads). A source that broke it would
     otherwise hand the insert a value the ``> 0`` CHECK refuses, failing an
     allocation that ``decide()`` granted. NULL says "unknown" and the trade
-    is merely left out of the curve; a zero would abort the allocation."""
+    is left out of the curve for good, since the value cannot be backfilled;
+    a zero would abort the allocation. That loss is logged at ERROR so it
+    reaches the operator: a WARNING never leaves the log."""
     strategy_id = uuid4()
     use_case, _, reservations, _ = _build_use_case(
         policy=_enabled_snapshot(strategy_id=strategy_id),
@@ -671,10 +698,11 @@ async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
 
     assert result.outcome is DecisionOutcome.FULL
     assert reservations.inserted[0].pool_total_at_open is None
-    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-    assert len(warnings) == 1
-    assert str(strategy_id) in warnings[0].getMessage()
-    assert "pool_total_at_open" in warnings[0].getMessage()
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert str(strategy_id) in errors[0].getMessage()
+    assert "pool_total_at_open" in errors[0].getMessage()
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
 async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> None:
