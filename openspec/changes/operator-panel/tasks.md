@@ -70,7 +70,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 | 5c | Asynchronous signal outcomes: settle, continuation, close linkage, exhausted jobs | PR 5c | `cd backend && uv run pytest --tb=short backend/tests/execution/ backend/tests/signals/` | Real PostgreSQL | The writes only |
 | 3a+3b+3c+3d | Pool capital at open, PnL, curve/drawdown/grid, stats | PR 6 | `cd backend && uv run pytest --tb=short backend/tests/allocation/ backend/tests/performance/` | Real PostgreSQL for 3a; pure for 3b–3d | `reservations.pool_total_at_open` (additive) + new `performance/` module; downgrade refuses while non-null values exist |
 | 5-reads | Pools/performance/webhook-secret read endpoints | PR 7 | `cd backend && uv run pytest --tb=short backend/tests/accounts/infrastructure/test_pools_router.py backend/tests/performance/infrastructure/test_performance_router.py backend/tests/signals/infrastructure/test_webhook_secret_router.py` | `httpx.AsyncClient` over ASGI | New routers only; revert 404s the paths, no view depends on them yet |
-| 6a+6b+6c | Key policy, inspectors, 0027, `SaveCredential`, `TradeCapabilityPort` | PR 8a | `cd backend && uv run pytest --tb=short backend/tests/accounts/` | `httpx.MockTransport` for inspectors, real vault for the migration, gated by PR 1's P1–P3 | Migration 0027 (refuses downgrade while any `trade_capable=false` row exists) + new use case; revert leaves scripts working unchanged |
+| 6a+6b+6c | Key policy, inspectors, 0027, `SaveCredential`, `TradeCapabilityPort` | PR 8a | `cd backend && uv run pytest --tb=short backend/tests/accounts/` | `httpx.MockTransport` for inspectors, real vault for the migration, gated by PR 1's P1–P3 | Migration 0027 (refuses downgrade while any row is not the backfill shape) + new use case; revert leaves scripts working unchanged |
 | 6d+6e | Pool auto-enable, `DeleteCredential`, exposure adapter | PR 8b | `cd backend && uv run pytest --tb=short backend/tests/accounts/application/test_delete_credential_integration.py` | Real PostgreSQL, concurrent delete-vs-allocate test (advisory lock) | `CapitalPoolWriterPort` + `DeleteCredential`; revert removes both, keys already stored remain valid |
 | 4b | SPA serving, fallback, CSP, invariant 5 | PR 9 | `cd backend && uv run pytest --tb=short backend/tests/shared/infrastructure/test_spa.py` | `httpx.AsyncClient` over ASGI with a temp `dist` directory | `shared/infrastructure/spa.py` + `mount_panel()` call; revert removes the mount, `/api` untouched |
 | 7-shell | Router, shell, exchange scope, bookings re-homed, theme swap | PR 10 | `cd frontend && npm test -- router AppShell exchange-store` | N/A — frontend-only, `vi.stubGlobal("fetch")` | New `app/router.tsx`, `shared/layout/*`; revert restores the hash-based nav |
@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `1eab7a9`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `5deb0fe`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -106,7 +106,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 6e | #22 | `b0cbda1` | — | 2026-09-29 | Decision 29. Restart both. Drop-in `/etc/systemd/system/strategy-worker.service.d/startup-refusal.conf` installed (`RestartPreventExitStatus=78`), systemd reloaded, and the worker stayed active. The API unit also runs `Restart=always`, `RestartSec=5`, with no drop-in: its lifespan refusals would loop silently (see decision 29's note on the API). |
 | PR 7a | #23 | `94ca953` | — | 2026-09-29 | Tasks 7.1, 7.2 and the pools/performance half of 7.4. Pull, restart both; the API and the worker came up active. |
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
-| PR 8a-0 | — | — | — | — | Probe P6 (task 8a.0a), on `feat/operator-panel-probe-p6`. In review. Deploy: pull only, no restart (no service imports the script). Then the owner runs it with the vault key and a temporary Binance key that has only "Enable Reading", and deletes that key afterwards. |
+| PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
+| PR 8a-1 | — | — | 0027 | — | Unit 6a with migration 0027, on `feat/operator-panel-key-policy`. The design addendum (8a.0b) was confirmed on 2026-09-29. In review. Independent verification found no blocker; its 10010 finding and vault-store guard are fixed in `9342868`, and S2 is a follow-up for 8a-3. Deploy: rehearse 0027 on a throwaway restore, migrate, restart both. Next come 8a-2 (`SaveCredential`, scripts), 8a-3 (HTTP surface) and 8a-4 (6c). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -841,7 +842,9 @@ written before the PR 1 probe, and three of their parts are now wrong:
 Decision 24 replaces the Binance withdraw check with an explicit owner confirmation, recorded
 with its timestamp, and marks the key "withdraw not verified". It leaves Binance trade
 capability "to be designed in PR 8a, never assumed". Migration 0027 does not yet record that
-confirmation. A design addendum (8a.0) settles both before 6a is rewritten.
+confirmation. A design addendum (8a.0b) settles both, and 6a, 6b, 6c, 10c and 10f are rewritten to match.
+
+**Split (proposed in the addendum, § I).** Four sequential PRs to `main`: **8a-1** unit 6a, with migration 0027 (950-1,350); **8a-2** `SaveCredential` and the script fold, 6b.1/6b.4/6b.7 (450-650); **8a-3** the HTTP surface, 6b.2/6b.3/6b.5/6b.6 (400-600); **8a-4** unit 6c (350-500). Tasks below marked "rewritten" changed with decision 30.
 
 **Research on Binance trade capability (2026-09-29, primary docs; verdict UNCERTAIN, leaning NO):**
 - `GET /fapi/v2|v3/account` returns `canTrade`, `canDeposit` and `canWithdraw`. The only
@@ -859,19 +862,40 @@ confirmation. A design addendum (8a.0) settles both before 6a is rewritten.
   capability for Binance by itself. With one key per exchange (decision 18), there is no
   futures-readable read-only key.
 
-- [ ] 8a.0a Probe P6, GET-only, owner-run on the VPS. It compares the vault key (trade-enabled)
+- [x] 8a.0a Probe P6, GET-only, owner-run on the VPS. It compares the vault key (trade-enabled)
   with a temporary Binance key that has only "Enable Reading". It calls
   `GET /fapi/v3/account`, `/fapi/v2/account`, `/fapi/v3/balance`, `/fapi/v3/positionRisk`,
   `/fapi/v1/apiTradingStatus` and `/fapi/v1/account/permissions`. For each call it records the
   HTTP status, the code and msg, and `canTrade`/`canDeposit`/`canWithdraw`. It never sends
   anything but GET, prints each key's last four characters only, and never prints a payload
   beyond those fields. The owner deletes the temporary key afterwards.
-- [ ] 8a.0b Design addendum from P6:
+  - **Results (owner ran it on the VPS, 2026-09-29, PR #25 merged as `5deb0fe`).** The vault key
+    was `***3h2M`; the temporary key, with only "Enable Reading", was `***aWaE`.
+
+    | Call | Vault key | Read-only key |
+    | --- | --- | --- |
+    | `GET /fapi/v3/account` | 200, no `can*` fields | 200, no `can*` fields |
+    | `GET /fapi/v2/account` | 200, `canTrade`/`canDeposit`/`canWithdraw` all True | 200, **all True** |
+    | `GET /fapi/v3/balance` | 200, 11 entries | 200, 11 entries |
+    | `GET /fapi/v3/positionRisk` | 200, 0 entries | 200, 0 entries |
+    | `GET /fapi/v1/apiTradingStatus` | 200 | 200 |
+    | `GET /fapi/v1/account/permissions` | 404 | 404 |
+
+  - **Verdict.** A key WITHOUT "Enable Futures" reads every fapi endpoint. The community reports
+    were wrong, at least today. `canTrade` and `canWithdraw` are ACCOUNT-level: both are True on a
+    key that can neither trade futures nor withdraw.
+  - **Consequences.**
+    - Nothing reachable from the VPS reveals a Binance key's trade or withdraw permission.
+    - The save-time live read (8a) proves nothing about trading.
+    - `canWithdraw` does not replace decision 24's confirmation.
+    - v3 account no longer carries the `can*` fields.
+  - The owner chose a manual confirmation for trade capability (decision 30).
+- [x] 8a.0b Design addendum from P6. **Written 2026-09-29** as design.md "Addendum: key policy after probe P6 (decisions 24 and 30)". **Confirmed by the owner on 2026-09-29** with the recommended answers to Q1–Q3 and the four-PR split (§ J). It settles:
   - how Binance `trade_capable` is derived;
   - how decision 24's withdraw confirmation is stored (a column in 0027, with its timestamp);
   - how "withdraw not verified" reaches the credential view;
   - tasks 6a.1–6a.3 and 6a.8 rewritten to match.
-  The owner confirms the addendum before 6a starts.
+  The owner confirms the addendum before 6a starts. Open questions Q1-Q3 (the existing Binance key's backfill, a confirm-only path, Pionex) are listed at its end.
 
 ### Unit 6a — key policy + inspectors + migration 0027 (800–1,100 lines)
 
@@ -880,19 +904,22 @@ confirmation. A design addendum (8a.0) settles both before 6a is rewritten.
 Modify `backend/src/strategy_manager/accounts/domain/exchange_credential.py`; Create
 `backend/migrations/versions/0027_credential_snapshot.py`.
 
-- [ ] 6a.1 RED `backend/tests/accounts/domain/test_key_policy.py::test_evaluate_key_refuses_withdraw_permission_bybit_wallet_withdraw` (using the P1-recorded fixture), `::test_evaluate_key_allows_internal_transfer_only_accounttransfer`, `::test_evaluate_key_refuses_withdraw_binance_enable_withdrawals`, `::test_evaluate_key_allows_internal_transfer_binance`.
-- [ ] 6a.2 RED same file `::test_evaluate_key_derives_trade_capable_true_bybit_readonly_zero_and_permission_present` (using the P2-recorded field), `::test_evaluate_key_derives_trade_capable_false_readonly_key`, `::test_evaluate_key_derives_trade_capable_binance_enablefutures_true` (P3), `::test_evaluate_key_derives_trade_capable_false_binance_enablefutures_false`.
-- [ ] 6a.3 RED `backend/tests/accounts/infrastructure/test_key_inspectors.py::test_bybit_inspector_calls_wallet_balance_and_query_api_never_an_order` (`httpx.MockTransport`, probe-recorded payload shapes), `::test_binance_inspector_calls_api_restrictions_never_an_order`, `::test_registry_dispatches_by_exchange_unserved_raises`.
-- [ ] 6a.4 RED `backend/tests/migrations/test_0027_credential_snapshot.py::test_permissions_and_validated_at_check_constraint_paired`, `::test_backfill_sets_trade_capable_true_for_every_existing_row`, `::test_default_is_dropped_insert_without_trade_capable_fails`, `::test_downgrade_refuses_while_any_trade_capable_false_row_exists_naming_count`.
-- [ ] 6a.5 GREEN: `PermissionSnapshot`, `KeyVerdict`, `evaluate_key(snapshot)` — pure, 8(a)/8(b) refusals and trade-capability derivation.
-- [ ] 6a.6 GREEN: `trade_capable`, `validated_at`, `permissions` on `ExchangeCredential`/`CredentialHint` (`trade_capable` has no default — every constructor call names it).
-- [ ] 6a.7 GREEN: `BybitKeyInspector`, `BinanceKeyInspector`, `KeyInspectorRegistry` — a GET balance read plus permission introspection, never an order.
-- [ ] 6a.8 GREEN: `migrations/versions/0027_*.py` — `permissions JSONB NULL`, `validated_at timestamptz NULL`, `CHECK ((permissions IS NULL) = (validated_at IS NULL))`, `trade_capable boolean NOT NULL` added `DEFAULT true`, backfilled, default dropped; downgrade refuses while any `false` row exists.
+- [x] 6a.1 RED `backend/tests/accounts/domain/test_key_policy.py` (rewritten 2026-09-29, decision 30), withdraw side: `::test_evaluate_key_refuses_withdraw_permission_bybit_wallet_withdraw` (P1 fixture), `::test_evaluate_key_allows_internal_transfer_only_accounttransfer`, `::test_evaluate_key_bybit_wallet_token_outside_the_transfer_allowlist_refused_fail_closed`, `::test_evaluate_key_bybit_missing_or_non_list_wallet_refused_permissions_unavailable`, `::test_evaluate_key_bybit_confirmation_true_refused_confirmation_not_applicable`, `::test_evaluate_key_binance_without_both_confirmations_refused_confirmation_required_naming_missing` (parametrised: neither, only withdrawals, only futures; `check_confirmations` refuses the same way before any venue call), `::test_evaluate_key_binance_with_both_confirmations_accepted_withdraw_check_owner_confirmed_never_verified`, `::test_evaluate_key_unserved_exchange_raises_no_fallback`. **Done:** RED seen on assertions against a wrong-answer stub, GREEN in `tests/accounts/domain/test_key_policy.py` (8a-1, commit 2); gate green.
+- [x] 6a.2 RED same file (rewritten 2026-09-29, decision 30), trade side: `::test_evaluate_key_bybit_readonly_zero_trade_capable_true_source_verified` (P2), `::test_evaluate_key_bybit_readonly_one_trade_capable_false_verified_warning_read_only_key` (the P2 read-only fixture, whose permission lists still show `ContractTrade`), `::test_evaluate_key_bybit_never_reads_the_permission_lists_for_trade_capability`, `::test_evaluate_key_binance_trade_capable_true_source_owner_confirmed_from_the_futures_confirmation`. **Done:** RED and GREEN in the same file; `readOnly` alone decides, the snapshot cannot carry the permission lists (structural test). Gate green.
+- [x] 6a.3 RED `backend/tests/accounts/infrastructure/test_key_inspectors.py` (rewritten 2026-09-29, decision 30): `::test_bybit_inspector_calls_wallet_balance_and_query_api_never_an_order` (`httpx.MockTransport`, probe-recorded shapes), `::test_binance_inspector_calls_fapi_v3_account_only_never_sapi_never_an_order`, `::test_binance_inspector_ignores_can_trade_and_can_withdraw_p6_fixture_snapshot_stays_empty` (the P6 v2 payload with all three `can*` True), `::test_binance_inspector_maps_2014_2015_1022_to_key_rejected_and_5xx_to_venue_unreachable`, `::test_registry_dispatches_by_exchange_unserved_raises`. **Done:** RED and GREEN in `tests/accounts/infrastructure/test_key_inspectors.py`, `httpx.MockTransport` recording every method and path; the P6 v2 payload leaves the snapshot empty. Gate green.
+- [x] 6a.4 RED `backend/tests/migrations/test_0027_credential_snapshot.py` (rewritten 2026-09-29, decision 30): `::test_backfill_every_existing_row_trade_capable_true_both_sources_unrecorded_no_timestamps`, `::test_default_is_dropped_insert_without_trade_capable_or_sources_fails`, `::test_binance_row_cannot_be_verified_check_refuses`, `::test_bybit_row_cannot_be_owner_confirmed_check_refuses`, `::test_owner_confirmed_requires_its_timestamp_and_the_timestamp_requires_owner_confirmed_both_columns`, `::test_owner_confirmed_trade_source_requires_trade_capable_true`, `::test_validated_at_is_null_exactly_when_unrecorded`, `::test_downgrade_refuses_while_any_row_is_not_the_backfill_shape_naming_each_count`, `::test_downgrade_succeeds_on_a_pure_backfill_shape`. **Done:** RED against the missing migration (revision assertion fails, the rest UndefinedColumn), then GREEN: 28 tests in `tests/migrations/test_0027_credential_snapshot.py` on real PostgreSQL, each of the six constraints refusing its bad state asserted by name. Gate green.
+- [x] 6a.5 GREEN (rewritten 2026-09-29, decision 30): `key_policy.py` with `PermissionSnapshot` (`wallet_permissions`, `read_only`, both `None` for Binance), `OwnerConfirmations`, `KeyVerdict` (`KeyAccepted` | `KeyRefused`), `check_confirmations`, `evaluate_key(exchange, snapshot, confirmations)` and `KEY_POLICIES`. Pure; 8a is the inspector's, not this function's. `canTrade`/`canWithdraw` appear nowhere. **Done:** `accounts/domain/key_policy.py` (pure; `canTrade`/`canWithdraw`/`ContractTrade`/`Derivatives` absent from the code, asserted by an AST test). Gate green.
+- [x] 6a.6 GREEN (rewritten 2026-09-29, decision 30): RED first `backend/tests/accounts/domain/test_exchange_credential.py::test_key_facts_owner_confirmed_requires_its_timestamp`, `::test_key_facts_unrecorded_requires_no_timestamps_and_both_sources_together`, `::test_key_facts_has_no_default_every_constructor_names_every_field`. Then `KeyFacts` in `exchange_credential.py` (no secret; `__post_init__` enforces the same states as constraints 2-4; `KeyFacts.unrecorded(trade_capable)` is the only named constructor). `CredentialHint` gains `facts`. `ExchangeCredential` is unchanged. **Done:** RED on assertions, then GREEN: `KeyFacts` in `exchange_credential.py`, `CredentialHint.facts`, `ExchangeCredential` still secret-only (`hint(facts)` hands them through). Gate green.
+- [x] 6a.7 GREEN (rewritten 2026-09-29, decision 30): `BybitKeyInspector` (wallet-balance read, then `query-api`, mapped to a `PermissionSnapshot`), `BinanceKeyInspector` (`GET /fapi/v3/account` only, returns an empty snapshot), `KeyInspectorRegistry`. Never an order. **Done:** `accounts/infrastructure/key_inspectors/{bybit,binance,registry}.py`, GET-only, no `trade_client` import (asserted). Gate green: ruff, mypy and the full suite, 2210 collected.
+- [x] 6a.8 GREEN (rewritten 2026-09-29, decision 30): `migrations/versions/0027_credential_snapshot.py` adds `trade_capable`, `trade_capability_source`, `trade_confirmed_at`, `withdraw_check`, `withdraw_confirmed_at`, `validated_at`, `internal_transfer` and the six `ck_exchange_credentials_*` constraints of design § B; there is NO `permissions` column. `trade_capable` is added `DEFAULT true` and backfilled `true`; both sources are backfilled `UNRECORDED`; the defaults are then dropped. The downgrade refuses while any row is not the backfill shape, naming each count. Rehearse on a throwaway database restored from a fresh backup, before production migrates. **Done:** `migrations/versions/0027_credential_snapshot.py`, no `permissions` column, backfill true/UNRECORDED, defaults dropped, downgrade refuses naming four counts. Rehearsal on a restored production backup is the owner's deploy step (design § K). Gate green.
+- [x] 6a.9 (added 2026-09-29, decision 30) RED `backend/tests/accounts/infrastructure/test_credential_vault.py::test_store_persists_facts_and_hints_return_them_never_ciphertext`, `::test_store_without_facts_is_a_type_error`. GREEN: `SqlAlchemyCredentialVault.store(credential, facts)`, `hints()` returning `facts`, and the ORM columns. The three `store_*_credentials.py` scripts pass `KeyFacts.unrecorded(trade_capable=True)` (one line each, exactly what they have always asserted), so they keep working once 0027 drops the default; 6b.7 replaces this. **Done:** RED then GREEN in `test_credential_vault_integration.py` (the file that exists); vault `store(credential, facts)`, `hints()` returns the facts; the three scripts pass `KeyFacts.unrecorded(trade_capable=True)` (pinned by `tests/scripts/test_store_scripts_pass_facts.py`). Gate green: ruff, mypy and the full suite, 2252 collected.
+
+**Follow-up S2 (8a-1 verification), for PR 8a-3:** httpx and httpcore INFO logs render signed Binance URLs (the signature is in the query), and only the worker silences them to WARNING. PR 8a-3 must apply the same setting in the API startup before it runs any inspector.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/accounts/ backend/tests/migrations/test_0027_credential_snapshot.py`.
 Harness: `httpx.MockTransport` for inspectors (no real credential, rule 1); real PostgreSQL for the migration.
-Rollback boundary: migration 0027 (refuses downgrade while `trade_capable=false` rows exist) + new domain/infra files; revert leaves every existing store script working unchanged.
-Forecast: 800–1,100 lines.
+Rollback boundary: migration 0027 (refuses downgrade while any row is not the backfill shape) + new domain/infra files; revert leaves every existing store script working unchanged.
+Forecast: 950–1,350 lines (revised 2026-09-29: provenance columns, `KeyFacts`, the extra tests).
 
 ### Unit 6b — `SaveCredential`, credential endpoints, redacted 422, store scripts (750–1,000 lines)
 
@@ -902,18 +929,18 @@ Modify `backend/src/strategy_manager/accounts/infrastructure/{credential_vault,m
 Create `backend/src/strategy_manager/shared/infrastructure/validation_errors.py`; Modify
 `backend/scripts/store_{bybit,binance,pionex}_credentials.py`.
 
-- [ ] 6b.1 RED `backend/tests/accounts/application/test_save_credential.py::test_key_rejected_by_venue_refuses_stores_nothing_422`, `::test_venue_unreachable_reported_distinctly_502`, `::test_withdraw_permission_refuses_stores_nothing_422`, `::test_readonly_key_stored_trade_capable_false_warning_returned_200`, `::test_trading_key_stored_no_warning_returned_200`, `::test_concurrent_save_second_refused_409_by_constraint_name_not_message` (imports `ux_exchange_credentials_one_active_per_exchange` as a named constant, following the CONCURRENT_SAVE constraint-name-matching precedent), `::test_rotation_deactivates_previous_row_retains_it`.
-- [ ] 6b.2 RED `backend/tests/accounts/infrastructure/test_credentials_router.py::test_put_credentials_returns_last4_trade_capable_permissions_validated_at_never_the_key_or_secret`, `::test_get_credentials_shows_snapshot_never_live_requery`.
+- [ ] 6b.1 RED `backend/tests/accounts/application/test_save_credential.py` (rewritten 2026-09-29, decision 30): `::test_key_rejected_by_venue_refuses_stores_nothing_422`, `::test_venue_unreachable_reported_distinctly_502`, `::test_withdraw_permission_refuses_stores_nothing_422`, `::test_readonly_key_stored_trade_capable_false_warning_returned_200`, `::test_trading_key_stored_no_warning_returned_200`, `::test_binance_without_confirmations_refused_before_any_venue_call_stores_nothing` (the fake inspector asserts it was never called), `::test_binance_with_both_confirmations_stores_owner_confirmed_with_server_clock_timestamps`, `::test_bybit_confirmation_true_refused_not_applicable_stores_nothing`, `::test_bybit_stores_verified_facts_and_no_confirmation_timestamps`, `::test_rotation_never_inherits_the_previous_keys_confirmations`, `::test_concurrent_save_second_refused_409_by_constraint_name_not_message` (imports `ux_exchange_credentials_one_active_per_exchange` as a named constant, following the CONCURRENT_SAVE constraint-name-matching precedent), `::test_rotation_deactivates_previous_row_retains_it`.
+- [ ] 6b.2 RED `backend/tests/accounts/infrastructure/test_credentials_router.py` (rewritten 2026-09-29, decision 30): `::test_put_credentials_returns_last4_and_facts_never_the_key_or_secret_or_a_raw_payload`, `::test_get_credentials_shows_source_and_confirmation_fields_never_live_requery`, `::test_get_credentials_entries_have_no_permissions_key`, `::test_put_binance_missing_confirmation_422_names_the_missing_field`, `::test_put_bybit_true_confirmation_422_not_applicable`.
 - [ ] 6b.3 RED `backend/tests/shared/infrastructure/test_validation_errors.py::test_422_never_echoes_api_secret_input_or_ctx`.
-- [ ] 6b.4 GREEN: `SaveCredential` — inspect → `evaluate_key` → store (supersede) → commit; `CredentialWriterPort` has no `load`.
+- [ ] 6b.4 GREEN (rewritten 2026-09-29, decision 30): `SaveCredential` runs `check_confirmations` (no venue call yet), then inspect, `evaluate_key`, stamps `KeyFacts` from the `ClockPort` (`validated_at`, and both confirmation timestamps when owner-confirmed), stores (supersede) and commits. `CredentialWriterPort` has no `load`.
 - [ ] 6b.5 GREEN: `redacted_validation_handler` — one `RequestValidationError` handler for the whole app, strips `input`/`ctx`.
-- [ ] 6b.6 GREEN: `PUT /api/credentials/{exchange}` on `credentials_router`; `GET /api/credentials` listing rule (one entry per exchange with an active credential, a history row, or an enabled pool).
-- [ ] 6b.7 GREEN: fold `store_bybit_credentials.py`, `store_binance_credentials.py`, `store_pionex_credentials.py` onto `SaveCredential`, accepting a read-only key with a warning instead of refusing it outright.
+- [ ] 6b.6 GREEN (rewritten 2026-09-29, decision 30): `PUT /api/credentials/{exchange}` on `credentials_router`, body gaining `withdrawals_disabled_confirmed` and `futures_enabled_confirmed` (default false); outcomes `CONFIRMATION_REQUIRED` (with `missing`), `CONFIRMATION_NOT_APPLICABLE` and `PERMISSIONS_UNAVAILABLE` join the 422s. `GET /api/credentials` returns the entry of design § C (no `permissions`), with the same listing rule (one entry per exchange with an active credential, a history row, or an enabled pool).
+- [ ] 6b.7 GREEN (rewritten 2026-09-29, decision 30): fold `store_bybit_credentials.py` and `store_binance_credentials.py` onto `SaveCredential`. RED first `backend/tests/scripts/test_store_binance_credentials.py::test_without_both_confirmation_flags_exits_2_names_the_missing_one_prompts_for_nothing_stores_nothing`, `::test_with_both_flags_saves_owner_confirmed_and_prints_last4_only`, and `backend/tests/scripts/test_store_bybit_credentials.py::test_read_only_key_is_stored_with_a_warning_not_refused`. `store_binance_credentials.py` drops its `apiRestrictions` call and takes `--confirm-withdrawals-disabled` and `--confirm-futures-enabled` (no environment variable, no `--yes`, no default). `store_pionex_credentials.py` is NOT folded: it keeps sealing directly with `KeyFacts.unrecorded(trade_capable=True)` (design § J, Q3).
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/accounts/ backend/tests/shared/infrastructure/test_validation_errors.py`.
 Harness: fakes for `SaveCredential`; `httpx.AsyncClient` for the router; real vault for rotation/supersede.
 Rollback boundary: `save_credential.py` + router changes; revert leaves the store scripts' pre-fold behavior, no data loss (rotation history is retained regardless).
-Forecast: 750–1,000 lines.
+Forecast: 850–1,150 lines (revised 2026-09-29: confirmations, script flags).
 
 ### Unit 6c — `TradeCapabilityPort`, adapters, read-only/no-key opening refusal (350–500 lines)
 
@@ -924,7 +951,7 @@ Modify `backend/src/strategy_manager/signals/application/process_signal.py`, `ap
 - [ ] 6c.2 RED same file `::test_close_on_readonly_exchange_not_refused_by_this_rule`.
 - [ ] 6c.3 RED same file `::test_dry_run_true_readonly_key_refuses_nothing`.
 - [ ] 6c.4 RED same file `::test_live_open_on_keyless_no_key_exchange_refused_before_lock_one_warning_names_exchange` (decision 20's `NO_KEY` case).
-- [ ] 6c.5 RED `backend/tests/accounts/infrastructure/test_trade_capability_adapter.py::test_vault_adapter_answers_trade_capable_without_decrypting` — a row with garbage ciphertext still answers (single indexed column read, never `.load(`).
+- [ ] 6c.5 RED `backend/tests/accounts/infrastructure/test_trade_capability_adapter.py` (rewritten 2026-09-29, decision 30): `::test_vault_adapter_answers_trade_capable_without_decrypting` (a row with garbage ciphertext still answers: a single indexed column read, never `.load(`), `::test_owner_confirmed_binance_row_answers_trade_capable`, `::test_unrecorded_row_answers_from_the_trade_capable_column`.
 - [ ] 6c.6 RED `backend/tests/accounts/test_no_decrypt_in_api_path.py::test_credentials_router_and_save_credential_never_call_dot_load` — structural test (decision 5), grep/AST-based, asserting no reference to `.load(` under `credentials_router.py` or `save_credential.py`.
 - [ ] 6c.7 GREEN: `VaultTradeCapabilityAdapter` (`SELECT exchange, trade_capable WHERE is_active`, never decrypts), `DryRunTradeCapability` (always `TRADE_CAPABLE`); wired in `main.py` by `DRY_RUN` like the exchange adapters.
 - [ ] 6c.8 GREEN: `ProcessSignalHandler._refuse_read_only_exchange` at the top of `_handle_consumes`, after the unlisted-pair refusal (2b) and before the Existing-Position Guard.
@@ -987,8 +1014,9 @@ Forecast: 700–1,000 lines.
 **PR 8a+8b deploy runbook** (owner-run): `alembic upgrade head` then restart both processes. The
 old code never inserts a credential row (only the store scripts do), so no ordering hazard exists;
 run the store scripts only from the new code, because 0027 makes `trade_capable` mandatory.
-Re-saving each already-active key through Settings is optional (unvalidated rows remain
-trade-capable by construction); doing so for Bybit/Binance also runs `CapitalPoolWriterPort.enable`,
+Re-saving each already-active key through Settings is optional (rows sealed before 0027 stay
+`trade_capable=true` with both sources `UNRECORDED`, shown as "not verified"; for Binance, re-saving
+is how the two confirmations get recorded, design § J Q1); doing so for Bybit/Binance also runs `CapitalPoolWriterPort.enable`,
 a no-op on their already-enabled pool rows (migrations 0017/0018).
 
 ---
@@ -1186,8 +1214,8 @@ Forecast: 200–250 lines.
 **Files**: Create `frontend/src/features/settings/{SettingsPage,ExchangeKeyCard}.tsx`.
 
 - [ ] 10c.1 RED `frontend/src/features/settings/SettingsPage.test.tsx::test_no_exchange_tabs_lists_every_exchange` (Settings.dc.html).
-- [ ] 10c.2 RED `frontend/src/features/settings/ExchangeKeyCard.test.tsx::test_no_key_ever_stored_shows_neutral_empty_state_no_amber_border`, `::test_readonly_key_shows_amber_border_and_cannot_trade_sentence`, `::test_degraded_no_key_but_enabled_pool_shows_amber_border_and_no_key_stored_sentence` (decision 20 — distinguishing amber "no key" from neutral "no key" by whether the pool is enabled), `::test_active_key_shows_last4_reads_and_trades_or_reads_only_no_withdrawal_checked_date`, `::test_key_sealed_before_0027_shows_not_validated`.
-- [ ] 10c.3 GREEN: `SettingsPage` (`['credentials']` query, no exchange scope per 7s.1); `ExchangeKeyCard` per design's three-state rendering (neutral / read-only amber / DEGRADED amber).
+- [ ] 10c.2 RED `frontend/src/features/settings/ExchangeKeyCard.test.tsx` (rewritten 2026-09-29, decision 30): `::test_no_key_ever_stored_shows_neutral_empty_state_no_amber_border`, `::test_readonly_key_shows_amber_border_and_cannot_trade_sentence`, `::test_degraded_no_key_but_enabled_pool_shows_amber_border_and_no_key_stored_sentence` (decision 20: amber "no key" versus neutral "no key", by whether the pool is enabled), `::test_verified_key_shows_last4_reads_and_trades_or_reads_only_no_withdrawal_checked_date`, `::test_owner_confirmed_key_shows_trade_not_verified_and_withdraw_not_verified_with_confirm_dates_and_never_no_withdrawal`, `::test_not_verified_marks_are_neutral_not_amber`, `::test_unrecorded_key_shows_not_validated_and_both_marks`, `::test_card_never_renders_a_raw_permissions_payload`.
+- [ ] 10c.3 GREEN (rewritten 2026-09-29, decision 30): `SettingsPage` (`['credentials']` query, no exchange scope per 7s.1); `ExchangeKeyCard` per design's three-state rendering (neutral / read-only amber / DEGRADED amber) plus the source-driven marks (`VERIFIED` / `OWNER_CONFIRMED` / `UNRECORDED`) and the i18n keys of design § G (`settings.card.tradeNotVerified`, `settings.card.withdrawNotVerified`, `settings.card.confirmedOn`).
 
 Gate: `cd frontend && npm run lint && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
@@ -1198,8 +1226,8 @@ Forecast: 350–500 lines.
 
 **Files**: Create `frontend/src/features/settings/KeyEntryForm.tsx`.
 
-- [ ] 10f.1 RED `frontend/src/features/settings/KeyEntryForm.test.tsx::test_fields_cleared_in_finally_regardless_of_outcome`, `::test_submitted_via_plain_async_handler_not_use_mutation_secret_never_in_mutation_cache`, `::test_password_type_autocomplete_off_on_secret_field`, `::test_readonly_key_warning_shown_on_200_with_read_only_key_warning`, `::test_422_502_409_outcome_reason_shown_i18n`.
-- [ ] 10f.2 GREEN: `KeyEntryForm` — local component state, plain `apiFetch` call, no `useMutation`.
+- [ ] 10f.1 RED `frontend/src/features/settings/KeyEntryForm.test.tsx` (rewritten 2026-09-29, decision 30): `::test_fields_cleared_in_finally_regardless_of_outcome`, `::test_submitted_via_plain_async_handler_not_use_mutation_secret_never_in_mutation_cache`, `::test_password_type_autocomplete_off_on_secret_field`, `::test_readonly_key_warning_shown_on_200_with_read_only_key_warning`, `::test_422_502_409_outcome_reason_shown_i18n`, `::test_binance_form_shows_two_unchecked_confirmation_checkboxes_submit_disabled_until_both_ticked`, `::test_bybit_form_shows_no_confirmation_checkboxes_and_sends_none`, `::test_binance_submit_sends_both_confirmations_true`, `::test_confirmations_are_reset_in_finally_with_the_fields`, `::test_422_confirmation_required_reason_shown_i18n`.
+- [ ] 10f.2 GREEN (rewritten 2026-09-29, decision 30): `KeyEntryForm`: local component state, plain `apiFetch` call, no `useMutation`; for Binance only, the two checkboxes `settings.key.confirm.withdrawals` and `settings.key.confirm.futures` with the help text `settings.key.confirm.help`, and the error keys `settings.key.error.confirmationRequired`, `.confirmationNotApplicable`, `.permissionsUnavailable` (EN/ES).
 
 Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.

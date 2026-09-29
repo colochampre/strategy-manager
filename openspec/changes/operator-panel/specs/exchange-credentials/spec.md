@@ -14,16 +14,28 @@
 > key can be deleted, but only when the exchange is disabled and flat
 > (decision 22); the pool is disabled in the same transaction.
 
+> **Revised 2026-09-29 (owner decisions 24 and 30, design addendum "key policy
+> after probe P6").** Neither venue lets this system read everything it needs
+> about a key. The record therefore says how each fact was established
+> (`VERIFIED` by the venue, `OWNER_CONFIRMED` by the owner, or `UNRECORDED` for
+> a row sealed before this change) and never claims more than was. The earlier
+> "permission snapshot" is withdrawn: no raw permission payload is stored or
+> shown, because it carries whitelisted IPs, the user id and the KYC region.
+> Only derived facts are kept. Binance's `canTrade` and `canWithdraw` are never
+> read for any purpose: they are account-level, and both were true on a key that
+> could neither trade futures nor withdraw.
+
 ## Purpose
 
 Every exchange credential lives envelope-encrypted in the vault, one active key
 per exchange, used both for venue reads (balance sync, balance refresh,
 venue-position reads, reconciliation scan, booking prepare) and for order
 placement. Application settings hold no Bybit or Binance key. A key is
-validated when it is saved (a live read must succeed, and withdraw permission
-is refused), its permission snapshot and trade capability are recorded at save
-time, and it is never returned to a client beyond a last-4 hint and that
-snapshot. A new key for an exchange supersedes the previous one.
+validated when it is saved (a live read must succeed, and a key that can
+withdraw is refused wherever the venue lets the system see that), the facts
+about it are recorded at save time together with how each was established, and
+it is never returned to a client beyond a last-4 hint and those facts. A new
+key for an exchange supersedes the previous one.
 
 ## Requirements
 
@@ -146,49 +158,165 @@ reached MUST be reported distinctly from a venue that rejects the key.
 - WHEN it is submitted for save
 - THEN the live read fails, the save is refused with a stated reason, and nothing is stored
 
-### Requirement: Withdraw Permission Refuses The Save
+### Requirement: A Key That Can Withdraw Refuses The Save
 
-A credential whose permission snapshot includes withdrawal authority MUST be
-refused at save time. An internal-transfer permission (for example Bybit's
-`AccountTransfer`) MUST NOT be treated as withdrawal authority and MUST be
-allowed.
+> **Revised 2026-09-29 (owner decisions 24 and 30).**
 
-#### Scenario: A key with withdraw permission is refused
+How "this key cannot withdraw" is established depends on what the venue lets
+the system see, and the saved record MUST say which it was.
 
-- GIVEN a Binance key with `enableWithdrawals=true`
+For Bybit it is VERIFIED, server-side and fail-closed: `permissions.Wallet`
+from the key-info read MUST be a list whose tokens all belong to the
+internal-transfer allowlist (`AccountTransfer`, `SubMemberTransfer`). Any other
+token, or a `Wallet` that is missing or not a list, MUST refuse the save. An
+internal-transfer permission MUST NOT be treated as withdrawal authority.
+
+For Binance nothing reachable reveals it, so it is OWNER_CONFIRMED: the save
+MUST be refused unless the owner has confirmed that withdrawals are disabled,
+and the confirmation MUST be recorded with the time it was given (the server
+clock, never a client value). That check MUST run before any venue call, so
+nothing is sent to the venue for a key that cannot be stored.
+
+A confirmation belongs to the key it was given for. A rotation stores the new
+key with its own confirmations and MUST NOT inherit any from the previous one.
+
+#### Scenario: A Bybit key with withdraw permission is refused
+
+- GIVEN a Bybit key whose `permissions.Wallet` includes `Withdraw`
 - WHEN it is submitted for save
-- THEN the save is refused with a stated reason and nothing is stored
+- THEN the save is refused naming the offending permission tokens, not the payload, and nothing is stored
+
+#### Scenario: A Bybit permission outside the internal-transfer allowlist is refused
+
+- GIVEN a Bybit key whose `permissions.Wallet` includes a token that is neither `AccountTransfer` nor `SubMemberTransfer`
+- WHEN it is submitted for save
+- THEN the save is refused (fail-closed) naming that token, and nothing is stored
+
+#### Scenario: A Bybit answer without a usable Wallet list is refused
+
+- GIVEN Bybit's key-info answer has no `Wallet` entry, or `Wallet` is not a list
+- WHEN the key is submitted for save
+- THEN the save is refused as permissions unavailable, nothing is stored, and exactly one WARNING names the exchange and carries no payload
 
 #### Scenario: Internal transfer alone is allowed
 
-- GIVEN a Bybit key whose permissions include only `AccountTransfer` (no withdrawal authority)
+- GIVEN a Bybit key whose `permissions.Wallet` holds only `AccountTransfer`
 - WHEN it is submitted for save
-- THEN the save is not refused on withdrawal grounds
+- THEN the save is not refused on withdrawal grounds, and the withdraw check is recorded as VERIFIED
+
+#### Scenario: A Binance key without both confirmations is refused before the venue is called
+
+- GIVEN a Binance key, and the owner has confirmed neither, or only one, of "withdrawals disabled" and "Enable Futures"
+- WHEN it is submitted for save
+- THEN the save is refused naming exactly which confirmation is missing, no request is sent to Binance, and nothing is stored
+
+#### Scenario: A Binance key with both confirmations records them, never a verification
+
+- GIVEN a Binance key the venue accepts, and the owner has confirmed both "withdrawals disabled" and "Enable Futures"
+- WHEN it is saved for Binance
+- THEN the row is stored as active with its withdraw check OWNER_CONFIRMED and the confirmation time from the server clock, and it is never recorded as VERIFIED
+
+#### Scenario: A confirmation on a Bybit key is refused, not ignored
+
+- GIVEN a Bybit key submitted with a true owner confirmation
+- WHEN it is submitted for save
+- THEN the save is refused as not applicable, naming the confirmation field, and nothing is stored
+
+#### Scenario: A rotation inherits no confirmation
+
+- GIVEN Binance has an active row carrying owner confirmations
+- WHEN a new Binance key is saved with its own confirmations
+- THEN the new row carries the confirmations given with it and the previous row's confirmations stay on the previous row
 
 ### Requirement: A Key Without Trade Capability Is Accepted With a Warning
 
-A credential that passes the live read and carries no withdraw permission MUST
-be accepted even when its permission snapshot shows it cannot trade futures.
-The save MUST record the key's trade capability, MUST return a read-only
-warning to the caller, and the panel MUST mark that exchange as read-only.
+> **Revised 2026-09-29 (owner decisions 24 and 30).**
 
-#### Scenario: A read-only key is stored and flagged
+A credential that passes the live read and is not refused on withdrawal grounds
+MUST be accepted even when it cannot trade futures, wherever the venue lets the
+system see that. The save MUST record the key's trade capability and how it was
+established, MUST return a read-only warning to the caller when the capability
+is false, and the panel MUST mark that exchange as read-only.
 
-- GIVEN a Binance key the venue accepts, without withdraw permission, with `enableFutures=false`
-- WHEN it is saved for Binance
-- THEN the row is stored as active with trade capability false, and the response carries a read-only warning
+For Bybit trade capability is VERIFIED from `readOnly` on the key-info read (0
+can trade, 1 is read-only). The permission lists MUST NOT be used for it: a
+read-only key still lists `ContractTrade` and `Derivatives`. A missing
+`readOnly` MUST refuse the save as permissions unavailable.
 
-#### Scenario: A trading key is stored without a warning
+For Binance a key without "Enable Futures" still reads every futures endpoint,
+so the live read proves nothing about trading. Trade capability is
+OWNER_CONFIRMED: the owner confirms "Enable Futures" and the confirmation is
+recorded with the time it was given. A confirmation states a capability, never
+an incapability. "Not verified" is state carried by the record, not a warning.
+A wrong confirmation is caught by the venue: the first live order is rejected
+and alerts the owner.
 
-- GIVEN a Bybit key the venue accepts, without withdraw permission, whose permissions allow futures trading
+#### Scenario: A read-only Bybit key is stored and flagged
+
+- GIVEN a Bybit key the venue accepts, without withdraw permission, whose key-info answer has `readOnly=1` and still lists `ContractTrade`
 - WHEN it is saved for Bybit
-- THEN the row is stored as active with trade capability true, and no read-only warning is returned
+- THEN the row is stored as active with trade capability false, VERIFIED, and the response carries a read-only warning
 
-#### Scenario: Keys sealed before this change count as trade-capable
+#### Scenario: A trading Bybit key is stored without a warning
 
-- GIVEN an active row sealed before the permission snapshot existed, by a store script that refused keys unable to trade
+- GIVEN a Bybit key the venue accepts, without withdraw permission, whose key-info answer has `readOnly=0`
+- WHEN it is saved for Bybit
+- THEN the row is stored as active with trade capability true, VERIFIED, and no read-only warning is returned
+
+#### Scenario: A confirmed Binance key is trade-capable without a warning
+
+- GIVEN a Binance key the venue accepts, and the owner has confirmed "Enable Futures" and "withdrawals disabled"
+- WHEN it is saved for Binance
+- THEN the row is stored as active with trade capability true, OWNER_CONFIRMED with its confirmation time, and no read-only warning is returned
+
+#### Scenario: Keys sealed before this change count as trade-capable and unrecorded
+
+- GIVEN an active row sealed before facts were recorded, by a store script that refused keys unable to trade
 - WHEN its trade capability is read
-- THEN it is trade-capable, and its permission snapshot is shown as not validated
+- THEN it is trade-capable, both its trade capability and its withdraw check are UNRECORDED, it has no validation time, and it is shown as not validated
+
+### Requirement: Each Recorded Fact Names Who Established It
+
+> **Added 2026-09-29 (owner decisions 24 and 30).**
+
+A credential row MUST record, for trade capability and for the withdraw check
+separately, whether the fact was `VERIFIED` (the venue said so), `OWNER_CONFIRMED`
+(the owner said so) or `UNRECORDED` (no record exists). The database and the
+domain MUST refuse the same impossible states:
+
+- a confirmation without its time, or a time without a confirmation;
+- an owner confirmation of an incapability;
+- a row that is half recorded and half legacy;
+- a Binance row claiming a verification the venue does not allow;
+- a Bybit row carrying an owner confirmation.
+
+The migration that introduces the record MUST NOT write `VERIFIED` or
+`OWNER_CONFIRMED` for an existing row, and MUST refuse to downgrade while any
+row carries a recorded fact, naming the counts.
+
+#### Scenario: A confirmation and its time exist together or not at all
+
+- GIVEN a row whose trade capability is OWNER_CONFIRMED
+- WHEN it is inserted without a confirmation time, or with a time while not OWNER_CONFIRMED
+- THEN the database refuses the row
+
+#### Scenario: A Binance row cannot claim a verification
+
+- GIVEN a Binance row whose trade capability or withdraw check is VERIFIED
+- WHEN it is inserted
+- THEN the database refuses the row
+
+#### Scenario: A Bybit row cannot carry an owner confirmation
+
+- GIVEN a Bybit row whose trade capability or withdraw check is OWNER_CONFIRMED
+- WHEN it is inserted
+- THEN the database refuses the row
+
+#### Scenario: The migration backfills honestly and its downgrade refuses to erase a record
+
+- GIVEN credential rows sealed before the migration
+- WHEN the migration runs
+- THEN each row is trade-capable with both facts UNRECORDED and no timestamps, and a downgrade is refused once any row is not in that shape, naming the count of each
 
 ### Requirement: Live Opening Signals On a Read-Only or Keyless Exchange Are Refused Up Front
 
@@ -261,23 +389,32 @@ for one exchange MUST NOT both succeed.
 - WHEN both transactions commit
 - THEN exactly one succeeds and the other is refused as a concurrent save, naming no secret
 
-### Requirement: Credential Data Never Returned Beyond Last-4 and Permissions
+### Requirement: Credential Data Never Returned Beyond Last-4 and Recorded Facts
 
 No API surface MUST return a decrypted key or secret to a client. Reading a
 credential's state MUST expose only the last four characters, the trade
-capability, and the permission snapshot recorded at save time.
+capability with its source and confirmation time, the withdraw check with its
+source and confirmation time, the time the save-time live read passed, and
+whether internal transfer is permitted (unknown when it was not established).
+No raw permission payload MUST be stored or returned.
 
 #### Scenario: Listing credentials exposes no secret
 
 - GIVEN active credentials exist for Bybit and Binance
 - WHEN the credential list is read
-- THEN each entry shows only its last four characters, its trade capability and its stored permission snapshot, and no full key or secret value
+- THEN each entry shows only its last four characters and its recorded facts, and no full key or secret value
 
-#### Scenario: Permissions shown are the snapshot, not a live requery
+#### Scenario: Facts shown are the recorded ones, not a live requery
 
-- GIVEN a credential was saved with a recorded permission snapshot
-- WHEN its permissions are displayed later
-- THEN the displayed permissions are the stored snapshot from save time, not a fresh live query
+- GIVEN a credential was saved with recorded facts
+- WHEN they are displayed later
+- THEN the displayed facts are the stored ones from save time, not a fresh live query
+
+#### Scenario: No view carries a raw permission payload
+
+- GIVEN a credential saved from a venue answer that carried whitelisted IPs and a user id
+- WHEN its state is read through any API surface
+- THEN none of those values appear in the response
 
 ### Requirement: Saving A Credential Enables The Exchange's Futures Pool
 

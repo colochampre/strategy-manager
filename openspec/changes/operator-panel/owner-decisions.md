@@ -131,6 +131,19 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Rejected alternative: `StartLimitIntervalSec`/`StartLimitBurst` on the unit. It would also stop the automatic recovery from a brief database outage.
     - Planned as PR 6e, before PR 7.
 
+30. **A Binance key's trade capability is confirmed by the owner when saving it** (2026-09-29, after probe P6).
+    - Probe P6 showed that nothing reachable from the VPS reveals a Binance key's permissions.
+      - A key with only "Enable Reading" reads every fapi endpoint.
+      - `canTrade` and `canWithdraw` on `GET /fapi/v2/account` are account-level: both are True on a key that can neither trade futures nor withdraw.
+      - SAPI `apiRestrictions` answers 403 from the VPS (decision 24).
+    - So a Binance key is saved with an explicit owner confirmation that it has "Enable Futures". It sits beside decision 24's withdrawals confirmation, and both are recorded with their timestamp.
+    - The key is shown as "trade not verified" as well as "withdraw not verified".
+    - A wrong confirmation is caught at the venue: the first live order ends `REJECTED` `ORDER_REJECTED_BY_VENUE`, with an ERROR that reaches Telegram (PR 5b2).
+    - Bybit is unchanged: `readOnly == 0` is verified server-side.
+    - Rejected alternatives:
+      - a second probe through `POST /fapi/v1/order/test`, whose permission behaviour is undocumented;
+      - treating every Binance key as trade-capable.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

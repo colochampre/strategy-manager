@@ -38,7 +38,7 @@ from collections.abc import Mapping
 from getpass import getpass
 from typing import Any
 
-from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential
+from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, KeyFacts
 from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
@@ -204,7 +204,7 @@ async def main() -> int:
 
     async with session_factory() as session:
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
-        hint = await vault.store(credential)
+        hint = await vault.store(credential, KeyFacts.unrecorded(trade_capable=True))
         await session.commit()
 
         # Prove the round trip before reporting success: a credential that

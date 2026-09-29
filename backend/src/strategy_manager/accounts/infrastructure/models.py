@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models owned by ``accounts``. Mirror migrations
-``0003_strategies_pools``, ``0009_pool_balance_snapshots`` and
-``0010_exchange_credentials``.
+``0003_strategies_pools``, ``0009_pool_balance_snapshots``,
+``0010_exchange_credentials`` and ``0027_credential_snapshot``.
 """
 
 from datetime import datetime
@@ -96,6 +96,39 @@ class ExchangeCredentialRow(Base):
             "char_length(api_key_last4) = 4",
             name="ck_exchange_credentials_last4_length",
         ),
+        # The record of how each fact was established (migration 0027, design
+        # addendum section B). Spelled here exactly as the migration spells
+        # them: the integration tests build their schema from these.
+        CheckConstraint(
+            "trade_capability_source IN ('VERIFIED', 'OWNER_CONFIRMED', 'UNRECORDED') "
+            "AND withdraw_check IN ('VERIFIED', 'OWNER_CONFIRMED', 'UNRECORDED')",
+            name="ck_exchange_credentials_sources_known",
+        ),
+        CheckConstraint(
+            "(trade_capability_source = 'OWNER_CONFIRMED') = (trade_confirmed_at IS NOT NULL) "
+            "AND (withdraw_check = 'OWNER_CONFIRMED') = (withdraw_confirmed_at IS NOT NULL)",
+            name="ck_exchange_credentials_confirmation_has_timestamp",
+        ),
+        CheckConstraint(
+            "trade_capability_source <> 'OWNER_CONFIRMED' OR trade_capable",
+            name="ck_exchange_credentials_confirmed_trade_is_capable",
+        ),
+        CheckConstraint(
+            "(trade_capability_source = 'UNRECORDED') = (withdraw_check = 'UNRECORDED') "
+            "AND (validated_at IS NULL) = (withdraw_check = 'UNRECORDED')",
+            name="ck_exchange_credentials_recorded_or_legacy",
+        ),
+        CheckConstraint(
+            "exchange <> 'binance' OR "
+            "(trade_capability_source <> 'VERIFIED' AND withdraw_check <> 'VERIFIED')",
+            name="ck_exchange_credentials_binance_not_verified",
+        ),
+        CheckConstraint(
+            "exchange <> 'bybit' OR "
+            "(trade_capability_source <> 'OWNER_CONFIRMED' "
+            "AND withdraw_check <> 'OWNER_CONFIRMED')",
+            name="ck_exchange_credentials_bybit_not_owner_confirmed",
+        ),
         Index(
             "ux_exchange_credentials_one_active_per_exchange",
             "exchange",
@@ -117,6 +150,21 @@ class ExchangeCredentialRow(Base):
     api_secret_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     api_secret_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     api_key_last4: Mapped[str] = mapped_column(Text, nullable=False)
+    # How each fact about the key was established. None of these has a
+    # server default: 0027 adds them with one to backfill old rows, then drops
+    # it, so a writer that forgets to state a fact fails instead of guessing.
+    trade_capable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    trade_capability_source: Mapped[str] = mapped_column(Text, nullable=False)
+    trade_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    withdraw_check: Mapped[str] = mapped_column(Text, nullable=False)
+    withdraw_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # NULL means unknown, never "no".
+    internal_transfer: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

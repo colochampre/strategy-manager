@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
+    FactSource,
+    KeyFacts,
 )
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.shared.application.ports import ClockPort
@@ -77,18 +79,22 @@ class SqlAlchemyCredentialVault:
         ).scalars()
         return [
             CredentialHint(
-                exchange=row.exchange, label=row.label, api_key_last4=row.api_key_last4
+                exchange=row.exchange,
+                label=row.label,
+                api_key_last4=row.api_key_last4,
+                facts=_facts_of(row),
             )
             for row in rows
         ]
 
-    async def store(self, credential: ExchangeCredential) -> CredentialHint:
+    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint:
         """Seals a credential and makes it the active one for its exchange.
 
         The row id is generated here rather than by the database, because it
         is the encryption context: the ciphertexts must be bound to the row
         that will hold them, which means knowing the id before encrypting.
         """
+        _refuse_wrong_branch(credential.exchange, facts)
         await self._deactivate_existing(credential.exchange, self._clock.now())
 
         row_id = uuid4()
@@ -110,10 +116,17 @@ class SqlAlchemyCredentialVault:
                 api_secret_ciphertext=envelope.values[API_SECRET].ciphertext,
                 api_secret_nonce=envelope.values[API_SECRET].nonce,
                 api_key_last4=credential.last4,
+                trade_capable=facts.trade_capable,
+                trade_capability_source=facts.trade_capability_source.value,
+                trade_confirmed_at=facts.trade_confirmed_at,
+                withdraw_check=facts.withdraw_check.value,
+                withdraw_confirmed_at=facts.withdraw_confirmed_at,
+                validated_at=facts.validated_at,
+                internal_transfer=facts.internal_transfer,
             )
         )
         await self._session.flush()
-        return credential.hint()
+        return credential.hint(facts)
 
     async def _active_row(self, exchange: str) -> ExchangeCredentialRow | None:
         result = await self._session.execute(
@@ -136,6 +149,33 @@ class SqlAlchemyCredentialVault:
         # The partial unique index is checked per statement, so the old row
         # must be deactivated and flushed before the new one is inserted.
         await self._session.flush()
+
+
+def _refuse_wrong_branch(exchange: str, facts: KeyFacts) -> None:
+    """Constraints 5 and 6, checked in code BEFORE the previous active key is
+    deactivated. ``KeyFacts`` has no exchange, so it cannot see these; without
+    this the failure would come at flush, after the old key stepped down."""
+    sources = (facts.trade_capability_source, facts.withdraw_check)
+    if exchange == "binance" and FactSource.VERIFIED in sources:
+        raise InvariantViolation("a binance key cannot be recorded as VERIFIED (constraint 5)")
+    if exchange == "bybit" and FactSource.OWNER_CONFIRMED in sources:
+        raise InvariantViolation(
+            "a bybit key cannot be recorded as OWNER_CONFIRMED (constraint 6)"
+        )
+
+
+def _facts_of(row: ExchangeCredentialRow) -> KeyFacts:
+    """The record about a key. A row the constraints let through is a row
+    ``KeyFacts`` accepts; if it ever is not, that raises rather than shows."""
+    return KeyFacts(
+        trade_capable=row.trade_capable,
+        trade_capability_source=FactSource(row.trade_capability_source),
+        trade_confirmed_at=row.trade_confirmed_at,
+        withdraw_check=FactSource(row.withdraw_check),
+        withdraw_confirmed_at=row.withdraw_confirmed_at,
+        validated_at=row.validated_at,
+        internal_transfer=row.internal_transfer,
+    )
 
 
 def _envelope_of(row: ExchangeCredentialRow) -> Envelope:
