@@ -30,6 +30,7 @@ from strategy_manager import main, worker
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
+    KeyFacts,
 )
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
@@ -109,7 +110,12 @@ class FakeVault:
         pass
 
     async def hints(self) -> list[CredentialHint]:
-        return [CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz")]
+        return [CredentialHint(
+                exchange="bybit",
+                label="default",
+                api_key_last4="wxyz",
+                facts=KeyFacts.unrecorded(trade_capable=True),
+            )]
 
     async def load(self, exchange: str) -> ExchangeCredential:
         if not type(self).opens:

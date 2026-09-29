@@ -10,6 +10,7 @@ the secret never leaves the worker's signing path (CLAUDE.md rule 8).
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -55,9 +56,9 @@ class ExchangeCredential:
     def last4(self) -> str:
         return self.api_key[-LAST4_LENGTH:]
 
-    def hint(self) -> "CredentialHint":
+    def hint(self, facts: "KeyFacts") -> "CredentialHint":
         return CredentialHint(
-            exchange=self.exchange, label=self.label, api_key_last4=self.last4
+            exchange=self.exchange, label=self.label, api_key_last4=self.last4, facts=facts
         )
 
     def __repr__(self) -> str:
@@ -71,8 +72,90 @@ class ExchangeCredential:
 
 @dataclass(frozen=True, slots=True)
 class CredentialHint:
-    """The most a client may ever learn about a stored credential."""
+    """The most a client may ever learn about a stored credential: its last
+    four characters and the facts recorded about it. No secret, no ciphertext,
+    no raw permission payload."""
 
     exchange: str
     label: str
     api_key_last4: str
+    facts: "KeyFacts"
+
+
+@dataclass(frozen=True, slots=True)
+class KeyFacts:
+    """What is recorded about a key, and how each fact was established.
+
+    Deliberately not part of ``ExchangeCredential``: the object that carries the
+    secret should not also carry the record about it. No field has a default,
+    so a caller states every one; the only named constructor is ``unrecorded``.
+
+    ``__post_init__`` refuses the states database constraints 2 to 4 refuse
+    (``ck_exchange_credentials_*``), so the domain and the table agree on what
+    cannot exist. Constraints 5 and 6 also need the exchange, which lives on the
+    row and not here; the table enforces those alone.
+    """
+
+    trade_capable: bool
+    trade_capability_source: FactSource
+    trade_confirmed_at: datetime | None
+    withdraw_check: FactSource
+    withdraw_confirmed_at: datetime | None
+    validated_at: datetime | None
+    internal_transfer: bool | None
+
+    def __post_init__(self) -> None:
+        for label, source in (
+            ("trade capability", self.trade_capability_source),
+            ("withdraw check", self.withdraw_check),
+        ):
+            if not isinstance(source, FactSource):
+                raise InvariantViolation(
+                    f"KeyFacts {label} source must be a FactSource, got {source!r}"
+                )
+
+        # Constraint 2: a confirmation and its timestamp exist together.
+        for label, source, confirmed_at in (
+            ("trade", self.trade_capability_source, self.trade_confirmed_at),
+            ("withdraw", self.withdraw_check, self.withdraw_confirmed_at),
+        ):
+            confirmed = source is FactSource.OWNER_CONFIRMED
+            if confirmed != (confirmed_at is not None):
+                raise InvariantViolation(
+                    f"KeyFacts {label}: an OWNER_CONFIRMED source and its confirmation "
+                    "timestamp must exist together"
+                )
+
+        # Constraint 3: the owner confirms a capability, never an incapability.
+        if self.trade_capability_source is FactSource.OWNER_CONFIRMED and not self.trade_capable:
+            raise InvariantViolation(
+                "KeyFacts: the owner confirms a capability; an OWNER_CONFIRMED "
+                "incapability cannot be recorded"
+            )
+
+        # Constraint 4: a row is either fully recorded or fully legacy.
+        trade_legacy = self.trade_capability_source is FactSource.UNRECORDED
+        withdraw_legacy = self.withdraw_check is FactSource.UNRECORDED
+        if trade_legacy != withdraw_legacy:
+            raise InvariantViolation(
+                "KeyFacts: trade capability and withdraw check must both be recorded "
+                "or both be UNRECORDED"
+            )
+        if (self.validated_at is None) != withdraw_legacy:
+            raise InvariantViolation(
+                "KeyFacts: validated_at is set exactly when the facts are recorded"
+            )
+
+    @classmethod
+    def unrecorded(cls, *, trade_capable: bool) -> "KeyFacts":
+        """A key with no record of how it was checked: sealed before facts were
+        kept, or sealed by a path that makes no claim (Pionex)."""
+        return cls(
+            trade_capable=trade_capable,
+            trade_capability_source=FactSource.UNRECORDED,
+            trade_confirmed_at=None,
+            withdraw_check=FactSource.UNRECORDED,
+            withdraw_confirmed_at=None,
+            validated_at=None,
+            internal_transfer=None,
+        )

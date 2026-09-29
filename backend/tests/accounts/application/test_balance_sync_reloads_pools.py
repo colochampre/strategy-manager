@@ -29,7 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager import main
-from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential
+from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, KeyFacts
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
@@ -127,12 +127,14 @@ async def _seeded_vault(
         await vault.store(
             ExchangeCredential(
                 exchange="bybit", label="default", api_key="BYBIT-KEY-abcd", api_secret="s"
-            )
+            ),
+            KeyFacts.unrecorded(trade_capable=True),
         )
         await vault.store(
             ExchangeCredential(
                 exchange="binance", label="default", api_key="BINANCE-KEY-wxyz", api_secret="s"
-            )
+            ),
+            KeyFacts.unrecorded(trade_capable=True),
         )
         await session.commit()
     yield

@@ -15,6 +15,7 @@ import pytest
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
+    KeyFacts,
 )
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -53,7 +54,12 @@ class FakeVault:
 
     async def hints(self) -> list[CredentialHint]:
         return [
-            CredentialHint(exchange=exchange, label="default", api_key_last4="wxyz")
+            CredentialHint(
+                exchange=exchange,
+                label="default",
+                api_key_last4="wxyz",
+                facts=KeyFacts.unrecorded(trade_capable=True),
+            )
             for exchange in (*self._opens, *self._fails)
         ]
 
@@ -177,7 +183,12 @@ def test_missing_key_for_enabled_pool_logs_one_error_and_still_starts(
     (never sealed, as opposed to sealed-but-undecryptable). Unlike
     ``_assert_sealed_credentials_open``, this must NEVER raise: the worker
     still starts and keeps trading every other exchange (decision 20)."""
-    hints = [CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz")]
+    hints = [CredentialHint(
+        exchange="bybit",
+        label="default",
+        api_key_last4="wxyz",
+        facts=KeyFacts.unrecorded(trade_capable=True),
+    )]
 
     with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
         degraded = _assert_keys_present(hints, [_BYBIT_POOL, _BINANCE_POOL])
@@ -197,7 +208,12 @@ def test_degraded_exchange_does_not_affect_any_other_exchange(
     exchange that is actually missing a key, never the one that has one --
     the same per-exchange isolation ``_vault_credential`` already applies to
     orders, applied here to the startup report."""
-    hints = [CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz")]
+    hints = [CredentialHint(
+        exchange="bybit",
+        label="default",
+        api_key_last4="wxyz",
+        facts=KeyFacts.unrecorded(trade_capable=True),
+    )]
 
     with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
         degraded = _assert_keys_present(hints, [_BYBIT_POOL, _BINANCE_POOL])
@@ -215,8 +231,18 @@ def test_every_configured_exchange_holding_a_key_logs_nothing_and_degrades_nothi
     DEGRADED, and must not log a single ERROR -- proves the function is not
     unconditionally returning an empty/non-empty set regardless of input."""
     hints = [
-        CredentialHint(exchange="bybit", label="default", api_key_last4="wxyz"),
-        CredentialHint(exchange="binance", label="default", api_key_last4="abcd"),
+        CredentialHint(
+        exchange="bybit",
+        label="default",
+        api_key_last4="wxyz",
+        facts=KeyFacts.unrecorded(trade_capable=True),
+    ),
+        CredentialHint(
+            exchange="binance",
+            label="default",
+            api_key_last4="abcd",
+            facts=KeyFacts.unrecorded(trade_capable=True),
+        ),
     ]
 
     with caplog.at_level(logging.ERROR, logger="strategy_manager.worker"):
