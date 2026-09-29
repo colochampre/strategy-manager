@@ -99,9 +99,12 @@ def prompt_credential(exchange: str, venue: str, script: str) -> ExchangeCredent
         explain_needs_a_terminal(script)
         return None
 
-    print(f"Paste the {venue} TRADE credential. The secret is not echoed.\n")
+    # Neither half is echoed. The key used to be read with input(), and on
+    # 2026-09-30 a full Binance key was printed on the owner's terminal and
+    # copied from there into a chat. A key is a credential too.
+    print(f"Paste the {venue} TRADE credential. Neither the key nor the secret is echoed.\n")
     try:
-        api_key = input("API key:    ").strip()
+        api_key = getpass("API key:    ").strip()
         api_secret = getpass("API secret: ").strip()
     except (EOFError, KeyboardInterrupt):
         explain_needs_a_terminal(script)
