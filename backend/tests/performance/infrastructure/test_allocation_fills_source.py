@@ -46,9 +46,11 @@ async def _seed_allocation(
     *,
     pool: PoolKey = BYBIT,
     pool_total_at_open: str | None = "1000",
+    strategy_id: UUID | None = None,
 ) -> tuple[UUID, UUID, UUID]:
     """Strategy + signal + reservation (the allocation) + its opening attempt.
-    Returns ``(strategy_id, allocation_id, attempt_id)``."""
+    Returns ``(strategy_id, allocation_id, attempt_id)``. Pass ``strategy_id``
+    of an already-seeded strategy to add one more allocation to it."""
     from tests.performance.infrastructure.conftest import (
         seed_execution_attempt,
         seed_reservation,
@@ -56,15 +58,17 @@ async def _seed_allocation(
         seed_strategy,
     )
 
-    strategy_id, signal_id = uuid4(), uuid4()
+    signal_id = uuid4()
     allocation_id, attempt_id = uuid4(), uuid4()
-    await seed_strategy(
-        factory,
-        strategy_id=strategy_id,
-        exchange=pool.exchange.value,
-        venue=pool.venue.value,
-        settlement_currency=pool.settlement_currency.value,
-    )
+    if strategy_id is None:
+        strategy_id = uuid4()
+        await seed_strategy(
+            factory,
+            strategy_id=strategy_id,
+            exchange=pool.exchange.value,
+            venue=pool.venue.value,
+            settlement_currency=pool.settlement_currency.value,
+        )
     await seed_signal(
         factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"k-{signal_id}"
     )
@@ -389,3 +393,38 @@ async def test_an_empty_pool_reads_as_no_groups_and_no_error(
 
     assert result.groups == ()
     assert result.rehearsal_fill_count == 0
+
+
+async def test_source_counts_rehearsal_fills_per_strategy(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A strategy's report states ITS rehearsal fills, not the pool's: two
+    strategies leave 2 and 1 rehearsal fills, and the pool total stays their
+    sum. A live fill of either is not counted."""
+    s1, a1, t1 = await _seed_allocation(pg_session_factory)
+    s2, a2, t2 = await _seed_allocation(pg_session_factory)
+
+    def rehearsal(strategy: UUID, alloc: UUID, attempt: UUID, side: str) -> FillRecord:
+        return _fill(
+            strategy_id=strategy,
+            allocation_id=alloc,
+            attempt_id=attempt,
+            side=side,
+            quantity="1",
+            fill_id=f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}",
+        )
+
+    await _record(
+        pg_session_factory,
+        rehearsal(s1, a1, t1, "BUY"),
+        rehearsal(s1, a1, t1, "SELL"),
+        rehearsal(s2, a2, t2, "BUY"),
+        _fill(strategy_id=s2, allocation_id=a2, attempt_id=t2, side="SELL", quantity="1"),
+    )
+
+    result = await _read(pg_session_factory)
+
+    assert result.rehearsal_fill_count == 3
+    assert result.rehearsal_for(s1) == 2
+    assert result.rehearsal_for(s2) == 1
+    assert result.rehearsal_for(uuid4()) == 0

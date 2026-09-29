@@ -28,15 +28,17 @@ detail the count cannot carry, at the level the condition deserves:
 """
 
 import logging
-from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import AllocationFillsSourcePort
-from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.application.scope import (
+    log_exclusions,
+    pool_label,
+    require_single_pool,
+)
 from strategy_manager.performance.domain.curve import PoolPerformance, build_pool_performance
 from strategy_manager.performance.domain.derive_trade import derive_trades
 from strategy_manager.shared.application.ports import ClockPort
-from strategy_manager.shared.domain.errors import InvariantViolation
 
 logger = logging.getLogger(__name__)
 
@@ -48,57 +50,13 @@ class ReadPoolPerformance:
 
     async def read(self, pool: PoolKey) -> PoolPerformance:
         pool_fills = await self._fills.pool_fills(pool)
-        _require_single_pool(pool, pool_fills.groups)
+        require_single_pool(pool, pool_fills.groups)
 
         derived = derive_trades(pool_fills.groups)
         report = build_pool_performance(
             pool, derived, pool_fills.rehearsal_fill_count, self._clock.now()
         )
-        self._log_exclusions(pool, derived.unresolved_allocation_ids, report)
+        log_exclusions(
+            logger, pool_label(pool), derived.unresolved_allocation_ids, report.exclusions
+        )
         return report
-
-    @staticmethod
-    def _log_exclusions(
-        pool: PoolKey,
-        unresolved: tuple[UUID, ...],
-        report: PoolPerformance,
-    ) -> None:
-        label = f"{pool.exchange.value}/{pool.venue.value}/{pool.settlement_currency.value}"
-        if unresolved:
-            logger.warning(
-                "performance %s: %d allocation(s) skipped because the symbol has no base "
-                "currency in the pool's settlement currency, so their closure cannot be "
-                "tested: %s",
-                label,
-                len(unresolved),
-                ", ".join(str(a) for a in unresolved),
-            )
-        if report.exclusions.no_capital_at_open:
-            logger.info(
-                "performance %s: %d closed trade(s) with no capital at open are in the PnL "
-                "amounts but not in the curve",
-                label,
-                report.exclusions.no_capital_at_open,
-            )
-        if report.exclusions.unconverted_fee:
-            logger.info(
-                "performance %s: %d closed trade(s) have an unconverted fee (a third "
-                "currency); their PnL omits it",
-                label,
-                report.exclusions.unconverted_fee,
-            )
-
-
-def _require_single_pool(pool: PoolKey, groups: tuple[FillGroup, ...]) -> None:
-    for group in groups:
-        if (
-            group.exchange != pool.exchange.value
-            or group.venue != pool.venue.value
-            or group.settlement_currency != pool.settlement_currency.value
-        ):
-            raise InvariantViolation(
-                f"the fills source returned a row of pool ({group.exchange}, {group.venue}, "
-                f"{group.settlement_currency}) for a read of ({pool.exchange.value}, "
-                f"{pool.venue.value}, {pool.settlement_currency.value}); pools are never "
-                "blended (CLAUDE.md rule 7)"
-            )

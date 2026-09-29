@@ -150,7 +150,9 @@ def _utc(moment: datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
-def _return_of(trade: ClosedTrade) -> Decimal | None:
+def trade_return(trade: ClosedTrade) -> Decimal | None:
+    """``r_i = pnl_i / pool_total_at_open_i``, or ``None`` for a trade with no
+    capital at open (it has no return, and is never given a zero one)."""
     capital = trade.pool_total_at_open
     if capital is None:
         return None
@@ -169,7 +171,7 @@ def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
     counted by ``build_pool_performance``)."""
     by_day: dict[date, Decimal] = {}
     for trade in trades:
-        value = _return_of(trade)
+        value = trade_return(trade)
         if value is None:
             continue
         day = _utc(trade.closed_at).date()

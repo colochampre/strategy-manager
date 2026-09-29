@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `4041a3a`, alembic `0026`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `50a68db`, alembic `0026`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -100,7 +100,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 5c | #16 | `d9fb55d` | — | 2026-09-29 | Tasks 5c.1–5c.5. Pull, restart both. |
 | PR 5c2 | #17 | `22a94b0` | — | 2026-09-29 | Tasks 5c.6–5c.7. Pull, restart both. Decision 25 is fully delivered. |
 | PR 6a | #18 | `4041a3a` | 0026 | 2026-09-29 | Unit 3a. Rehearsed on `sm_rehearsal_0026`, including the downgrade refusal once a value exists. Backup `/root/sm_pre0026_20260929_1534.dump` (an earlier `..._1532.dump` is from a run that aborted on the HEAD check before touching anything). Restart both. The 2 existing reservations stay NULL; only new ones record `pool_total_at_open`. |
-| PR 6b | — | — | — | — | Units 3b + 3c, on `feat/operator-panel-trade-curve`. In review. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. No migration: pull, restart both. |
+| PR 6b | #19 | `50a68db` | — | 2026-09-29 | Units 3b + 3c, plus decision 28 recorded. PR 6 gate: production holds **4** `fake-fill-%` ledger rows (owner ran the count, 2026-09-29); they are excluded from the curve and counted as rehearsal fills. Pull, restart both. |
+| PR 6c | — | — | — | — | Unit 3d, on `feat/operator-panel-strategy-stats`. In review. No migration: pull, restart both. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -685,11 +686,16 @@ Forecast: 700–1,000 lines.
 **Files**: Create `backend/src/strategy_manager/performance/domain/by_pair.py`; Create
 `backend/src/strategy_manager/performance/application/{read_strategy_performance,read_strategy_trades}.py`.
 
-- [ ] 3d.1 RED `backend/tests/performance/domain/test_by_pair.py::test_solusdt_dot_p_and_solusdt_merge_into_one_pair` (F4, spelling rule).
-- [ ] 3d.2 RED same file `::test_per_pair_stats_include_pair_removed_from_allowlist` (allowlist independence).
-- [ ] 3d.3 RED `backend/tests/performance/application/test_read_strategy_performance.py::test_strategy_curve_uses_pool_capital_at_open_as_contribution`, `::test_strategy_stats_scoped_to_its_own_pool_settlement_currency`.
-- [ ] 3d.4 RED `backend/tests/performance/application/test_read_strategy_trades.py::test_keyset_pagination_on_closed_at_and_allocation_id_two_trades_same_millisecond_across_page_boundary` (the "+1ms" lesson).
-- [ ] 3d.5 GREEN: `by_pair()` pure domain function grouped per allocation then by `market_key()`; `ReadStrategyPerformance`, `ReadStrategyTrades` application reads (keyset on `(closed_at, allocation_id)` descending, never `closed_at` alone).
+- [x] 3d.1 RED `backend/tests/performance/domain/test_by_pair.py::test_solusdt_dot_p_and_solusdt_merge_into_one_pair` (F4, spelling rule).
+  - Done 2026-09-29: `test_by_pair.py` (6 tests). RED with a stub `by_pair` returning `()` on assertions (`() == (PairStats(...),)`, and `KeyError` on the empty result for the dict-lookup tests). Two allocations, each leg under a different spelling (`SOLUSDT.P` / `SOLUSDT`, `SOLUSDT_PERP` / `solusdt`) go through the real `derive_trades` and come out as one pair with count 2, PnL 8 and return 0.008. Mutation: keying on the raw `trade.pair` instead of `market_key` fails the re-keying test.
+- [x] 3d.2 RED same file `::test_per_pair_stats_include_pair_removed_from_allowlist` (allowlist independence).
+  - Done 2026-09-29: RED on assertion (`set() == {'BTCUSDT', 'SOLUSDT'}`). The strategy's allowlist today is BTCUSDT; SOLUSDT (2 trades, PnL 3) still shows. In the domain the protection is structural (`by_pair` takes no allowlist), so the same rule is also asserted through `ReadStrategyPerformance` (`test_by_pair_merges_spellings_and_keeps_a_pair_that_is_no_longer_allowed`), which is likewise given none. Also in the file: per-pair return is the pair's own contribution; a pair of only pre-0026 trades has `value None`, not 0 (mutation to 0 fails it); alphabetical order.
+- [x] 3d.3 RED `backend/tests/performance/application/test_read_strategy_performance.py::test_strategy_curve_uses_pool_capital_at_open_as_contribution`, `::test_strategy_stats_scoped_to_its_own_pool_settlement_currency`.
+  - Done 2026-09-29: `test_read_strategy_performance.py` (13 tests). RED with a stub read returning an empty report on assertions (`[] == [Decimal('0.02'), Decimal('-0.01')]`). S1 +20 on 1000 then -10.3 on 1030 gives daily returns 0.02 and -0.01 and index 1.02 then 1.02 * 0.99, and S1's day-1 return plus S2's equals the POOL's `R_d` read through `ReadPoolPerformance` (the contribution property). Scope (rule 7, decision 1): one pool asked; rows of another pool are refused in three variants (other exchange, other venue, other currency) and a stray row of ANOTHER strategy in another pool is refused too (the check runs before the strategy filter); an allocation whose legs carry two strategy ids is refused. Exclusions are the strategy's own (open count, rehearsal count from `PoolFills.rehearsal_for`, no-capital); a strategy with nothing, or only rehearsal fills, gets the empty result. Logs: WARNING with the strategy's own ids only, INFO for no capital, silent when clean. Mutations: dropping the pool check fails 3, the split check 1, the strategy filter 8, a pool-wide rehearsal count 1.
+- [x] 3d.4 RED `backend/tests/performance/application/test_read_strategy_trades.py::test_keyset_pagination_on_closed_at_and_allocation_id_two_trades_same_millisecond_across_page_boundary` (the "+1ms" lesson).
+  - Done 2026-09-29: the named test in `test_read_strategy_trades.py` (fakes, 20 tests) and again, with the same name, on real PostgreSQL in `tests/performance/infrastructure/test_strategy_trades_integration.py` (placed beside the other live-PG performance tests, as 3a.3 did; 4 tests, trades written through `RecordFill`, so the instants are the ones `timestamptz` stores). RED on assertions (`[] == [UUID(...)]`, `None is not None`, `DID NOT RAISE`). Three trades close at the same instant with page size 2, plus one 1 ms later and one 1 ms earlier: every trade is served exactly once, newest first, ties by allocation id descending, with the cursor round-tripped through its ISO text and UUID text between pages. Also: a cursor inside a tie keeps the lower ids and drops the higher; a trade closing between two page reads neither repeats nor hides one; a booked close dated before the cursor is served once when reached. Mutations: `closed_at <` alone fails 7, `<=` fails 10, ascending tie-break fails 10, `>= limit` for the next cursor fails 2, no zone check on the cursor fails 1.
+- [x] 3d.5 GREEN: `by_pair()` pure domain function grouped per allocation then by `market_key()`; `ReadStrategyPerformance`, `ReadStrategyTrades` application reads (keyset on `(closed_at, allocation_id)` descending, never `closed_at` alone).
+  - Done 2026-09-29: `performance/domain/by_pair.py`, `performance/application/{scope,read_strategy_performance,read_strategy_trades}.py`. Pagination is applied over the derived trades in Python, not in SQL ("closed" is a domain rule, not a column; design.md section 11 "As built (PR 6c)" states what bounds the work and the cursor encoding). `ReadPoolPerformance` now shares `scope.require_single_pool` and `scope.log_exclusions` (messages unchanged, its tests untouched). The fills source counts rehearsal fills per strategy so a strategy's report states its own count; `curve.trade_return` is public. Gate: ruff clean, mypy clean, full suite 1985 tests (1943 + 42), exit 0. Gap for PR 7: the trades row wants `direction`, which `ClosedTrade` does not carry (design.md).
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/performance/`.
 Harness: pure for `by_pair`; real PostgreSQL for the pagination boundary test.
@@ -716,9 +722,12 @@ origin of their fills; Modify `main.py::build_worker_runner` beside `assert_dry_
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Harness: real PostgreSQL for the open-allocation read; fakes for the startup wiring.
 Rollback boundary: the startup check only; reverting it restores today's start.
-Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. If any of them still
-belongs to an open allocation, the worker keeps starting while `DRY_RUN=true` and would refuse
-a later `DRY_RUN=false` start until that position is closed. That is the intended behaviour.
+Deploy: pull, restart both. Production holds 4 `fake-fill-%` ledger rows. The owner checked
+them on 2026-09-29: they are two rehearsal round trips, both closed (net base exactly 0, no live
+fill). One is AAVE on `AAVEUSDT.P`, the other SFP on `SFPUSDT.P`, both on `binance/usdt-m/USDT`.
+They are also the only two reservations in production. So none of them blocks a later
+`DRY_RUN=false` start. A position still open on TradingView that the system never opened is not
+in the ledger; its close ends `REJECTED` `NO_POSITION_TO_CLOSE` (decision 27).
 
 ---
 
