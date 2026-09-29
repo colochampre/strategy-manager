@@ -107,7 +107,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 7a | #23 | `94ca953` | — | 2026-09-29 | Tasks 7.1, 7.2 and the pools/performance half of 7.4. Pull, restart both; the API and the worker came up active. |
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
 | PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
-| PR 8a-1 | — | — | 0027 | — | Unit 6a with migration 0027, on `feat/operator-panel-key-policy`. The design addendum (8a.0b) was confirmed on 2026-09-29. In progress. Next come 8a-2 (`SaveCredential`, scripts), 8a-3 (HTTP surface) and 8a-4 (6c). |
+| PR 8a-1 | — | — | 0027 | — | Unit 6a with migration 0027, on `feat/operator-panel-key-policy`. The design addendum (8a.0b) was confirmed on 2026-09-29. In review. Independent verification found no blocker; its 10010 finding and vault-store guard are fixed in `9342868`, and S2 is a follow-up for 8a-3. Deploy: rehearse 0027 on a throwaway restore, migrate, restart both. Next come 8a-2 (`SaveCredential`, scripts), 8a-3 (HTTP surface) and 8a-4 (6c). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
