@@ -766,6 +766,13 @@ Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --t
 Rollback boundary: the exit mapping only. Without the unit setting, 78 behaves like any other non-zero exit.
 Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads systemd.
 
+**Known risk, accepted by the owner (2026-09-29).** The API unit has the same restart loop:
+`Restart=always` and `RestartSec=5`, with no drop-in. Its lifespan refusals reach no alert channel.
+Those refusals are a missing `WEBHOOK_SECRET` or `ADMIN_API_TOKEN`, or a pool lock-key collision.
+They can only happen after an owner edit of `.env`, and every deploy command ends with
+`systemctl is-active`, which shows it. While the API is down, TradingView's webhooks are lost.
+Fixing it properly needs the API to compose the alert bridge, so it is left for a separate change.
+
 ---
 
 ## PR 7 — Read endpoints: pools, performance, `GET /webhook-secret` (950–1,350 lines)
@@ -773,6 +780,20 @@ Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads sys
 **Files**: Create `backend/src/strategy_manager/accounts/infrastructure/{pools_router,pool_overview}.py`;
 Create `backend/src/strategy_manager/performance/infrastructure/performance_router.py`; Create
 `backend/src/strategy_manager/signals/infrastructure/webhook_secret_router.py`.
+
+**Split, 2026-09-29 (auto-chain).** The PR is split in two sequential PRs, each cut from `main`
+after the previous one merges.
+
+- **PR 7a** holds tasks 7.1 and 7.2, and the pools and performance half of 7.4.
+- **PR 7b** holds task 7.3 and the webhook-secret half of 7.4 (decision 23). It is the only endpoint
+  that returns a secret, so it is reviewed and deployed on its own.
+
+Two carry-overs from PR 6c land in PR 7a:
+
+- `direction` is in the design's trades response but missing from `ClosedTrade`. It is added as the
+  side of the allocation's earliest leg, through `derive_trade`.
+- The strategy endpoints resolve the strategy first and return 404 for an unknown one. They then
+  pass that strategy's own pool, because a wrong pool yields an empty result, not an error.
 
 - [ ] 7.1 RED `backend/tests/accounts/infrastructure/test_pools_router.py::test_get_pools_requires_bearer_token`, `::test_get_pools_computes_allocatable_as_max_zero_available_minus_reserved_server_side`, `::test_get_pools_never_sums_two_pools_on_same_exchange` (rule 7).
 - [ ] 7.2 RED `backend/tests/performance/infrastructure/test_performance_router.py::test_get_pool_performance_requires_bearer_token`, `::test_get_pool_performance_404_unknown_pool`, `::test_get_strategy_performance_includes_by_pair`, `::test_get_strategy_trades_keyset_pagination_422_half_a_cursor`, `::test_empty_ledger_returns_zeros_and_empty_arrays_never_an_error`.
