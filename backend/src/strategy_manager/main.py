@@ -196,6 +196,7 @@ from strategy_manager.shared.infrastructure.http_logging import silence_http_cli
 from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
+from strategy_manager.shared.infrastructure.no_store import NoStoreMiddleware
 from strategy_manager.shared.infrastructure.observed_job_queue import (
     ExhaustionObservingJobQueue,
 )
@@ -1737,6 +1738,10 @@ def create_app() -> FastAPI:
     # One handler for the whole app: a 422 never echoes a submitted value
     # (design 8a section H, task 6b.5). The credential body is a key and secret.
     app.add_exception_handler(RequestValidationError, redacted_validation_handler)
+
+    # The credentials answers (last4, facts, label) must not be cached. A
+    # middleware, because an exception handler's answer never sees a dependency.
+    app.add_middleware(NoStoreMiddleware, prefix="/api/credentials")
 
     app.add_middleware(
         CORSMiddleware,

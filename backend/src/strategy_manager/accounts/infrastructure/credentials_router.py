@@ -33,7 +33,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, Secret, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.application.save_credential import (
@@ -69,6 +69,15 @@ router = APIRouter(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 DEFAULT_LABEL = "default"
+
+#: A venue key or secret is printable ASCII with no whitespace (``!`` to ``~``).
+#: httpx encodes a header value as ASCII, so anything else would crash the
+#: inspector (a 500 with only a traceback in the log), and a control character
+#: would be read as a different failure. Declarative on purpose: pydantic's own
+#: message for a failed pattern never quotes the value. The engine's ``$`` does
+#: not match before a trailing newline, so ``"KEY\n"`` fails too.
+PRINTABLE_ASCII = r"^[\x21-\x7E]+$"
+MAX_TOKEN_LENGTH = 256
 
 #: Every refusal the use case can answer, and the status it becomes. ``SAVED`` is
 #: the only success and is not here. A test pins that this covers every outcome,
@@ -117,8 +126,18 @@ class CredentialBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    api_key: str = Field(min_length=4)
-    api_secret: SecretStr = Field(min_length=1)
+    api_key: Annotated[
+        str,
+        StringConstraints(min_length=4, max_length=MAX_TOKEN_LENGTH, pattern=PRINTABLE_ASCII),
+    ]
+    # ``SecretStr`` cannot carry a pattern; ``Secret[...]`` validates the inner
+    # type and masks the same way (``repr`` shows ``**********``).
+    api_secret: Secret[
+        Annotated[
+            str,
+            StringConstraints(min_length=1, max_length=MAX_TOKEN_LENGTH, pattern=PRINTABLE_ASCII),
+        ]
+    ]
     label: str = Field(default=DEFAULT_LABEL, min_length=1, max_length=64)
     withdrawals_disabled_confirmed: bool = False
     futures_enabled_confirmed: bool = False

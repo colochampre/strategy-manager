@@ -418,6 +418,137 @@ async def test_put_a_malformed_json_body_is_a_422_that_echoes_nothing() -> None:
     _assert_no_secret(response.text)
 
 
+#: Hostile values: none may reach the venue, the store, a response or a log.
+_HOSTILE = {
+    "non-ascii": "KéééYYYY",
+    "space": "AAAA BBBB",
+    "trailing-space": "AAAABBBB ",
+    "tab": "AAAA\tBBBB",
+    "newline": "AAAA\nBBBB",
+    "too-long": "A" * 257,
+}
+
+
+@pytest.mark.parametrize("field", ["api_key", "api_secret"])
+@pytest.mark.parametrize("value", list(_HOSTILE.values()), ids=list(_HOSTILE))
+async def test_put_a_key_or_secret_outside_printable_ascii_or_over_256_is_a_422_and_never_stored(
+    field: str, value: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    async with _serve() as served:
+        with caplog.at_level("DEBUG"):
+            response = await _put_bybit(served, **{field: value})
+
+    assert response.status_code == 422
+    assert response.json()["detail"], "a 422 with no errors would prove nothing"
+    assert served.inspector.calls == []
+    assert served.writer.stored == []
+    assert served.commit.commits == 0
+    assert value not in response.text
+    assert value not in caplog.text
+    assert repr(value) not in response.text + caplog.text
+
+
+@pytest.mark.parametrize("field", ["api_key", "api_secret"])
+async def test_put_exactly_256_printable_ascii_characters_is_accepted(field: str) -> None:
+    value = "".join(chr(0x21 + i % 94) for i in range(256))
+    async with _serve() as served:
+        response = await _put_bybit(served, **{field: value})
+
+    assert response.status_code == 200
+    assert len(served.writer.stored) == 1
+    assert value not in response.text
+
+
+def test_the_credential_body_never_shows_the_secret_in_its_repr() -> None:
+    body = credentials_router.CredentialBody(api_key=BYBIT_KEY, api_secret=BYBIT_SECRET)  # type: ignore[arg-type]
+    assert BYBIT_SECRET not in repr(body)
+    assert BYBIT_SECRET not in str(body)
+
+
+# --- Cache-Control: no-store on every credentials response -------------------------------
+
+
+def _assert_no_store(response: Response) -> None:
+    assert response.headers.get("cache-control") == "no-store"
+
+
+async def test_every_put_answer_carries_no_store() -> None:
+    answers: dict[str, Response] = {}
+    async with _serve() as served:
+        answers["200"] = await _put_bybit(served)
+        answers["422-validation"] = await _put_bybit(served, api_key="abc")
+        answers["422-malformed"] = await served.api.put(
+            "/api/credentials/bybit",
+            content="{not json",
+            headers={**_auth(), "Content-Type": "application/json"},
+        )
+        answers["422-refusal"] = await _put_bybit(served, **{WITHDRAWALS: True})
+        answers["401-missing"] = await served.api.put(
+            "/api/credentials/bybit", json=_bybit_body()
+        )
+        answers["401-wrong"] = await served.api.put(
+            "/api/credentials/bybit",
+            json=_bybit_body(),
+            headers={"Authorization": "Bearer not-the-token"},
+        )
+        answers["404"] = await served.api.put(
+            "/api/credentials/pionex", json=_bybit_body(), headers=_auth()
+        )
+    for outcome, status in (
+        (SaveOutcome.CONCURRENT_SAVE, 409),
+        (SaveOutcome.VENUE_UNREACHABLE, 502),
+    ):
+        refusal = next(r for r in REFUSALS if r[0] == outcome)
+        async with _serve(refusal[2], refusal[3]) as served:
+            answers[str(status)] = await _put_bybit(served)
+
+    assert {k: v.status_code for k, v in answers.items()} == {
+        "200": 200,
+        "422-validation": 422,
+        "422-malformed": 422,
+        "422-refusal": 422,
+        "401-missing": 401,
+        "401-wrong": 401,
+        "404": 404,
+        "409": 409,
+        "502": 502,
+    }
+    without = [k for k, v in answers.items() if v.headers.get("cache-control") != "no-store"]
+    assert without == []
+
+
+async def test_a_get_refused_for_its_token_carries_no_store() -> None:
+    async with _serve() as served:
+        missing = await served.api.get("/api/credentials")
+        wrong = await served.api.get(
+            "/api/credentials", headers={"Authorization": "Bearer not-the-token"}
+        )
+
+    assert [missing.status_code, wrong.status_code] == [401, 401]
+    _assert_no_store(missing)
+    _assert_no_store(wrong)
+
+
+async def test_the_503_for_an_unusable_master_key_carries_no_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "master_encryption_key", "")
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
+        response = await api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
+
+    assert response.status_code == 503
+    _assert_no_store(response)
+
+
+async def test_no_store_is_scoped_to_the_credentials_routes() -> None:
+    async with _serve() as served:
+        health = await served.api.get("/health")
+
+    assert health.status_code == 200
+    assert "cache-control" not in health.headers
+
+
 # --- auth ---------------------------------------------------------------------------------
 
 
@@ -547,6 +678,8 @@ async def test_get_credentials_shows_source_and_confirmation_fields_never_live_r
         listed = await served.api.get("/api/credentials", headers=_auth())
 
     assert listed.status_code == 200
+    _assert_no_store(saved)
+    _assert_no_store(listed)
     entry = _entry(listed.json(), "binance")
     assert entry == {
         "exchange": "binance",
