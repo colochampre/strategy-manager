@@ -265,13 +265,19 @@ owner leaves the view.
 > configured, both shown as "no key" but only the DEGRADED case marked.
 
 The Settings view MUST show one entry per exchange, showing last-4, whether
-the key reads and trades or reads only, and the stored permission snapshot
-when a key is active, and MUST allow adding or replacing that exchange's key.
-An exchange whose key cannot trade MUST be marked read-only and MUST state
-that, with dry run off, its opening signals are refused until a key that can
-trade futures is stored. An exchange with an enabled pool and no key at all
-MUST be marked "no key" and MUST state that, with dry run off, its opening
-signals are refused until a key is stored.
+the key reads and trades or reads only, and the recorded facts when a key is
+active, and MUST allow adding or replacing that exchange's key. An exchange
+whose key cannot trade MUST be marked read-only and MUST state that, with dry
+run off, its opening signals are refused until a key that can trade futures is
+stored. An exchange with an enabled pool and no key at all MUST be marked "no
+key" and MUST state that, with dry run off, its opening signals are refused
+until a key is stored.
+
+A fact the owner confirmed MUST NOT be presented as verified. It MUST be shown
+as "trade not verified" or "withdraw not verified", each with the date the owner
+confirmed it, in a neutral tone (the mark is state, not a call to action). A
+row sealed before facts were recorded MUST be shown as "not validated" together
+with both marks.
 
 #### Scenario: An exchange with no key shows a defined empty state
 
@@ -279,11 +285,23 @@ signals are refused until a key is stored.
 - WHEN Settings renders
 - THEN Binance's entry shows a defined empty state and an add control, not last-4 or permissions
 
-#### Scenario: An active key shows last-4 and permissions only
+#### Scenario: An active key shows last-4 and recorded facts only
 
 - GIVEN an active credential exists for Bybit
 - WHEN Settings renders
-- THEN Bybit's entry shows only its last-4, its trade capability and its stored permission snapshot, never a full key or secret
+- THEN Bybit's entry shows only its last-4, its trade capability, the date its live read passed and its internal-transfer state, never a full key, a secret or a raw permission payload
+
+#### Scenario: An owner-confirmed key is never shown as verified
+
+- GIVEN Binance's active credential was saved with the owner's two confirmations
+- WHEN Settings renders
+- THEN Binance's entry shows "trade not verified" and "withdraw not verified", each with the date the owner confirmed it, and does not state that the key has no withdrawal permission as a fact
+
+#### Scenario: A key sealed before facts were recorded is shown as not validated
+
+- GIVEN Binance's active credential was sealed before facts were recorded
+- WHEN Settings renders
+- THEN Binance's entry shows "not validated" together with both "not verified" marks, and no confirmation date
 
 #### Scenario: A read-only key is marked and explained
 
@@ -302,10 +320,16 @@ signals are refused until a key is stored.
 ### Requirement: Settings Shows the Validation Outcome On Add/Replace
 
 Submitting a key add or replace MUST show the validation outcome to the
-owner: success with the resulting last-4, trade capability and permissions
-(with the read-only warning when the key cannot trade), or the specific
-refusal reason (live read failed, venue unreachable, withdraw permission
-present, or a concurrent save).
+owner: success with the resulting last-4 and recorded facts (with the read-only
+warning when the key cannot trade), or the specific refusal reason (live read
+failed, venue unreachable, withdraw permission present, permissions unavailable,
+a required owner confirmation missing, a confirmation that does not apply, or a
+concurrent save).
+
+For Binance the form MUST ask for two owner confirmations, "withdrawals
+disabled" and "Enable Futures", each unticked by default, and MUST NOT allow
+submitting until both are ticked. The server enforces the same rule. For Bybit
+the form MUST show no confirmation.
 
 #### Scenario: A refused save shows its reason
 
@@ -313,17 +337,35 @@ present, or a concurrent save).
 - WHEN the save is refused
 - THEN the panel shows the withdraw-permission refusal reason and stores nothing
 
-#### Scenario: A successful save shows the resulting last-4 and permissions
+#### Scenario: A successful save shows the resulting last-4 and facts
 
 - GIVEN the owner submits a valid key that can trade futures
 - WHEN the save succeeds
-- THEN the panel shows the resulting last-4 and permission snapshot for that exchange, with no read-only warning
+- THEN the panel shows the resulting last-4 and recorded facts for that exchange, with no read-only warning
 
 #### Scenario: A read-only key is saved with a warning
 
 - GIVEN the owner submits a valid key that cannot trade
 - WHEN the save succeeds
 - THEN the panel shows the resulting last-4 together with the read-only warning, and the exchange is marked read-only
+
+#### Scenario: A Binance key cannot be submitted without both confirmations
+
+- GIVEN the owner has typed a Binance key and ticked at most one of the two confirmations
+- WHEN the form is shown
+- THEN submitting is disabled, and both confirmations are cleared together with the key fields once the submission finishes
+
+#### Scenario: A refusal for a missing confirmation names it
+
+- GIVEN the server refuses a Binance save because a confirmation is missing
+- WHEN the refusal is shown
+- THEN the panel names which confirmation is missing and stores nothing
+
+#### Scenario: A Bybit form shows no confirmation
+
+- GIVEN the owner opens the key form for Bybit
+- WHEN the form renders
+- THEN it shows no owner confirmation, because Bybit's facts are verified by the venue
 
 ### Requirement: Settings Allows Deleting a Key, With Explicit Confirmation and a Stated Refusal
 

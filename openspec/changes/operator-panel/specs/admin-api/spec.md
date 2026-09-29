@@ -101,3 +101,40 @@ ever include the secret's value. The response MUST carry
 - GIVEN `GET /api/webhook-secret` is called and logged by the access-log middleware
 - WHEN the resulting log line is inspected
 - THEN it does not contain the secret's value
+
+
+### Requirement: The Credential Endpoints Carry The Owner Confirmations And The Recorded Facts
+
+> **Added 2026-09-29 (owner decisions 24 and 30).**
+
+`PUT /api/credentials/{exchange}` MUST accept the key, the secret, an optional
+label, and two booleans that default to false: `withdrawals_disabled_confirmed`
+and `futures_enabled_confirmed`. For Binance both MUST be true, and a missing
+or false one MUST answer 422 `CONFIRMATION_REQUIRED` naming exactly what is
+absent, before the venue is called. For Bybit a true value MUST answer 422
+`CONFIRMATION_NOT_APPLICABLE` naming the field. A client MUST NOT be able to
+supply a confirmation time; the server stamps it.
+
+`GET /api/credentials` MUST return, per exchange, `exchange`, `status`,
+`last4`, `label`, `stored_at`, `validated_at`, `trade_capable`,
+`trade_capability_source`, `trade_confirmed_at`, `withdraw_check`,
+`withdraw_confirmed_at` and `internal_transfer`, all null for an `EMPTY`
+exchange. It MUST NOT return a raw permission payload or a `permissions` field.
+
+#### Scenario: A Binance save missing a confirmation is refused naming it
+
+- GIVEN a valid bearer token and a Binance body with `futures_enabled_confirmed` false
+- WHEN `PUT /api/credentials/binance` is called
+- THEN it answers 422 `CONFIRMATION_REQUIRED` with `missing` naming `futures_enabled_confirmed`, and nothing is sent to Binance
+
+#### Scenario: A Bybit save with a true confirmation is refused
+
+- GIVEN a valid bearer token and a Bybit body with `withdrawals_disabled_confirmed` true
+- WHEN `PUT /api/credentials/bybit` is called
+- THEN it answers 422 `CONFIRMATION_NOT_APPLICABLE` naming that field
+
+#### Scenario: The listing carries the recorded facts and no permissions field
+
+- GIVEN a valid bearer token and an active Binance credential saved with both confirmations
+- WHEN `GET /api/credentials` is called
+- THEN the Binance entry carries its sources and both confirmation times, and no entry has a `permissions` field
