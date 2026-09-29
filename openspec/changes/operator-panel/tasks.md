@@ -95,7 +95,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 3 | #11 | `733064b` | — | 2026-09-25 | Restart both. Then `BYBIT_/BINANCE_API_KEY/SECRET` were removed from `backend/.env`. |
 | PR 4 | #12 | `fbde874` | 0024 | 2026-09-28 | Rehearsed on `sm_rehearsal_0024`. Backup `/root/sm_pre0024_20260928_1552.dump`. The owner confirmed the seeded pairs. |
 | PR 5 | #13 | `17681ef` | — | 2026-09-28 | Restart both. The allowed-pairs gate is live. |
-| PR 5b | — | — | 0025 | — | In progress on `feat/operator-panel-signal-outcomes`. |
+| PR 5b | — | — | 0025 | — | Tasks 5b.1–5b.5, on `feat/operator-panel-signal-outcomes`. In review. Deploy: rehearse 0025 on a throwaway restore, then migrate and restart both. |
+| PR 5b2 | — | — | — | — | Tasks 5b.6–5b.10. Branch cut from `main` after PR 5b merges. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -528,6 +529,15 @@ Decision 25. Records the outcome of every path in the map that is decided inside
 - [x] 5b.3 GREEN: migration 0025, ORM columns (`SignalRow.outcome_reason/outcome_detail/decided_at`, `ExecutionAttemptRow.signal_id`), a `SignalOutcome` value object (`signals/domain/outcome.py`, invariant enforced in `__post_init__` ahead of the CHECK) and `SignalOutcomePort.record(signal_id, outcome)` (`signals/application/ports.py`), implemented by `SqlAlchemySignalOutcomeAdapter` (`signals/infrastructure/outcome_repository.py`, a new adapter separate from `SqlAlchemySignalRepository` so no existing `SqlAlchemySignalRepository(session)` call site needed a clock param), with the terminal-state guard. All 11 migration tests and 8 adapter tests green; full gate green (1713 passed). *Correction (Unit A of the 5b.4/5b.5 batch):* the guard's read is now fresh and locked (`populate_existing=True, with_for_update=True`); the original plain `session.get` read a stale identity-map row. Two real-PostgreSQL tests added (stale identity map; lock-hold `not task.done()`).
 - [x] 5b.4 RED refusals, rows 1–7: each ends `REJECTED` with its code and message. At least one runs on real Postgres; the rest use fakes. Done: `ProcessSignalHandler._reject` stages `SignalOutcomePort.record` and commits (rows 1–7 had no commit of their own, so each gets one at the refusal); `GuardOutcome.reason` carries rows 4–5's code (`DIVERGENT_HOLDING_GHOST`/`_AMBIGUOUS`, `IN_FLIGHT_TIMEOUT`). Decision 26: the open half of a REVERSE refused in `open_now` (close already executed) keeps the open's code and its detail appends that the close executed; `handle()` and non-REVERSE `open_now` never say so. Tests: `tests/signals/application/test_process_signal_outcomes.py` (fakes, 11), `tests/signals/infrastructure/test_refusal_outcomes_integration.py` (real Postgres). The REVERSE detail is driven through `open_now` directly, without 5c wiring.
 - [x] 5b.5 RED skips, row 8: `REJECTED` with the existing `skip_reason` value; the in-lock skip too. Done: `AllocateCapital` gained the consumer-side `SkipRecorderPort` (adapter `signals/infrastructure/skip_recorder.py`, so `allocation` never imports `signals`); the pre-lock `STRATEGY_DISABLED` skip got its own added commit, the in-lock and `decide()` skips stage before their existing commits. Detail is the exact message already logged. Tests: `tests/allocation/application/test_allocate_capital_skip_outcomes.py` plus two real-Postgres cases in the integration file above. Wired in `main.py::_build_process_signal_handler` (the only composition root).
+**Split, 2026-09-28 (owner, auto-chain).** PR 5b ships 5b.1–5b.5 alone: the branch had reached
+~2,430 authored lines against a 900–1,300 forecast, with 5b.6–5b.10 still open. The cut leaves
+no wrong state: a placed order's signal simply stays `ACCEPTED` until PR 5b2 lands. Tasks
+5b.6–5b.10 move to **PR 5b2**, a new branch cut from `main` after PR 5b merges, keeping their
+IDs. The Gate, Harness and Rollback lines below apply to both PRs; the Deploy line (0025) is
+PR 5b's only.
+
+### PR 5b2 — PlaceOrder, ClosePosition, deferrals, replays (tasks 5b.6–5b.10)
+
 - [ ] 5b.6 RED `PlaceOrder`, rows 9–12: expired, refused and venue-rejected end `REJECTED`; `PLACED` ends `PROCESSING`. Atomicity test: inject a failing commit and assert that the status and the reservation mark land together or not at all.
 - [ ] 5b.7 RED `ClosePosition`, rows 13–15, with the same atomicity test.
 - [ ] 5b.8 RED deferrals: the in-flight wait and the orphan close leave the signal `PROCESSING`.
