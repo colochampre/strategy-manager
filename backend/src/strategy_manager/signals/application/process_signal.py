@@ -654,7 +654,19 @@ class ProcessSignalHandler:
         database error.
         """
         if context.prior_reservation_id is None:
-            return ProcessSignalResult(transition.kind.value, None, False)
+            # Decision 27 (design.md § B): a releasing signal with nothing to
+            # release. Nothing closes and nothing opens, exactly as before;
+            # what is new is that it says so once and ends REJECTED instead of
+            # staying ACCEPTED with no trace. The message is the logged one.
+            refused = (
+                f"signal {signal_id} for strategy {context.strategy_id} asks to "
+                f"{transition.kind.value} {context.symbol}, but the strategy holds no "
+                "position to close (no prior reservation); nothing was closed"
+            )
+            if transition.kind is TransitionKind.REVERSE:
+                refused += ", and the new side was not opened"
+            logger.warning("%s", refused)
+            return await self._reject(signal_id, transition, "NO_POSITION_TO_CLOSE", refused)
 
         # Unlisted-pair WARNING, closing anyway (decision 15; design.md §
         # 7, "A releasing signal is never refused by the allowlist"). A

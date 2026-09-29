@@ -168,3 +168,49 @@ async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool
     row = await _row(pg_session_factory, signal_id)
     assert row.status == "REJECTED"
     assert row.outcome_reason == "NO_AVAILABILITY"
+
+
+async def test_a_release_with_no_position_is_durable_after_the_handler_returns(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Decision 27: ``NO_POSITION_TO_CLOSE`` rides the refusal commit, so it
+    survives the session closing. The signal row keeps Pionex's spelling while
+    the context carries TradingView's."""
+    caplog.set_level("WARNING", logger="strategy_manager.signals.application.process_signal")
+    strategy_id, signal_id = uuid4(), uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key="np1",
+        symbol="STXUSDT_PERP",
+    )
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="STXUSDT.P",
+        price=Decimal("2"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+
+    async with pg_session_factory() as session:
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+            place_order=SpyPlaceOrder(),
+            outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
+            commit=session,
+        )
+        await handler.handle(signal_id)
+
+    row = await _row(pg_session_factory, signal_id)
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert row.status == "REJECTED"
+    assert row.outcome_reason == "NO_POSITION_TO_CLOSE"
+    assert row.outcome_detail == warnings[0]
+    assert row.decided_at == _NOW
