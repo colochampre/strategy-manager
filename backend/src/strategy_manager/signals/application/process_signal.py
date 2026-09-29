@@ -517,6 +517,18 @@ class ProcessSignalHandler:
                 # never reseeds an already-consumed step (orchestrator
                 # review of `ee640d6`, "a close can be placed with no live
                 # continuation awaiting it").
+                #
+                # Decision 25 (5b.8): the signal is PROCESSING while the
+                # orphan is closed and the open waits. ``CloseOrphans`` seeds
+                # the continuation and then commits -- inside its first
+                # ``ClosePosition.close`` (SUBMITTED, or the NOT_CLOSABLE
+                # commit) or, when nothing needed closing, its own final
+                # commit -- so the status is staged here, BEFORE that call,
+                # and rides that same first commit as the seed. That takes
+                # the signals row lock ahead of the close's own inserts;
+                # every path to that row for one signal takes it in this same
+                # order, so it cannot cross-wait with itself.
+                await self._outcomes.record(signal_id, SignalOutcome.processing())
                 await self._close_orphans.close(
                     signal_id=signal_id,
                     pool=pool,
@@ -538,6 +550,11 @@ class ProcessSignalHandler:
             await self._open_after_close.seed(
                 signal_id, guard_outcome.awaited_allocation_ids or [], poll=next_poll
             )
+            # Decision 25 (5b.8): the open is deferred, not decided. PROCESSING
+            # is staged on the very commit that makes the seed durable, so a
+            # signal is never PROCESSING without a continuation to finish it
+            # (or the reverse). The signals row lock is the last one taken.
+            await self._outcomes.record(signal_id, SignalOutcome.processing())
             await self._commit.commit()
             return ProcessSignalResult(transition.kind.value, None, False)
 

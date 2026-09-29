@@ -1023,6 +1023,8 @@ a neighbouring commit.
 | 13 (`NOT_CLOSABLE`) | **none exists** — `close_position.py:178-183` returns before `self._attempts.insert(...)` or any `commit()` | 5b.10 must add a commit here |
 | 14 | `close_position.py:225-226` (`mark_failed` + commit, after the network call) | |
 | 15 (PROCESSING) | `close_position.py:246-247` (`mark_placed` + commit) | |
+| Deferral: in-flight wait | `process_signal.py`, `_handle_consumes`: the `commit()` that follows `open_after_close.seed(...)` | `PROCESSING` is staged between the seed and that commit, so the status and the continuation row are durable together (also on the `open_now` re-deferral, at `poll + 1`) |
+| Deferral: real orphan | the FIRST commit inside `CloseOrphans.close`: a close's own first commit (`SUBMITTED`, or the NOT_CLOSABLE commit), or the final commit when no close was placed | `PROCESSING` is staged in `_handle_consumes` immediately BEFORE `close_orphans.close(...)`, so it rides the same commit as the seed `CloseOrphans` stages first |
 | 18 | **none exists** on the handler side: `signal.process` commits right after `ClosePosition` returns (PR 5b2 added `await self._commit.commit()` in `_note_unexecuted_tail`) | written only when the close was placed (`result.executed`); a refused close already ended the signal with the CLOSE's code |
 
 **As built in PR 5b2 (unit C).** The rows above landed as designed, with these
@@ -1049,6 +1051,22 @@ differences, all verified against the code:
   identical outcome, so the terminal guard treats it as a silent repeat.
 - `outcome_detail` for rows 9-11 and 13-14 is the exact message already
   logged: each message is built once, recorded, and logged with `"%s"`.
+- **Lock order on the orphan deferral.** Every other write in this table
+  takes the signals row lock LAST, right before its commit. The orphan
+  deferral cannot: the commit that makes the seed durable is inside
+  `CloseOrphans` (inside `ClosePosition.close`), so `PROCESSING` is staged
+  first and the close's own inserts follow. This is safe because the only
+  other path that locks THAT signal's row is another delivery of the same
+  `signal.process` job, which takes it in the same order, so the two queue on
+  the signals row and never cross-wait; every other actor's locks are on
+  different rows. Do not "fix" it by moving the write after the close: the
+  close's commit would then make the seed durable without the status.
+- **Rows 19-20 needed no production code.** A duplicate delivery
+  (`insert_or_get` -> `inserted=False`, `ON CONFLICT DO NOTHING`) never touches
+  the row, and the idempotent close replay and the FAILED-reverse replay in
+  `_handle_releases` stage nothing. The proof is negative and therefore lives
+  in tests that hold a terminal outcome, replay, and assert the row and the
+  terminal guard's WARNING channel are both untouched.
 
 **A dependency this implies.** `PlaceOrder` can already reach `signal_id`
 without a new parameter: the `Reservation` it loads carries `signal_id`
