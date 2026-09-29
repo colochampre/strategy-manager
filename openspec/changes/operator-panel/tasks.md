@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `5978ac8`, alembic `0025`, `DRY_RUN=true`, the
+**Production now** (2026-09-29, VPS time): `main` at `d9fb55d`, alembic `0025`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -97,8 +97,8 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 5 | #13 | `17681ef` | — | 2026-09-28 | Restart both. The allowed-pairs gate is live. |
 | PR 5b | #14 | `d6833f9` | 0025 | 2026-09-29 | Tasks 5b.1–5b.5. Rehearsed on `sm_rehearsal_0025`, including the downgrade refusal once an outcome exists. Backup `/root/sm_pre0025_20260929_0219.dump`. Restart both. The 17 existing signals stay `ACCEPTED`. |
 | PR 5b2 | #15 | `5978ac8` | — | 2026-09-29 | Tasks 5b.6–5b.11 (5b.11 is decision 27). Pull, restart both. |
-| PR 5c | — | — | — | — | Tasks 5c.1–5c.5, on `feat/operator-panel-async-outcomes`. In review. No migration: pull, restart both. |
-| PR 5c2 | — | — | — | — | Tasks 5c.6–5c.7. Replayed onto `main` after PR 5c merges. |
+| PR 5c | #16 | `d9fb55d` | — | 2026-09-29 | Tasks 5c.1–5c.5. Pull, restart both. |
+| PR 5c2 | — | — | — | — | Tasks 5c.6–5c.7, on `feat/operator-panel-exhausted-jobs-5c2`. In review. No migration: pull, restart both. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
