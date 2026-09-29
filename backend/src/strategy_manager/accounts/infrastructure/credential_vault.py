@@ -10,6 +10,7 @@ to reactivate rather than a secret that no longer exists anywhere.
 """
 
 from datetime import datetime
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
@@ -88,7 +89,7 @@ class SqlAlchemyCredentialVault:
                 exchange=row.exchange,
                 label=row.label,
                 api_key_last4=row.api_key_last4,
-                facts=_facts_of(row),
+                facts=facts_of(row),
             )
             for row in rows
         ]
@@ -192,7 +193,28 @@ def _refuse_wrong_branch(exchange: str, facts: KeyFacts) -> None:
         )
 
 
-def _facts_of(row: ExchangeCredentialRow) -> KeyFacts:
+class RecordedFacts(Protocol):
+    """The columns that hold what was recorded about a key. An ORM row and a
+    row selected for the listing both have them, so both can be read the same
+    way and neither needs the columns that hold a secret."""
+
+    @property
+    def trade_capable(self) -> bool: ...
+    @property
+    def trade_capability_source(self) -> str: ...
+    @property
+    def trade_confirmed_at(self) -> datetime | None: ...
+    @property
+    def withdraw_check(self) -> str: ...
+    @property
+    def withdraw_confirmed_at(self) -> datetime | None: ...
+    @property
+    def validated_at(self) -> datetime | None: ...
+    @property
+    def internal_transfer(self) -> bool | None: ...
+
+
+def facts_of(row: RecordedFacts) -> KeyFacts:
     """The record about a key. A row the constraints let through is a row
     ``KeyFacts`` accepts; if it ever is not, that raises rather than shows."""
     return KeyFacts(

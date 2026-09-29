@@ -39,6 +39,9 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     CredentialNotFound,
     SqlAlchemyCredentialVault,
 )
+from strategy_manager.accounts.infrastructure.credentials_router import (
+    router as credentials_router,
+)
 from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
@@ -1763,6 +1766,7 @@ def create_app() -> FastAPI:
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
     api_router.include_router(webhook_secret_router)
+    api_router.include_router(credentials_router)
     app.include_router(api_router)
 
     return app

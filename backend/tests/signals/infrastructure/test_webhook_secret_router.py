@@ -22,19 +22,37 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import pytest
 import uvicorn
+from fastapi import Depends
 from fastapi.routing import iter_route_contexts
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.accounts.application.save_credential import SaveCredential
+from strategy_manager.accounts.domain.exchange_credential import (
+    ExchangeCredential,
+    FactSource,
+    KeyFacts,
+)
+from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
+from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from tests.accounts.fakes import (
+    NOW,
+    TRADING_SNAPSHOT,
+    RecordingInspector,
+    TickingClock,
+    registry_for,
+)
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -119,6 +137,11 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
     ("POST", "/api/reconciliation/bookings/{proposal_id}/reject"): {"reason": "seeded"},
+    # A REAL body, so the route answers 200 with facts and not an empty refusal (W2).
+    ("PUT", "/api/credentials/{exchange}"): {
+        "api_key": "SWEEP-FAKE-KEY-abcd",
+        "api_secret": "SWEEP-FAKE-SECRET-wxyz",
+    },
 }
 
 
@@ -198,8 +221,46 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
     await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
+    async with factory() as session:
+        # An active key, so ``GET /api/credentials`` answers a STORED entry and
+        # not only the empty ones an enabled pool produces.
+        await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
+        await SqlAlchemyCredentialVault(session, cipher, TickingClock()).store(
+            ExchangeCredential(
+                exchange="bybit",
+                label="default",
+                api_key="SEEDED-FAKE-KEY-9876",
+                api_secret="SEEDED-FAKE-SECRET",
+            ),
+            KeyFacts(
+                trade_capable=True,
+                trade_capability_source=FactSource.VERIFIED,
+                trade_confirmed_at=None,
+                withdraw_check=FactSource.VERIFIED,
+                withdraw_confirmed_at=None,
+                validated_at=NOW,
+                internal_transfer=False,
+            ),
+        )
+        await session.commit()
 
     app = create_app()
+
+    async def _save_credential(
+        session: Annotated[AsyncSession, Depends(shared_db.get_session)],
+    ) -> SaveCredential:
+        """The real use case over the real vault, with a FAKE venue: a sweep
+        request must never reach a live exchange."""
+        clock = TickingClock()
+        return SaveCredential(
+            registry_for(RecordingInspector(TRADING_SNAPSHOT)),
+            SqlAlchemyCredentialVault(session, cipher, clock),
+            session,
+            clock,
+        )
+
+    app.dependency_overrides[get_save_credential] = _save_credential
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with factory() as session:
@@ -248,6 +309,13 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
             assert response.text not in {"[]", "{}"}, (
                 f"{method} {template} answered an empty body"
             )
+
+    if (method, template) == ("PUT", "/api/credentials/{exchange}"):
+        assert response.status_code == 200, "the sweep's credential body must really be saved"
+        assert response.json()["last4"] == "abcd"
+    if (method, template) == ("GET", "/api/credentials"):
+        stored = [entry for entry in response.json() if entry["status"] == "STORED"]
+        assert [entry["last4"] for entry in stored] == ["9876"]
 
     assert SECRET not in response.text, f"{method} {template} put the secret in its body"
     for name, value in response.headers.items():
