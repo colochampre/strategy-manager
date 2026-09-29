@@ -1,15 +1,13 @@
-"""The three ``store_*_credentials.py`` scripts keep working once 0027 drops the
-column defaults (task 6a.9).
+"""What each ``store_*_credentials.py`` script may claim about a key (tasks 6a.9, 6b.7).
 
-``vault.store(credential, facts)`` now requires the facts. Until 8a-2 folds the
-Bybit and Binance scripts onto ``SaveCredential`` (and 6b.7 gives Binance its
-two confirmation flags), each script states exactly what it has always
-asserted and nothing more: ``KeyFacts.unrecorded(trade_capable=True)``. The
-scripts refused a key they could not see trading before sealing it, so ``True``
-is the value they already acted on, and ``UNRECORDED`` claims no verification
-and no confirmation.
+Pionex has no inspector and no futures pool (design addendum, Q3), so its script
+keeps sealing directly with ``KeyFacts.unrecorded(trade_capable=True)``: exactly
+what it has always asserted, claiming no verification and no confirmation.
 
-Structural, because the scripts need a database, a master key and a venue to
+The Bybit and Binance scripts were folded onto ``SaveCredential`` in 6b.7. They
+must never seal by themselves again, because a direct ``vault.store`` would skip
+the key policy: no confirmation check, no live read, no withdraw refusal. That is
+structural, because the scripts need a database, a master key and a venue to
 run, none of which a test may require (rule 1).
 """
 
@@ -19,10 +17,10 @@ from pathlib import Path
 import pytest
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
-_SCRIPTS = [
-    "store_pionex_credentials.py",
+_FOLDED = [
     "store_bybit_credentials.py",
     "store_binance_credentials.py",
+    "credential_cli.py",
 ]
 
 
@@ -37,11 +35,29 @@ def _store_calls(script: str) -> list[ast.Call]:
     ]
 
 
-@pytest.mark.parametrize("script", _SCRIPTS)
-def test_store_script_seals_with_unrecorded_facts_trade_capable_true(script: str) -> None:
-    calls = _store_calls(script)
+def test_pionex_seals_with_unrecorded_facts_trade_capable_true() -> None:
+    calls = _store_calls("store_pionex_credentials.py")
 
-    assert len(calls) == 1, script
+    assert len(calls) == 1
     args = calls[0].args
-    assert len(args) == 2, f"{script} must pass the facts to vault.store"
+    assert len(args) == 2, "store_pionex_credentials.py must pass the facts to vault.store"
     assert ast.unparse(args[1]) == "KeyFacts.unrecorded(trade_capable=True)"
+
+
+@pytest.mark.parametrize("script", _FOLDED)
+def test_folded_scripts_never_seal_directly_they_go_through_save_credential(
+    script: str,
+) -> None:
+    assert _store_calls(script) == [], f"{script} must not call vault.store itself"
+
+
+def test_folded_scripts_never_claim_unrecorded_facts() -> None:
+    for script in _FOLDED:
+        source = (_SCRIPTS_DIR / script).read_text(encoding="utf-8")
+        assert "KeyFacts.unrecorded" not in source, script
+
+
+def test_the_shared_saver_is_save_credential() -> None:
+    source = (_SCRIPTS_DIR / "credential_cli.py").read_text(encoding="utf-8")
+
+    assert "SaveCredential(" in source

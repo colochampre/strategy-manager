@@ -11,6 +11,7 @@ from typing import Protocol
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
+    KeyFacts,
 )
 from strategy_manager.accounts.domain.key_policy import PermissionSnapshot
 
@@ -121,6 +122,18 @@ class CredentialVaultPort(Protocol):
     async def hints(self) -> list[CredentialHint]: ...
 
 
+class CredentialWriterPort(Protocol):
+    """Stores a credential and makes it the active one for its exchange.
+
+    Deliberately has NO ``load``: the save path seals and never opens. Only the
+    worker decrypts, at signing time (CLAUDE.md rule 8, decision 5). Raises
+    ``ConcurrentCredentialSave`` when another save for the same exchange won the
+    race.
+    """
+
+    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint: ...
+
+
 class KeyInspectorPort(Protocol):
     """Asks a venue what a candidate key is allowed to do, before it is stored.
 
@@ -135,3 +148,10 @@ class KeyInspectorPort(Protocol):
     """
 
     async def inspect(self, credential: ExchangeCredential) -> PermissionSnapshot: ...
+
+
+class KeyInspectorRegistryPort(Protocol):
+    """Selects the inspector for an exchange. An unserved exchange raises; there
+    is no fallback."""
+
+    def for_exchange(self, exchange: str) -> KeyInspectorPort: ...
