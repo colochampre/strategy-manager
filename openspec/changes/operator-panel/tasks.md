@@ -740,6 +740,28 @@ in the ledger; its close ends `REJECTED` `NO_POSITION_TO_CLOSE` (decision 27).
 
 ---
 
+## PR 6e — A startup refusal exits 78 (decision 29) (150–350 lines)
+
+Added 2026-09-29. Every refusal the worker raises during its startup phase exits the process
+with code 78, after the ERROR it already logs. The owner adds `RestartPreventExitStatus=78` to
+the worker unit. A failure after startup keeps its current exit and keeps being restarted.
+
+- [ ] 6e.1 RED each startup refusal ends the process with exit code 78:
+  - the vault self-test;
+  - the pool advisory-lock key check (invariant 1);
+  - `assert_dry_run_safe` (invariant 2);
+  - the decision 28 mode guard;
+  - any other refusal found in the startup sequence.
+- [ ] 6e.2 RED an exception raised AFTER startup, from the running loop, does NOT exit 78: it keeps today's non-zero exit, so systemd restarts it. The test must fail if startup and runtime failures share an exit path.
+- [ ] 6e.3 RED each startup refusal still logs exactly one ERROR that reaches the alert bridge before the exit. A refusal that raises without an ERROR is a finding: it would stop the worker in silence.
+- [ ] 6e.4 GREEN a dedicated startup-refusal type raised only by the startup phase. It is not the generic `InvariantViolation`, which runtime code also raises. `worker.main` maps it to `sys.exit(78)`.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Rollback boundary: the exit mapping only. Without the unit setting, 78 behaves like any other non-zero exit.
+Deploy: pull, restart both. Then the owner adds the unit drop-in and reloads systemd.
+
+---
+
 ## PR 7 — Read endpoints: pools, performance, `GET /webhook-secret` (950–1,350 lines)
 
 **Files**: Create `backend/src/strategy_manager/accounts/infrastructure/{pools_router,pool_overview}.py`;

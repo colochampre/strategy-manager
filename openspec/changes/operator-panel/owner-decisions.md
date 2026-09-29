@@ -123,6 +123,14 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Why refuse to start, when decision 20 prefers a degraded start: flipping `DRY_RUN` is a deliberate manual act done with a restart. The owner is present to read the ERROR, and a degraded worker would have to guard every signal instead.
     - Planned as PR 6d, after PR 6c.
 
+29. **A worker that refuses its own start exits with code 78, and systemd does not restart it** (2026-09-29, found deploying PR 6d).
+    - The worker unit runs `Restart=always` with `RestartSec=5` and no `StartLimit*`. Systemd's default limit (5 starts in 10 s) is never reached at a 5 s spacing, so a refused start would loop forever, one Telegram alert every few seconds. The 900 s dedupe lives in memory and dies with each process.
+    - This applies to every startup refusal, not only decision 28's: the vault self-test, the lock-key check, `assert_dry_run_safe` and the mode guard.
+    - Every startup refusal exits 78 (`EX_CONFIG`) after its one ERROR. The owner adds `RestartPreventExitStatus=78` to the worker unit, so a refusal alerts once and the worker stays stopped until the owner acts.
+    - Anything that fails after startup keeps its current non-zero exit, and systemd keeps restarting it. That restart is the documented recovery for a dead recurring chain.
+    - Rejected alternative: `StartLimitIntervalSec`/`StartLimitBurst` on the unit. It would also stop the automatic recovery from a brief database outage.
+    - Planned as PR 6e, before PR 7.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.
