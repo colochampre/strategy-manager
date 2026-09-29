@@ -171,6 +171,8 @@ The output is pasted into `tasks.md` § Probe results. **No rule in `key_policy.
 
 ### 4. Key validation flow
 
+> **Superseded in part, 2026-09-29 (decisions 24 and 30).** Probe P6 showed that nothing reachable from the VPS reveals a Binance key's trade or withdraw permission. The trade-capability derivation (`enableFutures`), the Binance `apiRestrictions` read and the migration 0027 bullets below are replaced by "Addendum: key policy after probe P6 (decisions 24 and 30)": `permissions JSONB` is not stored, provenance columns are, and the `PUT`/`GET /credentials` shapes in § 14 change with it. Where they disagree, the addendum wins.
+
 > **Revised 2026-09-24 (decision 18).** One slot per exchange; rule 8(c) and its two refusals are removed; a key that cannot trade is accepted with a warning. Migration renumbered 0027 → 0026, and again 0026 → **0027** on 2026-09-28 (decision 25's signal-outcome migration took 0025, shifting every later one), and it now also adds `trade_capable`.
 >
 > **Revised 2026-09-25 (decision 21).** `SaveCredential` also enables that exchange's one futures pool, in the SAME transaction as the credential write, through a new `CapitalPoolWriterPort.enable(exchange)`. The pool's identity — `(venue, settlement_currency)` — and the `min_order_size` a newly-created row gets both come from one fixed constant, `KNOWN_FUTURES_POOLS` (`accounts/domain/known_pools.py`): `{bybit: (usdt-m, USDT), binance: (usdt-m, USDT)}`, one linear/USDT-margined perpetual pool per exchange, never taken from the request body. Bybit's and Binance's usdt-m/USDT rows already exist (migrations 0017/0018), so `enable` on either today only flips `enabled` to `true` if it was `false` and leaves the row's configured `min_order_size` untouched; a row that does not exist yet is inserted with `enabled=true` and `min_order_size` from the same constant's `default_min_order_size` field, so there is exactly one place that names both a pool's identity and its starting minimum. There is no pool-management endpoint or screen: the owner activates a pool only by saving a key, never directly. See F11 for what this write does and does not make visible to an already-running worker.
@@ -1568,3 +1570,162 @@ The worker refuses to start when `DRY_RUN` does not match the origin of what the
 
   then `systemctl daemon-reload`. Order does not matter for safety. The drop-in before the deploy is inert, because the old code never exits 78. The deploy before the drop-in leaves today's behaviour: a refusal exits 78, which systemd treats as any other failure and restarts. The protection exists only once both are in place. After a refusal the unit stays `failed` (`status=78`) until the owner starts it; a manual `systemctl restart strategy-worker` is unaffected by the setting.
 - **The API has the same loop, unfixed.** The lifespan in `main.py` raises `InvariantViolation` for `WEBHOOK_SECRET` and `ADMIN_API_TOKEN`. It logs no ERROR of its own, and uvicorn's lifespan ERROR goes to the `uvicorn` logger, which has `propagate=False`, so it never reaches the root logger the alert bridge is installed on. Those two refusals therefore do not reach any alert channel. Uvicorn ends the process with exit status 3 on a failed lifespan. If `strategy-api.service` also runs `Restart=always` it loops the same way, silently. Decision 29 does not cover it and this PR does not touch it.
+
+## Addendum: key policy after probe P6 (decisions 24 and 30) - 2026-09-29
+
+Task 8a.0b. Probes P1-P6 are recorded in tasks.md, and decisions 24 and 30 are binding. This addendum settles what they left open: how each venue satisfies the key rules, what 0027 records, and what the API, the scripts and the Settings screen do with it. It supersedes the trade-capability and migration-0027 bullets of § 4, the `GET`/`PUT /credentials` rows of § 14 and the key card and form of § 15. Those sections carry a pointer. Nothing here changes decision 18 (one key, read-only accepted with a warning), 20, 21 or 22.
+
+The principle: **the record says how each fact was established, and never claims more than was.** A fact the venue could not prove is not "false", not "true" by default, and not silently dropped. It is stored with the name of who vouched for it.
+
+### A. The per-venue verdict table
+
+| Rule | Bybit | Binance |
+| --- | --- | --- |
+| **8a, live read** | `GET /v5/account/wallet-balance?accountType=UNIFIED` (P4). Auth failure (`retCode` 10003/10004/33004) is `KEY_REJECTED`. | `GET /fapi/v3/account`, signed (P4). Auth failure (-2014/-2015/-1022) is `KEY_REJECTED`. -2015 also covers a wrong IP or a missing permission, so its detail says so. |
+| **8b, no withdraw** | **VERIFIED**, server-side and fail-closed. `GET /v5/user/query-api`: `permissions.Wallet` must be a list and a subset of `{AccountTransfer, SubMemberTransfer}` (P1). Any other token, or a missing or non-list `Wallet`, is refused. | **OWNER_CONFIRMED** (decision 24). Nothing reachable reveals it: SAPI `apiRestrictions` answers 403 from the VPS (P3) and `canWithdraw` is account-level (P6). The owner confirms "withdrawals disabled" and the confirmation is stored with its timestamp. |
+| **Trade capability** | **VERIFIED**: `readOnly == 0` on the same call (P2). The permission lists are never used: a read-only key still lists `ContractTrade` and `Derivatives`. | **OWNER_CONFIRMED** (decision 30). The owner confirms "Enable Futures" and the confirmation is stored with its timestamp. A key without it still reads every fapi endpoint (P6), so 8a proves nothing about trading. |
+| **Shown as** | Nothing extra. | "trade not verified" and "withdraw not verified", each with the date the owner confirmed. |
+
+Pionex has no inspector and is outside `KNOWN_FUTURES_POOLS`; `SaveCredential` does not serve it (see Q3).
+
+**`canTrade` and `canWithdraw` are never read, for any purpose.** P6 found them on `GET /fapi/v2/account` at the ACCOUNT level: both were `True` on a key that could neither trade futures nor withdraw. Reading them would record a false "verified" and turn a wrong belief into a stored fact. `/fapi/v3/account` no longer returns them, and the Binance inspector calls only that endpoint. A test feeds it the P6 v2 payload and asserts the snapshot stays empty.
+
+### B. The data model: migration 0027, revised
+
+**`permissions JSONB` is dropped from the plan.** Decision 24 says a raw payload is never displayed, because it carries whitelisted IPs, the userID and the KYC region. Storing it would keep that data at rest with no reader: the card needs the derived facts below, and they satisfy the spec's "permission snapshot". A minimal derived snapshot is the smaller and safer choice, and it removes a column the API would otherwise have to remember never to serialise. P5 (binding, expiry) is not stored: it gates nothing and Binance cannot supply it. A later additive column can carry it if PR 13 wants it.
+
+Columns added to `exchange_credentials`:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `trade_capable` | `boolean NOT NULL` | What the system acts on. Added `DEFAULT true`, backfilled, then the default is dropped (unchanged from § 4). |
+| `trade_capability_source` | `text NOT NULL` | `VERIFIED` (the venue said so), `OWNER_CONFIRMED` (the owner said so), `UNRECORDED` (a row sealed before 0027). |
+| `trade_confirmed_at` | `timestamptz NULL` | When the owner confirmed "Enable Futures". |
+| `withdraw_check` | `text NOT NULL` | How "this key cannot withdraw" was established. Same three values. |
+| `withdraw_confirmed_at` | `timestamptz NULL` | When the owner confirmed "withdrawals disabled". |
+| `validated_at` | `timestamptz NULL` | When the 8a live read passed. |
+| `internal_transfer` | `boolean NULL` | Bybit `AccountTransfer` present. `NULL` means unknown. Shown, never a refusal. |
+
+There is no `withdraw_capable` column: a key that can withdraw is refused and never stored, so `withdraw_check` describes how "cannot" was established.
+
+CHECK constraints (all named `ck_exchange_credentials_*`):
+
+1. Both source columns are in `{VERIFIED, OWNER_CONFIRMED, UNRECORDED}`.
+2. `(trade_capability_source = 'OWNER_CONFIRMED') = (trade_confirmed_at IS NOT NULL)`, and the same pairing for `withdraw_check` and `withdraw_confirmed_at`. A confirmation without its timestamp, or a timestamp without a confirmation, cannot exist.
+3. `trade_capability_source <> 'OWNER_CONFIRMED' OR trade_capable`. The owner confirms a capability, never an incapability.
+4. `(trade_capability_source = 'UNRECORDED') = (withdraw_check = 'UNRECORDED')`, and `(validated_at IS NULL) = (withdraw_check = 'UNRECORDED')`. A row is either fully recorded or fully legacy.
+5. `exchange <> 'binance' OR (trade_capability_source <> 'VERIFIED' AND withdraw_check <> 'VERIFIED')`. A Binance row cannot claim a verification the venue does not allow.
+6. `exchange <> 'bybit' OR (trade_capability_source <> 'OWNER_CONFIRMED' AND withdraw_check <> 'OWNER_CONFIRMED')`. Bybit is verified server-side; an owner confirmation on a Bybit row would mean the code took the wrong branch.
+
+If SAPI ever becomes reachable, constraint 5 is relaxed by a new migration. The constraint guards a policy, and a policy change is a migration.
+
+**Backfill.** Every existing row (production holds one active key each for binance, bybit and pionex, plus any history) becomes `trade_capable = true`, `trade_capability_source = 'UNRECORDED'`, `withdraw_check = 'UNRECORDED'`, with every timestamp and `internal_transfer` `NULL`.
+
+Why this is honest:
+- `true` is the value the system already acts on. Every one of these rows was sealed by a `store_*_credentials.py` that refused a key it could not see trading (the spec's sentence about pre-0027 rows), and the worker signs with them today. Setting `false` would assert something nobody knows.
+- `UNRECORDED` states what is true: no record exists of how the key was checked. A migration cannot decrypt a key or call a venue, so it must not write `VERIFIED`. It must not write `OWNER_CONFIRMED` either: the owner has not confirmed anything, and a fabricated timestamp cannot be told apart from a real one later.
+- The Binance key is the sharp case. It is the key the worker trades with, and it has NO confirmation on record. The card shows it as "not validated" with both "not verified" marks until the owner re-saves it with the two confirmations. What to do about it is an open question (Q1); the migration ships the neutral answer.
+
+**Downgrade.** Refuses while any row is not the backfill shape: `trade_capable = false`, or either source not `UNRECORDED`. It names the count of each. Dropping the columns would erase who vouched for a key and could make a read-only key look trade-capable, the same reasoning as 0025 and 0026. The owner deletes rows by hand if that is really wanted (the 0013 precedent). After the first save through Settings, the refusal is permanent, by design.
+
+Rehearsal follows the standing rule: a throwaway database restored from a fresh backup, the upgrade, each constraint refusal, and the downgrade refusal once a recorded row exists.
+
+### C. The API
+
+**`PUT /api/credentials/{exchange}`** body:
+`{api_key, api_secret: SecretStr, label?, withdrawals_disabled_confirmed: bool = false, futures_enabled_confirmed: bool = false}`.
+
+- **Binance: both are REQUIRED true.** A missing or false value answers 422 `CONFIRMATION_REQUIRED` with `{outcome, detail, missing: ["withdrawals_disabled_confirmed", ...]}` naming exactly what is absent. It is a use-case refusal, not a pydantic error, so it has the same shape as every other outcome. It is checked BEFORE the venue is called: nothing is sent to Binance for a key that cannot be stored.
+- **Bybit: a `true` confirmation is refused**, 422 `CONFIRMATION_NOT_APPLICABLE`, naming the field. Absent or false is fine. Refused, not ignored: Bybit is verified server-side, and a confirmation the server silently drops leaves the owner believing one was recorded. A silent drop is the failure this project keeps finding. Only a stale or wrong client sends it, and it should hear so.
+- Timestamps are the server clock (`ClockPort`) at save, both the same instant. A client never supplies one.
+- A confirmation belongs to the key it was given for. A rotation stores the new row with its own confirmations and inherits nothing.
+- New 422 outcome `PERMISSIONS_UNAVAILABLE`: the Bybit `query-api` answer lacked `readOnly` or `Wallet`. Fail-closed, nothing stored, one WARNING.
+- `WITHDRAW_PERMISSION` names the offending tokens, not the payload. It no longer carries `permissions`.
+- `warnings` stays `["READ_ONLY_KEY"]` when `trade_capable=false`. Only Bybit can produce it, verified. "Not verified" is not a warning; it is state, carried by the view.
+
+**`GET /api/credentials`** entry, replacing `permissions`:
+
+`{exchange, status, last4|null, label, stored_at, validated_at|null, trade_capable|null, trade_capability_source|null, trade_confirmed_at|null, withdraw_check|null, withdraw_confirmed_at|null, internal_transfer|null}`
+
+`status: EMPTY` nulls all of them. The view carries no raw payload and nothing of the key or secret beyond the last four characters. Nothing is re-queried live (the API never decrypts).
+
+### D. `evaluate_key`, pure domain
+
+```python
+def check_confirmations(exchange: str, c: OwnerConfirmations) -> KeyRefused | None  # before any venue call
+def evaluate_key(exchange: str, snapshot: PermissionSnapshot,
+                 confirmations: OwnerConfirmations) -> KeyVerdict
+```
+
+- **`PermissionSnapshot`** holds only what the venue said: `wallet_permissions: frozenset[str] | None` and `read_only: bool | None`. Both are `None` for Binance, whose inspector cannot observe them. **Verified inputs** are the snapshot; **confirmed inputs** are `OwnerConfirmations(withdrawals_disabled, futures_enabled)`. The two never mix: a Binance snapshot is empty, and a Bybit confirmation is refused.
+- 8a is not in `evaluate_key`. The inspector raises `KeyRejected` or `VenueUnreachable`; the function only sees a key the venue already accepted.
+- A per-exchange policy table (`KEY_POLICIES`) maps `bybit` to server-verified and `binance` to owner-confirmed. An unserved exchange raises: there is no fallback.
+- **`KeyVerdict` outcomes:**
+  - `KeyAccepted(trade_capable, trade_capability_source, withdraw_check, internal_transfer, warnings)`. No timestamps: `SaveCredential` stamps them from the clock, so the function stays pure. A read-only Bybit key is `KeyAccepted(trade_capable=False, ..., warnings=("READ_ONLY_KEY",))` (decision 18).
+  - `KeyRefused(outcome, detail, missing=())`, with `outcome` one of `WITHDRAW_PERMISSION`, `PERMISSIONS_UNAVAILABLE`, `CONFIRMATION_REQUIRED`, `CONFIRMATION_NOT_APPLICABLE`.
+- The domain value `KeyFacts` (in `exchange_credential.py`, no secret) is what `vault.store(credential, facts)` writes and `CredentialHint.facts` returns. It has no defaults, and its `__post_init__` enforces constraints 2-4, so the domain and the database refuse the same states. `ExchangeCredential` stays secret-only and is unchanged. This departs from § 4's "fields on `ExchangeCredential`": the object that carries the secret should not also carry the record about it.
+
+### E. Trade-capability refusal (6c)
+
+`VaultTradeCapabilityAdapter` still reads `exchange, trade_capable WHERE is_active` and never decrypts. It does not look at the source. A Binance key whose capability was only confirmed answers `TRADE_CAPABLE`: the confirmation is the source, and the owner has vouched for it. An `UNRECORDED` row answers from its column (`true` today). The backstop is the venue: a wrong confirmation makes the first live order end `REJECTED` `ORDER_REJECTED_BY_VENUE`, with an ERROR that reaches Telegram (PR 5b2, decision 30). `TradeCapability` keeps its three values. A fourth "unconfirmed" state was rejected: it would refuse live opens on a key the owner has said can trade.
+
+### F. The store scripts (6b.7)
+
+- `store_binance_credentials.py` drops its `apiRestrictions` call (403 from the VPS). It takes two flags, `--confirm-withdrawals-disabled` and `--confirm-futures-enabled`. Without both it prints which is missing to stderr, exits 2, and stores nothing. This is checked before the secret prompt, so no secret is typed for a run that cannot succeed. There is no environment variable, no `--yes` and no default: the flags are the owner's statement, made on the command line.
+- It then calls `SaveCredential` with the fapi inspector, like the endpoint, so both paths record the same facts.
+- `store_bybit_credentials.py` folds onto `SaveCredential` and takes no confirmation flags. A read-only key is stored with a warning instead of refused (decision 18).
+- `store_pionex_credentials.py` keeps sealing directly, passing `KeyFacts.unrecorded(trade_capable=True)`. It is the only caller of that constructor besides the interim edits in PR 8a-1.
+- The scripts run on the VPS, where the keys are IP-bound. They print last-4 only.
+
+### G. Frontend
+
+- **`KeyEntryForm` (10f), Binance only:** two checkboxes, unchecked, with submit disabled until both are ticked (a convenience; the server enforces). They are sent as booleans and reset in `finally` with the other fields. Bybit shows none and sends none.
+- **`ExchangeKeyCard` (10c):** the line keeps its shape. For `VERIFIED` it reads as before ("no withdrawal", "checked {date}"). For `OWNER_CONFIRMED` it never states "no withdrawal" as a fact: it shows two neutral `ink-2` marks, "trade not verified" and "withdraw not verified", each with "you confirmed on {date}". They are not amber, because amber means an action is needed. `UNRECORDED` shows "not validated" plus both marks.
+- **i18n keys** (EN/ES, in `en.json` and `es.json`):
+  - `settings.key.confirm.withdrawals`: "I confirmed in Binance that this key has withdrawals disabled"
+  - `settings.key.confirm.futures`: "I confirmed in Binance that this key has Enable Futures"
+  - `settings.key.confirm.help`: "Binance does not let this panel check either setting. If a confirmation is wrong, Binance rejects the first live order and you get a Telegram alert."
+  - `settings.key.error.confirmationRequired`, `settings.key.error.confirmationNotApplicable`, `settings.key.error.permissionsUnavailable`
+  - `settings.card.tradeNotVerified`: "trade not verified"
+  - `settings.card.withdrawNotVerified`: "withdraw not verified"
+  - `settings.card.confirmedOn`: "you confirmed on {{date}}"
+
+### H. Failure modes (what fails here without a log line?)
+
+| Failure | Guard |
+| --- | --- |
+| A wrong confirmation (the key lacks Enable Futures, or can withdraw) | Trade: the venue rejects the first live order, `ORDER_REJECTED_BY_VENUE`, ERROR to Telegram. Withdraw: mitigated by Binance's IP-restriction requirement and the VPS binding (decision 24); nothing in this system withdraws. |
+| The code claims a verification it did not make | Constraints 5 and 6, the `KeyFacts` invariants, and the P6-payload inspector test. |
+| An old row looks verified | `UNRECORDED` is a distinct value; the card shows it as such. |
+| A raw payload leaks | It is never stored and never in a view; the redacted 422 handler strips `input`/`ctx`. |
+| A Bybit field disappears from the venue's answer | `PERMISSIONS_UNAVAILABLE`: refused, nothing stored, one WARNING. |
+
+### I. The PR split for 8a
+
+The forecast grows from 1,900-2,600 to about 2,150-3,100 lines (the provenance columns, the confirmations and the extra tests), so 8a splits into four sequential PRs to `main`. Order is by blast radius, and each PR merges and deploys before the next branch is cut.
+
+| PR | Contents | Forecast | Deploy |
+| --- | --- | --- | --- |
+| **8a-1** | Unit 6a: `key_policy.py`, `KeyFacts`, inspectors, **migration 0027**, vault `store(credential, facts)` and `hints`. The three store scripts change by one line each to pass `KeyFacts.unrecorded(trade_capable=True)`, so they keep working once the default is dropped. The spec realignment (see below) is its first commit. | 950-1,350 | `alembic upgrade head`, restart both. Rehearsed first. |
+| **8a-2** | `SaveCredential` and the script fold: 6b.1, 6b.4, 6b.7. No HTTP. | 450-650 | Pull, restart both. |
+| **8a-3** | The surface: 6b.2, 6b.3, 6b.5, 6b.6 (router, redacted 422, view). | 400-600 | Pull, restart the API. |
+| **8a-4** | Unit 6c: `TradeCapabilityPort`, adapters, the up-front opening refusal. | 350-500 | Pull, restart both. |
+
+Why this order:
+- 0027 ships first, as required. 8a-1 must include the vault change and the one-line script edits, or the mandatory column breaks the scripts the moment the default is dropped.
+- `SaveCredential` follows before any endpoint, so the scripts are its first user and its behaviour is proven on real keys before HTTP exposes it.
+- The signal-path change (6c) goes last: it is the only PR that alters what a live signal does, and by then the recorded facts it reads exist.
+- 8a-2 and 8a-3 can merge into one PR of about 850-1,250 lines if the owner prefers fewer deploys. 8a-4 needs only 8a-1's column, so it may move ahead of 8a-2 without changing anything else.
+
+**Spec realignment (first commit of 8a-1).** `specs/exchange-credentials/spec.md` and `specs/operator-panel/spec.md` say "permission snapshot" and give `enableWithdrawals` and `enableFutures` scenarios for Binance. They are reworded to the derived facts, the two confirmations and the `UNRECORDED` state. `specs/admin-api/spec.md` needs only the body and view fields. The specs are outside this docs task's edit roots, so they are not touched here.
+
+### J. Open questions for the owner
+
+**Q1. What does the existing Binance key become?** It is the key the worker trades with, and no confirmation is on record. The migration backfills `trade_capable = true` with both sources `UNRECORDED`. The choices:
+- **A (planned, recommended).** Keep that. The card shows "not validated" and both "not verified" marks until the owner re-saves the key with the two confirmations. Live behaviour does not change, and the record never claims a confirmation that was not given. The cost: a re-save means pasting the key and secret again.
+- **B.** Backfill it as `OWNER_CONFIRMED` in the migration, on the owner's instruction now. The card would look clean at once, but the timestamp would be the migration's, not the moment the owner looked at Binance. Not recommended.
+- **C.** Backfill it `trade_capable = false`, so live opens are refused until the key is re-saved. It forces the confirmation before `DRY_RUN=false`, at the cost of calling "cannot trade" something nobody knows, and of a surprise refusal on the flip.
+
+**Q2. Should the owner be able to confirm an existing key without pasting it again?** It needs a confirm-only endpoint or script that updates the active row's confirmation columns. Recommend **no**: it adds a write path that changes a security fact on a stored key, and Q1-A reaches the same result with the paste Settings already asks for. Tradeoff: the owner pastes the key once more.
+
+**Q3. Pionex.** It has no inspector and no futures pool. Recommend that `store_pionex_credentials.py` keeps sealing directly with `UNRECORDED` facts, instead of folding onto `SaveCredential`, which would need an inspector nothing else uses. This deviates from task 6b.7's "fold all three". Tradeoff: Pionex rows can never show a recorded fact, which is true today.
