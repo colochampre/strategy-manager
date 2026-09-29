@@ -15,13 +15,13 @@ this use case returns a typed outcome and knows no status codes.
 import asyncio
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from strategy_manager.accounts.application.ports import CredentialWriterPort, KeyInspectorPort
+from strategy_manager.accounts.application.ports import CredentialWriterPort
 from strategy_manager.accounts.application.save_credential import (
     SaveCredential,
     Saved,
@@ -35,7 +35,6 @@ from strategy_manager.accounts.domain.errors import (
     VenueUnreachable,
 )
 from strategy_manager.accounts.domain.exchange_credential import (
-    CredentialHint,
     ExchangeCredential,
     FactSource,
     KeyFacts,
@@ -52,93 +51,31 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     ONE_ACTIVE_PER_EXCHANGE_CONSTRAINT,
     SqlAlchemyCredentialVault,
 )
-from strategy_manager.accounts.infrastructure.key_inspectors.registry import (
-    KeyInspectorRegistry,
-)
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from tests.accounts.fakes import (
+    BINANCE_KEY,
+    BINANCE_SECRET,
+    BOTH,
+    BYBIT_KEY,
+    BYBIT_SECRET,
+    NEITHER,
+    NOW,
+    READ_ONLY_SNAPSHOT,
+    TRADING_SNAPSHOT,
+    TRANSFER_SNAPSHOT,
+    RecordingCommit,
+    RecordingInspector,
+    RecordingWriter,
+    TickingClock,
+    as_writer,
+    binance_credential,
+    bybit_credential,
+    registry_for,
+)
 
 LOGGER = "strategy_manager.accounts.application.save_credential"
 
-BYBIT_KEY = "BYBIT-FAKE-KEY-abcd"
-BYBIT_SECRET = "BYBIT-FAKE-SECRET-wxyz"
-BINANCE_KEY = "BINANCE-FAKE-KEY-efgh"
-BINANCE_SECRET = "BINANCE-FAKE-SECRET-ijkl"
-
-NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
-
-BOTH = OwnerConfirmations(withdrawals_disabled=True, futures_enabled=True)
-NEITHER = OwnerConfirmations()
-
-TRADING_SNAPSHOT = PermissionSnapshot(wallet_permissions=frozenset(), read_only=False)
-TRANSFER_SNAPSHOT = PermissionSnapshot(
-    wallet_permissions=frozenset({"AccountTransfer"}), read_only=False
-)
-READ_ONLY_SNAPSHOT = PermissionSnapshot(
-    wallet_permissions=frozenset({"AccountTransfer"}), read_only=True
-)
-
-
-def bybit_credential(api_key: str = BYBIT_KEY) -> ExchangeCredential:
-    return ExchangeCredential(
-        exchange="bybit", label="default", api_key=api_key, api_secret=BYBIT_SECRET
-    )
-
-
-def binance_credential(api_key: str = BINANCE_KEY) -> ExchangeCredential:
-    return ExchangeCredential(
-        exchange="binance", label="default", api_key=api_key, api_secret=BINANCE_SECRET
-    )
-
-
-class TickingClock:
-    """A new instant on EVERY call, so a use case that asks twice stamps two
-    different moments and a test comparing them notices."""
-
-    def __init__(self, start: datetime = NOW) -> None:
-        self._next = start
-
-    def now(self) -> datetime:
-        moment = self._next
-        self._next = moment + timedelta(seconds=1)
-        return moment
-
-
-class RecordingInspector:
-    """A fake venue that records every request it is asked to make."""
-
-    def __init__(
-        self, snapshot: PermissionSnapshot | None = None, error: Exception | None = None
-    ) -> None:
-        self._snapshot = snapshot if snapshot is not None else PermissionSnapshot()
-        self._error = error
-        self.calls: list[str] = []
-
-    async def inspect(self, credential: ExchangeCredential) -> PermissionSnapshot:
-        self.calls.append(credential.exchange)
-        if self._error is not None:
-            raise self._error
-        return self._snapshot
-
-
-class RecordingWriter:
-    def __init__(self, error: Exception | None = None) -> None:
-        self._error = error
-        self.stored: list[tuple[ExchangeCredential, KeyFacts]] = []
-
-    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint:
-        if self._error is not None:
-            raise self._error
-        self.stored.append((credential, facts))
-        return credential.hint(facts)
-
-
-class RecordingCommit:
-    def __init__(self) -> None:
-        self.commits = 0
-
-    async def commit(self) -> None:
-        self.commits += 1
 
 
 class Harness:
@@ -154,10 +91,8 @@ class Harness:
         self.writer = writer or RecordingWriter()
         self.commit = RecordingCommit()
         self.use_case = SaveCredential(
-            KeyInspectorRegistry(
-                {"bybit": _as_port(inspector), "binance": _as_port(inspector)}
-            ),
-            _as_writer(self.writer),
+            registry_for(inspector),
+            as_writer(self.writer),
             self.commit,
             clock or TickingClock(),
         )
@@ -166,14 +101,6 @@ class Harness:
         self, credential: ExchangeCredential, confirmations: OwnerConfirmations = NEITHER
     ) -> SaveResult:
         return await self.use_case.execute(credential, confirmations)
-
-
-def _as_port(inspector: RecordingInspector) -> KeyInspectorPort:
-    return inspector
-
-
-def _as_writer(writer: RecordingWriter) -> CredentialWriterPort:
-    return writer
 
 
 def _saved(result: SaveResult) -> Saved:
@@ -495,7 +422,7 @@ def _real_use_case(
     clock: TickingClock,
 ) -> SaveCredential:
     return SaveCredential(
-        KeyInspectorRegistry({"bybit": _as_port(inspector), "binance": _as_port(inspector)}),
+        registry_for(inspector),
         SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), clock),
         session,
         clock,
