@@ -16,7 +16,7 @@ from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
-from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -85,7 +85,7 @@ async def test_a_live_start_over_an_open_rehearsal_position_is_refused(
 ) -> None:
     allocation_id, strategy_name = await _seed_open_position(pg_session_factory, rehearsal=True)
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await main.assert_dry_run_matches_ledger(
             dry_run=False, session_factory_override=pg_session_factory
         )
@@ -102,7 +102,7 @@ async def test_a_dry_run_start_over_an_open_live_position_is_refused(
 ) -> None:
     allocation_id, _ = await _seed_open_position(pg_session_factory, rehearsal=False)
 
-    with caplog.at_level(logging.INFO), pytest.raises(InvariantViolation):
+    with caplog.at_level(logging.INFO), pytest.raises(StartupRefused):
         await main.assert_dry_run_matches_ledger(
             dry_run=True, session_factory_override=pg_session_factory
         )

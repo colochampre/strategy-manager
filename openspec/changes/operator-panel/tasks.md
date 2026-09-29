@@ -746,15 +746,19 @@ Added 2026-09-29. Every refusal the worker raises during its startup phase exits
 with code 78, after the ERROR it already logs. The owner adds `RestartPreventExitStatus=78` to
 the worker unit. A failure after startup keeps its current exit and keeps being restarted.
 
-- [ ] 6e.1 RED each startup refusal ends the process with exit code 78:
+- [x] 6e.1 RED each startup refusal ends the process with exit code 78:
+  - Done 2026-09-29: `tests/test_worker_startup_exit.py::test_every_startup_refusal_exits_78`, six cases through `worker.main`, the real `operator_alerts` and the real `_run_worker` sequence (only PostgreSQL and venue leaves replaced): vault self-test, pool lock-key collision, no enabled pools, unreadable `MASTER_ENCRYPTION_KEY`, the decision 28 mode guard (the real use case over a fake reader), and `assert_dry_run_safe` (the real `build_worker_runner` with a non-live adapter registered). RED on assertions: `assert 'InvariantViolation' == 78` (and `'PoolLockKeyCollisionError' == 78`) x6. Two refusals beyond the four named were found: no enabled pools, and the master key.
   - the vault self-test;
   - the pool advisory-lock key check (invariant 1);
   - `assert_dry_run_safe` (invariant 2);
   - the decision 28 mode guard;
   - any other refusal found in the startup sequence.
-- [ ] 6e.2 RED an exception raised AFTER startup, from the running loop, does NOT exit 78: it keeps today's non-zero exit, so systemd restarts it. The test must fail if startup and runtime failures share an exit path.
-- [ ] 6e.3 RED each startup refusal still logs exactly one ERROR that reaches the alert bridge before the exit. A refusal that raises without an ERROR is a finding: it would stop the worker in silence.
-- [ ] 6e.4 GREEN a dedicated startup-refusal type raised only by the startup phase. It is not the generic `InvariantViolation`, which runtime code also raises. `worker.main` maps it to `sys.exit(78)`.
+- [x] 6e.2 RED an exception raised AFTER startup, from the running loop, does NOT exit 78: it keeps today's non-zero exit, so systemd restarts it. The test must fail if startup and runtime failures share an exit path.
+  - Done 2026-09-29: `test_a_failure_from_the_running_loop_is_not_a_startup_refusal` (`InvariantViolation`, `DecryptionFailed`, `PoolLockKeyCollisionError`, `RuntimeError` from `run_forever`), `test_a_failure_while_seeding_the_chains_is_not_a_startup_refusal`, `test_a_failure_from_the_running_loop_logs_no_startup_refusal`. These pass against today's code by construction (nothing maps to 78 yet). Proven non-vacuous by mutation: wrapping `run_forever` and the seeding in `_startup_refusal()` fails 5 of them.
+- [x] 6e.3 RED each startup refusal still logs exactly one ERROR that reaches the alert bridge before the exit. A refusal that raises without an ERROR is a finding: it would stop the worker in silence.
+  - Done 2026-09-29: `test_every_startup_refusal_logs_one_error_that_reaches_the_alert_channel` (one ERROR in `caplog` and one message on the recording alerter, per refusal, inside the real `operator_alerts`), `test_the_mode_guard_keeps_its_own_error_text`, `test_a_refusal_never_puts_the_master_key_or_a_traceback_in_the_alert`. RED on `assert 0 == 1` for the five refusals that logged nothing. **Finding: five of the six raised without any ERROR** (lock-key collision, no pools, master key, vault self-test, `assert_dry_run_safe`); only the mode guard logged. The worker now logs `refusing to start: <message>` with no `exc_info`. Mutation: logging unconditionally instead of honouring `logged` fails the mode guard cases (two ERRORs).
+- [x] 6e.4 GREEN a dedicated startup-refusal type raised only by the startup phase. It is not the generic `InvariantViolation`, which runtime code also raises. `worker.main` maps it to `sys.exit(78)`.
+  - Done 2026-09-29: `shared/domain/startup_refusal.py::StartupRefused` (stdlib only, `logged` flag); `worker._startup_refusal()` converts `InvariantViolation` and `PoolLockKeyCollisionError` around each startup check (wrap, not raise: the checks are shared with runtime code); `assert_mode_matches_ledger` raises it directly with `logged=True`; `worker.main` maps only it to `sys.exit(78)`. design.md addendum "a startup refusal exits 78 (decision 29)" gives the unit drop-in and the deploy-order answer. The six mode guard tests that expected `InvariantViolation` now expect `StartupRefused`.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Rollback boundary: the exit mapping only. Without the unit setting, 78 behaves like any other non-zero exit.
