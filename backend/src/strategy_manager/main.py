@@ -12,6 +12,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -188,6 +189,7 @@ from strategy_manager.shared.infrastructure.bybit.signer import BybitCredentials
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.heartbeat import build_heartbeat
+from strategy_manager.shared.infrastructure.http_logging import silence_http_client_info_logs
 from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
@@ -196,6 +198,9 @@ from strategy_manager.shared.infrastructure.observed_job_queue import (
 )
 from strategy_manager.shared.infrastructure.recurring_jobs import RECURRING_KINDS
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
+from strategy_manager.shared.infrastructure.validation_errors import (
+    redacted_validation_handler,
+)
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import HoldingGuard
@@ -1714,12 +1719,21 @@ def create_app() -> FastAPI:
     # that can log one.
     install_access_log_redaction()
 
+    # From PR 8a-3 this process runs key inspectors, and httpx would log the
+    # signed Binance URL (signature included) at INFO for each one. The worker
+    # applies the same setting. This must run before any inspector does.
+    silence_http_client_info_logs()
+
     app = FastAPI(
         title="Strategy Manager",
         version="0.1.0",
         summary="Capital-allocation engine for TradingView strategies executing on Pionex",
         lifespan=lifespan,
     )
+
+    # One handler for the whole app: a 422 never echoes a submitted value
+    # (design 8a section H, task 6b.5). The credential body is a key and secret.
+    app.add_exception_handler(RequestValidationError, redacted_validation_handler)
 
     app.add_middleware(
         CORSMiddleware,
