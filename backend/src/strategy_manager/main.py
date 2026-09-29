@@ -228,6 +228,9 @@ from strategy_manager.signals.infrastructure.venue_net_position import VenueNetP
 from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
+from strategy_manager.signals.infrastructure.webhook_secret_router import (
+    router as webhook_secret_router,
+)
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.admin_token_invariant import (
     assert_admin_api_token_configured,
@@ -1745,6 +1748,7 @@ def create_app() -> FastAPI:
     api_router.include_router(reconciliation_router)
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
+    api_router.include_router(webhook_secret_router)
     app.include_router(api_router)
 
     return app
