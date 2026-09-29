@@ -1735,3 +1735,15 @@ Why this order:
 **Q2. Should the owner be able to confirm an existing key without pasting it again?** It needs a confirm-only endpoint or script that updates the active row's confirmation columns. Recommend **no**: it adds a write path that changes a security fact on a stored key, and Q1-A reaches the same result with the paste Settings already asks for. Tradeoff: the owner pastes the key once more.
 
 **Q3. Pionex.** It has no inspector and no futures pool. Recommend that `store_pionex_credentials.py` keeps sealing directly with `UNRECORDED` facts, instead of folding onto `SaveCredential`, which would need an inspector nothing else uses. This deviates from task 6b.7's "fold all three". Tradeoff: Pionex rows can never show a recorded fact, which is true today.
+
+### K. Implementation notes, PR 8a-1 (2026-09-29): where the code differs from the text above
+
+Written as the code landed, so the addendum and the repository do not disagree silently.
+
+- **`KeyRejected` and `VenueUnreachable` did not exist.** § A and § D name them as if they did. They are defined in `accounts/domain/errors.py` (both `DomainError`), and their messages carry the venue's own code and never a payload or a secret.
+- **The inspector contract is `inspect(credential) -> PermissionSnapshot`,** declared as `KeyInspectorPort` in `accounts/application/ports.py`. Task 6b lists that port for 8a-2; it is declared in 8a-1 because the registry needs its type. The candidate credential is passed in because it is not stored yet.
+- **The `PERMISSIONS_UNAVAILABLE` WARNING is logged by the Bybit inspector,** not by `evaluate_key`. § H says "one WARNING". The inspector is the only place that knows which field was unusable, and `evaluate_key` stays pure. It names the exchange and the unusable field (`permissions.Wallet`, `readOnly`), never a value.
+- **`readOnly` is trusted only as the integers 0 and 1** (the shape P2 recorded). A bool, a string or any other value is treated as missing, so it fails closed.
+- **A Binance `PermissionSnapshot` that is not empty is an `InvariantViolation`,** not a quiet pass. § D says a Binance snapshot is empty; this enforces it, so a verified input that reaches the confirmed branch is a loud bug and not a stored fact the venue never supplied.
+- **`FactSource` is a `StrEnum`** in `exchange_credential.py` (`VERIFIED`, `OWNER_CONFIRMED`, `UNRECORDED`), spelled exactly as the database CHECK spells them. `KeyAccepted` and `KeyFacts` share it.
+- **The set of Bybit auth codes is the three § A lists** (10003, 10004, 33004). Any other `retCode`, a non-200 status, a transport failure or a body of the wrong shape is `VenueUnreachable` with a code or status in the message. Nothing is stored either way. A Bybit IP mismatch (`10010`) is therefore reported as unreachable; adding it to `KeyRejected` is a one-line change if the owner prefers.

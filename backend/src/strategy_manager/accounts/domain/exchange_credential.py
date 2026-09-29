@@ -10,10 +10,26 @@ the secret never leaves the worker's signing path (CLAUDE.md rule 8).
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 LAST4_LENGTH = 4
+
+
+class FactSource(StrEnum):
+    """Who established a recorded fact about a key.
+
+    The record says how each fact was established and never claims more than
+    was: ``VERIFIED`` means the venue said so, ``OWNER_CONFIRMED`` means the
+    owner said so, ``UNRECORDED`` means no record exists (a row sealed before
+    the facts were kept). The values are stored verbatim, so they are spelled
+    exactly as the database CHECK spells them.
+    """
+
+    VERIFIED = "VERIFIED"
+    OWNER_CONFIRMED = "OWNER_CONFIRMED"
+    UNRECORDED = "UNRECORDED"
 
 
 @dataclass(frozen=True, slots=True, repr=False)

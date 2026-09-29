@@ -12,6 +12,7 @@ from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
 )
+from strategy_manager.accounts.domain.key_policy import PermissionSnapshot
 
 PoolKey = tuple[str, str, str]
 """A pool's identity: ``(exchange, venue, settlement_currency)``."""
@@ -118,3 +119,19 @@ class CredentialVaultPort(Protocol):
     async def load(self, exchange: str) -> ExchangeCredential: ...
 
     async def hints(self) -> list[CredentialHint]: ...
+
+
+class KeyInspectorPort(Protocol):
+    """Asks a venue what a candidate key is allowed to do, before it is stored.
+
+    GET-only by contract: an inspector never places an order and never changes
+    a setting. It runs the live read (rule 8a) and returns only the derived
+    ``PermissionSnapshot``, never the venue's payload.
+
+    Raises ``KeyRejected`` when the venue refuses the key and
+    ``VenueUnreachable`` when it could not be asked. The candidate credential
+    is passed in because it is not stored yet; nothing here decrypts a vault
+    row.
+    """
+
+    async def inspect(self, credential: ExchangeCredential) -> PermissionSnapshot: ...
