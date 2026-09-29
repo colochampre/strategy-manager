@@ -1007,7 +1007,7 @@ reconstructs their outcome.
 | — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c (unit G) |
 | — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c (unit G) |
 | — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` (branch 3 after the closes filled, or branch 4) or `settle_timeout_seconds` | signal.open_after_close | 5c (unit G) |
-| — | `JOB_FAILED` | any of `signal.process` / `signal.open_after_close` / `execution.settle` exhausting retries to `FAILED` | (job-kind-agnostic reader) | 5c |
+| — | `JOB_FAILED` | any of `signal.process` / `signal.open_after_close` / `execution.settle` exhausting retries to `FAILED` | (a job-kind-agnostic queue tells an observer; a separate reader resolves the signal, § F) | 5c (unit H) |
 
 Rows 19–20 (a duplicate webhook delivery, an idempotent close replay) never
 produce a *second* outcome for a signal; they are the ordinary case the
@@ -1047,6 +1047,7 @@ a neighbouring commit.
 | 17 (`ORDER_NEVER_REACHED_EXCHANGE`) | `settle_execution.py::_release_never_placed`: the release commit | the message is built once, recorded as the detail, then logged with `"%s"` |
 | Continuation abandonments (`SIGNAL_SUPERSEDED`, `AWAITED_CLOSE_FAILED`, `CONTINUATION_TIMED_OUT`) | `main.py::handle_signal_open_after_close`: the trailing `session.commit()` after `open_after_close.poll(job)` | `poll` never commits and nothing else is written on these paths, so the staged outcome rides that one commit. A deleted signal writes nothing. Written with `record_unless_terminal` (§ A) |
 | Continuation `open_now` (rows 2-15 reused) | the same commits as in `signal.process` (`_reject`, `AllocateCapital`, `PlaceOrder`, `ClosePosition`), on the continuation job's own session | no new write: `open_now` reaches the same `_handle_consumes`; proven end to end on real PostgreSQL |
+| `JOB_FAILED` | `job_queue.py::fail()`'s own commit: the observer runs between the `FAILED` status `UPDATE` and the `commit()`, on the queue's session, under a SAVEPOINT | staged with the status, so the two commit together or not at all (§ F). Written with `record_unless_terminal` (§ A) |
 | Deferral: in-flight wait | `process_signal.py`, `_handle_consumes`: the `commit()` that follows `open_after_close.seed(...)` | `PROCESSING` is staged between the seed and that commit, so the status and the continuation row are durable together (also on the `open_now` re-deferral, at `poll + 1`) |
 | Deferral: real orphan | the FIRST commit inside `CloseOrphans.close`: a close's own first commit (`SUBMITTED`, or the NOT_CLOSABLE commit), or the final commit when no close was placed | `PROCESSING` is staged in `_handle_consumes` immediately BEFORE `close_orphans.close(...)`, so it rides the same commit as the seed `CloseOrphans` stages first |
 | 18 | **none exists** on the handler side: `signal.process` commits right after `ClosePosition` returns (PR 5b2 added `await self._commit.commit()` in `_note_unexecuted_tail`) | written only when the close was placed (`result.executed`); a refused close already ended the signal with the CLOSE's code |
@@ -1353,6 +1354,114 @@ visual flag at the cost of the misrepresentation risk above; the alternative
 removes the misrepresentation at the cost of the flag. Both are internally
 consistent with the status machine in § A — neither needs a third terminal
 value.
+
+### F. Exhausted jobs (PR 5c unit H, task 5c.6)
+
+A signal whose `signal.process`, `signal.open_after_close` or `execution.settle`
+job ends `FAILED` becomes `REJECTED` `JOB_FAILED`, with `jobs.last_error` as the
+detail, exactly once and never over a terminal signal.
+
+**The trigger: a hook at the point `queue.fail()` marks a job `FAILED`, in the
+same transaction.** The alternatives, and why they lost:
+
+- *A recurring sweep* of `FAILED` jobs. Level-triggered and crash-safe, but it
+  leaves a window (up to its interval) in which a job is `FAILED` and its signal
+  still looks alive, which is exactly the silence decision 25 exists to remove;
+  it also adds a second recurring chain that must itself stay alive, and the
+  `FAILED` rows it would rescan are kept forever (`jobs.purge` never deletes one).
+- *A hook in `WorkerRunner` after `queue.fail()` returns.* `fail()` commits
+  internally, so the outcome would be a separate later transaction: a crash
+  between the two leaves the job `FAILED` and the signal undecided, with nothing
+  scheduled to notice.
+
+The hook keeps `PostgresJobQueue` job-kind-agnostic:
+
+- `shared/application/ports.py` declares `ExhaustedJobObserverPort.on_exhausted(job,
+  last_error)`. The queue passes the job through opaquely (kind, payload, attempts)
+  and never interprets it.
+- `PostgresJobQueue.fail()` is unchanged in behaviour; its body split into
+  `_record_failure` (stage, return the job when this failure spent the last
+  attempt) plus the commit. `ExhaustionObservingJobQueue` (a subclass) runs the
+  observer between the two.
+- It is a SUBCLASS with a REQUIRED observer, not an optional parameter on
+  `PostgresJobQueue`: that class is built at dozens of enqueue-only sites where
+  nothing can exhaust, and an optional observer defaulting to "nobody" would be a
+  silent no-op on exactly the queue where it matters. Only
+  `main.build_worker_runner`'s `queue_factory` builds the worker's queue (the one
+  queue whose `fail()` is ever called), so that is the one wiring site; a test
+  drives the production runner to pin it.
+- `signals/infrastructure/failed_job_signal_reader.py` is the separate reader:
+  `signal.process` and `signal.open_after_close` carry `signal_id`;
+  `execution.settle` goes through the attempt, `execution_attempts.signal_id` for a
+  close (never the opening reservation's signal) and `reservation.signal_id` for an
+  open. A NULL link, or a kind that decides no signal, resolves to nothing. A
+  payload that cannot be resolved RAISES, and the queue logs it.
+- `signals/infrastructure/exhausted_job_recorder.py` writes the outcome through
+  `record_unless_terminal` (§ A).
+
+**"Exactly once", by construction, under redelivery and concurrency.**
+
+1. A job reaches `FAILED` once: `claim()` takes `FOR UPDATE SKIP LOCKED` and only
+   `PENDING` rows are claimable, so no second worker holds the row, and a `FAILED`
+   row is never claimed again.
+2. The outcome and the `FAILED` status are ONE transaction. A crash or a failed
+   commit before it loses both; the job is then reclaimed and its next failure
+   stages the same write again. It is never written twice and never half-written
+   (`test_a_failed_commit_loses_the_failed_status_and_the_rejection_together`).
+3. Two exhausted jobs of ONE signal (say `signal.process` and the `execution.settle`
+   of its open) write once: the second finds the signal terminal and is a silent
+   no-op, so the first error is the recorded one.
+4. Concurrent writers serialise on the signals row (`FOR UPDATE`): a held lock makes
+   the exhaustion write wait (`not task.done()`), and once the holder commits it
+   sees the terminal row and stays silent.
+
+**A SAVEPOINT around the observer.** `run_once` calls `fail()` from an `except`
+block, so an observer exception escaping it would leave the job `CLAIMED`, out of
+the retry chain and never reported, and would escape `run_forever`. The savepoint
+rolls back only what the observer staged; the job is still marked `FAILED`; the
+failure is logged at ERROR (`str(exc)` only, redacted, no traceback). A signal
+left undecided that way is loud, not silent.
+
+**What `jobs.last_error` can carry, now that it is panel-visible.** Read from how
+errors are formatted today:
+
+- Adapter errors (`pionex`/`bybit`/`binance` transports) are `"{METHOD} {path}
+  failed: {exc}"`: the PATH only, never the query string, which is where the
+  signature, the api key and the timestamp travel. The venue's own `retMsg`/`msg`
+  text follows, and httpx transport errors (`ConnectError`, `ReadTimeout`) carry no
+  headers or body.
+- Database errors carry SQLAlchemy's `[SQL: ...]` and `[parameters: ...]`: order
+  sizes, ids, client order ids. None of these three job kinds touches a credential
+  table. Connection errors name host and port; an authentication failure names the
+  user, never the password.
+- Domain errors are prose with ids. Nothing stores a traceback: the runner passes
+  `str(exc)`, and the DSN incident recorded in `alert_redaction.py` was a traceback
+  with locals.
+
+So nothing here is EXPECTED to carry a credential or a DSN, but the panel is a new
+consumer and the shapes are pattern-dependent, so the detail is passed through the
+same `redact()` the alert channel uses (it removes: DSN passwords, URL query strings,
+`name=value` secrets, bearer tokens; it adds nothing) and truncated to 500
+characters with a trailing ellipsis. The recorded detail adds NOTHING to the error:
+no job id, no payload, no attempt count. The raw `jobs.last_error` column is
+unchanged and stays outside the panel.
+
+**Log lines.** A job reaching `FAILED` does NOT log an ERROR at that moment.
+`WorkerRunner` logs one WARNING per failed attempt, including the last, with the
+same string `fail()` stores; the ERROR comes from the watchdog, on its cadence, as
+one combined line naming the kinds and counts that ended `FAILED` since its previous
+run (`watchdog.py`, condition 3). Nothing is added here: the recorded detail is that
+same WARNING string, and a duplicate ERROR per exhaustion would defeat the watchdog's
+one-ERROR-per-condition throttling. The one new log is ERROR when the observer
+itself fails (above), which is a branch that would otherwise fail without a line.
+
+**Limits, stated.** Jobs that exhausted before this shipped are not back-filled
+(nothing reconstructs history, same as § A). If the ONLY job of a signal to die is
+an `execution.settle` whose order in fact filled (the exchange published fills but
+settle kept failing), the signal is recorded `JOB_FAILED` while the position is
+real: that is the honest outcome for the job, the ledger is untouched, and a later
+successful settle of that attempt would meet the terminal guard and WARN, which is a
+genuine conflict worth seeing.
 
 ### Map corrections
 

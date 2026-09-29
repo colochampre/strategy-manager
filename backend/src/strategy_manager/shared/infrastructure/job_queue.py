@@ -145,8 +145,19 @@ class PostgresJobQueue:
         await self._session.commit()
 
     async def fail(self, job_id: UUID, error: str) -> None:
+        await self._record_failure(job_id, error)
+        await self._session.commit()
+
+    async def _record_failure(self, job_id: UUID, error: str) -> ClaimedJob | None:
+        """Stages the failure on the session WITHOUT committing, and returns
+        the job when this failure spent its last attempt (it is now
+        ``FAILED``), ``None`` when it goes back to ``PENDING`` for a retry.
+        ``fail()`` commits right after; ``ExhaustionObservingJobQueue`` slots
+        its observer in between, so the two share one transaction."""
         result = await self._session.execute(
-            select(JobRow.attempts, JobRow.max_attempts).where(JobRow.id == job_id)
+            select(JobRow.kind, JobRow.payload, JobRow.attempts, JobRow.max_attempts).where(
+                JobRow.id == job_id
+            )
         )
         row = result.one()
         now = self._clock.now()
@@ -166,7 +177,15 @@ class PostgresJobQueue:
         await self._session.execute(
             update(JobRow).where(JobRow.id == job_id).values(**values)
         )
-        await self._session.commit()
+        if retrying:
+            return None
+        return ClaimedJob(
+            id=job_id,
+            kind=JobKind(row.kind),
+            payload=row.payload,
+            attempts=row.attempts,
+            max_attempts=row.max_attempts,
+        )
 
     def _retry_delay(self, attempts: int) -> float:
         """``min(base * 2 ** (attempts - 1), cap)``.

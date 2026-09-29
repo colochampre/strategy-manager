@@ -181,6 +181,9 @@ from strategy_manager.shared.infrastructure.heartbeat import build_heartbeat
 from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
+from strategy_manager.shared.infrastructure.observed_job_queue import (
+    ExhaustionObservingJobQueue,
+)
 from strategy_manager.shared.infrastructure.recurring_jobs import RECURRING_KINDS
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
@@ -190,6 +193,12 @@ from strategy_manager.signals.application.open_after_close import OpenAfterClose
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     ProcessSignalResult,
+)
+from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
+    ExhaustedJobSignalRecorder,
+)
+from strategy_manager.signals.infrastructure.failed_job_signal_reader import (
+    SqlAlchemyFailedJobSignalReader,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
@@ -1626,8 +1635,21 @@ def build_worker_runner(
         async with factory() as session:
             # The one queue whose ``fail()`` is ever called: WorkerRunner claims
             # through this factory, so this is where the retry backoff decides
-            # whether a transient fault costs a chain its life.
-            yield _job_queue(session, settings)
+            # whether a transient fault costs a chain its life -- and where a
+            # job that spends its LAST attempt ends its signal (decision 25,
+            # 5c.6). ``ExhaustionObservingJobQueue`` requires its observer, so
+            # this queue cannot be built without one; the observer stages on
+            # this same session, inside the transaction that marks the job
+            # FAILED.
+            yield ExhaustionObservingJobQueue(
+                session,
+                observer=ExhaustedJobSignalRecorder(
+                    SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+                    SqlAlchemyFailedJobSignalReader(session),
+                ),
+                backoff_base_seconds=settings.job_retry_backoff_base_seconds,
+                backoff_max_seconds=settings.job_retry_backoff_max_seconds,
+            )
 
     handlers: Mapping[JobKind, JobHandler] = {
         JobKind.SIGNAL_PROCESS: handle_signal_process,
