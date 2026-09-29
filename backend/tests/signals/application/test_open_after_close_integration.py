@@ -90,6 +90,7 @@ from strategy_manager.signals.infrastructure.signal_context import SignalContext
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import RecordingSkipRecorder
+from tests.execution.fakes import RecordingOrderOutcomes
 from tests.signals.fakes import RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -352,6 +353,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             clock=clock,
             commit=session,
             settle_delay_seconds=0.0,
+            outcomes=RecordingOrderOutcomes(),
         )
         close_result = await close_position.close(
             CloseCommand(
@@ -362,6 +364,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 settlement_currency="USDT",
                 symbol="STXUSDT.P",
                 side=OrderSide.SELL,
+                signal_id=None,
             )
         )
     assert close_result.status == "PLACED"
@@ -469,6 +472,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             clock=clock,
             commit=session,
             settle_delay_seconds=0.0,
+            outcomes=RecordingOrderOutcomes(),
         )
 
         async def _open_now(this_signal_id: UUID, this_poll: int) -> object:

@@ -108,6 +108,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Why: the status column must tell a REVERSE that ended flat from one that flipped. The declined alternative (`PROCESSED` whenever an order executed) would show both as `PROCESSED`, and only the detail would tell them apart.
     - Design: design.md, "Addendum: signal outcomes (decision 25)", § E.
 
+27. **A releasing signal with no position to release ends `REJECTED` `NO_POSITION_TO_CLOSE`, with a WARNING** (2026-09-29, found in PR 5b2).
+    - `_handle_releases` returns early when the system holds no position for the strategy (`prior_reservation_id is None`). Today that path leaves no log line, and the signal stays `ACCEPTED` forever.
+    - It happens when TradingView believes a position exists that the system never opened, for example because the open was refused for lack of capital.
+    - Why `REJECTED`: the system did nothing, and TradingView and the system disagree about the position. Decision 26 already reserves `REJECTED` for "the intent was not carried out".
+    - Added to PR 5b2 as task 5b.11. It is covered by decision 25's "every refusal path"; the outcome map had missed it.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

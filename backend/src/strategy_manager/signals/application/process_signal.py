@@ -387,7 +387,7 @@ class ProcessSignalHandler:
             # the close above settles FILLED -- there is no unexecuted tail
             # to report here, only a completion still in flight.
             return result
-        return self._note_unexecuted_tail(context, transition, result)
+        return await self._note_unexecuted_tail(signal_id, context, transition, result)
 
     async def open_now(self, signal_id: UUID, poll: int = 0) -> ProcessSignalResult:
         """The S5 continuation's own entry point (design.md § S5, "all
@@ -517,6 +517,18 @@ class ProcessSignalHandler:
                 # never reseeds an already-consumed step (orchestrator
                 # review of `ee640d6`, "a close can be placed with no live
                 # continuation awaiting it").
+                #
+                # Decision 25 (5b.8): the signal is PROCESSING while the
+                # orphan is closed and the open waits. ``CloseOrphans`` seeds
+                # the continuation and then commits -- inside its first
+                # ``ClosePosition.close`` (SUBMITTED, or the NOT_CLOSABLE
+                # commit) or, when nothing needed closing, its own final
+                # commit -- so the status is staged here, BEFORE that call,
+                # and rides that same first commit as the seed. That takes
+                # the signals row lock ahead of the close's own inserts;
+                # every path to that row for one signal takes it in this same
+                # order, so it cannot cross-wait with itself.
+                await self._outcomes.record(signal_id, SignalOutcome.processing())
                 await self._close_orphans.close(
                     signal_id=signal_id,
                     pool=pool,
@@ -538,6 +550,11 @@ class ProcessSignalHandler:
             await self._open_after_close.seed(
                 signal_id, guard_outcome.awaited_allocation_ids or [], poll=next_poll
             )
+            # Decision 25 (5b.8): the open is deferred, not decided. PROCESSING
+            # is staged on the very commit that makes the seed durable, so a
+            # signal is never PROCESSING without a continuation to finish it
+            # (or the reverse). The signals row lock is the last one taken.
+            await self._outcomes.record(signal_id, SignalOutcome.processing())
             await self._commit.commit()
             return ProcessSignalResult(transition.kind.value, None, False)
 
@@ -637,7 +654,19 @@ class ProcessSignalHandler:
         database error.
         """
         if context.prior_reservation_id is None:
-            return ProcessSignalResult(transition.kind.value, None, False)
+            # Decision 27 (design.md § B): a releasing signal with nothing to
+            # release. Nothing closes and nothing opens, exactly as before;
+            # what is new is that it says so once and ends REJECTED instead of
+            # staying ACCEPTED with no trace. The message is the logged one.
+            refused = (
+                f"signal {signal_id} for strategy {context.strategy_id} asks to "
+                f"{transition.kind.value} {context.symbol}, but the strategy holds no "
+                "position to close (no prior reservation); nothing was closed"
+            )
+            if transition.kind is TransitionKind.REVERSE:
+                refused += ", and the new side was not opened"
+            logger.warning("%s", refused)
+            return await self._reject(signal_id, transition, "NO_POSITION_TO_CLOSE", refused)
 
         # Unlisted-pair WARNING, closing anyway (decision 15; design.md §
         # 7, "A releasing signal is never refused by the allowlist"). A
@@ -723,6 +752,7 @@ class ProcessSignalHandler:
                 settlement_currency=policy.settlement_currency,
                 symbol=context.symbol,
                 side=_releasing_side(_prior_of(context)),
+                signal_id=signal_id,
             )
         )
         if close_result.status in ("FAILED", "NOT_CLOSABLE"):
@@ -945,8 +975,9 @@ class ProcessSignalHandler:
         await self._commit.commit()
         return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
-    def _note_unexecuted_tail(
+    async def _note_unexecuted_tail(
         self,
+        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         result: ProcessSignalResult,
@@ -971,6 +1002,17 @@ class ProcessSignalHandler:
         defensible state, since the prior exposure is genuinely gone, but it
         is not what the signal asked for, so it is reported rather than
         swallowed.
+
+        **Row 18 (decision 26, design.md § E).** The close half was placed
+        (``result.executed``) and its commit already moved the signal to
+        ``PROCESSING``; the open half can never run, because spot cannot
+        hold the new short. So the signal ends ``REJECTED``
+        ``REVERSE_NEW_SIDE_UNHOLDABLE``, written here after the close and
+        committed by this handler -- a commit of its own, since the close's
+        commits are behind us. Nothing is written when the close was itself
+        refused or never ran (``executed`` is False): ``ClosePosition``
+        already ended the signal with the CLOSE's code, and a second,
+        different outcome would only be a warning against a terminal row.
         """
         tail = transition.effects[1].value
         refused = (
@@ -982,6 +1024,14 @@ class ProcessSignalHandler:
         logger.warning(
             "partial %s on %s: %s", transition.kind.value, context.symbol, refused
         )
+        if result.executed:
+            detail = (
+                f"{refused}; the close was submitted and spot cannot hold the new short"
+            )
+            await self._outcomes.record(
+                signal_id, SignalOutcome.rejected("REVERSE_NEW_SIDE_UNHOLDABLE", detail)
+            )
+            await self._commit.commit()
         return replace(result, refused=refused)
 
 

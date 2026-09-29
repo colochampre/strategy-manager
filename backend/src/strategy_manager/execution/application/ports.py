@@ -213,6 +213,7 @@ class ReservationSnapshot:
 
     id: UUID
     strategy_id: UUID
+    signal_id: UUID
     exchange: str
     venue: str
     settlement_currency: str
@@ -310,3 +311,26 @@ class CommitPort(Protocol):
     object with an async ``commit()`` satisfies it structurally."""
 
     async def commit(self) -> None: ...
+
+
+class OrderOutcomeRecorderPort(Protocol):
+    """Records, on the caller's own session, what became of the SIGNAL an
+    order or close was placed for (decision 25, design.md "Addendum: signal
+    outcomes" § C, rows 9-15). Declared here, consumer-side, so ``execution``
+    never imports ``signals``;
+    ``signals.infrastructure.order_outcome_recorder.SignalOrderOutcomeRecorder``
+    adapts it onto ``SignalOutcomePort``.
+
+    Like ``SignalOutcomePort.record`` it stages the write and NEVER commits:
+    the use case calls it immediately before the commit that makes the
+    outcome durable, so the outcome and the reservation mark / attempt write
+    land together or not at all.
+
+    ``record_rejected`` ends the signal ``REJECTED``: ``reason`` is the stable
+    code and ``detail`` the human message already logged for that branch.
+    ``record_processing`` is the interim status of a submitted order whose
+    fate ``execution.settle`` decides later -- never ``PROCESSED``."""
+
+    async def record_processing(self, signal_id: UUID) -> None: ...
+
+    async def record_rejected(self, signal_id: UUID, reason: str, detail: str) -> None: ...

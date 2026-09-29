@@ -36,6 +36,7 @@ NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 ATTEMPT_ID = uuid4()
 RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
+SIGNAL_ID = uuid4()
 CLIENT_ORDER_ID = "client-order-1"
 
 
@@ -106,6 +107,7 @@ class FakeReservations:
         return ReservationSnapshot(exchange="pionex", 
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
+            signal_id=SIGNAL_ID,
             venue="spot",
             settlement_currency="USDT",
             amount=Decimal("100"),

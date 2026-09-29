@@ -222,6 +222,12 @@ class CloseOrphans:
                     settlement_currency=settlement_currency,
                     symbol=symbol,
                     side=_closing_side(holding.net_base),
+                    # An orphan close is not the signal's own act: the signal is
+                    # DEFERRED behind it (``PROCESSING``, written by the
+                    # handler), and the continuation decides the rest. Passing
+                    # the signal would let a dust orphan REJECT the very open
+                    # that is waiting on it, before 5c owns that decision.
+                    signal_id=None,
                 )
             )
         if unsafe_allocation_ids:

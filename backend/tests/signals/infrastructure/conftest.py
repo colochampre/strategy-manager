@@ -159,6 +159,7 @@ async def seed_signal_row(
     signal_id: UUID,
     strategy_id: UUID,
     idempotency_key: str,
+    symbol: str = "BTCUSDT",
 ) -> None:
     async with session_factory() as session:
         session.add(
@@ -171,7 +172,7 @@ async def seed_signal_row(
                 contracts=Decimal("1"),
                 position_size=Decimal("1"),
                 price=Decimal("1"),
-                symbol="BTCUSDT",
+                symbol=symbol,
                 signal_type=str(strategy_id),
             )
         )

@@ -192,6 +192,9 @@ from strategy_manager.signals.application.process_signal import (
     ProcessSignalResult,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
+from strategy_manager.signals.infrastructure.order_outcome_recorder import (
+    SignalOrderOutcomeRecorder,
+)
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemySignalOutcomeAdapter,
 )
@@ -374,6 +377,7 @@ def _build_process_signal_handler(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
+        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
     )
 
     # A close shares the exchange and the attempt repository with placement,
@@ -387,6 +391,7 @@ def _build_process_signal_handler(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
+        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
     )
 
     # The S5 continuation (design.md § S5) and this handler need each other:

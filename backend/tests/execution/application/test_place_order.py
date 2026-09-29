@@ -35,11 +35,13 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.execution.fakes import RecordingOrderOutcomes
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 SETTLE_DELAY = 2.0
 RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
+SIGNAL_ID = uuid4()
 
 
 class FrozenClock:
@@ -52,6 +54,7 @@ class FakeReservations:
         self._snapshot = ReservationSnapshot(exchange="pionex", 
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
+            signal_id=SIGNAL_ID,
             venue="spot",
             settlement_currency="USDT",
             amount=amount,
@@ -177,8 +180,11 @@ def _build(
     amount: Decimal = Decimal("100"),
     exchange_raises: Exception | None = None,
     build_open_raises: Exception | None = None,
+    outcomes: RecordingOrderOutcomes | None = None,
 ) -> tuple[PlaceOrder, FakeReservations, SpyAttempts, SpyQueue, SpyExchange, list[str]]:
     log: list[str] = []
+    outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
+    outcomes.log = log
     reservations = FakeReservations(expires_at, amount)
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
@@ -191,6 +197,7 @@ def _build(
         clock=FrozenClock(),
         commit=SpyCommit(log),
         settle_delay_seconds=SETTLE_DELAY,
+        outcomes=outcomes,
     )
     return use_case, reservations, attempts, queue, exchange, log
 
@@ -464,3 +471,102 @@ async def test_a_rejected_order_logs_exactly_one_error(
     assert str(RESERVATION_ID) in message
     assert "BTC_USDT" in message
     assert "insufficient balance" in message
+
+
+# --------------------------------------------------------------------------
+# Decision 25, rows 9-12 (tasks 5b.6): each definitive end of an order is
+# recorded on the signal, staged immediately before the commit that makes it
+# durable. ``RecordingOrderOutcomes`` shares the use case's call log, so the
+# ORDER of "outcome.*" against "commit" is what proves the same-commit rule.
+# --------------------------------------------------------------------------
+
+
+async def test_an_expired_reservation_rejects_the_signal_on_its_release_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.place_order")
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(expires_at=NOW - timedelta(seconds=1), outcomes=outcomes)
+
+    await use_case.place(_command())
+
+    logged = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert outcomes.rejected == [
+        (SIGNAL_ID, "RESERVATION_EXPIRED_BEFORE_SUBMIT", logged[0])
+    ]
+    assert outcomes.processing == []
+    # Staged first, then the ONE commit that also carries the release.
+    assert log == ["outcome.rejected", "commit"]
+
+
+async def test_an_order_not_placeable_rejects_the_signal_on_its_release_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.place_order")
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(
+        build_open_raises=OrderNotPlaceable(
+            "BTCUSDT is too small to open a position",
+            symbol="BTCUSDT",
+            size=Decimal("0"),
+            minimum=Decimal("0.001"),
+            step=Decimal("0.001"),
+        ),
+        outcomes=outcomes,
+    )
+
+    await use_case.place(_command())
+
+    logged = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert outcomes.rejected == [(SIGNAL_ID, "ORDER_NOT_PLACEABLE", logged[0])]
+    assert "BTCUSDT is too small to open a position" in logged[0]
+    assert outcomes.processing == []
+    assert log == ["outcome.rejected", "commit"]
+
+
+async def test_a_venue_rejection_rejects_the_signal_on_the_post_network_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Row 11 rides the commit AFTER the network call (release + mark_failed),
+    never the pre-network SUBMITTED one: at that earlier commit nothing is
+    known about the venue's answer yet."""
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.place_order")
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(
+        exchange_raises=ExchangeError("insufficient balance"), outcomes=outcomes
+    )
+
+    await use_case.place(_command())
+
+    logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert outcomes.rejected == [(SIGNAL_ID, "ORDER_REJECTED_BY_VENUE", logged[0])]
+    assert outcomes.processing == []
+    assert log == [
+        "attempt.insert",
+        "queue.enqueue",
+        "commit",
+        "exchange.place",
+        "outcome.rejected",
+        "commit",
+    ]
+
+
+async def test_a_placed_order_leaves_the_signal_processing_on_the_placed_commit() -> None:
+    """Row 12: PROCESSING, never PROCESSED and never REJECTED, staged on the
+    ``mark_placed`` commit -- not the earlier SUBMITTED commit, which only
+    says the attempt was written, not that the exchange accepted it."""
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(outcomes=outcomes)
+
+    await use_case.place(_command())
+
+    assert outcomes.processing == [SIGNAL_ID]
+    assert outcomes.rejected == []
+    assert log == [
+        "attempt.insert",
+        "queue.enqueue",
+        "commit",
+        "exchange.place",
+        "outcome.processing",
+        "commit",
+    ]

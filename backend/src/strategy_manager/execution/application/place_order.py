@@ -41,6 +41,7 @@ from strategy_manager.execution.application.ports import (
     ExecutionAttemptRepositoryPort,
     OpenOrderSpec,
     OrderNotPlaceable,
+    OrderOutcomeRecorderPort,
     ReservationGatewayPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
@@ -93,6 +94,7 @@ class PlaceOrder:
         clock: ClockPort,
         commit: CommitPort,
         settle_delay_seconds: float,
+        outcomes: OrderOutcomeRecorderPort,
     ) -> None:
         self._reservations = reservations
         self._exchanges = exchanges
@@ -101,6 +103,7 @@ class PlaceOrder:
         self._clock = clock
         self._commit = commit
         self._settle_delay_seconds = settle_delay_seconds
+        self._outcomes = outcomes
 
     async def place(self, command: PlaceCommand) -> PlaceResult:
         reservation = await self._reservations.get_for_update(command.reservation_id)
@@ -109,15 +112,20 @@ class PlaceOrder:
         # ---- TXN-B1: pre-submit expiry re-check, no advisory lock
         if reservation.expires_at <= now:
             await self._reservations.mark(reservation.id, RELEASED, now)
-            await self._commit.commit()
             # 2f.2 (orchestrator's outcome map, finding 9): ``_handle_
             # consumes`` never reads ``PlaceResult`` at all, so this WARNING
-            # is the only trace an expired reservation ever leaves.
-            logger.warning(
-                "reservation %s expired before submission; releasing it, no "
-                "order placed",
-                reservation.id,
+            # is the only trace an expired reservation ever leaves. The same
+            # message is the signal's ``outcome_detail`` (decision 25, row 9),
+            # staged on the release commit below so the two land together.
+            expired = (
+                f"reservation {reservation.id} expired before submission; "
+                "releasing it, no order placed"
             )
+            await self._outcomes.record_rejected(
+                reservation.signal_id, "RESERVATION_EXPIRED_BEFORE_SUBMIT", expired
+            )
+            await self._commit.commit()
+            logger.warning("%s", expired)
             return PlaceResult(status="ABORTED_EXPIRED", execution_attempt_id=None)
 
         client_order_id = str(uuid4())
@@ -153,15 +161,18 @@ class PlaceOrder:
             # every write in this method -- so there is no attempt to mark
             # failed, only the reservation to release.
             await self._reservations.mark(reservation.id, RELEASED, now)
-            await self._commit.commit()
-            logger.warning(
-                "order not placeable, releasing reservation: reservation=%s "
-                "strategy=%s symbol=%s reason=%s",
-                reservation.id,
-                reservation.strategy_id,
-                command.symbol,
-                exc,
+            # Row 10: the logged message is the outcome detail, staged on
+            # the release commit (this branch's only commit).
+            not_placeable = (
+                "order not placeable, releasing reservation: "
+                f"reservation={reservation.id} strategy={reservation.strategy_id} "
+                f"symbol={command.symbol} reason={exc}"
             )
+            await self._outcomes.record_rejected(
+                reservation.signal_id, "ORDER_NOT_PLACEABLE", not_placeable
+            )
+            await self._commit.commit()
+            logger.warning("%s", not_placeable)
             return PlaceResult(
                 status="REFUSED", execution_attempt_id=None, error=str(exc)
             )
@@ -207,6 +218,16 @@ class PlaceOrder:
             # waiting for settlement to reach the same conclusion.
             await self._reservations.mark(reservation.id, RELEASED, now)
             await self._attempts.mark_failed(attempt_id, str(exc))
+            # Row 11: staged on THIS commit (release + mark_failed, after the
+            # network call), not the pre-network SUBMITTED one above, which
+            # was written before the venue had said anything.
+            rejected = (
+                f"order rejected by venue: reservation={reservation.id} "
+                f"symbol={command.symbol} error={exc}"
+            )
+            await self._outcomes.record_rejected(
+                reservation.signal_id, "ORDER_REJECTED_BY_VENUE", rejected
+            )
             await self._commit.commit()
             # 2f.3 (orchestrator's outcome map, finding 11): this except
             # block was the one call site in this file with no log line at
@@ -215,17 +236,16 @@ class PlaceOrder:
             # not WARNING: a trade that did not happen reaches Telegram, the
             # same severity the venue rejection in ``close_position.py``
             # already uses.
-            logger.error(
-                "order rejected by venue: reservation=%s symbol=%s error=%s",
-                reservation.id,
-                command.symbol,
-                exc,
-            )
+            logger.error("%s", rejected)
             return PlaceResult(
                 status="FAILED", execution_attempt_id=attempt_id, error=str(exc)
             )
 
         await self._attempts.mark_placed(attempt_id, placed.exchange_order_id)
+        # Row 12: the order is only SUBMITTED to the exchange; its fate is
+        # decided by ``execution.settle``, so the signal is PROCESSING, never
+        # PROCESSED. Staged on the ``mark_placed`` commit.
+        await self._outcomes.record_processing(reservation.signal_id)
         await self._commit.commit()
         return PlaceResult(
             status="PLACED",
