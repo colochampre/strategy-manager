@@ -225,6 +225,29 @@ async def test_closes_a_positive_net_with_a_sell_and_a_negative_net_with_a_buy()
     assert sides[short_holding.allocation_id] == OrderSide.BUY
 
 
+async def test_an_orphan_close_carries_no_signal_so_it_never_decides_the_signal() -> None:
+    """Decision 25: the signal is DEFERRED behind an orphan close (the handler
+    marks it PROCESSING). Handing the close the signal would let a dust orphan
+    REJECT the very open waiting on it, so it is passed as ``None`` on purpose."""
+    strategy_id = uuid4()
+    holdings = [
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")),
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("-0.3")),
+    ]
+    close_position = SpyClosePosition()
+    close_orphans = CloseOrphans(
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=SpyCommit(),
+    )
+
+    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", holdings)
+
+    assert len(close_position.calls) == 2
+    assert [call.signal_id for call in close_position.calls] == [None, None]
+
+
 async def test_an_allocation_with_a_committed_close_is_skipped() -> None:
     """Idempotent skip (spec: trade-execution § "A retried close is not
     re-sent"): a non-FAILED close already recorded means an earlier run of

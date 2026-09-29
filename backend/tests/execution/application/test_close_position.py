@@ -44,11 +44,13 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.execution.fakes import RecordingOrderOutcomes
 
 NOW = datetime(2026, 8, 21, 14, 0, 0, tzinfo=UTC)
 SETTLE_DELAY = 2.0
 ALLOCATION_ID = uuid4()
 STRATEGY_ID = uuid4()
+SIGNAL_ID = uuid4()
 
 
 class FrozenClock:
@@ -178,8 +180,11 @@ def _build(
     net_base: Decimal = Decimal("0.00199960"),
     exchange_raises: Exception | None = None,
     build_close_raises: Exception | None = None,
+    outcomes: RecordingOrderOutcomes | None = None,
 ) -> tuple[ClosePosition, SpyAttempts, SpyQueue, SpyExchange, FakeHeld, list[str]]:
     log: list[str] = []
+    outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
+    outcomes.log = log
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
     exchange = SpyExchange(log, exchange_raises, build_close_raises)
@@ -192,11 +197,14 @@ def _build(
         clock=FrozenClock(),
         commit=SpyCommit(log),
         settle_delay_seconds=SETTLE_DELAY,
+        outcomes=outcomes,
     )
     return use_case, attempts, queue, exchange, held, log
 
 
-def _command(side: OrderSide = OrderSide.SELL) -> CloseCommand:
+def _command(
+    side: OrderSide = OrderSide.SELL, signal_id: UUID | None = SIGNAL_ID
+) -> CloseCommand:
     return CloseCommand(exchange="pionex", 
         allocation_id=ALLOCATION_ID,
         strategy_id=STRATEGY_ID,
@@ -204,6 +212,7 @@ def _command(side: OrderSide = OrderSide.SELL) -> CloseCommand:
         settlement_currency="USDT",
         symbol="BTC_USDT",
         side=side,
+        signal_id=signal_id,
     )
 
 
@@ -390,6 +399,7 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
         settlement_currency="USDT",
         symbol="ETH_BTC",
         side=OrderSide.SELL,
+        signal_id=SIGNAL_ID,
     )
 
     with pytest.raises(InvariantViolation, match="cannot fund"):
@@ -472,3 +482,118 @@ async def test_a_dust_residual_logs_exactly_one_error(
     assert str(result.base_size) in message
     assert "0.001" in message
     assert reason in message
+
+
+# --------------------------------------------------------------------------
+# Decision 25, rows 13-15 (task 5b.7): each definitive end of a close is
+# recorded on the signal the close acts on, staged immediately before the
+# commit that makes it durable. ``RecordingOrderOutcomes`` shares the use
+# case's call log, so the order of "outcome.*" against "commit" is what
+# proves the same-commit rule.
+# --------------------------------------------------------------------------
+
+_DUST = OrderNotPlaceable(
+    "BTCUSDT is smaller than one tradable unit",
+    symbol="BTCUSDT",
+    size=Decimal("0"),
+    minimum=Decimal("0.001"),
+    step=Decimal("0.001"),
+)
+
+
+async def test_a_dust_residual_rejects_the_signal_on_a_commit_added_at_that_branch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Row 13 had NO commit before this task: the branch returned ahead of
+    the attempt insert. The outcome is staged and the one new commit follows
+    it, so a REVERSE's already-staged continuation seed becomes durable here
+    too instead of waiting for the handler's trailing commit."""
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.close_position")
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(
+        net_base=Decimal("0.0002"), build_close_raises=_DUST, outcomes=outcomes
+    )
+
+    result = await use_case.close(_command())
+
+    logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert result.status == "NOT_CLOSABLE"
+    assert outcomes.rejected == [(SIGNAL_ID, "CLOSE_DUST_NOT_CLOSABLE", logged[0])]
+    assert outcomes.processing == []
+    assert log == ["outcome.rejected", "commit"]
+
+
+async def test_a_dust_residual_with_no_signal_still_commits_but_records_nothing() -> None:
+    """An orphan close passes ``signal_id=None``: no outcome exists to write,
+    but the new commit is what makes a seed staged before this call durable,
+    so it stays."""
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(
+        net_base=Decimal("0.0002"), build_close_raises=_DUST, outcomes=outcomes
+    )
+
+    await use_case.close(_command(signal_id=None))
+
+    assert outcomes.rejected == []
+    assert outcomes.processing == []
+    assert log == ["commit"]
+
+
+async def test_a_venue_rejection_rejects_the_signal_on_the_post_network_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("ERROR", logger="strategy_manager.execution.application.close_position")
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(
+        exchange_raises=ExchangeError("insufficient balance"), outcomes=outcomes
+    )
+
+    result = await use_case.close(_command())
+
+    logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert result.status == "FAILED"
+    assert outcomes.rejected == [(SIGNAL_ID, "CLOSE_REJECTED_BY_VENUE", logged[0])]
+    assert outcomes.processing == []
+    assert log == [
+        "attempt.insert",
+        "queue.enqueue",
+        "commit",
+        "exchange.place",
+        "outcome.rejected",
+        "commit",
+    ]
+
+
+async def test_a_placed_close_leaves_the_signal_processing_on_the_placed_commit() -> None:
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, _, _, log = _build(outcomes=outcomes)
+
+    result = await use_case.close(_command())
+
+    assert result.status == "PLACED"
+    assert outcomes.processing == [SIGNAL_ID]
+    assert outcomes.rejected == []
+    assert log == [
+        "attempt.insert",
+        "queue.enqueue",
+        "commit",
+        "exchange.place",
+        "outcome.processing",
+        "commit",
+    ]
+
+
+async def test_a_close_with_no_signal_records_nothing_when_placed_or_rejected() -> None:
+    placed = RecordingOrderOutcomes()
+    use_case, _, _, _, _, _ = _build(outcomes=placed)
+    await use_case.close(_command(signal_id=None))
+
+    failed = RecordingOrderOutcomes()
+    use_case, _, _, _, _, _ = _build(
+        exchange_raises=ExchangeError("insufficient balance"), outcomes=failed
+    )
+    result = await use_case.close(_command(signal_id=None))
+
+    assert result.status == "FAILED"  # the branch ran; it just had nobody to tell
+    assert (placed.processing, placed.rejected) == ([], [])
+    assert (failed.processing, failed.rejected) == ([], [])

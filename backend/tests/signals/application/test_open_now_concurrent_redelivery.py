@@ -98,6 +98,7 @@ from strategy_manager.signals.infrastructure.signal_context import SignalContext
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import RecordingSkipRecorder
+from tests.execution.fakes import RecordingOrderOutcomes
 from tests.signals.fakes import RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -442,6 +443,7 @@ def _build_handler(
             clock=clock,
             commit=session,
             settle_delay_seconds=0.0,
+            outcomes=RecordingOrderOutcomes(),
         ),
         close_position=NeverCalledClosePosition(),  # type: ignore[arg-type]
         open_after_close=seeder,

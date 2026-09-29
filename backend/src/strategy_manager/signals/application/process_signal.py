@@ -387,7 +387,7 @@ class ProcessSignalHandler:
             # the close above settles FILLED -- there is no unexecuted tail
             # to report here, only a completion still in flight.
             return result
-        return self._note_unexecuted_tail(context, transition, result)
+        return await self._note_unexecuted_tail(signal_id, context, transition, result)
 
     async def open_now(self, signal_id: UUID, poll: int = 0) -> ProcessSignalResult:
         """The S5 continuation's own entry point (design.md § S5, "all
@@ -723,6 +723,7 @@ class ProcessSignalHandler:
                 settlement_currency=policy.settlement_currency,
                 symbol=context.symbol,
                 side=_releasing_side(_prior_of(context)),
+                signal_id=signal_id,
             )
         )
         if close_result.status in ("FAILED", "NOT_CLOSABLE"):
@@ -945,8 +946,9 @@ class ProcessSignalHandler:
         await self._commit.commit()
         return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
-    def _note_unexecuted_tail(
+    async def _note_unexecuted_tail(
         self,
+        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         result: ProcessSignalResult,
@@ -971,6 +973,17 @@ class ProcessSignalHandler:
         defensible state, since the prior exposure is genuinely gone, but it
         is not what the signal asked for, so it is reported rather than
         swallowed.
+
+        **Row 18 (decision 26, design.md § E).** The close half was placed
+        (``result.executed``) and its commit already moved the signal to
+        ``PROCESSING``; the open half can never run, because spot cannot
+        hold the new short. So the signal ends ``REJECTED``
+        ``REVERSE_NEW_SIDE_UNHOLDABLE``, written here after the close and
+        committed by this handler -- a commit of its own, since the close's
+        commits are behind us. Nothing is written when the close was itself
+        refused or never ran (``executed`` is False): ``ClosePosition``
+        already ended the signal with the CLOSE's code, and a second,
+        different outcome would only be a warning against a terminal row.
         """
         tail = transition.effects[1].value
         refused = (
@@ -982,6 +995,14 @@ class ProcessSignalHandler:
         logger.warning(
             "partial %s on %s: %s", transition.kind.value, context.symbol, refused
         )
+        if result.executed:
+            detail = (
+                f"{refused}; the close was submitted and spot cannot hold the new short"
+            )
+            await self._outcomes.record(
+                signal_id, SignalOutcome.rejected("REVERSE_NEW_SIDE_UNHOLDABLE", detail)
+            )
+            await self._commit.commit()
         return replace(result, refused=refused)
 
 

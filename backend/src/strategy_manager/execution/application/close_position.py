@@ -48,6 +48,7 @@ from strategy_manager.execution.application.ports import (
     ExecutionAttemptRepositoryPort,
     HeldPositionPort,
     OrderNotPlaceable,
+    OrderOutcomeRecorderPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
@@ -67,7 +68,13 @@ logger = logging.getLogger(__name__)
 class CloseCommand:
     """``allocation_id`` is the reservation that OPENED the position being
     closed — the same id the opening fills carry in the ledger, which is what
-    makes the position findable at all."""
+    makes the position findable at all.
+
+    ``signal_id`` is the signal this close acts on, so a refused or placed
+    close can record what became of it (decision 25, rows 13-15). It is
+    REQUIRED with no default: a caller that closes on behalf of a signal must
+    say so, and one that closes without any (``None``) must say that
+    explicitly too -- then no outcome is written for that close."""
 
     allocation_id: UUID
     strategy_id: UUID
@@ -76,6 +83,7 @@ class CloseCommand:
     settlement_currency: str
     symbol: str
     side: OrderSide
+    signal_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +122,7 @@ class ClosePosition:
         clock: ClockPort,
         commit: CommitPort,
         settle_delay_seconds: float,
+        outcomes: OrderOutcomeRecorderPort,
     ) -> None:
         self._exchanges = exchanges
         self._attempts = attempts
@@ -122,6 +131,7 @@ class ClosePosition:
         self._clock = clock
         self._commit = commit
         self._settle_delay_seconds = settle_delay_seconds
+        self._outcomes = outcomes
 
     async def close(self, command: CloseCommand) -> CloseResult:
         # Whether this side can be closed at all is the ADAPTER's answer, not
@@ -161,20 +171,26 @@ class ClosePosition:
             # before the insert -- and the position is left exactly as it
             # is for a human to act on; ERROR because this one reaches
             # Telegram and nothing else will ever flag it.
-            logger.error(
+            dust = (
                 "close residual is dust no order can close; a human must "
-                "act: strategy=%s allocation=%s symbol=%s residual=%s "
-                "venue_minimum=%s pool=%s/%s/%s reason=%s",
-                command.strategy_id,
-                command.allocation_id,
-                command.symbol,
-                base_size,
-                exc.minimum,
-                command.exchange,
-                command.venue,
-                command.settlement_currency,
-                exc,
+                f"act: strategy={command.strategy_id} "
+                f"allocation={command.allocation_id} symbol={command.symbol} "
+                f"residual={base_size} venue_minimum={exc.minimum} "
+                f"pool={command.exchange}/{command.venue}/"
+                f"{command.settlement_currency} reason={exc}"
             )
+            logger.error("%s", dust)
+            # Row 13. This branch used to return with no commit at all. The
+            # one added here does two jobs: it makes the outcome durable, and
+            # it makes durable whatever the caller staged before calling
+            # (a REVERSE's continuation seed, a real orphan's seed) instead
+            # of leaving it to a later, unrelated commit. It commits even
+            # with no signal (an orphan close) for that second reason.
+            if command.signal_id is not None:
+                await self._outcomes.record_rejected(
+                    command.signal_id, "CLOSE_DUST_NOT_CLOSABLE", dust
+                )
+            await self._commit.commit()
             return CloseResult(
                 status="NOT_CLOSABLE",
                 execution_attempt_id=None,
@@ -223,19 +239,20 @@ class ClosePosition:
             # capital was already spent and is sitting in the base currency,
             # where it stays until a later close succeeds.
             await self._attempts.mark_failed(attempt_id, str(exc))
-            await self._commit.commit()
-            logger.error(
-                "close rejected by venue: strategy=%s symbol=%s allocation=%s "
-                "attempt=%s pool=%s/%s/%s error=%s",
-                command.strategy_id,
-                command.symbol,
-                command.allocation_id,
-                attempt_id,
-                command.exchange,
-                command.venue,
-                command.settlement_currency,
-                exc,
+            rejected = (
+                f"close rejected by venue: strategy={command.strategy_id} "
+                f"symbol={command.symbol} allocation={command.allocation_id} "
+                f"attempt={attempt_id} pool={command.exchange}/{command.venue}/"
+                f"{command.settlement_currency} error={exc}"
             )
+            # Row 14: staged on this post-network commit, never the earlier
+            # SUBMITTED one, which was written before the venue answered.
+            if command.signal_id is not None:
+                await self._outcomes.record_rejected(
+                    command.signal_id, "CLOSE_REJECTED_BY_VENUE", rejected
+                )
+            await self._commit.commit()
+            logger.error("%s", rejected)
             return CloseResult(
                 status="FAILED",
                 execution_attempt_id=attempt_id,
@@ -244,6 +261,11 @@ class ClosePosition:
             )
 
         await self._attempts.mark_placed(attempt_id, placed.exchange_order_id)
+        # Row 15: submitted, not settled -- PROCESSING, never PROCESSED. For a
+        # REVERSE this is also decision 26's rule: the close half moves the
+        # signal to PROCESSING and only the open half ends it.
+        if command.signal_id is not None:
+            await self._outcomes.record_processing(command.signal_id)
         await self._commit.commit()
         return CloseResult(
             status="PLACED",

@@ -1023,6 +1023,32 @@ a neighbouring commit.
 | 13 (`NOT_CLOSABLE`) | **none exists** — `close_position.py:178-183` returns before `self._attempts.insert(...)` or any `commit()` | 5b.10 must add a commit here |
 | 14 | `close_position.py:225-226` (`mark_failed` + commit, after the network call) | |
 | 15 (PROCESSING) | `close_position.py:246-247` (`mark_placed` + commit) | |
+| 18 | **none exists** on the handler side: `signal.process` commits right after `ClosePosition` returns (PR 5b2 added `await self._commit.commit()` in `_note_unexecuted_tail`) | written only when the close was placed (`result.executed`); a refused close already ended the signal with the CLOSE's code |
+
+**As built in PR 5b2 (unit C).** The rows above landed as designed, with these
+differences, all verified against the code:
+
+- Row 13's added commit sits at the `OrderNotPlaceable` branch of
+  `ClosePosition.close` and runs **whether or not a signal is attached**: with
+  `signal_id=None` (an orphan close) nothing is recorded, but the commit still
+  makes durable whatever the caller staged before the call (a continuation
+  seed). Before this the seed of a dust close rode the handler's trailing
+  commit.
+- `PlaceOrder` and `ClosePosition` do not take `SignalOutcomePort` directly.
+  `execution` declares `OrderOutcomeRecorderPort` (`record_processing`,
+  `record_rejected`) in `execution/application/ports.py`, adapted by
+  `signals/infrastructure/order_outcome_recorder.py`, the same consumer-side
+  shape as `SkipRecorderPort`. `ReservationSnapshot` gained `signal_id`: the
+  domain `Reservation` had it, the execution-side snapshot did not.
+- `CloseCommand.signal_id` is `UUID | None`, required with no default (the map
+  said `UUID`). The two callers: `ProcessSignalHandler._handle_releases` passes
+  the signal; `CloseOrphans` passes `None` on purpose, because a dust or
+  refused orphan close must not REJECT the open that is deferred behind it.
+- Row 18's detail is the logged partial-REVERSE message plus "the close was
+  submitted and spot cannot hold the new short". A second delivery stages the
+  identical outcome, so the terminal guard treats it as a silent repeat.
+- `outcome_detail` for rows 9-11 and 13-14 is the exact message already
+  logged: each message is built once, recorded, and logged with `"%s"`.
 
 **A dependency this implies.** `PlaceOrder` can already reach `signal_id`
 without a new parameter: the `Reservation` it loads carries `signal_id`
