@@ -97,6 +97,8 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.allocation.fakes import RecordingSkipRecorder
+from tests.signals.fakes import RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -430,6 +432,7 @@ def _build_handler(
             commit=session,
             clock=clock,
             reservation_ttl_seconds=RESERVATION_TTL_SECONDS,
+            skip_recorder=RecordingSkipRecorder(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),
@@ -446,6 +449,7 @@ def _build_handler(
         closing_attempts=attempts_repository,
         close_orphans=NeverCalledCloseOrphans(),
         tradable_pools=frozenset({("bybit", "usdt-m")}),
+        outcomes=RecordingSignalOutcomes(),
     )
 
 

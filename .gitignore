@@ -31,3 +31,6 @@ Thumbs.db
 
 # Agent tooling
 .atl/.skill-registry.cache.json
+# engram sync chunks: memories hold personal account data, and this repository is public.
+.engram/
+engram-export.json

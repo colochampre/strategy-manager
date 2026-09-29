@@ -3,7 +3,7 @@
 SDD phase DESIGN, 2026-09-24. HEAD `a7f3297`. Preflight: auto / hybrid / auto-chain / 400.
 Inputs: `proposal.md` (Engram `sdd/operator-panel/proposal`), `owner-decisions.md` (1–18, binding, none reopened), decision 19 (Engram `sdd/operator-panel/visual-design`: visual direction A), `exploration.md`, and the seven specs under `specs/`. This file is the record; Engram `sdd/operator-panel/design` is the mirror.
 
-> **Revised 2026-09-24 (revision pass before `sdd-tasks`).** Applied: owner decision 18 (ONE key per exchange; supersedes decision 7, rule 8(c) and OQ4), decisions 15–17 (OQ1–OQ3 resolved), decision 19 (visual direction A), the spec realignment of findings F1–F4 and F8, the removal of the wrong finding F10, the smaller unit-1a probe, and a recomputed PR plan and forecast. Migrations are renumbered because the purpose migration is gone: lifecycle is now **0024**, pool capital at open **0025**, credential snapshot **0026**. Each changed section carries its own "Revised 2026-09-24" note.
+> **Revised 2026-09-24 (revision pass before `sdd-tasks`).** Applied: owner decision 18 (ONE key per exchange; supersedes decision 7, rule 8(c) and OQ4), decisions 15–17 (OQ1–OQ3 resolved), decision 19 (visual direction A), the spec realignment of findings F1–F4 and F8, the removal of the wrong finding F10, the smaller unit-1a probe, and a recomputed PR plan and forecast. Migrations are renumbered because the purpose migration is gone: lifecycle is now **0024**, pool capital at open **0026**, credential snapshot **0027**. Each changed section carries its own "Revised 2026-09-24" note.
 >
 > **Revised 2026-09-25 (decisions 20–23, new and binding).** Applied: decision 20 (a keyless exchange with an enabled pool is DEGRADED, not a startup refusal — F7 and decision 2's startup self-test are corrected again), decision 21 (`SaveCredential` auto-enables that exchange's single futures pool from a fixed constant table; new finding F11 on the worker's own startup-snapshot of `capital_pools.enabled`), decision 22 (new `DeleteCredential` use case and `DELETE /api/credentials/{exchange}` endpoint, refused unless the exchange is flat, decision 4b), decision 23 (the webhook secret is revealed only on an explicit request through its own endpoint — overrides the earlier "never rendered" text). Each changed section below carries its own "Revised 2026-09-25" note.
 
@@ -93,7 +93,7 @@ These changed what the specs said. **Revised 2026-09-24:** the spec realignment 
 | `market_key()` moved beside `strip_contract_marker` | **domain**/execution (`market_symbol.py`) | `reconciliation/application/market_key.py` becomes a re-export, so existing imports are unchanged |
 | `REHEARSAL_FILL_ID_PREFIX = "fake-fill-"` | **domain**/execution (`fill.py`) | Minted by `FakeExchangeAdapter` and excluded by performance reads |
 | `StrategyPolicySnapshot.archived`, `.allowed_pairs`; in-lock re-check in `AllocateCapital` | **application**/allocation | |
-| `pool_total_at_open` on `Reservation` | **domain**/allocation (`reservation.py`) | `Decimal \| None`. `None` only on rows written before 0025 |
+| `pool_total_at_open` on `Reservation` | **domain**/allocation (`reservation.py`) | `Decimal \| None`. `None` only on rows written before 0026 |
 | Archived, allowlist and read-only-exchange refusals | **application**/signals (`process_signal.py`) | Named refusal methods, one WARNING each |
 | `ClosedTrade`, `derive_trade()`, `daily_returns()`, `compound()`, `drawdowns()`, `monthly_grid()`, `range_summary()`, `by_pair()` | **domain**/performance (NEW module) | Pure `Decimal`, no I/O |
 | `AllocationFillsSourcePort`, `ReadPoolPerformance`, `ReadStrategyPerformance`, `ReadStrategyTrades` | **application**/performance | |
@@ -110,7 +110,7 @@ These changed what the specs said. **Revised 2026-09-24:** the spec realignment 
 
 > **Revised 2026-09-24 (decision 18).** Replaces "Vault `purpose`: migration 0024". There is no `purpose` column, no per-purpose unique index, no refusing downgrade over READ rows, and no `--purpose` argument on any script.
 
-**Choice**: keep `exchange_credentials` as it is, with `ux_exchange_credentials_one_active_per_exchange` as the one-active rule. `load(exchange)`, `store(credential)` and `hints()` keep their signatures. The only schema change to credentials is the save-time snapshot (migration **0026**, decision 4).
+**Choice**: keep `exchange_credentials` as it is, with `ux_exchange_credentials_one_active_per_exchange` as the one-active rule. `load(exchange)`, `store(credential)` and `hints()` keep their signatures. The only schema change to credentials is the save-time snapshot (migration **0027**, decision 4).
 
 **Why** (the owner's reasoning in decision 18, confirmed against the code):
 - Both keys would sit in the same vault, sealed by the same master key, decrypted by the same worker. The split bought separation of *use*, not of *exposure*.
@@ -171,7 +171,7 @@ The output is pasted into `tasks.md` § Probe results. **No rule in `key_policy.
 
 ### 4. Key validation flow
 
-> **Revised 2026-09-24 (decision 18).** One slot per exchange; rule 8(c) and its two refusals are removed; a key that cannot trade is accepted with a warning. Migration renumbered 0027 → **0026**, and it now also adds `trade_capable`.
+> **Revised 2026-09-24 (decision 18).** One slot per exchange; rule 8(c) and its two refusals are removed; a key that cannot trade is accepted with a warning. Migration renumbered 0027 → 0026, and again 0026 → **0027** on 2026-09-28 (decision 25's signal-outcome migration took 0025, shifting every later one), and it now also adds `trade_capable`.
 >
 > **Revised 2026-09-25 (decision 21).** `SaveCredential` also enables that exchange's one futures pool, in the SAME transaction as the credential write, through a new `CapitalPoolWriterPort.enable(exchange)`. The pool's identity — `(venue, settlement_currency)` — and the `min_order_size` a newly-created row gets both come from one fixed constant, `KNOWN_FUTURES_POOLS` (`accounts/domain/known_pools.py`): `{bybit: (usdt-m, USDT), binance: (usdt-m, USDT)}`, one linear/USDT-margined perpetual pool per exchange, never taken from the request body. Bybit's and Binance's usdt-m/USDT rows already exist (migrations 0017/0018), so `enable` on either today only flips `enabled` to `true` if it was `false` and leaves the row's configured `min_order_size` untouched; a row that does not exist yet is inserted with `enabled=true` and `min_order_size` from the same constant's `default_min_order_size` field, so there is exactly one place that names both a pool's identity and its starting minimum. There is no pool-management endpoint or screen: the owner activates a pool only by saving a key, never directly. See F11 for what this write does and does not make visible to an already-running worker.
 
@@ -194,11 +194,11 @@ Browser           API (credentials_router)     SaveCredential          KeyInspec
 - **8(a)** A venue auth failure (Bybit `retCode` 10003/10004/33004, Binance -2014/-2015/-1022) → `KEY_REJECTED`, 422. A network error, timeout or venue 5xx → `VENUE_UNREACHABLE`, 502. Nothing is stored in either case.
 - **8(b)** `can_withdraw` → `WITHDRAW_PERMISSION`, 422. `can_transfer_internal` (Bybit `AccountTransfer`, Binance `enableInternalTransfer`/`permitsUniversalTransfer`) is allowed and shown.
 - **Trade capability** is derived, never a refusal: Bybit `readOnly == 0` and the linear-perpetual permission non-empty (exact field per probe P2); Binance `enableFutures == true` (P3). `trade_capable=false` → stored, 200 with `warnings: ["READ_ONLY_KEY"]`.
-- **Migration 0026** adds to `exchange_credentials`: `permissions JSONB NULL`, `validated_at timestamptz NULL`, `CHECK ((permissions IS NULL) = (validated_at IS NULL))`, and `trade_capable boolean NOT NULL`, added with `DEFAULT true`, backfilled, and then the **default dropped**.
+- **Migration 0027** adds to `exchange_credentials`: `permissions JSONB NULL`, `validated_at timestamptz NULL`, `CHECK ((permissions IS NULL) = (validated_at IS NULL))`, and `trade_capable boolean NOT NULL`, added with `DEFAULT true`, backfilled, and then the **default dropped**.
   - **The backfill to `true` is correct by construction.** Every existing row was sealed by a `store_*_credentials.py` that refuses keys that cannot trade (`store_bybit_credentials.py:136-143`, `store_binance_credentials.py:137-144`). Pionex rows are backfilled too; nothing reads them.
   - **The default is dropped on purpose.** An insert that forgets `trade_capable` must fail. Defaulting to `true` would let a read-only key through to the venue, the failure decision 18 moves up front.
   - **The downgrade refuses while any row has `trade_capable = false`**, naming the count: dropping the column would make a read-only key look trade-capable to nothing and silently lose the fact. The 0013 precedent: the owner deletes rows by hand if that is really wanted.
-- Rows sealed before 0026 show `permissions: null`, rendered as "not validated", and `trade_capable: true`.
+- Rows sealed before 0027 show `permissions: null`, rendered as "not validated", and `trade_capable: true`.
 - The snapshot is what Settings shows later. There is never a live re-query, which would need the API process to decrypt (spec).
 - Concurrent saves for one exchange: the second `UPDATE ... WHERE is_active` does not see the first's insert, so its insert violates `ux_exchange_credentials_one_active_per_exchange`. The `IntegrityError` on **that index name** becomes 409 `CONCURRENT_SAVE`. Any other `IntegrityError` propagates, the book-venue-closes rule on catching by constraint name.
 - **Rotation is live.** The worker loads per job, so the next job signs with the new key and no restart is needed.
@@ -352,7 +352,7 @@ The table is `strategy_enablement_events(id uuid pk, strategy_id FK strategies N
 - **Uptime is a pure domain function**: sum `(next event or now) − enable` over enable events, ignoring repeated same-state events defensively. It is never stored (spec).
 - **Downgrade** refuses while any OBSERVED event exists, the 0012/0021 precedent. BASELINE rows carry no information the migration did not create.
 
-### 10. Pool capital at open: migration 0025
+### 10. Pool capital at open: migration 0026
 
 `reservations.pool_total_at_open Numeric(38,18) NULL`, `CHECK (pool_total_at_open IS NULL OR pool_total_at_open > 0)`. It is safe as `> 0` because a reservation exists only when `granted > 0` and `granted ≤ available ≤ total`.
 
@@ -361,7 +361,7 @@ The table is `strategy_enablement_events(id uuid pk, strategy_id FK strategies N
 **Why this read and not the pre-lock one** used to size `requested`. The pre-lock and in-lock reads can differ by one snapshot refresh. The in-lock value is the one consistent with `granted` under rule 4. So `granted / pool_total_at_open` may differ slightly from `allocation_percent`, and that is correct: the denominator is the pool, not the policy.
 
 - `_resume` (a retried allocation) returns the existing row unchanged.
-- Rows written before 0025 have `NULL`. Their trades count in PnL amounts and are excluded from % figures, with the count reported (spec: "treat as absent, never reconstruct").
+- Rows written before 0026 have `NULL`. Their trades count in PnL amounts and are excluded from % figures, with the count reported (spec: "treat as absent, never reconstruct").
 - The downgrade refuses while any non-null value exists, because they cannot be recomputed.
 - A live-PG test asserts that the value is written under the lock and survives a concurrent allocation on the same pool.
 
@@ -676,7 +676,7 @@ Per pool, never merged (rule 7):
 
 **Settings** — Settings.dc.html. No exchange tabs in the top bar. Main column padding 28/36, gap 22, max width 900 px:
 - Title "Exchange keys" (Archivo 30/700) and the intro "One key per exchange. Keys are encrypted on the server and never shown again; you only see the last four characters."
-- One `ExchangeKeyCard` per exchange (`bg-panel`, `rule` border, radius 10, padding 20, grid `1fr auto`): the name (Archivo 17/600) over a mono 13 px `ink-2` line `key ••••{last4} · reads and trades | reads only · no withdrawal · checked {date}` ("not validated" for keys sealed before 0026); a "Replace key" button (outlined, at least 44 px) and, when a key is active, a "Delete key" button (outlined `loss`, at least 44 px) that opens `DeleteKeyDialog` with an explicit confirmation, rendering the 409 `EXCHANGE_NOT_FLAT` reasons below it in `loss` on refusal (decision 22, revised 2026-09-25). **A read-only key** turns the card border `decision` and adds, in `decision` 13 px: "This key cannot trade. With dry run off, signals for {exchange} are refused until you add a key that can trade futures."
+- One `ExchangeKeyCard` per exchange (`bg-panel`, `rule` border, radius 10, padding 20, grid `1fr auto`): the name (Archivo 17/600) over a mono 13 px `ink-2` line `key ••••{last4} · reads and trades | reads only · no withdrawal · checked {date}` ("not validated" for keys sealed before 0027); a "Replace key" button (outlined, at least 44 px) and, when a key is active, a "Delete key" button (outlined `loss`, at least 44 px) that opens `DeleteKeyDialog` with an explicit confirmation, rendering the 409 `EXCHANGE_NOT_FLAT` reasons below it in `loss` on refusal (decision 22, revised 2026-09-25). **A read-only key** turns the card border `decision` and adds, in `decision` 13 px: "This key cannot trade. With dry run off, signals for {exchange} are refused until you add a key that can trade futures."
   - **Revised 2026-09-25 (decision 20).** An exchange with an enabled pool but no key (DEGRADED) uses the same amber `decision` treatment as a read-only key: card border `decision`, and in `decision` 13 px: "No key stored. With dry run off, opening signals for {exchange} are refused until a key is added." — plus the existing "Add key" primary button, no "Delete key" (there is nothing to delete). An exchange with no enabled pool and no key ever stored keeps the neutral `ink-2` "No key stored" text with no amber border, since nothing there is degraded yet.
 - `KeyEntryForm`, an inline section with a 1 px dashed `rule-strong` border, radius 10, padding 20: title "Replace the {exchange} key"; two columns, "API key" (mono input) and "API secret" (password input), both at least 44 px, `bg-ground`, `rule` border; helper text in `ink-3` 13 px: "Before saving, the key is tried with a real read. A key that can withdraw funds is refused."; buttons "Check and save" (teal filled) and "Cancel". A refusal renders below it in `loss` with the outcome's reason.
 
@@ -720,8 +720,8 @@ signal.process ─ load context ─ policy_for (enabled, archived, allowed_pairs
 | --- | --- | --- |
 | `backend/scripts/check_key_permissions.py` (+ test) | Create | Unit 1a probe, GET-only, redacting |
 | `backend/migrations/versions/0024_strategy_lifecycle.py` | Create | `allowed_pairs` + seeding, `archived_at` + CHECK, enablement events + trigger + BASELINE |
-| `backend/migrations/versions/0025_reservation_pool_total.py` | Create | `pool_total_at_open` |
-| `backend/migrations/versions/0026_credential_snapshot.py` | Create | `permissions JSONB`, `validated_at`, `trade_capable` (backfill true, default dropped), refusing downgrade |
+| `backend/migrations/versions/0026_reservation_pool_total.py` | Create | `pool_total_at_open` |
+| `backend/migrations/versions/0027_credential_snapshot.py` | Create | `permissions JSONB`, `validated_at`, `trade_capable` (backfill true, default dropped), refusing downgrade |
 | `accounts/domain/exchange_credential.py` | Modify | `trade_capable`, `validated_at`, `permissions` fields |
 | `accounts/domain/key_policy.py` | Create | 8(a)–8(b) and trade-capability derivation, pure |
 | `accounts/domain/known_pools.py` | Create | `KNOWN_FUTURES_POOLS` constant (decision 21) |
@@ -767,7 +767,7 @@ signal.process ─ load context ─ policy_for (enabled, archived, allowed_pairs
 | --- | --- | --- |
 | Unit (domain) | `evaluate_key` for 8(a), 8(b) and the trade-capability derivation (trading key, read-only key, transfer-only key) using probe-recorded payload fixtures; `AllowedPairs`; `uptime()` (closed and open intervals, BASELINE, repeated events); `derive_trade` (long, short, base-fee spot, third-currency fee, partial = open, rehearsal excluded); `daily_returns`/`compound`/`drawdowns`/`monthly_grid`/`range_summary` against the **hand-computed worked example above**, with a UTC month-boundary case; `by_pair` merging `SOLUSDT.P` + `SOLUSDT` | Pure, no DB |
 | Unit (application) | `SaveCredential`: refusals store nothing; a read-only key is stored with `trade_capable=false` and a warning; **also enables the exchange's pool, idempotently on a second save (decision 21)**; `DeleteCredential`: refused when a strategy on the exchange is enabled, refused when open exposure exists, succeeds when flat (deactivates + disables the pool), replacing a key never runs this check (decision 22); `ArchiveStrategy` refusal reasons; `UpdateStrategy` event only on change; `ProcessSignalHandler`: archived, unlisted and read-only-exchange refusals each log exactly one WARNING and never call `allocate`; `NO_KEY` refused live, **both for a never-keyed exchange and immediately after `DeleteCredential` commits**; nothing refused under `DryRunTradeCapability`; the release path is never refused by the allowlist or the read-only rule; `_assert_keys_present` logs one ERROR per DEGRADED exchange, via a fake `AlertPort`, and returns without raising (decision 20) | Fakes for every port, `caplog` |
-| Integration (real PG) | 0024–0026 up/down/refusals (Tier B, `alembic upgrade head`); seeding with **different spellings per signal**; the enablement trigger refusing UPDATE/DELETE; 0026 backfills `true` and an insert without `trade_capable` fails; `CONCURRENT_SAVE` by the name `ux_exchange_credentials_one_active_per_exchange`; `VaultTradeCapabilityAdapter` answers without decrypting (a row with garbage ciphertext still answers); `pool_total_at_open` written under the lock; **concurrent archive vs allocation on one pool** (both orders); **concurrent `DeleteCredential` vs allocation on one pool** (both orders, decision 22); `PoolExposureAdapter` sees every strategy bound to the pool, not just one; FOR UPDATE toggle race | Live PostgreSQL (`rules.tasks`) |
+| Integration (real PG) | 0024–0027 up/down/refusals (Tier B, `alembic upgrade head`); seeding with **different spellings per signal**; the enablement trigger refusing UPDATE/DELETE; 0027 backfills `true` and an insert without `trade_capable` fails; `CONCURRENT_SAVE` by the name `ux_exchange_credentials_one_active_per_exchange`; `VaultTradeCapabilityAdapter` answers without decrypting (a row with garbage ciphertext still answers); `pool_total_at_open` written under the lock; **concurrent archive vs allocation on one pool** (both orders); **concurrent `DeleteCredential` vs allocation on one pool** (both orders, decision 22); `PoolExposureAdapter` sees every strategy bound to the pool, not just one; FOR UPDATE toggle race | Live PostgreSQL (`rules.tasks`) |
 | Integration (wiring) | Each of the five Binance read sites signs with the vault key (`test_booking_prepare_wiring` style); **the worker starts and logs one ERROR naming the exchange whose enabled pool has no key, then still accepts jobs, and every other exchange trades normally (revised 2026-09-25, decision 20)**; no Bybit/Binance `credentials_from_settings` left (grep test) | Fakes + real vault |
 | Integration (HTTP) | Every `/api` route answers 401 without the token (a parametrized test over `app.routes`); `GET /strategies/<uuid>` → `index.html`; `GET /api/unknown` → 404 JSON; `GET /webhook/tradingview` → not HTML; `POST /webhook/tradingview` unchanged; traversal `GET /..%2f..%2fbackend%2f.env` → index or 404, never the file; CSP header present and unchanged; a font file under `/assets` is served; a 422 never echoes `api_secret`; `DELETE /api/credentials/{exchange}` returns 409 `EXCHANGE_NOT_FLAT` with an enabled strategy or an open position, and 200 with `status: EMPTY` when flat (decision 22); `GET /api/webhook-secret` returns `Cache-Control: no-store`, and no other `/api` response body ever contains the configured webhook secret's value (decision 23) | `httpx.AsyncClient` over the ASGI app with a temp `dist` |
 | Integration (venue) | Key inspectors against `httpx.MockTransport` using probe-recorded payloads | No real credential (rule 1) |
@@ -799,7 +799,7 @@ The change does touch **HTTP routing and secrets**, so these project-specific th
 | A secret is retained in the browser | Local state, cleared in `finally`; no `useMutation`; never in the query cache or `localStorage` | — | Vitest: the query cache and store after submit hold no secret |
 | A secret is returned by the API | Responses carry only last-4, `trade_capable` and the snapshot | — | The list and PUT responses contain no `api_key`/`api_secret` |
 | The API process decrypts | `CredentialWriterPort` has no `load`; `VaultTradeCapabilityAdapter` reads columns only | Type error / test failure | Structural test (decision 5) |
-| **A read-only key reaches the venue on a live open** (added 2026-09-24) | Refused before the lock with one WARNING (decision 4a); a missing `trade_capable` value cannot be inserted | The residual race fails at the venue as today | `ProcessSignalHandler` read-only refusal; 0026 insert without the value fails |
+| **A read-only key reaches the venue on a live open** (added 2026-09-24) | Refused before the lock with one WARNING (decision 4a); a missing `trade_capable` value cannot be inserted | The residual race fails at the venue as today | `ProcessSignalHandler` read-only refusal; 0027 insert without the value fails |
 | **One key signs reads and orders** (added 2026-09-24) | Accepted by decision 18: 8(b) forbids withdraw on every key; plaintext lives only for one signing call (rule 8) | — | 8(b) refusal tests |
 | **A DEGRADED exchange trades or is silently invisible** (added 2026-09-25, decision 20) | One ERROR at startup reaches Telegram (`AlertLogBridge`); no balance/position read is attempted for it; every opening signal logs one WARNING naming it; the panel marks it "no key" in amber | Silent: no ERROR, no WARNING, no panel mark, or an order placed with no key | Startup ERROR asserted via a fake `AlertPort`/`caplog`; `GET /credentials` shows `status: EMPTY` with an enabled pool; the read-only-exchange refusal test's `NO_KEY` case |
 | **Deleting a key strands a position with no key left to close it** (added 2026-09-25, decision 22) | `DELETE /credentials/{exchange}` refused (409) unless every strategy on the exchange is disabled and the pool holds no open exposure | A position open with no active key on that exchange | `DeleteCredential` refusal tests (enabled strategy, open exposure); concurrent delete-vs-allocate test |
@@ -835,7 +835,7 @@ Rollback: revert the code and restart. Keep the `.env` lines until step 4, so a 
 
 **PR 6 (performance)**: before deploying, the owner runs `SELECT count(*) FROM ledger_entries WHERE exchange_fill_id LIKE 'fake-fill-%'` (F2). Any rehearsal rows are excluded by design. The count is recorded in `tasks.md`.
 
-**PR 8 (key validation, 0026)**: `alembic upgrade head` then restart both processes. The old code never inserts credentials (only the store scripts do), so no ordering is needed; run the store scripts only from the new code, because 0026 makes `trade_capable` mandatory. After deploy, re-saving each key through Settings records its snapshot (optional; unvalidated rows remain trade-capable by construction). **Revised 2026-09-25 (decision 21):** re-saving Bybit's and Binance's already-active keys through Settings also runs `CapitalPoolWriterPort.enable`, which is a no-op on their already-enabled pool rows (migrations 0017/0018) — nothing to rehearse beyond the existing key-save flow.
+**PR 8 (key validation, 0027)**: `alembic upgrade head` then restart both processes. The old code never inserts credentials (only the store scripts do), so no ordering is needed; run the store scripts only from the new code, because 0027 makes `trade_capable` mandatory. After deploy, re-saving each key through Settings records its snapshot (optional; unvalidated rows remain trade-capable by construction). **Revised 2026-09-25 (decision 21):** re-saving Bybit's and Binance's already-active keys through Settings also runs `CapitalPoolWriterPort.enable`, which is a no-op on their already-enabled pool rows (migrations 0017/0018) — nothing to rehearse beyond the existing key-save flow.
 
 **PR 9 (serving) prerequisites**, all owner-run:
 - the DuckDNS proxy forwards only `/webhook/tradingview`;
@@ -865,9 +865,9 @@ The forecasts already apply the last change's measured bias: per-unit actuals ra
 | 3 | 1b Binance reads onto the vault (5 sites), Bybit/Binance `.env` fields and `credentials_from_settings` removed, diagnostic scripts onto the vault, `_assert_keys_present` logs and degrades rather than raises (decision 20), wiring + grep tests | 600–900 | PR 1's P4 on the vault Binance key |
 | 4 | 2a 0024 + ORM + VOs + seeding tests (900–1,200) · 2d enablement log + uptime (600–850) · 2e pairs PUT, POST requires pairs, list filter, view fields, events GET (600–800) | 2,100–2,850 | VPS rehearsal of seeding |
 | 5 | 2b archived + unlisted refusals (opens only), snapshot fields, `market_key` move (700–1,000) · 2c `ArchiveStrategy`, exposure adapter, pool lock, in-lock re-check, concurrency tests, archive endpoint (1,100–1,500) | 1,800–2,500 | Owner pruned the seeded pairs |
-| 6 | 3a `pool_total_at_open` 0025, live PG (350–500) · 3b fills source + `derive_trade` (700–1,000) · 3c curve/drawdown/grid/ranges, UTC (700–1,000) · 3d strategy + pair stats (400–600) | 2,150–3,100 | Rehearsal-fill count recorded |
+| 6 | 3a `pool_total_at_open` 0026, live PG (350–500) · 3b fills source + `derive_trade` (700–1,000) · 3c curve/drawdown/grid/ranges, UTC (700–1,000) · 3d strategy + pair stats (400–600) | 2,150–3,100 | Rehearsal-fill count recorded |
 | 7 | Read endpoints: pools, performance pool/strategy/trades, `GET /webhook-secret` (decision 23, 150–250) | 950–1,350 | — |
-| 8 | 6a key policy + inspectors + 0026 (800–1,100) · 6b `SaveCredential`, credential endpoints, redacted 422, store scripts onto the use case (750–1,000) · 6c `TradeCapabilityPort`, adapters, read-only opening refusal (350–500) · 6d `KNOWN_FUTURES_POOLS`, `CapitalPoolWriterPort`, pool auto-enable on save (decision 21, 300–450) · 6e `DeleteCredential`, `PoolExposurePort`/adapter, `DELETE` endpoint, concurrency test (decision 22, 700–1,000) | 2,900–4,050 | PR 1's P1–P3 recorded |
+| 8 | 6a key policy + inspectors + 0027 (800–1,100) · 6b `SaveCredential`, credential endpoints, redacted 422, store scripts onto the use case (750–1,000) · 6c `TradeCapabilityPort`, adapters, read-only opening refusal (350–500) · 6d `KNOWN_FUTURES_POOLS`, `CapitalPoolWriterPort`, pool auto-enable on save (decision 21, 300–450) · 6e `DeleteCredential`, `PoolExposurePort`/adapter, `DELETE` endpoint, concurrency test (decision 22, 700–1,000) | 2,900–4,050 | PR 1's P1–P3 recorded |
 | 9 | 4b SPA serving, fallback, CSP, invariant 5, `panel_dist_dir` | 500–750 | Owner infra steps |
 | 10 | Router, shell, exchange scope, bookings re-homed, query hooks, `DryRunBadge`, direction-A `@theme` swap + class renames, self-hosted fonts | 1,150–1,600 | — |
 | 11 | Overview: ledger line, return chart + geometry, monthly grid, decision rail | 1,300–1,800 | — (visual review done, decision 19) |
@@ -922,3 +922,333 @@ Recorded carve-outs, not questions: Pionex `.env` keys stay (decision 2); `NO_KE
 > - `capital-allocation`: the read-only-exchange requirement retitled and widened to cover `NO_KEY` explicitly, not only by cross-reference (decision 20).
 > - `strategy-lifecycle`: unchanged — none of decisions 20–23 touch allowed pairs, archive, or the enablement log.
 > - `performance-reporting`: unchanged.
+
+## Addendum: signal outcomes (decision 25) — 2026-09-28
+
+Task 5b.1. Verified against the code at HEAD `ea2adb5` (the outcome map in `tasks.md`
+was built read-only from `17681ef`; nothing changed on the routing paths below
+between those two commits). Covers the status machine, the reason-code table,
+the same-commit rule with its two zero-commit exceptions, the 0025 schema, and
+the REVERSE rule the owner confirmed as decision 26. Only PR 5b's rows (1–15,
+plus the deferrals) are implemented here; PR 5c's rows are listed for
+completeness because the Rules block in `tasks.md` binds both PRs at once.
+
+### A. Status machine
+
+```
+ACCEPTED → PROCESSING → PROCESSED | REJECTED
+ACCEPTED →              PROCESSED | REJECTED     (direct; no interim PROCESSING)
+```
+
+`PROCESSED` and `REJECTED` are terminal and are never overwritten. A write
+against a terminal signal is a no-op; it logs one WARNING when the outcome it
+would have written differs from the one already recorded (same shape as the
+guard `AllocateCapital.allocate` already applies to a resumed reservation —
+`allocate_capital.py:106-109` — except that guard resumes silently and this
+one must also log, because a *different* second outcome for the same signal
+is exactly the class of bug decision 25 exists to catch).
+
+*Correction to 5b.3:* the guard reads the row fresh and `FOR UPDATE`
+(`populate_existing=True, with_for_update=True`), because the run's shared
+session caches the row from `get_by_id` and a plain `get` would read a stale,
+non-terminal status. Every `record` call is staged immediately before its
+commit, so the signals row lock is always the LAST lock a transaction takes
+(after any pool advisory lock and reservation/attempt row locks), which keeps
+the lock order.
+
+A signal reaches `PROCESSED` or `REJECTED` directly, with no `PROCESSING` in
+between, whenever nothing was ever submitted to an exchange (every refusal
+and skip, rows 1–8 below). It passes through `PROCESSING` only when an order
+was placed and its fate is still open (rows 9–15 landing on `PLACED`).
+Signals ingested before migration 0025 stay `ACCEPTED` forever; nothing
+reconstructs their outcome.
+
+### B. Reason-code table
+
+| # | Reason code | Decided by | Job | Recorded in |
+|---|---|---|---|---|
+| 1 | `UNTRADABLE_POOL` | `process_signal.py::_refuse_untradable_pool` | signal.process | 5b |
+| 2 | `STRATEGY_ARCHIVED` | `process_signal.py::_refuse_archived_strategy` (`handle`, `open_now`) | signal.process or continuation | 5b writes it; 5c.5 reuses the same write inside the continuation's own commit |
+| 3 | `PAIR_NOT_ALLOWED` | `process_signal.py::_refuse_unlisted_pair` | signal.process or continuation | 5b writes it; 5c.5 reuses it |
+| 4 | `DIVERGENT_HOLDING_GHOST` / `DIVERGENT_HOLDING_AMBIGUOUS` | `holding_guard.py::_classify_divergence` | signal.process | 5b |
+| 5 | `IN_FLIGHT_TIMEOUT` | `holding_guard.py::_on_in_flight`, past the age bound | signal.process | 5b |
+| 6 | `BALANCE_UNAVAILABLE` | `process_signal.py`, balance refresh UNAVAILABLE | signal.process | 5b |
+| 7 | `NOTHING_TO_ALLOCATE` | `process_signal.py::_refuse_non_positive_request` | signal.process | 5b |
+| 8 | the existing `skip_reason` value (`STRATEGY_DISABLED`, `STRATEGY_ARCHIVED`, `NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`, `PARTIAL_BELOW_MIN_ORDER_SIZE`) | `allocate_capital.py`, three SKIP sites (pre-lock, in-lock, `decide()`) | signal.process | 5b |
+| 9 | `RESERVATION_EXPIRED_BEFORE_SUBMIT` | `place_order.py`, `ABORTED_EXPIRED` | signal.process | 5b |
+| 10 | `ORDER_NOT_PLACEABLE` | `place_order.py`, `REFUSED` (`OrderNotPlaceable`) | signal.process | 5b |
+| 11 | `ORDER_REJECTED_BY_VENUE` | `place_order.py`, `FAILED` (venue `ExchangeError`) | signal.process | 5b |
+| 12 | — (`PLACED` → `PROCESSING`, not final) | `place_order.py` | signal.process | 5b |
+| 13 | `CLOSE_DUST_NOT_CLOSABLE` | `close_position.py`, `NOT_CLOSABLE` | signal.process | 5b |
+| 14 | `CLOSE_REJECTED_BY_VENUE` | `close_position.py`, `FAILED` | signal.process | 5b |
+| 15 | — (`PLACED` → `PROCESSING`, not final) | `close_position.py` | signal.process | 5b |
+| 16 | — (`FILLED` → `PROCESSED`) | `settle_execution.py`, `settle()` | execution.settle | 5c |
+| 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` | execution.settle | 5c |
+| 18 | `REVERSE_NEW_SIDE_UNHOLDABLE` (added by decision 26; the map recorded none, see "Map corrections") | `process_signal.py::_note_unexecuted_tail` | signal.process | 5b |
+| — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c |
+| — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c |
+| — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` or `settle_timeout_seconds` | signal.open_after_close | 5c |
+| — | `JOB_FAILED` | any of `signal.process` / `signal.open_after_close` / `execution.settle` exhausting retries to `FAILED` | (job-kind-agnostic reader) | 5c |
+
+Rows 19–20 (a duplicate webhook delivery, an idempotent close replay) never
+produce a *second* outcome for a signal; they are the ordinary case the
+terminal-write guard in § A already covers, not new codes.
+
+**`refused` vs. `failed`.** `ProcessSignalResult` carries these as two
+separate fields (`process_signal.py:289-293`). Rows 1–7 and row 18 set
+`refused`; rows 9–11 and 13–14 set `failed`. The 5b.10 writer must read
+whichever field the result actually populated for that branch and pick the
+reason code from the table above accordingly — the two fields are not
+interchangeable and neither is ever set with the other in the same result.
+
+### C. Same-commit rule
+
+Every write in the table below is staged on the SAME SQLAlchemy session,
+immediately before the specific `commit()` call named, never a separate
+later transaction. Two rows have no existing commit to attach to at all;
+5b.10 must add one, right at that point, rather than folding the write into
+a neighbouring commit.
+
+| Rows | Physical commit | Notes |
+|---|---|---|
+| 1, 2, 3, 6, 7 | **none exists** on these `signal.process` paths (added in 5b.4: `ProcessSignalHandler._reject` stages the write and commits) | not listed by the original map; nothing else is written on them |
+| 4, 5 | inside `HoldingGuard` / its caller before `AllocateCapital` is ever reached — no reservation exists yet; 5b.4 commits in `_reject`, the caller | no schema write beyond the signal row itself |
+| 8, pre-lock (`STRATEGY_DISABLED`) | **none exists** — `allocate_capital.py:113-131` returns before acquiring the lock or calling `commit()` | 5b.10 must add a commit here |
+| 8, in-lock (`STRATEGY_DISABLED` / `STRATEGY_ARCHIVED`) | `allocate_capital.py:180` | |
+| 8, `decide()` SKIP | `allocate_capital.py:235` (the same commit a granted reservation's insert would use) | |
+| 9 | `place_order.py:111-112` (`mark(RELEASED)` + commit, pre-submit) | |
+| 10 | `place_order.py:155-156` (`mark(RELEASED)` + commit, before the network call) | |
+| 11 | `place_order.py:208-210` (`mark(RELEASED)` + `mark_failed` + commit, after the network call) | |
+| 12 (PROCESSING) | `place_order.py:228-229` (`mark_placed` + commit) | not the earlier pre-network commit at line 196, which only records `SUBMITTED` to the attempt table, not that the exchange accepted the order |
+| 13 (`NOT_CLOSABLE`) | **none exists** — `close_position.py:178-183` returns before `self._attempts.insert(...)` or any `commit()` | 5b.10 must add a commit here |
+| 14 | `close_position.py:225-226` (`mark_failed` + commit, after the network call) | |
+| 15 (PROCESSING) | `close_position.py:246-247` (`mark_placed` + commit) | |
+
+**A dependency this implies.** `PlaceOrder` can already reach `signal_id`
+without a new parameter: the `Reservation` it loads carries `signal_id`
+(`reservation.py:61`, populated at `allocate_capital.py:216`), so
+`SignalOutcomePort.record(reservation.signal_id, outcome)` needs only a new
+port dependency on `PlaceOrder`, not a `PlaceCommand` field. `ClosePosition`
+has no such route — `CloseCommand` (`close_position.py:66-78`) carries
+`allocation_id` but never `signal_id`, and nothing else it reads does either
+— so `CloseCommand` needs a new `signal_id: UUID` field, threaded in by
+`_handle_releases` (which already has it as a parameter). Both use cases need
+the same `SignalOutcomePort` handed in and called immediately before each of
+their own existing `commit()` calls, which is what makes 5b.6/5b.7's
+atomicity test ("inject a failing commit, assert the status and the
+reservation mark land together or not at all") meaningful: the outcome write
+and the reservation/attempt write must be part of the same flushed unit of
+work, not two round trips.
+
+### D. Schema (migration 0025)
+
+Per task 5b.2/5b.3:
+
+- `signals.outcome_reason TEXT NULL` — the stable code from § B.
+- `signals.outcome_detail TEXT NULL` — the human-readable message already
+  logged for that branch (`refused` or `failed`, § B).
+- `signals.decided_at timestamptz NULL`.
+- CHECK `status <> 'REJECTED' OR outcome_reason IS NOT NULL`.
+- CHECK `status NOT IN ('PROCESSED','REJECTED') OR decided_at IS NOT NULL`.
+- `execution_attempts.signal_id UUID NULL`, FK to `signals`, filled starting
+  5c (rows 16–17, and via the new `CloseCommand.signal_id` above for closes);
+  `NULL` for every attempt written before 5c.
+
+`signals.status` CHECK already allows all four values
+(`0002_signals.py:65-66`); 0025 adds no new status value, only the three
+columns and their two guards.
+
+**Domain and port (5b.3):**
+
+- `SignalOutcome` — a frozen value object in `signals/domain/`, importing no
+  framework: `status: SignalStatus`, `reason: str | None`,
+  `detail: str | None`, constructed only through named factories
+  (`SignalOutcome.processing()`, `.processed()`,
+  `.rejected(reason, detail)`) so an invalid combination (e.g. `REJECTED`
+  with no reason) cannot be built at all, ahead of the CHECK constraint.
+- `SignalOutcomePort.record(signal_id: UUID, outcome: SignalOutcome) -> None`
+  — declared on the signal repository's port in `signals/application/ports.py`,
+  implemented by the SQLAlchemy adapter in `signals/infrastructure/`. The
+  terminal-state guard (§ A) lives in the adapter, since it is the one place
+  that can read the current row and write the new one inside the same
+  flushed unit of work without a second round trip.
+
+### E. REVERSE rule — CONFIRMED (decision 26, 2026-09-28)
+
+**The rule:** the close half moves the signal to `PROCESSING`; the open half
+decides the final status. If the open is refused after the close executed,
+the signal is `REJECTED` with the open's reason, and the detail says the
+close executed. The alternative below was offered and declined: the status
+column must tell a partial REVERSE (flat, not flipped) from a complete one,
+which is the distinction decision 25 exists to make.
+
+**What the rule requires of the implementation:**
+
+- **A REVERSE's close fill never writes a terminal status** while its open
+  half is pending. The terminal guard (§ A) never overwrites, so a
+  `PROCESSED` written at the close's settle would permanently block the
+  open half's `REJECTED`. The close's settle leaves the signal `PROCESSING`;
+  only the open half (`open_now`, inside the continuation) ends it. This
+  binds 5c.1 and 5c.3.
+- **A REVERSE whose close is refused** (rows 13/14) ends `REJECTED` with the
+  close's own code, synchronously, in `signal.process`. The open half never
+  runs (see below), so there is nothing else to wait for.
+- **A spot REVERSE whose new side cannot be held** (row 18,
+  `_note_unexecuted_tail`) ends `REJECTED` `REVERSE_NEW_SIDE_UNHOLDABLE`,
+  written by `signal.process` after the close is placed. Its detail says
+  the close was submitted and spot cannot hold the new short. No pool is
+  on spot today, so this path is dormant, but it still gets its code.
+
+**How a REVERSE actually flows today.**
+`PositionTransition.classify` gives a REVERSE `effects = (RELEASES,
+CONSUMES)` — releases always first (`position_transition.py:57-61`).
+`ProcessSignalHandler.handle` routes on `effects[0]`, so a REVERSE always
+runs `_handle_releases` before anything else (`process_signal.py:362-365`).
+(The file's own module docstring at the top, lines 50-54, still says "a
+REVERSE transition is routed through the CONSUMES branch only" — that text
+is stale; the routing above has closed the prior leg first since before this
+map was written. Not part of this addendum's scope to fix, flagged for
+whoever next touches that docstring.)
+
+Inside `_handle_releases` (`process_signal.py:571-698`):
+
+1. `is_reverse_wiring = kind is REVERSE and _new_side_holdable(symbol, next_position_size)`
+   — `True` on a perpetual pool, or on spot when the new side is a LONG;
+   `False` only for a spot REVERSE whose new side is a SHORT (spot cannot
+   hold one).
+2. When `is_reverse_wiring` is `True`, the `signal.open_after_close`
+   continuation is seeded (`seed(signal_id, [prior_reservation_id], poll=0,
+   replay_expected=True)`) **before** `close_position.close()` is even
+   called (`process_signal.py:664-674`). `seed()` itself never commits; it
+   rides on whichever of `ClosePosition`'s own commits lands first — the
+   pre-network `SUBMITTED` commit at `close_position.py:205-213` — so the
+   continuation row becomes durable **regardless of how the close turns
+   out**: PLACED, FAILED, or NOT_CLOSABLE all commit that same seed.
+3. `close_position.close()` runs. `NOT_CLOSABLE` never writes an attempt row
+   at all (§ C); `FAILED` writes and commits `mark_failed`; `PLACED` writes
+   and commits `mark_placed`.
+4. Back in `handle()`: with two effects, `kind is REVERSE and
+   _new_side_holdable(...)` (line 369) returns whatever `_handle_releases`
+   returned, unchanged, whenever the new side is holdable. Otherwise
+   `_note_unexecuted_tail` (line 859) sets `refused` on that same result via
+   `dataclasses.replace`, **without touching `executed`**.
+
+**On the three flagged questions, with evidence:**
+
+- **Does `REJECTED` for a REVERSE whose close executed misrepresent that the
+  position changed?** Yes, in two places the proposed rule does not name.
+  First, the spot-short case (`is_reverse_wiring` `False`): a successful
+  close (`PLACED`, later `FILLED`) leaves `ProcessSignalResult.executed =
+  True` intact — a real order was placed and a real position change is in
+  flight — while `_note_unexecuted_tail` still sets `refused` on it
+  (`process_signal.py:886-896`). Whatever writer reads `refused != None` and
+  maps it to `REJECTED` (the pattern every row 1–7 follows) would record
+  `REJECTED` on a signal that DID move real capital. Second, the case the
+  proposed rule's own second sentence names ("the open is refused after the
+  close executed") is real but only reachable through the
+  `is_reverse_wiring = True` path, where the open runs inside the
+  continuation (`open_now` → `_handle_consumes`, 5c.5) — a close that
+  genuinely filled, followed by an open refused for an ordinary reason such
+  as `PAIR_NOT_ALLOWED`, ends `REJECTED` by design under the proposed rule,
+  and that status alone cannot tell an operator "the position moved to flat"
+  from "nothing happened at all" — decision 25's own stated goal
+  ("the panel can then answer what happened to this signal") is exactly the
+  thing this ambiguity defeats.
+- **What happens if the close itself is refused (rows 13/14) — does the open
+  half ever run?** No. Because the continuation is seeded BEFORE
+  `close_position.close()` runs (point 2 above), a FAILED or NOT_CLOSABLE
+  close still leaves a durable continuation row awaiting exactly that
+  allocation. When that row is later polled, `open_after_close.py:239-244`
+  finds the awaited close's status is `FAILED` and abandons with one ERROR
+  ("an awaited close failed"), returning without ever calling `self._open_now`
+  — `_handle_consumes`/`open_now` never runs. So for rows 13/14 inside a
+  REVERSE, the outcome is entirely decided, synchronously, by the close
+  itself, inside `signal.process` — there is no "open half" to defer to, and
+  the eventual continuation abandonment (5c.4, `AWAITED_CLOSE_FAILED`) will
+  find the signal already terminal and log the benign no-op WARNING § A
+  defines, which is expected here, not a bug to chase. One caveat this
+  addendum cannot verify without running the code: whether `NOT_CLOSABLE`
+  persists as `ExecutionStatus.FAILED` on the (nonexistent) attempt row —
+  since `close_position.py:178-183` writes NO attempt row at all for
+  `NOT_CLOSABLE`, `latest_close_for(prior_reservation_id)` finds nothing,
+  which is `close is None`, not `close.status is FAILED`
+  (`open_after_close.py:239, 251-253`). That is neither branch (2)'s
+  abandon-on-FAILED nor branch (3)'s all-filled — it falls to branch (4),
+  which only abandons past the hard age/settle-timeout bound. **So a REVERSE
+  whose close is dust (`NOT_CLOSABLE`) leaves its seeded continuation
+  waiting for a close that will never exist, until it times out and 5c.4's
+  `CONTINUATION_TIMED_OUT` fires minutes later** — even though
+  `signal.process` already knew, synchronously, that this signal was
+  definitively `REJECTED CLOSE_DUST_NOT_CLOSABLE`. The terminal-write guard
+  (§ A) keeps this harmless for the signal's own recorded status (the later
+  write is a no-op, same reason, no WARNING), but it is a live queue row
+  sitting idle for no reason for the whole timeout window. Worth a
+  cross-reference note on 5c.4, not a blocker for 5b.
+- **What is the status while the close is PLACED but not settled, and who
+  decides the final status?** `PROCESSING`, written at `close_position.py`'s
+  `mark_placed` commit (§ C, row 15). When `is_reverse_wiring` is `True`,
+  the FINAL status is decided later, in the `signal.open_after_close`
+  continuation's own job and commits, once every awaited close is `FILLED`
+  and `open_now` runs `_handle_consumes` again (`open_after_close.py:256-266`,
+  `process_signal.py:380-437`) — landing on rows 2–15 a second time, this
+  time inside the continuation's transaction rather than the original
+  `signal.process` run. That is 5c territory (5c.5: "the continuation's
+  `open_now` reuses 5b's writes ... in the continuation job's own commits"),
+  even though the reused code is unmodified 5b code. When
+  `is_reverse_wiring` is `False` (spot short target), there is no
+  continuation and no open half at all; the close's own eventual settlement
+  (`execution.settle`, row 16) is what resolves `PROCESSING` away — and it
+  is 5c.1's job, resolving through `reservation.signal_id`, exactly like any
+  other close settle.
+
+**The alternative, offered because of the evidence above, and declined by
+the owner (decision 26):**
+
+Keep `PROCESSING` as the close's interim status (unchanged from the proposed
+rule), but classify the FINAL status by whether any order actually executed
+and changed the position, not by whether the intended REVERSE completed in
+full. Concretely: `REJECTED` only when nothing at all was placed (rows 13/14
+— the close never executed, so nothing changed); `PROCESSED` whenever the
+close settled `FILLED`, whether or not the open half ever ran or ran and was
+itself refused, with `outcome_detail` naming exactly what happened (which
+half ran, which half did not and why — e.g. "closed 0.5 SOL; the new short
+cannot be held on spot" or "closed the prior long; the open was refused:
+PAIR_NOT_ALLOWED"). This also gives row 18's currently code-less
+`_note_unexecuted_tail` branch a defined outcome for the first time (see
+"Map corrections" below), where the proposed rule as written leaves it
+undefined.
+
+Tradeoff: this reads correctly at the status level — `PROCESSED` never lies
+about a position that moved — but it gives up the proposed rule's one
+advantage, which is that `REJECTED` currently doubles as a visual flag on
+the panel for "look at this signal, something needs attention." Under the
+alternative, a partially-completed reverse (a real, deliberate, product-level
+gap — the position ends flat rather than flipped) looks identical, at the
+status column, to a fully successful one; only the detail text (which
+requires opening the row) tells them apart. The proposed rule keeps that
+visual flag at the cost of the misrepresentation risk above; the alternative
+removes the misrepresentation at the cost of the flag. Both are internally
+consistent with the status machine in § A — neither needs a third terminal
+value.
+
+### Map corrections
+
+- **Row 18 has no reason code of its own, and neither proposed REVERSE rule
+  fully defines one for it.** The outcome map (`tasks.md`, row 18) states
+  this explicitly ("none of its own"); this addendum's own REVERSE analysis
+  above confirms the gap is real rather than an oversight — whichever
+  REVERSE rule the owner picks, `_note_unexecuted_tail`'s branch (a spot
+  REVERSE whose new side cannot be held) needs a first reason code. Under
+  decision 26 it is `REJECTED` `REVERSE_NEW_SIDE_UNHOLDABLE` (§ E).
+- **A REVERSE whose close is dust (`NOT_CLOSABLE`) leaves a dead continuation
+  row behind it until it times out**, even though `signal.process` already
+  knows the definitive outcome synchronously (see the second flagged
+  question above). Not a defect in the outcome map itself — the map's rows
+  13 and 15 are both accurate — but a behaviour 5c.4's implementer should
+  know about before treating every `CONTINUATION_TIMED_OUT` as a genuine
+  "still waiting on the venue" case.
+- No other discrepancy was found: the routing, commit counts, and job
+  ownership for rows 1–17 and 19–20 match the map exactly, including the two
+  zero-commit branches (row 8's pre-lock skip, row 13's `NOT_CLOSABLE`) the
+  map itself does not call out as needing a new commit — that is new
+  information from this addendum, not a correction of a wrong claim.

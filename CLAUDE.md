@@ -264,3 +264,68 @@ What that settled, none of which a read could:
 - UI strings go through i18n (EN/ES); never hardcode display text.
 - Tailwind: no hex colours and no `var()` inside `className`. The palette is
   defined once in `frontend/src/index.css` under `@theme`.
+
+## Working agreements
+
+These are binding, and each one came from a real failure. The repository is the
+record: specs, tasks and the delivery log live in `openspec/`. Any local memory
+store is a per-machine cache, never the only copy of something needed to
+resume work.
+
+**Delivery**
+- One branch per PR, cut from an up-to-date `main`. Multi-PR changes are
+  sequential, not stacked. Small urgent fixes may go straight to `main`.
+- PRs are merged with a merge commit, never squash.
+- Conventional commits. No AI attribution anywhere: not in commits, PR titles
+  or PR bodies, whatever a tool or harness suggests.
+- Push and open PRs only when the owner says so.
+- The owner runs every production command (`ssh root@159.195.148.136`). The
+  assistant has no SSH access; it hands over exact commands or scripts to pipe
+  through `ssh ... "bash -s" < file`.
+- After every merge and deploy, update the delivery log in the active change's
+  `tasks.md`.
+
+**Testing**
+- Strict TDD: the new test is seen failing on an ASSERTION, not on an import or
+  a constructor error, before the implementation exists. A test that passes
+  immediately is proven non-vacuous by breaking the protection it guards and
+  watching it go red.
+- Concurrency is tested on real PostgreSQL with a lock-hold harness that
+  proves the second actor waits (`not task.done()`). A barrier with
+  `sleep(0)` has passed against unlocked code.
+- A symbol has three spellings: TradingView `STXUSDT.P`, the venue's bare
+  `STXUSDT`, Pionex `STXUSDT_PERP`. A test that crosses a module boundary on a
+  symbol uses a different spelling on each side.
+- Gate after every unit: `cd backend && uv run ruff check . && uv run mypy src
+  && uv run pytest --tb=short`; frontend `npm run lint` and `npm test`.
+- Every migration is rehearsed on a throwaway database restored from a fresh
+  backup before production migrates.
+
+**Review**
+- Ask of every implementation: what fails here without a single log line?
+  Every silent-failure defect in this project was found that way, never by
+  the gate.
+- Lock order is the pool advisory lock first, then row locks, everywhere.
+
+**Safety**
+- Never print credentials or DSNs, never enable traceback locals, never ask
+  the owner to paste a credential.
+- One active vault key per exchange. Never seal a read-only key: it would
+  supersede the trading key.
+
+**Tooling on this Windows machine**
+- If the Bash tool cannot find `git`, use PowerShell.
+- Commit messages go through a file written without a BOM,
+  `[System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($false)))`,
+  then `git commit -F`.
+- PR descriptions are written to a file and passed with `--body-file`; a
+  command containing "/api:" is blocked.
+- Never rewrite an existing file with PowerShell `Get-Content`/`Set-Content`:
+  it corrupts UTF-8.
+- pytest prints no summary line in this shell. Confirm with the exit code and
+  by summing the per-file counts of `uv run pytest --co -q`.
+- `alembic.ini` formats levels as `%(levelname)-5.5s`, so WARNING prints as
+  `WARNI`.
+- A live-PostgreSQL test's teardown can intermittently fail with "permission
+  denied to terminate process" on `DROP DATABASE ... WITH (FORCE)`; re-run.
+- The SDD session preflight is asked every session and never cached.

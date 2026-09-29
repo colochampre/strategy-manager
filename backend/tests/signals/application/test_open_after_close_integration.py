@@ -89,6 +89,8 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.allocation.fakes import RecordingSkipRecorder
+from tests.signals.fakes import RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -452,6 +454,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             clock=clock,
             reservation_ttl_seconds=30,
+            skip_recorder=RecordingSkipRecorder(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),
@@ -506,6 +509,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             closing_attempts=attempts_repository,
             close_orphans=NeverCalledCloseOrphans(),
             tradable_pools=frozenset({("bybit", "usdt-m")}),
+            outcomes=RecordingSignalOutcomes(),
         )
         return handler, open_after_close
 

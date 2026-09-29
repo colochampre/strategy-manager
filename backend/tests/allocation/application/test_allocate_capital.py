@@ -24,6 +24,7 @@ from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
+from tests.allocation.fakes import RecordingSkipRecorder
 
 
 class FrozenClock:
@@ -147,6 +148,7 @@ def _build_use_case(
         commit=commit,
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
     )
     return use_case, lock, reservations, commit
 
@@ -323,6 +325,7 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
         commit=commit,
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
     )
 
     with caplog.at_level("WARNING"):
@@ -380,6 +383,7 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
         commit=commit,
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
     )
 
     with caplog.at_level("WARNING"):

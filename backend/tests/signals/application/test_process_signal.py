@@ -53,6 +53,8 @@ from strategy_manager.signals.application.process_signal import (
     SignalContext,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
+from tests.allocation.fakes import RecordingSkipRecorder
+from tests.signals.fakes import RecordingSignalOutcomes
 
 
 class FrozenClock:
@@ -344,6 +346,8 @@ def _allocate_capital(
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
     reservations: FakeReservationRepository | None = None,
+    skip_recorder: RecordingSkipRecorder | None = None,
+    commit: CommitPort | None = None,
 ) -> AllocateCapital:
     return AllocateCapital(
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
@@ -354,9 +358,10 @@ def _allocate_capital(
         ),
         lock=lock,
         reservations=reservations or FakeReservationRepository(),
-        commit=FakeCommit(),
+        commit=commit or FakeCommit(),
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
+        skip_recorder=skip_recorder or RecordingSkipRecorder(),
     )
 
 
@@ -397,6 +402,7 @@ def _process_signal_handler(
     commit: CommitPort | None = None,
     closing_attempts: FakeClosingAttemptsPort | None = None,
     close_orphans: SpyCloseOrphans | None = None,
+    outcomes: RecordingSignalOutcomes | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -416,6 +422,7 @@ def _process_signal_handler(
         closing_attempts=closing_attempts or FakeClosingAttemptsPort(),
         close_orphans=close_orphans or SpyCloseOrphans(),
         tradable_pools=tradable_pools,
+        outcomes=outcomes or RecordingSignalOutcomes(),
     )
 
 
@@ -1498,6 +1505,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
         closing_attempts=FakeClosingAttemptsPort(),
         close_orphans=SpyCloseOrphans(),
         tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
     )
 
     await handler.handle(uuid4())

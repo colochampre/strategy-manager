@@ -1,4 +1,5 @@
-"""SQLAlchemy ORM model owned by ``signals``. Mirrors migration ``0002_signals``."""
+"""SQLAlchemy ORM model owned by ``signals``. Mirrors migration
+``0002_signals``, extended by ``0025_signal_outcomes`` (decision 25)."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -41,3 +42,12 @@ class SignalRow(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     signal_type: Mapped[str] = mapped_column(Text, nullable=False)
+    # ``0025_signal_outcomes`` (decision 25): the stable reason code from the
+    # addendum's § B table. ``ck_signals_rejected_requires_outcome_reason``
+    # requires this whenever ``status = 'REJECTED'``.
+    outcome_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The human-readable message already logged for that branch.
+    outcome_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ``ck_signals_terminal_requires_decided_at`` requires this whenever
+    # ``status`` is ``PROCESSED`` or ``REJECTED``.
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,8 +1,8 @@
 """SQLAlchemy ORM model owned by ``execution``. Mirrors the
 ``execution_attempts`` table created by migration ``0005_ledger_execution``
 and reshaped by ``0011_execution_attempt_quote_amount``,
-``0012_closing_execution_attempts`` and
-``0021_execution_attempts_live_close``.
+``0012_closing_execution_attempts``, ``0021_execution_attempts_live_close``
+and ``0025_signal_outcomes``.
 """
 
 from datetime import datetime
@@ -62,6 +62,14 @@ class ExecutionAttemptRow(Base):
     )
     closes_allocation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("reservations.id"), nullable=True
+    )
+    # ``0025_signal_outcomes`` (decision 25). ``NULL`` for every attempt
+    # written before PR 5c, which is the first to populate it: an opening
+    # attempt already reaches ``signal_id`` through its reservation
+    # (``reservation.signal_id``), but a closing attempt has no such route,
+    # so this column threads it in directly (design.md § C).
+    signal_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("signals.id"), nullable=True
     )
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)

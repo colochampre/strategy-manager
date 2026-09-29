@@ -192,9 +192,13 @@ from strategy_manager.signals.application.process_signal import (
     ProcessSignalResult,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
+from strategy_manager.signals.infrastructure.outcome_repository import (
+    SqlAlchemySignalOutcomeAdapter,
+)
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.router import router as signals_router
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
+from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
 from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
@@ -290,6 +294,9 @@ def _build_process_signal_handler(
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
     reservation_repository = SqlAlchemyReservationRepository(session)
+    # Decision 25: one outcome adapter on the run's session, so every outcome
+    # write is staged on the same unit of work as the commit that decides it.
+    signal_outcomes = SqlAlchemySignalOutcomeAdapter(session, SystemClock())
 
     signal_context = SignalContextAdapter(
         signals=signal_repository,
@@ -356,6 +363,7 @@ def _build_process_signal_handler(
         commit=session,
         clock=SystemClock(),
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
+        skip_recorder=SignalSkipRecorder(signal_outcomes),
     )
 
     place_order = PlaceOrder(
@@ -431,6 +439,7 @@ def _build_process_signal_handler(
         closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
+        outcomes=signal_outcomes,
     )
     return handler, open_after_close
 
