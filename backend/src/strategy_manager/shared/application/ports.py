@@ -70,6 +70,24 @@ class JobQueuePort(Protocol):
     async def fail(self, job_id: UUID, error: str) -> None: ...
 
 
+class ExhaustedJobObserverPort(Protocol):
+    """Told, inside the transaction that marks a job ``FAILED``, that the job
+    spent its last attempt (decision 25, design.md "Addendum: signal outcomes"
+    § F).
+
+    The queue passes the job through OPAQUELY -- its kind, its payload, and the
+    error ``fail()`` is storing -- and never interprets any of it: what a
+    ``FAILED`` job means to a signal is the observer's business, which is what
+    keeps ``PostgresJobQueue`` job-kind-agnostic.
+
+    Whatever it stages on the queue's session commits with the ``FAILED``
+    status or not at all. It MAY raise: the queue runs it under a SAVEPOINT,
+    logs the failure, and still marks the job ``FAILED`` -- an observer that
+    cannot write must never keep a dead job looking alive."""
+
+    async def on_exhausted(self, job: ClaimedJob, last_error: str) -> None: ...
+
+
 class JobRetentionPort(Protocol):
     """Removal of finished job rows, kept deliberately OUT of ``JobQueuePort``.
 
