@@ -585,6 +585,17 @@ Forecast: 900–1,400 lines.
 
 ## PR 6 — Units 3a + 3b + 3c + 3d: pool capital at open, PnL, curve, stats (2,150–3,100 lines)
 
+**Split, 2026-09-29 (auto-chain).** The PR is split into three sequential PRs, each cut from
+`main` after the previous one merges:
+
+- **PR 6a** holds unit 3a, with migration 0026. It ships first and alone because
+  `pool_total_at_open` cannot be backfilled: every trade opened before 0026 is deployed is
+  excluded from the curve forever.
+- **PR 6b** holds units 3b and 3c: the fills source, `derive_trade`, and the curve.
+- **PR 6c** holds unit 3d: per-strategy and per-pair stats.
+
+The gate below applies to PR 6b, the first PR that reads fills.
+
 **Gate before deploy**: `SELECT count(*) FROM ledger_entries WHERE exchange_fill_id LIKE 'fake-fill-%'` run and recorded (F2 — any rehearsal rows are excluded by design, this just confirms the count for the record).
 
 ### Unit 3a — `pool_total_at_open`, migration 0026 (350–500 lines)
