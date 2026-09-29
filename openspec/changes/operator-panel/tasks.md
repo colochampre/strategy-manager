@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-29, VPS time): `main` at `e9307c7`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-09-30, VPS time): `main` at `ab415ad`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -108,7 +108,9 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 7b | #24 | `1eab7a9` | — | 2026-09-29 | Task 7.3 and the webhook-secret half of 7.4 (decision 23). Independent security verification: no blocker; follow-ups 7f.1–7f.5. Pull, restart both; the API and the worker came up active. The read endpoints are complete. |
 | PR 8a-0 | #25 | `5deb0fe` | — | 2026-09-29 | Probe P6 (task 8a.0a). Pull only, no restart. The owner ran the probe: a read-only Binance key reads every fapi endpoint, and `canTrade`/`canWithdraw` are account-level. See 8a.0a's results and decision 30. |
 | PR 8a-1 | #26 | `e9307c7` | 0027 | 2026-09-29 | Unit 6a. Rehearsed on `sm_rehearsal_0027`, including the downgrade refusal once a fact is recorded. Backup `/root/sm_pre0027_20260929_2210.dump`. Restart both; the vault self-test opened all 3 keys through the new columns. All 4 credential rows (binance, bybit, pionex active, plus one inactive pionex) are `trade_capable`, both sources `UNRECORDED`. S2 (httpx INFO logs) is a follow-up for 8a-3. |
-| PR 8a-2 | — | — | — | — | `SaveCredential` and the script fold (6b.1, 6b.4, 6b.7), on `feat/operator-panel-save-credential`. In review. No migration: pull, restart both. After the deploy, the owner re-saves the Binance trade key (the vault key, last four `3h2M`) with both confirmations, so it leaves `UNRECORDED` (Q1-A). |
+| PR 8a-2 | #27 | `ab415ad` | — | 2026-09-30 | `SaveCredential` and the script fold (6b.1, 6b.4, 6b.7). Pull, restart both. The owner re-saved the Binance trade key (`***3h2M`) with both confirmations. It is now `OWNER_CONFIRMED` for trade capability and withdraw check, validated 2026-09-29T22:40:29Z. **Defect found doing it:** `credential_cli.py` read the API key with `input()`, so the full key was printed on the terminal and copied into a chat. The secret was not exposed. The owner is advised to rotate that key once the fix is deployed. |
+| Fix | — | — | — | — | No-echo key prompt, on `fix/store-script-no-echo`, shipped alone so the Binance key can be rotated before PR 8a-3. Pull only; no service imports the scripts. |
+| PR 8a-3 | — | — | — | — | The HTTP surface (6b.2, 6b.3, 6b.5, 6b.6). Cut from `main` after the fix merges. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
