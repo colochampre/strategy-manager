@@ -43,6 +43,7 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSource,
 )
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
+from strategy_manager.accounts.infrastructure.pools_router import router as pools_router
 from strategy_manager.accounts.infrastructure.reader_by_exchange import (
     ReaderByExchange,
     ReaderFactory,
@@ -1739,6 +1740,7 @@ def create_app() -> FastAPI:
     api_router = APIRouter(prefix="/api")
     api_router.include_router(strategies_router)
     api_router.include_router(reconciliation_router)
+    api_router.include_router(pools_router)
     app.include_router(api_router)
 
     return app

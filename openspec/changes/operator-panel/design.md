@@ -496,6 +496,12 @@ Money, quantities and ratios are **JSON strings** (pydantic v2 serializes `Decim
 
 `PoolPerformance` = `{pool, currency, day_boundary: "UTC", trade_count, open_trade_count, excluded: {no_capital_at_open, unconverted_fee}, ranges: [{range: "7D"|"30D"|"90D"|"1Y"|"ALL", pnl, return|null}], curve: [{date, index, drawdown}], max_drawdown, monthly: [{year, month, return}]}`. An empty ledger returns zeros and empty arrays, never an error (spec).
 
+**As built (PR 7a), `GET /pools`.**
+- One object per row of `capital_pools`, enabled or not (`enabled` says which), ordered by `(exchange, venue, settlement_currency)`. The body is a bare list with no envelope, so there is no place for a total (rule 7). Each pool: `{exchange, venue, settlement_currency, enabled, balance, reserved, allocatable}`; `settlement_currency` is the design's own name for the pool's currency, and no separate `currency` field exists.
+- `balance` is `{total, available, observed_at, stale}` from `pool_balance_snapshots` (OUTER join), or `null` for a pool nothing has synced. `stale` uses the allocator's own limit, `balance_snapshot_max_age_seconds` (`DbBalanceSource`), so a snapshot the allocator would refuse is flagged. `observed_at` is ISO-8601 with an explicit offset.
+- `reserved` is `SqlAlchemyReservationRepository.sum_active` (allocation/infrastructure/repository.py), called per pool with the request time: reservations in PENDING or SUBMITTED whose `expires_at` is still in the future. It is the query `AllocateCapital` runs under the lock (`reserved_active`), reused rather than rewritten.
+- `allocatable = max(0, available - reserved)` (`accounts/domain/pool_overview.allocatable`). **When `balance` is `null`, `allocatable` is `null` too**, not `0`: with no available balance the honest answer is unknown, and the design table did not say. `reserved` is still reported.
+
 `StrategyView` = today's fields + `archived_at|null`, `allowed_pairs` (sorted), `uptime: {seconds, first_enabled_at|null, baseline}`.
 
 **Status-code conventions, carried from book-venue-closes.**
