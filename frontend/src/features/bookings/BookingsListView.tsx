@@ -8,6 +8,10 @@ import { RejectBookingDialog } from "@/features/bookings/RejectBookingDialog";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type { BookingProposal } from "@/shared/api/types";
 
+interface BookingsListViewProps {
+  exchange?: string;
+}
+
 async function fetchPendingBookings(): Promise<BookingProposal[]> {
   const body = await apiFetch<unknown>("/reconciliation/bookings?state=pending");
   // Never trust a 200's body shape -- a malformed payload (e.g. `{items:
@@ -22,6 +26,14 @@ async function fetchPendingBookings(): Promise<BookingProposal[]> {
 }
 
 /**
+ * Pending-bookings list. With `exchange` set it shows only that exchange's
+ * proposals, filtered on the client (owner decision 3): the endpoint has no
+ * exchange parameter, and each proposal carries its own `exchange`, the same
+ * identifier `GET /pools` reports. Without it every row renders, which is what
+ * a caller that has no exchange scope gets. The Overview never omits it while
+ * the scope is unresolved, because unfiltered rows under an exchange tab would
+ * claim a filter that is not applied.
+ *
  * Loading, empty and error are three DISTINCT renders, never confused: an
  * `ApiError` (any status, including a network failure reported as status 0)
  * always shows the error panel with its status/detail, never the empty
@@ -29,7 +41,7 @@ async function fetchPendingBookings(): Promise<BookingProposal[]> {
  * enclosing `TokenGate` re-renders its paste-once form on its own -- this
  * view does not special-case it.
  */
-export function BookingsListView() {
+export function BookingsListView({ exchange }: BookingsListViewProps) {
   const { t } = useTranslation();
   const query = useQuery({
     queryKey: ["bookings", "pending"],
@@ -61,7 +73,10 @@ export function BookingsListView() {
     );
   }
 
-  const proposals = query.data;
+  const proposals =
+    exchange === undefined
+      ? query.data
+      : query.data.filter((proposal) => proposal.exchange === exchange);
 
   if (proposals.length === 0) {
     return <p className="text-sm text-ink-3">{t("bookings.empty")}</p>;

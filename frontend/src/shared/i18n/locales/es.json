@@ -8,6 +8,11 @@
     "strategies": "Estrategias",
     "settings": "Configuración"
   },
+  "scope": {
+    "exchanges": "Exchanges",
+    "loading": "Cargando exchanges…",
+    "error": "No se pudieron cargar los exchanges."
+  },
   "status": {
     "dryRun": "Modo simulación",
     "live": "En vivo",
@@ -21,7 +26,10 @@
   "overview": {
     "title": "Resumen",
     "decisionRail": {
-      "title": "Requiere su decisión"
+      "title": "Requiere su decisión",
+      "scopeLoading": "Cargando exchanges…",
+      "scopeError": "Las reservas pendientes están ocultas porque no se pudieron cargar los exchanges y no se pueden filtrar.",
+      "noExchanges": "No hay ningún exchange configurado, por lo que no hay reservas pendientes que mostrar."
     }
   },
   "strategies": {

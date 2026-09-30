@@ -188,6 +188,25 @@ describe("layout contract", () => {
     expect(main.parentElement).toHaveClass("min-h-0", "flex-1");
   });
 
+  it("keeps the one-viewport contract with the exchange tabs row in the header", async () => {
+    const { container } = renderShell();
+
+    const tabs = await screen.findAllByRole("navigation", { name: "Exchanges" });
+    const header = screen.getByRole("banner");
+    // The header is a non-shrinking, non-overlaying row of the column, and the
+    // tabs sit inside it, so they add height to the header and take it from
+    // `main`, never from the page.
+    expect(header).toHaveClass("shrink-0");
+    expect(header).not.toHaveClass("fixed", "sticky", "absolute");
+    expect(header.parentElement).toBe(container.firstElementChild);
+    for (const bar of tabs) {
+      expect(header).toContainElement(bar);
+      expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
+    }
+    expect(screen.getByRole("main")).toHaveClass("flex-1", "min-h-0", "overflow-auto");
+    expect(container.innerHTML).not.toMatch(/min-h-full|h-screen/);
+  });
+
   it("does not reserve bottom-bar space with padding hacks that can overflow", () => {
     const { container } = renderShell();
 

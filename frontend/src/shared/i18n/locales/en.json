@@ -8,6 +8,11 @@
     "strategies": "Strategies",
     "settings": "Settings"
   },
+  "scope": {
+    "exchanges": "Exchanges",
+    "loading": "Loading exchanges…",
+    "error": "Exchanges could not be loaded."
+  },
   "status": {
     "dryRun": "Dry run",
     "live": "Live",
@@ -21,7 +26,10 @@
   "overview": {
     "title": "Overview",
     "decisionRail": {
-      "title": "Needs your decision"
+      "title": "Needs your decision",
+      "scopeLoading": "Loading exchanges…",
+      "scopeError": "Pending bookings are hidden because the exchanges could not be loaded, so they cannot be filtered.",
+      "noExchanges": "No exchange is configured, so there are no pending bookings to show."
     }
   },
   "strategies": {

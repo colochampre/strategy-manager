@@ -62,3 +62,15 @@ export interface RefusalBody {
   outcome: string;
   detail: string;
 }
+
+/**
+ * The part of `GET /api/pools` (`accounts/infrastructure/pools_router.py`,
+ * `PoolBody`) the panel reads so far. Balance and reserved money join it with
+ * the Overview (PR 11); none of it is ever summed across pools (rule 7).
+ */
+export interface Pool {
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
+  enabled: boolean;
+}
