@@ -71,13 +71,13 @@ describe("BookingsListView", () => {
   });
 
   it("carries the new copy in both locales, never hardcoded", () => {
-    expect(en.nav?.bookings).toBeTruthy();
+    expect(en.overview?.decisionRail?.title).toBeTruthy();
     expect(en.bookings?.empty).toBeTruthy();
     expect(en.bookings?.loading).toBeTruthy();
     expect(en.bookings?.error?.title).toBeTruthy();
     expect(en.bookings?.actions?.approve).toBeTruthy();
     expect(en.bookings?.actions?.reject).toBeTruthy();
-    expect(es.nav?.bookings).toBeTruthy();
+    expect(es.overview?.decisionRail?.title).toBeTruthy();
     expect(es.bookings?.empty).toBeTruthy();
     expect(es.bookings?.loading).toBeTruthy();
     expect(es.bookings?.error?.title).toBeTruthy();

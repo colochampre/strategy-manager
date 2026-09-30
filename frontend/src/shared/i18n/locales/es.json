@@ -3,13 +3,35 @@
     "name": "Strategy Manager"
   },
   "nav": {
-    "dashboard": "Panel",
+    "sections": "Secciones",
+    "overview": "Resumen",
     "strategies": "Estrategias",
-    "settings": "Configuración",
-    "bookings": "Cierres pendientes"
+    "settings": "Configuración"
   },
   "status": {
-    "dryRun": "Modo simulación"
+    "dryRun": "Modo simulación",
+    "live": "En vivo",
+    "checking": "Comprobando modo",
+    "unknown": "Modo desconocido"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "back": "Volver al resumen"
+  },
+  "overview": {
+    "title": "Resumen",
+    "decisionRail": {
+      "title": "Requiere su decisión"
+    }
+  },
+  "strategies": {
+    "title": "Estrategias",
+    "detail": {
+      "title": "Estrategia"
+    }
+  },
+  "settings": {
+    "title": "Configuración"
   },
   "auth": {
     "tokenGate": {
