@@ -63,16 +63,30 @@ export interface RefusalBody {
   detail: string;
 }
 
+/** `balance` of `GET /api/pools` (`BalanceBody`): one pool's snapshot, in its own currency. */
+export interface PoolBalance {
+  total: string;
+  /** What the allocator may still use; the Overview's lead figure. */
+  available: string;
+  /** ISO-8601 with an explicit offset. */
+  observed_at: string;
+  /** Older than the allocator's own limit, so it would refuse this snapshot. */
+  stale: boolean;
+}
+
 /**
- * The part of `GET /api/pools` (`accounts/infrastructure/pools_router.py`,
- * `PoolBody`) the panel reads so far. Balance and reserved money join it with
- * the Overview (PR 11); none of it is ever summed across pools (rule 7).
+ * One row of `GET /api/pools` (`accounts/infrastructure/pools_router.py`,
+ * `PoolBody`). `balance` and `allocatable` are null for a pool nothing has
+ * synced. Nothing here is ever summed across pools (rule 7).
  */
 export interface Pool {
   exchange: string;
   venue: string;
   settlement_currency: string;
   enabled: boolean;
+  balance: PoolBalance | null;
+  reserved: string;
+  allocatable: string | null;
 }
 
 /**
@@ -115,4 +129,23 @@ export interface Excluded {
   no_capital_at_open: number;
   unconverted_fee: number;
   unresolved_allocation_count: number;
+}
+
+/**
+ * `GET /api/performance/pools/{exchange}/{venue}/{ccy}` (`PerformanceBody`).
+ * One pool in its own currency: the endpoint returns every range at once, so
+ * the range selector only chooses an entry of `ranges` and never refetches.
+ * An empty ledger (the DRY_RUN reality) is a 200 with zeros and empty lists.
+ */
+export interface PoolPerformance {
+  pool: { exchange: string; venue: string; settlement_currency: string };
+  currency: string;
+  day_boundary: string;
+  trade_count: number;
+  total_pnl: string;
+  max_drawdown: string;
+  excluded: Excluded;
+  ranges: RangeSummary[];
+  curve: CurvePoint[];
+  monthly: MonthReturn[];
 }
