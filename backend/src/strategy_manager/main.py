@@ -202,9 +202,6 @@ from strategy_manager.shared.infrastructure.http_logging import silence_http_cli
 from strategy_manager.shared.infrastructure.job_health import PostgresJobHealth
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.job_retention import PostgresJobRetention
-from strategy_manager.shared.infrastructure.master_key_invariant import (
-    assert_master_key_usable,
-)
 from strategy_manager.shared.infrastructure.no_store import NoStoreMiddleware
 from strategy_manager.shared.infrastructure.observed_job_queue import (
     ExhaustionObservingJobQueue,
@@ -299,7 +296,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await assert_pool_lock_keys_distinct(conn, pools)
         assert_webhook_secret_configured(settings)
         assert_admin_api_token_configured(settings)
-        assert_master_key_usable(settings)
         assert_panel_dist_ready(settings)
         yield
 
