@@ -30,6 +30,13 @@
       "scopeLoading": "Cargando exchanges…",
       "scopeError": "Las reservas pendientes están ocultas porque no se pudieron cargar los exchanges y no se pueden filtrar.",
       "noExchanges": "No hay ningún exchange configurado, por lo que no hay reservas pendientes que mostrar."
+    },
+    "returnChart": {
+      "title": "Rendimiento de las estrategias, compuesto",
+      "caption": "Días UTC · depósitos y retiros excluidos",
+      "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
+      "empty": "Todavía no hay operaciones cerradas",
+      "unreadable": "No se pudo leer la curva de rendimiento."
     }
   },
   "strategies": {

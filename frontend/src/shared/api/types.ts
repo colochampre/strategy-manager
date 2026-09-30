@@ -74,3 +74,17 @@ export interface Pool {
   settlement_currency: string;
   enabled: boolean;
 }
+
+/**
+ * One day of `curve` in `GET /api/performance/pools/{exchange}/{venue}/{ccy}`
+ * (`performance_router.py`, `CurvePointBody`). `date` is a UTC calendar date
+ * (`YYYY-MM-DD`); the ratios are decimal strings, as `Ratio` writes them in
+ * `wire.py`: `index` is the compounded index E (1 is flat), `drawdown` is
+ * E / peak - 1 (never above 0). The chart parses them for geometry only.
+ */
+export interface CurvePoint {
+  date: string;
+  daily_return: string;
+  index: string;
+  drawdown: string;
+}
