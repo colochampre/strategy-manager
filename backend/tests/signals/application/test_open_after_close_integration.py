@@ -89,7 +89,7 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
@@ -458,6 +458,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             clock=clock,
             reservation_ttl_seconds=30,
             skip_recorder=RecordingSkipRecorder(),
+            pool_status=AlwaysEnabledPool(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),

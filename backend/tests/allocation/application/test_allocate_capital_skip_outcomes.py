@@ -30,7 +30,7 @@ from tests.allocation.application.test_allocate_capital import (
     SequencedStrategyPolicyPort,
     _enabled_snapshot,
 )
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 
 
 @dataclass
@@ -60,6 +60,7 @@ def _use_case(
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=recorder,
+        pool_status=AlwaysEnabledPool(),
     )
 
 

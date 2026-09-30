@@ -24,7 +24,7 @@ from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 
 
 class FrozenClock:
@@ -149,6 +149,7 @@ def _build_use_case(
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
     return use_case, lock, reservations, commit
 
@@ -326,6 +327,7 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
     with caplog.at_level("WARNING"):
@@ -384,6 +386,7 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
     with caplog.at_level("WARNING"):
@@ -604,6 +607,7 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
     result = await use_case.allocate(
@@ -741,6 +745,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
     result = await use_case.allocate(

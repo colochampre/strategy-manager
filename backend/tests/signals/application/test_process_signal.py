@@ -79,7 +79,7 @@ from strategy_manager.signals.application.process_signal import (
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -392,6 +392,7 @@ def _allocate_capital(
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=skip_recorder or RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
 

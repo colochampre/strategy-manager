@@ -78,7 +78,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 
 pytestmark = pytest.mark.integration
 
@@ -292,6 +292,7 @@ async def test_allocation_wins_lock_first_archive_then_refused_sees_live_reserva
                 clock=FixedClock(),  # type: ignore[arg-type]
                 reservation_ttl_seconds=30,
                 skip_recorder=RecordingSkipRecorder(),
+                pool_status=AlwaysEnabledPool(),
             )
             allocate_result["value"] = await use_case.allocate(
                 AllocateCommand(
@@ -375,6 +376,7 @@ async def test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_s
                 clock=FixedClock(),  # type: ignore[arg-type]
                 reservation_ttl_seconds=30,
                 skip_recorder=RecordingSkipRecorder(),
+                pool_status=AlwaysEnabledPool(),
             )
             allocate_result["value"] = await use_case.allocate(
                 AllocateCommand(
@@ -487,6 +489,7 @@ async def test_archive_takes_pool_lock_before_row_lock_no_deadlock_with_inflight
                 clock=FixedClock(),  # type: ignore[arg-type]
                 reservation_ttl_seconds=30,
                 skip_recorder=RecordingSkipRecorder(),
+                pool_status=AlwaysEnabledPool(),
             )
             try:
                 allocate_result["value"] = await use_case.allocate(

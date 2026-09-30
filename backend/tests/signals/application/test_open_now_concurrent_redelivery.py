@@ -97,7 +97,7 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
@@ -434,6 +434,7 @@ def _build_handler(
             clock=clock,
             reservation_ttl_seconds=RESERVATION_TTL_SECONDS,
             skip_recorder=RecordingSkipRecorder(),
+            pool_status=AlwaysEnabledPool(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),

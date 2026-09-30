@@ -72,6 +72,22 @@ class PoolBalancePort(Protocol):
     ) -> PoolBalance: ...
 
 
+class PoolStatusPort(Protocol):
+    """Reads whether a capital pool has been DISABLED, from committed state.
+
+    ``AllocateCapital`` calls it inside the advisory lock, right where it
+    re-reads the strategy policy: ``DeleteCredential`` disables the pool under
+    that same lock, so an allocation that waited for it must observe the
+    committed flag rather than a value read before the wait.
+
+    MUST be a plain read with no row lock: a waiting allocation must not hold
+    a lock the delete needs (lock order: advisory first, then row locks).
+    A pool with no row is NOT reported disabled -- that misconfiguration keeps
+    failing loudly through ``PoolBalancePort`` as it always has."""
+
+    async def is_disabled(self, exchange: str, venue: str, settlement_currency: str) -> bool: ...
+
+
 class AdvisoryLockPort(Protocol):
     """MUST run on the same session/connection as the reservation write, MUST
     be inside an open transaction, and MUST be released only by that

@@ -23,6 +23,7 @@ from strategy_manager.allocation.application.ports import (
     AdvisoryLockPort,
     CommitPort,
     PoolBalancePort,
+    PoolStatusPort,
     ReservationRepositoryPort,
     SkipRecorderPort,
     StrategyPolicyPort,
@@ -46,6 +47,12 @@ STRATEGY_DISABLED_SKIP_REASON = "STRATEGY_DISABLED"
 # the reason ARCHIVED rather than DISABLED tells the owner which of the
 # two states actually stopped this signal.
 STRATEGY_ARCHIVED_SKIP_REASON = "STRATEGY_ARCHIVED"
+# W1 of the PR 8b-2 verification: the pool was DISABLED (``DeleteCredential``
+# deactivates the key and disables the pool under this same lock) while this
+# allocation waited for it. The strategy may still read as enabled -- the owner
+# can enable one while a delete holds the lock -- so neither reason above
+# covers it, and reserving here would hold capital against a keyless exchange.
+POOL_DISABLED_SKIP_REASON = "POOL_DISABLED"
 
 
 class UnknownPoolError(DomainError):
@@ -96,6 +103,7 @@ class AllocateCapital:
         clock: ClockPort,
         reservation_ttl_seconds: int,
         skip_recorder: SkipRecorderPort,
+        pool_status: PoolStatusPort,
     ) -> None:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -105,6 +113,7 @@ class AllocateCapital:
         self._clock = clock
         self._reservation_ttl_seconds = reservation_ttl_seconds
         self._skip_recorder = skip_recorder
+        self._pool_status = pool_status
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
         existing = await self._reservations.find_by_signal_id(command.signal_id)
@@ -195,6 +204,31 @@ class AllocateCapital:
                 granted=Decimal("0"),
                 reservation_id=None,
                 skip_reason=skip_reason,
+            )
+
+        # W1: the pool flag, re-read from committed state now that the lock is
+        # held. It MUST follow ``acquire``: a read before the wait would see the
+        # pool enabled. A plain read, never ``FOR UPDATE`` -- ``DeleteCredential``
+        # updates this row, and a waiting allocation must not hold a lock it needs.
+        if await self._pool_status.is_disabled(
+            policy.exchange, policy.venue, policy.settlement_currency
+        ):
+            detail = (
+                f"in-lock re-check skips signal {command.signal_id} for strategy "
+                f"{command.strategy_id}: {POOL_DISABLED_SKIP_REASON}, pool "
+                f"{policy.exchange}/{policy.venue}/{policy.settlement_currency} was "
+                f"disabled while waiting for the lock; no capital reserved"
+            )
+            logger.warning("%s", detail)
+            await self._skip_recorder.record_skip(
+                command.signal_id, POOL_DISABLED_SKIP_REASON, detail
+            )
+            await self._commit.commit()
+            return AllocationResult(
+                outcome=DecisionOutcome.SKIP,
+                granted=Decimal("0"),
+                reservation_id=None,
+                skip_reason=POOL_DISABLED_SKIP_REASON,
             )
 
         try:
