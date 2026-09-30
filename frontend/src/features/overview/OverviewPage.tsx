@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { DecisionRail } from "@/features/overview/DecisionRail";
 import { PoolPanel } from "@/features/overview/PoolPanel";
+import { orderPools } from "@/features/overview/poolOrder";
 import { usePools } from "@/shared/api/pools";
 import { useIsWide } from "@/shared/layout/useIsWide";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
@@ -15,7 +16,8 @@ const RAIL_BESIDE_QUERY = "(min-width: 1280px)";
 
 /**
  * The Overview container: one `PoolPanel` per pool of the selected exchange,
- * never merged (rule 7), and the decision rail, placed once.
+ * never merged (rule 7), in the interim order of `orderPools` (decision 37),
+ * and the decision rail, placed once.
  *
  * From `xl` (1280 px) the rail is the column beside the panels, which fill
  * the rest of the width (decision 36: the chart's HEIGHT is bounded, not the
@@ -38,7 +40,7 @@ export function OverviewPage() {
 
   const panels =
     scope.status === "ready" && scope.exchange !== null && pools.data !== undefined
-      ? pools.data.filter((pool) => pool.exchange === scope.exchange)
+      ? orderPools(pools.data.filter((pool) => pool.exchange === scope.exchange))
       : [];
   const rail = <DecisionRail scope={scope} placement={wide ? "right-rail" : "in-flow"} />;
   const railInFirstPanel = !wide && panels.length > 0;
