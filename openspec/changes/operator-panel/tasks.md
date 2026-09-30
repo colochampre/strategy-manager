@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-30, VPS time): `main` at `299c150`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-09-30, VPS time): `main` at `ed30e64`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -119,7 +119,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 10b | #35 | `65ab3bc` | — | 2026-09-30 | Unit 7-router (7r.1-7r.3): `react-router` 7.18.4, `AppRoutes`, `AppShell`/`TopBar`/`SideNav`/`BottomNav`, `DryRunBadge` on `GET /health` (always visible, decision 32), the vertical-overflow fix, and the Vite `/health` proxy. Risk **low** (frontend only). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The owner reviewed it locally: no page scroll at wide or narrow width, deep links survive a refresh, and the badge shows "Mode unknown" with the backend stopped. |
 | PR 10c | #36 | `7b78b9a` | — | 2026-09-30 | Unit 7s-scope (7s.1-7s.3): the exchange store (`sm.exchange`), `ExchangeTabs` on the scoped routes, and the decision rail filtered by exchange. Risk **low** (frontend only). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The owner reviewed it locally (tabs, persistence, unscoped routes, narrow row, the pools-failure message). The tab key marks were deferred to PR 13 (10c.4), and the owner polish is 7p.1-7p.2. **PR 10 is complete.** |
 | PR 11a | #37 | `299c150` | — | 2026-09-30 | Units 8c-geometry and 8r-chart (8c.1-8c.2, 8r.1-8r.2): the pure waterline geometry in `shared/charts/scale.ts` and the `ReturnChart` inline SVG. Risk **low** (frontend only, nothing mounts the chart yet). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 11c, which mounts the chart. |
-| PR 11b | — | `e34e2fb` | — | 2026-09-30 | Unit 8g-grid (8g.1-8g.4): `PoolEyebrow`, `RangeSelector`, `LedgerLine`, `MonthlyGrid`, `MonthlySummary` and the display helpers, presentational with typed props. **Committed, not pushed** (three code commits on `feat/operator-panel-monthly-grid`, cut from `299c150`). Risk **low** (frontend only, nothing mounts the components yet). No migration. Deploy: pull as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 11c, which mounts them. |
+| PR 11b | #38 | `ed30e64` | — | 2026-09-30 | Unit 8g-grid (8g.1-8g.4): `PoolEyebrow`, `RangeSelector`, `LedgerLine`, `MonthlyGrid`, `MonthlySummary` and the display helpers, all presentational with typed props. Risk **low** (frontend only, nothing mounts the components yet). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 11c, which mounts them. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
