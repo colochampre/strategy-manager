@@ -167,6 +167,28 @@ describe("with nothing pending", () => {
   });
 });
 
+describe("while the exchange scope is not known", () => {
+  it.each([
+    ["loading", { kind: "pending" }],
+    ["failed with a 500", { kind: "status", status: 500, body: { detail: "boom" } }],
+    ["failed with a network error", { kind: "network-error" }],
+  ] as const)("asks for no bookings and shows no count when pools are %s", async (_label, pools) => {
+    const fetchMock = stubApi(HEALTH, TWO_BYBIT_ONE_BINANCE, pools);
+    renderAt(<AppRoutes />, "/");
+    const rail = await screen.findByRole("complementary");
+    await waitFor(() =>
+      expect(rail).toHaveTextContent(/Loading exchanges|could not be loaded/),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const bookingCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/reconciliation/bookings"));
+    expect(bookingCalls).toEqual([]);
+    expect(screen.queryByTestId("pending-count")).not.toBeInTheDocument();
+    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
+    expect(screen.queryByText("XRPUSDT.P")).not.toBeInTheDocument();
+  });
+});
+
 describe("the booking actions", () => {
   it("opens the existing confirm dialog from the rail", async () => {
     setViewport("wide");
