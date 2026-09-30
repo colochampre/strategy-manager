@@ -39,6 +39,9 @@ from strategy_manager.accounts.domain.exchange_credential import (
     FactSource,
     KeyFacts,
 )
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
 from strategy_manager.main import create_app
@@ -256,6 +259,7 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         return SaveCredential(
             registry_for(RecordingInspector(TRADING_SNAPSHOT)),
             SqlAlchemyCredentialVault(session, cipher, clock),
+            SqlAlchemyCapitalPoolWriter(session),
             session,
             clock,
         )

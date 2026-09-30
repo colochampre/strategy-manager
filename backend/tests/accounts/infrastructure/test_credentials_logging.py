@@ -35,6 +35,7 @@ from strategy_manager.shared.config import get_settings
 from tests.accounts.fakes import (
     NOW,
     RecordingCommit,
+    RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
 )
@@ -83,7 +84,11 @@ async def test_no_log_record_at_any_level_carries_the_key_or_the_secret_on_a_rea
     with _logging_restored():
         app = create_app()
         use_case = SaveCredential(
-            KeyInspectorRegistry({"binance": inspector}), writer, commit, TickingClock()
+            KeyInspectorRegistry({"binance": inspector}),
+            writer,
+            RecordingPoolWriter(),
+            commit,
+            TickingClock(),
         )
         app.dependency_overrides[get_save_credential] = lambda: use_case
 

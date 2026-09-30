@@ -61,3 +61,22 @@ def test_the_shared_saver_is_save_credential() -> None:
     source = (_SCRIPTS_DIR / "credential_cli.py").read_text(encoding="utf-8")
 
     assert "SaveCredential(" in source
+
+
+def test_the_shared_saver_hands_save_credential_the_real_pool_writer_on_the_same_session() -> None:
+    """Saving through a script enables the exchange's pool exactly as the API
+    does: the writer is built on the SAME session as the vault, so the pool
+    commits with the credential."""
+    source = (_SCRIPTS_DIR / "credential_cli.py").read_text(encoding="utf-8")
+
+    assert "SqlAlchemyCapitalPoolWriter(session)" in source
+    assert "SqlAlchemyCredentialVault(session, cipher, clock)" in source
+
+
+def test_the_pionex_script_is_not_folded_and_never_touches_a_pool() -> None:
+    """Pionex is outside ``KNOWN_FUTURES_POOLS``: it offers no futures order
+    placement, and its script seals directly."""
+    source = (_SCRIPTS_DIR / "store_pionex_credentials.py").read_text(encoding="utf-8")
+
+    for word in ("SaveCredential", "capital_pool", "CapitalPool", "known_pools", "enable("):
+        assert word not in source, word

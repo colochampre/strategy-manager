@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
@@ -47,11 +48,14 @@ from strategy_manager.accounts.domain.key_policy import (
     PermissionSnapshot,
     UnservedExchange,
 )
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import (
     ONE_ACTIVE_PER_EXCHANGE_CONSTRAINT,
     SqlAlchemyCredentialVault,
 )
-from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
+from strategy_manager.accounts.infrastructure.models import CapitalPoolRow, ExchangeCredentialRow
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from tests.accounts.fakes import (
     BINANCE_KEY,
@@ -66,8 +70,10 @@ from tests.accounts.fakes import (
     TRANSFER_SNAPSHOT,
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
+    as_pools,
     as_writer,
     binance_credential,
     bybit_credential,
@@ -86,13 +92,17 @@ class Harness:
         inspector: RecordingInspector,
         writer: RecordingWriter | None = None,
         clock: TickingClock | None = None,
+        pools: RecordingPoolWriter | None = None,
+        events: list[str] | None = None,
     ) -> None:
         self.inspector = inspector
-        self.writer = writer or RecordingWriter()
-        self.commit = RecordingCommit()
+        self.writer = writer or RecordingWriter(events=events)
+        self.pools = pools or RecordingPoolWriter(events=events)
+        self.commit = RecordingCommit(events)
         self.use_case = SaveCredential(
             registry_for(inspector),
             as_writer(self.writer),
+            as_pools(self.pools),
             self.commit,
             clock or TickingClock(),
         )
@@ -424,6 +434,7 @@ def _real_use_case(
     return SaveCredential(
         registry_for(inspector),
         SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), clock),
+        SqlAlchemyCapitalPoolWriter(session),
         session,
         clock,
     )
@@ -600,3 +611,308 @@ async def test_concurrent_save_second_refused_409_by_constraint_name_not_message
 
     rows = await _rows(pg_session_factory, "bybit")
     assert [(row.api_key_last4, row.is_active) for row in rows] == [("1111", True)]
+
+
+# --------------------------------------------------------------------------
+# Pool auto-enable (unit 6d, decision 21): fakes
+# --------------------------------------------------------------------------
+
+
+async def test_a_saved_key_enables_its_exchanges_pool_after_the_store_before_the_commit() -> None:
+    """The pool is written between the credential and the commit: one
+    transaction, and the pool write never precedes a credential that may fail."""
+    events: list[str] = []
+    h = Harness(RecordingInspector(TRADING_SNAPSHOT), events=events)
+
+    _saved(await h.save(bybit_credential()))
+
+    assert h.pools.enabled == ["bybit"]
+    assert events == ["store", "enable", "commit"]
+
+
+async def test_a_saved_binance_key_enables_the_binance_pool_only() -> None:
+    h = Harness(RecordingInspector())
+
+    _saved(await h.save(binance_credential(), BOTH))
+
+    assert h.pools.enabled == ["binance"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "key_rejected",
+        "venue_unreachable",
+        "withdraw_permission",
+        "confirmation_required",
+        "unserved_exchange",
+        "lost_race",
+    ],
+)
+async def test_a_refused_save_never_touches_the_pool(case: str) -> None:
+    credential = bybit_credential()
+    writer: RecordingWriter | None = None
+    if case == "key_rejected":
+        inspector = RecordingInspector(error=KeyRejected("bybit rejected the key (code 10003)"))
+    elif case == "venue_unreachable":
+        inspector = RecordingInspector(error=VenueUnreachable("bybit could not be read"))
+    elif case == "withdraw_permission":
+        inspector = RecordingInspector(
+            PermissionSnapshot(
+                wallet_permissions=frozenset({"AccountTransfer", "Withdraw"}), read_only=False
+            )
+        )
+    elif case == "confirmation_required":
+        inspector = RecordingInspector()
+        credential = binance_credential()
+    elif case == "unserved_exchange":
+        inspector = RecordingInspector()
+        credential = ExchangeCredential(
+            exchange="pionex", label="default", api_key="PIONEX-FAKE-KEY-1234", api_secret="s"
+        )
+    else:
+        inspector = RecordingInspector(TRADING_SNAPSHOT)
+        writer = RecordingWriter(error=ConcurrentCredentialSave("lost"))
+    h = Harness(inspector, writer=writer)
+
+    try:
+        await h.save(credential, NEITHER)
+    except UnservedExchange:
+        assert case == "unserved_exchange"
+
+    assert h.pools.enabled == []
+    assert h.pools.disabled == []
+    assert h.commit.commits == 0
+
+
+async def test_a_pool_write_that_fails_is_never_committed_and_never_swallowed() -> None:
+    h = Harness(
+        RecordingInspector(TRADING_SNAPSHOT),
+        pools=RecordingPoolWriter(error=RuntimeError("pool write failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="pool write failed"):
+        await h.save(bybit_credential())
+
+    assert h.commit.commits == 0
+
+
+async def test_a_save_that_switches_a_pool_on_logs_one_extra_info_naming_exchange_and_pool(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    h = Harness(RecordingInspector(TRADING_SNAPSHOT), pools=RecordingPoolWriter(newly_enabled=True))
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await h.save(bybit_credential())
+
+    records = _records(caplog)
+    lines = [r.getMessage() for r in records]
+    pool_lines = [line for line in lines if "usdt-m/USDT" in line]
+
+    assert [r.levelno for r in records] == [logging.INFO, logging.INFO]
+    assert len(pool_lines) == 1
+    assert "bybit" in pool_lines[0]
+    assert "enabled" in pool_lines[0]
+    assert all(BYBIT_KEY not in line and BYBIT_SECRET not in line for line in lines)
+
+
+async def test_a_save_into_an_already_enabled_pool_logs_no_pool_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    h = Harness(
+        RecordingInspector(TRADING_SNAPSHOT), pools=RecordingPoolWriter(newly_enabled=False)
+    )
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await h.save(bybit_credential())
+
+    assert not [r for r in _records(caplog) if "usdt-m/USDT" in r.getMessage()]
+
+
+# --------------------------------------------------------------------------
+# Pool auto-enable: real PostgreSQL
+# --------------------------------------------------------------------------
+
+
+async def _seed_pool(
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str,
+    *,
+    enabled: bool,
+    min_order_size: str = "5",
+) -> None:
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO capital_pools (exchange, venue, settlement_currency, "
+                "enabled, min_order_size) "
+                "VALUES (:exchange, 'usdt-m', 'USDT', :enabled, :min_order_size)"
+            ),
+            {"exchange": exchange, "enabled": enabled, "min_order_size": min_order_size},
+        )
+        await session.commit()
+
+
+async def _pools(
+    factory: async_sessionmaker[AsyncSession],
+) -> dict[tuple[str, str, str], tuple[bool, Decimal]]:
+    async with factory() as session:
+        rows = (await session.execute(select(CapitalPoolRow))).scalars()
+        return {
+            (r.exchange, r.venue, r.settlement_currency): (r.enabled, r.min_order_size)
+            for r in rows
+        }
+
+
+class _ObservingCommit:
+    """Looks at the database from ANOTHER connection, and at the caller's own
+    session, at the instant the use case commits, then commits for real."""
+
+    def __init__(self, session: AsyncSession, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session = session
+        self._factory = factory
+        self.own_view_enabled: bool | None = None
+        self.other_view_enabled: bool | None = None
+        self.other_view_credentials: int | None = None
+
+    async def commit(self) -> None:
+        own = await self._session.execute(
+            text("SELECT enabled FROM capital_pools WHERE exchange = 'binance'")
+        )
+        self.own_view_enabled = own.scalar_one()
+        async with self._factory() as other:
+            seen = await other.execute(
+                text("SELECT enabled FROM capital_pools WHERE exchange = 'binance'")
+            )
+            self.other_view_enabled = seen.scalar_one()
+            count = await other.execute(text("SELECT count(*) FROM exchange_credentials"))
+            self.other_view_credentials = count.scalar_one()
+        await self._session.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_first_key_saved_for_exchange_enables_its_pool_same_transaction(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """Binance, no active credential, pool disabled. At commit time the pool is
+    already enabled in the caller's transaction and NOT yet visible to anyone
+    else, exactly like the credential row: one transaction, one commit."""
+    await _seed_pool(pg_session_factory, "binance", enabled=False)
+    clock = TickingClock(NOW)
+    async with pg_session_factory() as session:
+        observing = _ObservingCommit(session, pg_session_factory)
+        use_case = SaveCredential(
+            registry_for(RecordingInspector()),
+            SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), clock),
+            SqlAlchemyCapitalPoolWriter(session),
+            observing,
+            clock,
+        )
+        _saved(await use_case.execute(binance_credential(), BOTH))
+
+    assert observing.own_view_enabled is True
+    assert observing.other_view_enabled is False
+    assert observing.other_view_credentials == 0
+    assert (await _pools(pg_session_factory))[("binance", "usdt-m", "USDT")][0] is True
+    assert [(r.api_key_last4, r.is_active) for r in await _rows(pg_session_factory, "binance")] == [
+        ("efgh", True)
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_resaving_key_for_already_enabled_pool_leaves_min_order_size_unchanged_idempotent(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    await _seed_pool(pg_session_factory, "bybit", enabled=True, min_order_size="7.25")
+    clock = TickingClock(NOW)
+    for api_key in ("BYBIT-FIRST-KEY-1111", "BYBIT-SECOND-KEY-2222"):
+        async with pg_session_factory() as session:
+            _saved(
+                await _real_use_case(
+                    session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
+                ).execute(bybit_credential(api_key), NEITHER)
+            )
+
+    assert await _pools(pg_session_factory) == {
+        ("bybit", "usdt-m", "USDT"): (True, Decimal("7.25"))
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_a_lost_race_leaves_the_pool_untouched_even_inside_the_open_transaction(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """The loser must not have enabled anything at the moment it learns it lost:
+    checked from the loser's OWN open session, where a write made before the
+    savepoint failed would still be visible (it is not part of the savepoint)."""
+    await _seed_pool(pg_session_factory, "bybit", enabled=False)
+    clock = TickingClock(NOW)
+    winner_facts = KeyFacts(
+        trade_capable=True,
+        trade_capability_source=FactSource.VERIFIED,
+        trade_confirmed_at=None,
+        withdraw_check=FactSource.VERIFIED,
+        withdraw_confirmed_at=None,
+        validated_at=NOW,
+        internal_transfer=False,
+    )
+    seen_in_loser: list[bool] = []
+
+    async def loser() -> SaveResult:
+        async with pg_session_factory() as session:
+            result = await _real_use_case(
+                session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
+            ).execute(bybit_credential("BYBIT-LOSER-KEY-2222"), NEITHER)
+            still = await session.execute(
+                text("SELECT enabled FROM capital_pools WHERE exchange = 'bybit'")
+            )
+            seen_in_loser.append(still.scalar_one())
+            return result
+
+    async with pg_session_factory() as winner:
+        vault = SqlAlchemyCredentialVault(winner, EnvelopeCipher(master_key), clock)
+        await vault.store(bybit_credential("BYBIT-WINNER-KEY-1111"), winner_facts)
+
+        task = asyncio.create_task(loser())
+        await asyncio.wait({task}, timeout=1.0)
+        still_waiting = not task.done()
+
+        await winner.commit()
+        (outcome,) = await asyncio.gather(task, return_exceptions=True)
+
+    assert still_waiting, "the second save was not blocked by the winner's open insert"
+    assert not isinstance(outcome, BaseException), type(outcome).__name__
+    assert _refused(outcome).outcome is SaveOutcome.CONCURRENT_SAVE
+    assert seen_in_loser == [False]
+    assert (await _pools(pg_session_factory))[("bybit", "usdt-m", "USDT")][0] is False
+
+
+class _FailingPools:
+    async def enable(self, exchange: str) -> bool:
+        raise RuntimeError("pool write failed")
+
+    async def disable(self, exchange: str) -> bool:
+        return False
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_a_pool_write_that_fails_leaves_no_credential_committed(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    await _seed_pool(pg_session_factory, "bybit", enabled=False)
+    clock = TickingClock(NOW)
+    async with pg_session_factory() as session:
+        use_case = SaveCredential(
+            registry_for(RecordingInspector(TRADING_SNAPSHOT)),
+            SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), clock),
+            _FailingPools(),
+            session,
+            clock,
+        )
+        with pytest.raises(RuntimeError, match="pool write failed"):
+            await use_case.execute(bybit_credential(), NEITHER)
+
+    assert await _rows(pg_session_factory, "bybit") == []
+    assert (await _pools(pg_session_factory))[("bybit", "usdt-m", "USDT")][0] is False

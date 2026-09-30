@@ -333,3 +333,30 @@ def test_confirmations_are_the_only_input_the_flags_build() -> None:
     assert script.confirmations_from(parsed) == OwnerConfirmations(
         withdrawals_disabled=True, futures_enabled=True
     )
+
+
+async def test_a_saved_binance_key_enables_the_binance_pool_through_the_use_case(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(binance_credential())
+
+    code = await _run(session, BOTH_FLAGS)
+
+    capsys.readouterr()
+    assert code == 0
+    assert session.pools.enabled == ["binance"]
+
+
+async def test_a_refused_binance_save_enables_no_pool(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(
+        binance_credential(),
+        inspector=RecordingInspector(error=KeyRejected("binance rejected the key (code -2014)")),
+    )
+
+    code = await _run(session, BOTH_FLAGS)
+
+    capsys.readouterr()
+    assert code == 1
+    assert session.pools.enabled == []

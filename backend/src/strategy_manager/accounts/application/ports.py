@@ -134,6 +134,32 @@ class CredentialWriterPort(Protocol):
     async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint: ...
 
 
+class CapitalPoolWriterPort(Protocol):
+    """Switches a pool on or off. It is NOT a management surface: nothing on the
+    API calls it directly, and neither method takes a pool identity.
+
+    The exchange is the only input. Which pool that means, and the
+    ``min_order_size`` a row created from scratch starts with, come from
+    ``KNOWN_FUTURES_POOLS`` (owner decision 21), never from a request body. An
+    exchange that constant does not name raises; there is no fallback pool.
+
+    Both write through the caller's session, so they commit with the caller's
+    transaction and roll back with it.
+    """
+
+    async def enable(self, exchange: str) -> bool:
+        """Makes the exchange's pool enabled, creating the row when it does not
+        exist. An existing row's ``min_order_size`` is never touched. Returns
+        ``True`` when this call changed something (row inserted, or flipped from
+        disabled) and ``False`` when the pool was already enabled."""
+        ...
+
+    async def disable(self, exchange: str) -> bool:
+        """Flips only an existing row to disabled; a missing row is not created.
+        Returns ``True`` when an enabled row was flipped."""
+        ...
+
+
 class KeyInspectorPort(Protocol):
     """Asks a venue what a candidate key is allowed to do, before it is stored.
 

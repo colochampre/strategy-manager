@@ -15,8 +15,10 @@ from strategy_manager.accounts.domain.key_policy import OwnerConfirmations
 from tests.accounts.fakes import (
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
+    as_pools,
     as_writer,
     registry_for,
 )
@@ -42,6 +44,7 @@ class ScriptSession:
         self.credential = credential
         self.inspector = inspector or RecordingInspector()
         self.writer = RecordingWriter()
+        self.pools = RecordingPoolWriter()
         self.prompt_calls = 0
         self.saver_requests = 0
         self.saves: list[tuple[ExchangeCredential, OwnerConfirmations]] = []
@@ -51,6 +54,7 @@ class ScriptSession:
         self._use_case = SaveCredential(
             registry_for(self.inspector),
             as_writer(self.writer),
+            as_pools(self.pools),
             RecordingCommit(),
             TickingClock(),
         )
