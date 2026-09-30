@@ -693,7 +693,7 @@ One inline `<svg>` (`ReturnChart`), `role="img"`, `aria-label` from i18n, width 
 - **Gridlines**: `stroke-rule-soft`, 1 px, at each tick. Tick labels in mono 10 px `ink-3` in a 44 px left gutter.
 - **X axis**: month labels (mono 10 px `ink-3`) at the first UTC day of each month.
 - **Caption** above the chart, right-aligned in mono 11 px `ink-3`: "UTC days · deposits and withdrawals excluded". Title: "Return of the strategies, compounded".
-- **The chart always shows All.** The range selector drives the ledger line only; in Main.dc.html "30D" is pressed while the axis runs July to November. This avoids rebasing ratios in the browser.
+- **The chart always shows All.** The range selector drives the ledger line only; in Main.dc.html "30D" is pressed while the axis runs July to November. This avoids rebasing ratios in the browser. **Superseded by decision 33:** the chart follows the selected range, rebased to 0% at the range's start.
 - **Empty state** (the DRY_RUN reality): the waterline alone, with a centred caption "No closed trades yet".
 - Colours come from utility classes on SVG elements (`stroke-gain`, `fill-loss/20`, `stroke-rule-strong`), never from hex attributes.
 

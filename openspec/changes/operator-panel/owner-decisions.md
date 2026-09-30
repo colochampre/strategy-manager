@@ -159,6 +159,22 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - While loading it shows a neutral "Checking mode"; on any failure it shows a neutral "Mode unknown". Neither state ever reads "Live".
     - Why: the design hid the badge when `dry_run` is false, but an absent badge looks the same as one still loading or one whose `/health` failed. A visible "Live" makes real-money mode unmistakable.
     - This supersedes design § Visual design, "shown only when `/health` says `dry_run`".
+33. **The return chart follows the selected range, rebased to 0% at the range's start** (2026-09-30, PR 11c review).
+    - Choosing 7D, 30D, 90D, 1Y or All redraws the chart for that window. `All` is the full curve, as before.
+    - For a shorter range the curve is rebased: each point is `index_t / index_before_start - 1`, and the drawdown is recomputed from the peak inside the window. The chart's last point therefore equals the ledger line's return for the same range, which the server compounds from the same daily returns.
+    - This ratio arithmetic runs in the browser, for display only, like the monthly grid's YEAR column. Money is still never computed client-side.
+    - The time axis gets ticks that make sense for every range: day or week ticks for short ranges, month ticks for long ones.
+    - Why: the owner expects the chart to show what the selector says. With a fixed chart, "30D" pressed over a year-long line reads as a bug.
+    - This supersedes design § Overview, "The chart always shows All".
+34. **The monthly grid shows the latest 3 years; older years sit behind "Show earlier years"** (2026-09-30, PR 11c review).
+    - The three most recent UTC years are rows. Any older year is revealed in place by a toggle, never paginated.
+    - The YEAR column and the monthly summary still cover the full history.
+    - Why: on a desktop screen, one pool's panel must fit at first glance without vertical scroll, and an unbounded list of years grows forever.
+    - Acceptance (with 35): at 1440x900 and 1920x1080, one pool's ledger line, chart, grid (3 years) and summary fit with no vertical scroll. Several pools on one exchange cannot all fit, and that is accepted.
+35. **Overview sizing: a bounded panel and a fluid decision rail** (2026-09-30, PR 11c review).
+    - The pool panel has a maximum width of about 800 px, so the viewBox-sized chart stays around 330 px tall instead of growing with the screen.
+    - The decision rail shrinks with the window instead of holding a fixed 22.5rem.
+    - At every width from 1024 px up, the monthly grid's figures never overlap, and all five range buttons stay visible.
 
 ## Standing constraints
 
