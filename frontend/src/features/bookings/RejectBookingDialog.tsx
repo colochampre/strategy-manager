@@ -71,20 +71,20 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface-950/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ground/80 p-4"
     >
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-edge bg-surface-900 p-6"
+        className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-rule bg-panel p-6"
       >
-        <h2 id={titleId} className="text-sm font-semibold text-ink-100">
+        <h2 id={titleId} className="text-sm font-semibold text-ink">
           {t("bookings.dialogs.reject.title")}
         </h2>
-        <p className="text-xs text-ink-500">{t("bookings.dialogs.reject.description")}</p>
+        <p className="text-xs text-ink-3">{t("bookings.dialogs.reject.description")}</p>
 
         {!settled && (
           <div className="flex flex-col gap-1">
-            <label htmlFor={reasonId} className="text-xs text-ink-500">
+            <label htmlFor={reasonId} className="text-xs text-ink-3">
               {t("bookings.dialogs.reject.reasonLabel")}
             </label>
             <textarea
@@ -93,7 +93,7 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
               onChange={(event) => setReason(event.target.value)}
               placeholder={t("bookings.dialogs.reject.reasonPlaceholder")}
               disabled={disabled}
-              className="min-h-20 rounded-md border border-edge bg-surface-850 px-3 py-2 text-sm text-ink-100 focus:border-accent focus:outline-none disabled:opacity-50"
+              className="min-h-20 rounded-md border border-rule bg-panel-2 px-3 py-2 text-sm text-ink focus:border-gain focus:outline-none disabled:opacity-50"
             />
             {validationError && (
               <p role="alert" className="text-xs text-loss">
@@ -104,7 +104,7 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
         )}
 
         {mutation.status === "success" && (
-          <p role="status" className="text-sm text-profit">
+          <p role="status" className="text-sm text-gain">
             {t("bookings.dialogs.reject.success")}
           </p>
         )}
@@ -120,7 +120,7 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ink-100 hover:opacity-90"
+              className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90"
             >
               {t("bookings.dialogs.close")}
             </button>
@@ -130,14 +130,14 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
                 type="button"
                 onClick={onClose}
                 disabled={disabled}
-                className="rounded-md border border-edge px-3 py-1.5 text-sm text-ink-300 hover:bg-surface-850 disabled:opacity-50"
+                className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
               >
                 {t("bookings.dialogs.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={disabled}
-                className="rounded-md bg-loss px-3 py-1.5 text-sm font-medium text-ink-100 hover:opacity-90 disabled:opacity-50"
+                className="rounded-md bg-loss px-3 py-1.5 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
               >
                 {disabled
                   ? t("bookings.dialogs.reject.submitting")

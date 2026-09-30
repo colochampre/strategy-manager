@@ -40,7 +40,7 @@ export function BookingsListView() {
 
   if (query.status === "pending") {
     return (
-      <p role="status" className="text-sm text-ink-500">
+      <p role="status" className="text-sm text-ink-3">
         {t("bookings.loading")}
       </p>
     );
@@ -51,12 +51,12 @@ export function BookingsListView() {
     const status = error instanceof ApiError ? error.status : undefined;
     const detail = error instanceof ApiError ? error.detail : undefined;
     return (
-      <div role="alert" className="rounded-md border border-loss bg-surface-900 p-4 text-sm">
+      <div role="alert" className="rounded-md border border-loss bg-panel p-4 text-sm">
         <p className="font-semibold text-loss">{t("bookings.error.title")}</p>
         {status !== undefined && (
-          <p className="mt-1 text-ink-300">{t("bookings.error.status", { status })}</p>
+          <p className="mt-1 text-ink-2">{t("bookings.error.status", { status })}</p>
         )}
-        {detail !== undefined && <p className="text-ink-300">{detail}</p>}
+        {detail !== undefined && <p className="text-ink-2">{detail}</p>}
       </div>
     );
   }
@@ -64,7 +64,7 @@ export function BookingsListView() {
   const proposals = query.data;
 
   if (proposals.length === 0) {
-    return <p className="text-sm text-ink-500">{t("bookings.empty")}</p>;
+    return <p className="text-sm text-ink-3">{t("bookings.empty")}</p>;
   }
 
   return (
@@ -76,14 +76,14 @@ export function BookingsListView() {
             <button
               type="button"
               onClick={() => setRejectTarget(proposal)}
-              className="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-300 hover:bg-surface-850"
+              className="rounded-md border border-rule px-3 py-1.5 text-xs text-ink-2 hover:bg-panel-2"
             >
               {t("bookings.actions.reject")}
             </button>
             <button
               type="button"
               onClick={() => setConfirmTarget(proposal)}
-              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-ink-100 hover:opacity-90"
+              className="rounded-md bg-gain px-3 py-1.5 text-xs font-medium text-ground hover:opacity-90"
             >
               {t("bookings.actions.approve")}
             </button>

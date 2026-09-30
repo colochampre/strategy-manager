@@ -40,9 +40,9 @@ export function App() {
   return (
     <div className="flex min-h-full flex-col lg:flex-row">
       {/* Sidebar on large screens */}
-      <aside className="hidden w-56 shrink-0 border-r border-edge bg-surface-900 lg:flex lg:flex-col">
+      <aside className="hidden w-56 shrink-0 border-r border-rule bg-panel lg:flex lg:flex-col">
         <div className="px-5 py-6">
-          <span className="text-sm font-semibold tracking-wide text-ink-100">
+          <span className="text-sm font-semibold tracking-wide text-ink">
             {t("app.name")}
           </span>
         </div>
@@ -54,8 +54,8 @@ export function App() {
               className={cn(
                 "rounded-md px-3 py-2 text-sm transition-colors",
                 item === active
-                  ? "bg-surface-800 text-ink-100"
-                  : "text-ink-500 hover:bg-surface-850 hover:text-ink-300",
+                  ? "bg-panel-2 text-ink"
+                  : "text-ink-3 hover:bg-panel-2 hover:text-ink-2",
               )}
             >
               {t(`nav.${item}`)}
@@ -65,16 +65,16 @@ export function App() {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-edge bg-surface-900 px-4 py-3">
-          <span className="text-sm font-semibold text-ink-100 lg:hidden">{t("app.name")}</span>
+        <header className="flex items-center justify-between border-b border-rule bg-panel px-4 py-3">
+          <span className="text-sm font-semibold text-ink lg:hidden">{t("app.name")}</span>
           <div className="ml-auto flex items-center gap-3">
-            <span className="rounded-full bg-surface-800 px-2.5 py-1 text-xs text-idle">
+            <span className="rounded-full bg-panel-2 px-2.5 py-1 text-xs text-decision">
               {t("status.dryRun")}
             </span>
             <button
               type="button"
               onClick={toggleLanguage}
-              className="rounded-md px-2 py-1 text-xs uppercase text-ink-500 hover:text-ink-100"
+              className="rounded-md px-2 py-1 text-xs uppercase text-ink-3 hover:text-ink"
             >
               {i18n.resolvedLanguage === "es" ? "en" : "es"}
             </button>
@@ -94,7 +94,7 @@ export function App() {
       {/* Bottom bar on small screens */}
       <nav
         aria-label={t("nav.dashboard")}
-        className="fixed inset-x-0 bottom-0 flex border-t border-edge bg-surface-900 lg:hidden"
+        className="fixed inset-x-0 bottom-0 flex border-t border-rule bg-panel lg:hidden"
       >
         {NAV_ITEMS.map((item) => (
           <a
@@ -102,7 +102,7 @@ export function App() {
             href={`#${item}`}
             className={cn(
               "flex-1 py-3 text-center text-xs transition-colors",
-              item === active ? "text-ink-100" : "text-ink-500",
+              item === active ? "text-ink" : "text-ink-3",
             )}
           >
             {t(`nav.${item}`)}

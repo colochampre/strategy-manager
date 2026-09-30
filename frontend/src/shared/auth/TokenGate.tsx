@@ -33,13 +33,13 @@ export function TokenGate({ children }: TokenGateProps) {
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-surface-950 p-4">
+    <div className="flex min-h-full items-center justify-center bg-ground p-4">
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-edge bg-surface-900 p-6"
+        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-rule bg-panel p-6"
       >
-        <h1 className="text-sm font-semibold text-ink-100">{t("auth.tokenGate.title")}</h1>
-        <p className="text-xs text-ink-500">{t("auth.tokenGate.description")}</p>
+        <h1 className="text-sm font-semibold text-ink">{t("auth.tokenGate.title")}</h1>
+        <p className="text-xs text-ink-3">{t("auth.tokenGate.description")}</p>
         <input
           type="password"
           autoComplete="off"
@@ -47,11 +47,11 @@ export function TokenGate({ children }: TokenGateProps) {
           onChange={(event) => setDraft(event.target.value)}
           placeholder={t("auth.tokenGate.placeholder")}
           aria-label={t("auth.tokenGate.inputLabel")}
-          className="rounded-md border border-edge bg-surface-850 px-3 py-2 text-sm text-ink-100 focus:border-accent focus:outline-none"
+          className="rounded-md border border-rule bg-panel-2 px-3 py-2 text-sm text-ink focus:border-gain focus:outline-none"
         />
         <button
           type="submit"
-          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink-100 hover:opacity-90"
+          className="rounded-md bg-gain px-3 py-2 text-sm font-medium text-ground hover:opacity-90"
         >
           {t("auth.tokenGate.submit")}
         </button>

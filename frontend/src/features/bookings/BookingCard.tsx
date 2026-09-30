@@ -18,15 +18,15 @@ export function BookingCard({ proposal }: BookingCardProps) {
   const { t } = useTranslation();
 
   return (
-    <article className="flex flex-col gap-3 rounded-lg border border-edge bg-surface-900 p-4">
+    <article className="flex flex-col gap-3 rounded-lg border border-rule bg-panel p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-ink-100">{proposal.symbol}</p>
-          <p className="text-xs text-ink-500">
+          <p className="text-sm font-semibold text-ink">{proposal.symbol}</p>
+          <p className="text-xs text-ink-3">
             {proposal.exchange} · {proposal.venue} · {proposal.settlement_currency}
           </p>
         </div>
-        <p className="text-xs text-ink-500">
+        <p className="text-xs text-ink-3">
           {t("bookings.card.expires")}: {formatUtcTimestamp(proposal.expires_at)}
         </p>
       </header>
@@ -49,7 +49,7 @@ export function BookingCard({ proposal }: BookingCardProps) {
       </dl>
 
       <div>
-        <p className="mb-1 text-xs font-semibold text-ink-300">{t("bookings.card.fills")}</p>
+        <p className="mb-1 text-xs font-semibold text-ink-2">{t("bookings.card.fills")}</p>
         <ul className="flex flex-col gap-1">
           {proposal.fills.map((fill) => (
             <FillRow key={fill.exchange_fill_id} fill={fill} />
@@ -69,8 +69,8 @@ interface FieldProps {
 function Field({ label, value, tabular = false }: FieldProps) {
   return (
     <div>
-      <dt className="text-ink-500">{label}</dt>
-      <dd className={tabular ? "tabular text-ink-100" : "text-ink-100"}>{value}</dd>
+      <dt className="text-ink-3">{label}</dt>
+      <dd className={tabular ? "tabular text-ink" : "text-ink"}>{value}</dd>
     </div>
   );
 }
@@ -83,7 +83,7 @@ function FillRow({ fill }: FillRowProps) {
   const { t } = useTranslation();
 
   return (
-    <li className="tabular flex flex-wrap gap-x-2 text-xs text-ink-300">
+    <li className="tabular flex flex-wrap gap-x-2 text-xs text-ink-2">
       <span>{fill.side}</span>
       <span>{fill.quantity}</span>
       <span>@ {fill.price}</span>

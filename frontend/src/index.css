@@ -1,27 +1,41 @@
 @import "tailwindcss";
 
-/* Trader dark theme. Defined once here so no component ever needs a raw hex
-   value or a var() inside className. */
+/* Direction A (owner decision 19): the pairs report, live. Defined once here so
+   no component ever needs a raw hex value or a var() inside className. */
 @theme {
-  --color-surface-950: #080b12;
-  --color-surface-900: #0e1420;
-  --color-surface-850: #141c2b;
-  --color-surface-800: #1b2536;
-  --color-surface-700: #263248;
+  --color-ground: #0C1116;       /* page background */
+  --color-panel: #141B22;        /* rails, cards */
+  --color-panel-2: #1B242C;      /* active nav item, pressed segment */
+  --color-rule: #28333C;         /* borders */
+  --color-rule-soft: #1E272F;    /* chart gridlines, empty grid base */
+  --color-rule-strong: #3D4E5C;  /* the waterline, the key form's dashed border */
 
-  --color-edge: #22304a;
+  --color-ink: #E7EDF1;          /* primary text */
+  --color-ink-2: #A9B8C3;        /* secondary text */
+  --color-ink-3: #7A8C99;        /* captions, ticks, eyebrows */
 
-  --color-ink-100: #eef3fb;
-  --color-ink-300: #b6c2d6;
-  --color-ink-500: #7f8da5;
+  --color-gain: #1FA6B8;         /* teal: gains, the equity curve, primary action, links */
+  --color-gain-bright: #6FD0DC;  /* link hover */
+  --color-loss: #E0644B;         /* ember: losses, drawdown, refusals */
+  --color-decision: #CE8018;     /* amber: ONLY "needs your decision" */
 
-  --color-accent: #3b82f6;
-  --color-profit: #16c784;
-  --color-loss: #ea3943;
-  --color-idle: #f0b90b;
+  /* Monthly grid bands: fixed ±15% scale, 6 bands of 2.5 points each. */
+  --color-gain-1: color-mix(in srgb, #1FA6B8 20%, #1E272F);
+  --color-gain-2: color-mix(in srgb, #1FA6B8 32%, #1E272F);
+  --color-gain-3: color-mix(in srgb, #1FA6B8 44%, #1E272F);
+  --color-gain-4: color-mix(in srgb, #1FA6B8 56%, #1E272F);
+  --color-gain-5: color-mix(in srgb, #1FA6B8 68%, #1E272F);
+  --color-gain-6: color-mix(in srgb, #1FA6B8 80%, #1E272F);
+  --color-loss-1: color-mix(in srgb, #E0644B 20%, #1E272F);
+  --color-loss-2: color-mix(in srgb, #E0644B 32%, #1E272F);
+  --color-loss-3: color-mix(in srgb, #E0644B 44%, #1E272F);
+  --color-loss-4: color-mix(in srgb, #E0644B 56%, #1E272F);
+  --color-loss-5: color-mix(in srgb, #E0644B 68%, #1E272F);
+  --color-loss-6: color-mix(in srgb, #E0644B 80%, #1E272F);
 
-  --font-mono:
-    "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+  --font-display: "Archivo", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 
 html,
@@ -31,7 +45,7 @@ body,
 }
 
 body {
-  @apply bg-surface-950 text-ink-100 antialiased;
+  @apply bg-ground text-ink font-sans antialiased;
 }
 
 /* Monetary and percentage figures are read in columns; keep them aligned. */
