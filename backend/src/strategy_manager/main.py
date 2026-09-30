@@ -47,6 +47,7 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSource,
 )
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
+from strategy_manager.accounts.infrastructure.pool_status_adapter import SqlAlchemyPoolStatus
 from strategy_manager.accounts.infrastructure.pools_router import router as pools_router
 from strategy_manager.accounts.infrastructure.reader_by_exchange import (
     ReaderByExchange,
@@ -405,6 +406,7 @@ def _build_process_signal_handler(
         clock=SystemClock(),
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
         skip_recorder=SignalSkipRecorder(signal_outcomes),
+        pool_status=SqlAlchemyPoolStatus(session),
     )
 
     place_order = PlaceOrder(

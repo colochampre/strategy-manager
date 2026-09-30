@@ -144,6 +144,17 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - a second probe through `POST /fapi/v1/order/test`, whose permission behaviour is undocumented;
       - treating every Binance key as trade-capable.
 
+31. **DELETE on an exchange without a known futures pool (Pionex) answers 404, "not served by this panel", like the PUT** (2026-09-30, PR 8b-2, unit 6e).
+    - `DELETE /api/credentials/{exchange}` for an exchange with no `KNOWN_FUTURES_POOLS` entry answers 404 with FastAPI's `{"detail": ...}`, the same as `PUT` (design K5).
+    - It is decided BEFORE any lock, row read or exposure query, so no advisory lock is taken and it can never become a 500.
+    - It applies whether or not an active credential row exists, and it sits behind the bearer auth like every other status (401 first).
+    - Its key stays active and untouched. A Pionex key is managed only through the store script.
+    - Why: it touches no money-relevant state for a venue the system cannot execute on, and it mirrors K5.
+    - Accepted downside: the key is listed in Settings but cannot be removed from the panel.
+    - Rejected alternatives:
+      - deactivating the credential only, with no pool check, which skips decision 22's flatness precondition;
+      - a new refusal code for "no pool", which the design does not define.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

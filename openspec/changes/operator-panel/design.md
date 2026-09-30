@@ -234,15 +234,18 @@ Browser           API (credentials_router)     SaveCredential          KeyInspec
 
 **Endpoint**: `DELETE /api/credentials/{exchange}`. **Use case**: `DeleteCredential`, application/accounts.
 
+**An exchange with no known pool (owner decision 31).** `DELETE /api/credentials/{exchange}` for an exchange outside `KNOWN_FUTURES_POOLS` (Pionex today) answers 404 "not served by this panel", like the `PUT` (K5). It is decided before anything below runs: no advisory lock, no row read, no exposure query, and never a 500. The key stays active and is managed only through its store script. The downside, accepted: the key is listed in Settings but cannot be removed from the panel.
+
 Preconditions, both must hold:
 - no strategy bound to that exchange's one pool is currently enabled;
 - the pool holds no open exposure: no allocation with ledger net ≠ 0 (all spellings merged), no live reservation (`PENDING`/`SUBMITTED`, `terminal_at NULL`), no `SUBMITTED` in-flight attempt (opens via `reservation.strategy_id`, closes via `closes_allocation_id` → reservation) — decision 8's `StrategyExposurePort` query shape, widened from one strategy to every strategy bound to the pool.
 
 ```
 DELETE /api/credentials/{exchange}
-DeleteCredential ─ SELECT exchange_credentials WHERE exchange=... AND is_active FOR UPDATE ─┐
-   no active row? ─► 404 CREDENTIAL_NOT_FOUND
-   pg_advisory_xact_lock(LockKey(pool)) ─────────────────────────────────────────────────────┤ same key ArchiveStrategy and AllocateCapital take
+DeleteCredential ─ exchange in KNOWN_FUTURES_POOLS? no ─► 404 not served (decision 31), nothing taken
+   pg_advisory_xact_lock(LockKey(pool)) ─────────────────────────────────────────────────────┐ same key ArchiveStrategy and AllocateCapital take, taken FIRST
+   SELECT exchange_credentials WHERE exchange=... AND is_active FOR UPDATE ──────────────────┤ the row lock, SECOND (lock order: pool advisory lock, then row locks)
+   no active row? ─► 404 no active credential
    PoolExposurePort.exposure(pool):                                                          │
      any strategy on pool with enabled=true                                                  │
      ledger net ≠ 0 per allocation (ReadSymbolHoldings, all spellings merged)                 │
@@ -256,6 +259,8 @@ DeleteCredential ─ SELECT exchange_credentials WHERE exchange=... AND is_activ
 ```
 
 **Why the pool lock.** The exposure check reads across every strategy bound to the pool, and the write disables the pool itself — the same resource `AllocateCapital` and `ArchiveStrategy` already serialize on (decision 8). Taking a narrower lock (or none) would reopen exactly the race decision 8 closed for one strategy, this time exchange-wide: an allocation that wins the lock first commits its reservation and is then correctly seen by the exposure check and refuses the delete; an allocation that has not yet reached the lock either sees `NO_KEY` from decision 4a's check before it ever tries (because the credential row is already deactivated by the time it looks), or wins the race to the lock and proceeds — in which case its later `PlaceOrder` hits the accepted residual race described in decision 4a, exactly as a mid-flight rotation does.
+
+**The allocation's own pool re-check (W1, added after the PR 8b-2 verification).** `UpdateStrategy` (the PATCH that sets `enabled`) takes only the strategy row lock, never the pool lock, so a strategy can be enabled and committed while a delete holds the pool lock, after the delete already read an empty exposure. A signal for that strategy passes decision 4a's `NO_KEY` check (the key is not yet deactivated) and queues on the pool lock; the delete then commits, and the allocation would resume, see an enabled strategy, and reserve capital on a keyless exchange that `PlaceOrder` can never use. So, in the same in-lock re-check that re-reads the policy, `AllocateCapital` also reads whether the pool is still enabled, through `PoolStatusPort.is_disabled` (adapter: `SqlAlchemyPoolStatus`, a plain column SELECT on the allocation's session, READ COMMITTED, **no `FOR UPDATE`**: the delete's `disable()` updates that row, and a waiting allocation must not hold a lock the delete needs). The read MUST follow `acquire`; a read before the wait sees the pool enabled. A disabled pool ends the allocation as the skip `POOL_DISABLED` (reason-code table, row 24): one WARNING, the outcome recorded per decision 25, nothing reserved. A pool with no row is not reported disabled; the balance read keeps failing loudly for that misconfiguration as before. `UpdateStrategy`'s locking is unchanged, and DRY_RUN makes no difference: the pool flag is real state in both modes.
 
 **Replacing a key is unaffected.** A `PUT` that supersedes an active key (rotation, decision 4) never runs this precondition; only `DELETE` does. Saving a new key for an exchange whose pool was disabled by a prior delete re-enables it (decision 21's upsert), exactly like a first save.
 
@@ -491,7 +496,7 @@ Money, quantities and ratios are **JSON strings** (pydantic v2 serializes `Decim
 | `GET /performance/strategies/{id}` | — | `PoolPerformance` + `by_pair: [{pair, trades, pnl, return}]` | 404 | `ReadStrategyPerformance` |
 | `GET /performance/strategies/{id}/trades?limit=50&before_closed_at=&before_allocation_id=` | — | `{trades: [{allocation_id, pair, direction, opened_at, closed_at, pnl, capital_at_open\|null, return\|null, fees_complete}], next_cursor: {before_closed_at, before_allocation_id}\|null}` | 404; 422 half a cursor, naive `before_closed_at`, `limit` outside 1..200 | `ReadStrategyTrades` |
 | `GET /credentials` | — | `[{exchange, status: STORED\|EMPTY, last4\|null, label, stored_at, validated_at\|null, trade_capable\|null, permissions\|null}]`, one entry per exchange that has an active credential, a credential history row (any superseded or deactivated row), **or** an enabled pool (decision 20's DEGRADED case) | — | `vault.hints()` (all rows, not only active; no decrypt) |
-| `DELETE /credentials/{exchange}` | — | 200, exchange view with `status: EMPTY` | 404 no active credential; 409 `EXCHANGE_NOT_FLAT` (+ `enabled_strategies`, `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `DeleteCredential` (§ 4b) |
+| `DELETE /credentials/{exchange}` | — | 200, exchange view with `status: EMPTY` | 404 not served (an exchange with no known pool, decision 31, checked first); 404 no active credential; 409 `EXCHANGE_NOT_FLAT` (+ `enabled_strategies`, `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `DeleteCredential` (§ 4b) |
 | `PUT /credentials/{exchange}` | `{api_key, api_secret: SecretStr, label?}` | exchange view + `warnings: ["READ_ONLY_KEY"]` when `trade_capable=false` | 404 unserved exchange; 422 `KEY_REJECTED` / `WITHDRAW_PERMISSION` (+ `permissions`); 502 `VENUE_UNREACHABLE`; 409 `CONCURRENT_SAVE` | `SaveCredential` (also enables the exchange's pool, decision 21) |
 | `GET /webhook-secret` | — | `{secret}`, `Cache-Control: no-store`; **503** `{detail}` (also `no-store`, no `secret` key) when the setting is empty | 401 (bearer), 503 | reads `settings.webhook_secret` directly (decision 23). **As built (PR 7b):** no `Pragma` header (the spec asks for `Cache-Control: no-store` alone); the setting is a plain `str`, not a `SecretStr`; an unset secret is refused with a 503 rather than returned as `""`; non-GET methods answer 405 |
 | existing `GET /reconciliation/bookings`, `POST .../approve`, `.../reject` | unchanged | unchanged | unchanged (404/409/422/503) | unchanged |
@@ -1037,7 +1042,7 @@ reconstructs their outcome.
 | 5 | `IN_FLIGHT_TIMEOUT` | `holding_guard.py::_on_in_flight`, past the age bound | signal.process | 5b |
 | 6 | `BALANCE_UNAVAILABLE` | `process_signal.py`, balance refresh UNAVAILABLE | signal.process | 5b |
 | 7 | `NOTHING_TO_ALLOCATE` | `process_signal.py::_refuse_non_positive_request` | signal.process | 5b |
-| 8 | the existing `skip_reason` value (`STRATEGY_DISABLED`, `STRATEGY_ARCHIVED`, `NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`, `PARTIAL_BELOW_MIN_ORDER_SIZE`) | `allocate_capital.py`, three SKIP sites (pre-lock, in-lock, `decide()`) | signal.process | 5b |
+| 8 | the existing `skip_reason` value (`STRATEGY_DISABLED`, `STRATEGY_ARCHIVED`, `POOL_DISABLED`, `NO_AVAILABILITY`, `INSUFFICIENT_AVAILABILITY`, `REQUEST_BELOW_MIN_ORDER_SIZE`, `PARTIAL_BELOW_MIN_ORDER_SIZE`) | `allocate_capital.py`, four SKIP sites (pre-lock, in-lock strategy re-check, in-lock pool re-check, `decide()`) | signal.process | 5b |
 | 9 | `RESERVATION_EXPIRED_BEFORE_SUBMIT` | `place_order.py`, `ABORTED_EXPIRED` | signal.process | 5b |
 | 10 | `ORDER_NOT_PLACEABLE` | `place_order.py`, `REFUSED` (`OrderNotPlaceable`) | signal.process | 5b |
 | 11 | `ORDER_REJECTED_BY_VENUE` | `place_order.py`, `FAILED` (venue `ExchangeError`) | signal.process | 5b |
@@ -1051,6 +1056,7 @@ reconstructs their outcome.
 | 21 | `NO_POSITION_TO_CLOSE` (decision 27: a releasing CLOSE or REVERSE with no prior reservation; a REVERSE's detail says the new side was not opened) | `process_signal.py::_handle_releases`, the `prior_reservation_id is None` early return | signal.process | 5b |
 | 22 | `EXCHANGE_KEY_READ_ONLY` (added by unit 6c, decision 18: a live open whose exchange's active key cannot trade) | `process_signal.py::_refuse_read_only_exchange` | signal.process or continuation | 8a-4 |
 | 23 | `EXCHANGE_HAS_NO_KEY` (added by unit 6c, decision 20: a live open on an exchange with no active key) | `process_signal.py::_refuse_read_only_exchange` | signal.process or continuation | 8a-4 |
+| 24 | `POOL_DISABLED` (added after the PR 8b-2 verification, W1: a pool disabled by `DeleteCredential` while an allocation, whose strategy was enabled under the delete's lock, waited for that same lock) | `allocate_capital.py`, the in-lock re-check (`PoolStatusPort.is_disabled`, read after `acquire`) | signal.process or continuation | PR 8b-2 (W1 fix) |
 | — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c (unit G) |
 | — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c (unit G) |
 | — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` (branch 3 after the closes filled, or branch 4) or `settle_timeout_seconds` | signal.open_after_close | 5c (unit G) |
@@ -1081,6 +1087,7 @@ a neighbouring commit.
 | 4, 5 | inside `HoldingGuard` / its caller before `AllocateCapital` is ever reached — no reservation exists yet; 5b.4 commits in `_reject`, the caller | no schema write beyond the signal row itself |
 | 8, pre-lock (`STRATEGY_DISABLED`) | **none exists** — `allocate_capital.py:113-131` returns before acquiring the lock or calling `commit()` | 5b.10 must add a commit here |
 | 8, in-lock (`STRATEGY_DISABLED` / `STRATEGY_ARCHIVED`) | `allocate_capital.py:180` | |
+| 8, in-lock pool re-check (`POOL_DISABLED`) | `allocate_capital.py`, right after the strategy re-check and before the balance read: staged, then the commit that releases the pool lock | one WARNING, the logged message is the detail; nothing is reserved |
 | 8, `decide()` SKIP | `allocate_capital.py:235` (the same commit a granted reservation's insert would use) | |
 | 9 | `place_order.py:111-112` (`mark(RELEASED)` + commit, pre-submit) | |
 | 10 | `place_order.py:155-156` (`mark(RELEASED)` + commit, before the network call) | |

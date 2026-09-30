@@ -206,6 +206,24 @@ class SqlAlchemyExecutionAttemptRepository:
         )
         return [row[0] for row in result.all()]
 
+    async def submitted_for_pool(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> list[UUID]:
+        """Every SUBMITTED execution attempt in this pool, opening or closing,
+        across every strategy and symbol: the pool-wide twin of
+        ``submitted_for_strategy``, for the exposure check that guards deleting
+        an exchange's key (owner decision 22). An attempt carries its own pool
+        columns, so no join through the reservation is needed."""
+        result = await self._session.execute(
+            select(ExecutionAttemptRow.id).where(
+                ExecutionAttemptRow.exchange == exchange,
+                ExecutionAttemptRow.venue == venue,
+                ExecutionAttemptRow.settlement_currency == settlement_currency,
+                ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
+            )
+        )
+        return [row[0] for row in result.all()]
+
     async def submitted_for_strategy(
         self,
         exchange: str,

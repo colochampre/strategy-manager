@@ -1,4 +1,5 @@
-"""API tests for ``PUT`` and ``GET /api/credentials`` (tasks.md 6b.2, 6b.6; design 8a § C).
+"""API tests for ``PUT``, ``DELETE`` and ``GET /api/credentials`` (tasks.md 6b.2, 6b.6, 6e.7;
+design 8a § C, design § 4b).
 
 The PUT tests need no database: the router is mounted through ``create_app()``
 (so the ``/api`` prefix and the bearer guard are part of what is proven) with
@@ -21,6 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
 import pytest
 from fastapi import Depends
@@ -28,6 +30,8 @@ from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.accounts.application.delete_credential import DeleteCredential
+from strategy_manager.accounts.application.ports import PoolExposure
 from strategy_manager.accounts.application.save_credential import SaveCredential, SaveOutcome
 from strategy_manager.accounts.domain.errors import (
     ConcurrentCredentialSave,
@@ -43,11 +47,16 @@ from strategy_manager.accounts.infrastructure import credentials_router
 from strategy_manager.accounts.infrastructure.capital_pool_writer import (
     SqlAlchemyCapitalPoolWriter,
 )
+from strategy_manager.accounts.infrastructure.credential_revoker import (
+    SqlAlchemyCredentialRevoker,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import (
     OUTCOME_STATUS,
+    get_delete_credential,
     get_save_credential,
 )
+from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
@@ -57,6 +66,7 @@ from strategy_manager.shared.infrastructure.crypto import (
     Envelope,
     EnvelopeCipher,
 )
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import (
     BINANCE_KEY,
     BINANCE_SECRET,
@@ -72,6 +82,13 @@ from tests.accounts.fakes import (
     RecordingWriter,
     TickingClock,
     registry_for,
+)
+from tests.accounts.pool_seed import (
+    seed_execution_attempt,
+    seed_live_reservation,
+    seed_open_position,
+    seed_strategy,
+    set_strategy_enabled,
 )
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -852,3 +869,351 @@ def test_the_listing_module_cannot_reach_a_secret_column_or_the_cipher() -> None
     assert "ciphertext" not in source
     assert "nonce" not in source
     assert "wrapped_dek" not in source
+
+
+def test_the_revoker_and_the_delete_use_case_cannot_reach_a_secret_column_or_the_cipher() -> None:
+    """Deleting a key never opens it: neither the revoker nor the use case names a
+    ciphertext column or imports a cipher, and the router's DELETE wiring builds
+    none."""
+    base = Path(credentials_router.__file__).parent
+    for path in (
+        base / "credential_revoker.py",
+        base.parent / "application" / "delete_credential.py",
+    ):
+        source = path.read_text("utf-8")
+        imported = {
+            alias.name
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ImportFrom | ast.Import)
+            for alias in node.names
+        }
+        assert "EnvelopeCipher" not in imported, path.name
+        for column in ("ciphertext", "nonce", "wrapped_dek", "api_secret"):
+            assert column not in source, (path.name, column)
+
+
+# --- DELETE: real PostgreSQL, the real use case over spies on the lock and the exposure ------
+
+
+class _SpyLock:
+    """Records every pool lock request, then takes the real one."""
+
+    def __init__(self, inner: PoolLockAdapter) -> None:
+        self._inner = inner
+        self.calls: list[tuple[str, str, str]] = []
+
+    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+        self.calls.append((exchange, venue, settlement_currency))
+        await self._inner.acquire(exchange, venue, settlement_currency)
+
+
+class _SpyExposure:
+    """Records every pool-wide exposure query, then runs the real one."""
+
+    def __init__(self, inner: PoolExposureAdapter) -> None:
+        self._inner = inner
+        self.calls: list[tuple[str, str, str]] = []
+
+    async def exposure(self, pool: tuple[str, str, str]) -> PoolExposure:
+        self.calls.append(pool)
+        return await self._inner.exposure(pool)
+
+
+@dataclass
+class Deleting:
+    api: AsyncClient
+    lock: list[_SpyLock]
+    exposure: list[_SpyExposure]
+
+    @property
+    def lock_calls(self) -> list[tuple[str, str, str]]:
+        return [call for spy in self.lock for call in spy.calls]
+
+    @property
+    def exposure_calls(self) -> list[tuple[str, str, str]]:
+        return [call for spy in self.exposure for call in spy.calls]
+
+
+@asynccontextmanager
+async def _serve_delete(
+    factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[Deleting]:
+    app = create_app()
+    locks: list[_SpyLock] = []
+    exposures: list[_SpyExposure] = []
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    async def _use_case(
+        session: Annotated[AsyncSession, Depends(shared_db.get_session)],
+    ) -> DeleteCredential:
+        lock = _SpyLock(PoolLockAdapter(session))
+        exposure = _SpyExposure(PoolExposureAdapter.over(session))
+        locks.append(lock)
+        exposures.append(exposure)
+        return DeleteCredential(
+            SqlAlchemyCredentialRevoker(session, TickingClock()),
+            lock,
+            exposure,
+            SqlAlchemyCapitalPoolWriter(session),
+            session,
+        )
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    app.dependency_overrides[get_delete_credential] = _use_case
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
+        yield Deleting(api, locks, exposures)
+
+
+async def _store(
+    factory: async_sessionmaker[AsyncSession], exchange: str, key: str = BYBIT_KEY
+) -> None:
+    async with factory() as session:
+        await SqlAlchemyCredentialVault(session, _cipher(), TickingClock()).store(
+            ExchangeCredential(
+                exchange=exchange, label="default", api_key=key, api_secret=BYBIT_SECRET
+            ),
+            KeyFacts.unrecorded(trade_capable=True),
+        )
+        await session.commit()
+
+
+async def _is_active(factory: async_sessionmaker[AsyncSession], exchange: str) -> list[bool]:
+    async with factory() as session:
+        rows = await session.execute(
+            text("SELECT is_active FROM exchange_credentials WHERE exchange = :e"),
+            {"e": exchange},
+        )
+        return [row[0] for row in rows.all()]
+
+
+@pytest.mark.integration
+async def test_delete_credentials_404_when_no_active_row(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "no active credential for exchange 'bybit'"}
+    _assert_no_store(response)
+
+
+@pytest.mark.integration
+async def test_delete_credentials_200_status_empty_matches_never_configured_shape(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _store(factory, "bybit")
+
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=_auth())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {"exchange": "bybit", "status": "EMPTY"} | {
+        key: None for key in ENTRY_KEYS - {"exchange", "status"}
+    }
+    # The listing now shows the very same entry for the exchange: its history row
+    # is kept, and the key is gone.
+    assert _entry(listed.json(), "bybit") == body
+    assert await _is_active(factory, "bybit") == [False]
+    _assert_no_secret(response.text)
+    _assert_no_store(response)
+
+
+@pytest.mark.integration
+async def test_delete_credentials_disables_the_pool_and_a_new_save_enables_it_again(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _store(factory, "bybit")
+    async with _serve_delete(factory) as served:
+        await served.api.delete("/api/credentials/bybit", headers=_auth())
+    async with factory() as session:
+        enabled = (
+            await session.execute(
+                text("SELECT enabled FROM capital_pools WHERE exchange = 'bybit'")
+            )
+        ).scalar_one()
+    assert enabled is False
+
+    async with _serve_db(factory) as served_save:
+        saved = await served_save.api.put(
+            "/api/credentials/bybit", json=_bybit_body(), headers=_auth()
+        )
+
+    assert saved.status_code == 200
+    async with factory() as session:
+        enabled = (
+            await session.execute(
+                text("SELECT enabled FROM capital_pools WHERE exchange = 'bybit'")
+            )
+        ).scalar_one()
+    assert enabled is True
+
+
+@pytest.mark.integration
+async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _store(factory, "bybit")
+    enabled_id = uuid4()
+    holder_id = uuid4()
+    await seed_strategy(factory, strategy_id=enabled_id, enabled=True)
+    await seed_strategy(factory, strategy_id=holder_id, enabled=False)
+    allocation = await seed_open_position(factory, strategy_id=holder_id, symbol="ETHUSDT")
+    reservation = await seed_live_reservation(factory, strategy_id=holder_id)
+    submitted = await seed_live_reservation(factory, strategy_id=holder_id, status="SUBMITTED")
+    attempt = uuid4()
+    await seed_execution_attempt(factory, attempt_id=attempt, reservation_id=submitted)
+
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+
+    assert response.status_code == 409
+    body = response.json()
+    assert set(body) == {
+        "outcome",
+        "detail",
+        "enabled_strategies",
+        "symbols",
+        "allocations",
+        "live_reservations",
+        "in_flight_attempts",
+    }
+    assert body["outcome"] == "EXCHANGE_NOT_FLAT"
+    assert body["enabled_strategies"] == [
+        {"id": str(enabled_id), "name": f"strategy-{enabled_id}"}
+    ]
+    assert body["symbols"] == ["ETHUSDT"]
+    assert body["allocations"] == [str(allocation)]
+    assert sorted(body["live_reservations"]) == sorted([str(reservation), str(submitted)])
+    assert body["in_flight_attempts"] == [str(attempt)]
+    _assert_no_secret(response.text)
+    assert BYBIT_KEY[-4:] not in response.text
+    _assert_no_store(response)
+    assert await _is_active(factory, "bybit") == [True]
+
+
+@pytest.mark.integration
+async def test_delete_credentials_for_an_exchange_without_a_known_pool_is_404_and_touches_nothing(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Owner decision 31. An ACTIVE Pionex key, and a DELETE for it: 404 with
+    FastAPI's detail, the key still active, and neither the pool lock nor the
+    exposure query ever asked for."""
+    await _store(factory, "pionex", key="PIONEX-FAKE-KEY-mnop")
+
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/pionex", headers=_auth())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "exchange 'pionex' is not served by this panel"}
+    assert await _is_active(factory, "pionex") == [True]
+    assert served.lock_calls == []
+    assert served.exposure_calls == []
+    _assert_no_store(response)
+
+
+@pytest.mark.integration
+async def test_delete_credentials_for_an_exchange_without_a_known_pool_is_404_with_no_row_too(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/kraken", headers=_auth())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "exchange 'kraken' is not served by this panel"}
+    assert served.lock_calls == []
+    assert served.exposure_calls == []
+    _assert_no_store(response)
+
+
+@pytest.mark.integration
+async def test_delete_credentials_takes_the_known_pool_lock_and_reads_its_exposure(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _store(factory, "bybit")
+
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+
+    assert response.status_code == 200
+    assert served.lock_calls == [("bybit", "usdt-m", "USDT")]
+    assert served.exposure_calls == [("bybit", "usdt-m", "USDT")]
+
+
+@pytest.mark.integration
+async def test_delete_credentials_unauthenticated_is_401_before_anything_else(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _store(factory, "pionex", key="PIONEX-FAKE-KEY-mnop")
+    await _store(factory, "bybit")
+
+    async with _serve_delete(factory) as served:
+        answers = [
+            await served.api.delete(path, headers=headers)
+            for path in ("/api/credentials/pionex", "/api/credentials/bybit")
+            for headers in ({}, {"Authorization": "Bearer not-the-token"})
+        ]
+
+    assert [a.status_code for a in answers] == [401, 401, 401, 401]
+    assert all(a.json() == {"detail": UNAUTHORIZED_DETAIL} for a in answers)
+    assert served.lock_calls == []
+    assert served.exposure_calls == []
+    assert await _is_active(factory, "pionex") == [True]
+    assert await _is_active(factory, "bybit") == [True]
+    for answer in answers:
+        _assert_no_store(answer)
+
+
+@pytest.mark.integration
+async def test_every_delete_answer_carries_no_store(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    answers: dict[str, Response] = {}
+    await _store(factory, "pionex", key="PIONEX-FAKE-KEY-mnop")
+    async with _serve_delete(factory) as served:
+        answers["404-no-row"] = await served.api.delete(
+            "/api/credentials/bybit", headers=_auth()
+        )
+        answers["404-not-served"] = await served.api.delete(
+            "/api/credentials/pionex", headers=_auth()
+        )
+        answers["401-missing"] = await served.api.delete("/api/credentials/bybit")
+        answers["401-wrong"] = await served.api.delete(
+            "/api/credentials/bybit", headers={"Authorization": "Bearer not-the-token"}
+        )
+        await _store(factory, "bybit")
+        strategy_id = uuid4()
+        await seed_strategy(factory, strategy_id=strategy_id, enabled=True)
+        answers["409"] = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        await set_strategy_enabled(factory, strategy_id, False)
+        answers["200"] = await served.api.delete("/api/credentials/bybit", headers=_auth())
+
+    assert {k: v.status_code for k, v in answers.items()} == {
+        "404-no-row": 404,
+        "404-not-served": 404,
+        "401-missing": 401,
+        "401-wrong": 401,
+        "409": 409,
+        "200": 200,
+    }
+    without = [k for k, v in answers.items() if v.headers.get("cache-control") != "no-store"]
+    assert without == []
+
+
+@pytest.mark.integration
+async def test_the_delete_route_is_behind_the_bearer_guard_like_the_others(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with _serve_delete(factory) as served:
+        missing = await served.api.request("DELETE", "/api/credentials/bybit")
+        wrong = await served.api.request(
+            "DELETE", "/api/credentials/bybit", headers={"Authorization": "Bearer not-the-token"}
+        )
+
+    assert [missing.status_code, wrong.status_code] == [401, 401]
+    assert missing.json() == wrong.json() == {"detail": UNAUTHORIZED_DETAIL}

@@ -317,6 +317,12 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     if (method, template) == ("PUT", "/api/credentials/{exchange}"):
         assert response.status_code == 200, "the sweep's credential body must really be saved"
         assert response.json()["last4"] == "abcd"
+    if (method, template) == ("DELETE", "/api/credentials/{exchange}"):
+        # The DELETE carries no body. It must have really run its precondition:
+        # the seed holds a live reservation and a trade on bybit, so the answer is
+        # the 409 that names them, not a 404 or a success.
+        assert response.status_code == 409, "the sweep's DELETE must reach the pool check"
+        assert response.json()["outcome"] == "EXCHANGE_NOT_FLAT"
     if (method, template) == ("GET", "/api/credentials"):
         stored = [entry for entry in response.json() if entry["status"] == "STORED"]
         assert [entry["last4"] for entry in stored] == ["9876"]

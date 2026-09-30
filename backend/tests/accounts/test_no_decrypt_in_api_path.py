@@ -20,12 +20,16 @@ from pathlib import Path
 
 import pytest
 
+import strategy_manager.accounts.application.delete_credential as delete_credential_module
 import strategy_manager.accounts.application.save_credential as save_credential_module
+import strategy_manager.accounts.infrastructure.credential_revoker as credential_revoker_module
 import strategy_manager.accounts.infrastructure.credentials_router as credentials_router_module
 import strategy_manager.accounts.infrastructure.trade_capability_adapter as adapter_module
 
 _GUARDED = {
     "credentials_router.py": credentials_router_module,
+    "delete_credential.py": delete_credential_module,
+    "credential_revoker.py": credential_revoker_module,
     "save_credential.py": save_credential_module,
     "trade_capability_adapter.py": adapter_module,
 }

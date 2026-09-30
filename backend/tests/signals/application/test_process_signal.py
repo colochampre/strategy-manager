@@ -12,6 +12,7 @@ never from the alert's ``position_size``/``contracts`` (design.md's GAP
 FOUND note, closed by this slice).
 """
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,12 +20,26 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.accounts.application.delete_credential import DeleteCredential
 from strategy_manager.accounts.application.ports import PoolBalanceReading
 from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
+from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, KeyFacts
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
+from strategy_manager.accounts.infrastructure.credential_revoker import (
+    SqlAlchemyCredentialRevoker,
+)
+from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
+from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow  # noqa: F401
+from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.accounts.infrastructure.reader_by_exchange import ReaderByExchange
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
     DryRunTradeCapability,
+    VaultTradeCapabilityAdapter,
 )
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
@@ -48,6 +63,7 @@ from strategy_manager.execution.domain.execution_attempt import (
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Exchange, Money
+from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
 from strategy_manager.signals.application.ports import (
@@ -61,7 +77,13 @@ from strategy_manager.signals.application.process_signal import (
     SignalContext,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
-from tests.allocation.fakes import RecordingSkipRecorder
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
+from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
+from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.ledger.infrastructure.conftest import (  # noqa: F401
+    pg_engine,
+    pg_session_factory,
+)
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
@@ -370,6 +392,7 @@ def _allocate_capital(
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
         skip_recorder=skip_recorder or RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
     )
 
 
@@ -2990,3 +3013,82 @@ async def test_open_now_continuation_refuses_a_readonly_exchange_and_says_the_cl
     assert outcome.detail is not None
     assert result.refused in outcome.detail
     assert "close" in outcome.detail and "executed" in outcome.detail
+
+
+@pytest.mark.integration
+async def test_no_key_refused_live_immediately_after_delete_credential_commits_no_lock_no_cache(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unit 6e.8 -- the "key deleted just before this check" scenario, against
+    real PostgreSQL and the REAL ``VaultTradeCapabilityAdapter``.
+
+    ONE adapter instance, over ONE long-lived session, answers ``TRADE_CAPABLE``
+    while the key is stored and lets a live open through. ``DeleteCredential``
+    then commits on another connection. The very next live open, asked through
+    that SAME instance, is refused ``EXCHANGE_HAS_NO_KEY``: the adapter reads the
+    active row on every call, so nothing is cached, and it takes no lock, so
+    nothing it does can wait behind the deletion (the spy lock is never touched).
+    """
+    async with pg_session_factory() as session:
+        await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
+        await SqlAlchemyCredentialVault(
+            session, EnvelopeCipher(os.urandom(MASTER_KEY_BYTES)), TickingClock()
+        ).store(
+            ExchangeCredential(
+                exchange="bybit", label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
+            ),
+            KeyFacts.unrecorded(trade_capable=True),
+        )
+        await session.commit()
+
+    async with pg_session_factory() as reader:
+        capability = VaultTradeCapabilityAdapter(reader)
+
+        def handler(
+            lock: SpyAdvisoryLock, place_order: SpyPlaceOrder, outcomes: RecordingSignalOutcomes
+        ) -> ProcessSignalHandler:
+            return _process_signal_handler(
+                context=_stx_open_context(),
+                allocate_capital=_allocate_capital(lock),
+                place_order=place_order,
+                policy=_stx_policy(),
+                tradable_pools=_BYBIT_POOLS,
+                outcomes=outcomes,
+                trade_capability=capability,  # type: ignore[arg-type]
+            )
+
+        # Control: with the key stored, the same handler opens.
+        before_orders = SpyPlaceOrder()
+        before = await handler(SpyAdvisoryLock(), before_orders, RecordingSignalOutcomes()).handle(
+            uuid4()
+        )
+        assert before.executed is True
+        assert len(before_orders.calls) == 1
+
+        async with pg_session_factory() as deleter:
+            await DeleteCredential(
+                SqlAlchemyCredentialRevoker(deleter, TickingClock()),
+                PoolLockAdapter(deleter),
+                PoolExposureAdapter.over(deleter),
+                SqlAlchemyCapitalPoolWriter(deleter),
+                deleter,
+            ).execute("bybit")
+
+        lock = SpyAdvisoryLock()
+        place_order = SpyPlaceOrder()
+        outcomes = RecordingSignalOutcomes()
+        signal_id = uuid4()
+        with caplog.at_level("WARNING"):
+            after = await handler(lock, place_order, outcomes).handle(signal_id)
+
+    assert after.executed is False
+    assert after.reservation_id is None
+    assert after.refused is not None
+    assert "has no active key" in after.refused
+    assert lock.acquired == []
+    assert place_order.calls == []
+    assert [outcome.reason for _, outcome in outcomes.calls] == ["EXCHANGE_HAS_NO_KEY"]
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "bybit" in warnings[0].message

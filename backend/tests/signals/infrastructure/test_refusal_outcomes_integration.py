@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.accounts.application.pool_balance_adapter import PoolBalanceAdapter
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
+from strategy_manager.accounts.infrastructure.pool_status_adapter import SqlAlchemyPoolStatus
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
     AllocateCommand,
@@ -118,6 +119,7 @@ def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCap
         clock=_FixedClock(),
         reservation_ttl_seconds=30,
         skip_recorder=SignalSkipRecorder(SqlAlchemySignalOutcomeAdapter(session, _FixedClock())),
+        pool_status=SqlAlchemyPoolStatus(session),
     )
 
 

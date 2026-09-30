@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
+from uuid import UUID
 
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
@@ -181,3 +182,86 @@ class KeyInspectorRegistryPort(Protocol):
     is no fallback."""
 
     def for_exchange(self, exchange: str) -> KeyInspectorPort: ...
+
+
+@dataclass(frozen=True, slots=True)
+class EnabledStrategy:
+    """A strategy still switched on in a pool, named so the owner knows which
+    one to disable."""
+
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class PoolExposure:
+    """Everything that stops a pool's key from being deleted (owner decision 22).
+
+    Pool-wide: it covers EVERY strategy bound to the pool, never one. Any field
+    non-empty means deleting the key now could strand a position with no key
+    left to close it, or let a reservation be filled with no key behind it.
+
+    ``symbols``/``allocations`` come from the ledger: a non-zero net base PER
+    ALLOCATION, merged across every spelling a market wears.
+    ``live_reservations`` is PENDING/SUBMITTED with ``terminal_at`` NULL, a
+    superset of the allocator's own "unexpired" reading, because a row past its
+    TTL that the sweeper has not reached still holds capital.
+    ``in_flight_attempts`` is a SUBMITTED execution attempt, opening or closing.
+    """
+
+    enabled_strategies: tuple[EnabledStrategy, ...]
+    symbols: frozenset[str]
+    allocations: tuple[UUID, ...]
+    live_reservations: tuple[UUID, ...]
+    in_flight_attempts: tuple[UUID, ...]
+
+    def is_empty(self) -> bool:
+        return not (
+            self.enabled_strategies
+            or self.symbols
+            or self.allocations
+            or self.live_reservations
+            or self.in_flight_attempts
+        )
+
+
+class PoolExposurePort(Protocol):
+    """Widens ``StrategyExposurePort`` from one strategy to every strategy bound
+    to the pool. Implemented by
+    ``accounts.infrastructure.pool_exposure_adapter.PoolExposureAdapter``."""
+
+    async def exposure(self, pool: PoolKey) -> PoolExposure: ...
+
+
+class PoolLockPort(Protocol):
+    """Takes EXACTLY the advisory lock ``AllocateCapital`` and ``ArchiveStrategy``
+    take for this pool (``pg_advisory_xact_lock``, released by commit or
+    rollback). Implemented by ``strategies.infrastructure.pool_lock_adapter
+    .PoolLockAdapter``, which derives the key through ``LockKey.from_pool_key``."""
+
+    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveCredential:
+    """What is left to say about a key that is about to be deleted. Never the key
+    or the secret: the last four characters are all the log and the owner see."""
+
+    exchange: str
+    label: str
+    last4: str
+
+
+class CredentialRevokerPort(Protocol):
+    """Deactivates an exchange's active credential, keeping the row (rotation
+    history is retained, decision 22). It has no ``load``: it never opens a
+    secret."""
+
+    async def lock_active(self, exchange: str) -> ActiveCredential | None:
+        """``SELECT ... FOR UPDATE`` of the exchange's active row. ``None`` when
+        there is none."""
+        ...
+
+    async def deactivate(self, exchange: str) -> None:
+        """Marks the active row inactive. The row is kept."""
+        ...
