@@ -30,6 +30,9 @@ from strategy_manager.accounts.application.save_credential import (
 )
 from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, FactSource
 from strategy_manager.accounts.domain.key_policy import READ_ONLY_WARNING, OwnerConfirmations
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import (
     KeyInspectorRegistry,
@@ -143,9 +146,9 @@ def vault_saver() -> SaveFn | None:
         try:
             async with session_factory() as session:
                 vault = SqlAlchemyCredentialVault(session, cipher, clock)
-                result = await SaveCredential(inspectors, vault, session, clock).execute(
-                    credential, confirmations
-                )
+                result = await SaveCredential(
+                    inspectors, vault, SqlAlchemyCapitalPoolWriter(session), session, clock
+                ).execute(credential, confirmations)
                 if isinstance(result, Saved):
                     # Prove the round trip before reporting success: a credential
                     # that seals but cannot be opened is worse than none at all.

@@ -7,7 +7,11 @@ no real credential anywhere (rule 1).
 
 from datetime import UTC, datetime, timedelta
 
-from strategy_manager.accounts.application.ports import CredentialWriterPort, KeyInspectorPort
+from strategy_manager.accounts.application.ports import (
+    CapitalPoolWriterPort,
+    CredentialWriterPort,
+    KeyInspectorPort,
+)
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
@@ -78,23 +82,65 @@ class RecordingInspector:
 
 
 class RecordingWriter:
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(
+        self, error: Exception | None = None, events: list[str] | None = None
+    ) -> None:
         self._error = error
+        self._events = events
         self.stored: list[tuple[ExchangeCredential, KeyFacts]] = []
 
     async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint:
         if self._error is not None:
             raise self._error
         self.stored.append((credential, facts))
+        if self._events is not None:
+            self._events.append("store")
         return credential.hint(facts)
 
 
+class RecordingPoolWriter:
+    """Records which exchange's pool was asked to be enabled.
+
+    ``newly_enabled`` is what ``enable`` answers: ``False`` (the default) is a pool
+    that was already on, ``True`` one this call switched on. ``events`` is a log
+    shared with the other recording fakes, so a test can assert the ORDER of
+    store, enable and commit.
+    """
+
+    def __init__(
+        self,
+        newly_enabled: bool = False,
+        error: Exception | None = None,
+        events: list[str] | None = None,
+    ) -> None:
+        self._newly_enabled = newly_enabled
+        self._error = error
+        self._events = events
+        self.enabled: list[str] = []
+        self.disabled: list[str] = []
+
+    async def enable(self, exchange: str) -> bool:
+        if self._error is not None:
+            raise self._error
+        self.enabled.append(exchange)
+        if self._events is not None:
+            self._events.append("enable")
+        return self._newly_enabled
+
+    async def disable(self, exchange: str) -> bool:
+        self.disabled.append(exchange)
+        return False
+
+
 class RecordingCommit:
-    def __init__(self) -> None:
+    def __init__(self, events: list[str] | None = None) -> None:
         self.commits = 0
+        self._events = events
 
     async def commit(self) -> None:
         self.commits += 1
+        if self._events is not None:
+            self._events.append("commit")
 
 
 def as_port(inspector: RecordingInspector) -> KeyInspectorPort:
@@ -103,6 +149,10 @@ def as_port(inspector: RecordingInspector) -> KeyInspectorPort:
 
 def as_writer(writer: RecordingWriter) -> CredentialWriterPort:
     return writer
+
+
+def as_pools(pools: RecordingPoolWriter) -> CapitalPoolWriterPort:
+    return pools
 
 
 def registry_for(inspector: RecordingInspector) -> KeyInspectorRegistry:

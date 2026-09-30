@@ -14,7 +14,11 @@ The steps run in this order, and the order is the safety property:
    stamped from the clock in ONE reading, so they are the same instant and
    ``evaluate_key`` stays pure. A rotation deactivates the previous row and
    keeps it; nothing about the previous key is inherited.
-5. Commit.
+5. Enable the exchange's one futures pool (decision 21), in the SAME transaction
+   and only once the store succeeded. ``KNOWN_FUTURES_POOLS`` names the pool;
+   an existing row's ``min_order_size`` is never touched. A refusal, a venue
+   failure or a lost race never reaches this step, so the pool stays as it was.
+6. Commit.
 
 The result is typed. ``Saved`` carries the last four characters and the facts
 recorded; ``SaveRefused`` carries the outcome, a detail that names tokens or
@@ -25,7 +29,8 @@ Nothing here decrypts: ``CredentialWriterPort`` has no ``load`` (rule 8).
 Logging asks "what fails here without a single log line?". A refusal is one
 WARNING naming the exchange and the outcome. An unreachable venue is a WARNING
 too, not an ERROR: it is a save attempt the owner retries by hand, and nothing
-was stored. A save is one INFO with the exchange and the last four characters.
+was stored. A save is one INFO with the exchange and the last four characters; one that
+also switched a pool on adds a second INFO naming the exchange and the pool.
 No line ever carries a key, a secret or a venue payload.
 """
 
@@ -34,6 +39,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from strategy_manager.accounts.application.ports import (
+    CapitalPoolWriterPort,
     CommitPort,
     CredentialWriterPort,
     KeyInspectorRegistryPort,
@@ -55,6 +61,7 @@ from strategy_manager.accounts.domain.key_policy import (
     check_confirmations,
     evaluate_key,
 )
+from strategy_manager.accounts.domain.known_pools import known_pool_for
 from strategy_manager.shared.application.ports import ClockPort
 
 logger = logging.getLogger(__name__)
@@ -100,11 +107,13 @@ class SaveCredential:
         self,
         inspectors: KeyInspectorRegistryPort,
         writer: CredentialWriterPort,
+        pools: CapitalPoolWriterPort,
         commit: CommitPort,
         clock: ClockPort,
     ) -> None:
         self._inspectors = inspectors
         self._writer = writer
+        self._pools = pools
         self._commit = commit
         self._clock = clock
 
@@ -133,9 +142,21 @@ class SaveCredential:
             await self._writer.store(credential, facts)
         except ConcurrentCredentialSave as exc:
             return self._refused_with(exchange, SaveOutcome.CONCURRENT_SAVE, str(exc))
+        # Decision 21: the same transaction as the credential, after it. Nothing
+        # above reaches here on a refusal, a venue failure or a lost race, so a
+        # pool is only ever switched on for a key that was stored.
+        pool_switched_on = await self._pools.enable(exchange)
         await self._commit.commit()
 
         logger.info("saved %s credential (key ending %s)", exchange, credential.last4)
+        if pool_switched_on:
+            pool = known_pool_for(exchange)
+            logger.info(
+                "enabled the %s pool %s/%s by saving its first usable key",
+                exchange,
+                pool.venue.value,
+                pool.settlement_currency.value,
+            )
         return Saved(last4=credential.last4, facts=facts, warnings=verdict.warnings)
 
     def _stamp(self, verdict: KeyAccepted) -> KeyFacts:

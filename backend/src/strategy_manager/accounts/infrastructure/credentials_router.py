@@ -45,6 +45,9 @@ from strategy_manager.accounts.application.save_credential import (
 from strategy_manager.accounts.domain.credential_overview import CredentialOverview
 from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, KeyFacts
 from strategy_manager.accounts.domain.key_policy import OwnerConfirmations, UnservedExchange
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
 from strategy_manager.accounts.infrastructure.credential_listing import (
     SqlAlchemyCredentialListing,
 )
@@ -113,6 +116,7 @@ def get_save_credential(session: SessionDep) -> SaveCredential:
     return SaveCredential(
         KeyInspectorRegistry.for_settings(settings, clock),
         SqlAlchemyCredentialVault(session, cipher, clock),
+        SqlAlchemyCapitalPoolWriter(session),
         session,
         clock,
     )

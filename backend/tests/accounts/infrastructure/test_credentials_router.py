@@ -40,6 +40,9 @@ from strategy_manager.accounts.domain.exchange_credential import (
 )
 from strategy_manager.accounts.domain.key_policy import PermissionSnapshot
 from strategy_manager.accounts.infrastructure import credentials_router
+from strategy_manager.accounts.infrastructure.capital_pool_writer import (
+    SqlAlchemyCapitalPoolWriter,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import (
     OUTCOME_STATUS,
@@ -65,6 +68,7 @@ from tests.accounts.fakes import (
     TRANSFER_SNAPSHOT,
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
     registry_for,
@@ -110,7 +114,9 @@ def _binance_body(**over: Any) -> dict[str, Any]:
 def _use_case(
     inspector: RecordingInspector, writer: RecordingWriter, commit: RecordingCommit
 ) -> SaveCredential:
-    return SaveCredential(registry_for(inspector), writer, commit, TickingClock())
+    return SaveCredential(
+        registry_for(inspector), writer, RecordingPoolWriter(), commit, TickingClock()
+    )
 
 
 @dataclass
@@ -635,6 +641,7 @@ async def _serve_db(
         return SaveCredential(
             registry_for(inspector),
             SqlAlchemyCredentialVault(session, cipher, clock),
+            SqlAlchemyCapitalPoolWriter(session),
             session,
             clock,
         )
