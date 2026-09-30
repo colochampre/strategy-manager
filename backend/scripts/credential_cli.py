@@ -31,8 +31,6 @@ from strategy_manager.accounts.application.save_credential import (
 from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, FactSource
 from strategy_manager.accounts.domain.key_policy import READ_ONLY_WARNING, OwnerConfirmations
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
-from strategy_manager.accounts.infrastructure.key_inspectors.binance import BinanceKeyInspector
-from strategy_manager.accounts.infrastructure.key_inspectors.bybit import BybitKeyInspector
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import (
     KeyInspectorRegistry,
 )
@@ -139,12 +137,7 @@ def vault_saver() -> SaveFn | None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     clock = SystemClock()
-    inspectors = KeyInspectorRegistry(
-        {
-            "bybit": BybitKeyInspector.from_settings(settings, clock),
-            "binance": BinanceKeyInspector.from_settings(settings, clock),
-        }
-    )
+    inspectors = KeyInspectorRegistry.for_settings(settings, clock)
 
     async def save(credential: ExchangeCredential, confirmations: OwnerConfirmations) -> SaveResult:
         try:

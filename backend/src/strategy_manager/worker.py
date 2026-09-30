@@ -79,6 +79,7 @@ from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from strategy_manager.shared.infrastructure.alerting import operator_alerts
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed, EnvelopeCipher
+from strategy_manager.shared.infrastructure.http_logging import silence_http_client_info_logs
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.recurring_jobs import (
     RecurringChainRevival,
@@ -411,8 +412,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
-    for chatty in ("httpx", "httpcore"):
-        logging.getLogger(chatty).setLevel(logging.WARNING)
+    silence_http_client_info_logs()
 
 
 def main() -> None:
