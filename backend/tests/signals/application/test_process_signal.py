@@ -23,6 +23,9 @@ import pytest
 from strategy_manager.accounts.application.ports import PoolBalanceReading
 from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
 from strategy_manager.accounts.infrastructure.reader_by_exchange import ReaderByExchange
+from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
+    DryRunTradeCapability,
+)
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
     AllocateCommand,
@@ -47,14 +50,19 @@ from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Exchange, Money
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
-from strategy_manager.signals.application.ports import PoolKey, RefreshOutcome, RefreshStatus
+from strategy_manager.signals.application.ports import (
+    PoolKey,
+    RefreshOutcome,
+    RefreshStatus,
+    TradeCapability,
+)
 from strategy_manager.signals.application.process_signal import (
     ProcessSignalHandler,
     SignalContext,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
 from tests.allocation.fakes import RecordingSkipRecorder
-from tests.signals.fakes import RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
 class FrozenClock:
@@ -403,6 +411,7 @@ def _process_signal_handler(
     closing_attempts: FakeClosingAttemptsPort | None = None,
     close_orphans: SpyCloseOrphans | None = None,
     outcomes: RecordingSignalOutcomes | None = None,
+    trade_capability: FakeTradeCapability | None = None,
 ) -> ProcessSignalHandler:
     return ProcessSignalHandler(
         signal_context=FakeSignalContextPort(context),
@@ -423,6 +432,7 @@ def _process_signal_handler(
         close_orphans=close_orphans or SpyCloseOrphans(),
         tradable_pools=tradable_pools,
         outcomes=outcomes or RecordingSignalOutcomes(),
+        trade_capability=trade_capability or FakeTradeCapability(),
     )
 
 
@@ -1506,6 +1516,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
         close_orphans=SpyCloseOrphans(),
         tradable_pools=TRADABLE,
         outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
     )
 
     await handler.handle(uuid4())
@@ -2697,3 +2708,285 @@ async def test_archived_strategy_refusal_also_applies_in_open_now_continuation(
     assert place_order.calls == []
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Unit 6c (PR 8a-4): the up-front refusal of a LIVE open on an exchange whose
+# active key cannot trade (READ_ONLY, decision 18) or does not exist (NO_KEY,
+# decision 20). It runs after the unlisted-pair refusal and before the
+# Existing-Position Guard, so it takes no lock and reserves nothing.
+#
+# Every symbol below crosses a module boundary: the signal carries the
+# TradingView spelling ``STXUSDT.P``, the strategy's allowed pair is stored in
+# the venue's bare spelling ``STXUSDT``.
+# ---------------------------------------------------------------------------
+
+_BYBIT_POOLS = frozenset({("bybit", "usdt-m")})
+
+
+class _ExplodingGuard:
+    """Fails the test if the Existing-Position Guard is consulted at all: the
+    read-only refusal must come BEFORE it (design.md § 4a)."""
+
+    async def check(self, **_: object) -> GuardOutcome:
+        raise AssertionError("the Existing-Position Guard ran before the capability refusal")
+
+
+def _stx_policy(**overrides: object) -> StrategyPolicySnapshot:
+    return _snapshot(
+        exchange=Exchange.BYBIT,
+        venue="usdt-m",
+        name="stx-trend",
+        allowed_pairs=frozenset({"STXUSDT"}),
+        **overrides,
+    )
+
+
+def _stx_open_context() -> SignalContext:
+    return SignalContext(
+        strategy_id=uuid4(),
+        symbol="STXUSDT.P",
+        price=Decimal("0.5"),
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+
+
+async def _assert_refused_before_the_lock(
+    capability: TradeCapability,
+    *,
+    expected_code: str,
+    expected_text: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    reservations = FakeReservationRepository()
+    engine = SpyAllocateCapital(_allocate_capital(lock, reservations=reservations))
+    refresh = FakeBalanceRefreshPort()
+    outcomes = RecordingSignalOutcomes()
+    trade_capability = FakeTradeCapability(capability)
+    signal_id = uuid4()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=engine,
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        holding_guard=_ExplodingGuard(),  # type: ignore[arg-type]
+        balance_refresh=refresh,
+        outcomes=outcomes,
+        trade_capability=trade_capability,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.handle(signal_id)
+
+    assert result.executed is False
+    assert result.reservation_id is None
+    assert result.refused is not None
+    assert trade_capability.asked == ["bybit"]
+    # Nothing downstream ran: no lock, no engine entry, no reservation, no
+    # order, and not even the balance refresh that precedes the sizing read.
+    assert lock.acquired == []
+    assert engine.calls == []
+    assert reservations.inserted == []
+    assert place_order.calls == []
+    assert refresh.calls == []
+    # Exactly one WARNING, naming the exchange, and it is the refusal itself.
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "bybit" in warnings[0].message
+    assert expected_text in warnings[0].message
+    assert str(signal_id) in warnings[0].message
+    assert "stx-trend" in warnings[0].message
+    assert warnings[0].message == result.refused
+    # Never silent: the refusal is a durable outcome with a stable code.
+    assert len(outcomes.calls) == 1
+    recorded_id, outcome = outcomes.calls[0]
+    assert recorded_id == signal_id
+    assert outcome.reason == expected_code
+    assert outcome.detail == result.refused
+
+
+async def test_live_open_on_readonly_exchange_refused_before_lock_one_warning_names_exchange(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Decision 18: with ``DRY_RUN=false`` an opening signal on an exchange
+    whose active key cannot trade is refused up front instead of failing at
+    the venue after a reservation was taken."""
+    await _assert_refused_before_the_lock(
+        TradeCapability.READ_ONLY,
+        expected_code="EXCHANGE_KEY_READ_ONLY",
+        expected_text="cannot trade",
+        caplog=caplog,
+    )
+
+
+async def test_live_open_on_keyless_no_key_exchange_refused_before_lock_one_warning_names_exchange(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Decision 20: a DEGRADED exchange (an enabled pool, no active key) is the
+    sole case this check exists for, since the startup refusal is gone. The
+    WARNING says there is no key, not that the key cannot trade."""
+    await _assert_refused_before_the_lock(
+        TradeCapability.NO_KEY,
+        expected_code="EXCHANGE_HAS_NO_KEY",
+        expected_text="has no active key",
+        caplog=caplog,
+    )
+
+
+async def test_close_on_readonly_exchange_not_refused_by_this_rule(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Decision 18 scopes the rule to OPENING signals: refusing a close would
+    strand a position, the same reasoning as decisions 7 and 15. The handler
+    does not even ask, for either kind of exchange."""
+    for capability in (TradeCapability.READ_ONLY, TradeCapability.NO_KEY):
+        close_position = SpyClosePosition()
+        prior_reservation_id = uuid4()
+        trade_capability = FakeTradeCapability(capability)
+        context = SignalContext(
+            strategy_id=uuid4(),
+            symbol="STXUSDT.P",
+            price=Decimal("0.5"),
+            position_size=Decimal("0"),
+            prior_position_size=Decimal("1"),  # close long -> RELEASES
+            prior_reservation_id=prior_reservation_id,
+            settlement_currency="USDT",
+        )
+        handler = _process_signal_handler(
+            context=context,
+            allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+            place_order=SpyPlaceOrder(),
+            close_position=close_position,
+            policy=_stx_policy(),
+            tradable_pools=_BYBIT_POOLS,
+            trade_capability=trade_capability,
+        )
+
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            result = await handler.handle(uuid4())
+
+        assert result.refused is None, capability
+        assert result.executed is True, capability
+        assert len(close_position.calls) == 1, capability
+        assert trade_capability.asked == [], capability
+        assert [r for r in caplog.records if r.levelname == "WARNING"] == [], capability
+
+
+async def test_dry_run_true_readonly_key_refuses_nothing() -> None:
+    """Under ``DRY_RUN=true`` the composition root wires
+    ``DryRunTradeCapability``: the fake exchange places nothing, so even an
+    exchange that would be READ_ONLY (or keyless) live opens normally."""
+    lock = SpyAdvisoryLock()
+    place_order = SpyPlaceOrder()
+    outcomes = RecordingSignalOutcomes()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(lock),
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        outcomes=outcomes,
+        trade_capability=DryRunTradeCapability(),  # type: ignore[arg-type]
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+    assert result.executed is True
+    assert len(place_order.calls) == 1
+    assert len(lock.acquired) == 1
+    assert outcomes.calls == []
+
+
+async def test_a_trade_capable_exchange_opens_exactly_as_before() -> None:
+    """The baseline for the live path: TRADE_CAPABLE proceeds, and the answer
+    was asked for the strategy's own exchange."""
+    place_order = SpyPlaceOrder()
+    trade_capability = FakeTradeCapability(TradeCapability.TRADE_CAPABLE)
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        trade_capability=trade_capability,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+    assert result.executed is True
+    assert len(place_order.calls) == 1
+    assert trade_capability.asked == ["bybit"]
+
+
+async def test_the_unlisted_pair_refusal_comes_before_the_capability_check() -> None:
+    """Order (design.md § 4a): the allowlist refusal is decided first, so an
+    unlisted pair on a keyless exchange says ``PAIR_NOT_ALLOWED`` and the
+    capability is never even asked."""
+    outcomes = RecordingSignalOutcomes()
+    trade_capability = FakeTradeCapability(TradeCapability.NO_KEY)
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        policy=_snapshot(
+            exchange=Exchange.BYBIT, venue="usdt-m", allowed_pairs=frozenset({"ETHUSDT"})
+        ),
+        tradable_pools=_BYBIT_POOLS,
+        outcomes=outcomes,
+        trade_capability=trade_capability,
+    )
+
+    await handler.handle(uuid4())
+
+    assert trade_capability.asked == []
+    assert [outcome.reason for _, outcome in outcomes.calls] == ["PAIR_NOT_ALLOWED"]
+
+
+async def test_open_now_continuation_refuses_a_readonly_exchange_and_says_the_close_executed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``open_now`` re-enters ``_handle_consumes``: a REVERSE whose close ran
+    and whose key stopped being trade-capable meanwhile ends flat, and the
+    outcome's detail says the close executed (decision 26)."""
+    lock = SpyAdvisoryLock()
+    outcomes = RecordingSignalOutcomes()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="STXUSDT.P",
+        price=Decimal("0.5"),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),  # opposite signs -> REVERSE
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(lock),
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        outcomes=outcomes,
+        trade_capability=FakeTradeCapability(TradeCapability.READ_ONLY),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await handler.open_now(uuid4(), poll=0)
+
+    assert result.refused is not None
+    assert lock.acquired == []
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+    assert len(outcomes.calls) == 1
+    _, outcome = outcomes.calls[0]
+    assert outcome.reason == "EXCHANGE_KEY_READ_ONLY"
+    assert outcome.detail is not None
+    assert result.refused in outcome.detail
+    assert "close" in outcome.detail and "executed" in outcome.detail

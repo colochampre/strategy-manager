@@ -232,3 +232,31 @@ class VenueNetPositionPort(Protocol):
     """
 
     async def net_position(self, pool: PoolKey, symbol: str) -> Decimal | None: ...
+
+
+class TradeCapability(Enum):
+    """What the signal path knows about an exchange's active key before it
+    lets an OPENING signal through (decisions 18 and 20, design.md § 4a).
+
+    TRADE_CAPABLE: the active key can place orders (or is assumed to under
+    DRY_RUN, where nothing is placed). READ_ONLY: an active key exists but
+    cannot trade. NO_KEY: the exchange has no active key at all -- never
+    keyed, or deleted (decision 22)."""
+
+    TRADE_CAPABLE = "TRADE_CAPABLE"
+    READ_ONLY = "READ_ONLY"
+    NO_KEY = "NO_KEY"
+
+
+class TradeCapabilityPort(Protocol):
+    """Whether an exchange's active key can trade, answered from the value
+    recorded when the key was saved -- never from the venue and never by
+    decrypting anything, because it sits on the signal path ahead of the
+    pool's advisory lock (design.md § 4a).
+
+    Implemented by
+    ``accounts.infrastructure.trade_capability_adapter``:
+    ``VaultTradeCapabilityAdapter`` for a live worker and
+    ``DryRunTradeCapability`` under ``DRY_RUN``."""
+
+    async def capability(self, exchange: str) -> TradeCapability: ...

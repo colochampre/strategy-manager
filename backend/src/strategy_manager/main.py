@@ -55,6 +55,10 @@ from strategy_manager.accounts.infrastructure.reader_by_exchange import (
 from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
     SqlAlchemyStaleSnapshotReader,
 )
+from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
+    DryRunTradeCapability,
+    VaultTradeCapabilityAdapter,
+)
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
@@ -482,6 +486,15 @@ def _build_process_signal_handler(
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
         outcomes=signal_outcomes,
+        # Decisions 18 and 20 (design.md § 4a): chosen by DRY_RUN like the
+        # exchange adapters. A rehearsal places nothing, so no key is needed
+        # and none can be missing; live, the answer is one column read of the
+        # active row, never a decrypt.
+        trade_capability=(
+            DryRunTradeCapability()
+            if settings.dry_run
+            else VaultTradeCapabilityAdapter(session)
+        ),
     )
     return handler, open_after_close
 

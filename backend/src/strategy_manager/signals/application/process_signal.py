@@ -87,6 +87,8 @@ from strategy_manager.signals.application.ports import (
     PoolKey,
     RefreshStatus,
     SignalOutcomePort,
+    TradeCapability,
+    TradeCapabilityPort,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
@@ -324,6 +326,7 @@ class ProcessSignalHandler:
         close_orphans: CloseOrphansPort,
         tradable_pools: frozenset[tuple[str, str]],
         outcomes: SignalOutcomePort,
+        trade_capability: TradeCapabilityPort,
     ) -> None:
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
@@ -339,6 +342,7 @@ class ProcessSignalHandler:
         self._close_orphans = close_orphans
         self._tradable_pools = tradable_pools
         self._outcomes = outcomes
+        self._trade_capability = trade_capability
 
     async def handle(self, signal_id: UUID) -> ProcessSignalResult:
         context = await self._signal_context.load(signal_id)
@@ -477,6 +481,20 @@ class ProcessSignalHandler:
         if market_key(context.symbol) not in policy.allowed_pairs:
             return await self._refuse_unlisted_pair(
                 signal_id, context, transition, policy, close_executed=close_executed
+            )
+
+        # Read-only / keyless exchange refusal (decisions 18 and 20; design.md
+        # § 4a): a LIVE open on an exchange whose active key cannot trade, or
+        # that has no active key, is refused here instead of failing at the
+        # venue after a reservation was taken. Placed after the allowlist
+        # refusal and before the guard, the refresh and the lock, and only in
+        # this method, so a close is never refused by it and ``open_now`` (the
+        # REVERSE continuation) is covered. Under DRY_RUN the wired port
+        # answers TRADE_CAPABLE, so nothing is refused.
+        capability = await self._trade_capability.capability(policy.exchange)
+        if capability is not TradeCapability.TRADE_CAPABLE:
+            return await self._refuse_read_only_exchange(
+                signal_id, context, transition, policy, capability, close_executed=close_executed
             )
 
         # The Existing-Position Guard (spec: capital-allocation §
@@ -904,6 +922,52 @@ class ProcessSignalHandler:
         logger.warning(refused)
         return await self._reject(
             signal_id, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
+        )
+
+    async def _refuse_read_only_exchange(
+        self,
+        signal_id: UUID,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+        capability: TradeCapability,
+        *,
+        close_executed: bool = False,
+    ) -> ProcessSignalResult:
+        """Decisions 18 and 20: refuse an OPENING signal on an exchange that
+        cannot execute it, before the guard, the balance refresh and the pool's
+        advisory lock -- no reservation is ever created for it.
+
+        ``READ_ONLY`` (an active key that cannot trade) and ``NO_KEY`` (a
+        DEGRADED exchange: never keyed, or deleted under decision 22) are
+        different problems with different fixes, so they carry different
+        reason codes and different WARNING texts; both name the exchange and
+        both tell the owner where to fix it. With decision 20 this check is
+        the sole mechanism that refuses a live open on a keyless exchange.
+
+        Never silent (decision 25): the refusal is recorded as a ``REJECTED``
+        outcome through ``_reject``, exactly like the other pre-lock
+        refusals. The residual race -- a key replaced or deleted after this
+        read and before ``PlaceOrder`` -- fails at the venue as any refused
+        write does today.
+        """
+        exchange = policy.exchange
+        if capability is TradeCapability.NO_KEY:
+            code = "EXCHANGE_HAS_NO_KEY"
+            reason = f"{exchange} has no active key; store one (Settings)"
+        else:
+            code = "EXCHANGE_KEY_READ_ONLY"
+            reason = (
+                f"the active {exchange} key cannot trade; "
+                "store a key that can trade futures (Settings)"
+            )
+        refused = (
+            f"signal {signal_id} for strategy {policy.name} ({context.strategy_id}) "
+            f"refused: {reason}; no capital reserved"
+        )
+        logger.warning("%s", refused)
+        return await self._reject(
+            signal_id, transition, code, refused, close_executed=close_executed
         )
 
     async def _refuse_untradable_pool(
