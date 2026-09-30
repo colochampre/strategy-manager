@@ -60,6 +60,10 @@ const PROPOSAL = {
   execution_attempt_id: null,
 };
 
+function proposalOn(exchange: string, symbol: string, id: string) {
+  return { ...PROPOSAL, id, exchange, symbol };
+}
+
 describe("BookingsListView", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -182,5 +186,65 @@ describe("BookingsListView", () => {
     fireEvent.click(screen.getByRole("button", { name: en.bookings.actions.approve }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText(en.bookings.dialogs.confirm.title)).toBeInTheDocument();
+  });
+
+  describe("exchange filter", () => {
+    const BYBIT = proposalOn("bybit", "SOLUSDT.P", "aaaaaaaa-0000-0000-0000-000000000001");
+    const BINANCE = proposalOn("binance", "ETHUSDT.P", "bbbbbbbb-0000-0000-0000-000000000002");
+
+    it("test_filtered_by_selected_exchange", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(fakeResponse([BYBIT, BINANCE], 200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      renderWithQueryClient(<BookingsListView exchange="binance" />);
+
+      expect(await screen.findByText("ETHUSDT.P")).toBeInTheDocument();
+      expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: en.bookings.actions.approve })).toHaveLength(1);
+      // Filtered client-side (decision 3): the endpoint has no exchange parameter.
+      for (const [url] of fetchMock.mock.calls) {
+        expect(String(url)).not.toMatch(/exchange/);
+      }
+    });
+
+    it("shows the other exchange when that one is selected", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse([BYBIT, BINANCE], 200)));
+
+      renderWithQueryClient(<BookingsListView exchange="bybit" />);
+
+      expect(await screen.findByText("SOLUSDT.P")).toBeInTheDocument();
+      expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
+    });
+
+    it("shows the empty state, not another exchange's rows, when the selected one has none", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse([BYBIT], 200)));
+
+      renderWithQueryClient(<BookingsListView exchange="binance" />);
+
+      expect(await screen.findByText(en.bookings.empty)).toBeInTheDocument();
+      expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
+    });
+
+    it("matches the exchange exactly, never by prefix or case-folding", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse([proposalOn("bybit-demo", "AAAUSDT.P", "cccccccc-0000-0000-0000-000000000003")], 200),
+        ),
+      );
+
+      renderWithQueryClient(<BookingsListView exchange="bybit" />);
+
+      expect(await screen.findByText(en.bookings.empty)).toBeInTheDocument();
+    });
+
+    it("still renders every row when no exchange is given (unscoped use)", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse([BYBIT, BINANCE], 200)));
+
+      renderWithQueryClient(<BookingsListView />);
+
+      expect(await screen.findByText("SOLUSDT.P")).toBeInTheDocument();
+      expect(screen.getByText("ETHUSDT.P")).toBeInTheDocument();
+    });
   });
 });
