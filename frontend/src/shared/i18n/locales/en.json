@@ -37,6 +37,38 @@
       "ariaLabel": "Compounded return above the waterline, drawdown from the previous peak below it",
       "empty": "No closed trades yet",
       "unreadable": "The return curve could not be read."
+    },
+    "ledger": {
+      "available": "{{currency}} available",
+      "pnl": "PnL {{range}}",
+      "return": "return {{range}}",
+      "deepest": "deepest",
+      "unreadable": "The figures could not be read."
+    },
+    "range": {
+      "label": "Range",
+      "7D": "7D",
+      "30D": "30D",
+      "90D": "90D",
+      "1Y": "1Y",
+      "All": "All"
+    },
+    "monthlyGrid": {
+      "title": "Month by month",
+      "year": "Year",
+      "empty": "No closed months yet",
+      "noTrades": "no closed trades",
+      "unreadable": "The monthly returns could not be read."
+    },
+    "monthlySummary": {
+      "positive_one": "{{positive}} of {{count}} month positive",
+      "positive_other": "{{positive}} of {{count}} months positive",
+      "best": "best {{value}}",
+      "worst": "worst {{value}}",
+      "open_one": "{{count}} open trade not in the curve",
+      "open_other": "{{count}} open trades not in the curve",
+      "noCapital_one": "{{count}} trade without capital at open",
+      "noCapital_other": "{{count}} trades without capital at open"
     }
   },
   "strategies": {
