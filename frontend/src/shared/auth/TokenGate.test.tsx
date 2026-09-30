@@ -81,4 +81,20 @@ describe("TokenGate", () => {
 
     expect(screen.getByText("protected content")).toBeInTheDocument();
   });
+
+  // jsdom computes no layout, so the vertical-overflow fix is pinned as a class
+  // contract: the gate takes the space its flex-column parent leaves over. A
+  // `min-h-full` or `h-screen` wrapper next to the shell's other rows is what
+  // made the page scroll when it showed only this card.
+  it("fills the space left by its parent with flex-1, never min-h-full or h-screen", () => {
+    const { container } = render(
+      <TokenGate>
+        <div>protected content</div>
+      </TokenGate>,
+    );
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper).toHaveClass("flex-1");
+    expect(wrapper.className).not.toMatch(/\b(?:min-h-full|h-full|h-screen|min-h-screen)\b/);
+  });
 });

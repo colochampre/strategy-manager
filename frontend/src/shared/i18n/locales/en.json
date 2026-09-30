@@ -3,13 +3,35 @@
     "name": "Strategy Manager"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "sections": "Sections",
+    "overview": "Overview",
     "strategies": "Strategies",
-    "settings": "Settings",
-    "bookings": "Bookings"
+    "settings": "Settings"
   },
   "status": {
-    "dryRun": "Dry run"
+    "dryRun": "Dry run",
+    "live": "Live",
+    "checking": "Checking mode",
+    "unknown": "Mode unknown"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "back": "Back to overview"
+  },
+  "overview": {
+    "title": "Overview",
+    "decisionRail": {
+      "title": "Needs your decision"
+    }
+  },
+  "strategies": {
+    "title": "Strategies",
+    "detail": {
+      "title": "Strategy"
+    }
+  },
+  "settings": {
+    "title": "Settings"
   },
   "auth": {
     "tokenGate": {

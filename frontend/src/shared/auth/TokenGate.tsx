@@ -33,7 +33,7 @@ export function TokenGate({ children }: TokenGateProps) {
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-ground p-4">
+    <div className="flex flex-1 items-center justify-center">
       <form
         onSubmit={handleSubmit}
         className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-rule bg-panel p-6"
