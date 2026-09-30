@@ -157,6 +157,18 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
 
+    # Directory holding the built operator panel (the Vite ``dist`` output).
+    #
+    # EMPTY means the panel is not served at all, which is the default on
+    # purpose: development has the Vite server, tests mount nothing, and a
+    # production that has not finished the deploy prerequisites (DuckDNS proxy
+    # scoped to the webhook, ``cloudflared``, a Cloudflare Access policy, a
+    # frontend build) stays exactly as it is today. Setting it is the one switch
+    # that makes this process serve a UI, so it is also checked at startup: a
+    # directory without an ``index.html`` refuses to start rather than serving
+    # 404s to the owner (``shared/infrastructure/spa.py``).
+    panel_dist_dir: str = Field(default="")
+
     # How long a PENDING/SUBMITTED reservation stays inside "active" pool
     # availability before it is excluded and eligible for sweeping.
     reservation_ttl_seconds: int = Field(default=30)

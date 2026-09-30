@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, FastAPI
@@ -206,6 +207,10 @@ from strategy_manager.shared.infrastructure.observed_job_queue import (
     ExhaustionObservingJobQueue,
 )
 from strategy_manager.shared.infrastructure.recurring_jobs import RECURRING_KINDS
+from strategy_manager.shared.infrastructure.spa import (
+    assert_panel_dist_ready,
+    mount_panel,
+)
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.shared.infrastructure.validation_errors import (
     redacted_validation_handler,
@@ -291,6 +296,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await assert_pool_lock_keys_distinct(conn, pools)
         assert_webhook_secret_configured(settings)
         assert_admin_api_token_configured(settings)
+        assert_panel_dist_ready(settings)
         yield
 
 
@@ -1788,6 +1794,11 @@ def create_app() -> FastAPI:
     api_router.include_router(webhook_secret_router)
     api_router.include_router(credentials_router)
     app.include_router(api_router)
+
+    # LAST, after every router: the panel's catch-all matches any GET path, so
+    # anything registered after it would be unreachable for GET.
+    if settings.panel_dist_dir:
+        mount_panel(app, Path(settings.panel_dist_dir))
 
     return app
 

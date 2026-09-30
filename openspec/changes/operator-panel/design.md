@@ -272,7 +272,7 @@ DeleteCredential ─ exchange in KNOWN_FUTURES_POOLS? no ─► 404 not served (
 
 ### 5. Where encryption happens: in the API process, seal-only by type
 
-**Choice**: the API process validates and seals. `SaveCredential` depends on `CredentialWriterPort` (`store`, `hints`), which has **no `load`**, so mypy strict makes a decrypt from the API path a type error. A structural test asserts that no module under `accounts/infrastructure/credentials_router.py` or `accounts/application/save_credential.py` references `.load(`. The API lifespan gains **startup invariant 5**: `EnvelopeCipher.from_base64(settings.master_encryption_key)` must succeed, so a misconfiguration fails at boot, as it does in the worker (`main.py:632`).
+**Choice**: the API process validates and seals. `SaveCredential` depends on `CredentialWriterPort` (`store`, `hints`), which has **no `load`**, so mypy strict makes a decrypt from the API path a type error. A structural test asserts that no module under `accounts/infrastructure/credentials_router.py` or `accounts/application/save_credential.py` references `.load(`. The API lifespan gains **startup invariant 5**: `EnvelopeCipher.from_base64(settings.master_encryption_key)` must succeed, so a misconfiguration fails at boot, as it does in the worker (`main.py:632`). **Dropped (owner decision 2026-09-30, design K5):** this invariant was NOT built; see K5 (line ~1809).
 
 **What this does and does not protect, stated plainly (F9).** AES-GCM is symmetric, so any holder of the master key can decrypt. The API process already holds the key in memory today, because it loads the same `Settings` from the same `.env`. This design **changes the key's use, not its exposure**. The boundary is code discipline enforced by types, not cryptography. The new key's plaintext is in API memory during validation no matter where it is sealed, because the live read needs it.
 
@@ -798,7 +798,7 @@ signal.process ─ load context ─ policy_for (enabled, archived, allowed_pairs
 | `shared/config.py` | Modify | Remove the Bybit/Binance key fields; add `panel_dist_dir` |
 | `shared/infrastructure/{bybit,binance}/factory.py` | Modify | Remove `credentials_from_settings` |
 | `shared/infrastructure/{spa,validation_errors}.py` | Create | Serving, fallback, headers; redacted 422 |
-| `main.py` | Modify | Five Binance read sites onto the vault; trade-capability wiring; `/api` router, new routers, `mount_panel`, invariant 5; skips registering read adapters for a DEGRADED exchange (decision 20) |
+| `main.py` | Modify | Five Binance read sites onto the vault; trade-capability wiring; `/api` router, new routers, `mount_panel`, invariant 5 (dropped, K5); skips registering read adapters for a DEGRADED exchange (decision 20) |
 | `worker.py` | Modify | `_assert_keys_present` logs one ERROR per DEGRADED exchange and returns the set, never raises (revised 2026-09-25, decision 20) |
 | `strategies/infrastructure/admin_token_invariant.py` | Modify | Message names `/api` |
 | `backend/scripts/{probe_credentials,check_bybit_read,check_binance_read,check_venue_fill_windows,measure_reconciliation_rate_limits}.py` | Modify | Load from the vault; `announce` prints `***last4 (vault)` |
@@ -918,7 +918,7 @@ The forecasts already apply the last change's measured bias: per-unit actuals ra
 | 6 | 3a `pool_total_at_open` 0026, live PG (350–500) · 3b fills source + `derive_trade` (700–1,000) · 3c curve/drawdown/grid/ranges, UTC (700–1,000) · 3d strategy + pair stats (400–600) | 2,150–3,100 | Rehearsal-fill count recorded |
 | 7 | Read endpoints: pools, performance pool/strategy/trades, `GET /webhook-secret` (decision 23, 150–250) | 950–1,350 | — |
 | 8 | 6a key policy + inspectors + 0027 (800–1,100) · 6b `SaveCredential`, credential endpoints, redacted 422, store scripts onto the use case (750–1,000) · 6c `TradeCapabilityPort`, adapters, read-only opening refusal (350–500) · 6d `KNOWN_FUTURES_POOLS`, `CapitalPoolWriterPort`, pool auto-enable on save (decision 21, 300–450) · 6e `DeleteCredential`, `PoolExposurePort`/adapter, `DELETE` endpoint, concurrency test (decision 22, 700–1,000) | 2,900–4,050 | PR 1's P1–P3 recorded |
-| 9 | 4b SPA serving, fallback, CSP, invariant 5, `panel_dist_dir` | 500–750 | Owner infra steps |
+| 9 | 4b SPA serving, fallback, CSP, invariant 5 (dropped, K5), `panel_dist_dir` | 500–750 | Owner infra steps |
 | 10 | Router, shell, exchange scope, bookings re-homed, query hooks, `DryRunBadge`, direction-A `@theme` swap + class renames, self-hosted fonts | 1,150–1,600 | — |
 | 11 | Overview: ledger line, return chart + geometry, monthly grid, decision rail | 1,300–1,800 | — (visual review done, decision 19) |
 | 12 | Strategies list + detail + dialogs + webhook message + "Show secret" control (decision 23) | 1,400–1,900 | — |
