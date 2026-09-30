@@ -234,15 +234,18 @@ Browser           API (credentials_router)     SaveCredential          KeyInspec
 
 **Endpoint**: `DELETE /api/credentials/{exchange}`. **Use case**: `DeleteCredential`, application/accounts.
 
+**An exchange with no known pool (owner decision 31).** `DELETE /api/credentials/{exchange}` for an exchange outside `KNOWN_FUTURES_POOLS` (Pionex today) answers 404 "not served by this panel", like the `PUT` (K5). It is decided before anything below runs: no advisory lock, no row read, no exposure query, and never a 500. The key stays active and is managed only through its store script. The downside, accepted: the key is listed in Settings but cannot be removed from the panel.
+
 Preconditions, both must hold:
 - no strategy bound to that exchange's one pool is currently enabled;
 - the pool holds no open exposure: no allocation with ledger net ≠ 0 (all spellings merged), no live reservation (`PENDING`/`SUBMITTED`, `terminal_at NULL`), no `SUBMITTED` in-flight attempt (opens via `reservation.strategy_id`, closes via `closes_allocation_id` → reservation) — decision 8's `StrategyExposurePort` query shape, widened from one strategy to every strategy bound to the pool.
 
 ```
 DELETE /api/credentials/{exchange}
-DeleteCredential ─ SELECT exchange_credentials WHERE exchange=... AND is_active FOR UPDATE ─┐
-   no active row? ─► 404 CREDENTIAL_NOT_FOUND
-   pg_advisory_xact_lock(LockKey(pool)) ─────────────────────────────────────────────────────┤ same key ArchiveStrategy and AllocateCapital take
+DeleteCredential ─ exchange in KNOWN_FUTURES_POOLS? no ─► 404 not served (decision 31), nothing taken
+   pg_advisory_xact_lock(LockKey(pool)) ─────────────────────────────────────────────────────┐ same key ArchiveStrategy and AllocateCapital take, taken FIRST
+   SELECT exchange_credentials WHERE exchange=... AND is_active FOR UPDATE ──────────────────┤ the row lock, SECOND (lock order: pool advisory lock, then row locks)
+   no active row? ─► 404 no active credential
    PoolExposurePort.exposure(pool):                                                          │
      any strategy on pool with enabled=true                                                  │
      ledger net ≠ 0 per allocation (ReadSymbolHoldings, all spellings merged)                 │
@@ -491,7 +494,7 @@ Money, quantities and ratios are **JSON strings** (pydantic v2 serializes `Decim
 | `GET /performance/strategies/{id}` | — | `PoolPerformance` + `by_pair: [{pair, trades, pnl, return}]` | 404 | `ReadStrategyPerformance` |
 | `GET /performance/strategies/{id}/trades?limit=50&before_closed_at=&before_allocation_id=` | — | `{trades: [{allocation_id, pair, direction, opened_at, closed_at, pnl, capital_at_open\|null, return\|null, fees_complete}], next_cursor: {before_closed_at, before_allocation_id}\|null}` | 404; 422 half a cursor, naive `before_closed_at`, `limit` outside 1..200 | `ReadStrategyTrades` |
 | `GET /credentials` | — | `[{exchange, status: STORED\|EMPTY, last4\|null, label, stored_at, validated_at\|null, trade_capable\|null, permissions\|null}]`, one entry per exchange that has an active credential, a credential history row (any superseded or deactivated row), **or** an enabled pool (decision 20's DEGRADED case) | — | `vault.hints()` (all rows, not only active; no decrypt) |
-| `DELETE /credentials/{exchange}` | — | 200, exchange view with `status: EMPTY` | 404 no active credential; 409 `EXCHANGE_NOT_FLAT` (+ `enabled_strategies`, `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `DeleteCredential` (§ 4b) |
+| `DELETE /credentials/{exchange}` | — | 200, exchange view with `status: EMPTY` | 404 not served (an exchange with no known pool, decision 31, checked first); 404 no active credential; 409 `EXCHANGE_NOT_FLAT` (+ `enabled_strategies`, `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `DeleteCredential` (§ 4b) |
 | `PUT /credentials/{exchange}` | `{api_key, api_secret: SecretStr, label?}` | exchange view + `warnings: ["READ_ONLY_KEY"]` when `trade_capable=false` | 404 unserved exchange; 422 `KEY_REJECTED` / `WITHDRAW_PERMISSION` (+ `permissions`); 502 `VENUE_UNREACHABLE`; 409 `CONCURRENT_SAVE` | `SaveCredential` (also enables the exchange's pool, decision 21) |
 | `GET /webhook-secret` | — | `{secret}`, `Cache-Control: no-store`; **503** `{detail}` (also `no-store`, no `secret` key) when the setting is empty | 401 (bearer), 503 | reads `settings.webhook_secret` directly (decision 23). **As built (PR 7b):** no `Pragma` header (the spec asks for `Cache-Control: no-store` alone); the setting is a plain `str`, not a `SecretStr`; an unset secret is refused with a 503 rather than returned as `""`; non-GET methods answer 405 |
 | existing `GET /reconciliation/bookings`, `POST .../approve`, `.../reject` | unchanged | unchanged | unchanged (404/409/422/503) | unchanged |
