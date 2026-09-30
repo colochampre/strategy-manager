@@ -207,6 +207,19 @@ describe("layout contract", () => {
     expect(container.innerHTML).not.toMatch(/min-h-full|h-screen/);
   });
 
+  it("caps the content width inside main and centres it, while main itself stays full width", () => {
+    renderShell();
+
+    const main = screen.getByRole("main");
+    // `main` keeps the full width so its scrollbar sits at the window edge; the
+    // cap is on one inner column that holds every page (decision 38).
+    expect(main.className).not.toMatch(/\bmax-w-/);
+    const column = main.firstElementChild as HTMLElement;
+    expect(column).toHaveClass("mx-auto", "w-full", "max-w-[90rem]");
+    // It passes the one-viewport contract down, so the token gate still fills it.
+    expect(column).toHaveClass("flex", "flex-1", "flex-col", "min-h-0");
+  });
+
   it("does not reserve bottom-bar space with padding hacks that can overflow", () => {
     const { container } = renderShell();
 

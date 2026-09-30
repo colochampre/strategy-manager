@@ -189,6 +189,10 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - On an exchange with several pools, the panels are ordered: enabled pools first; then pools settled in a USD stablecoin (USDT), the larger available balance first; then every other currency by code. Pools that tie keep the server's order. Pools are ranked, never summed (rule 7).
     - Why interim: the owner wants descending USD value, so attention goes where the capital is. The system has no live price (`FixedUsdRateProvider` knows only USDT = 1), so the client cannot rank a BTC pool against an ETH or a USDT one, and no prices are invented.
     - The real request is task 11f.1: a backend USD valuation per pool (for example the venue's mark price or ticker at read time), exposed as `usd_value` on `GET /api/pools` for display and sort only, never summed. It touches only multi-pool exchanges (Pionex today, whose pools are all disabled).
+38. **The page content is capped at 90rem and centred inside `main`** (2026-09-30, PR 11c third review).
+    - `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one inner column, `mx-auto w-full max-w-[90rem]`, which keeps `main`'s one-viewport flex contract so the token gate still fills it.
+    - On a very wide screen the extra width becomes margin around the content. The pool panel and the decision rail stay side by side, and the space between them never grows.
+    - Why: with decision 36 the panel filled the width, and on a wide screen the chart and the ledger line stretched further than reads well.
 
 ## Standing constraints
 
