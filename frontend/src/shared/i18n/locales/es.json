@@ -63,6 +63,8 @@
       "year": "Año",
       "empty": "Todavía no hay meses con operaciones cerradas",
       "noTrades": "sin operaciones cerradas",
+      "showEarlier": "Mostrar años anteriores",
+      "hideEarlier": "Ocultar años anteriores",
       "unreadable": "No se pudieron leer los rendimientos mensuales."
     },
     "monthlySummary": {

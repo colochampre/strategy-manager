@@ -465,6 +465,35 @@ function finalReturn(scope: HTMLElement): number {
   return Number(within(scope).getByTestId("return-curve").getAttribute("data-final-return"));
 }
 
+describe("the month grid keeps the whole history behind its three years", () => {
+  it("summarises every month, and shows three year rows with the rest behind a toggle", async () => {
+    const report = {
+      ...activeReport("bybit", "linear", "USDT"),
+      monthly: [
+        { year: 2022, month: 6, return: "-0.0500000000" },
+        { year: 2023, month: 1, return: "0.0200000000" },
+        { year: 2024, month: 1, return: "0.0100000000" },
+        { year: 2025, month: 1, return: "0.0100000000" },
+        { year: 2026, month: 1, return: "0.0300000000" },
+      ],
+    };
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "ok", body: report },
+    });
+    renderAt(<AppRoutes />, "/");
+    const panel = await screen.findByTestId("pool-panel");
+
+    const summary = await within(panel).findByTestId("monthly-summary");
+    // 4 of 5 months are positive: the summary reads 2022 and 2023 too.
+    expect(summary).toHaveTextContent("4 of 5 months positive");
+    expect(summary).toHaveTextContent("worst -5.0%");
+    expect(within(panel).getAllByRole("rowheader").map((node) => node.textContent)).toEqual(["2026", "2025", "2024"]);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Show earlier years" }));
+    expect(within(panel).getAllByRole("rowheader")).toHaveLength(5);
+  });
+});
+
 describe("the chart follows the selected range", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });

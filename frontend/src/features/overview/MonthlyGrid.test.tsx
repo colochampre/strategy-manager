@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
@@ -180,5 +180,108 @@ describe("MonthlyGrid", () => {
   it("shows an alert for a month that is not a calendar month", () => {
     render(<MonthlyGrid monthly={[month(2026, 13, "0.01")]} />);
     expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+});
+
+/** Five years: 2026 (3 months), 2025 and 2024 (all 12 at 1%), 2023 (2 months), 2022 (1 month). */
+function fiveYears(): MonthReturn[] {
+  const full = (year: number) => Array.from({ length: 12 }, (_, i) => month(year, i + 1, "0.0100000000"));
+  return [
+    month(2022, 6, "-0.0500000000"),
+    month(2023, 1, "0.0200000000"),
+    month(2023, 2, "0.0200000000"),
+    ...full(2024),
+    ...full(2025),
+    month(2026, 1, "0.0310000000"),
+    month(2026, 2, "0.0100000000"),
+    month(2026, 3, "0.0100000000"),
+  ];
+}
+
+function rowYears(): string[] {
+  return screen.getAllByRole("rowheader").map((node) => node.textContent ?? "");
+}
+
+function toggle(name: string) {
+  return screen.queryByRole("button", { name });
+}
+
+describe("the earlier years toggle (decision 34)", () => {
+  it("shows the three most recent UTC years and hides the rest", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    expect(rowYears()).toEqual(["2026", "2025", "2024"]);
+    expect(screen.queryByTestId("year-2023")).toBeNull();
+    expect(screen.queryByTestId("month-2022-6")).toBeNull();
+  });
+
+  it("offers a real button, collapsed, with a 44 px target", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    const button = toggle("Show earlier years");
+    expect(button).toBeInTheDocument();
+    expect(button!.tagName).toBe("BUTTON");
+    expect(button).toHaveAttribute("type", "button");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveClass("min-h-11");
+  });
+
+  it("reveals the older years in place, most recent first, and collapses them again", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier years" }));
+
+    expect(rowYears()).toEqual(["2026", "2025", "2024", "2023", "2022"]);
+    const collapse = toggle("Hide earlier years");
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    expect(toggle("Show earlier years")).toBeNull();
+
+    fireEvent.click(collapse!);
+    expect(rowYears()).toEqual(["2026", "2025", "2024"]);
+    expect(toggle("Show earlier years")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("controls the table it reveals rows in", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    const button = screen.getByRole("button", { name: "Show earlier years" });
+    const controlled = document.getElementById(button.getAttribute("aria-controls") ?? "");
+    expect(controlled).not.toBeNull();
+    expect(within(controlled!).getByRole("table")).toBeInTheDocument();
+  });
+
+  it("has no toggle at three years or fewer", () => {
+    render(<MonthlyGrid monthly={fiveYears().filter((entry) => entry.year >= 2024)} />);
+    expect(rowYears()).toEqual(["2026", "2025", "2024"]);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("counts the three latest years that have a closed month, not three calendar years", () => {
+    render(<MonthlyGrid monthly={[month(2026, 1, "0.01"), month(2023, 1, "0.01"), month(2020, 1, "0.01"), month(2015, 1, "0.01")]} />);
+    expect(rowYears()).toEqual(["2026", "2023", "2020"]);
+    expect(toggle("Show earlier years")).toBeInTheDocument();
+  });
+
+  it("keeps each year's total over all of its months, visible or revealed", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    // 1.01^12 - 1 = 12.68%: every month of 2024 counts, though 2023 and 2022 are hidden.
+    expect(screen.getByTestId("year-2024")).toHaveTextContent("+12.7%");
+    expect(screen.getByTestId("year-2026")).toHaveTextContent("+5.2%");
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier years" }));
+    expect(screen.getByTestId("year-2023")).toHaveTextContent("+4.0%");
+    expect(screen.getByTestId("year-2022")).toHaveTextContent("-5.0%");
+  });
+
+  it("is labelled in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar años anteriores" }));
+    expect(toggle("Ocultar años anteriores")).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("the grid at narrow widths", () => {
+  it("scrolls sideways inside a wrapper instead of squeezing its figures together", () => {
+    render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000")]} />);
+    const table = screen.getByRole("table");
+    // 13 columns of figures need a floor width; below it the wrapper scrolls, like the chart's.
+    expect(table).toHaveClass("min-w-[42rem]");
+    expect(table.parentElement).toHaveClass("overflow-x-auto");
   });
 });

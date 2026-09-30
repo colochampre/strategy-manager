@@ -63,6 +63,8 @@
       "year": "Year",
       "empty": "No closed months yet",
       "noTrades": "no closed trades",
+      "showEarlier": "Show earlier years",
+      "hideEarlier": "Hide earlier years",
       "unreadable": "The monthly returns could not be read."
     },
     "monthlySummary": {

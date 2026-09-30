@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { parseDecimal, percentText, toneClass } from "@/features/overview/format";
@@ -36,6 +36,9 @@ const LOSS_BANDS = [
 /** From this band the fill is dark enough that the text must flip to the ground colour. */
 const FIRST_CONTRAST_BAND = 4;
 
+/** The rows shown before the owner asks for the earlier ones (decision 34). */
+const VISIBLE_YEARS = 3;
+
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 /** year -> month (1 to 12) -> return; `null` when any entry is not a readable month. */
@@ -71,6 +74,8 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const titleId = useId();
+  const tableRegionId = useId();
+  const [showEarlier, setShowEarlier] = useState(false);
   const years = readMonths(monthly);
 
   // Calendar months are named in UTC: west of UTC, local midnight on the 1st is the month before.
@@ -107,81 +112,97 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
     );
   }
 
-  const rows = [...years.entries()].sort(([a], [b]) => b - a);
+  // Newest first. Only the rows are cut: every year keeps all of its months, so its total is the year's.
+  const allRows = [...years.entries()].sort(([a], [b]) => b - a);
+  const hasEarlier = allRows.length > VISIBLE_YEARS;
+  const rows = showEarlier ? allRows : allRows.slice(0, VISIBLE_YEARS);
 
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-2.5">
       {title}
-      <table
-        aria-labelledby={titleId}
-        className="w-full table-fixed border-separate border-spacing-1 font-mono text-[11px] tabular-nums"
-      >
-        <thead>
-          <tr>
-            <td className="w-12" />
-            {MONTHS.map((month) => (
-              <th
-                key={month}
-                scope="col"
-                aria-label={longName(month)}
-                className="font-normal text-ink-3"
-              >
-                {narrowName(month)}
-              </th>
-            ))}
-            <th scope="col" className="w-16 font-normal text-ink-3">
-              {t("overview.monthlyGrid.year")}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(([year, row]) => {
-            const total = yearReturn(row);
-            return (
-              <tr key={year}>
-                <th scope="row" className="text-left font-normal text-ink-2">
-                  {year}
+      <div id={tableRegionId} className="overflow-x-auto">
+        <table
+          aria-labelledby={titleId}
+          className="w-full min-w-[42rem] table-fixed border-separate border-spacing-1 font-mono text-[11px] tabular-nums"
+        >
+          <thead>
+            <tr>
+              <td className="w-12" />
+              {MONTHS.map((month) => (
+                <th
+                  key={month}
+                  scope="col"
+                  aria-label={longName(month)}
+                  className="font-normal text-ink-3"
+                >
+                  {narrowName(month)}
                 </th>
-                {MONTHS.map((month) => {
-                  const value = row.get(month);
-                  const label = `${longName(month)} ${year}`;
-                  if (value === undefined) {
+              ))}
+              <th scope="col" className="w-16 font-normal text-ink-3">
+                {t("overview.monthlyGrid.year")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([year, row]) => {
+              const total = yearReturn(row);
+              return (
+                <tr key={year}>
+                  <th scope="row" className="text-left font-normal text-ink-2">
+                    {year}
+                  </th>
+                  {MONTHS.map((month) => {
+                    const value = row.get(month);
+                    const label = `${longName(month)} ${year}`;
+                    if (value === undefined) {
+                      return (
+                        <td
+                          key={month}
+                          data-testid={`month-${year}-${month}`}
+                          aria-label={`${label}: ${t("overview.monthlyGrid.noTrades")}`}
+                          className="h-10 rounded-[3px] border border-dashed border-rule"
+                        />
+                      );
+                    }
+                    const band = gridBand(value);
                     return (
                       <td
                         key={month}
                         data-testid={`month-${year}-${month}`}
-                        aria-label={`${label}: ${t("overview.monthlyGrid.noTrades")}`}
-                        className="h-10 rounded-[3px] border border-dashed border-rule"
-                      />
+                        aria-label={`${label}: ${percentText(value, locale)}`}
+                        className={cn(
+                          "h-10 rounded-[3px] text-center",
+                          (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
+                          band >= FIRST_CONTRAST_BAND ? "font-semibold text-ground" : "text-ink",
+                        )}
+                      >
+                        {percentText(value, locale, false)}
+                      </td>
                     );
-                  }
-                  const band = gridBand(value);
-                  return (
-                    <td
-                      key={month}
-                      data-testid={`month-${year}-${month}`}
-                      aria-label={`${label}: ${percentText(value, locale)}`}
-                      className={cn(
-                        "h-10 rounded-[3px] text-center",
-                        (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
-                        band >= FIRST_CONTRAST_BAND ? "font-semibold text-ground" : "text-ink",
-                      )}
-                    >
-                      {percentText(value, locale, false)}
-                    </td>
-                  );
-                })}
-                <td
-                  data-testid={`year-${year}`}
-                  className={cn("text-center font-semibold", toneClass(total))}
-                >
-                  {percentText(total, locale)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  })}
+                  <td
+                    data-testid={`year-${year}`}
+                    className={cn("text-center font-semibold", toneClass(total))}
+                  >
+                    {percentText(total, locale)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {hasEarlier && (
+        <button
+          type="button"
+          aria-expanded={showEarlier}
+          aria-controls={tableRegionId}
+          onClick={() => setShowEarlier(!showEarlier)}
+          className="min-h-11 self-start rounded-md px-1 font-mono text-[11px] text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-gain"
+        >
+          {showEarlier ? t("overview.monthlyGrid.hideEarlier") : t("overview.monthlyGrid.showEarlier")}
+        </button>
+      )}
     </section>
   );
 }
