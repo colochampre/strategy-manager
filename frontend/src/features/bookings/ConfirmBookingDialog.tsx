@@ -65,21 +65,21 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface-950/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ground/80 p-4"
     >
-      <div className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-edge bg-surface-900 p-6">
-        <h2 id={titleId} className="text-sm font-semibold text-ink-100">
+      <div className="flex w-full max-w-lg flex-col gap-4 rounded-lg border border-rule bg-panel p-6">
+        <h2 id={titleId} className="text-sm font-semibold text-ink">
           {t("bookings.dialogs.confirm.title")}
         </h2>
-        <p className="text-xs text-ink-500">{t("bookings.dialogs.confirm.description")}</p>
+        <p className="text-xs text-ink-3">{t("bookings.dialogs.confirm.description")}</p>
 
         <div>
-          <p className="mb-1 text-xs font-semibold text-ink-300">{t("bookings.card.fills")}</p>
+          <p className="mb-1 text-xs font-semibold text-ink-2">{t("bookings.card.fills")}</p>
           <ul className="flex flex-col gap-1">
             {proposal.fills.map((fill) => (
               <li
                 key={fill.exchange_fill_id}
-                className="tabular flex flex-wrap gap-x-2 text-xs text-ink-300"
+                className="tabular flex flex-wrap gap-x-2 text-xs text-ink-2"
               >
                 <span>{fill.side}</span>
                 <span>{fill.quantity}</span>
@@ -95,8 +95,8 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
         </div>
 
         <div>
-          <p className="mb-1 text-xs font-semibold text-ink-300">{t("bookings.dialogs.attempt.heading")}</p>
-          <div className="tabular flex flex-wrap gap-x-2 text-xs text-ink-300">
+          <p className="mb-1 text-xs font-semibold text-ink-2">{t("bookings.dialogs.attempt.heading")}</p>
+          <div className="tabular flex flex-wrap gap-x-2 text-xs text-ink-2">
             <span>{t("bookings.dialogs.attempt.origin")}=VENUE</span>
             <span>{t("bookings.dialogs.attempt.status")}=FILLED</span>
             <span>{proposal.client_order_id}</span>
@@ -105,10 +105,10 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
           </div>
         </div>
 
-        <p className="text-xs text-ink-500">{t("bookings.dialogs.confirm.usdRateNote")}</p>
+        <p className="text-xs text-ink-3">{t("bookings.dialogs.confirm.usdRateNote")}</p>
 
         {mutation.status === "success" && (
-          <p role="status" className="text-sm text-profit">
+          <p role="status" className="text-sm text-gain">
             {t("bookings.dialogs.confirm.success")}
           </p>
         )}
@@ -124,7 +124,7 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ink-100 hover:opacity-90"
+              className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90"
             >
               {t("bookings.dialogs.close")}
             </button>
@@ -134,7 +134,7 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
                 type="button"
                 onClick={onClose}
                 disabled={disabled}
-                className="rounded-md border border-edge px-3 py-1.5 text-sm text-ink-300 hover:bg-surface-850 disabled:opacity-50"
+                className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
               >
                 {t("bookings.dialogs.cancel")}
               </button>
@@ -142,7 +142,7 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
                 type="button"
                 onClick={handleConfirm}
                 disabled={disabled}
-                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ink-100 hover:opacity-90 disabled:opacity-50"
+                className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
               >
                 {disabled
                   ? t("bookings.dialogs.confirm.submitting")
