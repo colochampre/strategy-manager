@@ -30,6 +30,13 @@
       "scopeLoading": "Loading exchanges…",
       "scopeError": "Pending bookings are hidden because the exchanges could not be loaded, so they cannot be filtered.",
       "noExchanges": "No exchange is configured, so there are no pending bookings to show."
+    },
+    "returnChart": {
+      "title": "Return of the strategies, compounded",
+      "caption": "UTC days · deposits and withdrawals excluded",
+      "ariaLabel": "Compounded return above the waterline, drawdown from the previous peak below it",
+      "empty": "No closed trades yet",
+      "unreadable": "The return curve could not be read."
     }
   },
   "strategies": {
