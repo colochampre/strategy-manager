@@ -1,10 +1,10 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
-import { lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { emptyPerformance, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
 const TWO_EXCHANGES = { kind: "ok", body: [pool("bybit", "linear"), pool("binance")] } as const;
@@ -76,7 +76,7 @@ describe("decision rail scoped to the exchange", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
 
-    expect(await screen.findByText(en.bookings.empty)).toBeInTheDocument();
+    expect(await screen.findByText(en.overview.decisionRail.empty)).toBeInTheDocument();
     expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
   });
 });
@@ -90,7 +90,7 @@ describe("while the exchange scope is not known", () => {
     expect(rail).toHaveTextContent(en.overview.decisionRail.scopeLoading);
     expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
     expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText(en.bookings.empty)).not.toBeInTheDocument();
+    expect(screen.queryByText(en.overview.decisionRail.empty)).not.toBeInTheDocument();
   });
 
   it.each([
@@ -105,7 +105,7 @@ describe("while the exchange scope is not known", () => {
     await waitFor(() => expect(rail).toHaveTextContent(en.overview.decisionRail.scopeError));
     expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
     expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText(en.bookings.empty)).not.toBeInTheDocument();
+    expect(screen.queryByText(en.overview.decisionRail.empty)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.bookings.actions.approve })).not.toBeInTheDocument();
   });
 
@@ -134,6 +134,289 @@ describe("copy", () => {
       expect(locale.overview.decisionRail.scopeLoading).toBeTruthy();
       expect(locale.overview.decisionRail.scopeError).toBeTruthy();
       expect(locale.overview.decisionRail.noExchanges).toBeTruthy();
+    }
+  });
+});
+
+// --- pool panels (tasks 8o.1 and 8o.3) ------------------------------------------------
+
+const BALANCE = { total: "5000.00", available: "1284.52", observed_at: "2026-09-30T10:00:00+00:00", stale: false };
+
+function ranges(pnl30: string) {
+  return [
+    { range: "7D", pnl: "5.00", return: "0.0100000000", trade_count: 1 },
+    { range: "30D", pnl: pnl30, return: "0.0340000000", trade_count: 3 },
+    { range: "90D", pnl: "77.00", return: "0.0500000000", trade_count: 6 },
+    { range: "1Y", pnl: "88.00", return: "0.0600000000", trade_count: 7 },
+    { range: "All", pnl: "99.00", return: "0.0700000000", trade_count: 8 },
+  ];
+}
+
+/** A pool with closed trades: two curve days and one month. */
+function activeReport(exchange: string, venue: string, currency: string, pnl30 = "41.20") {
+  return {
+    ...emptyPerformance(exchange, venue, currency),
+    trade_count: 3,
+    total_pnl: "99.00",
+    max_drawdown: "-0.0200000000",
+    ranges: ranges(pnl30),
+    curve: [
+      { date: "2026-09-01", daily_return: "0.0100000000", index: "1.0100000000", drawdown: "0.0000000000" },
+      { date: "2026-09-02", daily_return: "0.0200000000", index: "1.0302000000", drawdown: "0.0000000000" },
+    ],
+    monthly: [{ year: 2026, month: 9, return: "0.0302000000" }],
+  };
+}
+
+function performanceCalls(fetchMock: ReturnType<typeof stubApi>): string[] {
+  return fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/performance/"));
+}
+
+describe("one panel per pool of the exchange", () => {
+  const POOLS = {
+    kind: "ok",
+    body: [
+      pool("bybit", "linear", "USDT", BALANCE),
+      pool("bybit", "inverse", "BTC", { ...BALANCE, total: "0.50000000", available: "0.12500000" }),
+      pool("binance", "usdt-m", "USDT", { ...BALANCE, available: "777.00" }),
+    ],
+  } as const;
+
+  it("test_renders_one_poolpanel_per_pool_never_merged_rule_7", async () => {
+    const fetchMock = stubApi(HEALTH, [], POOLS, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+      "bybit/inverse/BTC": { kind: "ok", body: activeReport("bybit", "inverse", "BTC") },
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const panels = await screen.findAllByTestId("pool-panel");
+    expect(panels).toHaveLength(2);
+    const [usdt, btc] = panels as [HTMLElement, HTMLElement];
+    expect(within(usdt).getByTestId("pool-eyebrow")).toHaveTextContent("bybit · linear · USDT");
+    expect(within(btc).getByTestId("pool-eyebrow")).toHaveTextContent("bybit · inverse · BTC");
+
+    await waitFor(() => expect(within(usdt).getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
+    await waitFor(() => expect(within(btc).getByTestId("ledger-lead")).toHaveTextContent("0.12500000"));
+    expect(within(usdt).getByTestId("ledger-line")).toHaveTextContent("USDT available");
+    expect(within(btc).getByTestId("ledger-line")).toHaveTextContent("BTC available");
+    expect(screen.getAllByTestId("ledger-line")).toHaveLength(2);
+    expect(screen.queryByText(/777/)).not.toBeInTheDocument();
+
+    expect(performanceCalls(fetchMock).sort()).toEqual([
+      expect.stringMatching(/\/performance\/pools\/bybit\/inverse\/BTC$/),
+      expect.stringMatching(/\/performance\/pools\/bybit\/linear\/USDT$/),
+    ]);
+  });
+
+  it("shows the other exchange's pool, and only its pool, after a tab switch", async () => {
+    stubApi(HEALTH, [], POOLS);
+    renderAt(<AppRoutes />, "/");
+    await screen.findAllByTestId("pool-panel");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+
+    await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(1));
+    expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("binance · usdt-m · USDT");
+    await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("777.00"));
+  });
+
+  it("requests no report and shows no panel until the exchange is known", async () => {
+    const fetchMock = stubApi(HEALTH, [], { kind: "pending" });
+    renderAt(<AppRoutes />, "/");
+    await screen.findByRole("complementary");
+
+    expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
+    expect(performanceCalls(fetchMock)).toEqual([]);
+  });
+
+  it("requests no report and shows no panel when the pools failed", async () => {
+    const fetchMock = stubApi(HEALTH, [], { kind: "status", status: 500, body: { detail: "boom" } });
+    renderAt(<AppRoutes />, "/");
+    const rail = await screen.findByRole("complementary");
+    await waitFor(() => expect(rail).toHaveTextContent(en.overview.decisionRail.scopeError));
+
+    expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
+    expect(performanceCalls(fetchMock)).toEqual([]);
+  });
+});
+
+describe("the empty states", () => {
+  it("test_empty_ledger_dry_run_shows_defined_empty_states_no_error", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] });
+    renderAt(<AppRoutes />, "/");
+
+    expect(await screen.findByText(en.overview.returnChart.empty)).toBeInTheDocument();
+    expect(screen.getByText(en.overview.monthlyGrid.empty)).toBeInTheDocument();
+    expect(screen.getByTestId("ledger-lead")).toHaveTextContent("1,284.52");
+    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("0.00");
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent("0.0%");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(en.overview.pool.error)).not.toBeInTheDocument();
+  });
+
+  it("reads a 404 as a pool without a report, never as an error", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "status", status: 404, body: { detail: "no such pool" } },
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const panel = await screen.findByTestId("pool-panel");
+    expect(await within(panel).findByText(en.overview.pool.noReport)).toBeInTheDocument();
+    expect(within(panel).getByTestId("pool-eyebrow")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says a panel is loading while its report is on the way", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "pending" },
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const panel = await screen.findByTestId("pool-panel");
+    expect(await within(panel).findByText(en.overview.pool.loading)).toBeInTheDocument();
+    expect(within(panel).getByTestId("pool-eyebrow")).toBeInTheDocument();
+    expect(within(panel).queryByTestId("ledger-line")).not.toBeInTheDocument();
+    expect(screen.queryByText(en.overview.returnChart.empty)).not.toBeInTheDocument();
+  });
+});
+
+describe("one pool failing", () => {
+  const TWO = {
+    kind: "ok",
+    body: [pool("bybit", "linear", "USDT", BALANCE), pool("bybit", "inverse", "BTC", BALANCE)],
+  } as const;
+
+  it.each([
+    ["a 500", { kind: "status", status: 500, body: { detail: "boom" } }],
+    ["a network failure", { kind: "network-error" }],
+    ["a malformed body", { kind: "ok", body: { items: [] } }],
+  ] as const)("blanks only its own panel, with %s", async (_label, failure) => {
+    stubApi(HEALTH, [], TWO, {
+      "bybit/linear/USDT": failure,
+      "bybit/inverse/BTC": { kind: "ok", body: activeReport("bybit", "inverse", "BTC") },
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const [failed, healthy] = (await screen.findAllByTestId("pool-panel")) as [HTMLElement, HTMLElement];
+    expect(await within(failed).findByRole("alert")).toHaveTextContent(en.overview.pool.error);
+    expect(within(failed).queryByText(en.overview.returnChart.empty)).not.toBeInTheDocument();
+    expect(await within(healthy).findByTestId("ledger-line")).toBeInTheDocument();
+    expect(within(healthy).queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+  });
+});
+
+describe("the available balance", () => {
+  it("comes from the pools row's balance.available, not its total or allocatable", async () => {
+    stubApi(HEALTH, [], {
+      kind: "ok",
+      body: [
+        {
+          ...pool("bybit", "linear", "USDT", { ...BALANCE, total: "9999.00", available: "1284.52" }),
+          allocatable: "555.55",
+          reserved: "729.00",
+        },
+      ],
+    });
+    renderAt(<AppRoutes />, "/");
+
+    await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
+    expect(screen.getByTestId("ledger-lead")).not.toHaveTextContent("9,999.00");
+    expect(screen.getByTestId("ledger-lead")).not.toHaveTextContent("555.55");
+  });
+
+  it("is an em dash, not zero, for a pool nothing has synced", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear")] });
+    renderAt(<AppRoutes />, "/");
+
+    await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("—"));
+    expect(screen.queryByTestId("balance-stale")).not.toBeInTheDocument();
+  });
+
+  it("is flagged when the snapshot is stale, in a neutral colour", async () => {
+    stubApi(HEALTH, [], {
+      kind: "ok",
+      body: [pool("bybit", "linear", "USDT", { ...BALANCE, stale: true })],
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const note = await screen.findByTestId("balance-stale");
+    expect(note).toHaveTextContent("Balance is out of date: last synced");
+    expect(note).toHaveTextContent("2026");
+    expect(note.className).not.toContain("text-decision");
+    await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
+  });
+
+  it("carries no stale flag for a fresh snapshot", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] });
+    renderAt(<AppRoutes />, "/");
+
+    await screen.findByTestId("ledger-lead");
+    expect(screen.queryByTestId("balance-stale")).not.toBeInTheDocument();
+  });
+});
+
+describe("the range selector", () => {
+  const TWO = {
+    kind: "ok",
+    body: [pool("bybit", "linear", "USDT", BALANCE), pool("bybit", "inverse", "BTC", BALANCE)],
+  } as const;
+
+  it("only picks an entry of ranges[]: no second report request", async () => {
+    const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+    });
+    renderAt(<AppRoutes />, "/");
+    await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+41.20"));
+
+    fireEvent.click(screen.getByRole("button", { name: "7D" }));
+
+    await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent("+1.0%");
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+99.00"));
+    expect(performanceCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it("leaves the chart on the whole series", async () => {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+    });
+    renderAt(<AppRoutes />, "/");
+    const chart = await screen.findByRole("img");
+    const before = chart.innerHTML;
+
+    fireEvent.click(screen.getByRole("button", { name: "7D" }));
+
+    expect(screen.getByRole("img").innerHTML).toBe(before);
+  });
+
+  it("belongs to its own panel: pressing 7D on one leaves the other on 30D", async () => {
+    stubApi(HEALTH, [], TWO, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+      "bybit/inverse/BTC": { kind: "ok", body: activeReport("bybit", "inverse", "BTC", "0.41200000") },
+    });
+    renderAt(<AppRoutes />, "/");
+    const [first, second] = (await screen.findAllByTestId("pool-panel")) as [HTMLElement, HTMLElement];
+    await waitFor(() => expect(within(second).getByTestId("ledger-pnl")).toBeInTheDocument());
+    await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toBeInTheDocument());
+
+    fireEvent.click(within(first).getByRole("button", { name: "7D" }));
+
+    await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
+    expect(within(second).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+0.41200000");
+  });
+});
+
+describe("copy", () => {
+  it("has the pool panel's messages in English and Spanish", () => {
+    for (const locale of [en, es]) {
+      expect(locale.overview.pool.loading).toBeTruthy();
+      expect(locale.overview.pool.error).toBeTruthy();
+      expect(locale.overview.pool.noReport).toBeTruthy();
+      expect(locale.overview.pool.stale).toContain("{{time}}");
     }
   });
 });

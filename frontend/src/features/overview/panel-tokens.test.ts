@@ -1,11 +1,19 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const COMPONENTS = ["MonthlyGrid", "MonthlySummary", "LedgerLine", "RangeSelector", "PoolEyebrow"];
+const COMPONENTS = [
+  "MonthlyGrid",
+  "MonthlySummary",
+  "LedgerLine",
+  "RangeSelector",
+  "PoolEyebrow",
+  "PoolPanel",
+  "OverviewPage",
+];
 
 /** Amber is reserved for "needs your decision" (design, Colour roles); none of these is one. */
 const DECISION_UTILITY = /\b(?:bg|text|border|ring|outline|fill|stroke|divide)-decision\b/;
@@ -28,5 +36,34 @@ describe("the ledger and grid components", () => {
       const literal = /<[A-Za-z][^<>]*>\s*([A-Za-z][^<>{}]*)\s*</.exec(code);
       expect(literal?.[1], name).toBeUndefined();
     }
+  });
+});
+
+const SRC = join(DIR, "..", "..");
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+/**
+ * The design allows amber in four places: the mode badge, the pending-bookings
+ * count, a read-only key and a keyless exchange. Two of them exist so far; the
+ * other two join this list with Settings and the exchange tabs (PR 13).
+ */
+const AMBER_ALLOWED = ["features/overview/DecisionRail.tsx", "shared/layout/DryRunBadge.tsx"];
+
+describe("the amber decision colour", () => {
+  it("is used only by the components the design allows", () => {
+    const files = sourceFiles(SRC);
+    expect(files.length).toBeGreaterThan(20);
+    const users = files
+      .filter((file) => DECISION_UTILITY.test(readFileSync(file, "utf8")))
+      .map((file) => relative(SRC, file).replaceAll("\\", "/"))
+      .sort();
+    expect(users).toEqual(AMBER_ALLOWED);
   });
 });
