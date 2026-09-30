@@ -1,7 +1,9 @@
 """Integration test: main.py's lifespan wires CapitalPoolRepository +
 assert_pool_lock_keys_distinct together at startup (tasks.md 3.15 — invariant
 1), refuses to start without a webhook secret (invariant 3), and refuses to
-start without an admin API token (invariant 4). Placed here because it needs
+start without an admin API token (invariant 4). Invariant 5 and the panel
+directory check are exercised in ``tests/shared/test_startup_invariants.py``.
+Placed here because it needs
 the seeded-pools ``pg_engine`` fixture.
 """
 
@@ -18,6 +20,7 @@ pytestmark = pytest.mark.integration
 
 SECRET = "test-webhook-secret"
 ADMIN_TOKEN = "test-admin-token"
+MASTER_KEY = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU="  # 32 bytes, invariant 5
 
 
 @pytest.fixture
@@ -25,17 +28,23 @@ def _configure_startup_secrets() -> Iterator[None]:
     """Set explicitly rather than inherited from the developer's .env, so
     invariants 3 and 4 are exercised by the test and not by the machine.
 
-    Both, because the lifespan asserts both: a test that satisfied only one of
-    them would report the OTHER invariant's abort as a failure of the wiring
-    it was actually written to check."""
+    All of them, because the lifespan asserts all: a test that satisfied only
+    some would report the OTHER invariant's abort as a failure of the wiring
+    it was actually written to check (invariant 5 needs a usable master key)."""
     settings = get_settings()
     previous_secret = settings.webhook_secret
     previous_token = settings.admin_api_token
+    previous_master_key = settings.master_encryption_key
+    previous_panel_dir = settings.panel_dist_dir
     settings.webhook_secret = SECRET
     settings.admin_api_token = ADMIN_TOKEN
+    settings.master_encryption_key = MASTER_KEY
+    settings.panel_dist_dir = ""
     yield
     settings.webhook_secret = previous_secret
     settings.admin_api_token = previous_token
+    settings.master_encryption_key = previous_master_key
+    settings.panel_dist_dir = previous_panel_dir
 
 
 async def test_lifespan_passes_against_real_seeded_pools(
