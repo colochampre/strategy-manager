@@ -282,6 +282,13 @@ resume work.
 - The owner runs every production command (`ssh root@159.195.148.136`). The
   assistant has no SSH access; it hands over exact commands or scripts to pipe
   through `ssh ... "bash -s" < file`.
+- On the VPS the checkout `/opt/strategy-manager/app` and both services
+  (`strategy-api`, `strategy-worker`, working directory `backend/`) belong to
+  the `strategy` user. Git runs as that user; only `systemctl` runs as root:
+  `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`, then
+  `systemctl restart strategy-api strategy-worker`. As root, git refuses with
+  "detected dubious ownership". Never add `safe.directory` to root's global
+  config: root would then run hooks and config that `strategy` can write.
 - After every merge and deploy, update the delivery log in the active change's
   `tasks.md`.
 
