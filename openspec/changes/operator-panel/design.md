@@ -1049,6 +1049,8 @@ reconstructs their outcome.
 | 17 | `ORDER_NEVER_REACHED_EXCHANGE` | `settle_execution.py::_release_never_placed` (an open, and a close linked to a signal) | execution.settle | 5c (unit F) |
 | 18 | `REVERSE_NEW_SIDE_UNHOLDABLE` (added by decision 26; the map recorded none, see "Map corrections") | `process_signal.py::_note_unexecuted_tail` | signal.process | 5b |
 | 21 | `NO_POSITION_TO_CLOSE` (decision 27: a releasing CLOSE or REVERSE with no prior reservation; a REVERSE's detail says the new side was not opened) | `process_signal.py::_handle_releases`, the `prior_reservation_id is None` early return | signal.process | 5b |
+| 22 | `EXCHANGE_KEY_READ_ONLY` (added by unit 6c, decision 18: a live open whose exchange's active key cannot trade) | `process_signal.py::_refuse_read_only_exchange` | signal.process or continuation | 8a-4 |
+| 23 | `EXCHANGE_HAS_NO_KEY` (added by unit 6c, decision 20: a live open on an exchange with no active key) | `process_signal.py::_refuse_read_only_exchange` | signal.process or continuation | 8a-4 |
 | — | `SIGNAL_SUPERSEDED` | `open_after_close.py::poll`, a newer signal for the same strategy/symbol arrived | signal.open_after_close | 5c (unit G) |
 | — | `AWAITED_CLOSE_FAILED` | `open_after_close.py::poll`, an awaited close is FAILED | signal.open_after_close | 5c (unit G) |
 | — | `CONTINUATION_TIMED_OUT` | `open_after_close.py::poll`, past `max_signal_age_seconds` (branch 3 after the closes filled, or branch 4) or `settle_timeout_seconds` | signal.open_after_close | 5c (unit G) |
