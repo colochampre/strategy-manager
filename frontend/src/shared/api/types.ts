@@ -88,3 +88,31 @@ export interface CurvePoint {
   index: string;
   drawdown: string;
 }
+
+/** One UTC month of `monthly` (`MonthBody`); `return` is a ratio string (0.031 is 3.1%). */
+export interface MonthReturn {
+  year: number;
+  month: number;
+  return: string;
+}
+
+/**
+ * One entry of `ranges` (`RangeBody`). `range` is one of `7D`, `30D`, `90D`,
+ * `1Y`, `All`; `pnl` is money in the pool's settlement currency and `return`
+ * a ratio, which the server never writes as null here.
+ */
+export interface RangeSummary {
+  range: string;
+  pnl: string;
+  return: string;
+  trade_count: number;
+}
+
+/** `excluded` (`ExcludedBody`): what the figures leave out. */
+export interface Excluded {
+  open_trade_count: number;
+  rehearsal_fill_count: number;
+  no_capital_at_open: number;
+  unconverted_fee: number;
+  unresolved_allocation_count: number;
+}

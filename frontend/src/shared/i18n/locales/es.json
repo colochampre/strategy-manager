@@ -37,6 +37,38 @@
       "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
       "empty": "Todavía no hay operaciones cerradas",
       "unreadable": "No se pudo leer la curva de rendimiento."
+    },
+    "ledger": {
+      "available": "{{currency}} disponibles",
+      "pnl": "PnL {{range}}",
+      "return": "rendimiento {{range}}",
+      "deepest": "caída máxima",
+      "unreadable": "No se pudieron leer las cifras."
+    },
+    "range": {
+      "label": "Rango",
+      "7D": "7D",
+      "30D": "30D",
+      "90D": "90D",
+      "1Y": "1A",
+      "All": "Todo"
+    },
+    "monthlyGrid": {
+      "title": "Mes a mes",
+      "year": "Año",
+      "empty": "Todavía no hay meses con operaciones cerradas",
+      "noTrades": "sin operaciones cerradas",
+      "unreadable": "No se pudieron leer los rendimientos mensuales."
+    },
+    "monthlySummary": {
+      "positive_one": "{{positive}} de {{count}} mes positivo",
+      "positive_other": "{{positive}} de {{count}} meses positivos",
+      "best": "mejor {{value}}",
+      "worst": "peor {{value}}",
+      "open_one": "{{count}} operación abierta fuera de la curva",
+      "open_other": "{{count}} operaciones abiertas fuera de la curva",
+      "noCapital_one": "{{count}} operación sin capital al abrir",
+      "noCapital_other": "{{count}} operaciones sin capital al abrir"
     }
   },
   "strategies": {
