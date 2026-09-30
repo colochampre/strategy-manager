@@ -160,7 +160,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                           key={month}
                           data-testid={`month-${year}-${month}`}
                           aria-label={`${label}: ${t("overview.monthlyGrid.noTrades")}`}
-                          className="h-10 rounded-[3px] border border-dashed border-rule"
+                          className="h-8 rounded-[3px] border border-dashed border-rule"
                         />
                       );
                     }
@@ -171,7 +171,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                         data-testid={`month-${year}-${month}`}
                         aria-label={`${label}: ${percentText(value, locale)}`}
                         className={cn(
-                          "h-10 rounded-[3px] text-center",
+                          "h-8 rounded-[3px] text-center",
                           (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
                           band >= FIRST_CONTRAST_BAND ? "font-semibold text-ground" : "text-ink",
                         )}

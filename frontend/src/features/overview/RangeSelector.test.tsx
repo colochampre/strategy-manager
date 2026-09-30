@@ -35,6 +35,16 @@ describe("RangeSelector", () => {
     expect(screen.getByRole("button", { name: "7D" })).not.toHaveClass("bg-panel-2");
   });
 
+  it("wraps and keeps its width instead of clipping a button when its row is tight", () => {
+    render(<RangeSelector onChange={() => undefined} />);
+    const group = screen.getByRole("group", { name: "Range" });
+    expect(group).toHaveClass("flex-wrap", "shrink-0", "max-w-full");
+    expect(group.className).not.toMatch(/whitespace-nowrap|flex-nowrap/);
+    for (const button of within(group).getAllByRole("button")) {
+      expect(button).toHaveClass("min-h-11", "min-w-11");
+    }
+  });
+
   it("reports the clicked range by its server name and moves the pressed state to it", () => {
     const onChange = vi.fn();
     render(<RangeSelector onChange={onChange} />);

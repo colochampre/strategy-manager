@@ -27,7 +27,7 @@ export function RangeSelector({ value, onChange }: RangeSelectorProps) {
     <div
       role="group"
       aria-label={t("overview.range.label")}
-      className="flex overflow-hidden rounded-md border border-rule"
+      className="flex max-w-full shrink-0 flex-wrap overflow-hidden rounded-md border border-rule"
     >
       {RANGES.map((range) => (
         <button

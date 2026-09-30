@@ -7,10 +7,20 @@ import { useIsWide } from "@/shared/layout/useIsWide";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
 /**
+ * From Tailwind's `xl`, the rail sits beside the panel. Below it the panel would
+ * keep under 700 px once the rail takes its 15 rem floor, less than the 13
+ * columns of the month grid need, so the rail goes in-flow there instead.
+ */
+const RAIL_BESIDE_QUERY = "(min-width: 1280px)";
+
+/**
  * The Overview container: one `PoolPanel` per pool of the selected exchange,
  * never merged (rule 7), and the decision rail, placed once.
  *
- * Wide, the rail is the right-hand column. Narrow, it is an in-flow block
+ * From `xl` (1280 px) the rail is the column beside the panels, which are
+ * bounded to about 800 px so the chart keeps its height; the rail is fluid,
+ * 15 rem to 22.5 rem, and sits next to them rather than at the far edge.
+ * Narrower, it is an in-flow block
  * between the first panel's chart and its month grid (Mobile.dc.html), or
  * after the page when there is no panel to sit in. It is rendered in exactly
  * one place either way.
@@ -24,7 +34,7 @@ export function OverviewPage() {
   const { t } = useTranslation();
   const scope = useExchangeScope();
   const pools = usePools();
-  const wide = useIsWide();
+  const wide = useIsWide(RAIL_BESIDE_QUERY);
 
   const panels =
     scope.status === "ready" && scope.exchange !== null && pools.data !== undefined
@@ -36,8 +46,8 @@ export function OverviewPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("overview.title")}</h1>
-      <div className="flex flex-col gap-7 lg:grid lg:grid-cols-[minmax(0,1fr)_22.5rem] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-10">
+      <div data-testid="overview-layout" className="flex flex-col gap-7 xl:flex-row xl:items-start">
+        <div className="flex min-w-0 flex-col gap-10 xl:max-w-[50rem] xl:flex-1">
           {panels.map((pool, index) => (
             <PoolPanel
               key={`${pool.exchange}/${pool.venue}/${pool.settlement_currency}`}
@@ -46,7 +56,11 @@ export function OverviewPage() {
             />
           ))}
         </div>
-        {!railInFirstPanel && rail}
+        {!railInFirstPanel && (
+          <div data-testid="rail-slot" className="min-w-0 xl:w-[clamp(15rem,25%,22.5rem)] xl:shrink-0">
+            {rail}
+          </div>
+        )}
       </div>
     </div>
   );

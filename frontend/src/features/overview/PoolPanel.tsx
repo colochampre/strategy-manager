@@ -46,7 +46,7 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:justify-between">
         {summary === undefined ? (
           <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
             {t("overview.ledger.unreadable")}
@@ -124,7 +124,7 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
     <section
       data-testid="pool-panel"
       aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
-      className="flex min-w-0 flex-col gap-4"
+      className="flex w-full min-w-0 max-w-[50rem] flex-col gap-4"
     >
       <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
       {staleBalance !== null && (

@@ -465,6 +465,66 @@ function finalReturn(scope: HTMLElement): number {
   return Number(within(scope).getByTestId("return-curve").getAttribute("data-final-return"));
 }
 
+/**
+ * jsdom has no layout, so the sizing of decision 35 is pinned as a class contract.
+ * The budget it is designed for (1440x900, 1920x1080) is in tasks.md, 8o review fixes.
+ */
+describe("the overview sizing (decision 35)", () => {
+  async function renderOne() {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+    });
+    renderAt(<AppRoutes />, "/");
+    return screen.findByTestId("pool-panel");
+  }
+
+  it("bounds the pool panel to about 800 px so the chart stays about 330 px tall", async () => {
+    const panel = await renderOne();
+    expect(panel).toHaveClass("max-w-[50rem]");
+    // The column that holds the panels is bounded too, or the rail would float at the far edge.
+    const layout = screen.getByTestId("overview-layout");
+    expect(layout.firstElementChild).toHaveClass("xl:max-w-[50rem]", "xl:flex-1");
+  });
+
+  it("lets the rail shrink with the window instead of holding 22.5 rem", async () => {
+    await renderOne();
+    const slot = screen.getByTestId("rail-slot");
+    expect(slot).toHaveClass("xl:w-[clamp(15rem,25%,22.5rem)]", "xl:shrink-0");
+    const layout = screen.getByTestId("overview-layout");
+    expect(layout.className).not.toMatch(/grid-cols|22.5rem/);
+    // Side by side, packed from the left: the rail sits next to the panel.
+    expect(layout).toHaveClass("xl:flex-row", "xl:items-start");
+    expect(layout.className).not.toMatch(/justify-between/);
+  });
+
+  it("asks for the side rail from 1280 px, where the panel still has room for the grid", async () => {
+    const queries: string[] = [];
+    vi.stubGlobal("matchMedia", (query: string) => {
+      queries.push(query);
+      return { matches: true, media: query, addEventListener: () => undefined, removeEventListener: () => undefined };
+    });
+    await renderOne();
+    expect(queries).toContain("(min-width: 1280px)");
+    expect(queries).not.toContain("(min-width: 1024px)");
+  });
+
+  it("keeps the range selector whole: it wraps and never shrinks, and so does its row", async () => {
+    const panel = await renderOne();
+    const group = await within(panel).findByRole("group", { name: "Range" });
+    expect(group).toHaveClass("flex-wrap", "shrink-0");
+    expect(group.className).not.toMatch(/whitespace-nowrap|flex-nowrap/);
+    const row = within(panel).getByTestId("ledger-line").parentElement as HTMLElement;
+    // Below md the row is a column; from md it is a row that wraps the selector under the ledger line.
+    expect(row).toHaveClass("md:flex-row", "md:flex-wrap");
+    expect(within(group).getAllByRole("button")).toHaveLength(5);
+  });
+
+  it("scrolls only inside main: the page itself grows no scrollbar of its own", async () => {
+    await renderOne();
+    expect(screen.getByRole("main")).toHaveClass("overflow-auto");
+  });
+});
+
 describe("the month grid keeps the whole history behind its three years", () => {
   it("summarises every month, and shows three year rows with the rest behind a toggle", async () => {
     const report = {

@@ -277,6 +277,13 @@ describe("the earlier years toggle (decision 34)", () => {
 });
 
 describe("the grid at narrow widths", () => {
+  it("keeps its rows compact so three years fit under the chart", () => {
+    render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000"), month(2026, 2, "0.0000000000")]} />);
+    expect(screen.getByTestId("month-2026-1")).toHaveClass("h-8");
+    expect(screen.getByTestId("month-2026-2")).toHaveClass("h-8");
+    expect(screen.getByTestId("month-2026-3")).toHaveClass("h-8");
+  });
+
   it("scrolls sideways inside a wrapper instead of squeezing its figures together", () => {
     render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000")]} />);
     const table = screen.getByRole("table");
