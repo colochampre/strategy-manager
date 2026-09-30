@@ -83,7 +83,7 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-30, VPS time): `main` at `65ab3bc`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-09-30, VPS time): `main` at `7b78b9a`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -117,7 +117,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 9 | #33 | `baf4b50` | — | 2026-09-30 | Unit 4b (tasks 4b.1-4b.7): `mount_panel`, `Settings.panel_dist_dir`, the `index.html` refusal (invariant 5 was dropped, see the correction below). Risk **medium**. No migration. Pulled as `strategy`, restarted both; the API and the worker came up active. `PANEL_DIST_DIR` is left **UNSET**, so the mount stays off until the owner completes the "PR 9 deploy prerequisites" (DuckDNS, `cloudflared`, Cloudflare Access, a frontend build). CORS (7f.1) is not removed by this PR. |
 | PR 10a | #34 | `2c1374c` | — | 2026-09-30 | Unit 7t-theme (7t.1-7t.3): direction-A `@theme`, class renames, self-hosted fonts, `recharts` removed. Risk **low**. No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The owner reviewed it locally and approved the primary-button contrast (`text-ground` on `bg-gain`). They also reported that Bookings scrolls vertically with only the token-gate card; the cause is pre-existing (`TokenGate`'s `min-h-full` inside the padded `<main>`), and the fix is carried into PR 10b. |
 | PR 10b | #35 | `65ab3bc` | — | 2026-09-30 | Unit 7-router (7r.1-7r.3): `react-router` 7.18.4, `AppRoutes`, `AppShell`/`TopBar`/`SideNav`/`BottomNav`, `DryRunBadge` on `GET /health` (always visible, decision 32), the vertical-overflow fix, and the Vite `/health` proxy. Risk **low** (frontend only). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The owner reviewed it locally: no page scroll at wide or narrow width, deep links survive a refresh, and the badge shows "Mode unknown" with the backend stopped. |
-| PR 10c | — | `058411f` | — | 2026-09-30 | Unit 7s-scope (7s.1-7s.3): exchange store (`sm.exchange`), `ExchangeTabs` on the scoped routes, the decision rail filtered by exchange. Risk **low** (frontend only). Committed on `feat/operator-panel-exchange-scope`, **not pushed**, awaiting the owner's review. No migration. Deploy: pull as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
+| PR 10c | #36 | `7b78b9a` | — | 2026-09-30 | Unit 7s-scope (7s.1-7s.3): the exchange store (`sm.exchange`), `ExchangeTabs` on the scoped routes, and the decision rail filtered by exchange. Risk **low** (frontend only). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The owner reviewed it locally (tabs, persistence, unscoped routes, narrow row, the pools-failure message). The tab key marks were deferred to PR 13 (10c.4), and the owner polish is 7p.1-7p.2. **PR 10 is complete.** |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
