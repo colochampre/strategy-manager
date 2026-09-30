@@ -240,6 +240,27 @@ class SqlAlchemyLedgerRepository:
         )
         return frozenset(row[0] for row in result.all())
 
+    async def distinct_symbols_for_pool(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> frozenset[str]:
+        """Every RAW symbol any strategy has ever recorded a fill under in this
+        pool: ``distinct_symbols_for_strategy`` without the strategy filter, for
+        the pool-wide exposure check that guards deleting an exchange's key
+        (owner decision 22). Normalizing into markets is the caller's job.
+
+        Same ``ix_ledger_pool_symbol`` prefix as every other query here.
+        """
+        result = await self._session.execute(
+            select(LedgerEntryRow.symbol)
+            .where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+            )
+            .distinct()
+        )
+        return frozenset(row[0] for row in result.all())
+
     async def recorded_fill_ids(
         self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:

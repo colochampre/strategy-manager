@@ -1,4 +1,5 @@
-"""``PUT /credentials/{exchange}`` and ``GET /credentials`` (design 8a § C, § H).
+"""``PUT`` and ``DELETE /credentials/{exchange}`` and ``GET /credentials`` (design 8a § C,
+§ H; design § 4b).
 
 **The API never decrypts (decision 5).** ``PUT`` builds ``SaveCredential`` over
 ``CredentialWriterPort``, which has no ``load``, so a decrypt from this router
@@ -20,6 +21,12 @@ whose problem it is:
 - 409: another save for the exchange won the race. Look before saving again.
 - 404: no inspector serves the exchange (Pionex has none, design § J Q3).
 
+``DELETE`` answers 404 for an exchange outside ``KNOWN_FUTURES_POOLS`` (owner
+decision 31, the same as the PUT) before anything is locked or read, 404 when the
+exchange has no active credential, 409 ``EXCHANGE_NOT_FLAT`` while the pool holds
+exposure, and 200 with the exchange's ``EMPTY`` entry on success. It never needs
+the master key, so an unusable one does not turn it into a 503.
+
 The body itself is validated by pydantic before any of this runs, and a body
 that fails is answered by ``redacted_validation_handler``, which never echoes a
 submitted value. The confirmation times are the server's: ``extra="forbid"``
@@ -36,6 +43,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, Secret, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.accounts.application.delete_credential import (
+    DeleteCredential,
+    ExchangeNotFlat,
+    ExchangeNotServed,
+    NoActiveCredential,
+)
 from strategy_manager.accounts.application.save_credential import (
     SaveCredential,
     Saved,
@@ -51,8 +64,12 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 from strategy_manager.accounts.infrastructure.credential_listing import (
     SqlAlchemyCredentialListing,
 )
+from strategy_manager.accounts.infrastructure.credential_revoker import (
+    SqlAlchemyCredentialRevoker,
+)
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import KeyInspectorRegistry
+from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -60,6 +77,7 @@ from strategy_manager.shared.infrastructure.admin_auth import require_admin_toke
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
 from strategy_manager.shared.infrastructure.wire import Instant
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +141,26 @@ def get_save_credential(session: SessionDep) -> SaveCredential:
 
 
 SaveCredentialDep = Annotated[SaveCredential, Depends(get_save_credential)]
+
+
+def get_delete_credential(session: SessionDep) -> DeleteCredential:
+    """The real wiring: every part over the request's ONE session, so the
+    deactivation, the pool write and the commit are one transaction, and the pool
+    lock and the row lock live and die with it.
+
+    No cipher: deleting a key never opens it, so an unusable master key is not a
+    reason to refuse (unlike ``get_save_credential``).
+    """
+    return DeleteCredential(
+        SqlAlchemyCredentialRevoker(session, SystemClock()),
+        PoolLockAdapter(session),
+        PoolExposureAdapter.over(session),
+        SqlAlchemyCapitalPoolWriter(session),
+        session,
+    )
+
+
+DeleteCredentialDep = Annotated[DeleteCredential, Depends(get_delete_credential)]
 
 
 class CredentialBody(BaseModel):
@@ -234,6 +272,24 @@ class CredentialEntry(BaseModel):
         )
 
 
+class EnabledStrategyBody(BaseModel):
+    id: str
+    name: str
+
+
+class NotFlatBody(BaseModel):
+    """The 409 body: what blocks the deletion, each kind on its own list so the
+    panel can say what is missing. Ids and names only; never a key."""
+
+    outcome: Literal["EXCHANGE_NOT_FLAT"] = "EXCHANGE_NOT_FLAT"
+    detail: str
+    enabled_strategies: list[EnabledStrategyBody]
+    symbols: list[str]
+    allocations: list[str]
+    live_reservations: list[str]
+    in_flight_attempts: list[str]
+
+
 def _refusal(result: SaveRefused) -> JSONResponse:
     body = RefusalBody(
         outcome=result.outcome,
@@ -290,3 +346,42 @@ async def put_credential(
 async def list_credentials(session: SessionDep) -> list[CredentialEntry]:
     overviews = await SqlAlchemyCredentialListing(session).list_overview()
     return [CredentialEntry.of(overview) for overview in overviews]
+
+
+@router.delete(
+    "/{exchange}",
+    response_model=CredentialEntry,
+    responses={
+        404: {"description": "The exchange is not served, or has no active credential."},
+        409: {"model": NotFlatBody},
+    },
+)
+async def delete_credential(
+    exchange: str, use_case: DeleteCredentialDep
+) -> CredentialEntry | JSONResponse:
+    try:
+        await use_case.execute(exchange)
+    except ExchangeNotServed:
+        # Owner decision 31: no lock, no read, no write happened.
+        raise HTTPException(
+            status_code=404, detail=f"exchange {exchange!r} is not served by this panel"
+        ) from None
+    except NoActiveCredential:
+        raise HTTPException(
+            status_code=404, detail=f"no active credential for exchange {exchange!r}"
+        ) from None
+    except ExchangeNotFlat as refusal:
+        exposure = refusal.exposure
+        body = NotFlatBody(
+            detail=f"exchange {exchange!r} is not flat; see what is listed",
+            enabled_strategies=[
+                EnabledStrategyBody(id=str(s.id), name=s.name) for s in exposure.enabled_strategies
+            ],
+            symbols=sorted(exposure.symbols),
+            allocations=[str(a) for a in exposure.allocations],
+            live_reservations=[str(r) for r in exposure.live_reservations],
+            in_flight_attempts=[str(a) for a in exposure.in_flight_attempts],
+        )
+        return JSONResponse(status_code=409, content=body.model_dump(mode="json"))
+    # The same shape an exchange that was never keyed already answers.
+    return CredentialEntry.of(CredentialOverview(exchange=exchange, key=None))

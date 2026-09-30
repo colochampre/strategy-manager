@@ -186,6 +186,25 @@ class SqlAlchemyReservationRepository:
         )
         return result.first() is not None
 
+    async def live_for_pool(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> list[UUID]:
+        """Every reservation still holding capital in this pool, whichever
+        strategy owns it: ``live_for_strategy`` without the strategy filter,
+        with the same ``terminal_at IS NULL`` reading and for the same reason.
+        Used by the pool-wide exposure check that guards deleting an exchange's
+        key (owner decision 22)."""
+        result = await self._session.execute(
+            select(ReservationRow.id).where(
+                ReservationRow.exchange == exchange,
+                ReservationRow.venue == venue,
+                ReservationRow.settlement_currency == settlement_currency,
+                ReservationRow.status.in_(_ACTIVE_STATUSES),
+                ReservationRow.terminal_at.is_(None),
+            )
+        )
+        return [row[0] for row in result.all()]
+
     async def live_for_strategy(
         self, exchange: str, venue: str, settlement_currency: str, strategy_id: UUID
     ) -> list[UUID]:
