@@ -40,6 +40,7 @@
       "caption": "Días UTC · depósitos y retiros excluidos",
       "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
       "empty": "Todavía no hay operaciones cerradas",
+      "emptyRange": "Sin operaciones cerradas en este rango",
       "unreadable": "No se pudo leer la curva de rendimiento."
     },
     "ledger": {

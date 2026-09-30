@@ -34,11 +34,13 @@ interface ReportTopProps {
   pool: Pool;
   report: PoolPerformance;
   range: RangeName;
+  /** When the report was read (ms): the "now" the chart's range windows end on. */
+  asOf: number;
   onRangeChange: (range: RangeName) => void;
 }
 
-/** The ledger line with its range selector, then the chart (which always shows the whole series). */
-function ReportTop({ pool, report, range, onRangeChange }: ReportTopProps) {
+/** The ledger line with its range selector, then the chart: both follow the same range. */
+function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps) {
   const { t } = useTranslation();
   const summary = report.ranges.find((entry) => entry.range === range);
 
@@ -61,7 +63,7 @@ function ReportTop({ pool, report, range, onRangeChange }: ReportTopProps) {
         )}
         <RangeSelector value={range} onChange={onRangeChange} />
       </div>
-      <ReturnChart curve={report.curve} />
+      <ReturnChart curve={report.curve} range={range} asOf={asOf} />
     </div>
   );
 }
@@ -70,7 +72,8 @@ function ReportTop({ pool, report, range, onRangeChange }: ReportTopProps) {
  * One capital pool, in its own settlement currency and never merged with
  * another (rule 7). It fetches its own report once, and every range arrives
  * in that one body, so the selector only chooses which entry the ledger line
- * shows. A failing pool shows its own error and leaves its neighbours alone.
+ * shows and which window of the curve the chart draws. The panel owns the
+ * range, so the two always agree. A failing pool shows its own error and leaves its neighbours alone.
  *
  * The available balance is the pools row's `balance.available`: the
  * performance body does not carry it.
@@ -106,7 +109,15 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
       </p>
     );
   } else {
-    top = <ReportTop pool={pool} report={report} range={range} onRangeChange={setRange} />;
+    top = (
+      <ReportTop
+        pool={pool}
+        report={report}
+        range={range}
+        asOf={performance.dataUpdatedAt}
+        onRangeChange={setRange}
+      />
+    );
   }
 
   return (

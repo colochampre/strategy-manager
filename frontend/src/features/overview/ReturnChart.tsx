@@ -1,18 +1,27 @@
 import { useTranslation } from "react-i18next";
 
+import type { RangeName } from "@/features/overview/RangeSelector";
 import type { CurvePoint } from "@/shared/api/types";
 import {
+  dayTicks,
   drawdownPath,
   linePath,
   monthTicks,
+  sliceAndRebase,
   tickValues,
   timeScale,
+  utcDate,
   waterlineScale,
+  windowStartDate,
 } from "@/shared/charts/scale";
+import type { IndexDay } from "@/shared/charts/scale";
 
 interface ReturnChartProps {
-  /** The pool's whole curve, oldest day first: the chart always shows All. */
+  /** The pool's whole curve, oldest day first; the range picks the window drawn. */
   curve: readonly CurvePoint[];
+  range: RangeName;
+  /** The instant the report was read, in ms: the "now" a range window ends on. */
+  asOf: number;
 }
 
 /**
@@ -32,34 +41,46 @@ const MONTH_LABEL_Y = 322;
 /** Month labels closer than this many units to the previous one are dropped. */
 const MIN_LABEL_GAP = 28;
 
+type TickKind = "day" | "week" | "month";
+
+interface RangeWindow {
+  /** The window length in days, as the server counts it; `null` is the whole curve. */
+  days: number | null;
+  ticks: TickKind;
+}
+
+/** `days` is the server's `_RANGE_DAYS`; the ticks are chosen so each window reads at a glance. */
+const RANGE_WINDOWS: Readonly<Record<RangeName, RangeWindow>> = {
+  "7D": { days: 7, ticks: "day" },
+  "30D": { days: 30, ticks: "week" },
+  "90D": { days: 90, ticks: "month" },
+  "1Y": { days: 365, ticks: "month" },
+  All: { days: null, ticks: "month" },
+};
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DECIMAL = /^-?\d+(\.\d+)?$/;
 
-interface Day {
-  date: string;
-  /** Cumulative return, E - 1. */
-  cumulative: number;
-  /** Drawdown from the previous peak, at most 0. */
-  drawdown: number;
-}
-
 /** Parses the server's strings for geometry only; `null` when any value is unreadable. */
-function readCurve(curve: readonly CurvePoint[]): Day[] | null {
-  const days: Day[] = [];
+function readCurve(curve: readonly CurvePoint[]): IndexDay[] | null {
+  const days: IndexDay[] = [];
   for (const point of curve) {
     if (!DATE.test(point.date) || !DECIMAL.test(point.index) || !DECIMAL.test(point.drawdown)) {
       return null;
     }
-    days.push({
-      date: point.date,
-      cumulative: Number(point.index) - 1,
-      drawdown: Number(point.drawdown),
-    });
+    days.push({ date: point.date, index: Number(point.index), drawdown: Number(point.drawdown) });
   }
   return days;
 }
 
 const MONTH_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = { month: "short", timeZone: "UTC" };
+const DAY_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", timeZone: "UTC" };
+
+/** `YYYY-MM-DD` as the UTC instant the formatters read in UTC. */
+function utcInstant(date: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year ?? Number.NaN, (month ?? Number.NaN) - 1, day ?? Number.NaN));
+}
 
 /** A signed whole-or-half percentage; U+2212 is the minus the design draws. */
 function percentLabel(ratio: number): string {
@@ -69,9 +90,12 @@ function percentLabel(ratio: number): string {
   return "0%";
 }
 
-export function ReturnChart({ curve }: ReturnChartProps) {
+export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
-  const days = readCurve(curve);
+  const series = readCurve(curve);
+  const rangeWindow = RANGE_WINDOWS[range];
+  const from = rangeWindow.days === null ? null : windowStartDate(asOf, rangeWindow.days);
+  const days = series === null ? null : sliceAndRebase(series, from);
 
   const header = (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4">
@@ -99,11 +123,9 @@ export function ReturnChart({ curve }: ReturnChartProps) {
   const toY = (ratio: number) => TOP + scale.y(ratio);
   const waterY = toY(0);
 
-  const x = timeScale(
-    days.map((day) => day.date),
-    LEFT,
-    RIGHT,
-  );
+  // A bounded range runs on its own window, so a quiet stretch at either end shows as empty space.
+  const domain = from === null ? days.map((day) => day.date) : [from, utcDate(asOf)];
+  const x = timeScale(domain, LEFT, RIGHT);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
   const drawdownPoints = days.map((day) => ({ x: x(day.date), y: toY(day.drawdown) }));
 
@@ -116,14 +138,29 @@ export function ReturnChart({ curve }: ReturnChartProps) {
     ...lowerTicks.map((value) => ({ value: -value, y: toY(-value) })),
   ];
 
-  const month = new Intl.DateTimeFormat(i18n.resolvedLanguage ?? "en", MONTH_FORMAT_OPTIONS);
+  const locale = i18n.resolvedLanguage ?? "en";
+  const axisFormat = new Intl.DateTimeFormat(
+    locale,
+    rangeWindow.ticks === "month" ? MONTH_FORMAT_OPTIONS : DAY_FORMAT_OPTIONS,
+  );
+  const tickDates =
+    rangeWindow.ticks === "month"
+      ? monthTicks(domain).map((tick) => tick.date)
+      : from === null
+        ? []
+        : dayTicks(from, utcDate(asOf), rangeWindow.ticks === "day" ? 1 : 7);
   let previousX = Number.NEGATIVE_INFINITY;
-  const labels = monthTicks(days.map((day) => day.date)).flatMap((tick) => {
-    const tickX = x(tick.date);
+  const labels = tickDates.flatMap((date) => {
+    const tickX = x(date);
     if (tickX - previousX < MIN_LABEL_GAP) return [];
     previousX = tickX;
-    return [{ tick, x: tickX }];
+    return [{ date, x: tickX }];
   });
+  const labelTestId = rangeWindow.ticks === "month" ? "month-label" : "day-label";
+  const emptyMessage =
+    series !== null && series.length === 0
+      ? t("overview.returnChart.empty")
+      : t("overview.returnChart.emptyRange");
 
   const first = curvePoints[0];
 
@@ -173,7 +210,7 @@ export function ReturnChart({ curve }: ReturnChartProps) {
               textAnchor="middle"
               className="fill-ink-3 font-mono text-[11px]"
             >
-              {t("overview.returnChart.empty")}
+              {emptyMessage}
             </text>
           ) : (
             <>
@@ -190,6 +227,7 @@ export function ReturnChart({ curve }: ReturnChartProps) {
               />
               <path
                 data-testid="return-curve"
+                data-final-return={String(days[days.length - 1]?.cumulative ?? 0)}
                 d={linePath(curvePoints)}
                 strokeWidth={2.2}
                 strokeLinejoin="round"
@@ -201,15 +239,16 @@ export function ReturnChart({ curve }: ReturnChartProps) {
             </>
           )}
           <g className="fill-ink-3 font-mono text-[10px]">
-            {labels.map(({ tick, x: tickX }) => (
+            {labels.map(({ date, x: tickX }) => (
               <text
-                key={tick.date}
-                data-testid="month-label"
+                key={date}
+                data-testid={labelTestId}
                 x={tickX}
                 y={MONTH_LABEL_Y}
-                textAnchor="middle"
+                // A label on the right edge would run past the drawing and be clipped.
+                textAnchor={tickX > RIGHT - 12 ? "end" : "middle"}
               >
-                {month.format(new Date(Date.UTC(tick.year, tick.month - 1, 1)))}
+                {axisFormat.format(utcInstant(date))}
               </text>
             ))}
           </g>

@@ -15,8 +15,8 @@ interface RangeSelectorProps {
 }
 
 /**
- * Picks which of the pool's range summaries the ledger line shows. It never
- * rebases the return chart, which always draws the whole series.
+ * Picks the range the ledger line and the return chart both show. It only
+ * reports the choice; the owner of the state applies it to each.
  */
 export function RangeSelector({ value, onChange }: RangeSelectorProps) {
   const { t } = useTranslation();

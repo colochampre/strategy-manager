@@ -154,3 +154,67 @@ export function tickValues(max: number): number[] {
   }
   return ticks;
 }
+
+/** One day of the server's curve, parsed: the compounded index and the server's own drawdown. */
+export interface IndexDay {
+  date: string;
+  index: number;
+  drawdown: number;
+}
+
+/** One day as the chart draws it: cumulative return (index - 1) and drawdown, both ratios. */
+export interface ReturnDay {
+  date: string;
+  cumulative: number;
+  drawdown: number;
+}
+
+const DAY_MS = 86_400_000;
+
+/** The UTC calendar date (`YYYY-MM-DD`) of an instant, whatever the viewer's time zone. */
+export function utcDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * The UTC calendar day a window of `days` days ending `nowMs` starts on, the day
+ * of the server's instant `now - days`. A curve point is a whole UTC day, so a
+ * point belongs to the window when its date is on or after this one.
+ */
+export function windowStartDate(nowMs: number, days: number): string {
+  return utcDate(nowMs - days * DAY_MS);
+}
+
+/**
+ * The days on or after `from`, rebased so the window starts at zero: each index
+ * is divided by the last index BEFORE the window (1 when none precedes it, the
+ * server's E_0), and the drawdown is measured from the running peak inside the
+ * window, which starts at that rebased 1. `from === null` is the whole series,
+ * kept exactly as the server wrote it. Ratio arithmetic for display only.
+ */
+export function sliceAndRebase(days: readonly IndexDay[], from: string | null): ReturnDay[] {
+  if (from === null) {
+    return days.map((day) => ({ date: day.date, cumulative: day.index - 1, drawdown: day.drawdown }));
+  }
+  const start = utcDay(from);
+  let base = 1;
+  const inside: IndexDay[] = [];
+  for (const day of days) {
+    if (utcDay(day.date) < start) base = day.index;
+    else inside.push(day);
+  }
+  let peak = 1;
+  return inside.map((day) => {
+    const rebased = day.index / base;
+    peak = Math.max(peak, rebased);
+    return { date: day.date, cumulative: rebased - 1, drawdown: rebased / peak - 1 };
+  });
+}
+
+/** Every `step`-th UTC day from `start` while it does not pass `end`. */
+export function dayTicks(start: string, end: string, step: number): string[] {
+  const last = utcDay(end);
+  const ticks: string[] = [];
+  for (let day = utcDay(start); day <= last; day += step * DAY_MS) ticks.push(utcDate(day));
+  return ticks;
+}

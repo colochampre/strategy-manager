@@ -379,19 +379,6 @@ describe("the range selector", () => {
     expect(performanceCalls(fetchMock)).toHaveLength(1);
   });
 
-  it("leaves the chart on the whole series", async () => {
-    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
-      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
-    });
-    renderAt(<AppRoutes />, "/");
-    const chart = await screen.findByRole("img");
-    const before = chart.innerHTML;
-
-    fireEvent.click(screen.getByRole("button", { name: "7D" }));
-
-    expect(screen.getByRole("img").innerHTML).toBe(before);
-  });
-
   it("belongs to its own panel: pressing 7D on one leaves the other on 30D", async () => {
     stubApi(HEALTH, [], TWO, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
@@ -407,6 +394,162 @@ describe("the range selector", () => {
     await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
     expect(within(second).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
     expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+0.41200000");
+  });
+});
+
+// --- the chart follows the range (decision 33) -----------------------------------------
+
+const NOW = "2026-09-30T12:00:00.000Z";
+const DAY_MS = 86_400_000;
+const RANGE_DAYS = { "7D": 7, "30D": 30, "90D": 90, "1Y": 365, All: null } as const;
+type ConsistentRange = keyof typeof RANGE_DAYS;
+
+function utcDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * A report whose `ranges[]` agree with its `curve` by construction: a closed day
+ * every 4th day, each range compounded from the daily returns of the days on or
+ * after its start day (the server compounds the trades inside its window, and
+ * none of these days straddles a window edge). The curve's index and drawdown
+ * are compounded independently from the same daily returns.
+ */
+function consistentReport(exchange: string, venue: string, currency: string) {
+  const now = Date.parse(NOW);
+  const days: Array<{ date: string; r: number }> = [];
+  for (let back = 400, i = 0; back >= 0; back -= 4, i += 1) {
+    days.push({ date: utcDate(now - back * DAY_MS), r: ((i * 37) % 11 - 5) / 200 });
+  }
+  let index = 1;
+  let peak = 1;
+  const curve = days.map(({ date, r }) => {
+    index *= 1 + r;
+    peak = Math.max(peak, index);
+    return {
+      date,
+      daily_return: r.toFixed(10),
+      index: index.toFixed(10),
+      drawdown: (index / peak - 1).toFixed(10),
+    };
+  });
+  const ranges = Object.entries(RANGE_DAYS).map(([range, length]) => {
+    const from = length === null ? "" : utcDate(now - length * DAY_MS);
+    const inside = days.filter((day) => day.date >= from);
+    return {
+      range,
+      pnl: "1.00",
+      return: (inside.reduce((acc, day) => acc * (1 + day.r), 1) - 1).toFixed(10),
+      trade_count: inside.length,
+    };
+  });
+  return {
+    ...emptyPerformance(exchange, venue, currency),
+    trade_count: days.length,
+    max_drawdown: "-0.0500000000",
+    ranges,
+    curve,
+    monthly: [{ year: 2026, month: 9, return: "0.0100000000" }],
+  };
+}
+
+/** How many curve days a 30D window holds in that report (the default range). */
+const CONSISTENT_DAYS_30D = 8;
+
+function chartDays(scope: HTMLElement): number {
+  const curve = within(scope).queryByTestId("return-curve");
+  return curve === null ? 0 : (curve.getAttribute("d") ?? "").split("L").length;
+}
+
+function finalReturn(scope: HTMLElement): number {
+  return Number(within(scope).getByTestId("return-curve").getAttribute("data-final-return"));
+}
+
+describe("the chart follows the selected range", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(NOW));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const ONE = { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] } as const;
+
+  it("starts on the same range as the ledger line: 30D", async () => {
+    stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: consistentReport("bybit", "linear", "USDT") } });
+    renderAt(<AppRoutes />, "/");
+    const panel = await screen.findByTestId("pool-panel");
+    await within(panel).findByTestId("return-curve");
+
+    expect(within(panel).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+    expect(chartDays(panel)).toBe(CONSISTENT_DAYS_30D);
+  });
+
+  it.each(Object.keys(RANGE_DAYS) as ConsistentRange[])(
+    "ends %s on the ledger line's return for the same range",
+    async (range) => {
+      const report = consistentReport("bybit", "linear", "USDT");
+      stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: report } });
+      renderAt(<AppRoutes />, "/");
+      const panel = await screen.findByTestId("pool-panel");
+      await within(panel).findByTestId("return-curve");
+
+      fireEvent.click(within(panel).getByRole("button", { name: range }));
+
+      const expected = Number(report.ranges.find((entry) => entry.range === range)?.return);
+      await waitFor(() => expect(finalReturn(panel)).toBeCloseTo(expected, 8));
+    },
+  );
+
+  it("draws a shorter window with fewer days than a longer one", async () => {
+    stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: consistentReport("bybit", "linear", "USDT") } });
+    renderAt(<AppRoutes />, "/");
+    const panel = await screen.findByTestId("pool-panel");
+    await within(panel).findByTestId("return-curve");
+
+    const counts: number[] = [];
+    for (const range of ["7D", "30D", "90D", "1Y", "All"]) {
+      fireEvent.click(within(panel).getByRole("button", { name: range }));
+      await waitFor(() => expect(within(panel).getByRole("button", { name: range })).toHaveAttribute("aria-pressed", "true"));
+      counts.push(chartDays(panel));
+    }
+    expect(counts).toEqual([2, 8, 23, 92, 101]);
+  });
+
+  it("belongs to its own panel: 7D on one redraws only that chart", async () => {
+    const two = {
+      kind: "ok",
+      body: [pool("bybit", "linear", "USDT", BALANCE), pool("bybit", "inverse", "BTC", BALANCE)],
+    } as const;
+    stubApi(HEALTH, [], two, {
+      "bybit/linear/USDT": { kind: "ok", body: consistentReport("bybit", "linear", "USDT") },
+      "bybit/inverse/BTC": { kind: "ok", body: consistentReport("bybit", "inverse", "BTC") },
+    });
+    renderAt(<AppRoutes />, "/");
+    const [first, second] = (await screen.findAllByTestId("pool-panel")) as [HTMLElement, HTMLElement];
+    await within(first).findByTestId("return-curve");
+    await within(second).findByTestId("return-curve");
+
+    fireEvent.click(within(first).getByRole("button", { name: "7D" }));
+
+    await waitFor(() => expect(chartDays(first)).toBe(2));
+    expect(chartDays(second)).toBe(CONSISTENT_DAYS_30D);
+  });
+
+  it("shows the empty-range state, no error, when the window holds no day", async () => {
+    const report = consistentReport("bybit", "linear", "USDT");
+    const quiet = { ...report, curve: report.curve.slice(0, 50) };
+    stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: quiet } });
+    renderAt(<AppRoutes />, "/");
+    const panel = await screen.findByTestId("pool-panel");
+
+    expect(await within(panel).findByText(en.overview.returnChart.emptyRange)).toBeInTheDocument();
+    expect(within(panel).queryByTestId("return-curve")).toBeNull();
+    expect(within(panel).queryByRole("alert")).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "All" }));
+    await waitFor(() => expect(within(panel).getByTestId("return-curve")).toBeInTheDocument());
+    expect(within(panel).queryByText(en.overview.returnChart.emptyRange)).toBeNull();
   });
 });
 
