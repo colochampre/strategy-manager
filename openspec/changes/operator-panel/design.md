@@ -716,7 +716,7 @@ Per pool, never merged (rule 7):
 ### Layout per view
 
 **Shell, wide (≥ `lg`, 1024 px)** — Main.dc.html:
-- Grid rows `64px 1fr`. The top bar (bottom border `rule`, padding 0 28 px, gap 32 px) holds the brand, then `ExchangeTabs` (`nav aria-label="Exchanges"`), a spacer, and the `DRY RUN` badge (amber outline, mono 12 px, `0.12em`, radius 4) shown only when `/health` says `dry_run`.
+- Grid rows `64px 1fr`. The top bar (bottom border `rule`, padding 0 28 px, gap 32 px) holds the brand, then `ExchangeTabs` (`nav aria-label="Exchanges"`), a spacer, and the `DRY RUN` badge (amber outline, mono 12 px, `0.12em`, radius 4) shown only when `/health` says `dry_run`. **Superseded by decision 32:** the badge is always visible and reads "Dry run", "Live", "Checking mode" or "Mode unknown".
 - Each exchange tab stacks the name (Archivo 15/600) over a mono 11 px sub-label: the pool summary in `ink-3` (for example "USDT pool"), or, for a read-only key, "{category} · read-only key" in `decision`, or, **for a DEGRADED exchange with no key at all** (revised 2026-09-25, decision 20), "no key" in `decision`. Active tab: 2 px `gain` bottom border and `ink`; inactive `ink-2`.
 - Body grid `208px 1fr` (Settings, Strategies) or `208px 1fr 360px` (Overview). The left rail (`nav aria-label="Sections"`, padding 24/12, right border `rule`) lists Overview, Strategies, Settings; items padding 12/14, radius 6; active = `bg-panel-2`, `ink`, weight 600.
 

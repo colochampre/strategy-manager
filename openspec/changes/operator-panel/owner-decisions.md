@@ -154,6 +154,11 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Rejected alternatives:
       - deactivating the credential only, with no pool check, which skips decision 22's flatness precondition;
       - a new refusal code for "no pool", which the design does not define.
+32. **The mode badge is always visible: "Dry run", "Live", "Checking mode" or "Mode unknown"** (2026-09-30, PR 10b, unit 7-router).
+    - `DryRunBadge` reads `GET /health`. `dry_run: true` shows "Dry run" in amber (`decision`); `dry_run: false` shows "Live" in `loss`.
+    - While loading it shows a neutral "Checking mode"; on any failure it shows a neutral "Mode unknown". Neither state ever reads "Live".
+    - Why: the design hid the badge when `dry_run` is false, but an absent badge looks the same as one still loading or one whose `/health` failed. A visible "Live" makes real-money mode unmistakable.
+    - This supersedes design § Visual design, "shown only when `/health` says `dry_run`".
 
 ## Standing constraints
 
