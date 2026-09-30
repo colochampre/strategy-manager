@@ -1,5 +1,5 @@
 import { act, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import type { RangeName } from "@/features/overview/RangeSelector";
@@ -9,15 +9,16 @@ import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 
 /**
- * The plot: x runs 44 to 790, the zero line sits at 16 + 0.62 * 288 = 194.56,
- * the top of the upper band is y 16 and the bottom of the lower band is y 304.
+ * The plot at the default width (796, what jsdom falls back to): x runs 44 to 790, the
+ * box is 280 tall, the zero line sits at 12 + 0.62 * 244 = 163.28, the top of the upper
+ * band is y 12 and the bottom of the lower band is y 256.
  */
 const LEFT = 44;
 const RIGHT = 790;
-const TOP = 16;
-const WATER_Y = 194.56;
-const UPPER = 178.56;
-const LOWER = 109.44;
+const TOP = 12;
+const WATER_Y = 163.28;
+const UPPER = 151.28;
+const LOWER = 92.72;
 
 function day(offset: number, base = Date.UTC(2026, 6, 1)): string {
   return new Date(base + offset * 86_400_000).toISOString().slice(0, 10);
@@ -247,12 +248,15 @@ describe("ReturnChart", () => {
     expect(screen.getByText(es.overview.returnChart.caption)).toBeInTheDocument();
   });
 
-  it("scales the drawing with its box through a viewBox, without measuring", () => {
+  it("draws in real pixels: the viewBox is the measured width by a fixed 280", () => {
     renderChart([]);
     const svg = screen.getByRole("img");
-    expect(svg).toHaveAttribute("viewBox", "0 0 796 330");
-    expect(svg).toHaveAttribute("preserveAspectRatio", "xMidYMid meet");
-    expect(svg).toHaveClass("w-full", "h-auto");
+    // No measurement yet (jsdom has no layout): the default width stands in.
+    expect(svg).toHaveAttribute("viewBox", "0 0 796 280");
+    expect(svg).toHaveAttribute("height", "280");
+    expect(svg).toHaveClass("block", "w-full");
+    expect(svg).not.toHaveClass("h-auto");
+    expect(svg).not.toHaveAttribute("preserveAspectRatio", "none");
     expect(svg).not.toHaveAttribute("width");
   });
 
@@ -441,5 +445,96 @@ describe("the time axis ticks", () => {
     await act(() => i18n.changeLanguage("es"));
     renderChart(RANGE_CURVE, "7D");
     expect(labels("day-label")[0]).toBe("23 sept");
+  });
+});
+
+/** A `ResizeObserver` the test drives by hand: `resizeTo` reports a new width to every observer. */
+function stubResizeObserver() {
+  const callbacks: Array<(entries: Array<{ contentRect: { width: number } }>) => void> = [];
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: (entries: Array<{ contentRect: { width: number } }>) => void) {
+        callbacks.push(callback);
+      }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    },
+  );
+  return {
+    disconnect,
+    resizeTo: (width: number) => {
+      act(() => {
+        for (const callback of callbacks) callback([{ contentRect: { width } }]);
+      });
+    },
+  };
+}
+
+describe("the measured width", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const CURVE = [point("2026-07-01", 1, 0), point("2026-07-02", 1.1, 0), point("2026-07-03", 1.3, 0)];
+
+  it("redraws at the new width while the height stays fixed", () => {
+    const observer = stubResizeObserver();
+    renderChart(CURVE);
+    const svg = screen.getByRole("img");
+    expect(svg).toHaveAttribute("viewBox", "0 0 796 280");
+
+    observer.resizeTo(1252);
+    expect(svg).toHaveAttribute("viewBox", "0 0 1252 280");
+    expect(svg).toHaveAttribute("height", "280");
+    const wide = coordinates(attr("return-curve", "d"));
+    expect(wide[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(wide[2]![0]).toBeCloseTo(1252 - 6, 1);
+    // The vertical geometry does not move with the width.
+    expect(wide[0]![1]).toBeCloseTo(WATER_Y, 1);
+    expect(wide[2]![1]).toBeCloseTo(TOP, 1);
+    for (const line of screen.getAllByTestId("gridline")) {
+      expect(Number(line.getAttribute("x2"))).toBe(1252);
+    }
+    expect(Number(attr("waterline", "x2"))).toBe(1252);
+
+    observer.resizeTo(480);
+    expect(svg).toHaveAttribute("viewBox", "0 0 480 280");
+    expect(coordinates(attr("return-curve", "d"))[2]![0]).toBeCloseTo(480 - 6, 1);
+    expect(coordinates(attr("return-curve", "d"))[2]![1]).toBeCloseTo(TOP, 1);
+  });
+
+  it("keeps font sizes and strokes constant in pixels across widths", () => {
+    const observer = stubResizeObserver();
+    renderChart(CURVE);
+    const before = [attr("return-curve", "stroke-width"), screen.getAllByTestId("y-label")[0]!.parentElement!.getAttribute("class")];
+    observer.resizeTo(1600);
+    const after = [attr("return-curve", "stroke-width"), screen.getAllByTestId("y-label")[0]!.parentElement!.getAttribute("class")];
+    expect(after).toEqual(before);
+    expect(attr("return-curve", "stroke-width")).toBe("2.2");
+  });
+
+  it("ignores an empty measurement (a hidden box) and keeps the last good width", () => {
+    const observer = stubResizeObserver();
+    renderChart(CURVE);
+    observer.resizeTo(900);
+    observer.resizeTo(0);
+    expect(screen.getByRole("img")).toHaveAttribute("viewBox", "0 0 900 280");
+  });
+
+  it("never draws narrower than a readable minimum", () => {
+    const observer = stubResizeObserver();
+    renderChart(CURVE);
+    observer.resizeTo(40);
+    expect(screen.getByRole("img")).toHaveAttribute("viewBox", "0 0 280 280");
+  });
+
+  it("stops observing when it unmounts", () => {
+    const observer = stubResizeObserver();
+    const { unmount } = renderChart(CURVE);
+    unmount();
+    expect(observer.disconnect).toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import {
   windowStartDate,
 } from "@/shared/charts/scale";
 import type { IndexDay } from "@/shared/charts/scale";
+import { useElementWidth } from "@/shared/charts/useElementWidth";
 
 interface ReturnChartProps {
   /** The pool's whole curve, oldest day first; the range picks the window drawn. */
@@ -25,19 +26,24 @@ interface ReturnChartProps {
 }
 
 /**
- * The drawing is laid out in a fixed box and scaled by the browser through the
- * `viewBox`, so nothing is measured (which is why it is not recharts). Below
- * `MIN_WIDTH` the box scrolls sideways rather than shrinking the ticks to dust.
+ * The drawing is laid out in real pixels: the `viewBox` is the measured width of
+ * its box by a FIXED height, so the height never grows with the screen (a wide
+ * panel gets a wide chart, not a tall one) and the fonts and strokes stay the
+ * size they are written at. `DEFAULT_WIDTH` stands in until the first
+ * measurement and wherever nothing measures (jsdom); below `MIN_WIDTH` the plot
+ * would be too small to read, so the drawing stops narrowing there.
  */
-const VIEW_WIDTH = 796;
-const VIEW_HEIGHT = 330;
+const DEFAULT_WIDTH = 796;
+const MIN_WIDTH = 280;
+const VIEW_HEIGHT = 280;
 const LEFT = 44;
-const RIGHT = 790;
-const TOP = 16;
-const PLOT_HEIGHT = 288;
+/** The gap between the plot's right edge and the box's. */
+const RIGHT_MARGIN = 6;
+const TOP = 12;
+const PLOT_HEIGHT = 244;
 /** The band above the waterline takes 62% of the plot, the band below 38%. */
 const WATER_RATIO = 0.62;
-const MONTH_LABEL_Y = 322;
+const MONTH_LABEL_Y = 274;
 /** Month labels closer than this many units to the previous one are dropped. */
 const MIN_LABEL_GAP = 28;
 
@@ -92,6 +98,9 @@ function percentLabel(ratio: number): string {
 
 export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
+  const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
+  const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
+  const right = viewWidth - RIGHT_MARGIN;
   const series = readCurve(curve);
   const rangeWindow = RANGE_WINDOWS[range];
   const from = rangeWindow.days === null ? null : windowStartDate(asOf, rangeWindow.days);
@@ -125,7 +134,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
 
   // A bounded range runs on its own window, so a quiet stretch at either end shows as empty space.
   const domain = from === null ? days.map((day) => day.date) : [from, utcDate(asOf)];
-  const x = timeScale(domain, LEFT, RIGHT);
+  const x = timeScale(domain, LEFT, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
   const drawdownPoints = days.map((day) => ({ x: x(day.date), y: toY(day.drawdown) }));
 
@@ -167,13 +176,13 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
   return (
     <figure className="flex flex-col gap-3">
       {header}
-      <div className="overflow-x-auto">
+      <div ref={measure} className="min-w-0">
         <svg
           role="img"
           aria-label={t("overview.returnChart.ariaLabel")}
-          viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-          preserveAspectRatio="xMidYMid meet"
-          className="block h-auto w-full min-w-[560px]"
+          viewBox={`0 0 ${viewWidth} ${VIEW_HEIGHT}`}
+          height={VIEW_HEIGHT}
+          className="block w-full"
         >
           <g className="fill-ink-3 font-mono text-[10px]">
             {rows.map(({ value, y }) => (
@@ -182,7 +191,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
                   <line
                     data-testid="gridline"
                     x1={LEFT}
-                    x2={VIEW_WIDTH}
+                    x2={viewWidth}
                     y1={y}
                     y2={y}
                     className="stroke-rule-soft"
@@ -197,7 +206,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
           <line
             data-testid="waterline"
             x1={LEFT}
-            x2={VIEW_WIDTH}
+            x2={viewWidth}
             y1={waterY}
             y2={waterY}
             strokeWidth={1.5}
@@ -205,7 +214,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
           />
           {first === undefined ? (
             <text
-              x={(LEFT + RIGHT) / 2}
+              x={(LEFT + right) / 2}
               y={waterY - 14}
               textAnchor="middle"
               className="fill-ink-3 font-mono text-[11px]"
@@ -246,7 +255,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
                 x={tickX}
                 y={MONTH_LABEL_Y}
                 // A label on the right edge would run past the drawing and be clipped.
-                textAnchor={tickX > RIGHT - 12 ? "end" : "middle"}
+                textAnchor={tickX > right - 12 ? "end" : "middle"}
               >
                 {axisFormat.format(utcInstant(date))}
               </text>
