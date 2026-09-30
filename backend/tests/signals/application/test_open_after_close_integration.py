@@ -91,7 +91,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
-from tests.signals.fakes import RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -515,6 +515,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             close_orphans=NeverCalledCloseOrphans(),
             tradable_pools=frozenset({("bybit", "usdt-m")}),
             outcomes=RecordingSignalOutcomes(),
+            trade_capability=FakeTradeCapability(),
         )
         return handler, open_after_close
 

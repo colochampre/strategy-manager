@@ -99,7 +99,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
-from tests.signals.fakes import RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -452,6 +452,7 @@ def _build_handler(
         close_orphans=NeverCalledCloseOrphans(),
         tradable_pools=frozenset({("bybit", "usdt-m")}),
         outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
     )
 
 
