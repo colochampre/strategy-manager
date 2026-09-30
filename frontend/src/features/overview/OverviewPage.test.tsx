@@ -466,24 +466,28 @@ function finalReturn(scope: HTMLElement): number {
 }
 
 /**
- * jsdom has no layout, so the sizing of decision 35 is pinned as a class contract.
- * The budget it is designed for (1440x900, 1920x1080) is in tasks.md, 8o review fixes.
+ * jsdom has no layout, so the sizing of decisions 35 and 36 is pinned as a class and
+ * structure contract. The pixel budget it is designed for (1920x915, 1440x900) is in
+ * tasks.md, 8o review fixes; it is an estimate, not a measurement.
  */
-describe("the overview sizing (decision 35)", () => {
-  async function renderOne() {
-    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+describe("the overview sizing (decisions 35 and 36)", () => {
+  async function renderOne(stale = false) {
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", { ...BALANCE, stale })] }, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
     });
     renderAt(<AppRoutes />, "/");
-    return screen.findByTestId("pool-panel");
+    const panel = await screen.findByTestId("pool-panel");
+    await within(panel).findByTestId("ledger-line");
+    return panel;
   }
 
-  it("bounds the pool panel to about 800 px so the chart stays about 330 px tall", async () => {
+  it("fills the available width: neither the panel nor its column has a maximum width", async () => {
     const panel = await renderOne();
-    expect(panel).toHaveClass("max-w-[50rem]");
-    // The column that holds the panels is bounded too, or the rail would float at the far edge.
-    const layout = screen.getByTestId("overview-layout");
-    expect(layout.firstElementChild).toHaveClass("xl:max-w-[50rem]", "xl:flex-1");
+    expect(panel.className).not.toMatch(/max-w-/);
+    const column = screen.getByTestId("overview-layout").firstElementChild as HTMLElement;
+    expect(column.className).not.toMatch(/max-w-/);
+    expect(column).toHaveClass("xl:flex-1", "min-w-0");
+    expect(panel).toHaveClass("w-full", "min-w-0");
   });
 
   it("lets the rail shrink with the window instead of holding 22.5 rem", async () => {
@@ -508,15 +512,70 @@ describe("the overview sizing (decision 35)", () => {
     expect(queries).not.toContain("(min-width: 1024px)");
   });
 
-  it("keeps the range selector whole: it wraps and never shrinks, and so does its row", async () => {
+  it("draws the chart at a fixed height that does not depend on the panel's width", async () => {
     const panel = await renderOne();
-    const group = await within(panel).findByRole("group", { name: "Range" });
-    expect(group).toHaveClass("flex-wrap", "shrink-0");
-    expect(group.className).not.toMatch(/whitespace-nowrap|flex-nowrap/);
-    const row = within(panel).getByTestId("ledger-line").parentElement as HTMLElement;
-    // Below md the row is a column; from md it is a row that wraps the selector under the ledger line.
-    expect(row).toHaveClass("md:flex-row", "md:flex-wrap");
+    const svg = within(panel).getByRole("img");
+    expect(svg).toHaveAttribute("height", "280");
+    expect(svg.getAttribute("viewBox")).toMatch(/^0 0 \d+ 280$/);
+    expect(svg.getAttribute("class") ?? "").not.toMatch(/h-auto|aspect-/);
+  });
+
+  it("puts the range selector in the chart header, on the title's row", async () => {
+    const panel = await renderOne();
+    const group = within(panel).getByRole("group", { name: "Range" });
+    const header = within(panel).queryByTestId("chart-header");
+    expect(header).not.toBeNull();
+    expect(header).toContainElement(group);
+    expect(header).toContainElement(within(panel).getByRole("heading", { name: en.overview.returnChart.title }));
+    // Not under the ledger line any more: the chart follows it directly, with no row of its own between.
+    const ledger = within(panel).getByTestId("ledger-line");
+    expect(ledger).not.toContainElement(group);
+    expect(ledger.nextElementSibling).toBe(header?.closest("figure"));
+    expect(header?.closest("figure")).toContainElement(within(panel).getByRole("img"));
+  });
+
+  it("keeps the range selector whole: its header and its group wrap and never shrink", async () => {
+    const panel = await renderOne();
+    const group = within(panel).getByRole("group", { name: "Range" });
+    expect(group).toHaveClass("flex-wrap", "shrink-0", "max-w-full");
+    expect(group.className).not.toMatch(/whitespace-nowrap|flex-nowrap|overflow-x-/);
+    const header = within(panel).queryByTestId("chart-header");
+    expect(header).toHaveClass("flex", "flex-wrap", "justify-between");
+    expect(header?.className ?? "").not.toMatch(/flex-nowrap|overflow-/);
     expect(within(group).getAllByRole("button")).toHaveLength(5);
+    for (const button of within(group).getAllByRole("button")) {
+      expect(button).toHaveClass("min-h-11", "min-w-11");
+    }
+  });
+
+  it("still drives both the ledger line and the chart from the header's selector", async () => {
+    const panel = await renderOne();
+    const header = within(panel).queryByTestId("chart-header");
+    expect(header).not.toBeNull();
+    fireEvent.click(within(header as HTMLElement).getByRole("button", { name: "7D" }));
+    await waitFor(() => expect(within(panel).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
+    expect(within(header as HTMLElement).getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the stale note on the eyebrow's row instead of a line of its own", async () => {
+    const panel = await renderOne(true);
+    const note = within(panel).getByTestId("balance-stale");
+    const eyebrow = within(panel).getByTestId("pool-eyebrow");
+    const row = eyebrow.parentElement as HTMLElement;
+    expect(note.parentElement).toBe(row);
+    expect(row).not.toBe(panel);
+    expect(row).toHaveClass("flex", "flex-wrap", "justify-between");
+    expect(note.className).not.toMatch(/\bw-full\b|\bblock\b/);
+    expect(note.className).not.toContain("text-decision");
+    expect(note).toHaveTextContent("Balance is out of date: last synced");
+  });
+
+  it("keeps the ledger line to its own row: four pairs, each held together", async () => {
+    const panel = await renderOne();
+    const pairs = within(panel).queryAllByTestId("ledger-pair");
+    expect(pairs).toHaveLength(4);
+    for (const pair of pairs) expect(pair).toHaveClass("whitespace-nowrap");
+    expect(within(panel).getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
   });
 
   it("scrolls only inside main: the page itself grows no scrollbar of its own", async () => {

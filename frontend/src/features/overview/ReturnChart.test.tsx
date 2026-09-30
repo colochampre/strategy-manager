@@ -260,6 +260,31 @@ describe("ReturnChart", () => {
     expect(svg).not.toHaveAttribute("width");
   });
 
+  it("carries an action in its header, on the title's row, with the caption under the title", () => {
+    render(
+      <ReturnChart
+        curve={[]}
+        range="All"
+        asOf={AS_OF}
+        headerAction={<button type="button">pick</button>}
+      />,
+    );
+    const header = screen.queryByTestId("chart-header");
+    expect(header).toContainElement(screen.getByRole("button", { name: "pick" }));
+    expect(header).toHaveClass("flex", "flex-wrap", "justify-between");
+    const title = screen.getByRole("heading", { name: en.overview.returnChart.title });
+    const caption = screen.getByText(en.overview.returnChart.caption);
+    expect(title.parentElement).toBe(caption.parentElement);
+    expect(title.parentElement).toHaveClass("flex-col");
+    expect(screen.getByRole("img")).toBeInTheDocument();
+  });
+
+  it("keeps the action when the curve cannot be read", () => {
+    const broken = [point("2026-07-01", 1, 0), { ...point("2026-07-02", 1.1, 0), index: "abc" }];
+    render(<ReturnChart curve={broken} range="All" asOf={AS_OF} headerAction={<button type="button">pick</button>} />);
+    expect(screen.queryByTestId("chart-header")).toContainElement(screen.getByRole("button", { name: "pick" }));
+  });
+
   it("refuses to draw an unreadable curve instead of a silent wrong line", () => {
     const broken = [point("2026-07-01", 1, 0), { ...point("2026-07-02", 1.1, 0), index: "abc" }];
     renderChart(broken);

@@ -39,31 +39,33 @@ interface ReportTopProps {
   onRangeChange: (range: RangeName) => void;
 }
 
-/** The ledger line with its range selector, then the chart: both follow the same range. */
+/** The ledger line, then the chart with its range selector in the chart's header: both follow the same range. */
 function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps) {
   const { t } = useTranslation();
   const summary = report.ranges.find((entry) => entry.range === range);
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:justify-between">
-        {summary === undefined ? (
-          <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
-            {t("overview.ledger.unreadable")}
-          </p>
-        ) : (
-          <LedgerLine
-            currency={pool.settlement_currency}
-            available={pool.balance === null ? null : pool.balance.available}
-            range={range}
-            pnl={summary.pnl}
-            ret={summary.return}
-            maxDrawdown={report.max_drawdown}
-          />
-        )}
-        <RangeSelector value={range} onChange={onRangeChange} />
-      </div>
-      <ReturnChart curve={report.curve} range={range} asOf={asOf} />
+    <div className="flex min-w-0 flex-col gap-3">
+      {summary === undefined ? (
+        <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
+          {t("overview.ledger.unreadable")}
+        </p>
+      ) : (
+        <LedgerLine
+          currency={pool.settlement_currency}
+          available={pool.balance === null ? null : pool.balance.available}
+          range={range}
+          pnl={summary.pnl}
+          ret={summary.return}
+          maxDrawdown={report.max_drawdown}
+        />
+      )}
+      <ReturnChart
+        curve={report.curve}
+        range={range}
+        asOf={asOf}
+        headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
+      />
     </div>
   );
 }
@@ -124,20 +126,22 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
     <section
       data-testid="pool-panel"
       aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
-      className="flex w-full min-w-0 max-w-[50rem] flex-col gap-4"
+      className="flex w-full min-w-0 flex-col gap-3"
     >
-      <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
-      {staleBalance !== null && (
-        <p data-testid="balance-stale" className="font-mono text-[11px] text-ink-2">
-          {t("overview.pool.stale", {
-            time: observedAtText(staleBalance.observed_at, i18n.resolvedLanguage ?? "en"),
-          })}
-        </p>
-      )}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
+        {staleBalance !== null && (
+          <p data-testid="balance-stale" className="font-mono text-[11px] text-ink-2">
+            {t("overview.pool.stale", {
+              time: observedAtText(staleBalance.observed_at, i18n.resolvedLanguage ?? "en"),
+            })}
+          </p>
+        )}
+      </div>
       {top}
       {betweenChartAndGrid}
       {report !== null && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <MonthlyGrid monthly={report.monthly} />
           <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
         </div>

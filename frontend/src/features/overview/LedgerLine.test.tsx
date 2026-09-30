@@ -106,6 +106,22 @@ describe("LedgerLine", () => {
     );
   });
 
+  it("holds each label with its value: a line may wrap between pairs, never inside one", () => {
+    render(<LedgerLine {...BASE} currency="BTC" available="0.12345678" pnl="0.00012340" />);
+    const pairs = screen.queryAllByTestId("ledger-pair");
+    expect(pairs).toHaveLength(4);
+    for (const pair of pairs) expect(pair).toHaveClass("whitespace-nowrap");
+    expect(screen.getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
+    const [lead, pnl, ret, deepest] = pairs as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+    expect(lead).toContainElement(screen.getByTestId("ledger-lead"));
+    expect(lead).toHaveTextContent("BTC available");
+    expect(pnl).toContainElement(screen.getByTestId("ledger-pnl"));
+    expect(pnl).toHaveTextContent("PnL 30D");
+    expect(ret).toContainElement(screen.getByTestId("ledger-return"));
+    expect(deepest).toContainElement(screen.getByTestId("ledger-deepest"));
+    expect(deepest).toHaveTextContent("deepest");
+  });
+
   it("shows an alert rather than NaN when a figure cannot be read", () => {
     const { container, rerender } = render(<LedgerLine {...BASE} pnl="abc" />);
     expect(screen.getByRole("alert")).toHaveTextContent("The figures could not be read.");

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { RangeName } from "@/features/overview/RangeSelector";
@@ -23,6 +24,8 @@ interface ReturnChartProps {
   range: RangeName;
   /** The instant the report was read, in ms: the "now" a range window ends on. */
   asOf: number;
+  /** Shown at the right of the header, on the title's row: the range selector. */
+  headerAction?: ReactNode;
 }
 
 /**
@@ -96,7 +99,7 @@ function percentLabel(ratio: number): string {
   return "0%";
 }
 
-export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
+export function ReturnChart({ curve, range, asOf, headerAction = null }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
@@ -106,18 +109,23 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
   const from = rangeWindow.days === null ? null : windowStartDate(asOf, rangeWindow.days);
   const days = series === null ? null : sliceAndRebase(series, from);
 
+  // The title with its caption beneath on the left, the action (the range selector) on the right:
+  // the caption costs no row of its own because the 44 px selector is taller than the two lines.
   const header = (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4">
-      <h2 className="font-display text-base font-semibold text-ink">
-        {t("overview.returnChart.title")}
-      </h2>
-      <span className="font-mono text-[11px] text-ink-3">{t("overview.returnChart.caption")}</span>
+    <div data-testid="chart-header" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex min-w-0 flex-col">
+        <h2 className="font-display text-base font-semibold text-ink">
+          {t("overview.returnChart.title")}
+        </h2>
+        <span className="font-mono text-[11px] text-ink-3">{t("overview.returnChart.caption")}</span>
+      </div>
+      {headerAction}
     </div>
   );
 
   if (days === null) {
     return (
-      <figure className="flex flex-col gap-3">
+      <figure className="flex flex-col gap-2">
         {header}
         <p role="alert" className="text-sm text-loss">
           {t("overview.returnChart.unreadable")}
@@ -174,7 +182,7 @@ export function ReturnChart({ curve, range, asOf }: ReturnChartProps) {
   const first = curvePoints[0];
 
   return (
-    <figure className="flex flex-col gap-3">
+    <figure className="flex flex-col gap-2">
       {header}
       <div ref={measure} className="min-w-0">
         <svg

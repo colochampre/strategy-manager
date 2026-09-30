@@ -17,9 +17,9 @@ const RAIL_BESIDE_QUERY = "(min-width: 1280px)";
  * The Overview container: one `PoolPanel` per pool of the selected exchange,
  * never merged (rule 7), and the decision rail, placed once.
  *
- * From `xl` (1280 px) the rail is the column beside the panels, which are
- * bounded to about 800 px so the chart keeps its height; the rail is fluid,
- * 15 rem to 22.5 rem, and sits next to them rather than at the far edge.
+ * From `xl` (1280 px) the rail is the column beside the panels, which fill
+ * the rest of the width (decision 36: the chart's HEIGHT is bounded, not the
+ * panel's width); the rail is fluid, 15 rem to 22.5 rem.
  * Narrower, it is an in-flow block
  * between the first panel's chart and its month grid (Mobile.dc.html), or
  * after the page when there is no panel to sit in. It is rendered in exactly
@@ -47,7 +47,7 @@ export function OverviewPage() {
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("overview.title")}</h1>
       <div data-testid="overview-layout" className="flex flex-col gap-7 xl:flex-row xl:items-start">
-        <div className="flex min-w-0 flex-col gap-10 xl:max-w-[50rem] xl:flex-1">
+        <div className="flex min-w-0 flex-col gap-10 xl:flex-1">
           {panels.map((pool, index) => (
             <PoolPanel
               key={`${pool.exchange}/${pool.venue}/${pool.settlement_currency}`}
