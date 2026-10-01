@@ -584,7 +584,7 @@ The old `#bookings` nav item goes away. The bookings list becomes the Overview's
 **Component tree, container / presentational.**
 
 - **Shell**: `AppShell` → `TopBar` (`Brand`, `ExchangeTabs` on scoped routes, `DryRunBadge`), `SideNav` (≥ `lg`), `BottomNav` (< `lg`), `<Outlet/>`.
-- **Overview**: `OverviewPage` (container: pools, performance and credentials for the scoped exchange) → `PoolPanel` ×N, one per pool and never merged (rule 7) → `PoolEyebrow`, `LedgerLine` (with its `RangeSelector`), `ReturnChart` (curve and drawdown as one instrument), `MonthlyGrid` + `MonthlySummary`. Alongside it sits `DecisionRail` (“Needs your decision”): the existing `BookingsListView` logic, filtered by exchange, rendering `BookingCard` with the existing `ConfirmBookingDialog` and `RejectBookingDialog`.
+- **Overview** (sizing: the panel fills the width and the chart is 280 px tall at its measured width, decision 36; pools are ordered by the interim rule of decision 37, which task 11f.1 replaces with USD value): `OverviewPage` (container: pools, performance and credentials for the scoped exchange) → `PoolPanel` ×N, one per pool and never merged (rule 7) → `PoolEyebrow`, `LedgerLine` (with its `RangeSelector`), `ReturnChart` (curve and drawdown as one instrument), `MonthlyGrid` + `MonthlySummary`. Alongside it sits `DecisionRail` (“Needs your decision”): the existing `BookingsListView` logic, filtered by exchange, rendering `BookingCard` with the existing `ConfirmBookingDialog` and `RejectBookingDialog`.
 - **Strategies**:
   - `StrategiesPage` → `ArchivedToggle`, `NewStrategyDialog` (the id comes from `crypto.randomUUID()`, pairs are required, decision 13), `StrategyList` → `StrategyRow` (name, pool, enabled toggle, uptime, trades, all-time PnL and return).
   - `StrategyDetailPage` → `StrategyHeader` (status, `ArchiveButton` → `ArchiveDialog`, which renders the 409 reasons), `EnableToggle`, `UptimeSummary`, `AllowedPairsEditor`, `WebhookMessage`, `StrategyPerformance` (reuses `LedgerLine`, `ReturnChart` and `MonthlyGrid`), `PairStatsTable`, `TradesTable`, `EnablementHistory`.
@@ -693,7 +693,7 @@ One inline `<svg>` (`ReturnChart`), `role="img"`, `aria-label` from i18n, width 
 - **Gridlines**: `stroke-rule-soft`, 1 px, at each tick. Tick labels in mono 10 px `ink-3` in a 44 px left gutter.
 - **X axis**: month labels (mono 10 px `ink-3`) at the first UTC day of each month.
 - **Caption** above the chart, right-aligned in mono 11 px `ink-3`: "UTC days · deposits and withdrawals excluded". Title: "Return of the strategies, compounded".
-- **The chart always shows All.** The range selector drives the ledger line only; in Main.dc.html "30D" is pressed while the axis runs July to November. This avoids rebasing ratios in the browser.
+- **The chart always shows All.** The range selector drives the ledger line only; in Main.dc.html "30D" is pressed while the axis runs July to November. This avoids rebasing ratios in the browser. **Superseded by decision 33:** the chart follows the selected range, rebased to 0% at the range's start.
 - **Empty state** (the DRY_RUN reality): the waterline alone, with a centred caption "No closed trades yet".
 - Colours come from utility classes on SVG elements (`stroke-gain`, `fill-loss/20`, `stroke-rule-strong`), never from hex attributes.
 

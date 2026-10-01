@@ -1,14 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  dayTicks,
   drawdownPath,
   gridBand,
   linePath,
   monthTicks,
+  sliceAndRebase,
   tickValues,
   timeScale,
   waterlineScale,
+  windowStartDate,
 } from "./scale";
+import type { IndexDay } from "./scale";
 
 const HEIGHT = 280;
 const WATER = 0.62;
@@ -191,5 +195,215 @@ describe("tickValues", () => {
 
   it("never returns a tick beyond the band", () => {
     expect(tickValues(0.29)).toEqual([0.1, 0.2]);
+  });
+});
+
+function indexDay(date: string, index: number, drawdown = 0): IndexDay {
+  return { date, index, drawdown };
+}
+
+describe("windowStartDate", () => {
+  const originalTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  it("is the UTC calendar day N days before now", () => {
+    expect(windowStartDate(Date.UTC(2026, 8, 30, 12, 0), 7)).toBe("2026-09-23");
+    expect(windowStartDate(Date.UTC(2026, 8, 30, 12, 0), 30)).toBe("2026-08-31");
+    expect(windowStartDate(Date.UTC(2026, 8, 30, 12, 0), 365)).toBe("2025-09-30");
+  });
+
+  it("reads the UTC day, not the viewer's, just after UTC midnight", () => {
+    // 00:30 UTC on the 30th is still the 29th in Los Angeles; the server counts UTC.
+    expect(windowStartDate(Date.UTC(2026, 8, 30, 0, 30), 7)).toBe("2026-09-23");
+  });
+});
+
+describe("sliceAndRebase", () => {
+  it("rebases on the last point BEFORE the window, not on its first point inside", () => {
+    const days = [
+      indexDay("2026-06-20", 1.1),
+      indexDay("2026-06-28", 1.21),
+      indexDay("2026-06-30", 1.331),
+      indexDay("2026-07-02", 1.2),
+    ];
+    const window = sliceAndRebase(days, "2026-06-29");
+    expect(window.map((day) => day.date)).toEqual(["2026-06-30", "2026-07-02"]);
+    expect(window[0]!.cumulative).toBeCloseTo(0.1, 10);
+    expect(window[1]!.cumulative).toBeCloseTo(1.2 / 1.21 - 1, 10);
+  });
+
+  it("starts from an index of 1 when nothing precedes the window", () => {
+    const window = sliceAndRebase([indexDay("2026-06-30", 1.05), indexDay("2026-07-02", 1.1)], "2026-06-01");
+    expect(window[0]!.cumulative).toBeCloseTo(0.05, 10);
+    expect(window[1]!.cumulative).toBeCloseTo(0.1, 10);
+  });
+
+  it("includes the start day itself", () => {
+    const window = sliceAndRebase([indexDay("2026-06-28", 1.1), indexDay("2026-06-29", 1.21)], "2026-06-29");
+    expect(window.map((day) => day.date)).toEqual(["2026-06-29"]);
+    expect(window[0]!.cumulative).toBeCloseTo(0.1, 10);
+  });
+
+  it("measures the drawdown from the peak INSIDE the window", () => {
+    // The pool peaked at 1.5 long before; inside the window its own peak is the start.
+    const days = [
+      indexDay("2026-06-10", 1.5),
+      indexDay("2026-06-28", 1.2, -0.2),
+      indexDay("2026-07-01", 1.26, -0.16),
+      indexDay("2026-07-02", 1.197, -0.202),
+    ];
+    const window = sliceAndRebase(days, "2026-06-29");
+    expect(window[0]!.drawdown).toBeCloseTo(0, 10);
+    expect(window[1]!.drawdown).toBeCloseTo(1.197 / 1.26 - 1, 10);
+  });
+
+  it("counts the window's own start as its first peak, like the server's E_0 of 1", () => {
+    const window = sliceAndRebase([indexDay("2026-06-28", 1.2), indexDay("2026-07-01", 1.14)], "2026-06-29");
+    expect(window[0]!.cumulative).toBeCloseTo(1.14 / 1.2 - 1, 10);
+    expect(window[0]!.drawdown).toBeCloseTo(1.14 / 1.2 - 1, 10);
+  });
+
+  it("returns the whole series, with the server drawdown, when there is no window", () => {
+    const days = [indexDay("2026-06-01", 1.2, -0.01), indexDay("2026-06-02", 1.1, -0.0833)];
+    const all = sliceAndRebase(days, null);
+    expect(all.map((day) => day.date)).toEqual(["2026-06-01", "2026-06-02"]);
+    expect(all[0]!.cumulative).toBeCloseTo(0.2, 10);
+    expect(all[1]!.cumulative).toBeCloseTo(0.1, 10);
+    expect(all.map((day) => day.drawdown)).toEqual([-0.01, -0.0833]);
+  });
+
+  it("is empty when no day falls in the window", () => {
+    expect(sliceAndRebase([indexDay("2026-05-01", 1.2)], "2026-06-01")).toEqual([]);
+    expect(sliceAndRebase([], "2026-06-01")).toEqual([]);
+  });
+});
+
+describe("dayTicks", () => {
+  const originalTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  it("lists every UTC day from start to end inclusive at step 1", () => {
+    expect(dayTicks("2026-09-28", "2026-10-02", 1)).toEqual([
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30",
+      "2026-10-01",
+      "2026-10-02",
+    ]);
+  });
+
+  it("steps a week from the start and stops at the end", () => {
+    expect(dayTicks("2026-09-01", "2026-09-30", 7)).toEqual([
+      "2026-09-01",
+      "2026-09-08",
+      "2026-09-15",
+      "2026-09-22",
+      "2026-09-29",
+    ]);
+  });
+
+  it("has one tick when start equals end and none when end precedes start", () => {
+    expect(dayTicks("2026-09-01", "2026-09-01", 1)).toEqual(["2026-09-01"]);
+    expect(dayTicks("2026-09-02", "2026-09-01", 1)).toEqual([]);
+  });
+});
+
+/**
+ * The server, ported: each trade returns r_i, same-day returns are SUMMED,
+ * days are COMPOUNDED from E_0 = 1 (performance/domain/curve.py). A range is
+ * built from the trades inside [now - N days, now] and compounded on its own.
+ */
+interface Trade {
+  closedAt: number;
+  ret: number;
+}
+
+function dailyReturns(trades: readonly Trade[]): Array<[string, number]> {
+  const byDay = new Map<string, number>();
+  for (const trade of trades) {
+    const day = new Date(trade.closedAt).toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + trade.ret);
+  }
+  return [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+}
+
+function serverCurve(trades: readonly Trade[]): IndexDay[] {
+  let index = 1;
+  let peak = 1;
+  return dailyReturns(trades).map(([date, ret]) => {
+    index *= 1 + ret;
+    peak = Math.max(peak, index);
+    return { date, index, drawdown: index / peak - 1 };
+  });
+}
+
+function serverRange(trades: readonly Trade[], now: number, days: number): number {
+  const start = now - days * 86_400_000;
+  const inside = trades.filter((trade) => trade.closedAt >= start && trade.closedAt <= now);
+  return dailyReturns(inside).reduce((index, [, ret]) => index * (1 + ret), 1) - 1;
+}
+
+describe("the rebased window against the server's ranges", () => {
+  const NOW = Date.UTC(2026, 8, 30, 12, 0, 0);
+  const RANGE_DAYS = { "7D": 7, "30D": 30, "90D": 90, "1Y": 365 } as const;
+
+  // Deterministic, with gaps, losing streaks and two trades on some days.
+  // Every trade closes at exactly 12:00:00 UTC, the same time of day as NOW.
+  // ASSUMPTION: that puts the start instant (now - N days) on a boundary of
+  // the trades, so no day straddles the window edge. A trade earlier on the
+  // edge day than the start instant is dropped by the server's instant window
+  // but kept by a window cut on whole UTC days: see the last test here.
+  function fixtureTrades(): Trade[] {
+    let seed = 12345;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const trades: Trade[] = [];
+    for (let back = 500; back >= 0; back -= 1) {
+      if (rand() < 0.4) continue;
+      const closedAt = NOW - back * 86_400_000;
+      trades.push({ closedAt, ret: (rand() - 0.52) * 0.04 });
+      if (rand() < 0.3) trades.push({ closedAt, ret: (rand() - 0.5) * 0.02 });
+    }
+    return trades;
+  }
+
+  it.each(Object.entries(RANGE_DAYS))("ends %s on the server's range return", (_name, days) => {
+    const trades = fixtureTrades();
+    const window = sliceAndRebase(serverCurve(trades), windowStartDate(NOW, days));
+    expect(window.length).toBeGreaterThan(0);
+    expect(window[window.length - 1]!.cumulative).toBeCloseTo(serverRange(trades, NOW, days), 10);
+  });
+
+  it("ends All on the server's All return", () => {
+    const trades = fixtureTrades();
+    const all = sliceAndRebase(serverCurve(trades), null);
+    expect(all[all.length - 1]!.cumulative).toBeCloseTo(serverRange(trades, NOW, 10_000), 10);
+  });
+
+  it("differs only by the edge day when a trade precedes the start instant that same day", () => {
+    const edgeDay = Date.UTC(2026, 8, 23);
+    const trades: Trade[] = [
+      { closedAt: edgeDay + 6 * 3_600_000, ret: 0.1 }, // 06:00: before the 12:00 start instant
+      { closedAt: edgeDay + 12 * 3_600_000, ret: 0.02 }, // 12:00: inside, at the inclusive start
+      { closedAt: NOW, ret: 0.01 },
+    ];
+    const window = sliceAndRebase(serverCurve(trades), windowStartDate(NOW, 7));
+    // The server drops the 06:00 trade; whole-day slicing keeps that day's summed return.
+    expect(serverRange(trades, NOW, 7)).toBeCloseTo(1.02 * 1.01 - 1, 10);
+    expect(window[window.length - 1]!.cumulative).toBeCloseTo(1.12 * 1.01 - 1, 10);
   });
 });

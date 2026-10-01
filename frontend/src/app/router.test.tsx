@@ -52,7 +52,7 @@ describe("route map", () => {
   it("keeps pending bookings reachable from the overview, behind the token gate", async () => {
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findByText("No pending bookings.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing needs your decision.")).toBeInTheDocument();
   });
 
   it("asks for the admin token instead of any page while locked", async () => {

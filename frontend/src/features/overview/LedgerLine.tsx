@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
@@ -21,17 +22,34 @@ interface LedgerLineProps {
   maxDrawdown: string;
 }
 
-function Separator() {
+interface PairProps {
+  children: ReactNode;
+  /** A separator follows the pair; it stays inside it, so it never starts a line. */
+  separator?: boolean;
+}
+
+/**
+ * One label with its value. The pair never breaks inside (a value stranded from
+ * its label reads as another figure, worst with eight-decimal BTC); the line
+ * wraps only BETWEEN pairs.
+ */
+function Pair({ children, separator = false }: PairProps) {
   return (
-    <span aria-hidden="true" className="text-rule">
-      {" · "}
+    <span data-testid="ledger-pair" className="whitespace-nowrap">
+      {children}
+      {separator && (
+        <span aria-hidden="true" className="text-rule">
+          {" · "}
+        </span>
+      )}
     </span>
   );
 }
 
 /**
  * One pool's headline: the available balance as the lead figure, then the
- * range's PnL and return and the deepest drawdown. Figures are parsed only to be
+ * range's PnL and return and the deepest drawdown, as four label and value pairs
+ * that wrap only between one another. Figures are parsed only to be
  * formatted; nothing is computed (CLAUDE.md, rule 7).
  */
 export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown }: LedgerLineProps) {
@@ -61,30 +79,35 @@ export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown }
   return (
     <p
       data-testid="ledger-line"
-      className="font-mono text-[15px] leading-[1.7] text-ink-2 tabular-nums"
+      className="font-mono text-[15px] leading-normal text-ink-2 tabular-nums"
     >
-      <span data-testid="ledger-lead" className="text-[26px] font-semibold text-ink">
-        {availableValue === null ? DASH : amountText(availableValue, currency, locale)}
-      </span>{" "}
-      {t("overview.ledger.available", { currency })}
-      <Separator />
-      {t("overview.ledger.pnl", { range: rangeLabel })}{" "}
-      <span data-testid="ledger-pnl" className={cn("font-semibold", toneClass(pnlValue))}>
-        {amountText(pnlValue, currency, locale, true)}
-      </span>
-      <Separator />
-      {t("overview.ledger.return", { range: rangeLabel })}{" "}
-      <span
-        data-testid="ledger-return"
-        className={cn("font-semibold", returnValue !== null && toneClass(returnValue))}
-      >
-        {returnValue === null ? DASH : percentText(returnValue, locale)}
-      </span>
-      <Separator />
-      {t("overview.ledger.deepest")}{" "}
-      <span data-testid="ledger-deepest" className="font-semibold text-loss">
-        {percentText(drawdownValue, locale)}
-      </span>
+      <Pair separator>
+        <span data-testid="ledger-lead" className="text-[26px] font-semibold leading-none text-ink">
+          {availableValue === null ? DASH : amountText(availableValue, currency, locale)}
+        </span>{" "}
+        {t("overview.ledger.available", { currency })}
+      </Pair>
+      <Pair separator>
+        {t("overview.ledger.pnl", { range: rangeLabel })}{" "}
+        <span data-testid="ledger-pnl" className={cn("font-semibold", toneClass(pnlValue))}>
+          {amountText(pnlValue, currency, locale, true)}
+        </span>
+      </Pair>
+      <Pair separator>
+        {t("overview.ledger.return", { range: rangeLabel })}{" "}
+        <span
+          data-testid="ledger-return"
+          className={cn("font-semibold", returnValue !== null && toneClass(returnValue))}
+        >
+          {returnValue === null ? DASH : percentText(returnValue, locale)}
+        </span>
+      </Pair>
+      <Pair>
+        {t("overview.ledger.deepest")}{" "}
+        <span data-testid="ledger-deepest" className="font-semibold text-loss">
+          {percentText(drawdownValue, locale)}
+        </span>
+      </Pair>
     </p>
   );
 }

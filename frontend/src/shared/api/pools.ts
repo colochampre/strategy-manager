@@ -3,6 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type { Pool } from "@/shared/api/types";
 
+function isBalance(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const balance = value as Record<string, unknown>;
+  return (
+    typeof balance.total === "string" &&
+    typeof balance.available === "string" &&
+    typeof balance.observed_at === "string" &&
+    typeof balance.stale === "boolean"
+  );
+}
+
 function isPool(value: unknown): value is Pool {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
@@ -11,7 +22,10 @@ function isPool(value: unknown): value is Pool {
     row.exchange !== "" &&
     typeof row.venue === "string" &&
     typeof row.settlement_currency === "string" &&
-    typeof row.enabled === "boolean"
+    typeof row.enabled === "boolean" &&
+    (row.balance === null || isBalance(row.balance)) &&
+    typeof row.reserved === "string" &&
+    (row.allocatable === null || typeof row.allocatable === "string")
   );
 }
 

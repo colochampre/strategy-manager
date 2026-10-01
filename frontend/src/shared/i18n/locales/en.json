@@ -29,13 +29,18 @@
       "title": "Needs your decision",
       "scopeLoading": "Loading exchanges…",
       "scopeError": "Pending bookings are hidden because the exchanges could not be loaded, so they cannot be filtered.",
-      "noExchanges": "No exchange is configured, so there are no pending bookings to show."
+      "noExchanges": "No exchange is configured, so there are no pending bookings to show.",
+      "explainer": "Closes the venue made that the ledger has not recorded. Approving writes them to the ledger for good.",
+      "empty": "Nothing needs your decision.",
+      "pending_one": "{{count}} pending",
+      "pending_other": "{{count}} pending"
     },
     "returnChart": {
       "title": "Return of the strategies, compounded",
       "caption": "UTC days · deposits and withdrawals excluded",
       "ariaLabel": "Compounded return above the waterline, drawdown from the previous peak below it",
       "empty": "No closed trades yet",
+      "emptyRange": "No closed trades in this range",
       "unreadable": "The return curve could not be read."
     },
     "ledger": {
@@ -58,6 +63,8 @@
       "year": "Year",
       "empty": "No closed months yet",
       "noTrades": "no closed trades",
+      "showEarlier": "Show earlier years",
+      "hideEarlier": "Hide earlier years",
       "unreadable": "The monthly returns could not be read."
     },
     "monthlySummary": {
@@ -69,6 +76,12 @@
       "open_other": "{{count}} open trades not in the curve",
       "noCapital_one": "{{count}} trade without capital at open",
       "noCapital_other": "{{count}} trades without capital at open"
+    },
+    "pool": {
+      "loading": "Loading this pool's performance…",
+      "error": "This pool's performance could not be loaded.",
+      "noReport": "No performance report exists for this pool yet.",
+      "stale": "Balance is out of date: last synced {{time}}."
     }
   },
   "strategies": {

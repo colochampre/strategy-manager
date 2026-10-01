@@ -19,15 +19,49 @@ export type PoolsStub =
   | { kind: "network-error" }
   | { kind: "pending" };
 
-export function pool(exchange: string, venue = "usdt-m", settlementCurrency = "USDT") {
+export type PerformanceStub = PoolsStub;
+
+export function pool(
+  exchange: string,
+  venue = "usdt-m",
+  settlementCurrency = "USDT",
+  balance: { total: string; available: string; observed_at: string; stale: boolean } | null = null,
+) {
   return {
     exchange,
     venue,
     settlement_currency: settlementCurrency,
     enabled: true,
-    balance: null,
+    balance,
     reserved: "0",
-    allocatable: null,
+    allocatable: balance === null ? null : balance.available,
+  };
+}
+
+/** What `GET /performance/pools/...` answers for a pool with an empty ledger (the DRY_RUN reality). */
+export function emptyPerformance(exchange: string, venue: string, currency: string) {
+  return {
+    pool: { exchange, venue, settlement_currency: currency },
+    currency,
+    day_boundary: "UTC",
+    trade_count: 0,
+    total_pnl: "0",
+    max_drawdown: "0.0000000000",
+    excluded: {
+      open_trade_count: 0,
+      rehearsal_fill_count: 0,
+      no_capital_at_open: 0,
+      unconverted_fee: 0,
+      unresolved_allocation_count: 0,
+    },
+    ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({
+      range,
+      pnl: "0",
+      return: "0.0000000000",
+      trade_count: 0,
+    })),
+    curve: [],
+    monthly: [],
   };
 }
 
@@ -38,11 +72,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
 }
 
-/** Routes the endpoints the shell touches; everything else is a loud failure. */
+/**
+ * Routes the endpoints the shell touches; everything else is a loud failure.
+ * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
+ * without an entry answers an empty ledger.
+ */
 export function stubApi(
   health: HealthStub,
   bookings: unknown[] = [],
   pools: PoolsStub = DEFAULT_POOLS,
+  performance: Record<string, PerformanceStub> = {},
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -51,6 +90,19 @@ export function stubApi(
       if (health.kind === "pending") return new Promise<Response>(() => undefined);
       if (health.kind === "status") return Promise.resolve(jsonResponse(health.body ?? {}, health.status));
       return Promise.resolve(jsonResponse(health.body));
+    }
+    const performancePath = /\/performance\/pools\/(.+)$/.exec(url);
+    if (performancePath) {
+      const key = decodeURIComponent(performancePath[1] ?? "");
+      const [exchange = "", venue = "", currency = ""] = key.split("/");
+      const stub: PerformanceStub = performance[key] ?? {
+        kind: "ok",
+        body: emptyPerformance(exchange, venue, currency),
+      };
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
     }
     if (url.endsWith("/pools")) {
       if (pools.kind === "network-error") return Promise.reject(new TypeError("offline"));
@@ -63,6 +115,20 @@ export function stubApi(
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+/**
+ * jsdom has no layout, so the `lg` breakpoint (1024 px) is a stubbed
+ * `matchMedia`: `wide` matches `(min-width: 1024px)`, `narrow` does not.
+ * `vi.unstubAllGlobals()` in `afterEach` puts it back.
+ */
+export function setViewport(width: "wide" | "narrow"): void {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: width === "wide",
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
 }
 
 export function unlock(): void {

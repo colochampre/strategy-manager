@@ -159,6 +159,40 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - While loading it shows a neutral "Checking mode"; on any failure it shows a neutral "Mode unknown". Neither state ever reads "Live".
     - Why: the design hid the badge when `dry_run` is false, but an absent badge looks the same as one still loading or one whose `/health` failed. A visible "Live" makes real-money mode unmistakable.
     - This supersedes design § Visual design, "shown only when `/health` says `dry_run`".
+33. **The return chart follows the selected range, rebased to 0% at the range's start** (2026-09-30, PR 11c review).
+    - Choosing 7D, 30D, 90D, 1Y or All redraws the chart for that window. `All` is the full curve, as before.
+    - For a shorter range the curve is rebased: each point is `index_t / index_before_start - 1`, and the drawdown is recomputed from the peak inside the window. The chart's last point therefore equals the ledger line's return for the same range, which the server compounds from the same daily returns.
+    - This ratio arithmetic runs in the browser, for display only, like the monthly grid's YEAR column. Money is still never computed client-side.
+    - The time axis gets ticks that make sense for every range: day or week ticks for short ranges, month ticks for long ones.
+    - Why: the owner expects the chart to show what the selector says. With a fixed chart, "30D" pressed over a year-long line reads as a bug.
+    - This supersedes design § Overview, "The chart always shows All".
+34. **The monthly grid shows the latest 3 years; older years sit behind "Show earlier years"** (2026-09-30, PR 11c review).
+    - The three most recent UTC years are rows. Any older year is revealed in place by a toggle, never paginated.
+    - The YEAR column and the monthly summary still cover the full history.
+    - Why: on a desktop screen, one pool's panel must fit at first glance without vertical scroll, and an unbounded list of years grows forever.
+    - Acceptance (with 35): at 1440x900 and 1920x1080, one pool's ledger line, chart, grid (3 years) and summary fit with no vertical scroll. Several pools on one exchange cannot all fit, and that is accepted.
+    - **Acceptance revised by decision 36**: the viewports are 1920x915 and 1440x900, and the panel counted is the whole of it.
+35. **Overview sizing: a bounded panel and a fluid decision rail** (2026-09-30, PR 11c review).
+    - The pool panel has a maximum width of about 800 px, so the viewBox-sized chart stays around 330 px tall instead of growing with the screen. **Superseded by decision 36**: the panel fills the width and the chart's height is bounded directly.
+    - The decision rail shrinks with the window instead of holding a fixed 22.5rem.
+    - At every width from 1024 px up, the monthly grid's figures never overlap, and all five range buttons stay visible.
+36. **Overview fills the width; the chart's height is bounded, not the panel's width** (2026-09-30, PR 11c second review). Supersedes decision 35's "maximum width of about 800 px" and revises decision 34's acceptance.
+    - The owner saw, at 1920 wide with a viewport of about 915 px, that the 800 px panel left a large empty area on the right, that its narrow width forced line breaks that ADDED height, and that the page still scrolled on Bybit. Limiting the width was the wrong answer.
+    - **Width.** The panel and its column have no maximum width. The decision rail keeps its fluid `xl:w-[clamp(15rem,25%,22.5rem)]` beside the panels from 1280 px and in-flow below it (kept: at 1920 it is 360 px, at 1440 it is about 290 px).
+    - **Height.** The return chart is drawn at its MEASURED pixel width (a `ResizeObserver`, default 796 px before the first measurement and in jsdom, never below 280 px) and a FIXED height of 280 px. The `viewBox` is the pixel box, so fonts and strokes keep their size at every width, and a wider panel gets a wider chart, not a taller one.
+    - **Stale note.** "Balance is out of date: last synced ..." sits on the eyebrow's row, right-aligned, instead of a line of its own. It is still plain visible text, neutral (never amber).
+    - **Ledger line.** Each label and value is one pair that never breaks inside; the line wraps only between pairs, including eight-decimal BTC and ETH figures ("deepest" stays with its value).
+    - **Range selector.** It lives in the chart header, top right, on the title's row; the caption sits under the title. All five 44 px buttons stay whole down to 390 px (the header wraps onto a second row instead of clipping).
+    - **Revised fit criterion.** At viewports of 1920x915 and 1440x900, one pool's whole panel (eyebrow and stale note, ledger line, chart header with the selector, chart, grid title, the 3-year grid and the summary) fits with no page scroll. With "Show earlier years" expanded, overflow is acceptable. The pixel budget is an estimate from the classes (jsdom has no layout) and is in tasks.md, 8o round 2.
+    - Why: the owner's real screen is wide and short. Height is what runs out, so height is what gets bounded.
+37. **Interim pool order on the Overview** (2026-09-30, PR 11c second review; separate from 36 because it is a different concern and has its own follow-up, task 11f.1).
+    - On an exchange with several pools, the panels are ordered: enabled pools first; then pools settled in a USD stablecoin (USDT), the larger available balance first; then every other currency by code. Pools that tie keep the server's order. Pools are ranked, never summed (rule 7).
+    - Why interim: the owner wants descending USD value, so attention goes where the capital is. The system has no live price (`FixedUsdRateProvider` knows only USDT = 1), so the client cannot rank a BTC pool against an ETH or a USDT one, and no prices are invented.
+    - The real request is task 11f.1: a backend USD valuation per pool (for example the venue's mark price or ticker at read time), exposed as `usd_value` on `GET /api/pools` for display and sort only, never summed. It touches only multi-pool exchanges (Pionex today, whose pools are all disabled).
+38. **The page content is capped at 90rem and centred inside `main`** (2026-09-30, PR 11c third review).
+    - `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one inner column, `mx-auto w-full max-w-[90rem]`, which keeps `main`'s one-viewport flex contract so the token gate still fills it.
+    - On a very wide screen the extra width becomes margin around the content. The pool panel and the decision rail stay side by side, and the space between them never grows.
+    - Why: with decision 36 the panel filled the width, and on a wide screen the chart and the ledger line stretched further than reads well.
 
 ## Standing constraints
 

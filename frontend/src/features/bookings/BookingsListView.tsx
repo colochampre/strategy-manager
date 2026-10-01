@@ -1,28 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BookingCard } from "@/features/bookings/BookingCard";
 import { ConfirmBookingDialog } from "@/features/bookings/ConfirmBookingDialog";
 import { RejectBookingDialog } from "@/features/bookings/RejectBookingDialog";
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { usePendingBookings } from "@/features/bookings/usePendingBookings";
+import { ApiError } from "@/shared/api/client";
 import type { BookingProposal } from "@/shared/api/types";
 
 interface BookingsListViewProps {
   exchange?: string;
-}
-
-async function fetchPendingBookings(): Promise<BookingProposal[]> {
-  const body = await apiFetch<unknown>("/reconciliation/bookings?state=pending");
-  // Never trust a 200's body shape -- a malformed payload (e.g. `{items:
-  // []}` instead of a bare array) must render as the error state, never as
-  // "no pending bookings" (carried forward from the unit 9a review).
-  if (!Array.isArray(body)) {
-    throw new ApiError(200, {
-      detail: "Unexpected response shape from GET /reconciliation/bookings: expected an array",
-    });
-  }
-  return body as BookingProposal[];
+  /** What to say when nothing is pending; defaults to the bookings page's own wording. */
+  emptyText?: string;
 }
 
 /**
@@ -41,12 +30,9 @@ async function fetchPendingBookings(): Promise<BookingProposal[]> {
  * enclosing `TokenGate` re-renders its paste-once form on its own -- this
  * view does not special-case it.
  */
-export function BookingsListView({ exchange }: BookingsListViewProps) {
+export function BookingsListView({ exchange, emptyText }: BookingsListViewProps) {
   const { t } = useTranslation();
-  const query = useQuery({
-    queryKey: ["bookings", "pending"],
-    queryFn: fetchPendingBookings,
-  });
+  const query = usePendingBookings();
   const [confirmTarget, setConfirmTarget] = useState<BookingProposal | null>(null);
   const [rejectTarget, setRejectTarget] = useState<BookingProposal | null>(null);
 
@@ -79,7 +65,7 @@ export function BookingsListView({ exchange }: BookingsListViewProps) {
       : query.data.filter((proposal) => proposal.exchange === exchange);
 
   if (proposals.length === 0) {
-    return <p className="text-sm text-ink-3">{t("bookings.empty")}</p>;
+    return <p className="text-sm text-ink-3">{emptyText ?? t("bookings.empty")}</p>;
   }
 
   return (
@@ -91,14 +77,14 @@ export function BookingsListView({ exchange }: BookingsListViewProps) {
             <button
               type="button"
               onClick={() => setRejectTarget(proposal)}
-              className="rounded-md border border-rule px-3 py-1.5 text-xs text-ink-2 hover:bg-panel-2"
+              className="min-h-11 rounded-md border border-rule px-3 py-1.5 text-xs text-ink-2 hover:bg-panel-2"
             >
               {t("bookings.actions.reject")}
             </button>
             <button
               type="button"
               onClick={() => setConfirmTarget(proposal)}
-              className="rounded-md bg-gain px-3 py-1.5 text-xs font-medium text-ground hover:opacity-90"
+              className="min-h-11 rounded-md bg-gain px-3 py-1.5 text-xs font-medium text-ground hover:opacity-90"
             >
               {t("bookings.actions.approve")}
             </button>

@@ -29,13 +29,18 @@
       "title": "Requiere su decisión",
       "scopeLoading": "Cargando exchanges…",
       "scopeError": "Las reservas pendientes están ocultas porque no se pudieron cargar los exchanges y no se pueden filtrar.",
-      "noExchanges": "No hay ningún exchange configurado, por lo que no hay reservas pendientes que mostrar."
+      "noExchanges": "No hay ningún exchange configurado, por lo que no hay reservas pendientes que mostrar.",
+      "explainer": "Cierres que hizo el exchange y que el libro mayor todavía no registró. Aprobarlos los escribe en el libro mayor de forma definitiva.",
+      "empty": "Nada requiere tu decisión.",
+      "pending_one": "{{count}} pendiente",
+      "pending_other": "{{count}} pendientes"
     },
     "returnChart": {
       "title": "Rendimiento de las estrategias, compuesto",
       "caption": "Días UTC · depósitos y retiros excluidos",
       "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
       "empty": "Todavía no hay operaciones cerradas",
+      "emptyRange": "Sin operaciones cerradas en este rango",
       "unreadable": "No se pudo leer la curva de rendimiento."
     },
     "ledger": {
@@ -58,6 +63,8 @@
       "year": "Año",
       "empty": "Todavía no hay meses con operaciones cerradas",
       "noTrades": "sin operaciones cerradas",
+      "showEarlier": "Mostrar años anteriores",
+      "hideEarlier": "Ocultar años anteriores",
       "unreadable": "No se pudieron leer los rendimientos mensuales."
     },
     "monthlySummary": {
@@ -69,6 +76,12 @@
       "open_other": "{{count}} operaciones abiertas fuera de la curva",
       "noCapital_one": "{{count}} operación sin capital al abrir",
       "noCapital_other": "{{count}} operaciones sin capital al abrir"
+    },
+    "pool": {
+      "loading": "Cargando el rendimiento de este pool…",
+      "error": "No se pudo cargar el rendimiento de este pool.",
+      "noReport": "Este pool todavía no tiene informe de rendimiento.",
+      "stale": "El saldo está desactualizado: última sincronización {{time}}."
     }
   },
   "strategies": {
