@@ -68,23 +68,32 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
 /** One Bybit pool unless a test says otherwise, so the exchange scope is ready. */
 const DEFAULT_POOLS: PoolsStub = { kind: "ok", body: [pool("bybit", "linear")] };
 
-function jsonResponse(body: unknown, status = 200): Response {
+export function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
 }
 
 /**
+ * Answers a request a view of its own owns (the strategies endpoints, say), or
+ * returns `undefined` to leave it to the shell's routes.
+ */
+export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> | undefined;
+
+/**
  * Routes the endpoints the shell touches; everything else is a loud failure.
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
- * without an entry answers an empty ledger.
+ * without an entry answers an empty ledger. `extra` is asked first.
  */
 export function stubApi(
   health: HealthStub,
   bookings: unknown[] = [],
   pools: PoolsStub = DEFAULT_POOLS,
   performance: Record<string, PerformanceStub> = {},
+  extra?: ExtraRoute,
 ) {
-  const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const owned = extra?.(url, init);
+    if (owned !== undefined) return owned;
     if (url.endsWith("/health")) {
       if (health.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (health.kind === "pending") return new Promise<Response>(() => undefined);

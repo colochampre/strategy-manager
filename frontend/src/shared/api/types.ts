@@ -131,6 +131,53 @@ export interface Excluded {
   unresolved_allocation_count: number;
 }
 
+/** `uptime` of `GET /api/strategies` (`UptimeView`): cumulative time enabled (decision 9). */
+export interface StrategyUptime {
+  seconds: number;
+  /** ISO-8601; null for a strategy that was never enabled. */
+  first_enabled_at: string | null;
+  /** The earliest enable is a migration BASELINE row, so the true first date is unknown. */
+  baseline: boolean;
+}
+
+export type FillMode = "SKIP" | "PARTIAL";
+
+/**
+ * One strategy of `GET /api/strategies` (`StrategyView`). `allocation_percent`
+ * is a decimal string; `archived_at` is null while the strategy is live.
+ */
+export interface Strategy {
+  id: string;
+  name: string;
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
+  fill_mode: FillMode;
+  allocation_percent: string;
+  enabled: boolean;
+  archived_at: string | null;
+  allowed_pairs: string[];
+  uptime: StrategyUptime;
+}
+
+/** One row of `by_pair` (`PairBody`): a pair's closed trades; `return` is null without capital at open. */
+export interface PairStat {
+  pair: string;
+  trades: number;
+  pnl: string;
+  return: string | null;
+}
+
+/**
+ * `GET /api/performance/strategies/{id}` (`StrategyPerformanceBody`): the pool
+ * report's shape for one strategy, in its pool's own currency, plus the
+ * breakdown by pair.
+ */
+export interface StrategyPerformance extends PoolPerformance {
+  strategy_id: string;
+  by_pair: PairStat[];
+}
+
 /**
  * `GET /api/performance/pools/{exchange}/{venue}/{ccy}` (`PerformanceBody`).
  * One pool in its own currency: the endpoint returns every range at once, so

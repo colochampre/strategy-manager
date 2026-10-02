@@ -86,6 +86,27 @@
   },
   "strategies": {
     "title": "Strategies",
+    "archivedToggle": "Show archived",
+    "loading": "Loading strategies…",
+    "empty": "No strategies on this exchange yet.",
+    "error": "Strategies could not be loaded.",
+    "scopeLoading": "Strategies appear once the exchanges have loaded.",
+    "scopeError": "Strategies are hidden because the exchanges could not be loaded, so they cannot be filtered.",
+    "noExchanges": "No exchange is configured, so there are no strategies to show.",
+    "row": {
+      "archived": "Archived",
+      "enable": "Enable {{name}}",
+      "neverEnabled": "never enabled",
+      "active_one": "active {{count}} day",
+      "active_other": "active {{count}} days",
+      "activeAtLeast_one": "active at least {{count}} day",
+      "activeAtLeast_other": "active at least {{count}} days",
+      "trades": "trades",
+      "pnl": "PnL all time",
+      "return": "return all time",
+      "toggleError": "The change was not saved. Try again.",
+      "performanceError": "This strategy's figures could not be loaded."
+    },
     "detail": {
       "title": "Strategy"
     }
