@@ -28,7 +28,11 @@ def _bridges_on_root() -> list[logging.Handler]:
 
 
 def test_the_shared_settings_build_no_alerter() -> None:
-    assert build_alerter(get_settings()) is None
+    # Bound to a name first: an assertion that calls ``get_settings()`` inline
+    # would print the whole settings object, DSN included, when it fails.
+    alerter = build_alerter(get_settings())
+
+    assert alerter is None
 
 
 async def test_operator_alerts_on_the_shared_settings_installs_no_bridge() -> None:
