@@ -113,7 +113,7 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
           )}
         </div>
         <p data-testid="strategy-pool" className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
-          {`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+          {[strategy.venue, strategy.allowed_pairs.join(", ")].filter((part) => part !== "").join(" · ")}
         </p>
         <p data-testid="strategy-uptime" className="text-xs text-ink-2">
           {uptimeText(strategy, t)}

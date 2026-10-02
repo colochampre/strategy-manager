@@ -1357,6 +1357,7 @@ Forecast: 300–450 lines.
 - [x] 9l.1 RED `frontend/src/features/strategies/StrategiesPage.test.tsx::test_archived_excluded_by_default_toggle_shows_them`, `::test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return`.
 - [x] 9l.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_id_generated_via_crypto_randomuuid`, `::test_submitting_with_zero_pairs_is_prevented`.
 - [x] 9l.3 GREEN: list container + row + dialog, `['strategies',{includeArchived}]` query.
+- [x] 9l.4 Row sub-line shows the venue and the allowed pairs (decision 39). RED `frontend/src/features/strategies/StrategiesPage.test.tsx::test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return` (asserts the exchange and the bare currency are gone), `::shows the venue alone, with no trailing separator, when a strategy has no allowed pairs`.
 
 Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.

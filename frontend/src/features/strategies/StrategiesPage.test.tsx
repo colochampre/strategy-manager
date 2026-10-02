@@ -122,7 +122,7 @@ describe("the strategies list", () => {
   });
 
   it("test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return", async () => {
-    const api = strategiesApi([strategy()]);
+    const api = strategiesApi([strategy({ allowed_pairs: ["ETHUSDT", "BTCUSDT"] })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies");
 
@@ -131,12 +131,26 @@ describe("the strategies list", () => {
       "href",
       "/strategies/11111111-1111-4111-8111-111111111111",
     );
-    expect(within(row).getByTestId("strategy-pool")).toHaveTextContent("bybit · linear · USDT");
+    // Decision 39: the venue and the allowed pairs, in the API's order. The exchange
+    // (the operator is on its tab) and the settlement currency (shown by the PnL) are not repeated.
+    const subLine = within(row).getByTestId("strategy-pool");
+    expect(subLine.textContent).toBe("linear · ETHUSDT, BTCUSDT");
+    expect(subLine).not.toHaveTextContent("bybit");
+    expect(subLine.textContent).not.toMatch(/\bUSDT\b/);
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toHaveAttribute("aria-checked", "true");
     expect(within(row).getByTestId("strategy-uptime")).toHaveTextContent("active 12 days");
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
     expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
     expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
+  });
+
+  it("shows the venue alone, with no trailing separator, when a strategy has no allowed pairs", async () => {
+    const api = strategiesApi([strategy({ allowed_pairs: [] })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    const row = await screen.findByTestId("strategy-row");
+    expect(within(row).getByTestId("strategy-pool").textContent).toBe("linear");
   });
 
   it("shows a never-enabled strategy as off, with no activation claim", async () => {
