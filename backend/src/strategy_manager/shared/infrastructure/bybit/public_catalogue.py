@@ -32,10 +32,14 @@ import time
 from collections.abc import Callable
 from typing import Any, Final
 
+from strategy_manager.shared.infrastructure.bybit.catalogue_pages import (
+    LINEAR,
+    MAX_PAGES,
+    PAGE_LIMIT,
+    read_every_page,
+)
 from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
 from strategy_manager.shared.infrastructure.bybit.read_client import (
-    INSTRUMENTS_PATH,
-    LINEAR,
     PerpContract,
     parse_contract,
 )
@@ -45,12 +49,7 @@ from strategy_manager.shared.infrastructure.bybit.transport import (
 
 logger = logging.getLogger(__name__)
 
-PAGE_LIMIT: Final = 1000
-
-# Probe P7 (2026-10-02): 891 linear entries, so one page of 1000 today. Ten
-# pages is ten times the current listing; reaching it means something is wrong,
-# and a partial list must never be returned for it.
-MAX_PAGES: Final = 10
+__all__ = ["MAX_PAGES", "PAGE_LIMIT", "BybitPublicCatalogue"]
 
 _NO_SYMBOL: Final = "<no symbol>"
 _SYMBOLS_NAMED: Final = 10
@@ -134,34 +133,7 @@ class BybitPublicCatalogue:
         return available
 
     async def _read_every_page(self) -> tuple[list[Any], int]:
-        entries: list[Any] = []
-        cursor = ""
-        for page in range(1, MAX_PAGES + 1):
-            params = {"category": LINEAR, "limit": str(PAGE_LIMIT)}
-            if cursor:
-                params["cursor"] = cursor
-            data = await self._transport.get(INSTRUMENTS_PATH, params)
-            if not isinstance(data, dict):
-                raise BybitApiError(
-                    f"GET {INSTRUMENTS_PATH} returned no result object, got "
-                    f"{type(data).__name__}"
-                )
-            listed = data.get("list")
-            if not isinstance(listed, list):
-                raise BybitApiError(
-                    f"expected 'list' to be a list, got {type(listed).__name__}; "
-                    f"payload keys were {sorted(data)}"
-                )
-            entries.extend(listed)
-            cursor = str(data.get("nextPageCursor") or "")
-            if not cursor:
-                return entries, page
-
-        raise BybitApiError(
-            f"the {LINEAR} catalogue did not end within {MAX_PAGES} pages of "
-            f"{PAGE_LIMIT}; returning the {len(entries)} entries read so far would "
-            "drop valid pairs"
-        )
+        return await read_every_page(self._transport.get)
 
 
 def _symbol_of(entry: Any) -> str:
