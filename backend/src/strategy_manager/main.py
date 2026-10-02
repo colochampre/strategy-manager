@@ -254,6 +254,10 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.admin_token_invariant import (
     assert_admin_api_token_configured,
 )
+from strategy_manager.strategies.infrastructure.pair_catalog import VenuePairCatalog
+from strategy_manager.strategies.infrastructure.pair_catalog_router import (
+    router as pair_catalog_router,
+)
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from strategy_manager.strategies.infrastructure.router import (
     router as strategies_router,
@@ -1778,6 +1782,13 @@ def create_app() -> FastAPI:
 
     app.include_router(signals_router)
 
+    # ONE catalogue for the whole process, so its cache and its single-flight
+    # lock are shared by every request (decision 41). It reads the venues'
+    # PUBLIC catalogues with transports that cannot sign: no vault, no signer,
+    # no credential in this process. ``get_pair_catalog`` reads it back from here
+    # and tests override that dependency with a fake.
+    app.state.pair_catalog = VenuePairCatalog.for_settings(settings)
+
     # Every administrative router lives under one prefix (design.md §13, spec:
     # admin-api). Each included router keeps its OWN
     # ``dependencies=[Depends(require_admin_token)]``, so authentication stays
@@ -1788,6 +1799,7 @@ def create_app() -> FastAPI:
     # directly, and never inside ``api_router``.
     api_router = APIRouter(prefix="/api")
     api_router.include_router(strategies_router)
+    api_router.include_router(pair_catalog_router)
     api_router.include_router(reconciliation_router)
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)

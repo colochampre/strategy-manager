@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # than this window. 5000ms is Binance's own default; 60000ms its ceiling.
     binance_recv_window_ms: int = Field(default=5000)
 
+    # How long the API process keeps a venue's list of available pairs in memory
+    # (decision 41). Long enough that opening the dialog and saving share one
+    # read of a catalogue that takes seconds; short enough that a new listing
+    # appears within minutes. A pair delisted less than this long ago is still
+    # accepted, and one listed less than this long ago is refused until it
+    # expires: both are bounded by this value. Nothing here is a credential.
+    pair_catalogue_ttl_seconds: float = Field(default=300.0)
+
     # Bearer token required by every ``/strategies`` endpoint — the surface
     # that registers strategies and arms them, which is to say the surface
     # that decides what this system trades and with how much capital.

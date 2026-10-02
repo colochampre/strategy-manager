@@ -71,6 +71,33 @@ class PoolCatalogPort(Protocol):
 
     async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]: ...
 
+    async def exists(self, pool: PoolKey) -> bool:
+        """Whether ``pool`` is a row of ``capital_pools``, enabled or not.
+
+        Only the read endpoint for available pairs asks: it must refuse a made-up
+        pool BEFORE any venue is called, and a disabled pool is still answered
+        (the public catalogue needs no key, and an existing strategy on a pool
+        disabled later can still have its pairs edited).
+        """
+        ...
+
+
+class PairCatalogPort(Protocol):
+    """Which pairs a strategy on a capital pool may trade, according to the
+    venue itself.
+
+    Returns ``market_key`` forms (``STXUSDT``, never ``STXUSDT.P`` or
+    ``STXUSDT_PERP``), the form a strategy stores its allowed pairs in.
+
+    Raises ``PairCatalogNotServed`` when no catalogue source exists for the
+    pool's exchange and venue, and ``PairCatalogUnavailable`` when the venue
+    cannot be read. It never answers an empty set for either: an empty answer
+    would read as "this venue lists nothing", and a stale answer would accept a
+    pair on evidence that has expired.
+    """
+
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]: ...
+
 
 class CommitPort(Protocol):
     """Mirrors the same narrow port every other module declares: any object

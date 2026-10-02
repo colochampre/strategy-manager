@@ -49,6 +49,7 @@ from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from tests.accounts.fakes import (
     NOW,
     TRADING_SNAPSHOT,
@@ -135,7 +136,19 @@ async def test_the_dedicated_endpoint_is_not_a_method_other_than_get(client: Asy
 
 # --- no other route carries it ------------------------------------------------------
 
-_SAMPLE_PATH_PARAMS = {"exchange": "bybit", "venue": "usdt-m", "ccy": "USDT"}
+_SAMPLE_PATH_PARAMS = {
+    "exchange": "bybit",
+    "venue": "usdt-m",
+    "ccy": "USDT",
+    "settlement_currency": "USDT",
+}
+
+
+class _SweepPairCatalog:
+    """A fake venue catalogue: a non-empty answer and no network."""
+
+    async def available_pairs(self, pool: tuple[str, str, str]) -> frozenset[str]:
+        return frozenset({"STXUSDT"})
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
@@ -265,6 +278,8 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         )
 
     app.dependency_overrides[get_save_credential] = _save_credential
+    # No network from the suite; the available-pairs body must be non-empty to be inspected.
+    app.dependency_overrides[get_pair_catalog] = _SweepPairCatalog
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with factory() as session:
