@@ -20,6 +20,7 @@ is to ask again rather than release the capital behind it.
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -40,7 +41,7 @@ class BybitTransport:
 
     async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         signed = self._signer.sign_get(path, params)
-        return await self._send(
+        return await send_request(
             "GET",
             path,
             lambda: self._http.get(
@@ -58,7 +59,7 @@ class BybitTransport:
         body = json.dumps(payload, separators=(",", ":"))
         signed = self._signer.sign_post(path, body)
         headers = {**signed.headers, "Content-Type": JSON_CONTENT_TYPE}
-        return await self._send(
+        return await send_request(
             "POST",
             path,
             lambda: self._http.post(
@@ -68,36 +69,62 @@ class BybitTransport:
             ),
         )
 
-    async def _send(
-        self,
-        method: str,
-        path: str,
-        call: Callable[[], Awaitable[httpx.Response]],
-    ) -> Any:
-        try:
-            response = await call()
-        except httpx.HTTPError as exc:
-            raise BybitApiError(f"{method} {path} failed: {exc}") from exc
 
-        if response.status_code != httpx.codes.OK:
-            raise BybitApiError(
-                f"{method} {path} returned HTTP {response.status_code}",
-                http_status=response.status_code,
-            )
+class BybitPublicTransport:
+    """Reads Bybit's public market data. It cannot sign.
 
-        try:
-            envelope = response.json()
-        except ValueError as exc:
-            raise BybitApiError(f"{method} {path} returned a non-JSON body") from exc
+    The constructor takes an HTTP client and nothing else: there is no signer
+    to pass, no credential to hold and no key header to send, so a process
+    that builds only this class (the API process) has no way to authenticate
+    even by mistake. The envelope is read by the same function the signed
+    transport uses.
+    """
 
-        if not isinstance(envelope, dict):
-            raise BybitApiError(f"{method} {path} returned a non-object body")
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self._http = http
 
-        code = envelope.get("retCode")
-        if code != SUCCESS_CODE:
-            raise BybitApiError(
-                str(envelope.get("retMsg") or f"{method} {path} was rejected by Bybit"),
-                code=None if code is None else str(code),
-            )
+    async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
+        query = urlencode(dict(params or {}))
+        return await send_request(
+            "GET", path, lambda: self._http.get(f"{path}?{query}" if query else path)
+        )
 
-        return envelope.get("result")
+
+async def send_request(
+    method: str,
+    path: str,
+    call: Callable[[], Awaitable[httpx.Response]],
+) -> Any:
+    """Runs one request and unwraps Bybit's envelope.
+
+    A module-level function, not a method, so that every transport in this
+    file reads the envelope identically whether or not the request was signed:
+    a ``retCode`` that is not zero over HTTP 200 is a rejection either way.
+    """
+    try:
+        response = await call()
+    except httpx.HTTPError as exc:
+        raise BybitApiError(f"{method} {path} failed: {exc}") from exc
+
+    if response.status_code != httpx.codes.OK:
+        raise BybitApiError(
+            f"{method} {path} returned HTTP {response.status_code}",
+            http_status=response.status_code,
+        )
+
+    try:
+        envelope = response.json()
+    except ValueError as exc:
+        raise BybitApiError(f"{method} {path} returned a non-JSON body") from exc
+
+    if not isinstance(envelope, dict):
+        raise BybitApiError(f"{method} {path} returned a non-object body")
+
+    code = envelope.get("retCode")
+    if code != SUCCESS_CODE:
+        raise BybitApiError(
+            str(envelope.get("retMsg") or f"{method} {path} was rejected by Bybit"),
+            code=None if code is None else str(code),
+        )
+
+    return envelope.get("result")

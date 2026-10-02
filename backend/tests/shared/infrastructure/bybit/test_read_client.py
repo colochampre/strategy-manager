@@ -103,6 +103,33 @@ async def test_contract_rules_are_parsed_as_exact_decimals(
     assert contracts[0].is_trading
 
 
+async def test_settles_in_compares_the_settle_coin_case_insensitively(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    """The venue spells the coin ``USDT`` and a pool names it however its row
+    was written; the comparison must not depend on either's case. The settle
+    coin decides, not the quote coin: a contract quoted in USDT and settled in
+    USDC belongs to the USDC pool."""
+    lowercase = {**BTC_PERP, "settleCoin": "usdt"}
+    usdc_settled = {**BTC_PERP, "symbol": "BTCPERP", "settleCoin": "USDC"}
+    responses = {
+        INSTRUMENTS_PATH: httpx.Response(
+            200, json=_envelope({"list": [BTC_PERP, lowercase, usdc_settled]})
+        )
+    }
+    client = _client(signer, responses, recorded)
+
+    plain, lower, usdc = await client.perp_contracts()
+
+    assert plain.settles_in("USDT")
+    assert plain.settles_in("usdt")
+    assert lower.settles_in("USDT")
+    assert not plain.settles_in("USDC")
+    assert usdc.quote_coin == "USDT"
+    assert usdc.settles_in("usdc")
+    assert not usdc.settles_in("USDT")
+
+
 async def test_a_dated_future_is_not_reported_as_a_perpetual(
     signer: BybitSigner, recorded: list[httpx.Request]
 ) -> None:
