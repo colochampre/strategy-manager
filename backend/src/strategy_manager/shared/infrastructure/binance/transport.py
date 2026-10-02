@@ -39,10 +39,7 @@ class BinanceTransport:
         self._signer = signer
 
     async def get_public(self, path: str, params: Mapping[str, str] | None = None) -> Any:
-        query = urlencode(dict(params or {}))
-        return await send_request(
-            "GET", path, lambda: self._http.get(f"{path}?{query}" if query else path)
-        )
+        return await BinancePublicTransport(self._http).get(path, params)
 
     async def get_signed(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         signed = self._signer.sign_get(path, params)
@@ -70,6 +67,25 @@ class BinanceTransport:
                 headers=headers,
                 content=signed.body.encode("utf-8"),
             ),
+        )
+
+
+class BinancePublicTransport:
+    """Reads Binance's public market data. It cannot sign.
+
+    The constructor takes an HTTP client and nothing else, so a process that
+    builds only this class has no signer, no credential and no API-key header.
+    A 451, a non-JSON body and a negative ``code`` are read by the same
+    function the signed transport uses.
+    """
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self._http = http
+
+    async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
+        query = urlencode(dict(params or {}))
+        return await send_request(
+            "GET", path, lambda: self._http.get(f"{path}?{query}" if query else path)
         )
 
 

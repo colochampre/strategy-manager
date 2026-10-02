@@ -20,6 +20,7 @@ is to ask again rather than release the capital behind it.
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -66,6 +67,26 @@ class BybitTransport:
                 headers=headers,
                 content=signed.body.encode("utf-8"),
             ),
+        )
+
+
+class BybitPublicTransport:
+    """Reads Bybit's public market data. It cannot sign.
+
+    The constructor takes an HTTP client and nothing else: there is no signer
+    to pass, no credential to hold and no key header to send, so a process
+    that builds only this class (the API process) has no way to authenticate
+    even by mistake. The envelope is read by the same function the signed
+    transport uses.
+    """
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self._http = http
+
+    async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
+        query = urlencode(dict(params or {}))
+        return await send_request(
+            "GET", path, lambda: self._http.get(f"{path}?{query}" if query else path)
         )
 
 
