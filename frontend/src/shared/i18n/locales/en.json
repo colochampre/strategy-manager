@@ -133,6 +133,19 @@
         "generic": "The strategy was not created. Try again."
       }
     },
+    "pairs": {
+      "search": "Search pairs",
+      "choosePool": "Choose a pool first",
+      "loading": "Loading the pair list…",
+      "loadFailed": "The pair list could not be loaded.",
+      "retry": "Retry",
+      "noMatch": "No pair matches",
+      "showing": "Showing {{shown}} of {{total}} matching pairs",
+      "narrow": "Type to narrow the list.",
+      "remove": "Remove {{symbol}}",
+      "notListed": "no longer listed",
+      "selected": "Selected pairs"
+    },
     "detail": {
       "title": "Strategy"
     }
