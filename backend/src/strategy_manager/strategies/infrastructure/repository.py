@@ -49,10 +49,19 @@ class SqlAlchemyStrategyRepository:
         SAME id serialize here: the second blocks until the first commits or
         rolls back, then re-reads whatever the first one left behind
         (tasks.md 2d.3; verified against real Postgres by
-        ``tests/strategies/infrastructure/test_update_strategy_concurrency.py``)."""
+        ``tests/strategies/infrastructure/test_update_strategy_concurrency.py``).
+
+        ``populate_existing`` makes the locked read return what the database holds
+        NOW even when this session already loaded the row (``ReplaceAllowedPairs``
+        reads it unlocked first, to decide whether a venue call is needed). Without
+        it the ORM hands back the earlier, stale values and the re-check under the
+        lock would be checking nothing."""
         row = (
             await self._session.execute(
-                select(StrategyRow).where(StrategyRow.id == strategy_id).with_for_update()
+                select(StrategyRow)
+                .where(StrategyRow.id == strategy_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         return None if row is None else _to_domain(row)
