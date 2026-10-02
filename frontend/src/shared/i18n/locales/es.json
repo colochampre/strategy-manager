@@ -133,6 +133,19 @@
         "generic": "La estrategia no se creó. Inténtelo de nuevo."
       }
     },
+    "pairs": {
+      "search": "Buscar pares",
+      "choosePool": "Elija primero un pool",
+      "loading": "Cargando la lista de pares…",
+      "loadFailed": "No se pudo cargar la lista de pares.",
+      "retry": "Reintentar",
+      "noMatch": "Ningún par coincide",
+      "showing": "Mostrando {{shown}} de {{total}} pares coincidentes",
+      "narrow": "Escriba para acotar la lista.",
+      "remove": "Quitar {{symbol}}",
+      "notListed": "ya no figura en la lista",
+      "selected": "Pares seleccionados"
+    },
     "detail": {
       "title": "Estrategia"
     }
