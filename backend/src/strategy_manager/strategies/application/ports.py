@@ -71,6 +71,16 @@ class PoolCatalogPort(Protocol):
 
     async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]: ...
 
+    async def exists(self, pool: PoolKey) -> bool:
+        """Whether ``pool`` is a row of ``capital_pools``, enabled or not.
+
+        Only the read endpoint for available pairs asks: it must refuse a made-up
+        pool BEFORE any venue is called, and a disabled pool is still answered
+        (the public catalogue needs no key, and an existing strategy on a pool
+        disabled later can still have its pairs edited).
+        """
+        ...
+
 
 class PairCatalogPort(Protocol):
     """Which pairs a strategy on a capital pool may trade, according to the

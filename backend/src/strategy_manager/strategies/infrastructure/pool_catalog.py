@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.application.ports import PoolKey
 
 
 class SqlAlchemyPoolCatalog:
@@ -38,3 +39,16 @@ class SqlAlchemyPoolCatalog:
             (Exchange(exchange), Venue(venue), Currency(currency))
             for exchange, venue, currency in result.all()
         ]
+
+    async def exists(self, pool: PoolKey) -> bool:
+        exchange, venue, currency = pool
+        found = await self._session.execute(
+            select(CapitalPoolRow.exchange)
+            .where(
+                CapitalPoolRow.exchange == exchange,
+                CapitalPoolRow.venue == venue,
+                CapitalPoolRow.settlement_currency == currency,
+            )
+            .limit(1)
+        )
+        return found.first() is not None
