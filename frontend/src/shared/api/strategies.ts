@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import type { Strategy } from "@/shared/api/types";
+import type { RegisterStrategyBody, Strategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -58,12 +58,35 @@ export function useStrategies(includeArchived: boolean) {
   });
 }
 
+/** `POST /api/strategies`. A new strategy is always disabled; arming it is a separate call. */
+export function registerStrategy(body: RegisterStrategyBody): Promise<Strategy> {
+  return apiFetch<Strategy>("/strategies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** `PATCH /api/strategies/{id}` with only `enabled`: every other field stays unchanged. */
 export function setStrategyEnabled(strategyId: string, enabled: boolean): Promise<Strategy> {
   return apiFetch<Strategy>(`/strategies/${encodeURIComponent(strategyId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
+  });
+}
+
+/** Every strategy mutation ends here, so the list and the detail never show a stale state. */
+export function useInvalidateStrategies() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ["strategies"] });
+}
+
+export function useRegisterStrategy() {
+  const invalidate = useInvalidateStrategies();
+  return useMutation<Strategy, Error, RegisterStrategyBody>({
+    mutationFn: registerStrategy,
+    onSuccess: () => invalidate(),
   });
 }
 

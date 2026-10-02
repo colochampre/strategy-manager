@@ -160,6 +160,18 @@ export interface Strategy {
   uptime: StrategyUptime;
 }
 
+/** The body of `POST /api/strategies` (`RegisterRequest`); `id` is the alert's `signalType`. */
+export interface RegisterStrategyBody {
+  id: string;
+  name: string;
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
+  fill_mode: FillMode;
+  allocation_percent: string;
+  allowed_pairs: string[];
+}
+
 /** One row of `by_pair` (`PairBody`): a pair's closed trades; `return` is null without capital at open. */
 export interface PairStat {
   pair: string;

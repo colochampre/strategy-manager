@@ -1354,8 +1354,8 @@ Forecast: 300–450 lines.
 **Files**: Create `frontend/src/features/strategies/{StrategiesPage,StrategyRow,ArchivedToggle,NewStrategyDialog}.tsx`.
 
 - [x] 9l.1 RED `frontend/src/features/strategies/StrategiesPage.test.tsx::test_archived_excluded_by_default_toggle_shows_them`, `::test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return`.
-- [ ] 9l.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_id_generated_via_crypto_randomuuid`, `::test_submitting_with_zero_pairs_is_prevented`.
-- [ ] 9l.3 GREEN: list container + row + dialog, `['strategies',{includeArchived}]` query.
+- [x] 9l.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_id_generated_via_crypto_randomuuid`, `::test_submitting_with_zero_pairs_is_prevented`.
+- [x] 9l.3 GREEN: list container + row + dialog, `['strategies',{includeArchived}]` query.
 
 Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.

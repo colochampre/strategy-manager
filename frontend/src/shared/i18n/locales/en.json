@@ -107,6 +107,32 @@
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },
+    "new": {
+      "open": "New strategy",
+      "title": "New strategy",
+      "name": "Name",
+      "pool": "Pool",
+      "poolPlaceholder": "Choose a pool",
+      "fillMode": "When capital is short",
+      "fillModePlaceholder": "Choose a behaviour",
+      "fillModes": {
+        "SKIP": "Skip the signal",
+        "PARTIAL": "Open with what is available"
+      },
+      "pairs": "Allowed pairs",
+      "pairsHint": "One pair per line, or separated by commas. At least one is required.",
+      "pairsRequired": "Add at least one allowed pair.",
+      "incomplete": "Enter a name and choose a pool and a behaviour.",
+      "noPools": "This exchange has no enabled pool, so a strategy cannot be registered on it.",
+      "submit": "Create strategy",
+      "submitting": "Creating…",
+      "cancel": "Cancel",
+      "errors": {
+        "conflict": "A strategy with this name or id already exists.",
+        "invalid": "The pool is not available or the pairs were refused. Check them and try again.",
+        "generic": "The strategy was not created. Try again."
+      }
+    },
     "detail": {
       "title": "Strategy"
     }
