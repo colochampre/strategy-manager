@@ -113,6 +113,25 @@ async def test_step_minimum_notional_and_tick_are_read_from_their_filters() -> N
     assert rules.tick_size == Decimal("0.010")
 
 
+async def test_settles_in_compares_the_margin_asset_not_the_quote_asset() -> None:
+    """A contract quoted in USDT and margined in USDC is not USDT-settled:
+    the margin asset is what a capital pool is denominated in."""
+    usdc_margined = {**AAVE, "symbol": "AAVEUSDC_X", "marginAsset": "USDC"}
+    lowercase = {**AAVE, "symbol": "AAVELOWER", "marginAsset": "usdt"}
+    client, _ = _client(public={"symbols": [AAVE, usdc_margined, lowercase]})
+
+    plain = await client.perp_rules("AAVEUSDT")
+    usdc = await client.perp_rules("AAVEUSDC_X")
+    lower = await client.perp_rules("AAVELOWER")
+
+    assert plain.settles_in("USDT")
+    assert plain.settles_in("usdt")
+    assert lower.settles_in("USDT")
+    assert usdc.quote_asset == "USDT"
+    assert not usdc.settles_in("USDT")
+    assert usdc.settles_in("usdc")
+
+
 async def test_a_symbol_the_catalogue_does_not_list_is_refused() -> None:
     client, _ = _client(public={"symbols": [AAVE]})
 

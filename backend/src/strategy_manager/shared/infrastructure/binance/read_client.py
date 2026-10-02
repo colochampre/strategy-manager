@@ -123,6 +123,14 @@ class PerpContract:
         """
         return self.contract_type == PERPETUAL
 
+    def settles_in(self, currency: str) -> bool:
+        """Whether this contract is margined in ``currency``, ignoring case.
+
+        The MARGIN asset decides, not the quote asset: a contract quoted in
+        USDT but margined in USDC draws on a different capital pool (rule 5).
+        """
+        return self.margin_asset.upper() == currency.upper()
+
     @property
     def is_trading(self) -> bool:
         return self.status.upper() == "TRADING"

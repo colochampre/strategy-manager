@@ -97,9 +97,17 @@ class PerpContract:
         any position held in them."""
         return self.contract_type == LINEAR_PERPETUAL
 
+    def settles_in(self, currency: str) -> bool:
+        """Whether this contract settles in ``currency``, ignoring case.
+
+        The SETTLE coin decides, not the quote coin: a contract quoted in USDT
+        but settled in USDC draws on a different capital pool (rule 5).
+        """
+        return self.settle_coin.upper() == currency.upper()
+
     @property
     def is_usdt_settled(self) -> bool:
-        return self.settle_coin.upper() == "USDT"
+        return self.settles_in("USDT")
 
     @property
     def is_trading(self) -> bool:
@@ -341,7 +349,7 @@ class BybitReadOnlyClient:
         data = await self._read(
             INSTRUMENTS_PATH, {"category": LINEAR, "limit": str(limit)}
         )
-        return [_parse_contract(entry) for entry in _list_of(data, "list")]
+        return [parse_contract(entry) for entry in _list_of(data, "list")]
 
     async def last_price(self, symbol: str) -> Decimal:
         data = await self._read(TICKERS_PATH, {"category": LINEAR, "symbol": symbol})
@@ -477,7 +485,11 @@ def _list_of(data: Mapping[str, Any], field: str) -> list[Any]:
     return value
 
 
-def _parse_contract(entry: Any) -> PerpContract:
+def parse_contract(entry: Any) -> PerpContract:
+    """One raw ``instruments-info`` entry as the trading rules an order is
+    checked against. Public so the credential-free catalogue parses with the
+    very function the order path uses: a market this cannot parse is one the
+    order path would refuse, so it must not be offered either."""
     fields = _object(entry, "instrument")
     lot = _object(fields.get("lotSizeFilter"), "lotSizeFilter")
     price = _object(fields.get("priceFilter"), "priceFilter")
@@ -497,6 +509,10 @@ def _parse_contract(entry: Any) -> PerpContract:
         tick_size=_amount(price, "tickSize"),
         max_leverage=_amount(leverage, "maxLeverage"),
     )
+
+
+# The private name stays so no existing caller changes.
+_parse_contract = parse_contract
 
 
 def _parse_balance(entry: Any) -> CoinBalance:
