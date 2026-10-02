@@ -21,6 +21,8 @@ Inputs: `proposal.md` (Engram `sdd/operator-panel/proposal`), `owner-decisions.m
 
 > **Revised 2026-10-02 (decisions 40 and 41, unit 9v).** Allowed pairs are validated against the venue's public catalogue, and the dialog's free text becomes a selector. The design is the last addendum of this file, "Addendum: allowed pairs validated against the venue catalogue". It changes three rows of the § 14 endpoint table (marked there) and the `NewStrategyDialog` and `AllowedPairsEditor` entries of § 15. Nothing else in this file is reopened.
 
+> **Revised 2026-10-02 (decision 42, unit 9x).** A strategy with no history can be deleted; one with any history can only be archived. The design is the last addendum of this file, "Addendum: deleting a strategy that has no history". It adds one row to the § 14 endpoint table (marked there), one control to the strategy detail view of § 15, and it corrects § 8's "strategies are never deleted". Archive itself is unchanged: still terminal, still never reversed. Three questions for the owner are open in its § L.
+
 Style follows `archive/2026-09-24-book-venue-closes/design.md`. Every new component names its hexagonal layer (`rules.design`). Complex flows have sequence diagrams.
 
 ## Technical approach
@@ -493,6 +495,7 @@ Money, quantities and ratios are **JSON strings** (pydantic v2 serializes `Decim
 | `PUT /strategies/{id}/allowed-pairs` | `{pairs: [str] (min 1)}` | `StrategyView` | 404; 409 `STRATEGY_ARCHIVED`; 422 empty/invalid; **(unit 9v, decision 41)** for ADDED pairs only: 422 `UNKNOWN_PAIRS` (+ `unknown`), 422 `PAIR_CATALOGUE_NOT_SERVED`, 502 `PAIR_CATALOGUE_UNAVAILABLE`; 409 `PAIRS_CHANGED` | `ReplaceAllowedPairs` (+ `PairCatalogPort`, addendum 9v § E) |
 | `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` **(unit 9v, decision 41)** | — | `{pool: {exchange, venue, settlement_currency}, pairs: [str], count}`; `pairs` sorted, in `market_key` form | 404 `no such pool`; 404 `PAIR_CATALOGUE_NOT_SERVED`; 502 `PAIR_CATALOGUE_UNAVAILABLE` | `ReadAvailablePairs` (addendum 9v § F) |
 | `POST /strategies/{id}/archive` | — | `StrategyView` (idempotent) | 404; 409 `STILL_ENABLED`; 409 `OPEN_POSITION` (+ `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `ArchiveStrategy` |
+| `DELETE /strategies/{id}` **(unit 9x, decision 42)** | — | **204**, no body | 404 unknown id (also a repeated delete); 409 `STILL_ENABLED`; 409 `HAS_HISTORY` (+ `history: {signals, reservations, execution_attempts, ledger_entries, booking_proposals, enablement_events}`, six counts) | `DeleteStrategy` (addendum 9x § D, § F) |
 | `GET /strategies/{id}/events` | — | `[{enabled, occurred_at, origin}]` | 404 | `SqlAlchemyEnablementLog` |
 | `GET /pools` | — | `[{exchange, venue, settlement_currency, enabled, balance: {total, available, observed_at, stale} \| null, reserved, allocatable}]` | — | `capital_pools` ⋈ `pool_balance_snapshots` + `sum_active` (`allocatable = max(0, available − reserved)`, computed server-side) |
 | `GET /performance/pools/{exchange}/{venue}/{ccy}` | — | `PoolPerformance` (below) | 404 unknown pool | `ReadPoolPerformance` |
@@ -2196,3 +2199,404 @@ Total 2,600 to 3,800 authored lines.
 - **Q1. A pool with no catalogue source refuses every new strategy (D10).** Today that is every Pionex pool, and all of them are disabled, so nothing changes in production. But if a Pionex spot pool were ever enabled again, no strategy could be registered on it until a catalogue source exists for it. The alternative is to accept pairs unvalidated on such a pool, which is the silent acceptance decision 40 removes. Recommended: refuse. This is a product choice about Pionex's future, so it is asked. It blocks only the `PairCatalogNotServed` tasks of 12v-3.
 - **Q2. The split into six PRs (D14).** Decision 41 said a backend PR and a frontend PR. The forecast puts the backend at four times the review budget. Recommended: the split above. The alternative is two PRs with an explicit size exception. Under `auto-chain` the split proceeds unless the owner says otherwise.
 - **Q3. Follow-up 9vf.1, outside this unit.** The ORDER path has the truncation risk V4 describes: `bybit/trade_client.py:130` reads one page of 1,000. If Bybit's `linear` listing passes 1,000 entries, a market on the second page is refused at order time as not listed. It fails closed and loudly, but it would refuse a valid signal. Probe P7.2 records today's count (about 840 on 2026-08-26: 800 perpetuals and 40 dated futures). The question is priority: fix it right after 12v-1 (the paged read already exists by then and the change is small), or leave it as a recorded follow-up. Recommended: right after 12v-1, as its own small PR, because it touches the order path and deserves its own review.
+
+## Addendum: deleting a strategy that has no history (decision 42) - 2026-10-02
+
+Unit 9x. HEAD `d162fe6`. Decision 42 is binding and is not reopened here. This addendum settles what it left to the design: every table that references a strategy, the no-history check and its locks, hard delete versus a tombstone, the endpoint, the panel control, and the PR split. It adds the `DELETE /strategies/{id}` row to § 14 (marked there) and corrects § 8, whose archive sequence assumed that a strategy row is never deleted.
+
+**The answer in one paragraph.** `DeleteStrategy` is `ArchiveStrategy`'s sibling: an unlocked read for the 404 and the pool, the pool's advisory lock, the strategy's row lock, then a count of every kind of row that references the strategy, and a hard `DELETE` of the row only when every count is zero. The database is the backstop: every reference is a `NO ACTION` foreign key, so a delete that the count wrongly allowed still fails, loudly. A signal that arrives during the delete is serialized by that same foreign key's row lock, and a signal that arrives after it is refused at the webhook with one WARNING. The base design needs **no migration**. One migration (0028) is needed only if the owner answers that enablement events must not block a delete (§ L, Q1).
+
+### A. Findings from the code (verified at HEAD `d162fe6`)
+
+**Every table and column that references a strategy.** "ORM" is the SQLAlchemy model; "migration" is what production actually has. Where they differ, the migration is the truth and the difference matters for tests (finding X2).
+
+| # | Table · column | Foreign key | Nullable | `ON DELETE` | Protected |
+| --- | --- | --- | --- | --- | --- |
+| R1 | `signals.strategy_id` | **Migration only:** `fk_signals_strategy` (`migrations/versions/0003_strategies_pools.py:93-95`). The ORM column carries no `ForeignKey` (`signals/infrastructure/models.py:29`). | NOT NULL (`0002_signals.py:39`) | none stated: `NO ACTION` | No. Unique `(strategy_id, idempotency_key)` (`0002_signals.py:70-75`) |
+| R2 | `reservations.strategy_id` | `fk_reservations_strategy` (`0004_reservations.py:56-58`; ORM `allocation/infrastructure/models.py:36-38`) | NOT NULL (`0004_reservations.py:32`) | `NO ACTION` | No |
+| R3 | `ledger_entries.strategy_id` | `fk_ledger_entries_strategy` (`0005_ledger_execution.py:122-124`; ORM `ledger/infrastructure/models.py:39-41`) | NOT NULL (`0005_ledger_execution.py:92`) | `NO ACTION` | **Append-only:** `trg_ledger_no_update_delete` and `trg_ledger_no_truncate` (`0005_ledger_execution.py:158-171`) |
+| R4 | `booking_proposals.strategy_id` | **Migration only:** `fk_booking_proposals_strategy` (`0023_booking_proposals.py:182-186`). The ORM column carries no `ForeignKey` (`reconciliation/infrastructure/models.py:129`). | NOT NULL (`0023_booking_proposals.py:139`) | `NO ACTION` | Frozen by repository discipline, no trigger (`0023_booking_proposals.py:6-13`) |
+| R5 | `strategy_enablement_events.strategy_id` | **Migration only:** `fk_strategy_enablement_events_strategy` (`0024_strategy_lifecycle.py:171`). The ORM column carries no `ForeignKey` (`strategies/infrastructure/enablement_log.py:37`). | NOT NULL (`0024_strategy_lifecycle.py:161`) | `NO ACTION` | **Append-only:** row trigger `trg_strategy_enablement_events_no_update_delete`, `BEFORE UPDATE OR DELETE` (`0024_strategy_lifecycle.py:177-194`). No `TRUNCATE` guard, on purpose (`0024_strategy_lifecycle.py:41-49`) |
+
+Those five are the only `strategy_id` columns in the schema (a search of every migration finds the name in `0002`, `0004`, `0005`, `0023` and `0024` only). **In production no `strategy_id` column lacks a foreign key.** The dangerous case the task asked about (a column that nothing stops from becoming an orphan) exists only in the ORM-built test schema, for R1, R4 and R5.
+
+**Tables that reach a strategy only through another row.** None of them can exist for a strategy that has no signal and no reservation.
+
+| # | Table · column | Reaches a strategy through | Evidence |
+| --- | --- | --- | --- |
+| I1 | `execution_attempts.reservation_id`, `.closes_allocation_id` | `reservations.strategy_id`. Exactly one of the two is set. | FKs `0005_ledger_execution.py:79-81`, `0012_closing_execution_attempts.py:69`; CHECK `0012_closing_execution_attempts.py:77-81`. The table has no `strategy_id` (`execution/infrastructure/models.py:60-73`) |
+| I2 | `execution_attempts.signal_id` | `signals.strategy_id` | Nullable FK, `0025_signal_outcomes.py:97-107` |
+| I3 | `reservations.signal_id` | `signals.strategy_id`. NOT NULL and UNIQUE, so **a reservation cannot exist without a signal** | `0004_reservations.py:33, 59` |
+| I4 | `ledger_entries.allocation_id`, `.execution_attempt_id` | reservations, attempts | `0005_ledger_execution.py:125-132` |
+| I5 | `booking_proposals.allocation_id`, `.execution_attempt_id` | reservations, attempts | `0023_booking_proposals.py:177-193` |
+| I6 | `reconciliation_discrepancies.open_allocation_ids` (`uuid[]`) | reservation ids, **no foreign key**, no strategy id | `0020_reconciliation_discrepancies.py:121-126`; ORM `reconciliation/infrastructure/models.py:57-61` |
+| I7 | `reservations.pool_total_at_open` | a column of the reservation row, not a reference | `0026_reservation_pool_total.py:52-55` |
+| I8 | `jobs.payload` (JSONB) | **No payload carries a strategy id.** `signal.process` carries `signal_id` (`signals/application/ingest_signal.py:81`); the settle job carries `execution_attempt_id` (`execution/application/place_order.py:207`, `close_position.py:230`); the continuation carries `signal_id` and allocation ids (`signals/application/open_after_close.py:178, 214-216`); the watchdog carries a timestamp (`shared/application/watchdog_handler.py:61`) | `shared/infrastructure/models.py:25` |
+| I9 | Performance reporting | No table. The reads take the pool from the strategy row and answer 404 when the row is missing | `performance/infrastructure/performance_router.py:299-306` |
+
+`capital_pools`, `pool_balance_snapshots` and `exchange_credentials` reference no strategy (`accounts/infrastructure/models.py`).
+
+**Other findings.**
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| X1 | A strategy's webhook identity IS its primary key: the webhook reads `UUID(alert.signal_type)` as `strategy_id`. The id has no server default and a second registration under it is refused. | `signals/infrastructure/router.py:76-79`; `strategies/infrastructure/models.py:43`; `strategies/application/register_strategy.py:123-129` | A deleted id can be registered again. It inherits nothing only if the delete left no row behind, which is why the check must be exhaustive (§ C). |
+| X2 | The integration test database is built from the ORM (`Base.metadata.create_all`), so it has **no** foreign key on R1, R4 and R5 and no append-only trigger. | `tests/pg_schema.py:1-22`; `tests/strategies/infrastructure/conftest.py:97-100` | Every delete test that relies on a foreign key or a trigger must run on a database migrated to `head` (§ J). On the ORM schema those tests would pass or fail for the wrong reason. |
+| X3 | The webhook does no strategy lookup. In production the signal `INSERT` itself fails on `fk_signals_strategy` when the id is not registered, and nothing catches it: the request ends as an unhandled 500. | `signals/application/ingest_signal.py:57-86`; `signals/infrastructure/repository.py:45-69`; `signals/infrastructure/router.py:98-101` | Today a mistyped alert id is already a 500 per alert. After a delete, the strategy's leftover alert would be one. Unit 9xa turns it into a refusal with one WARNING (§ E). |
+| X4 | The alert bridge forwards every ERROR record to Telegram. An unhandled exception in a request is logged at ERROR with a traceback. Whether the API process's `uvicorn.error` logger is behind the bridge was NOT verified here. | `shared/infrastructure/alert_log_bridge.py:101-114` | At best a leftover alert of a deleted strategy writes a traceback on every bar; at worst it also pages the owner each time. Either way the refusal must be a WARNING with no traceback. |
+| X5 | Registering writes no enablement event; the first enable writes the first one. | `strategies/application/register_strategy.py:159-168`; `strategies/infrastructure/router.py:317-319` | A strategy that was never enabled owns only its own row. |
+| X6 | `ArchiveStrategy` treats "the row is gone after the lock" as unreachable. | `strategies/application/archive_strategy.py:169-171` (`# pragma: no cover -- strategies are never deleted`) | It becomes reachable: an archive that waits behind a delete must answer 404. The pragma goes and a test covers it. |
+| X7 | `ArchiveStrategy` gets its exposure facts through `StrategyExposurePort`, whose adapter composes the provider modules' own repositories. | `strategies/application/ports.py:125-166`; `strategies/infrastructure/exposure_adapter.py:30-85` | The history check reuses that shape (§ B). |
+| X8 | `apiFetch` already returns `undefined` for a 204. | `frontend/src/shared/api/client.ts:88-90` | The delete call needs no client change. |
+| X9 | `StrategyDetailPage` is a placeholder. | `frontend/src/features/strategies/StrategyDetailPage.tsx:4` | The delete control is built unmounted, and unit 9d mounts it (§ H). |
+
+**Which rows does a never-used strategy actually own?**
+
+- **Never enabled:** exactly one row, its own `strategies` row. The allowed pairs are a column of that row (`0024_strategy_lifecycle.py:128-136`), and so is `archived_at`. Nothing else in the database names it.
+- **Enabled and disabled at least once, never signalled:** that row plus one `strategy_enablement_events` row per toggle (X5). Decision 42 does not list this kind of row, the database protects it twice (R5), and what to do with it is the owner's call (§ L, Q1).
+
+`GET /api/strategies/{id}/events` answers `[]` for the first case (`strategies/infrastructure/router.py:354-362`), and both performance routes answer a zero report with empty arrays (§ 14). After a delete all of them answer 404, because each loads the strategy row first.
+
+### B. Components, with hexagonal layer
+
+| Component | Layer | File | Notes |
+| --- | --- | --- | --- |
+| `StrategyHistory` (six counts, `is_empty()`, `blocking()`) | **application**/strategies | `strategies/application/ports.py` | A frozen dataclass of integers, the sibling of `StrategyExposure`. No `signals`, `allocation`, `execution`, `ledger` or `reconciliation` type appears in it. |
+| `StrategyHistoryPort.history(strategy_id) -> StrategyHistory` | **application**/strategies | same file | Consumer-declared. Takes no pool: see § C. |
+| `StrategyStillReferenced(constraint)` | **application**/strategies | same file | Raised by the repository adapter when the database refuses the delete. Keeps `IntegrityError` out of the application layer. |
+| `StrategyRepositoryPort.delete(strategy_id)` (new method) | **application**/strategies | same file | |
+| `DeleteStrategy`, `StrategyHasHistory` | **application**/strategies | `strategies/application/delete_strategy.py` | § D. Reuses `StillEnabled` (`archive_strategy.py`) and `UnknownStrategy` (`update_strategy.py`), as `ArchiveStrategy` already does. |
+| `StrategyHistoryAdapter` | **infrastructure**/strategies | `strategies/infrastructure/history_adapter.py` | Implements the port by composing the five provider repositories, the `StrategyExposureAdapter` precedent. |
+| `count_for_strategy(strategy_id) -> int` on each provider repository | **infrastructure**/signals, allocation, execution, ledger, reconciliation | the five `infrastructure/repository.py` files (`booking_proposal_repository.py` for reconciliation) | One narrow read each, owned by the module that owns the table. |
+| `SqlAlchemyEnablementLog.count_for(strategy_id) -> int` | **infrastructure**/strategies | `strategies/infrastructure/enablement_log.py` | |
+| `SqlAlchemyStrategyRepository.delete` | **infrastructure**/strategies | `strategies/infrastructure/repository.py` | One `DELETE` statement, flushed. Translates a foreign-key `IntegrityError` into `StrategyStillReferenced`, reading the constraint NAME (the `reconciliation/infrastructure/booking_writer.py:51` helper pattern), never the message text. |
+| `DELETE /strategies/{id}` route, `get_delete_strategy` | **infrastructure**/strategies | `strategies/infrastructure/router.py` | § F. The router already carries `require_admin_token` for every route in it (`router.py:108-112`). |
+| `UnknownSignalStrategy` | **application**/signals | `signals/application/ports.py` | Unit 9xa, § E. |
+| `SqlAlchemySignalRepository.insert_or_get` (changed), `IngestSignal` (changed), the webhook route (changed) | **infrastructure** and **application**/signals | `signals/infrastructure/repository.py`, `signals/application/ingest_signal.py`, `signals/infrastructure/router.py` | § E. No lookup is added to the ingress path. |
+| `useDeleteStrategy`, `DeleteStrategyControl`, `DeleteStrategyDialog` | frontend | `shared/api/strategies.ts`, `features/strategies/` | § H. |
+
+No new domain component: the rule "no history" is a count compared with zero, and it lives on `StrategyHistory`.
+
+### C. The no-history check
+
+**It counts six kinds, not four.** Decision 42 names signals, reservations, execution attempts and ledger entries. The schema has two more direct references, R4 and R5.
+
+| Kind (`history` key) | Counted as | Blocks a delete |
+| --- | --- | --- |
+| `signals` | rows of `signals` with this `strategy_id` | Yes (decision 42) |
+| `reservations` | rows of `reservations` with this `strategy_id` | Yes (decision 42) |
+| `execution_attempts` | attempts whose `COALESCE(reservation_id, closes_allocation_id)` is one of the strategy's reservations, or whose `signal_id` is one of its signals | Yes (decision 42) |
+| `ledger_entries` | rows of `ledger_entries` with this `strategy_id` | Yes (decision 42, rule 6) |
+| `booking_proposals` | rows of `booking_proposals` with this `strategy_id` | Yes (R4; § L, Q2) |
+| `enablement_events` | rows of `strategy_enablement_events` with this `strategy_id` | Yes in the base design; § L, Q1 decides whether it stays so |
+
+- **Counts are by strategy id alone, across every capital pool.** A strategy lives in exactly one pool `(exchange, venue, settlement_currency)` and cannot be moved (`strategies/application/update_strategy.py:4-25`), so a row for it in another pool should not exist. If one does, it must still block. A pool-scoped count would hide exactly the row that proves something is wrong.
+- **`execution_attempts` and `booking_proposals` are redundant today** (I1, I3 and I5 make them impossible without a reservation), and they are counted anyway. The count is what the operator reads in the refusal, and the redundancy costs two indexed reads on a rare admin action.
+- **The count is the readable refusal. The foreign keys are the guarantee.** If the count is ever incomplete, the `DELETE` fails on a `NO ACTION` foreign key instead of orphaning a row (§ D, step 7).
+
+**Exhaustiveness is pinned by a test, not by this table.** One test on a `head`-migrated database reads `pg_constraint` for every foreign key whose target is `strategies`, and `information_schema.columns` for every column named `strategy_id`. It fails when either set differs from the five names of § A, with a message that tells the author to extend `StrategyHistory`. A later migration that adds a reference cannot merge with the check silently out of date.
+
+### D. `DeleteStrategy`: the sequence and the locks
+
+```
+ Panel        DeleteStrategy        Repository       PoolLockPort     StrategyHistoryPort
+   │ DELETE {id}    │                    │                 │                  │
+   ├───────────────►│ 1 get_by_id (NO lock)                │                  │
+   │                ├───────────────────►│ none → 404      │                  │
+   │                │   pool = the strategy's own (exchange, venue, settlement_currency)
+   │                │ 2 acquire(pool)    │                 │                  │
+   │                ├─────────────────────────────────────►│ pg_advisory_xact_lock
+   │                │ 3 get_by_id_for_update               │                  │
+   │                ├───────────────────►│ ROW LOCK, fresh read; gone → 404   │
+   │                │ 4 enabled? → 409 STILL_ENABLED       │                  │
+   │                │ 5 archived? → see § L, Q3            │                  │
+   │                │ 6 history(id)      │                 │                  │
+   │                ├────────────────────────────────────────────────────────►│ six counts
+   │                │   any count > 0 → 409 HAS_HISTORY    │                  │
+   │                │ 7 delete(id)       │                 │                  │
+   │                ├───────────────────►│ DELETE; FK refuses → 409 HAS_HISTORY + ERROR
+   │                │ 8 commit (both locks released), INFO │                  │
+   │◄───────────────┤ 204                │                 │                  │
+```
+
+1. **Unlocked read.** It answers the 404 and gives the pool. The pool of a strategy is immutable, so reading it before any lock is safe, exactly as in `ArchiveStrategy` (`archive_strategy.py:143-157`).
+2. **The pool's advisory lock, first.** The same key `AllocateCapital` takes, through the existing `PoolLockPort` and `PoolLockAdapter` (`strategies/infrastructure/pool_lock_adapter.py:23-35`). Nothing new is written for it.
+3. **The row lock, second,** with `SELECT ... FOR UPDATE` and a fresh read (`repository.py:46-67`). Every decision below comes from this read. A row that disappeared between steps 1 and 3 was deleted by a concurrent request: 404.
+4. **Still enabled:** refused in the application, before any write.
+5. **Archived:** an owner question (§ L, Q3). The tasks that depend on the answer are marked.
+6. **History,** read inside both locks.
+7. **The delete.** A foreign-key refusal here means the count missed something. It is translated to `StrategyStillReferenced`, logged at ERROR with the constraint name, and answered as `HAS_HISTORY`. It must never be a 500.
+8. **Commit,** then one INFO line.
+
+**Lock order.** Pool advisory lock, then the row lock, as everywhere (CLAUDE.md "Review"). No venue call and no other external call happens at any point. The row lock is held only for steps 3 to 8, which are six indexed counts and one statement. While the use case waits for the advisory lock (step 2) it holds no row lock, so it never makes the webhook wait behind an allocation.
+
+**What each lock is for.**
+
+| Concurrent actor | What serializes it against the delete | Outcome in each order |
+| --- | --- | --- |
+| **Webhook ingress** (takes no advisory lock, and must not) | The signal `INSERT` takes `FOR KEY SHARE` on the strategy row through `fk_signals_strategy`. That conflicts with the delete's `FOR UPDATE`. | Ingress first: the delete waits at step 3, then counts one signal and is refused. Delete first: the `INSERT` waits on the row, then fails on the foreign key and is refused at the webhook (§ E). |
+| **`AllocateCapital`** | The pool advisory lock (the archive precedent, `archive_strategy.py:59-73`). Also, a reservation needs a signal (I3), which already blocks. | Allocation first: the delete waits at step 2, then counts a reservation and is refused. Delete first: cannot happen with a signal present; see the row above. |
+| **`UpdateStrategy`** (enable) and **`ReplaceAllowedPairs`** | The strategy row lock (`update_strategy.py:101`, `replace_allowed_pairs.py:98-100`) | Enable first: the delete re-reads `enabled = true` and is refused. Delete first: the update finds no row and answers 404 (`update_strategy.py:102-105`, `replace_allowed_pairs.py:127-128`). |
+| **`ArchiveStrategy`** | Both locks, in the same order | Archive first: § L, Q3. Delete first: the archive finds no row after its lock and answers 404 (X6). |
+| **The worker's `signal.process`** | Nothing is needed. A job names a signal (I8), and a signal blocks the delete. | No pending job can name a deleted strategy. |
+
+**The window the task asked about, closed.** "The check says no history, a signal is ingested, the row is deleted" cannot happen:
+
+```
+ Ingress first                                 Delete first
+ ─────────────                                 ────────────
+ INSERT signals (KEY SHARE on the row)         FOR UPDATE on the row
+                 DELETE: FOR UPDATE waits       counts: all zero
+ COMMIT                                                        INSERT signals: waits on the row
+                 lock granted                  DELETE row, COMMIT
+                 counts: signals = 1                           FK check fails: no such strategy
+                 409 HAS_HISTORY                               422 UNKNOWN_STRATEGY, one WARNING
+ the signal is processed normally              nothing persisted, no job enqueued
+```
+
+Under `READ COMMITTED` each count is a new statement, so it sees what was committed while the delete waited. A signal is therefore either in the strategy's history before the delete decides, or refused after the row is gone. It is never attributed to another strategy, because the only key it carries is the id that no longer exists.
+
+**Why the delete takes the advisory lock when the foreign key already protects it.** Three reasons, in order of weight: the project rule is one lock order everywhere; the reservation and attempt counts are then read under the same lock `AllocateCapital` writes them under, instead of resting only on the argument "a reservation needs a signal"; and the two serializers are independent, so a future change to either does not silently remove the protection. The cost is a few milliseconds of one pool's allocation lock on a rare admin action.
+
+**Rejected:**
+- *Taking only the row lock.* Correct today (I3), but it breaks the lock-order rule and rests the whole guarantee on one transitive argument.
+- *A strategy lookup or lock at ingress.* Rule 3: ingress validates, persists and returns. The foreign key already does the lookup inside the `INSERT`, at no extra round trip.
+- *Catching `IntegrityError` in the use case.* The application layer imports no SQLAlchemy type; the repository adapter translates it.
+
+### E. A signal for a strategy that is not registered (unit 9xa)
+
+This is finding X3, and it is delivered **before** the delete endpoint, as its own PR. It is a defect today, and delete would make it routine.
+
+- `SqlAlchemySignalRepository.insert_or_get` catches the `IntegrityError` of its `INSERT`. When the violated constraint is named `fk_signals_strategy` it raises `UnknownSignalStrategy(strategy_id)`. Any other integrity error is re-raised unchanged.
+- `IngestSignal` logs **one WARNING** and re-raises: the strategy id, the symbol as the alert spelled it, and "remove its TradingView alert or register the strategy". No payload, no secret (the secret is a query parameter and never reaches the use case).
+- The route rolls the session back and answers **422** `{"detail": {"error": "UNKNOWN_STRATEGY", "message": ...}}`. Nothing is persisted and no job is enqueued.
+
+| Choice | Why |
+| --- | --- |
+| 422, not 404 or 200 | The route already answers 422 for an alert it cannot accept (`signals/infrastructure/router.py:73-79, 100-101`). A 404 on this path reads as "the proxy route is gone". A 200 would claim a signal was accepted. TradingView ignores the status either way. |
+| WARNING, not ERROR | It is a configuration state the owner fixes in TradingView, the same class as the archived-strategy refusal (`process_signal.py:885-892`). An ERROR is what the alert bridge forwards (X4), and this would fire on every bar. |
+| No lookup added | The "no ingress lookup" requirement of strategy-lifecycle stands. The check is the foreign key the `INSERT` already carries. |
+| Constraint identified by name | The project's rule since `booking_writer.py`; a message-text match breaks on a PostgreSQL locale. |
+
+**What a signal after the delete does, in full.** It reaches the webhook, the `INSERT` fails on the foreign key, the request ends 422 with one WARNING naming the id, and that is all. No signal row, no job, no worker involvement, no attribution to any strategy. A replay of the same alert does the same thing again: the refusal is idempotent because nothing is ever stored.
+
+**The worker.** `SignalContextAdapter` and `StrategyPolicyAdapter` raise `UnknownStrategyError` for a signal whose strategy is missing (`signals/infrastructure/signal_context.py:43`, `strategies/application/policy_adapter.py:26-27`). With the foreign key in place that state is unreachable, and this design does not change those lines: if it ever happened, the job would fail, retry and end in the exhausted-job path that already records it.
+
+### F. The endpoint
+
+`DELETE /api/strategies/{strategy_id}`, in the existing strategies router, behind `require_admin_token` like every route there.
+
+| Case | Status | Body | Log |
+| --- | --- | --- | --- |
+| Deleted | **204** | none | INFO `strategy deleted: id=… name=… pool=…/…/… archived=…` |
+| Unknown id, or a repeated delete | 404 | `{"detail": "no strategy registered under id …"}` (the existing shape) | WARNING `strategy delete refused, unknown id: …` |
+| Still enabled | 409 | `{"detail": {"error": "STILL_ENABLED", "message"}}` (the archive route's code, `router.py:454-457`) | WARNING naming id and name |
+| Any history | 409 | `{"detail": {"error": "HAS_HISTORY", "message", "history": {"signals": n, "reservations": n, "execution_attempts": n, "ledger_entries": n, "booking_proposals": n, "enablement_events": n}}}` | WARNING naming id, name and the six counts |
+| The database refused the delete although every count was zero | 409 | `HAS_HISTORY`, the same shape, with the counts as read; `message` names the constraint | **ERROR** naming id and constraint: the check is incomplete, and that is a defect to fix |
+| Archived | § L, Q3 | | |
+
+- **204, not 200.** There is no strategy left to describe. The panel needs only the outcome.
+- **`history` always carries all six keys,** as JSON integers. They are counts, not money or quantities, so the string rule of the cross-cutting rules does not apply (`trade_count` is an integer too). A fixed shape lets the panel render without guessing which key is absent.
+- **`STILL_ENABLED` is checked first** and answers alone. A strategy must be disabled before anything else matters, and the panel already knows `enabled` and disables the control (§ H).
+- **Idempotency.** A repeated `DELETE` answers 404. It is not a 204: the precedent for an id that is not there is 404 on every route of this router, and a 204 for an id that never existed would hide a wrong id. The panel treats a 404 on delete as "already gone" (§ H).
+- **The refusal says why, always.** No refusal of this route is a bare status.
+- **Wiring.** `get_delete_strategy(session)` builds the use case from the session, as `get_register_strategy` does (`router.py:262-272`), so router tests override one dependency. On any refusal the route calls `session.rollback()`, which releases both locks at once and clears the aborted transaction of the backstop case.
+
+### G. Hard delete, and no migration
+
+**Decision: a hard `DELETE` of the `strategies` row.**
+
+| | Hard delete (chosen) | Tombstone (`deleted_at`) |
+| --- | --- | --- |
+| What remains | Nothing | The row, hidden |
+| The id and the name | Free again. The owner can register a real strategy under a test's name. | Kept forever: `name` is UNIQUE and the id is refused as already registered |
+| Readers | Unchanged | Every list, detail, policy and performance read must filter it, and one that forgets shows a deleted strategy |
+| Migration | None | A column and a CHECK, rehearsed |
+| Difference from archive | Real | Almost none: a second, stricter archive. It does not do what decision 42 asks for. |
+| Audit | One INFO line (§ I) | The row |
+
+- **Rule 6 (append-only ledger) holds.** A delete is refused when the strategy has one ledger entry, and the database refuses it independently: `fk_ledger_entries_strategy` is `NO ACTION`, and the ledger triggers forbid removing the entry. No ledger row is ever touched.
+- **Rule 2 (idempotency keys) holds.** A delete is refused when the strategy has one signal, so no idempotency key is ever removed. After the delete no signal can be stored under the id until it is registered again, and a strategy registered again starts with no signal, so there is no key to collide with.
+- **Nothing is inherited on re-registration.** After a delete, no row in any table carries the id (§ C plus the foreign keys). A strategy registered again under it is new in every respect.
+
+**Dependent rows.** In the base design nothing is deleted with the strategy, because a strategy with any dependent row is refused. The allowed pairs and `archived_at` go with the row they are columns of.
+
+**Migration: none.** No table, column, constraint or trigger changes. This holds as long as enablement events block a delete.
+
+**If the owner answers Q1 with "events must not block": migration 0028.** The events cannot be removed by the application at all today: the foreign key refuses the strategy delete while they exist, and the trigger refuses deleting them first (R5).
+
+- **Mechanism: `ON DELETE CASCADE`, not an explicit delete.** An explicit delete in the use case needs a way around the append-only trigger, and any such switch can be flipped by a future bug. With a cascade the rule stays structural.
+- **Upgrade.** (1) `CREATE OR REPLACE FUNCTION fn_strategy_enablement_events_append_only()`: `UPDATE` always raises, as now; `DELETE` raises unless the parent strategy row no longer exists (`NOT EXISTS (SELECT 1 FROM strategies WHERE id = OLD.strategy_id)`). (2) Drop `fk_strategy_enablement_events_strategy` and recreate it with `ON DELETE CASCADE`.
+- **Why that condition.** An event can then be deleted only as part of its strategy's deletion. A direct `DELETE` of an event whose strategy exists is still refused, and an event without a strategy cannot exist. The strategy's own deletion is still refused by the other four `NO ACTION` foreign keys.
+- **Downgrade.** Restore the function body of 0024 and the foreign key without the cascade. It discards no data, so it has no refusal clause; it logs one WARNING that strategies deleted meanwhile are not restored.
+- **Assumption to prove before anything else is written (task 9xf.1).** Inside the cascade, the trigger's `SELECT` must no longer see the parent row. PostgreSQL runs the cascade as a later command of the same transaction, so it should not. If the RED test shows otherwise, the fallback condition is `pg_trigger_depth() > 1`, and the design is amended before the GREEN.
+- **Rehearsal.** As every migration: locally on a `head` database (up, down, the trigger's three behaviours), then on the VPS against a throwaway restore of a fresh backup (tasks.md "Migration rehearsal").
+- **What is lost.** The enable and disable times of a strategy that never received a signal. Nothing about money. The delete's INFO line records the number of events, the first enable time and the cumulative uptime, so the fact survives in the log.
+
+### H. Frontend
+
+**Where the control sits.** At the bottom of the strategy detail page, in a separated "Delete strategy" block below the archive control: a short text and one button. It is a different act from archive and must not sit beside the enable toggle.
+
+**Ordering with unit 9d.** The detail page is a placeholder (X9) and unit 9d (PR 12b) builds it. The delete control does not wait for it:
+- PR 12x-5 builds `useDeleteStrategy`, `DeleteStrategyControl` and `DeleteStrategyDialog`, tested on their own, **mounted nowhere** (the `PairSelector` precedent, PR 12v-4).
+- Unit 9d gains task **9d.6**: mount `<DeleteStrategyControl strategy={…} />` at the bottom of `StrategyDetailPage`.
+- If unit 9d merges first, task 9d.6 moves into PR 12x-5. It is one edit, done once, by whichever PR is second.
+
+| Component | Kind | Props | Does |
+| --- | --- | --- | --- |
+| `DeleteStrategyControl` | container | `strategy: Strategy` | The block, the button, the dialog's open state, the mutation, the navigation |
+| `DeleteStrategyDialog` | presentational | `name`, `pending`, `error`, `onConfirm`, `onCancel` | The confirmation and the refusal |
+
+**The button.** Disabled while `strategy.enabled` is true, with the hint "Disable the strategy first". The server still decides.
+
+**The confirmation.** A native `<dialog>`, like the existing dialogs. It says what will happen and that it cannot be undone. The owner must **type the strategy's name** into a labelled field; the destructive button stays disabled until the typed text equals the name exactly. Enter in the field submits only when it matches. Cancel and Escape close it and send nothing. Typing the name is chosen over a second "Are you sure" button because the action is irreversible and the detail page of one strategy looks like the detail page of another.
+
+**The refusal, rendered inside the dialog** (chosen by `error.code`, then by status):
+
+| `code` (fallback) | i18n key | Text (EN) |
+| --- | --- | --- |
+| `STILL_ENABLED` | `strategies.delete.errors.stillEnabled` | "This strategy is still enabled. Disable it first." |
+| `HAS_HISTORY` | `strategies.delete.errors.hasHistory` | "This strategy has history, so it cannot be deleted. Archive it instead." followed by one line per non-zero kind of `fields.history` |
+| 404 | — | Not an error: the strategy is already gone. Same path as success. |
+| anything else | `strategies.delete.errors.generic` | "The strategy was not deleted. Try again." |
+
+Kind lines, one key each with a count: `strategies.delete.history.signals` ("{{count}} signal(s)"), `.reservations`, `.executionAttempts`, `.ledgerEntries`, `.bookingProposals`, `.enablementEvents`. A kind with count zero is not shown. A `history` object that is missing or malformed shows the main sentence alone, never a crash.
+
+**After a successful delete** (204, or 404):
+1. `queryClient.removeQueries({ queryKey: ['strategy', id] })`. Removed, not invalidated: an invalidation would refetch a detail that now answers 404 and flash an error. The prefix covers `['strategy', id, 'events']` and the strategy's performance queries of § 15.
+2. `queryClient.invalidateQueries({ queryKey: ['strategies'] })`, which covers both `includeArchived` variants (`shared/api/strategies.ts:80-83`).
+3. Navigate to `/strategies` with `replace`, so Back does not return to a page that no longer exists.
+
+**i18n.** Every string in EN and ES under `strategies.delete.*`: `title`, `description`, `button`, `disabledHint`, `confirmTitle`, `confirmBody` (`{{name}}`), `typeName`, `confirm`, `cancel`, `pending`, the three `errors.*` and the six `history.*`. Tailwind palette tokens only; the destructive button uses the palette's existing loss or danger token, never a hex value.
+
+### I. Logging (what fails here without a log line?)
+
+| Event | Level | Content |
+| --- | --- | --- |
+| A strategy was deleted | **INFO** | id, name, pool `(exchange/venue/settlement_currency)`, whether it was archived. It is irreversible, and this line is the only record that the strategy existed. |
+| Delete refused: unknown id | WARNING | the id |
+| Delete refused: still enabled | WARNING | id, name |
+| Delete refused: history | WARNING | id, name, the six counts |
+| The database refused a delete the count allowed | **ERROR** | id, name, the constraint name. ERROR on purpose, so it reaches the owner wherever the alert bridge is installed (X4): the no-history check has a hole. |
+| An alert for a strategy that is not registered (§ E) | WARNING | strategy id, the alert's symbol, the instruction |
+
+No line carries a token, a credential, a DSN or the webhook secret. The name is logged with `%r`, as the archive refusals already do.
+
+| Failure | Guard |
+| --- | --- |
+| A new table references a strategy and the check does not count it | The foreign key refuses the delete; one ERROR names the constraint; the exhaustiveness test fails in CI before that |
+| The count runs on a schema without the foreign keys and "proves" a delete is safe | Every such test runs on a `head` database (§ J); stated per task |
+| A signal arrives during the delete and is orphaned | The row lock and `fk_signals_strategy` (§ D); proven with a lock-hold harness |
+| The leftover alert of a deleted strategy is a 500 with a traceback on every bar | Unit 9xa: 422 and one WARNING, delivered before the endpoint |
+| A deleted strategy leaves no trace | The INFO line |
+| A delete is refused and the operator sees only "failed" | Every 409 carries a code and, for history, the counts; the dialog renders them |
+| An archive that waited behind a delete crashes on a missing row | X6: it answers 404, covered by a test |
+| The panel refetches a deleted strategy and shows an error | `removeQueries`, then navigate |
+| A double click sends two deletes | The button is disabled while pending; a second request answers 404, which the panel reads as done |
+
+**Threat matrix.** The skill's matrix stays N/A (no shell, subprocess or VCS automation). Two project rows:
+
+| Threat | Safe behaviour | RED test |
+| --- | --- | --- |
+| The new `/api` route ships without auth | Auth is a router dependency | The existing parametrized walk over `app.routes` (`tests/strategies/infrastructure/test_router_auth.py`) covers a `DELETE` |
+| A destructive request is forged from another origin | The bearer token travels in a header set by script, never in a cookie, so a cross-site form cannot carry it | N/A, unchanged from every other admin write |
+
+### J. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, application | `DeleteStrategy`: order of steps, each refusal and its log line, the backstop, the lock order | Fakes and one shared event log, as `test_replace_allowed_pairs.py` |
+| Integration, ORM schema | Each provider `count_for_strategy`; the adapter's six counts | Real PostgreSQL through the modules' own conftests |
+| Integration, **`head` schema** | The exhaustiveness guard; the backstop; ingress refusal; every concurrency property | A database migrated with `alembic upgrade head` (below) |
+| Router | Status and body of each case; auth | `httpx.AsyncClient` over ASGI with `dependency_overrides` |
+| Migration (only if 9xf) | Trigger behaviour, cascade, downgrade | The `tests/migrations/` pattern |
+| Frontend | The hook's request and cache effects; the dialog's confirmation, refusals, EN and ES | Vitest, `vi.stubGlobal("fetch")` |
+
+**Rules that bind the task breakdown.**
+
+- **Strict TDD.** Each RED fails on an ASSERTION. A new port, class or route is first added as a stub that compiles and answers WRONGLY (a history that is always empty, a delete that always succeeds, a route that always answers 204), in the same commit as the RED test. A test that passes at once is proven by the mutation its task names.
+- **The `head` schema is mandatory for anything that depends on a foreign key or a trigger** (X2). A shared helper, `tests/pg_head_schema.py`, creates one throwaway database per test module and runs `alembic upgrade head` on it, following `tests/migrations/test_0024_strategy_lifecycle.py:140-153`. Each such test file says in its docstring why the ORM schema would not do.
+- **The concurrency properties are proven on real PostgreSQL with a lock-hold harness, never a `sleep(0)` barrier.** The precedents are `tests/strategies/application/test_archive_vs_allocate_concurrency.py` (pausing commit, pausing pool lock) and `tests/strategies/infrastructure/test_replace_allowed_pairs_catalogue_integration.py` (polling `pg_locks`).
+  - *The delete waits for a signal being ingested:* an ingest is paused before its commit, after its `INSERT`. The delete is started. The test asserts `not task.done()` AND polls `pg_locks` until the delete shows as waiting on the strategy row. The ingest commits. The delete is refused with `signals = 1`, and the strategy and the signal both exist. Non-vacuity: with `fk_signals_strategy` dropped inside the test database, the delete does not wait and the test goes red.
+  - *A signal waits for a delete in flight:* the delete is paused before its commit, after its `DELETE`. An ingest is started. `not task.done()`. The delete commits. The ingest raises `UnknownSignalStrategy`; `signals` and `jobs` hold no row for it.
+  - *The delete waits for an allocation:* an allocation is paused holding the pool advisory lock. The delete is started. `not task.done()`, and `pg_locks` shows it waiting on an `advisory` lock, not on a row. Mutation: taking the row lock before the advisory lock reds it (the archive deadlock test's method, `archive_strategy.py:36-40`).
+  - *The delete waits for an enable in flight:* an `UpdateStrategy` enabling the strategy is paused before commit. The delete waits, then is refused `StillEnabled`.
+- **Symbol spelling.** A test that crosses a module boundary on a symbol uses a different spelling on each side: the alert sends `STXUSDT.P`, a seeded reservation or attempt on the venue side is `STXUSDT`, and no assertion depends on the two matching textually. The counts key on the strategy id, and one test proves that a signal spelled `STXUSDT.P` blocks the delete of a strategy whose allowed pairs hold `STXUSDT`.
+- **Gate after every unit.** Backend: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Frontend: `npm run lint` and `npm test`.
+
+### K. Impact on `DRY_RUN`, idempotency and capital-pool isolation
+
+| Rule | Impact |
+| --- | --- |
+| **`DRY_RUN` (rule 1)** | The delete behaves the same in both modes: it reads and writes the local database only, contacts no venue and needs no credential. A strategy that acted only under `DRY_RUN` still has signals and rehearsal fills, and they block the delete like any other history. No test needs a credential or the network. |
+| **Idempotency (rule 2)** | No signal and no idempotency key is ever deleted. A signal for an unregistered id is refused before it is stored, so a replay cannot double anything. A strategy registered again under a deleted id has no signal to collide with. |
+| **Webhook (rule 3)** | The webhook still only validates, persists and returns. No lookup and no lock is added. Its one new branch is an early refusal, faster than the success path. While a delete holds the row lock the `INSERT` waits for it, for the few milliseconds of six counts and one statement. |
+| **Allocation transaction (rule 4)** | Unchanged. The delete takes the strategy's own pool's advisory lock, `(exchange, venue, settlement_currency)`, in the standard order, and reads reservations under it. It writes no reservation and reads no balance. |
+| **Capital-pool isolation (rule 5)** | The delete locks exactly one pool, the strategy's own. It touches no pool row, no balance snapshot and no other pool's lock. The history counts are deliberately not pool-scoped (§ C), and no count is a sum of money. |
+| **Ledger (rule 6)** | No ledger row is read for anything but a count, and none is written, updated or removed. A strategy with a ledger entry cannot be deleted, by the check and by the database. |
+| **PnL (rule 7)** | Unaffected. A deleted strategy had no fill, so no figure of any pool changes. |
+| **Credentials (rule 8)** | Unaffected. |
+| **Existing data** | Nothing changes until someone calls the endpoint. The two test strategies stay until the owner deletes them. |
+
+### L. Delivery, forecasts and open questions
+
+**The PR split.** One PR would be about 2,000 to 2,950 authored lines, five to seven times the review budget, so it is five sequential PRs to `main`, plus one conditional. None is stacked: each branch is cut from `main` after the previous one merged and deployed.
+
+```
+ 12x-1 ingress refusal ─► 12x-2 history read ─► 12x-3 DeleteStrategy ─► 12x-4 endpoint ─► 12x-5 panel control
+                                                        │
+                                                        └─► 12x-6 migration 0028  (only if Q1 = "events do not block")
+```
+
+| PR | Unit | Contents | Forecast | Deploy | Rollback boundary |
+| --- | --- | --- | --- | --- | --- |
+| **12x-1** | 9xa | The webhook refuses an alert whose strategy is not registered: 422, one WARNING; `tests/pg_head_schema.py` | 300–450 | Pull, restart the API | One caught error and its mapping; revert restores the 500 |
+| **12x-2** | 9xb | `StrategyHistory`, `StrategyHistoryPort`, five provider counts, `count_for`, `StrategyHistoryAdapter`, the exhaustiveness guard | 450–650 | Pull, restart both (the worker imports the repositories) | Read methods nothing calls |
+| **12x-3** | 9xc | `DeleteStrategy`, `repository.delete`, `StrategyStillReferenced`, the four lock-hold tests, the archive 404 | 550–800 | Pull, restart the API | A use case nothing routes to |
+| **12x-4** | 9xd | `DELETE /api/strategies/{id}`, the HTTP mapping, router tests | 300–450 | Pull, restart the API | One route; revert answers 405 |
+| **12x-5** | 9xe | `useDeleteStrategy`, `DeleteStrategyControl`, `DeleteStrategyDialog`, i18n | 400–600 | Pull, no restart | New files; nothing mounts them until 9d.6 |
+| **12x-6** | 9xf | Migration 0028, the events kind stops blocking, the INFO line gains the uptime facts | 400–600 | Rehearsal, pull, migrate, restart both | The migration's downgrade; the use case change reverts alone |
+
+Total 2,000 to 2,950 authored lines without 12x-6, 2,400 to 3,550 with it.
+
+- **Why 12x-1 is first and alone.** It changes the webhook, the one path that must not regress, and it is correct and useful with no delete at all. It must be live before a strategy can be deleted.
+- **After 12x-4 the feature is usable** through the API (`curl -X DELETE`), which is enough for the owner's two test strategies. The panel control follows.
+- `Decision needed before apply: No` (the three questions below block only the tasks named with each) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| D1 | Hard delete of the row; no tombstone | G |
+| D2 | No migration in the base design; 0028 (cascade plus a narrowed trigger) only under Q1 | G |
+| D3 | `StrategyHistoryPort` in `strategies`, its adapter composing the provider repositories; counts by strategy id across every pool | B, C |
+| D4 | Six kinds are counted; `execution_attempts` and `booking_proposals` although redundant today | C |
+| D5 | The exhaustiveness of the check is pinned by a test over `pg_constraint` on a `head` database | C |
+| D6 | Lock order: unlocked read, pool advisory lock, row lock, counts, delete | D |
+| D7 | The signal race is closed by the row lock and `fk_signals_strategy`; ingress gains no lookup and no lock | D |
+| D8 | A foreign-key refusal of the delete is a 409 `HAS_HISTORY` and one ERROR, never a 500 | D, F |
+| D9 | An alert for an unregistered strategy is a 422 `UNKNOWN_STRATEGY` and one WARNING, delivered first | E |
+| D10 | 204 on success; a repeated delete is a 404 | F |
+| D11 | `STILL_ENABLED` is checked before history; `history` always carries all six counts | F |
+| D12 | The confirmation requires typing the strategy's name | H |
+| D13 | The control is built unmounted; unit 9d mounts it (task 9d.6) | H |
+| D14 | After a delete: `removeQueries(['strategy', id])`, invalidate `['strategies']`, navigate with `replace` | H |
+| D15 | Every FK- or trigger-dependent test runs on a `head` database | J |
+| D16 | Five PRs, plus one conditional on Q1 | L |
+
+**Open questions for the owner.** None blocks 12x-1 or 12x-2.
+
+- **Q1. Do enablement events count as history?** A test strategy that was switched on and off has them; decision 42's list does not mention them.
+  - *If they count (the base design, no migration):* a strategy that was ever enabled can only be archived. The owner's test strategies are deletable only if they were never enabled.
+  - *If they do not count:* they must be deleted with the strategy, which needs migration 0028 (§ G) and its rehearsal. What is lost is that strategy's enable and disable times; the delete's log line keeps the count, the first enable time and the uptime.
+  - **Recommended: they do not count.** That is the literal reading of decision 42, and its motive (test strategies) is exactly the case of a strategy someone switched on to look at it. The events of a strategy that never received a signal record nothing about money.
+  - Until answered, the fail-closed behaviour ships: events block. It is the only behaviour possible without a migration, so nothing built before the answer is thrown away.
+  - **Blocks:** unit 9xf (PR 12x-6) only.
+- **Q2. A fifth kind decision 42 does not list: booking proposals.** `booking_proposals.strategy_id` is a mandatory foreign key (R4). A proposal is the record of a venue close shown to the owner for approval.
+  - **Recommended: it blocks, like the other four.** There is no real alternative: a proposal cannot exist without a reservation, which already blocks, and removing one would erase the record of a human decision.
+  - **Blocks:** nothing. The design counts it; this is asked so the owner knows the list is six, not four.
+- **Q3. May an archived strategy with no history be deleted?**
+  - *Yes:* a test strategy the owner already archived can still be removed, and it also frees its name and id. Archive stays irreversible: a delete is not an un-archive.
+  - *No:* the delete answers 409 `STRATEGY_ARCHIVED`, and an archived test strategy stays in the archive for good.
+  - **Recommended: yes.** An archived strategy is disabled by construction (`ck_strategies_archived_requires_disabled`), and without history there is nothing the archive preserves. Refusing would defeat decision 42 for any strategy archived before this feature existed.
+  - **Blocks:** task 9xc.6 (use case), the archived case of 9xd.1 (router) and of 9xe.3 (control). Everything else in those units proceeds.

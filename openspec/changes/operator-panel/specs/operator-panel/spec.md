@@ -27,6 +27,11 @@ frontend-design plugin.
 > from the pool's available pairs through a searchable selector; the free-text
 > pairs input is removed. New requirement: "Allowed Pairs Are Chosen From The
 > Pool's Available Pairs".
+>
+> **Revised 2026-10-02 (owner decision 42).** The strategy detail view gains a
+> delete control for a strategy with no history. New requirement: "Deleting A
+> Strategy Requires Explicit Confirmation And States Its Refusal", placed after
+> "Archive Requires Explicit Confirmation".
 
 ## Requirements
 
@@ -161,7 +166,9 @@ MUST show each listed strategy's enabled state.
 The strategy detail view MUST show the strategy's performance stats (PnL,
 trade count, stats by pair), its cumulative uptime as "active X days" with
 the first activation date, its allowed-pairs list with an edit control, and
-enable/disable and archive controls.
+enable/disable and archive controls. It also carries the delete control of
+"Deleting A Strategy Requires Explicit Confirmation And States Its Refusal"
+(added 2026-10-02, owner decision 42).
 
 #### Scenario: Detail shows uptime for an activated strategy
 
@@ -197,6 +204,83 @@ step before the archive request is sent.
 - GIVEN strategy S1 is disabled and flat, and the owner has confirmed the archive
 - WHEN the confirmation is accepted
 - THEN the archive request is sent
+
+### Requirement: Deleting A Strategy Requires Explicit Confirmation And States Its Refusal
+
+> **Added 2026-10-02 (owner decision 42).**
+
+The strategy detail view MUST offer a delete control, separate from the enable
+and archive controls. Using it MUST require an explicit confirmation step in
+which the owner types the strategy's name; no delete request MUST be sent
+before the typed text equals that name, and a single click MUST never send
+one. The confirmation MUST state that the delete cannot be undone.
+
+The control MUST be unavailable while the strategy is enabled, and MUST say
+that the strategy has to be disabled first.
+
+A refused delete MUST show the specific reason: that the strategy is still
+enabled, or that it has history, naming each kind of history that exists with
+its count and stating that archiving is the remaining option. A count is a
+number of rows; the panel MUST NOT present any of them as an amount of money
+or sum anything across capital pools.
+
+After a successful delete the panel MUST return to the Strategies list, and
+the deleted strategy MUST no longer appear there, with or without archived
+strategies shown. A delete answered as "not found" MUST be treated the same
+way, because the strategy is already gone.
+
+> **Open (design addendum 9x § L, Q3).** Whether the control is offered for an
+> archived strategy follows the owner's answer.
+
+#### Scenario: Delete is not triggered by a single click
+
+- GIVEN strategy S1 is disabled and has no history
+- WHEN the owner clicks delete once
+- THEN a confirmation is shown and no delete request has been sent
+
+#### Scenario: The confirmation is inert until the name is typed
+
+- GIVEN the delete confirmation for strategy "Test A" is open
+- WHEN the owner types "Test" and attempts to confirm
+- THEN no delete request is sent
+- WHEN the owner types "Test A" and confirms
+- THEN the delete request is sent
+
+#### Scenario: Cancelling sends nothing
+
+- GIVEN the delete confirmation for strategy S1 is open
+- WHEN the owner cancels it
+- THEN no delete request is sent and S1's detail view is unchanged
+
+#### Scenario: The control is unavailable while the strategy is enabled
+
+- GIVEN strategy S1 is enabled
+- WHEN S1's detail view renders
+- THEN the delete control cannot be used and states that S1 must be disabled first
+
+#### Scenario: A refusal for history names each kind and its count
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` is disabled and has 3 signals and 2 ledger entries
+- WHEN the owner confirms deleting S1
+- THEN the panel shows that S1 has history and cannot be deleted, names 3 signals and 2 ledger entries, names no kind whose count is zero, and states that S1 can be archived instead
+
+#### Scenario: A successful delete returns to the list
+
+- GIVEN strategy S1 is disabled and has no history
+- WHEN the owner confirms deleting S1 and the delete succeeds
+- THEN the panel shows the Strategies list and S1 is not in it, including when archived strategies are shown
+
+#### Scenario: A strategy already deleted elsewhere is treated as deleted
+
+- GIVEN strategy S1's detail view is open and S1 was deleted by another request
+- WHEN the owner confirms deleting S1
+- THEN the panel returns to the Strategies list without showing an error
+
+#### Scenario: The delete flow renders under both locales
+
+- GIVEN the locale is set to Spanish
+- WHEN the delete control, its confirmation and a refusal render
+- THEN every visible string is in Spanish, sourced from i18n
 
 ### Requirement: Allowed-Pairs Editing From Strategy Detail
 

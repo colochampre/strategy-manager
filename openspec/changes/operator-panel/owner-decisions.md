@@ -226,7 +226,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **Delete is allowed only when** the strategy is disabled and has no signal, no capital reservation, no execution attempt and no ledger entry. With any of those, the delete is refused and archiving stays the only path.
     - Why the limit: reservations and ledger entries reference the strategy with a mandatory foreign key, and the ledger is append-only (rule 6). A strategy that ever acted cannot be removed without breaking that record.
     - The control lives on the strategy detail page, behind an explicit confirmation, never a single click.
-    - Status: decided, NOT designed or implemented yet (task 9x). The design must list every table that references a strategy before the no-history check is written, and the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed" must be revised with it. The two test strategies stay until the feature exists.
+    - Status: decided, NOT designed or implemented yet (task 9x). The design must list every table that references a strategy before the no-history check is written, and the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed" must be revised with it. The two test strategies stay until the feature exists. **Status updated 2026-10-02:** designed, not implemented; see design § "Addendum: deleting a strategy that has no history (decision 42)". Three questions for the owner are open in its § L (enablement events, booking proposals, archived strategies); none is answered here.
 
 ## Standing constraints
 

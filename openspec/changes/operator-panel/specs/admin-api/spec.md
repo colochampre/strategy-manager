@@ -16,6 +16,9 @@ unaffected by it.
 > two strategy save endpoints for a pair the pool's venue does not list, and a
 > read endpoint for a pool's available pairs. Both are the last two
 > requirements of this file.
+>
+> **Revised 2026-10-02 (owner decision 42).** Adds `DELETE /api/strategies/{id}`
+> for a strategy with no history. It is the last requirement of this file.
 
 ## Requirements
 
@@ -255,3 +258,89 @@ pairs.
 - GIVEN a valid bearer token and pools `(bybit, usdt-m, USDT)` and `(binance, usdt-m, USDT)` whose venues list different pairs
 - WHEN each pool's available pairs are read, one after the other
 - THEN each response holds only its own pool's pairs
+
+### Requirement: A Strategy With No History Is Deleted Through Its Own Endpoint
+
+> **Added 2026-10-02 (owner decision 42).**
+
+`DELETE /api/strategies/{id}` MUST delete a strategy that is disabled and has
+no history (strategy-lifecycle, "A Strategy With No History Can Be Deleted"),
+and MUST answer 204 with no body. It MUST require the bearer token like every
+other `/api` route. It MUST contact no venue and MUST behave identically with
+`DRY_RUN` true or false.
+
+Every refusal MUST say why, in the response's `detail`, and MUST change
+nothing:
+
+- an id under which no strategy is registered MUST answer 404, including a
+  repeated delete of a strategy already deleted;
+- a strategy that is enabled MUST answer 409 with `detail.error`
+  `STILL_ENABLED`, the code the archive endpoint uses;
+- a strategy with any history MUST answer 409 with `detail.error`
+  `HAS_HISTORY` and a `detail.history` object that always carries the six
+  integer counts `signals`, `reservations`, `execution_attempts`,
+  `ledger_entries`, `booking_proposals` and `enablement_events`, counted across
+  every capital pool `(exchange, venue, settlement_currency)`;
+- a delete the database refuses although every count is zero MUST answer 409
+  `HAS_HISTORY` too, never a 5xx.
+
+No response of this endpoint MUST contain a credential, a balance, or a sum of
+money across pools. The refusals of the other strategy endpoints MUST keep
+their status and shape.
+
+> **Open (design addendum 9x § L, Q3).** The answer for an archived strategy
+> with no history is not stated until the owner decides it.
+
+#### Scenario: A disabled strategy with no history is deleted
+
+- GIVEN a valid bearer token and strategy S1 on pool `(bybit, usdt-m, USDT)`, disabled, never enabled, with no signal
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN it answers 204 with no body, and `GET /api/strategies/{S1}` answers 404 afterwards
+
+#### Scenario: The delete requires the bearer token
+
+- GIVEN no bearer token is supplied
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN the request is refused and S1 still exists
+
+#### Scenario: An unknown id is a 404
+
+- GIVEN a valid bearer token and no strategy registered under id X
+- WHEN `DELETE /api/strategies/{X}` is called
+- THEN it answers 404
+
+#### Scenario: A repeated delete is a 404
+
+- GIVEN a valid bearer token and strategy S1 was deleted by a previous call
+- WHEN `DELETE /api/strategies/{S1}` is called again
+- THEN it answers 404
+
+#### Scenario: An enabled strategy is a 409 that says so
+
+- GIVEN a valid bearer token and strategy S1 is enabled
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN it answers 409 with `detail.error` `STILL_ENABLED`, and S1 still exists and is still enabled
+
+#### Scenario: A strategy with history is a 409 that names each kind with its count
+
+- GIVEN a valid bearer token and strategy S1 on pool `(bybit, usdt-m, USDT)`, disabled, with 3 signals, 1 reservation, 1 execution attempt and 2 ledger entries
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN it answers 409 with `detail.error` `HAS_HISTORY` and `detail.history` `{"signals": 3, "reservations": 1, "execution_attempts": 1, "ledger_entries": 2, "booking_proposals": 0, "enablement_events": 0}`, and S1 and all seven rows still exist
+
+#### Scenario: A strategy that was only ever toggled is a 409 naming its events
+
+- GIVEN a valid bearer token and strategy S1, disabled, with no signal and 2 enablement events
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN it answers 409 with `detail.error` `HAS_HISTORY` and `detail.history.enablement_events` 2, every other count 0
+
+#### Scenario: After a delete the strategy's other routes answer 404
+
+- GIVEN a valid bearer token and strategy S1 was deleted
+- WHEN `GET /api/strategies/{S1}/events`, `GET /api/performance/strategies/{S1}` and `POST /api/strategies/{S1}/archive` are called
+- THEN each answers 404
+
+#### Scenario: A deleted id can be registered again
+
+- GIVEN a valid bearer token and strategy S1 on pool `(bybit, usdt-m, USDT)` was deleted
+- WHEN `POST /api/strategies` is called with S1's id and name for pool `(bybit, usdt-m, USDT)`
+- THEN it answers 201 with a disabled strategy whose `uptime.seconds` is 0 and whose `uptime.first_enabled_at` is null
