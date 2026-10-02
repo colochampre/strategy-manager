@@ -89,6 +89,25 @@ export interface Pool {
   allocatable: string | null;
 }
 
+/** The three values that name one capital pool (`PoolRef` on the server). */
+export interface PoolKey {
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
+}
+
+/**
+ * `GET /api/pools/{exchange}/{venue}/{ccy}/available-pairs`
+ * (`strategies/infrastructure/pair_catalog_router.py`, `AvailablePairsBody`).
+ * `pairs` is sorted and in market-key form (`STXUSDT`), which is the form a
+ * save accepts back; `count` is `pairs.length`. No money or quantity in it.
+ */
+export interface AvailablePairs {
+  pool: PoolKey;
+  pairs: string[];
+  count: number;
+}
+
 /**
  * One day of `curve` in `GET /api/performance/pools/{exchange}/{venue}/{ccy}`
  * (`performance_router.py`, `CurvePointBody`). `date` is a UTC calendar date
