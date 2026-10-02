@@ -120,7 +120,6 @@
         "PARTIAL": "Open with what is available"
       },
       "pairs": "Allowed pairs",
-      "pairsHint": "One pair per line, or separated by commas. At least one is required.",
       "pairsRequired": "Add at least one allowed pair.",
       "incomplete": "Enter a name and choose a pool and a behaviour.",
       "noPools": "This exchange has no enabled pool, so a strategy cannot be registered on it.",
@@ -144,7 +143,12 @@
       "narrow": "Type to narrow the list.",
       "remove": "Remove {{symbol}}",
       "notListed": "no longer listed",
-      "selected": "Selected pairs"
+      "selected": "Selected pairs",
+      "errors": {
+        "unknown": "The exchange does not list: {{symbols}}.",
+        "venueUnavailable": "The exchange's pair list could not be read, so nothing was saved. Try again.",
+        "notServed": "Pairs cannot be checked for this pool, so a strategy cannot be created on it."
+      }
     },
     "detail": {
       "title": "Strategy"
