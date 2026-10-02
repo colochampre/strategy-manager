@@ -20,6 +20,16 @@ export type PoolsStub =
   | { kind: "pending" };
 
 export type PerformanceStub = PoolsStub;
+export type AvailablePairsStub = PoolsStub;
+
+/** What `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` answers for a pool, in the API's shape. */
+export function availablePairs(exchange: string, venue: string, currency: string, pairs: readonly string[]) {
+  return {
+    pool: { exchange, venue, settlement_currency: currency },
+    pairs: [...pairs],
+    count: pairs.length,
+  };
+}
 
 export function pool(
   exchange: string,
@@ -66,7 +76,10 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
 }
 
 /** One Bybit pool unless a test says otherwise, so the exchange scope is ready. */
-const DEFAULT_POOLS: PoolsStub = { kind: "ok", body: [pool("bybit", "linear")] };
+const DEFAULT_POOLS: PoolsStub = { kind: "ok", body: [pool("bybit", "usdt-m")] };
+
+/** The venue's spelling (`STXUSDT`), sorted, as the endpoint answers it; a pool without an entry gets these. */
+const DEFAULT_AVAILABLE_PAIRS = ["AAVEUSDT", "SFPUSDT", "STXUSDT"] as const;
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
@@ -81,7 +94,9 @@ export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> 
 /**
  * Routes the endpoints the shell touches; everything else is a loud failure.
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
- * without an entry answers an empty ledger. `extra` is asked first.
+ * without an entry answers an empty ledger. `extra` is asked first. `available`
+ * overrides a pool's available pairs, keyed `exchange/venue/ccy`; a pool without
+ * an entry lists `AAVEUSDT`, `SFPUSDT` and `STXUSDT`.
  */
 export function stubApi(
   health: HealthStub,
@@ -89,6 +104,7 @@ export function stubApi(
   pools: PoolsStub = DEFAULT_POOLS,
   performance: Record<string, PerformanceStub> = {},
   extra?: ExtraRoute,
+  available: Record<string, AvailablePairsStub> = {},
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -107,6 +123,18 @@ export function stubApi(
       const stub: PerformanceStub = performance[key] ?? {
         kind: "ok",
         body: emptyPerformance(exchange, venue, currency),
+      };
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
+    }
+    const pairsPath = /\/pools\/([^/]+)\/([^/]+)\/([^/]+)\/available-pairs$/.exec(url);
+    if (pairsPath) {
+      const [exchange = "", venue = "", currency = ""] = pairsPath.slice(1).map((part) => decodeURIComponent(part ?? ""));
+      const stub: AvailablePairsStub = available[`${exchange}/${venue}/${currency}`] ?? {
+        kind: "ok",
+        body: availablePairs(exchange, venue, currency, DEFAULT_AVAILABLE_PAIRS),
       };
       if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (stub.kind === "pending") return new Promise<Response>(() => undefined);

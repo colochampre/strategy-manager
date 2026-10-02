@@ -9,7 +9,7 @@ import { jsonResponse, lock, pool, renderAt, resetExchangeScope, stubApi, unlock
 import type { ExtraRoute } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
-const POOLS = { kind: "ok", body: [pool("bybit", "linear"), pool("binance", "usdt-m")] } as const;
+const POOLS = { kind: "ok", body: [pool("bybit", "usdt-m"), pool("binance", "usdt-m")] } as const;
 const GENERATED_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 interface Posted {
@@ -40,7 +40,7 @@ function openDialog() {
   return screen.getByRole("dialog", { name: en.strategies.new.title });
 }
 
-function fill(name: string, pairs: string, poolValue = "linear/USDT", fillMode = "SKIP") {
+function fill(name: string, pairs: string, poolValue = "usdt-m/USDT", fillMode = "SKIP") {
   fireEvent.change(screen.getByLabelText(en.strategies.new.name), { target: { value: name } });
   fireEvent.change(screen.getByLabelText(en.strategies.new.pool), { target: { value: poolValue } });
   fireEvent.change(screen.getByLabelText(en.strategies.new.fillMode), { target: { value: fillMode } });
@@ -73,7 +73,7 @@ describe("the new-strategy dialog", () => {
       id: GENERATED_ID,
       name: "Delta",
       exchange: "bybit",
-      venue: "linear",
+      venue: "usdt-m",
       settlement_currency: "USDT",
       fill_mode: "SKIP",
       allocation_percent: "100",
@@ -134,7 +134,7 @@ describe("the new-strategy dialog", () => {
     const options = Array.from(screen.getByLabelText(en.strategies.new.pool).querySelectorAll("option")).map(
       (option) => option.textContent,
     );
-    expect(options).toContain("bybit · linear · USDT");
+    expect(options).toContain("bybit · usdt-m · USDT");
     expect(options).not.toContain("binance · usdt-m · USDT");
   });
 
