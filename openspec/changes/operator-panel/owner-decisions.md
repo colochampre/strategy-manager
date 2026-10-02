@@ -220,6 +220,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - Left to the design (not owner decisions): the port, the cache, the status code of the venue-unreachable refusal, the read endpoint's path, the split of each delivery into PRs. The design's open questions for the owner are in its § L.
     - **Answered 2026-10-02 (design § L, Q1): a pool with no catalogue source refuses every new strategy.** Today that is Pionex. Nothing changes in production, because every Pionex pool is disabled; a Pionex pool enabled later cannot receive a new strategy until a catalogue source exists for it. This unblocks the `PairCatalogNotServed` assertions of tasks 9vc.2 and 9vc.7.
     - The split into six sequential PRs (design § L, Q2) stands, under the session's `auto-chain` delivery. Follow-up 9vf.1 (design § L, Q3) is recorded and not yet authorized.
+42. **A strategy with no history can be deleted; one with any history can only be archived** (2026-10-02). This revises decision 1's "A strategy is archived, never deleted".
+    - Why: the owner registered two strategies as a test and does not want test strategies kept in the archive.
+    - **Delete is allowed only when** the strategy is disabled and has no signal, no capital reservation, no execution attempt and no ledger entry. With any of those, the delete is refused and archiving stays the only path.
+    - Why the limit: reservations and ledger entries reference the strategy with a mandatory foreign key, and the ledger is append-only (rule 6). A strategy that ever acted cannot be removed without breaking that record.
+    - The control lives on the strategy detail page, behind an explicit confirmation, never a single click.
+    - Status: decided, NOT designed or implemented yet (task 9x). The design must list every table that references a strategy before the no-history check is written, and the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed" must be revised with it. The two test strategies stay until the feature exists.
 
 ## Standing constraints
 

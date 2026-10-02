@@ -1621,6 +1621,12 @@ Forecast: 400–600 lines.
 - [ ] 9vf.1 The ORDER path reads one page of Bybit's catalogue: `bybit/trade_client.py:130` calls `BybitReadOnlyClient.perp_contracts()` (`limit=1000`, no cursor). Past 1,000 `linear` entries, a market on the second page is refused at order time as not listed (P7.2 records today's count). Reuse 9va's cursor loop in the signed client. Its own small PR, because it touches the order path; priority is design addendum § L, Q3. RED first: a two-page listing whose second page holds the ordered symbol.
 - [ ] 9vf.2 `tasks.md` "Production now" still names the Bybit pool `bybit/linear/USDT`; the row is `bybit/usdt-m/USDT` (task 6d.1). Correct the label on the next delivery-log update.
 
+### Unit 9x — delete a strategy that has no history (decision 42, not started)
+
+- [ ] 9x.1 Design first: list every table that references a strategy (signals, reservations, execution attempts, ledger entries, enablement events and any other), define the no-history check and its lock, and revise the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed". No code before this.
+- [ ] 9x.2 Backend: `DELETE /api/strategies/{id}`, allowed only for a disabled strategy with no history; any history refuses with the reasons, and archive stays the only path. RED first: a strategy with one signal is refused, and a strategy with none is deleted.
+- [ ] 9x.3 Frontend: the delete control on the strategy detail page (unit 9d), behind an explicit confirmation, showing the refusal reasons. Depends on 9x.2.
+
 ---
 
 ## PR 13 — Settings: exchange key cards, form, delete flow (900–1,300 lines)
