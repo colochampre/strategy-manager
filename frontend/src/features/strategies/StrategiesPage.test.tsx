@@ -17,7 +17,7 @@ import {
 import type { ExtraRoute } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
-const POOLS = { kind: "ok", body: [pool("bybit", "linear"), pool("binance", "usdt-m")] } as const;
+const POOLS = { kind: "ok", body: [pool("bybit", "usdt-m"), pool("binance", "usdt-m")] } as const;
 
 const DAY_S = 86_400;
 
@@ -26,7 +26,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     id: "11111111-1111-4111-8111-111111111111",
     name: "Alpha",
     exchange: "bybit",
-    venue: "linear",
+    venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
     allocation_percent: "100",
@@ -48,7 +48,7 @@ const ARCHIVED = strategy({
 /** What `GET /performance/strategies/{id}` answers for a strategy with seven closed trades. */
 function strategyReport(id: string) {
   const all = { range: "All", pnl: "41.20", return: "0.0340000000", trade_count: 7 };
-  const base = emptyPerformance("bybit", "linear", "USDT");
+  const base = emptyPerformance("bybit", "usdt-m", "USDT");
   return {
     ...base,
     strategy_id: id,
@@ -134,7 +134,7 @@ describe("the strategies list", () => {
     // Decision 39: the venue and the allowed pairs, in the API's order. The exchange
     // (the operator is on its tab) and the settlement currency (shown by the PnL) are not repeated.
     const subLine = within(row).getByTestId("strategy-pool");
-    expect(subLine.textContent).toBe("linear · ETHUSDT, BTCUSDT");
+    expect(subLine.textContent).toBe("usdt-m · ETHUSDT, BTCUSDT");
     expect(subLine).not.toHaveTextContent("bybit");
     expect(subLine.textContent).not.toMatch(/\bUSDT\b/);
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toHaveAttribute("aria-checked", "true");
@@ -150,7 +150,7 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).getByTestId("strategy-pool").textContent).toBe("linear");
+    expect(within(row).getByTestId("strategy-pool").textContent).toBe("usdt-m");
   });
 
   it("shows a never-enabled strategy as off, with no activation claim", async () => {
