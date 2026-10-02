@@ -19,7 +19,7 @@ load, not the archive action itself (binding instruction: no
 archived-strategy refusals in this unit).
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -30,6 +30,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.config import get_settings
+from strategy_manager.strategies.application.ports import PoolKey
+from strategy_manager.strategies.domain.pair_catalog import (
+    PairCatalogNotServed,
+    PairCatalogUnavailable,
+)
+from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
 
 pytestmark = pytest.mark.integration
@@ -41,9 +47,37 @@ def _auth(token: str = TOKEN) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _app() -> FastAPI:
+class _Catalog:
+    """A fake ``PairCatalogPort``: it answers ``available`` for every pool and
+    records which pools it was asked about. The default list holds every symbol
+    the older tests here register or add, so they run unchanged."""
+
+    def __init__(
+        self,
+        available: frozenset[str] = frozenset({"ETHUSDT", "SOLUSDT"}),
+        failure: Exception | None = None,
+    ) -> None:
+        self.available = available
+        self.failure = failure
+        self.asked: list[PoolKey] = []
+        # Runs while the venue "answers": how a test plays another request that
+        # commits during the venue read.
+        self.during_read: Callable[[], Awaitable[None]] | None = None
+
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]:
+        self.asked.append(pool)
+        if self.during_read is not None:
+            await self.during_read()
+        if self.failure is not None:
+            raise self.failure
+        return self.available
+
+
+def _app(catalog: _Catalog | None = None) -> FastAPI:
     app = FastAPI()
     app.include_router(strategies_router)
+    fake = catalog or _Catalog()
+    app.dependency_overrides[get_pair_catalog] = lambda: fake
     return app
 
 
@@ -55,6 +89,8 @@ def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Non
 
 async def _authenticated_client(
     pg_session_factory: async_sessionmaker[AsyncSession],
+    catalog: _Catalog | None = None,
+    raise_app_exceptions: bool = True,
 ) -> AsyncIterator[AsyncClient]:
     from strategy_manager.shared import db as shared_db
 
@@ -68,14 +104,14 @@ async def _authenticated_client(
         await session.execute(text("TRUNCATE strategy_enablement_events"))
         await session.commit()
 
-    app = _app()
+    app = _app(catalog)
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with pg_session_factory() as session:
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _override_get_session
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=app, raise_app_exceptions=raise_app_exceptions)
     async with AsyncClient(transport=transport, base_url="http://test") as api:
         yield api
 
@@ -421,3 +457,250 @@ async def test_archived_strategy_pairs_put_refused_409_at_http_layer(client: Asy
 
     assert response.status_code == 409
     assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
+
+
+# --------------------------------------------------------------------------
+# 9vc.7 -- unlisted-pair refusals over HTTP (decisions 40 and 41, design
+# addendum § E). The catalogue is a fake; nothing reaches a venue.
+#
+# Spelling: the fake venue lists ``STXUSDT``; POST sends ``STXUSDT.P``; PUT sends
+# ``STXUSDT_PERP``; the stored and returned form is ``STXUSDT``.
+#
+# The client does NOT re-raise application exceptions: an unmapped domain error
+# is a 500 the test sees as ``assert 500 == 422``, not as a raised exception.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def catalog() -> _Catalog:
+    return _Catalog()
+
+
+@pytest.fixture
+async def api(
+    pg_session_factory: async_sessionmaker[AsyncSession], catalog: _Catalog
+) -> AsyncIterator[AsyncClient]:
+    async for client in _authenticated_client(
+        pg_session_factory, catalog, raise_app_exceptions=False
+    ):
+        yield client
+
+
+def _post_body(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": str(uuid4()),
+        "name": f"strategy-{uuid4()}",
+        "exchange": "pionex",
+        "venue": "spot",
+        "settlement_currency": "USDT",
+        "fill_mode": "PARTIAL",
+        "allowed_pairs": ["ETHUSDT"],
+    }
+    body.update(overrides)
+    return body
+
+
+async def _row_count(api: AsyncClient, strategy_id: str) -> int:
+    response = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    return 1 if response.status_code == 200 else 0
+
+
+async def test_post_unknown_pairs_422_structured_and_names_the_symbols(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    catalog.available = frozenset({"STXUSDT"})
+    body = _post_body(allowed_pairs=["STXUSDT.P", "YPF"])
+
+    response = await api.post("/strategies", json=body, headers=_auth())
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["error"] == "UNKNOWN_PAIRS"
+    assert detail["unknown"] == ["YPF"]
+    assert isinstance(detail["message"], str)
+    assert "YPF" in detail["message"]
+    assert set(detail) == {"error", "message", "unknown"}
+    assert await _row_count(api, body["id"]) == 0
+
+
+async def test_put_unknown_pairs_422_names_only_the_added_symbols(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    """``ETHUSDT`` is stored and no longer listed: it is kept, so it is not named.
+    ``YPF`` is the only addition the venue does not list."""
+    strategy_id = await _register(api, allowed_pairs=["ETHUSDT"])
+    catalog.available = frozenset({"SOLUSDT"})
+
+    response = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT", "SOLUSDT_PERP", "ypf.p"]},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["error"] == "UNKNOWN_PAIRS"
+    assert detail["unknown"] == ["YPF"]
+    assert set(detail) == {"error", "message", "unknown"}
+    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
+
+
+async def test_put_keeping_a_delisted_stored_pair_200(api: AsyncClient, catalog: _Catalog) -> None:
+    strategy_id = await _register(api, allowed_pairs=["ETHUSDT"])
+    catalog.available = frozenset({"SOLUSDT"})  # ETHUSDT, stored, is delisted
+
+    response = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT", "SOLUSDT_PERP"]},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["allowed_pairs"] == ["ETHUSDT", "SOLUSDT"]
+
+
+async def test_post_unreadable_catalogue_502_pair_catalogue_unavailable_and_no_row(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    catalog.failure = PairCatalogUnavailable("venue down")
+    body = _post_body()
+
+    response = await api.post("/strategies", json=body, headers=_auth())
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "PAIR_CATALOGUE_UNAVAILABLE"
+    assert isinstance(detail["message"], str)
+    assert set(detail) == {"error", "message"}
+    assert await _row_count(api, body["id"]) == 0
+
+
+async def test_post_unserved_pool_422_pair_catalogue_not_served(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    catalog.failure = PairCatalogNotServed("no source")
+    body = _post_body()
+
+    response = await api.post("/strategies", json=body, headers=_auth())
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["error"] == "PAIR_CATALOGUE_NOT_SERVED"
+    assert set(detail) == {"error", "message"}
+    assert await _row_count(api, body["id"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("failure", "status", "code"),
+    [
+        (PairCatalogUnavailable("venue down"), 502, "PAIR_CATALOGUE_UNAVAILABLE"),
+        (PairCatalogNotServed("no source"), 422, "PAIR_CATALOGUE_NOT_SERVED"),
+    ],
+)
+async def test_put_unreadable_or_unserved_catalogue_refuses_and_keeps_the_stored_list(
+    api: AsyncClient, catalog: _Catalog, failure: Exception, status: int, code: str
+) -> None:
+    strategy_id = await _register(api, allowed_pairs=["ETHUSDT"])
+    catalog.failure = failure
+
+    response = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT", "SOLUSDT"]},
+        headers=_auth(),
+    )
+
+    assert response.status_code == status
+    assert response.json()["detail"]["error"] == code
+    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
+
+
+async def test_put_pairs_changed_409(
+    api: AsyncClient,
+    catalog: _Catalog,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Stored ``{ETHUSDT, SOLUSDT}``; the request adds ``STXUSDT``. While the venue
+    "answers", another request removes ``SOLUSDT``: re-adding it would store a pair
+    nobody checked."""
+    strategy_id = await _register(api, allowed_pairs=["ETHUSDT", "SOLUSDT"])
+    catalog.available = frozenset({"STXUSDT"})
+
+    async def another_request_removes_solusdt() -> None:
+        async with pg_session_factory() as session:
+            await session.execute(
+                text("UPDATE strategies SET allowed_pairs = ARRAY['ETHUSDT'] WHERE id = :id"),
+                {"id": strategy_id},
+            )
+            await session.commit()
+
+    catalog.during_read = another_request_removes_solusdt
+
+    response = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT", "SOLUSDT", "STXUSDT_PERP"]},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "PAIRS_CHANGED"
+    assert set(detail) == {"error", "message"}
+    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
+
+
+async def test_existing_refusals_keep_their_status_and_shape(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    strategy_id = await _register(api, name="kept")
+
+    unknown = await api.put(
+        f"/strategies/{uuid4()}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=_auth()
+    )
+    assert unknown.status_code == 404
+    assert isinstance(unknown.json()["detail"], str)
+
+    duplicate = await api.post(
+        "/strategies", json=_post_body(id=str(strategy_id), name="other"), headers=_auth()
+    )
+    assert duplicate.status_code == 409
+    assert "already registered" in duplicate.json()["detail"]
+
+    empty = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": [".P"]}, headers=_auth()
+    )
+    assert empty.status_code == 422
+    assert isinstance(empty.json()["detail"], str)
+
+    no_pool = await api.post(
+        "/strategies", json=_post_body(venue="usdt-m"), headers=_auth()
+    )  # pionex/usdt-m/USDT is not a seeded pool
+    assert no_pool.status_code == 422
+    assert "no enabled capital pool" in no_pool.json()["detail"]
+
+    await api.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    archived = await api.put(
+        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=_auth()
+    )
+    assert archived.status_code == 409
+    assert archived.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
+
+    # None of the refusals above reached the venue (the catalogue only answered
+    # the one ``_register`` that built the strategy).
+    assert catalog.asked == [("pionex", "spot", "USDT")]
+
+
+async def test_a_listed_pair_sent_as_tradingview_spells_it_is_stored_as_the_market_key(
+    api: AsyncClient, catalog: _Catalog
+) -> None:
+    catalog.available = frozenset({"STXUSDT"})
+
+    response = await api.post(
+        "/strategies", json=_post_body(allowed_pairs=["STXUSDT.P"]), headers=_auth()
+    )
+
+    assert response.status_code == 201
+    assert response.json()["allowed_pairs"] == ["STXUSDT"]
+    assert catalog.asked == [("pionex", "spot", "USDT")]

@@ -24,6 +24,7 @@ allocation engine reads only enabled pools, so such a strategy would register
 cleanly, accept every signal, and size none of them.
 """
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
@@ -35,16 +36,25 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     CommitPort,
     EnablementLogPort,
+    PairCatalogPort,
     PoolCatalogPort,
     StrategyRepositoryPort,
 )
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs, EmptyAllowedPairs
+from strategy_manager.strategies.domain.pair_catalog import (
+    PairCatalogNotServed,
+    PairCatalogUnavailable,
+    UnknownPairs,
+    unknown_pairs,
+)
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyAlreadyRegistered(DomainError):
@@ -97,12 +107,14 @@ class RegisterStrategy:
         self,
         repository: StrategyRepositoryPort,
         pools: PoolCatalogPort,
+        pairs: PairCatalogPort,
         commit: CommitPort,
         enablement_log: EnablementLogPort,
         clock: ClockPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
+        self._pairs = pairs
         self._commit = commit
         self._enablement_log = enablement_log
         self._clock = clock
@@ -131,6 +143,8 @@ class RegisterStrategy:
                 "allowed_pairs must contain at least one pair"
             )
 
+        await self._assert_pairs_listed(command, allowed_pairs.pairs)
+
         strategy = Strategy(
             id=command.strategy_id,
             name=command.name,
@@ -155,6 +169,48 @@ class RegisterStrategy:
 
         await self._commit.commit()
         return strategy
+
+    async def _assert_pairs_listed(
+        self, command: RegisterCommand, pairs: frozenset[str]
+    ) -> None:
+        """Decision 41: every pair of a NEW strategy must be one the venue lists
+        for its pool. Asked last among the refusals, so a request that would be
+        refused anyway never costs a venue read. Fail closed: a catalogue that
+        cannot be read, or a pool that has none, stores nothing."""
+        pool = (
+            command.exchange.value,
+            command.venue.value,
+            command.settlement_currency.value,
+        )
+        label = "/".join(pool)
+        try:
+            available = await self._pairs.available_pairs(pool)
+        except PairCatalogNotServed:
+            logger.warning(
+                "registration refused, no pair catalogue for the pool: strategy=%s pool=%s",
+                command.strategy_id,
+                label,
+            )
+            raise
+        except PairCatalogUnavailable:
+            # The adapter already logged the venue failure; this line says what it cost.
+            logger.warning(
+                "registration refused, pair catalogue unavailable: strategy=%s pool=%s",
+                command.strategy_id,
+                label,
+            )
+            raise
+
+        unknown = unknown_pairs(pairs, available)
+        if unknown:
+            logger.warning(
+                "registration refused, the venue does not list these pairs: "
+                "strategy=%s pool=%s symbols=%.300r",
+                command.strategy_id,
+                label,
+                list(unknown),
+            )
+            raise UnknownPairs(unknown)
 
     async def _assert_pool_available(self, command: RegisterCommand) -> None:
         available = await self._pools.enabled_pools()
