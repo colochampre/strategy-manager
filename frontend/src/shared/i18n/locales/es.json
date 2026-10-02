@@ -86,6 +86,27 @@
   },
   "strategies": {
     "title": "Estrategias",
+    "archivedToggle": "Mostrar archivadas",
+    "loading": "Cargando estrategias…",
+    "empty": "Todavía no hay estrategias en este exchange.",
+    "error": "No se pudieron cargar las estrategias.",
+    "scopeLoading": "Las estrategias aparecen cuando se hayan cargado los exchanges.",
+    "scopeError": "Las estrategias están ocultas porque no se pudieron cargar los exchanges, así que no se pueden filtrar.",
+    "noExchanges": "No hay ningún exchange configurado, así que no hay estrategias que mostrar.",
+    "row": {
+      "archived": "Archivada",
+      "enable": "Activar {{name}}",
+      "neverEnabled": "nunca activada",
+      "active_one": "activa {{count}} día",
+      "active_other": "activa {{count}} días",
+      "activeAtLeast_one": "activa al menos {{count}} día",
+      "activeAtLeast_other": "activa al menos {{count}} días",
+      "trades": "operaciones",
+      "pnl": "PnL total",
+      "return": "rendimiento total",
+      "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
+      "performanceError": "No se pudieron cargar las cifras de esta estrategia."
+    },
     "detail": {
       "title": "Estrategia"
     }

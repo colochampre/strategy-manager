@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import type { PoolPerformance } from "@/shared/api/types";
+import type { PoolPerformance, StrategyPerformance } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,6 +49,36 @@ export async function fetchPoolPerformance(
     });
   }
   return body;
+}
+
+/**
+ * `GET /api/performance/strategies/{id}`. As for a pool, a 404 is a strategy
+ * without a report (null) and any other failure, or a body that is not a
+ * strategy report, throws.
+ */
+export async function fetchStrategyPerformance(strategyId: string): Promise<StrategyPerformance | null> {
+  let body: unknown;
+  try {
+    body = await apiFetch<unknown>(`/performance/strategies/${encodeURIComponent(strategyId)}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+  if (!isPoolPerformance(body) || typeof (body as { strategy_id?: unknown }).strategy_id !== "string") {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /performance/strategies: expected a strategy report",
+    });
+  }
+  return body as StrategyPerformance;
+}
+
+/** Query key `['performance','strategy',id]` (design.md § 15). */
+export function useStrategyPerformance(strategyId: string) {
+  return useQuery({
+    queryKey: ["performance", "strategy", strategyId],
+    queryFn: () => fetchStrategyPerformance(strategyId),
+    staleTime: PERFORMANCE_STALE_MS,
+  });
 }
 
 export function poolPerformanceKey(exchange: string, venue: string, currency: string) {

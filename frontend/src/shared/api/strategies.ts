@@ -1,0 +1,80 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { ApiError, apiFetch } from "@/shared/api/client";
+import type { Strategy } from "@/shared/api/types";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isUptime(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.seconds === "number" &&
+    (value.first_enabled_at === null || typeof value.first_enabled_at === "string") &&
+    typeof value.baseline === "boolean"
+  );
+}
+
+function isStrategy(value: unknown): value is Strategy {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.exchange === "string" &&
+    typeof value.venue === "string" &&
+    typeof value.settlement_currency === "string" &&
+    (value.fill_mode === "SKIP" || value.fill_mode === "PARTIAL") &&
+    typeof value.allocation_percent === "string" &&
+    typeof value.enabled === "boolean" &&
+    (value.archived_at === null || typeof value.archived_at === "string") &&
+    Array.isArray(value.allowed_pairs) &&
+    isUptime(value.uptime)
+  );
+}
+
+/**
+ * `GET /api/strategies`, archived ones only when asked (`include_archived`).
+ * The body is checked row by row: a payload that is not a list of strategies
+ * must read as an error, because an empty list would tell the operator there
+ * is nothing to manage.
+ */
+export async function fetchStrategies(includeArchived: boolean): Promise<Strategy[]> {
+  const query = includeArchived ? "?include_archived=true" : "";
+  const body = await apiFetch<unknown>(`/strategies${query}`);
+  if (!Array.isArray(body) || !body.every(isStrategy)) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /strategies: expected a list of strategies",
+    });
+  }
+  return body;
+}
+
+/** Query key `['strategies',{includeArchived}]`, invalidated by every strategy mutation (design.md § 15). */
+export function useStrategies(includeArchived: boolean) {
+  return useQuery({
+    queryKey: ["strategies", { includeArchived }],
+    queryFn: () => fetchStrategies(includeArchived),
+  });
+}
+
+/** `PATCH /api/strategies/{id}` with only `enabled`: every other field stays unchanged. */
+export function setStrategyEnabled(strategyId: string, enabled: boolean): Promise<Strategy> {
+  return apiFetch<Strategy>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function useSetStrategyEnabled(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, boolean>({
+    mutationFn: (enabled) => setStrategyEnabled(strategyId, enabled),
+    // Settled, not only success: a refused change (409) says the stored state is not what the row showed.
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
+  });
+}
