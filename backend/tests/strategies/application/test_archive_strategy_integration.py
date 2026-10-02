@@ -83,6 +83,13 @@ POOL = ("pionex", "spot", "USDT")
 FIXED_NOW = datetime(2026, 9, 28, 12, 0, 0, tzinfo=UTC)
 
 
+class _ListsEverything:
+    """A ``PairCatalogPort`` for a test that is about archiving, not pairs."""
+
+    async def available_pairs(self, pool: tuple[str, str, str]) -> frozenset[str]:
+        return frozenset({"ETHUSDT"})
+
+
 class FixedClock:
     def now(self) -> datetime:
         return FIXED_NOW
@@ -661,6 +668,7 @@ async def test_archived_strategy_pairs_put_refused_409_strategy_archived(
     async with pg_session_factory() as session:
         use_case = ReplaceAllowedPairs(
             repository=SqlAlchemyStrategyRepository(session),
+            pairs=_ListsEverything(),
             commit=session,  # type: ignore[arg-type]
         )
         with pytest.raises(StrategyArchived):

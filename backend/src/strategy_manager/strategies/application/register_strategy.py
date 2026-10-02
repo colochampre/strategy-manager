@@ -35,6 +35,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     CommitPort,
     EnablementLogPort,
+    PairCatalogPort,
     PoolCatalogPort,
     StrategyRepositoryPort,
 )
@@ -97,12 +98,14 @@ class RegisterStrategy:
         self,
         repository: StrategyRepositoryPort,
         pools: PoolCatalogPort,
+        pairs: PairCatalogPort,
         commit: CommitPort,
         enablement_log: EnablementLogPort,
         clock: ClockPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
+        self._pairs = pairs
         self._commit = commit
         self._enablement_log = enablement_log
         self._clock = clock

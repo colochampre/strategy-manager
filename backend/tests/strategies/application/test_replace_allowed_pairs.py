@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.application.ports import PoolKey
 from strategy_manager.strategies.application.replace_allowed_pairs import (
     ReplaceAllowedPairs,
     ReplaceAllowedPairsCommand,
@@ -74,13 +75,39 @@ class SpyCommit:
         self.commits += 1
 
 
+class FakeCatalog:
+    """A fake ``PairCatalogPort``. It records the pool of every call, and fails
+    with ``failure`` when one is given. The default list holds every symbol the
+    older tests in this file add, so they run unchanged."""
+
+    def __init__(
+        self,
+        available: frozenset[str] = frozenset({"ETHUSDT", "SOLUSDT"}),
+        failure: Exception | None = None,
+    ) -> None:
+        self.available = available
+        self.failure = failure
+        self.asked: list[PoolKey] = []
+
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]:
+        self.asked.append(pool)
+        if self.failure is not None:
+            raise self.failure
+        return self.available
+
+
 def _build(
     existing: Strategy | None = None,
+    catalog: FakeCatalog | None = None,
 ) -> tuple[ReplaceAllowedPairs, FakeRepository, SpyCommit]:
     repository = FakeRepository(_strategy() if existing is None else existing)
     commit = SpyCommit()
     return (
-        ReplaceAllowedPairs(repository=repository, commit=commit),  # type: ignore[arg-type]
+        ReplaceAllowedPairs(
+            repository=repository,  # type: ignore[arg-type]
+            pairs=catalog or FakeCatalog(),
+            commit=commit,  # type: ignore[arg-type]
+        ),
         repository,
         commit,
     )
@@ -137,7 +164,11 @@ async def test_replace_pairs_where_every_entry_normalizes_to_empty_is_refused() 
 async def test_replace_pairs_on_an_unknown_strategy_is_refused() -> None:
     repository = FakeRepository(None)
     commit = SpyCommit()
-    use_case = ReplaceAllowedPairs(repository=repository, commit=commit)  # type: ignore[arg-type]
+    use_case = ReplaceAllowedPairs(
+        repository=repository,  # type: ignore[arg-type]
+        pairs=FakeCatalog(),
+        commit=commit,  # type: ignore[arg-type]
+    )
 
     with pytest.raises(UnknownStrategy):
         await use_case.replace(

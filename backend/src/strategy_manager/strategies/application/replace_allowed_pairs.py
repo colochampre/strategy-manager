@@ -29,7 +29,11 @@ from uuid import UUID
 
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.strategies.application.ports import CommitPort, StrategyRepositoryPort
+from strategy_manager.strategies.application.ports import (
+    CommitPort,
+    PairCatalogPort,
+    StrategyRepositoryPort,
+)
 from strategy_manager.strategies.application.update_strategy import (
     StrategyArchived,
     UnknownStrategy,
@@ -45,8 +49,14 @@ class ReplaceAllowedPairsCommand:
 
 
 class ReplaceAllowedPairs:
-    def __init__(self, repository: StrategyRepositoryPort, commit: CommitPort) -> None:
+    def __init__(
+        self,
+        repository: StrategyRepositoryPort,
+        pairs: PairCatalogPort,
+        commit: CommitPort,
+    ) -> None:
         self._repository = repository
+        self._pairs = pairs
         self._commit = commit
 
     async def replace(self, command: ReplaceAllowedPairsCommand) -> Strategy:

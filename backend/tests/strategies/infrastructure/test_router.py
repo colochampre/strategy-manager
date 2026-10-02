@@ -30,6 +30,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.config import get_settings
+from strategy_manager.strategies.application.ports import PoolKey
+from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
 
 pytestmark = pytest.mark.integration
@@ -41,9 +43,32 @@ def _auth(token: str = TOKEN) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _app() -> FastAPI:
+class _Catalog:
+    """A fake ``PairCatalogPort``: it answers ``available`` for every pool and
+    records which pools it was asked about. The default list holds every symbol
+    the older tests here register or add, so they run unchanged."""
+
+    def __init__(
+        self,
+        available: frozenset[str] = frozenset({"ETHUSDT", "SOLUSDT"}),
+        failure: Exception | None = None,
+    ) -> None:
+        self.available = available
+        self.failure = failure
+        self.asked: list[PoolKey] = []
+
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]:
+        self.asked.append(pool)
+        if self.failure is not None:
+            raise self.failure
+        return self.available
+
+
+def _app(catalog: _Catalog | None = None) -> FastAPI:
     app = FastAPI()
     app.include_router(strategies_router)
+    fake = catalog or _Catalog()
+    app.dependency_overrides[get_pair_catalog] = lambda: fake
     return app
 
 

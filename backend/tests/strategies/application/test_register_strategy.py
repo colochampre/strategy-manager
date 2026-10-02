@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.application.ports import PoolKey
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -87,6 +88,27 @@ class SpyCommit:
         self.commits += 1
 
 
+class FakeCatalog:
+    """A fake ``PairCatalogPort``. It records the pool of every call, and fails
+    with ``failure`` when one is given. The default list holds every symbol the
+    older tests in this file register, so they run unchanged."""
+
+    def __init__(
+        self,
+        available: frozenset[str] = frozenset({"ETHUSDT", "SOLUSDT"}),
+        failure: Exception | None = None,
+    ) -> None:
+        self.available = available
+        self.failure = failure
+        self.asked: list[PoolKey] = []
+
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]:
+        self.asked.append(pool)
+        if self.failure is not None:
+            raise self.failure
+        return self.available
+
+
 def _command(**overrides: object) -> RegisterCommand:
     fields: dict[str, object] = {
         "strategy_id": SIGNAL_TYPE,
@@ -104,6 +126,7 @@ def _command(**overrides: object) -> RegisterCommand:
 def _build(
     existing: Strategy | None = None,
     pools: list[tuple[Venue, Currency]] | None = None,
+    catalog: FakeCatalog | None = None,
 ) -> tuple[RegisterStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
     repository = FakeRepository(existing)
     commit = SpyCommit()
@@ -112,6 +135,7 @@ def _build(
     use_case = RegisterStrategy(
         repository=repository,  # type: ignore[arg-type]
         pools=FakePools(pools),  # type: ignore[arg-type]
+        pairs=catalog or FakeCatalog(),
         commit=commit,  # type: ignore[arg-type]
         enablement_log=log,  # type: ignore[arg-type]
         clock=clock,  # type: ignore[arg-type]

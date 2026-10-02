@@ -49,6 +49,7 @@ from strategy_manager.strategies.application.archive_strategy import (
     OpenPosition,
     StillEnabled,
 )
+from strategy_manager.strategies.application.ports import PairCatalogPort
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -74,6 +75,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 from strategy_manager.strategies.infrastructure.exposure_adapter import (
     StrategyExposureAdapter,
 )
+from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
 )
@@ -203,17 +205,34 @@ class ReplacePairsRequest(BaseModel):
     pairs: list[str] = Field(min_length=1)
 
 
-@router.post("", response_model=StrategyView, status_code=201)
-async def register_strategy(
-    body: RegisterRequest, session: SessionDep
-) -> StrategyView:
-    use_case = RegisterStrategy(
+PairCatalogDep = Annotated[PairCatalogPort, Depends(get_pair_catalog)]
+
+
+def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> RegisterStrategy:
+    """The real wiring. The catalogue comes from ``get_pair_catalog``, so a test
+    overrides ONE dependency and no router test reaches a venue."""
+    return RegisterStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pools=SqlAlchemyPoolCatalog(session),
+        pairs=pairs,
         commit=session,
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
     )
+
+
+def get_replace_allowed_pairs(session: SessionDep, pairs: PairCatalogDep) -> ReplaceAllowedPairs:
+    return ReplaceAllowedPairs(
+        repository=SqlAlchemyStrategyRepository(session), pairs=pairs, commit=session
+    )
+
+
+@router.post("", response_model=StrategyView, status_code=201)
+async def register_strategy(
+    body: RegisterRequest,
+    session: SessionDep,
+    use_case: Annotated[RegisterStrategy, Depends(get_register_strategy)],
+) -> StrategyView:
     try:
         strategy = await use_case.register(
             RegisterCommand(
@@ -292,11 +311,11 @@ async def get_strategy_events(
 
 @router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)
 async def replace_allowed_pairs(
-    strategy_id: UUID, body: ReplacePairsRequest, session: SessionDep
+    strategy_id: UUID,
+    body: ReplacePairsRequest,
+    session: SessionDep,
+    use_case: Annotated[ReplaceAllowedPairs, Depends(get_replace_allowed_pairs)],
 ) -> StrategyView:
-    use_case = ReplaceAllowedPairs(
-        repository=SqlAlchemyStrategyRepository(session), commit=session
-    )
     try:
         strategy = await use_case.replace(
             ReplaceAllowedPairsCommand(strategy_id=strategy_id, pairs=body.pairs)

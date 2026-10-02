@@ -84,6 +84,13 @@ async def _event_count(
         return len(result.scalars().all())
 
 
+class _ListsEverything:
+    """A ``PairCatalogPort`` for a test that is about the row lock, not pairs."""
+
+    async def available_pairs(self, pool: tuple[str, str, str]) -> frozenset[str]:
+        return frozenset({"ETHUSDT"})
+
+
 class _PausingRepository:
     """Wraps the real repository. After ``get_by_id_for_update`` actually
     acquires the row lock, it waits for an external signal before
@@ -245,6 +252,7 @@ async def test_replace_allowed_pairs_and_update_strategy_serialize_on_the_same_r
                 repository=_PausingRepository(
                     SqlAlchemyStrategyRepository(session), resume_put
                 ),  # type: ignore[arg-type]
+                pairs=_ListsEverything(),
                 commit=session,  # type: ignore[arg-type]
             )
             await use_case.replace(
