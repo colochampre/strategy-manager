@@ -22,6 +22,11 @@ frontend-design plugin.
 > "secrets never rendered" rule for the webhook secret is withdrawn: it is
 > now revealed only on an explicit request (decision 23), replacing the
 > requirement below of the same area.
+>
+> **Revised 2026-10-02 (owner decisions 40 and 41).** Allowed pairs are chosen
+> from the pool's available pairs through a searchable selector; the free-text
+> pairs input is removed. New requirement: "Allowed Pairs Are Chosen From The
+> Pool's Available Pairs".
 
 ## Requirements
 
@@ -210,6 +215,94 @@ zero allowed pairs.
 - GIVEN strategy S1 has allowed pairs `{ETHUSDT}`
 - WHEN the owner adds `SOLUSDT` and submits
 - THEN the request is sent with allowed pairs `{ETHUSDT, SOLUSDT}`
+
+### Requirement: Allowed Pairs Are Chosen From The Pool's Available Pairs
+
+> **Added 2026-10-02 (owner decisions 40 and 41).** Replaces the free-text
+> pairs input of the new-strategy dialog. The strategy detail's allowed-pairs
+> editor (the requirement above) uses the same selector.
+
+Wherever the panel lets the owner set a strategy's allowed pairs, it MUST
+offer a searchable selection among the pairs available to that strategy's
+capital pool `(exchange, venue, settlement_currency)`, read from the admin
+API, and MUST NOT offer a free-text field in which an arbitrary symbol can be
+submitted. The selector MUST:
+
+- be operable with the keyboard alone and expose a label for the search field,
+  for every option and for every remove control;
+- show nothing selectable until a pool is chosen, and clear the selection when
+  the pool changes;
+- show a loading state while the available pairs are being read, and a failure
+  state with a retry control when they cannot be read, and MUST NOT fall back
+  to free text in either;
+- when many pairs match, show a bounded number of them and say how many match;
+- find a pair when the owner types it in another spelling of the same market;
+- keep showing a selected pair that the venue no longer lists, marked as no
+  longer listed, until the owner removes it, and MUST NOT drop it silently.
+
+When a save is refused, the panel MUST state the reason: the symbols the
+exchange does not list, by name; or that the exchange's pair list could not be
+read and nothing was saved. Every string MUST be localized EN/ES.
+
+#### Scenario: The new-strategy dialog offers the pool's pairs, not free text
+
+- GIVEN the owner opens the new-strategy dialog and chooses pool `(bybit, usdt-m, USDT)`, whose available pairs include `STXUSDT`
+- WHEN the pairs field renders
+- THEN it is a searchable selection over that pool's available pairs, and no free-text pairs field exists
+
+#### Scenario: Nothing is selectable before a pool is chosen
+
+- GIVEN the owner opens the new-strategy dialog and has not chosen a pool
+- WHEN the pairs field renders
+- THEN it offers no pair and says a pool must be chosen first
+
+#### Scenario: Typing another spelling finds the pair
+
+- GIVEN pool `(bybit, usdt-m, USDT)` whose available pairs include `STXUSDT`
+- WHEN the owner types `stxusdt.p` in the search field
+- THEN `STXUSDT` is offered, and selecting it submits `STXUSDT`
+
+#### Scenario: A selection is made with the keyboard alone
+
+- GIVEN pool `(bybit, usdt-m, USDT)` whose available pairs are offered
+- WHEN the owner moves focus to a pair and toggles it with the keyboard
+- THEN the pair is selected and appears among the selected pairs with a labelled remove control
+
+#### Scenario: Changing the pool clears the selection
+
+- GIVEN the owner selected `STXUSDT` for pool `(bybit, usdt-m, USDT)`
+- WHEN the owner changes the pool to `(binance, usdt-m, USDT)`
+- THEN no pair is selected and the offered pairs are those of pool `(binance, usdt-m, USDT)`
+
+#### Scenario: Available pairs that cannot be read show a failure, not free text
+
+- GIVEN the available pairs of pool `(binance, usdt-m, USDT)` cannot be read
+- WHEN the pairs field renders
+- THEN it shows a failure message with a retry control, offers no free-text field, and the new-strategy dialog cannot be submitted
+
+#### Scenario: Many matches are bounded and counted
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has several hundred available pairs
+- WHEN the owner types `USDT`
+- THEN a bounded number of matches is shown together with the number that match
+
+#### Scenario: A stored pair the venue no longer lists stays visible
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` has allowed pairs `{ETHUSDT, SFPUSDT}` and that pool's available pairs no longer include `SFPUSDT`
+- WHEN S1's allowed-pairs editor renders
+- THEN `SFPUSDT` is shown as selected and marked as no longer listed, and saving without touching it sends `{ETHUSDT, SFPUSDT}`
+
+#### Scenario: A refusal for an unlisted symbol names it
+
+- GIVEN a save was refused with `UNKNOWN_PAIRS` naming `YPF`
+- WHEN the refusal is shown
+- THEN the message names `YPF`
+
+#### Scenario: A refusal for an unreachable exchange says so
+
+- GIVEN a save was refused because the pair list of pool `(binance, usdt-m, USDT)` could not be read
+- WHEN the refusal is shown
+- THEN the message says the exchange's pair list could not be read and that nothing was saved, and it does not say the pairs were wrong
 
 ### Requirement: Copy-Ready Webhook Message, Secret Revealed Only On Explicit Request
 

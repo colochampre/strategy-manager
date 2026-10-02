@@ -19,6 +19,8 @@ Inputs: `proposal.md` (Engram `sdd/operator-panel/proposal`), `owner-decisions.m
 >
 > This belongs in PR 3 (the degradation work) or PR 8 (`SaveCredential`), whichever lands first.
 
+> **Revised 2026-10-02 (decisions 40 and 41, unit 9v).** Allowed pairs are validated against the venue's public catalogue, and the dialog's free text becomes a selector. The design is the last addendum of this file, "Addendum: allowed pairs validated against the venue catalogue". It changes three rows of the § 14 endpoint table (marked there) and the `NewStrategyDialog` and `AllowedPairsEditor` entries of § 15. Nothing else in this file is reopened.
+
 Style follows `archive/2026-09-24-book-venue-closes/design.md`. Every new component names its hexagonal layer (`rules.design`). Complex flows have sequence diagrams.
 
 ## Technical approach
@@ -486,9 +488,10 @@ Money, quantities and ratios are **JSON strings** (pydantic v2 serializes `Decim
 | --- | --- | --- | --- | --- |
 | `GET /strategies?include_archived=false` | — | `[StrategyView]` | — | `SqlAlchemyStrategyRepository.list_all(include_archived)` + one events query → `uptime()` |
 | `GET /strategies/{id}` | — | `StrategyView` (archived included) | 404 | repository + events |
-| `POST /strategies` | `RegisterRequest` + `allowed_pairs: [str] (min 1)` | 201 `StrategyView` | 409 duplicate id/name; 422 no pairs / bad pool | `RegisterStrategy` |
+| `POST /strategies` | `RegisterRequest` + `allowed_pairs: [str] (min 1)` | 201 `StrategyView` | 409 duplicate id/name; 422 no pairs / bad pool; **(unit 9v, decision 41)** 422 `UNKNOWN_PAIRS` (+ `unknown`), 422 `PAIR_CATALOGUE_NOT_SERVED`, 502 `PAIR_CATALOGUE_UNAVAILABLE` | `RegisterStrategy` (+ `PairCatalogPort`, addendum 9v § E) |
 | `PATCH /strategies/{id}` | `{name?, fill_mode?, allocation_percent?, enabled?}` | `StrategyView` | 404; 409 `STRATEGY_ARCHIVED`; 409 name taken | `UpdateStrategy` (+ event) |
-| `PUT /strategies/{id}/allowed-pairs` | `{pairs: [str] (min 1)}` | `StrategyView` | 404; 409 `STRATEGY_ARCHIVED`; 422 empty/invalid | `ReplaceAllowedPairs` |
+| `PUT /strategies/{id}/allowed-pairs` | `{pairs: [str] (min 1)}` | `StrategyView` | 404; 409 `STRATEGY_ARCHIVED`; 422 empty/invalid; **(unit 9v, decision 41)** for ADDED pairs only: 422 `UNKNOWN_PAIRS` (+ `unknown`), 422 `PAIR_CATALOGUE_NOT_SERVED`, 502 `PAIR_CATALOGUE_UNAVAILABLE`; 409 `PAIRS_CHANGED` | `ReplaceAllowedPairs` (+ `PairCatalogPort`, addendum 9v § E) |
+| `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` **(unit 9v, decision 41)** | — | `{pool: {exchange, venue, settlement_currency}, pairs: [str], count}`; `pairs` sorted, in `market_key` form | 404 `no such pool`; 404 `PAIR_CATALOGUE_NOT_SERVED`; 502 `PAIR_CATALOGUE_UNAVAILABLE` | `ReadAvailablePairs` (addendum 9v § F) |
 | `POST /strategies/{id}/archive` | — | `StrategyView` (idempotent) | 404; 409 `STILL_ENABLED`; 409 `OPEN_POSITION` (+ `symbols`, `allocations`, `live_reservations`, `in_flight_attempts`) | `ArchiveStrategy` |
 | `GET /strategies/{id}/events` | — | `[{enabled, occurred_at, origin}]` | 404 | `SqlAlchemyEnablementLog` |
 | `GET /pools` | — | `[{exchange, venue, settlement_currency, enabled, balance: {total, available, observed_at, stale} \| null, reserved, allocatable}]` | — | `capital_pools` ⋈ `pool_balance_snapshots` + `sum_active` (`allocatable = max(0, available − reserved)`, computed server-side) |
@@ -1808,3 +1811,388 @@ Migration 0027 and `KeyFacts` (same PR, third commit):
 - **Body limits.** `api_key` at least 4 characters (the same floor as `ExchangeCredential`), `api_secret` at least 1, `label` 1 to 64 characters and `default` when absent, `extra="forbid"`. The body is not stripped of whitespace; the CLI strips because `getpass` returns a trailing newline, and the frontend form (10f) will trim.
 - **An unusable `MASTER_ENCRYPTION_KEY` is a 503 with one ERROR** (which reaches Telegram through the alert bridge), raised by the dependency before the use case runs. Section 5's "startup invariant 5" (fail the API lifespan on a bad key) was NOT added: it would refuse to boot the whole admin API, including the read-only routes, for a fault only the PUT has. The per-request 503 names the fault at the moment it matters.
 - **The log test.** One real `uvicorn.Server` with uvicorn's own logging, the module's `create_app()` and the real Binance inspector over a mock transport, so the signed request is really made. Two PUTs (a save and a refused body), every logger hooked at DEBUG: `uvicorn.access`, `uvicorn.error`, `strategy_manager.*` (including `SaveCredential`'s own INFO line), `httpx`, `httpcore` and the root, plus stdout and stderr. The key, the secret and any `signature=` are absent, and no `httpx` or `httpcore` record exists.
+
+## Addendum: allowed pairs validated against the venue catalogue (decisions 40 and 41) - 2026-10-02
+
+Unit 9v. HEAD `05e8c0a`. Decision 41 is binding and is not reopened here. This addendum settles what it left to the design: the port, the public clients, the cache, where each check sits, the HTTP contract, the selector, and the PR split. It supersedes the `POST /strategies` and `PUT /strategies/{id}/allowed-pairs` rows of § 14 (already marked there) and the `NewStrategyDialog` and `AllowedPairsEditor` entries of § 15.
+
+**The answer in one paragraph.** The `strategies` module declares a `PairCatalogPort` that answers "which pairs may a strategy on this capital pool trade". Its adapter reads each venue's PUBLIC catalogue with a transport that has no signer, keeps the result in memory for five minutes per pool, and reuses the read clients' own contract parser, so "available" means exactly "the order path could parse and would accept this market". `RegisterStrategy` checks every pair; `ReplaceAllowedPairs` checks only the pairs being added, and makes its venue call BEFORE it takes the strategy's row lock. A new read endpoint feeds a native, searchable selector that replaces the dialog's textarea.
+
+### A. Findings from the code (verified at HEAD `05e8c0a`)
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| V1 | No port returns a venue's symbol list. `ExchangePort` is per order. | `execution/application/ports.py` | A new port, declared by its consumer (`strategies`). |
+| V2 | `BybitTransport.get` always signs, and the class cannot be built without a `BybitSigner`. | `shared/infrastructure/bybit/transport.py:37-49` | A credential-free Bybit transport is new work. |
+| V3 | `BinanceTransport.get_public` does not sign, but the constructor still demands a `BinanceSigner`. | `shared/infrastructure/binance/transport.py:37-45` | A credential-free Binance transport is new work too. |
+| V4 | `BybitReadOnlyClient.perp_contracts(limit=1000)` reads ONE page and ignores `nextPageCursor`. It parses eagerly: one malformed entry raises for the whole list. `bybit/trade_client.py:130` calls it on the order path. | `shared/infrastructure/bybit/read_client.py:335-344` | The new public read pages until the cursor is empty. The order path's own truncation risk is recorded as follow-up 9vf.1; this unit does not change a line the worker executes for an order. |
+| V5 | `BinanceReadOnlyClient.perp_catalogue()` returns RAW entries on purpose, and `parse_contract` is public. | `shared/infrastructure/binance/read_client.py:250-274, 348-362` | The public read parses per entry inside a guard, with the same function. |
+| V6 | The API process builds no venue client today except the key inspectors, which sign with the plaintext the operator submits. Their wiring is a `Depends(get_...)` factory. | `accounts/infrastructure/credentials_router.py:117-163` | The same injection pattern, so tests override the dependency. |
+| V7 | `RegisterStrategy` takes no lock. `ReplaceAllowedPairs` takes the strategy row lock FIRST (`get_by_id_for_update`), before every other check. | `strategies/application/register_strategy.py:110-157`, `replace_allowed_pairs.py:52-77` | Replace is reordered so the venue call runs with no row lock held (§ E). |
+| V8 | The pool venue id is `usdt-m` for both Bybit and Binance. `linear` is only Bybit's API category. | `accounts/domain/known_pools.py:44-49` | The source registry is keyed `(exchange, venue)` with `usdt-m`. The frontend harness's `pool("bybit", "linear")` describes a pool that cannot exist and is corrected in the frontend PR. |
+| V9 | `ApiError` types `detail` as a string and builds its message from it. The API's structured refusals arrive as `{"detail": {"error", "message", ...}}`, an object. | `frontend/src/shared/api/client.ts:14-26` | `ApiError` learns to read a structured detail (§ G). Today the dialog decides by status alone, so nothing renders `[object Object]`, but nothing can name a symbol either. |
+
+### B. Components, with hexagonal layer
+
+| Component | Layer | File | Notes |
+| --- | --- | --- | --- |
+| `UnknownPairs`, `PairCatalogUnavailable`, `PairCatalogNotServed`, `PairsChangedConcurrently`; `unknown_pairs(candidates, available)` | **domain**/strategies | `strategies/domain/pair_catalog.py` | `DomainError`s and one pure set rule. No framework import. `UnknownPairs.unknown` is a sorted tuple. |
+| `PairCatalogPort.available_pairs(pool: PoolKey) -> frozenset[str]` | **application**/strategies | `strategies/application/ports.py` | Returns `market_key` forms. Raises `PairCatalogNotServed` or `PairCatalogUnavailable`. No `execution` or `accounts` type appears in it. |
+| `PoolCatalogPort.exists(pool: PoolKey) -> bool` (new method) | **application**/strategies | same file | A pool that is a row of `capital_pools`, enabled or not. Used only by the read endpoint. |
+| `RegisterStrategy`, `ReplaceAllowedPairs` (changed); `ReadAvailablePairs` (new) | **application**/strategies | `register_strategy.py`, `replace_allowed_pairs.py`, `read_available_pairs.py` | § E and § F. |
+| `VenuePairCatalog` (source registry, TTL cache, single flight); `PerpetualSymbolSource` protocol | **infrastructure**/strategies | `strategies/infrastructure/pair_catalog.py` | Implements `PairCatalogPort`. The only place that maps a venue symbol through `market_key`. |
+| `pair_catalog_router`, `get_pair_catalog`, `get_read_available_pairs` | **infrastructure**/strategies | `strategies/infrastructure/pair_catalog_router.py` | `GET /api/pools/{exchange}/{venue}/{ccy}/available-pairs`. |
+| `BybitPublicTransport`, `BybitPublicCatalogue` | **infrastructure**/shared | `shared/infrastructure/bybit/transport.py`, `bybit/public_catalogue.py` | No signer in either constructor. |
+| `BinancePublicTransport`, `BinancePublicCatalogue` | **infrastructure**/shared | `shared/infrastructure/binance/transport.py`, `binance/public_catalogue.py` | Same. |
+| `PerpContract.settles_in(currency)` on both venue read models; Bybit's `_parse_contract` made public as `parse_contract` | **infrastructure**/shared | `bybit/read_client.py`, `binance/read_client.py` | § C. |
+| `Settings.pair_catalogue_ttl_seconds: float = 300.0` | shared config | `shared/config.py` | The only new setting. Base URLs and timeouts already exist (`bybit_base_url`, `bybit_timeout_seconds`, `binance_futures_base_url`, `binance_timeout_seconds`). |
+| `scripts/check_public_catalogue.py` | dev tool, GET-only | `backend/scripts/` | Probe P7 (§ J). Loads no credential. |
+| `PairSelector`, `useAvailablePairs`, `ApiError.code` / `.fields` | frontend | `features/strategies/PairSelector.tsx`, `shared/api/pairs.ts`, `shared/api/client.ts` | § G. |
+
+**Why the port lives in `strategies` and not in `execution`.** The question is a strategy-configuration question ("may this strategy list this pair on its pool"), and the consumer declares the port (`strategies/application/ports.py` header; `strategies/infrastructure/pool_catalog.py` header). `ExchangePort` is the worker's order port; widening it would pull the API process toward the signed adapters, which is the boundary rule 8 protects.
+
+**Why the venue clients live in `shared/infrastructure`.** That is where `BybitReadOnlyClient` and `BinanceReadOnlyClient` already live, next to the parser they must share. `shared` cannot import `strategies`, so the venue classes raise their own `BybitApiError` / `BinanceApiError`, and `VenuePairCatalog` translates them into the port's `PairCatalogUnavailable`.
+
+### C. The credential-free transports and the shared parsing
+
+**A transport that cannot sign, by type.** Each venue gains a second transport class whose constructor takes only `httpx.AsyncClient`:
+
+```python
+class BybitPublicTransport:      # shared/infrastructure/bybit/transport.py
+    def __init__(self, http: httpx.AsyncClient) -> None: ...
+    async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any: ...
+
+class BinancePublicTransport:    # shared/infrastructure/binance/transport.py
+    def __init__(self, http: httpx.AsyncClient) -> None: ...
+    async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any: ...
+```
+
+- The envelope handling is not duplicated. Each `_send` method body becomes one module-level function in the same file, and both the signed and the public class call it. So a Bybit `retCode != 0` over HTTP 200, a Binance negative `code`, and Binance's HTTP 451 are read identically with or without a signature.
+- `BinanceTransport.get_public` keeps its signature and delegates to the public class.
+- These two extractions and the rename in the next paragraph are the ONLY edits to files the worker imports. They change no behaviour, and the existing tests of both venue packages must pass unmodified. That is stated as a task acceptance criterion, because it is what keeps this unit off the order path.
+
+**Rejected:**
+- Making the signer optional (`BybitSigner | None`) on the existing transports. A `None` signer that reaches `get()` is a runtime failure on the worker's order path, and the type would stop saying "this object can sign".
+- A fake or empty credential passed to the existing clients. It would put a credential-shaped object in the API process, and a signed request with a junk key is refused by the venue.
+- A separate parser for the catalogue that reads only `symbol`, `contractType`, `status` and the settle coin. Lighter, but it would list a market whose trading rules the order path cannot parse, so the selector would offer a pair that every order then refuses.
+
+**One filter, reused.** The public catalogues parse each entry with the read clients' own function and apply the read models' own properties:
+
+```python
+contract.is_perpetual and contract.is_trading and contract.settles_in(settlement_currency)
+```
+
+- `is_perpetual` and `is_trading` are the properties `assert_tradable` already uses before every order (`bybit/read_client.py:94-106, 133-141`; `binance/read_client.py:114-128`). Bybit: `contractType == "LinearPerpetual"`. Binance: `contractType == "PERPETUAL"`, which already excludes `TRADIFI_PERPETUAL` and the quarterlies.
+- `settles_in(currency)` is new on both models: Bybit compares `settle_coin`, Binance compares `margin_asset`, both case-insensitively. Bybit's existing `is_usdt_settled` becomes `settles_in("USDT")`.
+- The symbol string is never the criterion. `BTCUSDT-25DEC26` and `BTCUSDT_251226` are excluded because of their contract type, not their suffix (decision 41).
+
+**Bybit pagination.** `BybitPublicCatalogue` requests `category=linear&limit=1000` and follows `nextPageCursor` until it is empty, exactly as `fills_in_window` does (`read_client.py:300-333`). A hard page cap (10) raises `BybitApiError` instead of returning a partial list. Probe P7 records whether the cursor is present and how many pages today's listing takes.
+
+**Malformed entries.** Each entry is parsed inside its own guard:
+- An entry that fails to parse is skipped and counted. After the read, ONE WARNING names the venue, the count and up to ten of the symbols (`<no symbol>` when even that is unreadable). It is one line per read, not one per entry, so a venue-wide shape change cannot flood the log.
+- If the listing is non-empty and NO pair survives the filter, the read raises instead of returning an empty set, and one ERROR names the contract types and statuses that were seen. This is the Pionex lesson (`type: "PERP"` against the documented `contractType: "PERPETUAL"`): a renamed field would otherwise turn every valid symbol into an "unknown pair", which is a wrong message, not a refusal. The ERROR reaches Telegram through the alert bridge.
+- A skipped entry is treated as not available. That is fail-closed and consistent: the order path could not parse it either.
+
+### D. `VenuePairCatalog`: registry, cache and concurrency
+
+```python
+class PerpetualSymbolSource(Protocol):
+    async def tradable_perpetuals(self, settlement_currency: str) -> tuple[str, ...]: ...
+
+class VenuePairCatalog:                       # implements PairCatalogPort
+    def __init__(self, sources: Mapping[tuple[str, str], _Source],
+                 ttl_seconds: float, monotonic: Callable[[], float]) -> None: ...
+    @classmethod
+    def for_settings(cls, settings: Settings) -> "VenuePairCatalog": ...
+    async def available_pairs(self, pool: PoolKey) -> frozenset[str]: ...
+```
+
+**Registry.** Keyed `(exchange, venue)`: `("bybit", "usdt-m")` and `("binance", "usdt-m")`. Each entry pairs a source with the venue error type it raises. A pool with no entry raises `PairCatalogNotServed`: there is no fallback and no empty list, the same rule as `VenueExchangeRegistry`. Today that means every Pionex pool (no public unsigned transport exists for it, and it has no adapter).
+
+**Cache.**
+
+| Property | Choice | Why |
+| --- | --- | --- |
+| Where | In memory, in the one `VenuePairCatalog` instance of the API process | Decision 41 rejected a table. The data is public, small and cheap to refetch. |
+| Key | The full pool key `(exchange, venue, settlement_currency)` | Capital-pool isolation: one pool's list can never answer for another, even on the same venue. |
+| Value | `frozenset` of `market_key(symbol)` plus the monotonic time of the read | Decision 41: comparison is always in `market_key` form. |
+| TTL | 300 s, `Settings.pair_catalogue_ttl_seconds` | Long enough that opening the dialog and saving use one read; short enough that a new listing appears within minutes. |
+| A stale entry means | A pair delisted less than one TTL ago is still accepted; a pair listed less than one TTL ago is refused as unknown until the entry expires | Both are bounded by the TTL. The first is caught loudly at order time by `assert_tradable`; the second is fixed by retrying. |
+| Expired entry and the refresh fails | The call raises `PairCatalogUnavailable`. An expired entry is never served | Decision 41: fail closed. |
+| Failures | Never cached | The next request retries the venue. |
+| Lifetime | Lost on restart; one cache per process | Nothing depends on it surviving. |
+| Bound | At most one entry per served pool | The read endpoint checks that the pool is a `capital_pools` row before it asks, and an unserved `(exchange, venue)` raises before anything is stored. |
+
+**Concurrent requests.** One `asyncio.Lock` per pool key, with a check before and after acquiring it. Two requests that miss the cache together make ONE venue call; the second waits and reads the fresh entry. This lock is an in-process lock, not a database lock. The request that holds it holds no row lock and no advisory lock (§ E), so it cannot join a database lock cycle.
+
+**The HTTP client.** One `httpx.AsyncClient` per read, built with the venue's base URL and timeout from `Settings`, as the key inspectors do (`key_inspectors/bybit.py:82-84`). Reads are rare (at most one per pool per TTL), so no connection is kept open. `transport` is injectable for `httpx.MockTransport`.
+
+**What is logged.**
+
+| Event | Level | Content |
+| --- | --- | --- |
+| A real venue read | INFO | exchange, venue, settlement currency, entries listed, pairs available, entries skipped, pages, elapsed ms |
+| Entries skipped as malformed | WARNING | venue, count, up to ten symbols |
+| A non-empty listing with no available pair | ERROR | venue, contract types and statuses seen |
+| The venue could not be read | WARNING | exchange, venue, the venue's code or HTTP status; never a URL |
+| A cache hit | nothing | It would be one line per keystroke of the operator's work |
+
+### E. Where the checks sit
+
+**`RegisterStrategy`** gains `pairs: PairCatalogPort`. It takes no lock, so the order is only about not calling a venue for a request that would be refused anyway:
+
+1. already registered → `StrategyAlreadyRegistered` (unchanged)
+2. pool enabled → `PoolNotAvailable` (unchanged)
+3. normalize with `market_key`, at least one pair → `EmptyAllowedPairs` (unchanged)
+4. **new:** `available = await pairs.available_pairs(pool)` → `PairCatalogNotServed` or `PairCatalogUnavailable`
+5. **new:** `unknown_pairs(normalized, available)` not empty → `UnknownPairs`, one WARNING naming the strategy id, the pool and the symbols
+6. insert, commit (unchanged)
+
+**`ReplaceAllowedPairs`** gains `pairs: PairCatalogPort`. Today its first statement takes the row lock. The venue call must not run under it: a venue timeout is ten seconds, and the same row lock serializes the `enabled` toggle (`UpdateStrategy`).
+
+```
+ Panel            ReplaceAllowedPairs          Repository            PairCatalogPort      Venue
+   │ PUT pairs N          │                        │                       │                │
+   ├─────────────────────►│ get_by_id (NO lock)    │                       │                │
+   │                      ├───────────────────────►│ stored S1             │                │
+   │                      │  unknown id → 404 · archived → 409             │                │
+   │                      │  normalize N → 422 if empty                    │                │
+   │                      │  candidates = N − S1   │                       │                │
+   │                      │  (empty → skip the catalogue entirely)         │                │
+   │                      ├───────────────────────────────────────────────►│ cache or GET   │
+   │                      │                        │                       ├───────────────►│
+   │                      │  available             │                       │◄───────────────┤
+   │                      │◄───────────────────────────────────────────────┤                │
+   │                      │  candidates − available ≠ ∅ → 422 UNKNOWN_PAIRS│                │
+   │                      │ get_by_id_for_update   │                       │                │
+   │                      ├───────────────────────►│ ROW LOCK, stored S2   │                │
+   │                      │  re-check: gone → 404 · archived → 409         │                │
+   │                      │  added = N − S2                                │                │
+   │                      │  added ⊄ candidates → 409 PAIRS_CHANGED        │                │
+   │                      │ update, commit (lock released)                 │                │
+   │◄─────────────────────┤                        │                       │                │
+```
+
+- **Only added pairs are validated** (decision 41). `candidates` is the request minus what is stored. A pair already stored is never looked up, so a delisted pair can be kept or removed.
+- **A replace that adds nothing never calls the venue.** Removing a pair therefore works while the venue is down. This follows from "only added pairs are validated" and costs nothing.
+- **The re-check under the lock closes the one gap the reorder opens.** Between the unlocked read and the row lock, another request can change the stored list. If the list under the lock makes a pair "added" that was not in `candidates`, that pair was never validated, and storing it would break decision 41's "nothing is stored unvalidated". The request is refused with `PairsChangedConcurrently` (409 `PAIRS_CHANGED`), nothing is written, and the operator retries against the current list. The opposite drift (a candidate that is no longer an addition) is harmless: it was validated anyway.
+- **Lock order.** The project rule is "pool advisory lock first, then row locks". This use case takes no advisory lock, exactly one row lock, and takes it after the last external call. No venue call runs while any PostgreSQL lock is held, in either use case.
+- **Accepted cost.** The unlocked read opens the request's transaction, which stays open, idle, during a venue read (at most the venue timeout, and only on a cache miss). It holds no row lock. Its table-level `ACCESS SHARE` conflicts only with DDL, so a migration started in that window waits for it.
+- The existing row-lock guarantee is unchanged: the write still happens under `get_by_id_for_update`, so the PUT cannot revert a concurrent `PATCH enabled` (`replace_allowed_pairs.py:14-24`).
+
+**Error types and HTTP mapping** (both routes; the body is FastAPI's `{"detail": {...}}`, as `STRATEGY_ARCHIVED` is today):
+
+| Error | Status | `detail` | Why this status |
+| --- | --- | --- | --- |
+| `UnknownPairs` | 422 | `{"error": "UNKNOWN_PAIRS", "message", "unknown": [...]}`, `unknown` sorted, in `market_key` form | The input is the problem (§ 14 conventions; decision 41). |
+| `PairCatalogNotServed` | 422 | `{"error": "PAIR_CATALOGUE_NOT_SERVED", "message"}` | The request names a pool this system cannot validate pairs for. It is the same class as "bad pool", which is already 422. |
+| `PairCatalogUnavailable` | **502** | `{"error": "PAIR_CATALOGUE_UNAVAILABLE", "message"}` | § 14: "502: the upstream venue failed", the status `VENUE_UNREACHABLE` already uses on `PUT /credentials`. 503 stays reserved for "this deployment is configured not to", and 422 would tell the operator their input was wrong when it was not. The body carries its own code, so the dialog does not depend on the status alone. |
+| `PairsChangedConcurrently` | 409 | `{"error": "PAIRS_CHANGED", "message"}` | A state conflict: the request is well-formed and the target changed underneath it. |
+
+Each refusal logs one WARNING in the use case (strategy, pool, and the symbols or the reason). The existing 404, 409 and 422 answers keep their shapes.
+
+**Wiring.** Both routes stop building their use case inline (`router.py:206-216, 293-299`) and take it from a dependency, `get_register_strategy` and `get_replace_allowed_pairs`, in the same style as `get_save_credential`. Both read the catalogue from `get_pair_catalog`, which returns the single `VenuePairCatalog` that `create_app()` builds once and keeps on `app.state.pair_catalog`. Tests override `get_pair_catalog` with a fake, so no router test needs a network. `main.py` gains only the construction and the `include_router` line.
+
+### F. The read endpoint
+
+`GET /api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs`
+
+- **Why this path.** The resource is a property of a capital pool, and the path names the pool's settlement currency explicitly, as `/performance/pools/{exchange}/{venue}/{ccy}` does. It lives in the `strategies` module (it serves the port `strategies` declares) in its own router with prefix `/pools`. A path under `/strategies/...` was rejected: a literal segment beside `/{strategy_id}` depends on declaration order, and a late declaration turns it into a 422 on the UUID.
+- **Auth.** The router carries `dependencies=[Depends(require_admin_token)]`, like every admin router, and is included in `api_router`. The existing walk over every `/api` route covers it without edits; so does the pool-management inventory test, because the route is a GET.
+- **Response.** `{"pool": {"exchange", "venue", "settlement_currency"}, "pairs": ["AAVEUSDT", ...], "count": N}`. `pairs` is sorted and in `market_key` form, which is the form the save accepts back. No money, quantity or ratio is in it.
+- **Size.** One string per perpetual: about 800 for Bybit and several hundred for Binance (P7.4 records the real counts), in the order of 10 to 15 KB. It is returned whole. Search is client-side, and there is no pagination or `q` parameter, because the list is already in the server's memory and the selector needs all of it to mark a stored pair as no longer listed.
+
+| Case | Answer | Notes |
+| --- | --- | --- |
+| The pool is not a row of `capital_pools` (unknown exchange, wrong-case currency, unconfigured triple) | 404 `{"detail": "no such pool"}` | Path values are strings, as on the performance routes, so none of these is a 422. Checked BEFORE the catalogue, so a made-up path never causes a venue call or a cache entry. |
+| The pool exists but is disabled | 200, the list | The catalogue is public and needs no key. An existing strategy on a pool that was later disabled can still have its pairs edited (`ReplaceAllowedPairs` never checked the pool's flag). |
+| The pool exists and has no catalogue source (Pionex) | 404 `{"detail": {"error": "PAIR_CATALOGUE_NOT_SERVED", "message"}}` | Never an empty list: an empty list would read as "this venue lists nothing". The structured body distinguishes it from an unknown pool. On a save the same condition is a 422, because there the input names the pool. |
+| The venue cannot be read | 502 `{"detail": {"error": "PAIR_CATALOGUE_UNAVAILABLE", "message"}}` | Same code as on a save. |
+
+`ReadAvailablePairs(pools: PoolCatalogPort, pairs: PairCatalogPort)` is the use case: `exists` → `available_pairs` → sorted. The router only maps errors.
+
+### G. Frontend
+
+**`ApiError` reads a structured detail** (`shared/api/client.ts`). Two fields are added and nothing is removed:
+
+- `code`: `detail.error` when `detail` is an object, else `outcome`.
+- `fields`: the `detail` object when it is one, else `undefined`.
+- When `detail` is an object, `detail` (the string property) becomes `detail.message`, so the error's `message` is never `[object Object]`.
+
+**`useAvailablePairs(pool | null)`** (`shared/api/pairs.ts`).
+- Query key `['available-pairs', exchange, venue, settlement_currency]`. It is deliberately not under `['pools']`, which refetches every 60 s.
+- `enabled` only when a pool is chosen. `staleTime` 5 minutes, matching the server's TTL. `retry: 1`.
+- It validates the top-level shape (`pairs` is an array of strings), like every other call function.
+
+**`PairSelector`** (`features/strategies/PairSelector.tsx`), presentational and controlled, built on native elements only:
+
+```ts
+interface PairSelectorProps {
+  id: string;
+  label: string;
+  value: readonly string[];                 // selected pairs, market_key form
+  onChange: (next: string[]) => void;
+  options: readonly string[] | undefined;   // the pool's available pairs
+  status: "idle" | "loading" | "error" | "ready";
+  onRetry: () => void;
+  describedBy?: string;
+  disabled?: boolean;
+}
+```
+
+- **Structure.** A `<fieldset>` with a `<legend>`; a labelled `<input type="search">`; a scrollable list of native checkboxes, each inside its own `<label>`; and the selected pairs as chips, each with a remove `<button>` whose accessible name contains the symbol. Native checkboxes give Tab and Space for free; no ARIA combobox pattern is hand-built.
+- **Search.** A case-insensitive substring match after the typed text is upper-cased and stripped of `.P` or `_PERP`, so pasting TradingView's `STXUSDT.P` finds `STXUSDT`. This is a display filter; the server decides what is valid.
+- **Many results.** At most 50 matches are rendered. A polite live region says how many match and that typing narrows the list. No virtualisation is needed.
+
+| State | What renders |
+| --- | --- |
+| `idle` (no pool chosen yet) | The search input disabled, with "Choose a pool first" |
+| `loading` | A `role="status"` line; the list is absent |
+| `error` | A `role="alert"` line and a Retry button; chips stay and stay removable |
+| `ready`, the filter matches nothing | "No pair matches" |
+| `ready`, more than 50 matches | The first 50 and the count line |
+
+- **A selected pair that is not in `options`** (status `ready`) is shown as a chip marked "no longer listed", in neutral `ink-3`, and stays selected until the operator removes it. It is never dropped silently: a silent drop would turn the next PUT into an unintended removal. Once removed it cannot be re-added, which matches the server (a re-add is an addition and is refused). It is neutral, not amber, because amber means an action is needed (addendum key policy § G) and keeping a delisted pair is allowed (decision 15).
+
+**`NewStrategyDialog`.** The textarea, `parsePairs` and `pairsHint` go. The selector's `options` come from `useAvailablePairs` for the chosen pool. Changing the pool clears the selection, because pairs belong to one pool's catalogue. Submit stays disabled until the status is `ready`. The error text is chosen by `error.code`, then by status as a fallback:
+
+| `code` (fallback) | i18n key | Text (EN) |
+| --- | --- | --- |
+| `UNKNOWN_PAIRS` | `strategies.pairs.errors.unknown` | "The exchange does not list: {{symbols}}." (from `fields.unknown`) |
+| `PAIR_CATALOGUE_UNAVAILABLE` (or any 502) | `strategies.pairs.errors.venueUnavailable` | "The exchange's pair list could not be read, so nothing was saved. Try again." |
+| `PAIR_CATALOGUE_NOT_SERVED` | `strategies.pairs.errors.notServed` | "Pairs cannot be checked for this pool, so a strategy cannot be created on it." |
+| `PAIRS_CHANGED` (editor only) | `strategies.pairs.errors.changed` | "The list changed while you were editing. Review it and save again." |
+
+Other new keys, EN and ES: `strategies.pairs.search`, `.choosePool`, `.loading`, `.loadFailed`, `.retry`, `.noMatch`, `.showing` (`{{shown}}` of `{{total}}`), `.remove` (`{{symbol}}`), `.notListed`, `.selected`.
+
+**`AllowedPairsEditor` (unit 9d)** reuses `PairSelector` with the strategy's pool and its stored pairs as the initial `value`. Two differences from the dialog, both following § E: in status `error` the editor still allows a save that only removes pairs (the server needs no catalogue for it), and the "no longer listed" chips are where a seeded or delisted pair shows up. Unit 9d's two existing RED tests keep their meaning; its files are not created by unit 9v.
+
+**The harness.** `frontend/src/test/harness.tsx` defaults to `pool("bybit", "linear")`, a venue that does not exist (V8). The frontend PR changes it to `usdt-m`, adds an available-pairs route to `stubApi`, and updates the tests that spell `linear/USDT`.
+
+### H. Impact on `DRY_RUN`, idempotency and capital-pool isolation
+
+| Rule | Impact |
+| --- | --- |
+| **`DRY_RUN` (rule 1)** | The API process makes real, public, unsigned GETs to Bybit and Binance in both modes. No order, no key, no account data. The flag does not gate them, because the validation must be true before the system goes live, not after. No test needs the network: sources are driven by `httpx.MockTransport`, and everything above them by a fake `PairCatalogPort`. |
+| **Idempotency (rule 2)** | Untouched. The signal path, the idempotency key and the job queue do not call the catalogue. A strategy's id is still the alert's `signalType`. A register retried with the same id is still refused by `StrategyAlreadyRegistered` before any venue call. |
+| **Webhook (rule 3)** | Untouched. The catalogue is called only from admin routes, never from ingress or the worker. A slow venue can slow a save in the panel and nothing else. |
+| **Allocation transaction (rule 4)** | Untouched. Neither use case takes the pool advisory lock, and no venue call runs under a row lock. |
+| **Capital-pool isolation (rule 5)** | The catalogue is keyed and cached by the full pool key, and filtered by the pool's settlement currency. No balance is read, nothing is reserved, and no pool's list is ever merged with another's. A USDC-settled contract is not offered to a USDT pool. |
+| **Ledger and PnL (rules 6, 7)** | Untouched. No write outside `strategies.allowed_pairs`. |
+| **Credentials (rule 8)** | The public transports take no signer by type. A structural test asserts that the new modules import no signer, no vault and no cipher. |
+| **Existing data** | No migration. Pairs already stored are never revalidated: production's `SFPUSDT`, `AAVEUSDT` and `STXUSDT` stay as they are, listed or not. |
+
+### I. Failure modes (what fails here without a log line?)
+
+| Failure | Guard |
+| --- | --- |
+| Bybit's listing grows past one page and the tail is silently missing, so valid pairs are refused as unknown | The cursor is followed to its end; a page cap raises rather than truncating; the INFO line records pages and counts |
+| One malformed market makes the whole catalogue unreadable | Per-entry guard; the entry is skipped |
+| A malformed market is dropped and nobody learns why its pair is "unknown" | One WARNING per read naming the count and the symbols |
+| The venue renames a field or value and every market is filtered out, so every save says "unknown pair" | A non-empty listing with no available pair raises `PairCatalogUnavailable` and logs an ERROR with the values seen |
+| The venue is down and the save stores the pair anyway | Fail closed: 502, nothing written; one WARNING |
+| An expired cache entry is served as if fresh | Never served; the refresh either succeeds or raises |
+| One pool's list answers for another pool | The cache key is the full triple; a test reads two settlement currencies on one venue |
+| A pool with no source (Pionex) is accepted unvalidated | `PairCatalogNotServed`: refused on save, structured 404 on read, never an empty list |
+| The venue call runs under the strategy row lock and a slow venue freezes the enabled toggle | The call precedes the lock; proven on real PostgreSQL (§ K) |
+| A concurrent edit makes an unvalidated pair "added" under the lock | 409 `PAIRS_CHANGED`, nothing written, one WARNING |
+| A delisted stored pair vanishes from the editor and the next save removes it | The selector keeps it as a marked chip until the operator removes it |
+| The dialog shows "invalid" and never names the symbol | `ApiError.code` and `fields.unknown`; the message lists the symbols |
+| A proxy replaces the 502 body | The dialog falls back to the status: any 502 reads as "the pair list could not be read" |
+| A credential reaches the API's venue client | No signer parameter exists; structural import test |
+
+**Threat matrix.** The skill's matrix stays N/A (no shell, subprocess or VCS automation). Three project-specific rows extend the table of § Threat matrix (they are recorded here, not there):
+
+| Threat | Safe behaviour | RED test |
+| --- | --- | --- |
+| The new `/api` route ships without auth | Auth is a router dependency | The existing parametrized walk over `app.routes` |
+| A path value steers the outbound request (SSRF) | Base URLs come from `Settings`; the three path values only select a registry entry and a filter value, and never become part of a URL; an unknown pool is refused before any venue call | A request for an unknown pool makes zero transport calls; the recorded request URL is the configured host and the fixed path |
+| An authenticated caller makes the API hammer a venue | One read per pool per TTL, single flight, and only for pools that exist | N concurrent requests produce one transport call |
+
+### J. Probe P7 (owner-run, before the adapters are written)
+
+`backend/scripts/check_public_catalogue.py`, in the style of `check_key_permissions.py`. GET-only. It builds a bare `httpx` client from `bybit_base_url` and `binance_futures_base_url` and loads no credential at all: no vault, no signer, no API-key header.
+
+It answers, for each venue:
+
+| # | Question | Why the adapters depend on it |
+| --- | --- | --- |
+| P7.1 | Does the endpoint answer 200 with NO signature and NO key header, from the VPS? | The whole design assumes it. Binance answers 451 by location, so "it works from a laptop" proves nothing. |
+| P7.2 | How many entries are listed, and how many by contract type, by status and by settle or margin coin? | The exact strings for the filter (`LinearPerpetual`, `Trading`, `PERPETUAL`, `TRADING`) and the count the page cap must clear. |
+| P7.3 | Bybit: is `nextPageCursor` present at `limit=1000`, and is it empty on the last page? With a small limit, does following the cursor return every entry exactly once? | The loop's termination condition. An absent key and an empty string must both end it. |
+| P7.4 | How many pairs survive the filter for `USDT`? | The expected size of the selector, and the non-empty guard. |
+| P7.5 | Are `SFPUSDT`, `AAVEUSDT` and `STXUSDT` available on each venue? | Informational: it tells the owner whether a stored pair will show as "no longer listed". It gates nothing. |
+| P7.6 | Response size and elapsed time; the rate-limit headers the venue returns | Confirms the timeout and the TTL are sane. |
+
+The script prints counts and symbols only. There is nothing secret to redact, and it still never prints a header or an environment value. The results are recorded in tasks.md before task 9va.3.
+
+### K. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, shared infra | Public transports send no auth header and unwrap envelopes like the signed ones; catalogue filter; pagination; malformed entries; the non-empty guard | `httpx.MockTransport`, reusing the wire fixtures `BTC_PERP`, `BTC_DATED` (`tests/shared/infrastructure/bybit/test_read_client.py`) and `AAVE`, `TRADIFI`, `QUARTERLY` (`binance/test_futures_rules.py`) |
+| Unit, strategies infra | `VenuePairCatalog`: registry, `market_key` mapping, TTL, no stale-on-error, failures not cached, single flight, pool-keyed isolation | Fake sources, an injected monotonic clock |
+| Unit, application | Register and Replace: order of checks, added-only rule, no catalogue call for a pure removal, every refusal and its WARNING | Fakes; existing tests gain a fake catalogue in `_build` |
+| Integration, real PostgreSQL | No venue call under the row lock; the write still serializes on the row lock; `PAIRS_CHANGED` | Lock-hold harness (below) |
+| Router | Status and body of every refusal; the read endpoint's four cases; auth | `httpx.AsyncClient` over ASGI with `dependency_overrides[get_pair_catalog]` |
+| Structural | The new modules import no signer, vault or cipher | Module-source test, as `test_no_decrypt_in_api_path.py` |
+| Frontend | `ApiError` structured detail; `PairSelector` states, keyboard, the "no longer listed" chip; the dialog's submit body and error text in EN and ES | Vitest, `vi.stubGlobal("fetch")` |
+
+**Rules that bind the task breakdown.**
+- **Strict TDD.** Each RED fails on an ASSERTION. A new constructor argument or a new module is first added as a stub that compiles and answers wrongly (an empty set, an accept-everything catalogue), so the first failure is never an import or a `TypeError`. A test that passes at once is proven by a named mutation.
+- **Symbol spelling.** A test that crosses a boundary uses a different spelling on each side. The venue fixture lists `STXUSDT`; the request sends `STXUSDT.P` (register) or `STXUSDT_PERP` (replace); the stored and returned form is `STXUSDT`. The frontend types `stxusdt.p` and selects `STXUSDT`.
+- **The lock property is proven on real PostgreSQL, with a lock-hold harness, never a `sleep(0)` barrier.**
+  - *No venue call under the row lock:* a fake catalogue parks the replace inside `available_pairs` on an `asyncio.Event`. While it is parked, a second connection takes the strategy row with `SELECT ... FOR UPDATE NOWAIT` and succeeds. Mutation: moving the catalogue call after `get_by_id_for_update` makes `NOWAIT` raise `LockNotAvailableError`.
+  - *The second actor still waits for the write:* a holder keeps the row lock in an open transaction; the replace, already past its catalogue call, is started; the test asserts `not task.done()` and polls `pg_locks` until the replace shows as waiting; the holder commits; the replace then completes against the row it re-read.
+  - *`PAIRS_CHANGED`:* while the replace is parked in the catalogue, another transaction removes a pair the request also contains and commits; the replace resumes and is refused, and the row is unchanged.
+- **Gate after every unit.** Backend: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Frontend: `npm run lint` and `npm test`.
+
+### L. Delivery, forecasts and open questions
+
+**The PR split.** Decision 41 names two deliveries, backend then frontend, after a probe. The backend delivery forecasts at about 1,550 to 2,250 authored lines with the measured bias applied, four times the review budget, so it is split into three sequential PRs to `main`. The frontend delivery forecasts at about 850 to 1,250 and is split into two. The probe script is its own small PR, as P6 was (PR 8a-0). None is stacked: each branch is cut from `main` after the previous one merged and deployed.
+
+```
+ PR 12a-2 ─► 12v-0 probe ─► [owner runs P7] ─► 12v-1 sources ─► 12v-2 catalogue + read
+                                                                        │
+                              12v-5 dialog ◄─ 12v-4 selector ◄─ 12v-3 refusals
+```
+
+| PR | Unit | Contents | Forecast | Deploy | Rollback boundary |
+| --- | --- | --- | --- | --- | --- |
+| **12v-0** | 9v0 | `scripts/check_public_catalogue.py` and its unit test | 200-300 | Pull only. The owner runs P7. | One dev script, imported by nothing |
+| **12v-1** | 9va | Public transports (the two `_send` extractions), `settles_in`, `parse_contract` made public, `BybitPublicCatalogue` with the cursor loop, `BinancePublicCatalogue`, their tests | 500-700 | Pull, restart both (the worker imports the two transport files) | New classes that nothing calls yet, plus two behaviour-preserving extractions pinned by the existing venue tests |
+| **12v-2** | 9vb | Domain errors, `PairCatalogPort`, `PoolCatalogPort.exists`, `VenuePairCatalog` with the cache, `ReadAvailablePairs`, the router, `Settings` field, wiring, the structural test | 550-800 | Pull, restart the API | One GET route and its adapter; revert 404s the path, and nothing else reads the catalogue yet |
+| **12v-3** | 9vc | The refusals in `RegisterStrategy` and `ReplaceAllowedPairs`, the reorder, the dependency factories, the HTTP mapping, the real-PostgreSQL lock tests | 500-750 | Pull, restart the API | Two use cases and their router mapping; revert restores normalize-only saves, and pairs stored meanwhile stay valid |
+| **12v-4** | 9vd | `ApiError` structured detail, `useAvailablePairs`, `PairSelector` (not mounted), i18n keys | 450-650 | Pull, no restart | New files and two added fields; nothing mounts the selector |
+| **12v-5** | 9ve | The selector in `NewStrategyDialog`, the error texts, the harness correction | 400-600 | Pull, no restart | One dialog; revert restores the textarea, and the server still validates |
+
+Total 2,600 to 3,800 authored lines.
+
+- **Why 12v-3 is alone.** It is the only PR that changes what a save does, and the only one with a concurrency boundary. By then the catalogue has been live behind the read endpoint, so its counts and logs have been seen in production before any save depends on it.
+- **Between 12v-3 and 12v-5** the textarea is still there. A typo is now refused with a 422 the old dialog reports as "the pairs were refused", without the symbol. That is safe and brief.
+- `Decision needed before apply: No` · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| D1 | The port is `PairCatalogPort.available_pairs(pool) -> frozenset[str]`, declared in `strategies` | B |
+| D2 | A public transport class without a signer, sharing the envelope function with the signed one | C |
+| D3 | The catalogue reuses the read clients' full contract parser and `is_perpetual` / `is_trading`, plus a new `settles_in` | C |
+| D4 | The Bybit read follows `nextPageCursor`, with a page cap that raises | C |
+| D5 | A malformed entry is skipped with one WARNING; a non-empty listing with no available pair is unreadable, with an ERROR | C |
+| D6 | In-memory cache, keyed by the full pool key, 300 s, no stale-on-error, failures not cached, single flight | D |
+| D7 | Replace: unlocked read, catalogue, then the row lock and a re-check; a pure removal never calls the venue | E |
+| D8 | 409 `PAIRS_CHANGED` when a concurrent edit would make an unvalidated pair an addition | E |
+| D9 | Venue unreachable is 502 `PAIR_CATALOGUE_UNAVAILABLE` | E |
+| D10 | A pool with no source is refused: 422 on save, structured 404 on read | E, F |
+| D11 | `GET /api/pools/{exchange}/{venue}/{ccy}/available-pairs`, whole list, served for a disabled pool too | F |
+| D12 | The selector is native checkboxes with a search input, 50 rendered matches, and a "no longer listed" chip that is never dropped | G |
+| D13 | Query key `['available-pairs', exchange, venue, ccy]`, `staleTime` 5 minutes | G |
+| D14 | Six PRs: probe, three backend, two frontend | L |
+
+**Open questions for the owner.** None blocks the probe (12v-0) or 12v-1.
+
+- **Q1. A pool with no catalogue source refuses every new strategy (D10).** Today that is every Pionex pool, and all of them are disabled, so nothing changes in production. But if a Pionex spot pool were ever enabled again, no strategy could be registered on it until a catalogue source exists for it. The alternative is to accept pairs unvalidated on such a pool, which is the silent acceptance decision 40 removes. Recommended: refuse. This is a product choice about Pionex's future, so it is asked. It blocks only the `PairCatalogNotServed` tasks of 12v-3.
+- **Q2. The split into six PRs (D14).** Decision 41 said a backend PR and a frontend PR. The forecast puts the backend at four times the review budget. Recommended: the split above. The alternative is two PRs with an explicit size exception. Under `auto-chain` the split proceeds unless the owner says otherwise.
+- **Q3. Follow-up 9vf.1, outside this unit.** The ORDER path has the truncation risk V4 describes: `bybit/trade_client.py:130` reads one page of 1,000. If Bybit's `linear` listing passes 1,000 entries, a market on the second page is refused at order time as not listed. It fails closed and loudly, but it would refuse a valid signal. Probe P7.2 records today's count (about 840 on 2026-08-26: 800 perpetuals and 40 dated futures). The question is priority: fix it right after 12v-1 (the paged read already exists by then and the change is small), or leave it as a recorded follow-up. Recommended: right after 12v-1, as its own small PR, because it touches the order path and deserves its own review.
