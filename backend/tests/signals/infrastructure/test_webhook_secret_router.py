@@ -145,10 +145,12 @@ _SAMPLE_PATH_PARAMS = {
 
 
 class _SweepPairCatalog:
-    """A fake venue catalogue: a non-empty answer and no network."""
+    """A fake venue catalogue: a non-empty answer and no network. It lists the
+    pairs the sweep's own POST and PUT bodies use, so those two requests reach
+    their real 201 and 200 instead of an unlisted-pair refusal."""
 
     async def available_pairs(self, pool: tuple[str, str, str]) -> frozenset[str]:
-        return frozenset({"STXUSDT"})
+        return frozenset({"STXUSDT", "ETHUSDT", "SOLUSDT"})
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
