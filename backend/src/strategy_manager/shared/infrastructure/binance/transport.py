@@ -40,13 +40,13 @@ class BinanceTransport:
 
     async def get_public(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         query = urlencode(dict(params or {}))
-        return await self._send(
+        return await send_request(
             "GET", path, lambda: self._http.get(f"{path}?{query}" if query else path)
         )
 
     async def get_signed(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         signed = self._signer.sign_get(path, params)
-        return await self._send(
+        return await send_request(
             "GET",
             path,
             lambda: self._http.get(signed.path_with_query, headers=dict(signed.headers)),
@@ -55,14 +55,14 @@ class BinanceTransport:
     async def post(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         """A signed POST. The parameters are sent as the exact signed body.
 
-        Routed through the same ``_send`` as the GETs on purpose: the 451
-        answer and the negative-``code`` rejection must be read identically
-        however the request was shaped, because a rejection only some verbs
-        recognise is a rejection that gets recorded as an answer.
+        Routed through the same ``send_request`` as the GETs on purpose: the
+        451 answer and the negative-``code`` rejection must be read
+        identically however the request was shaped, because a rejection only
+        some verbs recognise is a rejection that gets recorded as an answer.
         """
         signed = self._signer.sign_post(path, params)
         headers = {**signed.headers, "Content-Type": FORM_CONTENT_TYPE}
-        return await self._send(
+        return await send_request(
             "POST",
             path,
             lambda: self._http.post(
@@ -72,41 +72,47 @@ class BinanceTransport:
             ),
         )
 
-    async def _send(
-        self,
-        method: str,
-        path: str,
-        call: Callable[[], Awaitable[httpx.Response]],
-    ) -> Any:
-        try:
-            response = await call()
-        except httpx.HTTPError as exc:
-            raise BinanceApiError(f"{method} {path} failed: {exc}") from exc
 
-        if response.status_code == _RESTRICTED_LOCATION:
-            raise BinanceApiError(
-                f"{method} {path} returned HTTP 451: Binance refuses requests from "
-                "this location. It depends on where the request comes from, not on "
-                "the key or the request.",
-                http_status=_RESTRICTED_LOCATION,
-            )
+async def send_request(
+    method: str,
+    path: str,
+    call: Callable[[], Awaitable[httpx.Response]],
+) -> Any:
+    """Runs one request and applies Binance's failure reading to the answer.
 
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise BinanceApiError(
-                f"{method} {path} returned HTTP {response.status_code} with a non-JSON body",
-                http_status=response.status_code,
-            ) from exc
+    A module-level function, not a method, so that every transport in this
+    file reads a 451, a non-JSON body and a negative ``code`` identically
+    whether or not the request was signed.
+    """
+    try:
+        response = await call()
+    except httpx.HTTPError as exc:
+        raise BinanceApiError(f"{method} {path} failed: {exc}") from exc
 
-        code = payload.get("code") if isinstance(payload, dict) else None
-        rejected = isinstance(code, int) and code < 0
-        if response.status_code != httpx.codes.OK or rejected:
-            message = payload.get("msg") if isinstance(payload, dict) else None
-            raise BinanceApiError(
-                str(message or f"{method} {path} returned HTTP {response.status_code}"),
-                code=None if code is None else str(code),
-                http_status=response.status_code,
-            )
+    if response.status_code == _RESTRICTED_LOCATION:
+        raise BinanceApiError(
+            f"{method} {path} returned HTTP 451: Binance refuses requests from "
+            "this location. It depends on where the request comes from, not on "
+            "the key or the request.",
+            http_status=_RESTRICTED_LOCATION,
+        )
 
-        return payload
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise BinanceApiError(
+            f"{method} {path} returned HTTP {response.status_code} with a non-JSON body",
+            http_status=response.status_code,
+        ) from exc
+
+    code = payload.get("code") if isinstance(payload, dict) else None
+    rejected = isinstance(code, int) and code < 0
+    if response.status_code != httpx.codes.OK or rejected:
+        message = payload.get("msg") if isinstance(payload, dict) else None
+        raise BinanceApiError(
+            str(message or f"{method} {path} returned HTTP {response.status_code}"),
+            code=None if code is None else str(code),
+            http_status=response.status_code,
+        )
+
+    return payload

@@ -40,7 +40,7 @@ class BybitTransport:
 
     async def get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
         signed = self._signer.sign_get(path, params)
-        return await self._send(
+        return await send_request(
             "GET",
             path,
             lambda: self._http.get(
@@ -58,7 +58,7 @@ class BybitTransport:
         body = json.dumps(payload, separators=(",", ":"))
         signed = self._signer.sign_post(path, body)
         headers = {**signed.headers, "Content-Type": JSON_CONTENT_TYPE}
-        return await self._send(
+        return await send_request(
             "POST",
             path,
             lambda: self._http.post(
@@ -68,36 +68,42 @@ class BybitTransport:
             ),
         )
 
-    async def _send(
-        self,
-        method: str,
-        path: str,
-        call: Callable[[], Awaitable[httpx.Response]],
-    ) -> Any:
-        try:
-            response = await call()
-        except httpx.HTTPError as exc:
-            raise BybitApiError(f"{method} {path} failed: {exc}") from exc
 
-        if response.status_code != httpx.codes.OK:
-            raise BybitApiError(
-                f"{method} {path} returned HTTP {response.status_code}",
-                http_status=response.status_code,
-            )
+async def send_request(
+    method: str,
+    path: str,
+    call: Callable[[], Awaitable[httpx.Response]],
+) -> Any:
+    """Runs one request and unwraps Bybit's envelope.
 
-        try:
-            envelope = response.json()
-        except ValueError as exc:
-            raise BybitApiError(f"{method} {path} returned a non-JSON body") from exc
+    A module-level function, not a method, so that every transport in this
+    file reads the envelope identically whether or not the request was signed:
+    a ``retCode`` that is not zero over HTTP 200 is a rejection either way.
+    """
+    try:
+        response = await call()
+    except httpx.HTTPError as exc:
+        raise BybitApiError(f"{method} {path} failed: {exc}") from exc
 
-        if not isinstance(envelope, dict):
-            raise BybitApiError(f"{method} {path} returned a non-object body")
+    if response.status_code != httpx.codes.OK:
+        raise BybitApiError(
+            f"{method} {path} returned HTTP {response.status_code}",
+            http_status=response.status_code,
+        )
 
-        code = envelope.get("retCode")
-        if code != SUCCESS_CODE:
-            raise BybitApiError(
-                str(envelope.get("retMsg") or f"{method} {path} was rejected by Bybit"),
-                code=None if code is None else str(code),
-            )
+    try:
+        envelope = response.json()
+    except ValueError as exc:
+        raise BybitApiError(f"{method} {path} returned a non-JSON body") from exc
 
-        return envelope.get("result")
+    if not isinstance(envelope, dict):
+        raise BybitApiError(f"{method} {path} returned a non-object body")
+
+    code = envelope.get("retCode")
+    if code != SUCCESS_CODE:
+        raise BybitApiError(
+            str(envelope.get("retMsg") or f"{method} {path} was rejected by Bybit"),
+            code=None if code is None else str(code),
+        )
+
+    return envelope.get("result")
