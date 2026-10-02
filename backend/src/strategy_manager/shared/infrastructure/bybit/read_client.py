@@ -35,6 +35,10 @@ from typing import Any, Final
 
 import httpx
 
+from strategy_manager.shared.infrastructure.bybit.catalogue_pages import (
+    INSTRUMENTS_PATH,
+    LINEAR,
+)
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
     BybitRuleRefusal,
@@ -42,7 +46,6 @@ from strategy_manager.shared.infrastructure.bybit.errors import (
 from strategy_manager.shared.infrastructure.bybit.signer import BybitSigner
 from strategy_manager.shared.infrastructure.bybit.transport import BybitTransport
 
-INSTRUMENTS_PATH = "/v5/market/instruments-info"
 TICKERS_PATH = "/v5/market/tickers"
 WALLET_BALANCE_PATH = "/v5/account/wallet-balance"
 POSITIONS_PATH = "/v5/position/list"
@@ -56,7 +59,6 @@ ACCOUNT_COINS_BALANCE_PATH = "/v5/asset/transfer/query-account-coins-balance"
 # import back the other way.
 EXECUTIONS_WINDOW_PATH = "/v5/execution/list"
 
-LINEAR = "linear"
 UNIFIED = "UNIFIED"
 
 _EPOCH = datetime.fromtimestamp(0, UTC)
