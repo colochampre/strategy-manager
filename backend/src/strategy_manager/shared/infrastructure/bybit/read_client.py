@@ -36,8 +36,11 @@ from typing import Any, Final
 import httpx
 
 from strategy_manager.shared.infrastructure.bybit.catalogue_pages import (
-    INSTRUMENTS_PATH,
+    INSTRUMENTS_PATH as INSTRUMENTS_PATH,
+)
+from strategy_manager.shared.infrastructure.bybit.catalogue_pages import (
     LINEAR,
+    read_every_page,
 )
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
@@ -347,11 +350,19 @@ class BybitReadOnlyClient:
 
         Filtering happens at the call site so a dated future is visible as
         something that was deliberately excluded rather than silently absent.
+
+        The cursor is followed to the end: Bybit lists more ``linear`` entries
+        than one page holds once it grows past ``limit``, and a market on a
+        later page would otherwise be refused at order time as not listed. A
+        repeated cursor or a listing that outruns the page cap raises rather
+        than returning a partial list. Parsing stays eager and strict: one
+        malformed entry on ANY page raises, unlike the public catalogue, which
+        skips it.
         """
-        data = await self._read(
-            INSTRUMENTS_PATH, {"category": LINEAR, "limit": str(limit)}
+        entries, _ = await read_every_page(
+            self._transport.get, page_limit=limit, reject_repeated_cursor=True
         )
-        return [parse_contract(entry) for entry in _list_of(data, "list")]
+        return [parse_contract(entry) for entry in entries]
 
     async def last_price(self, symbol: str) -> Decimal:
         data = await self._read(TICKERS_PATH, {"category": LINEAR, "symbol": symbol})
