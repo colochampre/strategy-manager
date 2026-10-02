@@ -4,6 +4,7 @@ a persisted signal and an enqueued job — never executes a trade inline
 Response).
 """
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -12,8 +13,14 @@ from uuid import UUID
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import JobQueuePort
 from strategy_manager.shared.domain.errors import DomainError
-from strategy_manager.signals.application.ports import CommitPort, SignalRepositoryPort
+from strategy_manager.signals.application.ports import (
+    CommitPort,
+    SignalRepositoryPort,
+    UnknownSignalStrategy,
+)
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
+
+logger = logging.getLogger(__name__)
 
 
 class MissingIdempotencyKeyError(DomainError):
@@ -73,7 +80,20 @@ class IngestSignal:
             status=SignalStatus.ACCEPTED,
         )
 
-        outcome = await self._repository.insert_or_get(signal)
+        try:
+            outcome = await self._repository.insert_or_get(signal)
+        except UnknownSignalStrategy:
+            # Not an error: a configuration state the owner fixes in
+            # TradingView. WARNING, not ERROR, because an alert that fires on
+            # every bar would otherwise flood the operator's alert bridge. No
+            # payload and no traceback: the id and the symbol say enough.
+            logger.warning(
+                "webhook alert refused: no strategy is registered under id %s "
+                "(alert symbol %s); remove its TradingView alert or register the strategy",
+                command.strategy_id,
+                command.symbol,
+            )
+            raise
         if outcome.inserted:
             await self._job_queue.enqueue(
                 Job(

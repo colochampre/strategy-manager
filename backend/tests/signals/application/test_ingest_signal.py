@@ -4,6 +4,7 @@ Covers spec: signal-ingress § Idempotent Signal Persistence.
 """
 
 import inspect
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -17,7 +18,7 @@ from strategy_manager.signals.application.ingest_signal import (
     IngestSignal,
     MissingIdempotencyKeyError,
 )
-from strategy_manager.signals.application.ports import InsertOutcome
+from strategy_manager.signals.application.ports import InsertOutcome, UnknownSignalStrategy
 from strategy_manager.signals.domain.signal import WebhookSignal
 
 
@@ -170,3 +171,65 @@ async def test_archived_strategy_webhook_persists_signal_unchanged_no_lookup_add
         "strategy_repository",
         "strategy_lookup",
     }
+
+
+# --- an alert whose strategy is not registered (unit 9xa) -------------------
+
+
+class UnregisteredStrategyRepository:
+    """The database refused the insert on the foreign key into ``strategies``."""
+
+    async def insert_or_get(self, signal: WebhookSignal) -> InsertOutcome:
+        raise UnknownSignalStrategy(signal.strategy_id)
+
+
+def _unregistered_use_case() -> tuple[IngestSignal, FakeJobQueue, FakeUnitOfWork]:
+    job_queue = FakeJobQueue()
+    uow = FakeUnitOfWork()
+    use_case = IngestSignal(
+        repository=UnregisteredStrategyRepository(), job_queue=job_queue, uow=uow
+    )
+    return use_case, job_queue, uow
+
+
+async def test_an_unregistered_strategy_logs_one_warning_naming_the_id_and_the_alerts_symbol_and_reraises(  # noqa: E501
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    use_case, _, _ = _unregistered_use_case()
+    strategy_id = uuid4()
+    command = _command(strategy_id=strategy_id, symbol="STXUSDT.P")
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(UnknownSignalStrategy) as raised:
+        await use_case.ingest(command)
+
+    assert raised.value.strategy_id == strategy_id
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert warnings[0].levelno == logging.WARNING
+    message = warnings[0].getMessage()
+    assert str(strategy_id) in message
+    assert "STXUSDT.P" in message
+    assert warnings[0].exc_info is None
+
+
+async def test_nothing_is_enqueued_and_nothing_is_committed_for_an_unregistered_strategy() -> None:
+    use_case, job_queue, uow = _unregistered_use_case()
+
+    with pytest.raises(UnknownSignalStrategy):
+        await use_case.ingest(_command())
+
+    assert job_queue.enqueued == []
+    assert uow.committed is False
+
+
+async def test_the_warning_carries_no_raw_payload(caplog: pytest.LogCaptureFixture) -> None:
+    use_case, _, _ = _unregistered_use_case()
+    canary = "RAW-PAYLOAD-CANARY-7f3a"
+    command = _command(raw_payload={"signal_param": canary, "secret": canary})
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(UnknownSignalStrategy):
+        await use_case.ingest(command)
+
+    assert caplog.records
+    assert all(canary not in record.getMessage() for record in caplog.records)
+    assert all(canary not in str(record.args) for record in caplog.records)
