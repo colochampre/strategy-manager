@@ -193,6 +193,39 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one inner column, `mx-auto w-full max-w-[90rem]`, which keeps `main`'s one-viewport flex contract so the token gate still fills it.
     - On a very wide screen the extra width becomes margin around the content. The pool panel and the decision rail stay side by side, and the space between them never grows.
     - Why: with decision 36 the panel filled the width, and on a wide screen the chart and the ledger line stretched further than reads well.
+39. **The strategy row's sub-line shows the venue and the allowed pairs** (2026-10-02, owner review of the Strategies list).
+    - The row used to show `exchange · venue · settlement currency`. The line becomes `<venue> · <pair>, <pair>`, for example `USDT-M · ETHUSDT, BTCUSDT`, with the pairs in the order the API returns them. A strategy with no pairs shows the venue alone.
+    - The settlement currency still appears next to the PnL amount, so rule 7 is unaffected.
+    - Why: the exchange is redundant, because the operator is already on that exchange's tab; the venue is worth keeping; the settlement currency adds nothing on that line; and the allowed pairs are what actually differs between strategies.
+40. **Allowed pairs are validated against the venue's catalogue, and the dialog offers a selection among available pairs instead of free text** (2026-10-02, owner review of the Strategies list). Status: decided, NOT designed or implemented yet. **Status updated 2026-10-02:** designed, not implemented; see decision 41 and design § "Addendum: allowed pairs validated against the venue catalogue (decisions 40 and 41)".
+    - Today `RegisterStrategy` and `ReplaceAllowedPairs` only normalize with `market_key()` and check the shape, so a typo (`YPF`, or `BTC` instead of `BTCUSDT`) is stored silently and the strategy then refuses every open.
+    - The save must refuse a symbol the pool's venue does not list, and the free-text input is replaced by a selector over the available pairs.
+    - It needs a backend catalogue read and its own PR(s); see task 9v in tasks.md. Until then the textarea stays.
+41. **How decision 40 is built: a credential-free public catalogue read in the API process, refusals that fail closed, and a selector** (2026-10-02, owner choices for unit 9v).
+    - **Catalogue source.** A credential-free public client in the API process reads Bybit `GET /v5/market/instruments-info?category=linear` and Binance USDⓈ-M `GET /fapi/v1/exchangeInfo`. The API process still reads no vault row and builds no signer for this (CLAUDE.md rule 8).
+      - Rejected alternative: a snapshot table written by the worker.
+    - **`DRY_RUN`.** The API makes these public reads to the venues even with `DRY_RUN=true`. It places no order and uses no key. No test may require the network or a credential: tests use fakes or `httpx.MockTransport`.
+    - **Available pairs for a pool `(exchange, venue, settlement_currency)`.** Perpetual contracts only, in trading status, settled in the pool's settlement currency.
+      - Excluded: dated futures (Bybit `BTCUSDT-25DEC26`, `LinearFutures`; Binance `BTCUSDT_251226`, `CURRENT_QUARTER`), Binance `TRADIFI_PERPETUAL`, and USDC-settled contracts.
+      - The filter reads the contract type, the status and the settle or margin coin. It never decides from the symbol string alone, because `market_key` does not normalize a dated suffix.
+    - **Comparison.** Always `market_key(catalogue symbol)` against the stored `market_key` form.
+    - **Register.** Every submitted pair must be available, or the registration is refused.
+    - **Replace.** Only the pairs being ADDED are validated. A pair already stored may be kept or removed even if the venue has since delisted it.
+      - Why: decision 15 keeps a delisted pair's open position closable, and the pairs seeded by migration 0024 may be absent from the catalogue.
+    - **Venue unreachable or catalogue unreadable.** The save is refused with a clear, distinct error. It fails closed: nothing is stored unvalidated.
+    - **Refusal body.** A structured 422 that names the unknown symbols, `{"error": "UNKNOWN_PAIRS", "message": ..., "unknown": [...]}`, following the `STRATEGY_ARCHIVED` precedent. The dialog shows the symbols.
+    - **Delivery.** After PR 12a-2: a backend delivery (port, public adapters, read endpoint, refusals) and then a frontend delivery (a searchable pair selector that replaces the textarea in `NewStrategyDialog`; `AllowedPairsEditor` of unit 9d reuses it).
+      - The selector is a new component built on native elements, with no new UI dependency. It is accessible (keyboard, labels), in EN and ES, and uses Tailwind palette tokens only.
+    - **A probe gate comes first.** The owner runs a GET-only script on the VPS that never places an order. It proves that both catalogue endpoints answer WITHOUT a signature and without a key from the VPS, and it records the entry counts and whether Bybit returns a `nextPageCursor`. The backend adapter tasks depend on its result.
+    - Left to the design (not owner decisions): the port, the cache, the status code of the venue-unreachable refusal, the read endpoint's path, the split of each delivery into PRs. The design's open questions for the owner are in its § L.
+    - **Answered 2026-10-02 (design § L, Q1): a pool with no catalogue source refuses every new strategy.** Today that is Pionex. Nothing changes in production, because every Pionex pool is disabled; a Pionex pool enabled later cannot receive a new strategy until a catalogue source exists for it. This unblocks the `PairCatalogNotServed` assertions of tasks 9vc.2 and 9vc.7.
+    - The split into six sequential PRs (design § L, Q2) stands, under the session's `auto-chain` delivery. Follow-up 9vf.1 (design § L, Q3) is recorded and not yet authorized.
+42. **A strategy with no history can be deleted; one with any history can only be archived** (2026-10-02). This revises decision 1's "A strategy is archived, never deleted".
+    - Why: the owner registered two strategies as a test and does not want test strategies kept in the archive.
+    - **Delete is allowed only when** the strategy is disabled and has no signal, no capital reservation, no execution attempt and no ledger entry. With any of those, the delete is refused and archiving stays the only path.
+    - Why the limit: reservations and ledger entries reference the strategy with a mandatory foreign key, and the ledger is append-only (rule 6). A strategy that ever acted cannot be removed without breaking that record.
+    - The control lives on the strategy detail page, behind an explicit confirmation, never a single click.
+    - Status: decided, NOT designed or implemented yet (task 9x). The design must list every table that references a strategy before the no-history check is written, and the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed" must be revised with it. The two test strategies stay until the feature exists.
 
 ## Standing constraints
 

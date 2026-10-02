@@ -56,6 +56,16 @@ with the parent/child branch-basing half of that term simply not used. `auto-cha
 resolves `Decision needed before apply` to `No` per the skill's own mapping; the owner's
 probe (PR 1) and deploy gates below remain operational steps, not open decisions.)
 
+**Added 2026-10-02 (unit 9v, decisions 40 and 41).** Validating allowed pairs against the
+venue catalogue adds **2,600–3,800** authored lines on top of the table above, in six
+sequential PRs to `main` after PR 12a-2: **12v-0** probe (200–300), **12v-1** public venue
+sources (500–700), **12v-2** catalogue port and read endpoint (550–800), **12v-3** save
+refusals (500–750), **12v-4** selector (450–650), **12v-5** dialog (400–600). The backend
+alone (12v-1 to 12v-3, 1,550–2,250) is about four times the review budget as one PR, which
+is why it is three. The guard lines above do not change: `Decision needed before apply: No`
+(design addendum § L lists three owner questions; none blocks 12v-0 or 12v-1),
+`Chained PRs recommended: Yes`, `400-line budget risk: High`.
+
 ### Suggested Work Units (PR-level; see per-PR tables below for unit-level detail)
 
 | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
@@ -77,13 +87,19 @@ probe (PR 1) and deploy gates below remain operational steps, not open decisions
 | 8-overview | Overview: ledger line, chart, grid, decision rail | PR 11 | `cd frontend && npm test -- OverviewPage ReturnChart MonthlyGrid` | N/A — frontend-only, pure geometry unit tests | New `features/overview/*`; revert removes the route content, shell untouched |
 | 9-strategies | Strategies list + detail + dialogs + webhook message | PR 12 | `cd frontend && npm test -- StrategiesPage StrategyDetailPage WebhookMessage` | N/A — frontend-only | New `features/strategies/*`; revert removes the route content |
 | 10-settings | Settings: key card, form, delete flow | PR 13 | `cd frontend && npm test -- SettingsPage ExchangeKeyCard DeleteKeyDialog` | N/A — frontend-only | New `features/settings/*`; revert removes the route content |
+| 9v0 | Probe P7: both public catalogues answer unsigned from the VPS (decision 41) | PR 12v-0 | `cd backend && uv run pytest --tb=short backend/tests/scripts/test_check_public_catalogue.py` | Owner runs the script on the VPS; the unit test uses `httpx.MockTransport` and no credential | `backend/scripts/check_public_catalogue.py`, a dev tool imported by nothing |
+| 9va | Credential-free transports and public catalogue sources, Bybit and Binance | PR 12v-1 | `cd backend && uv run pytest --tb=short backend/tests/shared/infrastructure/bybit backend/tests/shared/infrastructure/binance` | `httpx.MockTransport`, gated by P7 | New classes nothing calls yet, plus two behaviour-preserving extractions in the venue transports |
+| 9vb | `PairCatalogPort`, `VenuePairCatalog` (cache), `GET /api/pools/{exchange}/{venue}/{ccy}/available-pairs` | PR 12v-2 | `cd backend && uv run pytest --tb=short backend/tests/strategies` | Fakes and `httpx.MockTransport`; real PostgreSQL for the router | One GET route and its adapter; revert 404s the path, no save depends on it yet |
+| 9vc | Unlisted-pair refusals in `RegisterStrategy` and `ReplaceAllowedPairs`, venue call before the row lock | PR 12v-3 | `cd backend && uv run pytest --tb=short backend/tests/strategies` | Real PostgreSQL, lock-hold harness (row lock) | Two use cases and their HTTP mapping; revert restores normalize-only saves, stored pairs stay valid |
+| 9vd | `ApiError` structured detail, `useAvailablePairs`, `PairSelector` (not mounted) | PR 12v-4 | `cd frontend && npm test -- client pairs PairSelector` | N/A — frontend-only, `vi.stubGlobal("fetch")` | New files and two added `ApiError` fields; nothing mounts the selector |
+| 9ve | Selector in `NewStrategyDialog`, refusal texts, harness venue corrected | PR 12v-5 | `cd frontend && npm test -- NewStrategyDialog StrategiesPage` | N/A — frontend-only | One dialog; revert restores the textarea, the server still validates |
 
 ## Delivery log
 
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-09-30, VPS time): `main` at `1d3220a`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-10-02, VPS time): `main` at `ccc7c92`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/linear/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -121,6 +137,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 11a | #37 | `299c150` | — | 2026-09-30 | Units 8c-geometry and 8r-chart (8c.1-8c.2, 8r.1-8r.2): the pure waterline geometry in `shared/charts/scale.ts` and the `ReturnChart` inline SVG. Risk **low** (frontend only, nothing mounts the chart yet). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 11c, which mounts the chart. |
 | PR 11b | #38 | `ed30e64` | — | 2026-09-30 | Unit 8g-grid (8g.1-8g.4): `PoolEyebrow`, `RangeSelector`, `LedgerLine`, `MonthlyGrid`, `MonthlySummary` and the display helpers, all presentational with typed props. Risk **low** (frontend only, nothing mounts the components yet). No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 11c, which mounts them. |
 | PR 11c | #39 | `1d3220a` | — | 2026-10-01 | Merged and pulled as `strategy`, no restart. **PR 11 is complete.** Unit 8o-overview (8o.1-8o.3), which completes PR 11: `OverviewPage`, `PoolPanel` and `DecisionRail` wired to live data, `usePoolPerformance`, the pools `balance` typed and validated, and the decision rail placed right on wide screens and between the chart and the grid on narrow ones. Committed on `feat/operator-panel-overview-page` (`57d1015`, `c5bef02`, `665d842`, plus the owner's visual-review fixes, decisions 33-35: `41f77df` chart follows the range, `2a09c3e` three years of the grid, `08e8d77` bounded panel and fluid rail; then the second review, decisions 36-37: `10c644c` chart at its measured width and fixed height, `cf49809` panel fills the width with the selector in the chart header, `67143bb` interim pool order), **not pushed**. Risk **low** (frontend only, read-only endpoints, no backend change; the first PR that mounts the chart and the grid with live data). No migration. Deploy: pull as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
+| PR 12a-1 | #40 | `ccc7c92` | — | 2026-10-02 | The list half of unit 9l-list (task 9l.1): `StrategiesPage`, `StrategyRow`, `ArchivedToggle`, the `['strategies',{includeArchived}]` query, the enabled switch that PATCHes from the row, and one `['performance','strategy',id]` request per row. Unit 9l came out at about 1,330 lines against a 400-550 forecast, so the owner split it: the new-strategy dialog (9l.2, 9l.3) is PR 12a-2. Risk **low** (frontend only, no backend change). No migration. The owner reviewed the list locally before the push. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -136,6 +153,15 @@ Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted
   book-venue-closes unit 2a precedent (design's own instruction).
 - **P5** (binding/expiry fields) is informational only; it gates nothing, but its shape must
   be recorded before PR 13's Settings card renders it.
+- **Before PR 12v-1's adapters are written** (added 2026-10-02, decision 41): probe **P7**
+  (`backend/scripts/check_public_catalogue.py`, PR 12v-0) must be recorded in "PR 12v-0 —
+  Probe P7 results". It loads no credential at all. P7.1 proves that Bybit
+  `GET /v5/market/instruments-info?category=linear` and Binance `GET /fapi/v1/exchangeInfo`
+  answer 200 from the VPS with no signature and no key header; P7.2 records the entry counts
+  by contract type, status and settle or margin coin (the exact strings the filter compares);
+  P7.3 records whether Bybit returns a `nextPageCursor` and that following it returns every
+  entry once. No line of `public_catalogue.py` is written before that section exists
+  (tasks 9va.4–9va.6). P7.5 (are `SFPUSDT`, `AAVEUSDT`, `STXUSDT` listed) is informational.
 
 ## Migration rehearsal (0024, 0025, 0026, 0027)
 
@@ -184,6 +210,18 @@ string in a log line, a commit message, or this file.
 - PR 11 needs PR 10 and PR 7 (pools + performance reads).
 - PR 12 needs PR 10, PR 7 (webhook-secret), PR 4 and PR 5 (strategy/pairs/archive endpoints).
 - PR 13 needs PR 10, PR 8a and PR 8b (credential add/rotate/delete endpoints).
+- Unit 9v (added 2026-10-02, decision 41), strictly in this order, each cut from `main` after
+  the previous one merged and deployed:
+  - PR 12v-0 needs PR 12a-2 merged (delivery order only; the script depends on no code).
+  - PR 12v-1 needs **P7** recorded (the filter strings and the cursor behaviour).
+  - PR 12v-2 needs PR 12v-1 (the sources its adapter wraps).
+  - PR 12v-3 needs PR 12v-2 (`PairCatalogPort` and its wiring). Its `PairCatalogNotServed`
+    tasks also need the owner's answer to design addendum § L, Q1.
+  - PR 12v-4 needs PR 12v-2 (the read endpoint) and PR 12v-3 (the refusal bodies it parses).
+  - PR 12v-5 needs PR 12v-4 and PR 12a-2 (`NewStrategyDialog`).
+  - Unit 9d's task 9d.5 (`AllowedPairsEditor` on the selector) needs PR 12v-4.
+  - PR 12v-1 to 12v-3 ⟂ the rest of PR 12 (units 9d, 9w, 9p) and PR 13: no shared file.
+    Only 9d.5 and PR 12v-5 touch files the rest of PR 12 touches.
 
 ### Safe pause points (prefixes)
 
@@ -205,6 +243,11 @@ half-migrated state:
 
 Any of these 9 stopping points can end a session without leaving unreachable or half-wired
 code on `main`.
+
+Unit 9v (added 2026-10-02) adds its own pause points, each deployable and revertible alone:
+after **12v-0** (a dev script), after **12v-1** (venue classes nothing calls), after **12v-2**
+(a read endpoint no view uses), after **12v-3** (saves validated; the textarea still works and
+a typo is refused), after **12v-4** (a selector nothing mounts), after **12v-5** (end state).
 
 ---
 
@@ -1354,8 +1397,9 @@ Forecast: 300–450 lines.
 **Files**: Create `frontend/src/features/strategies/{StrategiesPage,StrategyRow,ArchivedToggle,NewStrategyDialog}.tsx`.
 
 - [x] 9l.1 RED `frontend/src/features/strategies/StrategiesPage.test.tsx::test_archived_excluded_by_default_toggle_shows_them`, `::test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return`.
-- [ ] 9l.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_id_generated_via_crypto_randomuuid`, `::test_submitting_with_zero_pairs_is_prevented`.
-- [ ] 9l.3 GREEN: list container + row + dialog, `['strategies',{includeArchived}]` query.
+- [x] 9l.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_id_generated_via_crypto_randomuuid`, `::test_submitting_with_zero_pairs_is_prevented`.
+- [x] 9l.3 GREEN: list container + row + dialog, `['strategies',{includeArchived}]` query.
+- [x] 9l.4 Row sub-line shows the venue and the allowed pairs (decision 39). RED `frontend/src/features/strategies/StrategiesPage.test.tsx::test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return` (asserts the exchange and the bare currency are gone), `::shows the venue alone, with no trailing separator, when a strategy has no allowed pairs`.
 
 Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
@@ -1370,6 +1414,7 @@ Forecast: 400–550 lines.
 - [ ] 9d.2 RED `frontend/src/features/strategies/ArchiveDialog.test.tsx::test_archive_requires_explicit_confirmation_not_single_click`, `::test_409_open_position_reasons_rendered_symbols_allocations_reservations_attempts`, `::test_409_still_enabled_rendered`.
 - [ ] 9d.3 RED `frontend/src/features/strategies/AllowedPairsEditor.test.tsx::test_removing_last_pair_without_replacement_prevented`, `::test_adding_a_pair_submits_full_updated_set`.
 - [ ] 9d.4 GREEN: the container + presentational tree per design's component list; `['strategy',id]`, `['strategy',id,'events']` queries.
+- [ ] 9d.5 (added 2026-10-02, decision 41; needs PR 12v-4) `AllowedPairsEditor` is built on `PairSelector` (unit 9vd), never on a free-text field. RED `frontend/src/features/strategies/AllowedPairsEditor.test.tsx::test_stored_pair_missing_from_the_catalogue_is_kept_and_marked_no_longer_listed` (stored `SFPUSDT`, available pairs without it: the chip stays, and an untouched save sends it), `::test_a_removal_only_save_is_allowed_when_the_available_pairs_failed_to_load`, `::test_adding_is_blocked_while_the_available_pairs_failed_to_load`, `::test_409_pairs_changed_shows_the_review_and_save_again_text`, `::test_422_unknown_pairs_names_the_symbols`. 9d.3's two tests keep their names and meaning, driven through the selector.
 
 Gate: `cd frontend && npm run lint && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
@@ -1402,6 +1447,185 @@ Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
 Rollback boundary: two presentational tables; revert removes them, detail page renders without them.
 Forecast: 200–250 lines.
+
+### Unit 9v — allowed pairs validated against the catalogue (decisions 40 and 41, not started)
+
+Designed 2026-10-02: design.md, "Addendum: allowed pairs validated against the venue
+catalogue". The two placeholder tasks (9v.1 backend, 9v.2 frontend) are replaced by the six
+units of **PR 12v** below. Unit 9d gains task 9d.5.
+
+---
+
+## PR 12v — Allowed pairs validated against the venue catalogue (decisions 40, 41) (2,600–3,800 lines)
+
+Six sequential PRs to `main`, never stacked: **12v-0** (9v0) → owner runs P7 → **12v-1** (9va)
+→ **12v-2** (9vb) → **12v-3** (9vc) → **12v-4** (9vd) → **12v-5** (9ve). Each merges and deploys
+before the next branch is cut. No migration in any of them.
+
+Rules that bind every unit here, on top of the cross-cutting rules:
+
+- **RED fails on an ASSERTION.** A new constructor argument, class or module is first added as
+  a stub that compiles and answers WRONGLY (an empty set, an accept-everything catalogue, a
+  transport that returns the raw body), in the same commit as the RED test. The first failure is
+  never an `ImportError` or a `TypeError`. Each task records the assertion it failed on. A test
+  that passes at once is proven by the mutation its task names.
+- **Symbol spelling across a boundary.** Venue fixtures list `STXUSDT`. A register request sends
+  `STXUSDT.P`; a replace request sends `STXUSDT_PERP`; the stored and returned form is `STXUSDT`.
+  The frontend types `stxusdt.p` and submits `STXUSDT`. Tests that stay inside the venue
+  boundary (9va) use the venue spelling only, and say so.
+- **No network, no credential.** Venue classes are driven by `httpx.MockTransport`; everything
+  above them by a fake `PairCatalogPort`. No test in this PR reads the vault or builds a signer.
+- **What fails here without a log line?** is answered per unit in design addendum § I. Every
+  refusal and every skipped entry in the tasks below has a test asserting its log line.
+
+### Unit 9v0 — probe P7, public catalogues from the VPS (200–300 lines) — PR 12v-0
+
+**Files**: Create `backend/scripts/check_public_catalogue.py`; Create
+`backend/tests/scripts/test_check_public_catalogue.py`.
+
+- [ ] 9v0.1 RED `backend/tests/scripts/test_check_public_catalogue.py::test_no_request_carries_an_auth_header_or_a_signature_parameter` (a recording `httpx.MockTransport`: no `X-BAPI-*` header, no `X-MBX-APIKEY`, no `signature` or `timestamp` query parameter on any request), `::test_report_counts_entries_by_contract_type_status_and_settle_coin`, `::test_bybit_cursor_is_followed_and_every_entry_is_counted_once` (two pages; an absent `nextPageCursor` and an empty one both end the read), `::test_report_says_whether_each_known_pair_is_available` (`SFPUSDT`, `AAVEUSDT`, `STXUSDT`), `::test_http_451_is_reported_as_a_location_refusal_not_as_an_empty_catalogue`, `::test_script_imports_no_signer_vault_or_cipher` (module source). RED against a `run()` stub that returns an empty report and sends one request with a dummy header.
+- [ ] 9v0.2 GREEN: the script. A bare `httpx.AsyncClient` on `settings.bybit_base_url` and `settings.binance_futures_base_url`; `GET /v5/market/instruments-info?category=linear&limit=1000` (and again with `limit=200` to exercise the cursor); `GET /fapi/v1/exchangeInfo`. It prints P7.1–P7.6 of design addendum § J: status, entry counts by contract type, status and settle or margin coin, cursor presence and page count, pairs surviving the USDT filter, the three known pairs, response size, elapsed time and the rate-limit headers. It prints no other header and no environment value.
+- [ ] 9v0.3 Owner step: run it on the VPS as the `strategy` user and record the output in "PR 12v-0 — Probe P7 results" below. PR 12v-1 does not start before this.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/scripts/test_check_public_catalogue.py`.
+Harness: `httpx.MockTransport` locally; the real run is the owner's, GET-only, with no credential loaded.
+Rollback boundary: one dev script and its test; nothing imports it.
+Forecast: 200–300 lines.
+
+#### PR 12v-0 — Probe P7 results
+
+Not run yet. To be filled by the owner's run (9v0.3):
+
+| Item | Bybit `linear` | Binance USDⓈ-M |
+|---|---|---|
+| P7.1 HTTP status with no signature and no key header | | |
+| P7.2 entries listed; by contract type; by status; by settle or margin coin | | |
+| P7.3 `nextPageCursor` at `limit=1000` (present? empty on the last page?); pages at `limit=200`; every entry once? | | n/a |
+| P7.4 pairs available to a USDT pool | | |
+| P7.5 `SFPUSDT` / `AAVEUSDT` / `STXUSDT` available | | |
+| P7.6 response bytes; elapsed; rate-limit headers | | |
+
+### Unit 9va — credential-free transports and public catalogue sources (500–700 lines) — PR 12v-1
+
+**Needs**: P7 recorded.
+
+**Files**: Modify `backend/src/strategy_manager/shared/infrastructure/bybit/{transport,read_client}.py`,
+`backend/src/strategy_manager/shared/infrastructure/binance/{transport,read_client}.py`; Create
+`backend/src/strategy_manager/shared/infrastructure/bybit/public_catalogue.py`,
+`backend/src/strategy_manager/shared/infrastructure/binance/public_catalogue.py`; Create
+`backend/tests/shared/infrastructure/bybit/{test_public_transport,test_public_catalogue}.py`,
+`backend/tests/shared/infrastructure/binance/{test_public_transport,test_public_catalogue}.py`;
+Modify `backend/tests/shared/infrastructure/bybit/test_read_client.py`,
+`backend/tests/shared/infrastructure/binance/test_futures_rules.py` (new tests only).
+
+- [ ] 9va.1 RED `backend/tests/shared/infrastructure/bybit/test_public_transport.py::test_public_get_refuses_a_nonzero_retcode_over_http_200`, `::test_public_get_returns_the_result_object_not_the_envelope`, `::test_public_get_sends_no_bapi_header`, `::test_public_transport_constructor_takes_no_signer` (`inspect.signature`); `backend/tests/shared/infrastructure/binance/test_public_transport.py::test_public_get_refuses_a_negative_code_and_http_451_like_the_signed_transport`, `::test_public_get_sends_no_api_key_header_and_no_signature_parameter`, `::test_binance_transport_get_public_answers_through_the_public_transport`. RED against stubs that return the raw body. The two "sends no header" tests pass against any stub; mutation: adding an `X-BAPI-API-KEY` / `X-MBX-APIKEY` header reds them.
+- [ ] 9va.2 GREEN: `BybitPublicTransport(http)` and `BinancePublicTransport(http)`. Each transport file's `_send` body becomes ONE module-level function that the signed and the public class both call; `BinanceTransport.get_public` delegates. **Acceptance:** every existing test under `tests/shared/infrastructure/bybit` and `.../binance` passes UNMODIFIED. These two extractions are the only edits to code the worker runs.
+- [ ] 9va.3 RED `backend/tests/shared/infrastructure/bybit/test_read_client.py::test_settles_in_compares_the_settle_coin_case_insensitively`; `backend/tests/shared/infrastructure/binance/test_futures_rules.py::test_settles_in_compares_the_margin_asset_not_the_quote_asset` (a contract quoted in USDT and margined in USDC is not USDT-settled). GREEN in the same task: `PerpContract.settles_in(currency)` on both read models; Bybit's `_parse_contract` becomes public `parse_contract` (the private name stays as an alias so no caller changes); `is_usdt_settled` becomes `settles_in("USDT")`.
+- [ ] 9va.4 RED `backend/tests/shared/infrastructure/bybit/test_public_catalogue.py` (venue spelling only; reuses `BTC_PERP`, `BTC_DATED` from `test_read_client.py`): `::test_tradable_perpetuals_keeps_trading_perpetuals_settled_in_the_asked_currency_only` (a perpetual, a dated future, a USDC-settled perpetual, a perpetual that is not trading), `::test_a_dated_future_is_excluded_by_its_contract_type_not_by_its_symbol` (a `LinearFutures` entry with a plain symbol is excluded; the filter never inspects the symbol text), `::test_the_cursor_is_followed_until_empty_and_every_page_is_read`, `::test_an_absent_cursor_key_ends_the_read_like_an_empty_one`, `::test_the_page_cap_raises_instead_of_returning_a_partial_list`, `::test_one_malformed_entry_is_skipped_and_named_in_exactly_one_warning`, `::test_a_nonempty_listing_with_no_available_pair_raises_and_logs_one_error_naming_the_types_seen`, `::test_a_real_read_logs_one_info_with_counts_and_pages`, `::test_every_request_goes_to_the_instruments_path_with_category_linear_and_no_auth`. RED against a stub that returns the first page's symbols unfiltered.
+- [ ] 9va.5 RED `backend/tests/shared/infrastructure/binance/test_public_catalogue.py` (reuses `AAVE`, `TRADIFI`, `QUARTERLY` from `test_futures_rules.py`): `::test_tradable_perpetuals_excludes_tradifi_quarterly_and_usdc_margined`, `::test_a_perpetual_that_is_not_trading_is_excluded`, `::test_one_malformed_entry_is_skipped_and_named_in_exactly_one_warning`, `::test_a_nonempty_listing_with_no_available_pair_raises_and_logs_one_error`, `::test_http_451_raises_and_is_never_an_empty_listing`, `::test_a_real_read_logs_one_info_with_counts`. RED against a stub that returns every symbol.
+- [ ] 9va.6 GREEN: `BybitPublicCatalogue.tradable_perpetuals(settlement_currency)` (cursor loop, page cap 10, per-entry guard around `parse_contract`, the filter `is_perpetual and is_trading and settles_in(currency)`) and `BinancePublicCatalogue.tradable_perpetuals(settlement_currency)` (same guard and filter over `parse_contract`). The filter's literal strings are the ones P7.2 recorded; if P7 contradicts `LinearPerpetual` / `Trading` / `PERPETUAL` / `TRADING`, stop and record it before writing the filter. Both raise their venue's own `*ApiError`; neither imports anything from `strategies`.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: `httpx.MockTransport`.
+Rollback boundary: four new classes nothing calls, `settles_in`, and two behaviour-preserving extractions; revert removes them and the worker's venue code is byte-for-byte what it was.
+Forecast: 500–700 lines.
+
+### Unit 9vb — `PairCatalogPort`, `VenuePairCatalog`, the read endpoint (550–800 lines) — PR 12v-2
+
+**Files**: Create `backend/src/strategy_manager/strategies/domain/pair_catalog.py`,
+`backend/src/strategy_manager/strategies/application/read_available_pairs.py`,
+`backend/src/strategy_manager/strategies/infrastructure/{pair_catalog,pair_catalog_router}.py`;
+Modify `backend/src/strategy_manager/strategies/application/ports.py`,
+`backend/src/strategy_manager/strategies/infrastructure/pool_catalog.py`,
+`backend/src/strategy_manager/shared/config.py`, `backend/src/strategy_manager/main.py`; Create
+`backend/tests/strategies/domain/test_pair_catalog.py`,
+`backend/tests/strategies/application/test_read_available_pairs.py`,
+`backend/tests/strategies/infrastructure/{test_venue_pair_catalog,test_pair_catalog_router}.py`,
+`backend/tests/strategies/test_pair_catalog_has_no_credential.py`.
+
+- [ ] 9vb.1 RED `backend/tests/strategies/domain/test_pair_catalog.py::test_unknown_pairs_is_the_sorted_difference_of_candidates_and_available`, `::test_unknown_pairs_error_carries_the_symbols_as_a_sorted_tuple`, `::test_the_four_errors_are_distinct_domain_errors`, `::test_domain_module_imports_no_framework`. GREEN in the same task: `UnknownPairs`, `PairCatalogUnavailable`, `PairCatalogNotServed`, `PairsChangedConcurrently`, `unknown_pairs()`.
+- [ ] 9vb.2 RED `backend/tests/strategies/infrastructure/test_venue_pair_catalog.py::test_venue_symbols_are_returned_in_market_key_form` (the fake source lists `STXUSDT_PERP`; the result equals `{market_key("STXUSDT.P")}`), `::test_a_pool_with_no_source_raises_not_served_and_never_an_empty_set` (`pionex/spot/USDT`), `::test_a_venue_error_becomes_pair_catalog_unavailable_with_one_warning_and_no_url`, `::test_a_second_call_within_the_ttl_makes_no_venue_read`, `::test_an_expired_entry_is_refetched`, `::test_an_expired_entry_is_never_served_when_the_refresh_fails`, `::test_a_failure_is_not_cached`, `::test_concurrent_misses_make_one_venue_read` (the source parks on an `asyncio.Event`; two tasks; the read count is 1 and both get the same set), `::test_each_pool_key_has_its_own_entry_and_its_own_settlement_currency_reaches_the_source`. Time is an injected monotonic callable. RED against a stub that asks the source on every call and returns its symbols unmapped.
+- [ ] 9vb.3 GREEN: `PairCatalogPort` in `ports.py`; `VenuePairCatalog` (registry keyed `(exchange, venue)` with `bybit/usdt-m` and `binance/usdt-m`, per-key `asyncio.Lock`, TTL from `Settings.pair_catalogue_ttl_seconds = 300.0`, `for_settings`).
+- [ ] 9vb.4 RED `backend/tests/strategies/application/test_read_available_pairs.py::test_an_unknown_pool_raises_before_the_catalogue_is_asked`, `::test_a_disabled_pool_is_answered`, `::test_pairs_are_returned_sorted`. GREEN in the same task: `PoolCatalogPort.exists(pool)`, `SqlAlchemyPoolCatalog.exists`, `ReadAvailablePairs`.
+- [ ] 9vb.5 RED `backend/tests/strategies/infrastructure/test_pair_catalog_router.py` (real PostgreSQL through the module's conftest; `dependency_overrides[get_pair_catalog]`): `::test_available_pairs_200_sorted_with_pool_and_count`, `::test_unknown_pool_404_and_the_catalogue_is_never_asked` (`bybit/usdt-m/BTC`), `::test_disabled_pool_200`, `::test_unserved_pool_404_pair_catalogue_not_served_not_an_empty_list` (`pionex/spot/USDT`), `::test_venue_unreachable_502_pair_catalogue_unavailable`, `::test_no_token_is_401_before_the_catalogue_is_asked`, `::test_one_pools_request_never_returns_another_pools_pairs`, `::test_the_real_catalogue_requests_only_the_configured_host_and_the_fixed_path` (the real `VenuePairCatalog` over `httpx.MockTransport`: the path values never reach the URL), `::test_n_concurrent_requests_make_one_venue_read`. RED against a route that returns an empty `pairs` for every pool.
+- [ ] 9vb.6 RED `backend/tests/strategies/test_pair_catalog_has_no_credential.py::test_public_catalogue_modules_import_no_signer_vault_or_cipher` (source of `bybit/public_catalogue.py`, `binance/public_catalogue.py`, `strategies/infrastructure/pair_catalog.py`, `pair_catalog_router.py`). It passes at once by construction; mutation: importing `BybitSigner` into `pair_catalog.py` reds it.
+- [ ] 9vb.7 GREEN: `pair_catalog_router` (prefix `/pools`, `dependencies=[Depends(require_admin_token)]`), `get_pair_catalog` reading `app.state.pair_catalog`, `get_read_available_pairs`; `create_app()` builds one `VenuePairCatalog.for_settings(settings)` and includes the router in `api_router`. Confirm the existing `/api` auth walk and `test_no_pool_management_surface.py` pass unmodified.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: fakes and `httpx.MockTransport`; real PostgreSQL for the router (pool existence).
+Rollback boundary: one GET route, one adapter, one setting; revert 404s the path. No save reads the catalogue yet.
+Forecast: 550–800 lines.
+
+### Unit 9vc — unlisted-pair refusals, venue call before the row lock (500–750 lines) — PR 12v-3
+
+**Needs**: PR 12v-2. The `PairCatalogNotServed` assertions (in 9vc.2 and 9vc.7) need the owner's
+answer to design addendum § L, Q1.
+
+**Files**: Modify `backend/src/strategy_manager/strategies/application/{register_strategy,replace_allowed_pairs}.py`,
+`backend/src/strategy_manager/strategies/infrastructure/router.py`; Modify
+`backend/tests/strategies/application/{test_register_strategy,test_replace_allowed_pairs}.py`,
+`backend/tests/strategies/infrastructure/{test_router,test_update_strategy_concurrency}.py`; Create
+`backend/tests/strategies/infrastructure/test_replace_allowed_pairs_catalogue_integration.py`.
+
+- [ ] 9vc.1 Plumbing, no behaviour change: `RegisterStrategy` and `ReplaceAllowedPairs` take `pairs: PairCatalogPort` and do not call it yet; the two routes take their use case from `get_register_strategy` / `get_replace_allowed_pairs` (the `get_save_credential` pattern) instead of building it inline; `_build` in both application test files and the router tests pass an accept-everything fake. The whole existing suite stays green. This is the stub that lets every RED below fail on an assertion.
+- [ ] 9vc.2 RED `backend/tests/strategies/application/test_register_strategy.py::test_an_unlisted_symbol_refuses_the_registration_names_it_and_writes_nothing` (`YPF` beside a listed pair; no insert, no commit), `::test_a_listed_symbol_in_another_spelling_is_accepted` (the catalogue holds `STXUSDT`, the command sends `STXUSDT.P`, the stored list is `{STXUSDT}`), `::test_every_unknown_symbol_is_named_sorted`, `::test_the_catalogue_is_not_asked_for_a_duplicate_id_an_unavailable_pool_or_an_empty_list`, `::test_an_unreadable_catalogue_refuses_and_writes_nothing`, `::test_a_pool_with_no_catalogue_source_refuses_and_writes_nothing`, `::test_each_refusal_logs_one_warning_naming_the_strategy_the_pool_and_the_symbols`, `::test_the_catalogue_is_asked_for_the_commands_own_pool` (the fake records the pool key: exchange, venue AND settlement currency). RED: `DID NOT RAISE UnknownPairs` and the recorded-calls assertions.
+- [ ] 9vc.3 GREEN `RegisterStrategy`: steps 4 and 5 of design addendum § E.
+- [ ] 9vc.4 RED `backend/tests/strategies/application/test_replace_allowed_pairs.py::test_adding_an_unlisted_symbol_refuses_and_leaves_the_stored_list`, `::test_adding_a_listed_symbol_in_another_spelling_is_accepted` (`STXUSDT_PERP` → `STXUSDT`), `::test_a_stored_delisted_pair_can_be_kept_while_another_pair_is_added`, `::test_a_stored_delisted_pair_can_be_removed`, `::test_a_replacement_that_adds_nothing_never_asks_the_catalogue` (and succeeds with a fake that raises `PairCatalogUnavailable`), `::test_a_removed_delisted_pair_cannot_be_added_back`, `::test_an_unreadable_catalogue_refuses_when_a_pair_is_added`, `::test_unknown_strategy_and_archived_are_refused_before_the_catalogue_is_asked`, `::test_the_catalogue_is_asked_before_the_row_lock_is_taken` (one shared event log: `get_by_id`, `catalogue`, `get_by_id_for_update`, `update`, `commit`), `::test_a_strategy_archived_between_the_unlocked_read_and_the_lock_is_still_refused`, `::test_a_stored_list_that_changed_so_an_unvalidated_pair_becomes_an_addition_is_refused_and_nothing_is_written`, `::test_a_candidate_that_is_no_longer_an_addition_is_harmless`, `::test_each_refusal_logs_one_warning`. RED: `DID NOT RAISE`, and `['get_by_id_for_update', ...] == ['get_by_id', 'catalogue', 'get_by_id_for_update', ...]`.
+- [ ] 9vc.5 GREEN `ReplaceAllowedPairs`: the sequence of design addendum § E (unlocked read, candidates, catalogue only when candidates exist, row lock, re-check, `PairsChangedConcurrently`).
+- [ ] 9vc.6 RED `backend/tests/strategies/infrastructure/test_replace_allowed_pairs_catalogue_integration.py` — **live PostgreSQL**, lock-hold harness, no `sleep(0)` barrier, the real repository and a fake catalogue that parks on an `asyncio.Event`:
+  - `::test_the_strategy_row_is_lockable_by_another_transaction_while_the_catalogue_read_is_in_flight` — while the replace is parked inside `available_pairs`, a second connection runs `SELECT ... FOR UPDATE NOWAIT` on the row and succeeds. Mutation: moving the catalogue call after `get_by_id_for_update` makes it raise `LockNotAvailableError`.
+  - `::test_replace_waits_for_a_held_row_lock_after_its_catalogue_read` — a holder keeps the row locked in an open transaction; the replace is released past its catalogue call; assert `not task.done()` AND poll `pg_locks` until the replace shows as waiting on that row; the holder commits a changed `enabled`; the replace completes and its write does not revert `enabled`.
+  - `::test_a_concurrent_removal_of_a_requested_pair_refuses_with_pairs_changed` — stored `{ETHUSDT, SFPUSDT}`, request `{ETHUSDT, SFPUSDT, STXUSDT_PERP}`; while parked, another transaction stores `{ETHUSDT}` and commits; the replace raises `PairsChangedConcurrently` and the row is `{ETHUSDT}`.
+  - `tests/strategies/infrastructure/test_update_strategy_concurrency.py::test_replace_allowed_pairs_and_update_strategy_serialize_on_the_same_row_lock` keeps passing with only its constructor call updated.
+- [ ] 9vc.7 RED `backend/tests/strategies/infrastructure/test_router.py::test_post_unknown_pairs_422_structured_and_names_the_symbols` (`detail == {"error": "UNKNOWN_PAIRS", "message": ..., "unknown": ["YPF"]}`, no row), `::test_put_unknown_pairs_422_names_only_the_added_symbols`, `::test_put_keeping_a_delisted_stored_pair_200`, `::test_post_unreadable_catalogue_502_pair_catalogue_unavailable_and_no_row`, `::test_post_unserved_pool_422_pair_catalogue_not_served`, `::test_put_pairs_changed_409`, `::test_existing_refusals_keep_their_status_and_shape` (404, 409 `STRATEGY_ARCHIVED`, 409 duplicate, 422 empty list, 422 unavailable pool), `::test_a_listed_pair_sent_as_tradingview_spells_it_is_stored_as_the_market_key` (`STXUSDT.P` in, `STXUSDT` out). RED: `assert 201 == 422`, `assert 200 == 502`.
+- [ ] 9vc.8 GREEN: the HTTP mapping of design addendum § E in `router.py`; the two dependency factories read `get_pair_catalog`.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL, lock-hold harness on the strategy ROW lock (`rules.tasks`: no fake for a lock). Neither use case takes the pool advisory lock, so the lock-order rule is untouched; the test proves no venue call runs under the one lock there is.
+Rollback boundary: two use cases, their router mapping and two dependency factories; revert restores normalize-only saves. Pairs stored while the refusals were live stay valid.
+Forecast: 500–750 lines.
+
+### Unit 9vd — `ApiError` structured detail, `useAvailablePairs`, `PairSelector` (450–650 lines) — PR 12v-4
+
+**Files**: Modify `frontend/src/shared/api/{client.ts,client.test.ts,types.ts}`; Create
+`frontend/src/shared/api/{pairs.ts,pairs.test.ts}`,
+`frontend/src/features/strategies/{PairSelector.tsx,PairSelector.test.tsx}`; Modify
+`frontend/src/shared/i18n/locales/{en,es}.json`.
+
+- [ ] 9vd.1 RED `frontend/src/shared/api/client.test.ts::reads the error code and the fields from a structured detail`, `::uses the structured detail's message and never renders [object Object]`, `::keeps a string detail and an outcome exactly as before`. GREEN in the same task: `ApiError.code` and `ApiError.fields`.
+- [ ] 9vd.2 RED `frontend/src/shared/api/pairs.test.ts::requests /api/pools/{exchange}/{venue}/{ccy}/available-pairs for the chosen pool`, `::rejects a body whose pairs is not an array of strings`, `::does not fetch until a pool is chosen`, `::uses a query key that is not under ['pools']`. GREEN in the same task: `fetchAvailablePairs`, `useAvailablePairs` (`['available-pairs', exchange, venue, ccy]`, `staleTime` 5 minutes, `retry: 1`).
+- [ ] 9vd.3 RED `frontend/src/features/strategies/PairSelector.test.tsx::idle shows choose-a-pool and a disabled search field`, `::loading shows a status line and no option`, `::error shows an alert and a retry control that calls onRetry`, `::typing another spelling finds the pair` (types `stxusdt.p`, the option is `STXUSDT`), `::toggling an option with the keyboard calls onChange with the pair`, `::every selected pair has a remove control labelled with its symbol`, `::more than fifty matches renders fifty and says how many match`, `::no match says so`, `::a selected pair missing from the options is kept and marked no longer listed`, `::selected pairs stay removable in the error state`, `::the search field, every option and every remove control have an accessible name`, `::every key exists in en and es`. RED against a component that renders an empty fieldset.
+- [ ] 9vd.4 GREEN: `PairSelector` per design addendum § G: a `<fieldset>`, a labelled `<input type="search">`, native checkboxes in labels, chips with remove buttons, a polite live count. No new dependency. Palette tokens only; the "no longer listed" mark is `ink-3`, never `decision`.
+
+Gate: `cd frontend && npm run lint && npm test`.
+Harness: `vi.stubGlobal("fetch")`; the selector is tested as a controlled component with props.
+Rollback boundary: three new files and two added `ApiError` fields; nothing mounts the selector.
+Forecast: 450–650 lines.
+
+### Unit 9ve — the selector in `NewStrategyDialog` (400–600 lines) — PR 12v-5
+
+**Files**: Modify `frontend/src/features/strategies/{NewStrategyDialog.tsx,NewStrategyDialog.test.tsx,StrategiesPage.test.tsx}`,
+`frontend/src/test/harness.tsx`, `frontend/src/shared/i18n/locales/{en,es}.json`.
+
+- [ ] 9ve.1 Harness correction, no behaviour change: the default pool is `pool("bybit", "usdt-m")` (the venue `linear` does not exist, `accounts/domain/known_pools.py`); `stubApi` answers `/pools/{exchange}/{venue}/{ccy}/available-pairs`; every test that spells `linear/USDT` moves to `usdt-m/USDT`. The suite stays green.
+- [ ] 9ve.2 RED `frontend/src/features/strategies/NewStrategyDialog.test.tsx::test_pairs_are_chosen_from_the_pools_available_pairs_and_no_free_text_field_exists`, `::test_selected_pairs_are_submitted_in_market_key_form` (types `stxusdt.p`, the POST body carries `["STXUSDT"]`), `::test_changing_the_pool_clears_the_selection_and_reads_the_new_pools_pairs`, `::test_submit_is_disabled_until_the_available_pairs_are_loaded`, `::test_a_load_failure_shows_retry_and_never_a_free_text_field`, `::test_unknown_pairs_refusal_names_the_symbols`, `::test_a_502_shows_the_pair_list_could_not_be_read_text_even_without_a_body`, `::test_pair_catalogue_not_served_shows_its_own_text`, `::test_new_texts_render_in_es`. The two existing tests, `::test_id_generated_via_crypto_randomuuid` and `::test_submitting_with_zero_pairs_is_prevented`, keep their names and are driven through the selector.
+- [ ] 9ve.3 GREEN: `NewStrategyDialog` mounts `PairSelector` over `useAvailablePairs(pool)`; `parsePairs`, the textarea and `strategies.new.pairsHint` are removed; `errorKey` reads `error.code` first and the status second (design addendum § G table).
+
+Gate: `cd frontend && npm run lint && npm test`.
+Harness: `vi.stubGlobal("fetch")`.
+Rollback boundary: one dialog and the harness default; revert restores the textarea, and the server (12v-3) still refuses an unlisted pair.
+Forecast: 400–600 lines.
+
+### Unit 9vf — follow-ups to unit 9v (not started)
+
+- [ ] 9vf.1 The ORDER path reads one page of Bybit's catalogue: `bybit/trade_client.py:130` calls `BybitReadOnlyClient.perp_contracts()` (`limit=1000`, no cursor). Past 1,000 `linear` entries, a market on the second page is refused at order time as not listed (P7.2 records today's count). Reuse 9va's cursor loop in the signed client. Its own small PR, because it touches the order path; priority is design addendum § L, Q3. RED first: a two-page listing whose second page holds the ordered symbol.
+- [ ] 9vf.2 `tasks.md` "Production now" still names the Bybit pool `bybit/linear/USDT`; the row is `bybit/usdt-m/USDT` (task 6d.1). Correct the label on the next delivery-log update.
+
+### Unit 9x — delete a strategy that has no history (decision 42, not started)
+
+- [ ] 9x.1 Design first: list every table that references a strategy (signals, reservations, execution attempts, ledger entries, enablement events and any other), define the no-history check and its lock, and revise the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed". No code before this.
+- [ ] 9x.2 Backend: `DELETE /api/strategies/{id}`, allowed only for a disabled strategy with no history; any history refuses with the reasons, and archive stays the only path. RED first: a strategy with one signal is refused, and a strategy with none is deleted.
+- [ ] 9x.3 Frontend: the delete control on the strategy detail page (unit 9d), behind an explicit confirmation, showing the refusal reasons. Depends on 9x.2.
 
 ---
 

@@ -107,6 +107,32 @@
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },
+    "new": {
+      "open": "Nueva estrategia",
+      "title": "Nueva estrategia",
+      "name": "Nombre",
+      "pool": "Pool",
+      "poolPlaceholder": "Elija un pool",
+      "fillMode": "Cuando falta capital",
+      "fillModePlaceholder": "Elija un comportamiento",
+      "fillModes": {
+        "SKIP": "Omitir la señal",
+        "PARTIAL": "Abrir con lo disponible"
+      },
+      "pairs": "Pares permitidos",
+      "pairsHint": "Un par por línea, o separados por comas. Se requiere al menos uno.",
+      "pairsRequired": "Agregue al menos un par permitido.",
+      "incomplete": "Ingrese un nombre y elija un pool y un comportamiento.",
+      "noPools": "Este exchange no tiene ningún pool habilitado, por lo que no se puede registrar una estrategia en él.",
+      "submit": "Crear estrategia",
+      "submitting": "Creando…",
+      "cancel": "Cancelar",
+      "errors": {
+        "conflict": "Ya existe una estrategia con este nombre o id.",
+        "invalid": "El pool no está disponible o los pares fueron rechazados. Revíselos e inténtelo de nuevo.",
+        "generic": "La estrategia no se creó. Inténtelo de nuevo."
+      }
+    },
     "detail": {
       "title": "Estrategia"
     }
