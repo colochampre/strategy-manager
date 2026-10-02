@@ -1,27 +1,49 @@
 import { API_BASE_URL, API_PREFIX } from "@/shared/api/config";
 import { useTokenStore } from "@/shared/auth/token-store";
 
+/**
+ * FastAPI answers a refusal with `{"detail": "text"}`, or, for the structured
+ * refusals, `{"detail": {"error": "CODE", "message": "text", ...extra}}`.
+ * `detail` is `unknown` because a validation failure sends a list.
+ */
 interface RefusalLikeBody {
   outcome?: string;
-  detail?: string;
+  detail?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
  * Every non-2xx response from the API is thrown as this typed error, so a
  * refusal (409 SUPERSEDED, 503 DRY_RUN_REFUSED, 422 REASON_REQUIRED, ...)
  * can never be read as success by a caller that only checks `.then`.
+ *
+ * `detail` is always the human text: the string itself, or the `message` of a
+ * structured detail, so `message` is never `[object Object]`. A structured
+ * detail is also exposed whole as `fields` (the symbols of `UNKNOWN_PAIRS`,
+ * say) and its `error` as `code`; `code` falls back to `outcome`.
  */
 export class ApiError extends Error {
   readonly status: number;
   readonly outcome: string | undefined;
   readonly detail: string | undefined;
+  readonly code: string | undefined;
+  readonly fields: Readonly<Record<string, unknown>> | undefined;
 
   constructor(status: number, body: RefusalLikeBody | undefined) {
-    super(body?.detail ?? `Request failed with status ${status}`);
+    const rawDetail = body?.detail;
+    const structured = isRecord(rawDetail) ? rawDetail : undefined;
+    const message = structured?.message;
+    const text = typeof rawDetail === "string" ? rawDetail : typeof message === "string" ? message : undefined;
+    super(text ?? `Request failed with status ${status}`);
     this.name = "ApiError";
     this.status = status;
     this.outcome = body?.outcome;
-    this.detail = body?.detail;
+    this.detail = text;
+    this.fields = structured;
+    this.code = typeof structured?.error === "string" ? structured.error : body?.outcome;
   }
 }
 
