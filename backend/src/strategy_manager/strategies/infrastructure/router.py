@@ -68,6 +68,12 @@ from strategy_manager.strategies.application.update_strategy import (
 )
 from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
 from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
+from strategy_manager.strategies.domain.pair_catalog import (
+    PairCatalogNotServed,
+    PairCatalogUnavailable,
+    PairsChangedConcurrently,
+    UnknownPairs,
+)
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
@@ -207,6 +213,51 @@ class ReplacePairsRequest(BaseModel):
 
 PairCatalogDep = Annotated[PairCatalogPort, Depends(get_pair_catalog)]
 
+# The error codes the panel decides on (design addendum § E). The body carries its
+# own code, so a client never depends on the status alone.
+UNKNOWN_PAIRS = "UNKNOWN_PAIRS"
+PAIR_CATALOGUE_UNAVAILABLE = "PAIR_CATALOGUE_UNAVAILABLE"
+PAIR_CATALOGUE_NOT_SERVED = "PAIR_CATALOGUE_NOT_SERVED"
+PAIRS_CHANGED = "PAIRS_CHANGED"
+
+
+def _pair_refusal(
+    exc: UnknownPairs | PairCatalogNotServed | PairCatalogUnavailable | PairsChangedConcurrently,
+) -> HTTPException:
+    """The HTTP form of the four pair-catalogue refusals, shared by POST and PUT.
+
+    The use case already logged one WARNING for each, so nothing is logged here.
+    No venue payload, URL or credential is in any body: only the symbols the
+    caller itself sent, normalized.
+    """
+    if isinstance(exc, UnknownPairs):
+        # The input is the problem: the symbols are named, sorted.
+        return HTTPException(
+            status_code=422,
+            detail={"error": UNKNOWN_PAIRS, "message": str(exc), "unknown": list(exc.unknown)},
+        )
+    if isinstance(exc, PairCatalogNotServed):
+        # The request names a pool this system cannot validate pairs for.
+        return HTTPException(
+            status_code=422,
+            detail={
+                "error": PAIR_CATALOGUE_NOT_SERVED,
+                "message": "pairs cannot be checked for this pool: no catalogue is served for it",
+            },
+        )
+    if isinstance(exc, PairCatalogUnavailable):
+        # The upstream venue failed: 502, not 422 (the operator's input was fine).
+        return HTTPException(
+            status_code=502,
+            detail={
+                "error": PAIR_CATALOGUE_UNAVAILABLE,
+                "message": "the exchange's pair list could not be read, so nothing was saved; "
+                "try again",
+            },
+        )
+    # PairsChangedConcurrently: a well-formed request whose target changed under it.
+    return HTTPException(status_code=409, detail={"error": PAIRS_CHANGED, "message": str(exc)})
+
 
 def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> RegisterStrategy:
     """The real wiring. The catalogue comes from ``get_pair_catalog``, so a test
@@ -252,6 +303,8 @@ async def register_strategy(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (UnknownPairs, PairCatalogNotServed, PairCatalogUnavailable) as exc:
+        raise _pair_refusal(exc) from exc
     except IntegrityError as exc:
         # ``name`` is UNIQUE at the database level. Reported as a conflict
         # rather than a 500, because the caller can fix it by sending another
@@ -328,6 +381,13 @@ async def replace_allowed_pairs(
         ) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (
+        UnknownPairs,
+        PairCatalogNotServed,
+        PairCatalogUnavailable,
+        PairsChangedConcurrently,
+    ) as exc:
+        raise _pair_refusal(exc) from exc
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
