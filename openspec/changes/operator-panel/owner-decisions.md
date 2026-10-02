@@ -218,6 +218,8 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - The selector is a new component built on native elements, with no new UI dependency. It is accessible (keyboard, labels), in EN and ES, and uses Tailwind palette tokens only.
     - **A probe gate comes first.** The owner runs a GET-only script on the VPS that never places an order. It proves that both catalogue endpoints answer WITHOUT a signature and without a key from the VPS, and it records the entry counts and whether Bybit returns a `nextPageCursor`. The backend adapter tasks depend on its result.
     - Left to the design (not owner decisions): the port, the cache, the status code of the venue-unreachable refusal, the read endpoint's path, the split of each delivery into PRs. The design's open questions for the owner are in its § L.
+    - **Answered 2026-10-02 (design § L, Q1): a pool with no catalogue source refuses every new strategy.** Today that is Pionex. Nothing changes in production, because every Pionex pool is disabled; a Pionex pool enabled later cannot receive a new strategy until a catalogue source exists for it. This unblocks the `PairCatalogNotServed` assertions of tasks 9vc.2 and 9vc.7.
+    - The split into six sequential PRs (design § L, Q2) stands, under the session's `auto-chain` delivery. Follow-up 9vf.1 (design § L, Q3) is recorded and not yet authorized.
 
 ## Standing constraints
 
