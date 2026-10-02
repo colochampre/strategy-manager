@@ -193,6 +193,14 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one inner column, `mx-auto w-full max-w-[90rem]`, which keeps `main`'s one-viewport flex contract so the token gate still fills it.
     - On a very wide screen the extra width becomes margin around the content. The pool panel and the decision rail stay side by side, and the space between them never grows.
     - Why: with decision 36 the panel filled the width, and on a wide screen the chart and the ledger line stretched further than reads well.
+39. **The strategy row's sub-line shows the venue and the allowed pairs** (2026-10-02, owner review of the Strategies list).
+    - The row used to show `exchange · venue · settlement currency`. The line becomes `<venue> · <pair>, <pair>`, for example `USDT-M · ETHUSDT, BTCUSDT`, with the pairs in the order the API returns them. A strategy with no pairs shows the venue alone.
+    - The settlement currency still appears next to the PnL amount, so rule 7 is unaffected.
+    - Why: the exchange is redundant, because the operator is already on that exchange's tab; the venue is worth keeping; the settlement currency adds nothing on that line; and the allowed pairs are what actually differs between strategies.
+40. **Allowed pairs are validated against the venue's catalogue, and the dialog offers a selection among available pairs instead of free text** (2026-10-02, owner review of the Strategies list). Status: decided, NOT designed or implemented yet.
+    - Today `RegisterStrategy` and `ReplaceAllowedPairs` only normalize with `market_key()` and check the shape, so a typo (`YPF`, or `BTC` instead of `BTCUSDT`) is stored silently and the strategy then refuses every open.
+    - The save must refuse a symbol the pool's venue does not list, and the free-text input is replaced by a selector over the available pairs.
+    - It needs a backend catalogue read and its own PR(s); see task 9v in tasks.md. Until then the textarea stays.
 
 ## Standing constraints
 

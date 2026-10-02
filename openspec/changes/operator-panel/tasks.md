@@ -1404,6 +1404,13 @@ Harness: `vi.stubGlobal("fetch")`.
 Rollback boundary: two presentational tables; revert removes them, detail page renders without them.
 Forecast: 200–250 lines.
 
+### Unit 9v — allowed pairs validated against the catalogue (decision 40, not started)
+
+The design is still pending: it needs the owner's review before these tasks are expanded.
+
+- [ ] 9v.1 Backend: a catalogue port and a read endpoint for a pool's available pairs, and the refusal of an unlisted symbol in `RegisterStrategy` and `ReplaceAllowedPairs`. RED first: a symbol the venue does not list is refused, and a listed one in a different spelling is accepted.
+- [ ] 9v.2 Frontend: a pair selector over the available pairs replaces the textarea in `NewStrategyDialog`, and `AllowedPairsEditor` (unit 9d) uses the same selector. Depends on 9v.1.
+
 ---
 
 ## PR 13 — Settings: exchange key cards, form, delete flow (900–1,300 lines)
