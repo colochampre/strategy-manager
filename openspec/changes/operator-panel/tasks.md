@@ -99,7 +99,7 @@ is why it is three. The guard lines above do not change: `Decision needed before
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-10-02, VPS time): `main` at `ed4c9f1`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-10-02, VPS time): `main` at `c95a625`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/usdt-m/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -139,6 +139,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 11c | #39 | `1d3220a` | — | 2026-10-01 | Merged and pulled as `strategy`, no restart. **PR 11 is complete.** Unit 8o-overview (8o.1-8o.3), which completes PR 11: `OverviewPage`, `PoolPanel` and `DecisionRail` wired to live data, `usePoolPerformance`, the pools `balance` typed and validated, and the decision rail placed right on wide screens and between the chart and the grid on narrow ones. Committed on `feat/operator-panel-overview-page` (`57d1015`, `c5bef02`, `665d842`, plus the owner's visual-review fixes, decisions 33-35: `41f77df` chart follows the range, `2a09c3e` three years of the grid, `08e8d77` bounded panel and fluid rail; then the second review, decisions 36-37: `10c644c` chart at its measured width and fixed height, `cf49809` panel fills the width with the selector in the chart header, `67143bb` interim pool order), **not pushed**. Risk **low** (frontend only, read-only endpoints, no backend change; the first PR that mounts the chart and the grid with live data). No migration. Deploy: pull as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
 | PR 12a-1 | #40 | `ccc7c92` | — | 2026-10-02 | The list half of unit 9l-list (task 9l.1): `StrategiesPage`, `StrategyRow`, `ArchivedToggle`, the `['strategies',{includeArchived}]` query, the enabled switch that PATCHes from the row, and one `['performance','strategy',id]` request per row. Unit 9l came out at about 1,330 lines against a 400-550 forecast, so the owner split it: the new-strategy dialog (9l.2, 9l.3) is PR 12a-2. Risk **low** (frontend only, no backend change). No migration. The owner reviewed the list locally before the push. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
 | PR 12a-2 | #41 | `ed4c9f1` | — | 2026-10-02 | The dialog half of unit 9l-list (tasks 9l.2-9l.3), which completes unit 9l: `NewStrategyDialog` with an id from `crypto.randomUUID()` reused on retry, the zero-pairs guard, and its own messages for a 409 and a 422. Also task 9l.4 (decision 39): the row sub-line is `<venue> · <pairs>`. It carries the documents of decisions 40-42: the design of unit 9v (PR 12v, pairs validated against the venue catalogue) and unit 9x (deleting a strategy with no history, not designed). The pairs textarea is temporary until PR 12v-5. Risk **low** (frontend only, no backend change). No migration. The owner reviewed the dialog and the row locally before the push. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). |
+| PR 12v-0 | #42 | `c95a625` | — | 2026-10-02 | Unit 9v0 (tasks 9v0.1-9v0.3): `scripts/check_public_catalogue.py`, the GET-only, unsigned probe P7, and its 14 tests. Risk **low** (a development script nothing imports; it loads no credential and builds no order). No migration. Pulled as `strategy`, no restart. The owner ran the probe on the VPS: both public catalogues answer HTTP 200 with no signature and no key, and the filter strings hold; see "PR 12v-0 — Probe P7 results". It also showed Bybit at 891 `linear` entries against the 1,000-entry single page of the order path (follow-up 9vf.1). |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -1486,7 +1487,7 @@ Rules that bind every unit here, on top of the cross-cutting rules:
 
 - [x] 9v0.1 RED `backend/tests/scripts/test_check_public_catalogue.py::test_no_request_carries_an_auth_header_or_a_signature_parameter` (a recording `httpx.MockTransport`: no `X-BAPI-*` header, no `X-MBX-APIKEY`, no `signature` or `timestamp` query parameter on any request), `::test_report_counts_entries_by_contract_type_status_and_settle_coin`, `::test_bybit_cursor_is_followed_and_every_entry_is_counted_once` (two pages; an absent `nextPageCursor` and an empty one both end the read), `::test_report_says_whether_each_known_pair_is_available` (`SFPUSDT`, `AAVEUSDT`, `STXUSDT`), `::test_http_451_is_reported_as_a_location_refusal_not_as_an_empty_catalogue`, `::test_script_imports_no_signer_vault_or_cipher` (module source). RED against a `run()` stub that returns an empty report and sends one request with a dummy header.
 - [x] 9v0.2 GREEN: the script. A bare `httpx.AsyncClient` on `settings.bybit_base_url` and `settings.binance_futures_base_url`; `GET /v5/market/instruments-info?category=linear&limit=1000` (and again with `limit=200` to exercise the cursor); `GET /fapi/v1/exchangeInfo`. It prints P7.1–P7.6 of design addendum § J: status, entry counts by contract type, status and settle or margin coin, cursor presence and page count, pairs surviving the USDT filter, the three known pairs, response size, elapsed time and the rate-limit headers. It prints no other header and no environment value.
-- [ ] 9v0.3 Owner step: run it on the VPS as the `strategy` user and record the output in "PR 12v-0 — Probe P7 results" below. PR 12v-1 does not start before this.
+- [x] 9v0.3 Owner step: run it on the VPS as the `strategy` user and record the output in "PR 12v-0 — Probe P7 results" below. PR 12v-1 does not start before this. Run 2026-10-02.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short backend/tests/scripts/test_check_public_catalogue.py`.
 Harness: `httpx.MockTransport` locally; the real run is the owner's, GET-only, with no credential loaded.
@@ -1495,16 +1496,34 @@ Forecast: 200–300 lines.
 
 #### PR 12v-0 — Probe P7 results
 
-Not run yet. To be filled by the owner's run (9v0.3):
+The owner ran it on the VPS on 2026-10-02, at `main` `c95a625`, against `https://api.bybit.com` and
+`https://fapi.binance.com`:
 
 | Item | Bybit `linear` | Binance USDⓈ-M |
 |---|---|---|
-| P7.1 HTTP status with no signature and no key header | | |
-| P7.2 entries listed; by contract type; by status; by settle or margin coin | | |
-| P7.3 `nextPageCursor` at `limit=1000` (present? empty on the last page?); pages at `limit=200`; every entry once? | | n/a |
-| P7.4 pairs available to a USDT pool | | |
-| P7.5 `SFPUSDT` / `AAVEUSDT` / `STXUSDT` available | | |
-| P7.6 response bytes; elapsed; rate-limit headers | | |
+| P7.1 HTTP status with no signature and no key header | 200 | 200 |
+| P7.2 entries listed; by contract type; by status; by settle or margin coin | 891; `LinearFutures`=40, `LinearPerpetual`=851; `Trading`=891; USDC=68, USDT=823 | 920; `CURRENT_QUARTER`=2, `NEXT_QUARTER`=2, `PERPETUAL`=703, `TRADIFI_PERPETUAL`=213; `PENDING_TRADING`=1, `SETTLING`=131, `TRADING`=788; BTC=1, U=2, USD1=3, USDC=39, USDT=875 |
+| P7.3 `nextPageCursor` at `limit=1000` (present? empty on the last page?); pages at `limit=200`; every entry once? | no further page at `limit=1000` (1 page; the last page's cursor is the EMPTY string, not an absent field); 5 pages at `limit=200`; every entry exactly once: yes | n/a |
+| P7.4 pairs available to a USDT pool | 783 | 528 |
+| P7.5 `SFPUSDT` / `AAVEUSDT` / `STXUSDT` available | not available / available / available | available / available / available |
+| P7.6 response bytes; elapsed; rate-limit headers | 835,613; 3.04 s; none | 1,142,974; 0.27 s; `x-mbx-used-weight-1m: 1` |
+
+What the run settles:
+
+- Both catalogues answer without a signature and without a key from the VPS. The credential-free
+  transports of unit 9va are viable for both venues.
+- The filter strings hold: Bybit `LinearPerpetual` / `Trading`, Binance `PERPETUAL` / `TRADING`.
+  Binance also reports `SETTLING` (131) and `PENDING_TRADING` (1), which the filter excludes, and
+  margin assets `U` and `USD1`, which no pool settles in.
+- Bybit ends its last page with an EMPTY `nextPageCursor`, so the cursor loop stops on an empty
+  string as well as on an absent field (9va).
+- Bybit lists **891** `linear` entries against the single page of 1,000 the ORDER path reads
+  (follow-up 9vf.1). The margin is 109 entries, not the roughly 160 assumed from the 2026-08-26
+  count of about 840.
+- `SFPUSDT` is not listed on Bybit. That is informational: the SFP strategy runs on
+  `binance/usdt-m/USDT`, where it is listed.
+- Bybit's read took 3.04 s for 836 kB. A cold cache makes the first save or the first selector
+  load on a Bybit pool wait about that long.
 
 ### Unit 9va — credential-free transports and public catalogue sources (500–700 lines) — PR 12v-1
 
