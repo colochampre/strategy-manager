@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import type { PoolPerformance, StrategyPerformance } from "@/shared/api/types";
+import type {
+  PoolPerformance,
+  StrategyPerformance,
+  StrategyTrade,
+  StrategyTradesPage,
+  TradeCursor,
+} from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -51,6 +57,30 @@ export async function fetchPoolPerformance(
   return body;
 }
 
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isPairStat(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.pair === "string" &&
+    typeof value.trades === "number" &&
+    typeof value.pnl === "string" &&
+    isNullableString(value.return)
+  );
+}
+
+/** A pool report plus a `by_pair` list whose every entry is readable: one bad entry fails the lot, so no row shows a wrong figure. */
+function isStrategyPerformance(value: unknown): value is StrategyPerformance {
+  return (
+    isPoolPerformance(value) &&
+    typeof (value as { strategy_id?: unknown }).strategy_id === "string" &&
+    Array.isArray((value as { by_pair?: unknown }).by_pair) &&
+    (value as unknown as { by_pair: unknown[] }).by_pair.every(isPairStat)
+  );
+}
+
 /**
  * `GET /api/performance/strategies/{id}`. As for a pool, a 404 is a strategy
  * without a report (null) and any other failure, or a body that is not a
@@ -64,12 +94,70 @@ export async function fetchStrategyPerformance(strategyId: string): Promise<Stra
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
-  if (!isPoolPerformance(body) || typeof (body as { strategy_id?: unknown }).strategy_id !== "string") {
+  if (!isStrategyPerformance(body)) {
     throw new ApiError(200, {
       detail: "Unexpected response shape from GET /performance/strategies: expected a strategy report",
     });
   }
-  return body as StrategyPerformance;
+  return body;
+}
+
+export const TRADES_PAGE_SIZE = 50;
+
+function isTrade(value: unknown): value is StrategyTrade {
+  return (
+    isRecord(value) &&
+    typeof value.allocation_id === "string" &&
+    typeof value.pair === "string" &&
+    typeof value.direction === "string" &&
+    typeof value.opened_at === "string" &&
+    typeof value.closed_at === "string" &&
+    typeof value.pnl === "string" &&
+    isNullableString(value.capital_at_open) &&
+    isNullableString(value.return) &&
+    typeof value.fees_complete === "boolean"
+  );
+}
+
+function isCursor(value: unknown): value is TradeCursor {
+  return isRecord(value) && typeof value.before_closed_at === "string" && typeof value.before_allocation_id === "string";
+}
+
+function isTradesPage(value: unknown): value is StrategyTradesPage {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.trades) &&
+    value.trades.every(isTrade) &&
+    (value.next_cursor === null || isCursor(value.next_cursor))
+  );
+}
+
+/**
+ * One page of `GET /api/performance/strategies/{id}/trades`. `cursor` is the
+ * previous page's `next_cursor`, sent back as it came (both values, never a
+ * rebuilt one); null asks for the newest page. Keyset, never an offset: the
+ * server pages on `(closed_at, allocation_id)`. A 404 throws: the page that
+ * asks has just loaded the strategy, so a missing one is a failure, not an
+ * empty list. A body that is not a trades page throws rather than render a
+ * row with a wrong figure.
+ */
+export async function fetchStrategyTrades(
+  strategyId: string,
+  cursor: TradeCursor | null,
+  limit = TRADES_PAGE_SIZE,
+): Promise<StrategyTradesPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== null) {
+    query.set("before_closed_at", cursor.before_closed_at);
+    query.set("before_allocation_id", cursor.before_allocation_id);
+  }
+  const body = await apiFetch<unknown>(`/performance/strategies/${encodeURIComponent(strategyId)}/trades?${query}`);
+  if (!isTradesPage(body)) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /performance/strategies/{id}/trades: expected a page of trades",
+    });
+  }
+  return body;
 }
 
 /** Query key `['performance','strategy',id]` (design.md § 15). */

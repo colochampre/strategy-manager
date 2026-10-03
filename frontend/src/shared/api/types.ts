@@ -212,6 +212,38 @@ export interface PairStat {
 }
 
 /**
+ * One closed operation of `GET /api/performance/strategies/{id}/trades`
+ * (`TradeBody`). `direction` is `LONG` or `SHORT`. Instants are ISO-8601 UTC.
+ * `capital_at_open` and `return` are null for an operation opened before the
+ * pool's total was recorded (decision 43): never a zero. `return` is `pnl` over
+ * `capital_at_open`, the POOL's capital, never the position's margin.
+ * `fees_complete` is false when a fee in a third currency was left out of `pnl`.
+ */
+export interface StrategyTrade {
+  allocation_id: string;
+  pair: string;
+  direction: string;
+  opened_at: string;
+  closed_at: string;
+  pnl: string;
+  capital_at_open: string | null;
+  return: string | null;
+  fees_complete: boolean;
+}
+
+/** `next_cursor` of the trades list: exactly the two query parameters that ask for the page after it. */
+export interface TradeCursor {
+  before_closed_at: string;
+  before_allocation_id: string;
+}
+
+/** One page of the trades list; a null `next_cursor` is the last page. */
+export interface StrategyTradesPage {
+  trades: StrategyTrade[];
+  next_cursor: TradeCursor | null;
+}
+
+/**
  * `GET /api/performance/strategies/{id}` (`StrategyPerformanceBody`): the pool
  * report's shape for one strategy, in its pool's own currency, plus the
  * breakdown by pair.
