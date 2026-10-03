@@ -10,7 +10,7 @@ actually serializes is proven on real PostgreSQL in
 
 import logging
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -28,6 +28,7 @@ from strategy_manager.strategies.application.ports import (
 )
 from strategy_manager.strategies.application.update_strategy import UnknownStrategy
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
+from strategy_manager.strategies.domain.enablement import EnablementEvent, EnablementOrigin
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     AllocationPolicy,
@@ -47,6 +48,22 @@ KINDS = [
     "booking_proposals",
     "enablement_events",
 ]
+# Migration 0028: events are reported in the history but never block it.
+BLOCKING_KINDS = [kind for kind in KINDS if kind != "enablement_events"]
+FIRST_ENABLED = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+
+
+def _toggled(*hours_after_first: float) -> list[EnablementEvent]:
+    """Alternating enable / disable events at the given offsets, in hours."""
+    return [
+        EnablementEvent(
+            strategy_id=STRATEGY_ID,
+            enabled=index % 2 == 0,
+            occurred_at=FIRST_ENABLED + timedelta(hours=hours),
+            origin=EnablementOrigin.OBSERVED,
+        )
+        for index, hours in enumerate(hours_after_first)
+    ]
 
 
 def _strategy(**overrides: object) -> Strategy:
@@ -131,6 +148,21 @@ class FakeHistory:
         return self.answer
 
 
+class FakeEnablementLog:
+    def __init__(self, events: list[str], answer: list[EnablementEvent]) -> None:
+        self.events = events
+        self.answer = answer
+
+    async def list_for(self, strategy_id: UUID) -> list[EnablementEvent]:
+        self.events.append("enablement_events")
+        return self.answer
+
+
+class FixedClock:
+    def now(self) -> datetime:
+        return FIRST_ENABLED + timedelta(days=1)
+
+
 class SpyCommit:
     def __init__(self, events: list[str]) -> None:
         self.events = events
@@ -148,6 +180,7 @@ class Harness:
         *,
         locked: Strategy | None | str = "same",
         history: StrategyHistory | None = None,
+        enablement: list[EnablementEvent] | None = None,
         refuse_delete_with: StrategyStillReferenced | None = None,
     ) -> None:
         self.events: list[str] = []
@@ -164,6 +197,8 @@ class Harness:
             repository=self.repository,
             pool_lock=self.pool_lock,
             history=self.history,
+            enablement_log=FakeEnablementLog(self.events, enablement or []),
+            clock=FixedClock(),
             commit=self.commit,
         )
 
@@ -193,6 +228,7 @@ async def test_the_pool_lock_is_taken_before_the_row_lock_and_history_is_read_af
         "pool_lock",
         "get_by_id_for_update",
         "history",
+        "enablement_events",  # read while the events still exist, before the delete
         "delete",
         "commit",
     ]
@@ -248,8 +284,10 @@ async def test_enabled_is_decided_from_the_locked_read_not_the_unlocked_one() ->
     assert harness.repository.deleted == []
 
 
-@pytest.mark.parametrize("kind", KINDS)
-async def test_each_kind_of_history_alone_refuses_and_nothing_is_deleted(kind: str) -> None:
+@pytest.mark.parametrize("kind", BLOCKING_KINDS)
+async def test_each_blocking_kind_of_history_alone_refuses_and_nothing_is_deleted(
+    kind: str,
+) -> None:
     harness = Harness(history=_history(**{kind: 1}))
 
     with pytest.raises(StrategyHasHistory) as raised:
@@ -276,6 +314,25 @@ async def test_no_history_deletes_and_commits_exactly_once() -> None:
 
     await harness.use_case.delete(STRATEGY_ID)
 
+    assert harness.repository.deleted == [STRATEGY_ID]
+    assert harness.commit.commits == 1
+
+
+async def _refusal(harness: Harness) -> Exception | None:
+    """What ``delete`` raised, so a wrong refusal fails on an assertion about its type."""
+    try:
+        await harness.use_case.delete(STRATEGY_ID)
+    except Exception as error:  # noqa: BLE001 -- captured to assert on its type
+        return error
+    return None
+
+
+async def test_a_strategy_with_only_enablement_events_is_deleted() -> None:
+    harness = Harness(history=_history(enablement_events=4), enablement=_toggled(0, 1, 2, 2.5))
+
+    refusal = await _refusal(harness)
+
+    assert refusal is None, repr(refusal)
     assert harness.repository.deleted == [STRATEGY_ID]
     assert harness.commit.commits == 1
 
@@ -316,6 +373,39 @@ async def test_a_successful_delete_logs_one_info_with_id_name_and_pool(
     assert repr(NAME) in message
     assert "bybit/usdt-m/USDT" in message
     assert "archived=False" in message
+
+
+async def test_the_info_line_names_the_events_deleted_the_first_enable_time_and_the_uptime(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two enabled stretches, 1 h and 0.5 h: 5400 s. The line is the only record
+    of when the strategy was switched on once its events are gone."""
+    harness = Harness(history=_history(enablement_events=4), enablement=_toggled(0, 1, 2, 2.5))
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(harness)
+
+    assert refusal is None, repr(refusal)
+    records = _records(caplog)
+    assert [record.levelno for record in records] == [logging.INFO]
+    message = records[0].getMessage()
+    assert "enablement_events=4" in message
+    assert f"first_enabled_at={FIRST_ENABLED.isoformat()}" in message
+    assert "uptime_seconds=5400" in message
+
+
+async def test_the_info_line_of_a_never_enabled_strategy_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    harness = Harness()
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await harness.use_case.delete(STRATEGY_ID)
+
+    message = _records(caplog)[0].getMessage()
+    assert "enablement_events=0" in message
+    assert "first_enabled_at=never" in message
+    assert "uptime_seconds=0" in message
 
 
 def _refusal_harness(case: str) -> Harness:

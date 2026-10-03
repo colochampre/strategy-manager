@@ -59,6 +59,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
     SqlAlchemyBookingProposalRepository,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.signals.application.ingest_signal import IngestCommand, IngestSignal
 from strategy_manager.signals.application.ports import UnknownSignalStrategy
@@ -175,6 +176,8 @@ def _delete_use_case(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=pool_lock if pool_lock is not None else PoolLockAdapter(session),  # type: ignore[arg-type]
         history=_history(session),
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=SystemClock(),
         commit=commit if commit is not None else session,  # type: ignore[arg-type]
     )
 

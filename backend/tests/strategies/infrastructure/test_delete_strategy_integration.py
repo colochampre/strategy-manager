@@ -59,7 +59,10 @@ from strategy_manager.strategies.application.register_strategy import (
 )
 from strategy_manager.strategies.domain.enablement import uptime
 from strategy_manager.strategies.domain.strategy import FillMode
-from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
+from strategy_manager.strategies.infrastructure.enablement_log import (
+    SqlAlchemyEnablementLog,
+    StrategyEnablementEventRow,
+)
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
@@ -123,6 +126,8 @@ def _use_case(session: AsyncSession, history: object | None = None) -> DeleteStr
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
         history=history if history is not None else _real_history(session),  # type: ignore[arg-type]
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=_Clock(),  # type: ignore[arg-type]
         commit=session,  # type: ignore[arg-type]
     )
 
@@ -228,6 +233,49 @@ def _signal_of(strategy_id: UUID) -> SignalRow:
         symbol="STXUSDT.P",
         signal_type=str(strategy_id),
     )
+
+
+async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
+    factory: Factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Migration 0028: the events go with their strategy, through the real foreign
+    key and the real append-only trigger. The first enable time and the uptime of
+    the deleted strategy survive in the INFO line."""
+    strategy_id = await _strategy(factory)
+    enabled_at = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+    await _seed(
+        factory,
+        *(
+            StrategyEnablementEventRow(
+                id=uuid4(),
+                strategy_id=strategy_id,
+                enabled=enabled,
+                occurred_at=enabled_at + timedelta(minutes=minutes),
+                origin="OBSERVED",
+            )
+            for enabled, minutes in ((True, 0), (False, 90))
+        ),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(factory, strategy_id)
+
+    assert refusal is None, repr(refusal)
+    assert await _strategy_rows(factory, strategy_id) == 0
+    assert (
+        await _scalar(
+            factory,
+            "SELECT count(*) FROM strategy_enablement_events WHERE strategy_id = :id",
+            id=strategy_id,
+        )
+        == 0
+    )
+    records = [record for record in caplog.records if record.name == LOGGER]
+    assert [record.levelno for record in records] == [logging.INFO]
+    message = records[0].getMessage()
+    assert "enablement_events=2" in message
+    assert f"first_enabled_at={enabled_at.isoformat()}" in message
+    assert "uptime_seconds=5400" in message
 
 
 def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:

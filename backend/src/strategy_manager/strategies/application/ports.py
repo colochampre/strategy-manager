@@ -9,6 +9,7 @@ from uuid import UUID
 
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.domain.enablement import EnablementEvent
 from strategy_manager.strategies.domain.strategy import Strategy
 
 # ``(exchange, venue, settlement_currency)`` — mirrors
@@ -17,6 +18,10 @@ from strategy_manager.strategies.domain.strategy import Strategy
 # reaches across another module's boundary for a bare type alias (the same
 # convention every other consumer of a pool triple already follows).
 PoolKey = tuple[str, str, str]
+
+
+# The history kinds that are reported but never refuse a delete (migration 0028).
+_NEVER_BLOCKING = frozenset({"enablement_events"})
 
 
 class StrategyRepositoryPort(Protocol):
@@ -146,6 +151,15 @@ class EnablementLogPort(Protocol):
     async def append(self, strategy_id: UUID, enabled: bool, occurred_at: datetime) -> None: ...
 
 
+class EnablementReaderPort(Protocol):
+    """Reads one strategy's enablement events. ``DeleteStrategy`` reads them just
+    before the delete, while they still exist, because its INFO line is the only
+    record of when the strategy was enabled once migration 0028 deletes them with
+    it. Implemented by ``SqlAlchemyEnablementLog``. Read-only."""
+
+    async def list_for(self, strategy_id: UUID) -> list[EnablementEvent]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class StrategyExposure:
     """What ``ArchiveStrategy`` checks before archiving (design.md § 8,
@@ -205,6 +219,13 @@ class StrategyHistory:
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
+
+    **Enablement events are counted but never block** (owner decision 42, Q1;
+    migration 0028 deletes them with their strategy). They stay a field so the
+    refusal's body keeps its six keys and the delete's INFO line can name how
+    many went; ``blocking()`` and ``is_empty()`` leave them out. Before 0028 is
+    applied the foreign key still refuses a strategy that has events: the
+    database says so, and ``DeleteStrategy`` answers it as ``HAS_HISTORY``.
     """
 
     signals: int
@@ -215,11 +236,12 @@ class StrategyHistory:
     enablement_events: int
 
     def blocking(self) -> dict[str, int]:
-        """The non-zero kinds, in the fixed order of the fields."""
+        """The non-zero kinds that refuse a delete, in the fixed order of the
+        fields. Never ``enablement_events``."""
         return {
             field.name: count
             for field in fields(self)
-            if (count := getattr(self, field.name)) > 0
+            if field.name not in _NEVER_BLOCKING and (count := getattr(self, field.name)) > 0
         }
 
     def is_empty(self) -> bool:

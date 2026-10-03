@@ -35,12 +35,14 @@ from strategy_manager.performance.infrastructure.performance_router import (
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.delete_strategy import DeleteStrategy
 from strategy_manager.strategies.application.ports import PoolKey, StrategyHistory
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
     PairCatalogUnavailable,
 )
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
@@ -799,6 +801,8 @@ async def _delete_client(
                 repository=SqlAlchemyStrategyRepository(session),
                 pool_lock=PoolLockAdapter(session),
                 history=_NoHistory(),
+                enablement_log=SqlAlchemyEnablementLog(session),
+                clock=SystemClock(),
                 commit=session,
             )
 
@@ -925,24 +929,41 @@ async def test_delete_with_history_409_has_history_carries_all_six_integer_count
     assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 200
 
 
-async def test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events(
-    deleting: AsyncClient,
-) -> None:
-    # Owner answer Q1 (decision 42): enablement events stop blocking only with
-    # unit 9xf (migration 0028). Until then they fail closed.
-    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+async def _toggle(api: AsyncClient, strategy_id: str) -> None:
     for enabled in (True, False):
-        toggled = await deleting.patch(
+        toggled = await api.patch(
             f"/strategies/{strategy_id}", json={"enabled": enabled}, headers=_auth()
         )
         assert toggled.status_code == 200
 
+
+async def test_delete_a_toggled_strategy_204(deleting: AsyncClient) -> None:
+    # Owner answer Q1 (decision 42), migration 0028: enablement events are not
+    # history. This module's ORM schema has no foreign key on them, so what it
+    # proves is the HTTP outcome; the cascade itself is proven on ``head`` in
+    # ``test_delete_strategy_integration.py``.
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await _toggle(deleting, strategy_id)
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 204
+    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+
+
+async def test_delete_a_toggled_strategy_with_a_signal_409_still_reports_its_events(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Events are reported, never the cause: the signal refuses, and the body keeps
+    all six counts, the events' among them."""
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await _toggle(deleting, strategy_id)
+    await _seed_signal(pg_session_factory, strategy_id)
+
     response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["error"] == "HAS_HISTORY"
-    assert detail["history"] == _history_body(enablement_events=2)
+    assert response.json()["detail"]["history"] == _history_body(signals=1, enablement_events=2)
 
 
 async def test_delete_database_refusal_is_409_has_history_never_500(
