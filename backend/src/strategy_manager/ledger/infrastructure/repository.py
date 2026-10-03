@@ -290,3 +290,15 @@ class SqlAlchemyLedgerRepository:
             )
         )
         return frozenset(row[0] for row in result.all())
+
+    async def count_for_strategy(self, strategy_id: UUID) -> int:
+        """How many ledger entries record a fill for this strategy, in ANY
+        pool. Read-only: ``StrategyHistoryPort``'s ``ledger_entries`` count
+        (design.md addendum 9x, § C). The ledger is append-only, so a count
+        above zero is permanent."""
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(LedgerEntryRow)
+            .where(LedgerEntryRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()

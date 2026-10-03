@@ -30,7 +30,7 @@ from decimal import Decimal
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -253,3 +253,14 @@ class SqlAlchemyBookingProposalRepository:
         result = cast(CursorResult[Any], await self._session.execute(stmt))
         await self._session.flush()
         return result.rowcount
+
+    async def count_for_strategy(self, strategy_id: UUID) -> int:
+        """How many booking proposals name this strategy, in ANY state
+        (``REJECTED`` and ``EXPIRED`` too). Read-only: ``StrategyHistoryPort``'s
+        ``booking_proposals`` count (design.md addendum 9x, § C). A proposal
+        keeps ``fk_booking_proposals_strategy``, so it blocks a delete whatever
+        its state."""
+        result = await self._session.execute(
+            select(func.count()).select_from(_Row).where(_Row.strategy_id == strategy_id)
+        )
+        return result.scalar_one()

@@ -4,7 +4,7 @@ the ``execution_attempts`` table (migrations ``0005``, ``0011``, ``0012``).
 
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
@@ -17,6 +17,7 @@ from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.signals.infrastructure.models import SignalRow
 
 # The live name of ``execution_attempts.client_order_id``'s unique
 # constraint (verified against both the local dev DB and production at
@@ -281,3 +282,27 @@ class SqlAlchemyExecutionAttemptRepository:
             )
         ).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
+
+    async def count_for_strategy(self, strategy_id: UUID) -> int:
+        """How many execution attempts reach this strategy, in any status and
+        in ANY pool. An attempt carries no strategy id: it reaches one through
+        the reservation it opens (``reservation_id``), the allocation it closes
+        (``closes_allocation_id``), or the signal it answers (``signal_id``).
+        Read-only: ``StrategyHistoryPort``'s ``execution_attempts`` count
+        (design.md addendum 9x, § C)."""
+        own_reservations = select(ReservationRow.id).where(
+            ReservationRow.strategy_id == strategy_id
+        )
+        own_signals = select(SignalRow.id).where(SignalRow.strategy_id == strategy_id)
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(ExecutionAttemptRow)
+            .where(
+                or_(
+                    ExecutionAttemptRow.reservation_id.in_(own_reservations),
+                    ExecutionAttemptRow.closes_allocation_id.in_(own_reservations),
+                    ExecutionAttemptRow.signal_id.in_(own_signals),
+                )
+            )
+        )
+        return result.scalar_one()

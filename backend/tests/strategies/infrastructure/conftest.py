@@ -19,6 +19,9 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.allocation.infrastructure.models import ReservationRow  # noqa: F401
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow  # noqa: F401
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow  # noqa: F401
+from strategy_manager.reconciliation.infrastructure.models import (
+    BookingProposalRow,  # noqa: F401  registers the table on Base.metadata
+)
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401

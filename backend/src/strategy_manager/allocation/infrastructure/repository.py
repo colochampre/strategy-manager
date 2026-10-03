@@ -235,3 +235,15 @@ class SqlAlchemyReservationRepository:
             )
         )
         return [row[0] for row in result.all()]
+
+    async def count_for_strategy(self, strategy_id: UUID) -> int:
+        """How many reservations exist for this strategy, in any status and in
+        ANY pool -- terminal rows and a row in another pool count too.
+        Read-only: ``StrategyHistoryPort``'s ``reservations`` count
+        (design.md addendum 9x, § C)."""
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(ReservationRow)
+            .where(ReservationRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()

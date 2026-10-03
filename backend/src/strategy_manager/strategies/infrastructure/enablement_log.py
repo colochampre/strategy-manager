@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Text, select
+from sqlalchemy import Boolean, DateTime, Text, func, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -91,6 +91,19 @@ class SqlAlchemyEnablementLog:
         for row in result.scalars().all():
             grouped[row.strategy_id].append(_to_domain(row))
         return grouped
+
+    async def count_for(self, strategy_id: UUID) -> int:
+        """How many enablement events (OBSERVED or BASELINE) exist for one
+        strategy. Read-only: ``StrategyHistoryPort``'s ``enablement_events``
+        count (design.md addendum 9x, § C). Until migration 0028 the events
+        keep ``fk_strategy_enablement_events_strategy`` as ``NO ACTION``, so
+        any event blocks a delete."""
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(StrategyEnablementEventRow)
+            .where(StrategyEnablementEventRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()
 
 
 def _to_domain(row: StrategyEnablementEventRow) -> EnablementEvent:

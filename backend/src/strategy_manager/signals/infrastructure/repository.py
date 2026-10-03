@@ -143,3 +143,13 @@ class SqlAlchemySignalRepository:
             .limit(1)
         )
         return result.first() is not None
+
+    async def count_for_strategy(self, strategy_id: UUID) -> int:
+        """How many signals exist for this strategy, in any status. Read-only,
+        by strategy id alone: ``StrategyHistoryPort``'s ``signals`` count
+        (design.md addendum 9x, § C). Backed by the unique index on
+        ``(strategy_id, idempotency_key)``."""
+        result = await self._session.execute(
+            select(func.count()).select_from(SignalRow).where(SignalRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()
