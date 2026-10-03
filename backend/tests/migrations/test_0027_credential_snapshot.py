@@ -255,7 +255,8 @@ async def _rows(conn: AsyncConnection) -> list[Any]:
 async def test_upgrade_reaches_0027(conn: AsyncConnection) -> None:
     version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
 
-    assert version == "0027"
+    # ``head`` moves on with every later migration (0028 now); zero-padded revisions sort.
+    assert version >= "0027"
 
 
 async def test_the_seven_columns_exist_with_the_types_and_nullability_of_the_addendum(
@@ -602,6 +603,7 @@ def test_downgrade_refuses_while_any_row_is_not_the_backfill_shape_naming_each_c
         await _insert(connection, _LEGACY)
 
     _run_sql(url, seed)
+    version_before = _scalar(url, "SELECT version_num FROM alembic_version")
 
     refused = _run_alembic(url, "downgrade", "0026")
 
@@ -617,7 +619,7 @@ def test_downgrade_refuses_while_any_row_is_not_the_backfill_shape_naming_each_c
     columns_left = _run_sql(url, _new_column_count)
     version = _scalar(url, "SELECT version_num FROM alembic_version")
     assert columns_left == len(_NEW_COLUMNS)
-    assert version == "0027"
+    assert version == version_before
     # A refused downgrade leaves the constraints in place too.
     constraint_count = _scalar(
         url,

@@ -59,10 +59,7 @@ from strategy_manager.strategies.application.register_strategy import (
 )
 from strategy_manager.strategies.domain.enablement import uptime
 from strategy_manager.strategies.domain.strategy import FillMode
-from strategy_manager.strategies.infrastructure.enablement_log import (
-    SqlAlchemyEnablementLog,
-    StrategyEnablementEventRow,
-)
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
@@ -218,6 +215,21 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
     assert await _strategy_rows(factory, strategy_id) == 0
 
 
+def _signal_of(strategy_id: UUID) -> SignalRow:
+    return SignalRow(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        idempotency_key=f"key-{uuid4()}",
+        raw_payload={},
+        action="buy",
+        contracts=Decimal("1"),
+        position_size=Decimal("1"),
+        price=Decimal("1"),
+        symbol="STXUSDT.P",
+        signal_type=str(strategy_id),
+    )
+
+
 def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
     """A ledger entry that belongs to ``strategy_id`` and hangs off a signal, a
     reservation and an attempt of ANOTHER strategy, so it is the only kind the
@@ -309,21 +321,16 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
 async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
     factory: Factory, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The history answers zero over a strategy that owns one enablement event.
-    The ``NO ACTION`` foreign key still refuses, the use case reports it as
+    """The history answers zero over a strategy that owns one signal. The
+    ``NO ACTION`` foreign key still refuses, the use case reports it as
     ``StrategyHasHistory`` with one ERROR naming the constraint, and the session
-    is usable after the caller's rollback."""
+    is usable after the caller's rollback.
+
+    Re-pointed by migration 0028 (tasks.md 9xf.3): it used an enablement event, whose
+    foreign key now cascades, so the backstop is shown on a key that is still
+    ``NO ACTION``."""
     strategy_id = await _strategy(factory)
-    await _seed(
-        factory,
-        StrategyEnablementEventRow(
-            id=uuid4(),
-            strategy_id=strategy_id,
-            enabled=True,
-            occurred_at=datetime.now(UTC),
-            origin="OBSERVED",
-        ),
-    )
+    await _seed(factory, _signal_of(strategy_id))
 
     async with factory() as session:
         with caplog.at_level(logging.DEBUG, logger=LOGGER):
@@ -334,7 +341,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
             else:
                 refusal = None
         assert isinstance(refusal, StrategyHasHistory), repr(refusal)
-        assert refusal.constraint == "fk_strategy_enablement_events_strategy"
+        assert refusal.constraint == "fk_signals_strategy"
 
         await session.rollback()  # what the route does on every refusal
 
@@ -347,7 +354,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
         )
         assert (
             await session.scalar(
-                text("SELECT count(*) FROM strategy_enablement_events WHERE strategy_id = :id"),
+                text("SELECT count(*) FROM signals WHERE strategy_id = :id"),
                 {"id": strategy_id},
             )
             == 1
@@ -355,7 +362,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
 
     records = [record for record in caplog.records if record.name == LOGGER]
     assert [record.levelno for record in records] == [logging.ERROR]
-    assert "fk_strategy_enablement_events_strategy" in records[0].getMessage()
+    assert "fk_signals_strategy" in records[0].getMessage()
     assert str(strategy_id) in records[0].getMessage()
 
 
