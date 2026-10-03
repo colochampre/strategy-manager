@@ -179,9 +179,7 @@
         "ledgerEntries_one": "{{count}} asiento del libro mayor",
         "ledgerEntries_other": "{{count}} asientos del libro mayor",
         "bookingProposals_one": "{{count}} propuesta de registro",
-        "bookingProposals_other": "{{count}} propuestas de registro",
-        "enablementEvents_one": "{{count}} evento de activación",
-        "enablementEvents_other": "{{count}} eventos de activación"
+        "bookingProposals_other": "{{count}} propuestas de registro"
       }
     }
   },

@@ -22,8 +22,6 @@ const KEYS = [
   "errors.stillEnabled",
   "history.bookingProposals_one",
   "history.bookingProposals_other",
-  "history.enablementEvents_one",
-  "history.enablementEvents_other",
   "history.executionAttempts_one",
   "history.executionAttempts_other",
   "history.ledgerEntries_one",
@@ -140,10 +138,20 @@ describe("DeleteStrategyDialog", () => {
     expect(screen.queryByText(i18n.t("strategies.delete.history.reservations", { count: 0 }))).toBeNull();
   });
 
-  it("renders a refusal naming enablement events like any other kind", () => {
+  it("names the signal and not the enablement events when a refusal carries both", () => {
+    // Since migration 0028 enablement events do not block a delete, so they are no reason to show.
+    renderDialog({ error: refusal("HAS_HISTORY", { ...HISTORY, ledger_entries: 0, enablement_events: 2 }) });
+    const alert = screen.getByRole("alert");
+    const items = within(alert).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([i18n.t("strategies.delete.history.signals", { count: 3 })]);
+    expect(alert).not.toHaveTextContent(/enablement|activación/i);
+  });
+
+  it("shows the main sentence alone when the only non-zero count is enablement events", () => {
     renderDialog({ error: refusal("HAS_HISTORY", { ...HISTORY, signals: 0, ledger_entries: 0, enablement_events: 1 }) });
-    const items = within(screen.getByRole("alert")).getAllByRole("listitem");
-    expect(items.map((item) => item.textContent)).toEqual([i18n.t("strategies.delete.history.enablementEvents", { count: 1 })]);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(i18n.t("strategies.delete.errors.hasHistory"));
+    expect(within(alert).queryAllByRole("listitem")).toHaveLength(0);
   });
 
   it("says the strategy can be archived instead", () => {
@@ -157,6 +165,7 @@ describe("DeleteStrategyDialog", () => {
     ["not an object", "three signals"],
     ["with a non-integer count", { ...HISTORY, signals: "3" }],
     ["with a negative count", { ...HISTORY, signals: -1 }],
+    ["with a malformed enablement count, although that kind is not shown", { ...HISTORY, enablement_events: "1" }],
   ])("shows the main sentence alone when the history is %s", (_label, history) => {
     renderDialog({ error: refusal("HAS_HISTORY", history) });
     const alert = screen.getByRole("alert");
