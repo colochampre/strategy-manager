@@ -194,7 +194,7 @@ Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted
   entry once. No line of `public_catalogue.py` is written before that section exists
   (tasks 9va.4–9va.6). P7.5 (are `SFPUSDT`, `AAVEUSDT`, `STXUSDT` listed) is informational.
 
-## Migration rehearsal (0024, 0025, 0026, 0027)
+## Migration rehearsal (0024, 0025, 0026, 0027, 0028)
 
 Every migration in this change is rehearsed **locally** first (Tier B: up, down, refusals)
 and then **on the VPS against a throwaway restore**, per design's "Migration / rollout":
@@ -222,21 +222,27 @@ string in a log line, a commit message, or this file.
   row `trade_capable=true` (correct by construction — every current store script already
   refuses a key that cannot trade) and that the downgrade refuses while `trade_capable=false`
   exists.
-- **0028** (PR 12x-6, enablement events cascade; **only if the owner answers design addendum
-  9x § L, Q1 with "enablement events do not block a delete"** — otherwise unit 9x has no
-  migration and this entry does not apply). Rehearse on a throwaway database restored from a
-  FRESH backup, as above, and additionally, inside `sm_rehearsal` only:
+- **0028** (PR 12x-6, enablement events cascade; the owner answered design addendum 9x § L, Q1
+  with "enablement events do not block a delete", decision 42). Rehearse on a throwaway
+  database restored from a FRESH backup, as above, and additionally, inside `sm_rehearsal` only:
   1. After `upgrade head`: confirm `fk_strategy_enablement_events_strategy` is `ON DELETE
      CASCADE` and that the count of `strategy_enablement_events` rows is unchanged (the
      migration moves no data).
   2. `DELETE` one event of a strategy that exists: it must be refused (`restrict_violation`).
-  3. `DELETE` a strategy that has a signal: it must be refused by `fk_signals_strategy`, and its
+  3. `UPDATE` one event: it must be refused (`restrict_violation`).
+  4. `DELETE` a strategy that has a signal: it must be refused by `fk_signals_strategy`, and its
      events must still be there.
-  4. `DELETE` a strategy that has only events (create one for the purpose if production has
-     none): it must succeed and take its events with it.
-  5. `alembic downgrade -1`: it must succeed with no refusal (it discards no data), and step 4
-     must then be refused again.
-  Schema-only on both sides: no seeding and no backfill log to read.
+  5. `DELETE` a strategy that has only events (create one for the purpose if production has
+     none): it must succeed and take its events with it, and no other strategy's events move.
+  6. `alembic downgrade -1`: it must succeed with no refusal (it discards no data), the log
+     must show exactly one `WARNI` line naming 0028 (`alembic.ini` truncates WARNING to five
+     characters), the events that survived must still be there, and step 5 must then be
+     refused again by `fk_strategy_enablement_events_strategy`.
+  7. `alembic upgrade head` once more: it must succeed (up, down, up is clean).
+  Schema-only on both sides: no seeding and no backfill log to read. Production migrates only
+  after this passes. Deploy order for PR 12x-6: pull, `alembic upgrade head`, restart both
+  services; the code alone, before the migration, still refuses a strategy that has events
+  (the database says so, and the delete answers `HAS_HISTORY` with one ERROR).
 
 ## Dependencies
 
@@ -282,8 +288,8 @@ string in a log line, a commit message, or this file.
   - **Unit 9d and PR 12x-5, either order.** If 12x-5 merges first, unit 9d mounts the control
     (task 9d.6). If unit 9d merges first, task 9d.6 moves into PR 12x-5 as task 9xe.5. The
     mounting is one edit and is done once.
-  - PR 12x-6 needs PR 12x-3 and the owner's answer to Q1. It is built only for the answer
-    "enablement events do not block". It may land before or after 12x-4 and 12x-5.
+  - PR 12x-6 needs PR 12x-3 and the owner's answer to Q1 (answered: "enablement events do not
+    block"). It may land before or after 12x-4 and 12x-5.
   - PR 12x-1 to 12x-4 ⟂ the rest of PR 12 (units 9d, 9w, 9p) and PR 13: no shared file.
 
 ### Safe pause points (prefixes)
@@ -1912,17 +1918,17 @@ Not started until 12x-3 is merged and deployed.**
 `backend/tests/strategies/infrastructure/{test_strategy_references_guard,test_delete_strategy_integration,test_router}.py`;
 Modify `specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md` (the two "Open" notes become the decided text).
 
-- [ ] 9xf.0 The owner's answer is already recorded (owner-decisions.md, decision 42, Q1). Remaining: revise the two spec requirements (`specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md`; the two "Open" notes become the decided text). No code before this.
-- [ ] 9xf.1 RED `backend/tests/migrations/test_0028_enablement_events_cascade.py` (the `tests/migrations/` pattern): `::test_deleting_a_strategy_takes_its_enablement_events_with_it` — **this is the design's assumption** (inside the cascade the trigger no longer sees the parent row); if it cannot be made green with the `NOT EXISTS` condition, stop, record it, and amend design addendum 9x § G to the `pg_trigger_depth()` fallback before writing anything else; `::test_a_direct_delete_of_an_event_whose_strategy_exists_is_still_refused` (SQLSTATE `23001`), `::test_an_update_of_an_event_is_still_refused`, `::test_a_strategy_with_a_signal_is_still_refused_and_its_events_survive` (constraint name `fk_signals_strategy`), `::test_truncate_strategies_cascade_still_works` (the conftests rely on it), `::test_downgrade_restores_no_action_and_the_unconditional_trigger`, `::test_upgrade_downgrade_upgrade_is_clean`, `::test_the_migration_moves_no_row`.
-- [ ] 9xf.2 GREEN: migration 0028, `down_revision = "0027"` (design addendum 9x § G: `CREATE OR REPLACE FUNCTION`, then the foreign key recreated with `ON DELETE CASCADE`; the downgrade restores both and logs one WARNING).
-- [ ] 9xf.3 RED: `test_strategy_history.py::test_enablement_events_alone_do_not_block`; `test_delete_strategy.py::test_a_strategy_with_only_enablement_events_is_deleted`, `::test_the_info_line_names_the_events_deleted_the_first_enable_time_and_the_uptime`; `test_delete_strategy_integration.py::test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events`; `test_router.py::test_delete_a_toggled_strategy_204`; `test_strategy_references_guard.py` expects `CASCADE` on the events key and `NO ACTION` on the other four. The tests they replace are renamed in the same commit, never deleted silently: 9xb.1's and 9xc.2's `enablement_events` parameter, 9xc.4's `::test_the_database_refuses_a_delete_the_count_wrongly_allowed` (re-pointed at a foreign key that is still `NO ACTION`), 9xd.1's `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`.
-- [ ] 9xf.4 GREEN: `StrategyHistory.blocking()` no longer includes `enablement_events`; the count stays in the body for the other refusals and feeds the INFO line.
+- [x] 9xf.0 The owner's answer is already recorded (owner-decisions.md, decision 42, Q1). Remaining: revise the two spec requirements (`specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md`; the two "Open" notes become the decided text). No code before this. Done 2026-10-03, commit d013469. The Q1 notes became decided text, the stale Q3 notes in the same requirements (answered "yes" the same day) became decided text too, the log line of a successful delete now names the events deleted, the first enable time and the uptime, and three scenarios were added (events beside a signal, the append-only protection that survives, and the admin-api twin).
+- [x] 9xf.1 RED `backend/tests/migrations/test_0028_enablement_events_cascade.py` (the `tests/migrations/` pattern): `::test_deleting_a_strategy_takes_its_enablement_events_with_it` — **this is the design's assumption** (inside the cascade the trigger no longer sees the parent row); if it cannot be made green with the `NOT EXISTS` condition, stop, record it, and amend design addendum 9x § G to the `pg_trigger_depth()` fallback before writing anything else; `::test_a_direct_delete_of_an_event_whose_strategy_exists_is_still_refused` (SQLSTATE `23001`), `::test_an_update_of_an_event_is_still_refused`, `::test_a_strategy_with_a_signal_is_still_refused_and_its_events_survive` (constraint name `fk_signals_strategy`), `::test_truncate_strategies_cascade_still_works` (the conftests rely on it), `::test_downgrade_restores_no_action_and_the_unconditional_trigger`, `::test_upgrade_downgrade_upgrade_is_clean`, `::test_the_migration_moves_no_row`. Done 2026-10-03, commit c36601c. **The design's assumption held: the `NOT EXISTS` condition is what shipped, and the `pg_trigger_depth()` fallback was not needed.** Observed RED against a no-op stub migration (5 of 10 on assertions: `assert 'fk_strategy_enablement_events_strategy' is None` x2, `assert 'a' == 'c'`, `assert 0 == 1` on the WARNI count, `assert ('a', 'fk_str…', 1, 1) == ('c', None, 0, 0)`). Five passed at once and were proven by mutation of the migration (each went red, each reverted): the trigger deleting unconditionally reds the direct-delete test, an `UPDATE` passthrough reds the update test, `fk_signals_strategy` recreated with `CASCADE` reds the signal test (`assert None == 'fk_signals_strategy'`), a `BEFORE TRUNCATE` guard on the events table reds the truncate test, an `UPDATE strategies` reds the no-row test. Two tests beyond the list: `::test_a_cascade_takes_only_the_deleted_strategys_events`, `::test_the_foreign_key_cascades_and_the_trigger_is_conditional_at_head`. `::test_truncate_strategies_cascade_still_works` drops `trg_ledger_no_truncate` in its own throwaway database, because the ledger's own TRUNCATE guard (migration 0005) refuses any cascade that reaches `ledger_entries` on `head`; the ORM conftest schemas, which the conftests really TRUNCATE, have no such trigger. The two head-schema tests that depended on the events key being `NO ACTION` moved in the same commit (the guard now expects `CASCADE` on that key and `NO ACTION` on the other four, observed RED `assert {'a', 'c'} == {'a'}`; the 9xc.4 backstop test is re-pointed at `fk_signals_strategy`, observed RED `assert isinstance(refusal, StrategyHasHistory)` with `refusal` None), and so did `test_0027_credential_snapshot.py`, which asserted that `head` is 0027.
+- [x] 9xf.2 GREEN: migration 0028, `down_revision = "0027"` (design addendum 9x § G: `CREATE OR REPLACE FUNCTION`, then the foreign key recreated with `ON DELETE CASCADE`; the downgrade restores both and logs one WARNING). Done 2026-10-03, commit c36601c.
+- [ ] 9xf.3 RED: `test_strategy_history.py::test_enablement_events_alone_do_not_block`; `test_delete_strategy.py::test_a_strategy_with_only_enablement_events_is_deleted`, `::test_the_info_line_names_the_events_deleted_the_first_enable_time_and_the_uptime`; `test_delete_strategy_integration.py::test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events`; `test_router.py::test_delete_a_toggled_strategy_204`; `test_strategy_references_guard.py` expects `CASCADE` on the events key and `NO ACTION` on the other four. The tests they replace are renamed in the same commit, never deleted silently: 9xb.1's and 9xc.2's `enablement_events` parameter, 9xc.4's `::test_the_database_refuses_a_delete_the_count_wrongly_allowed` (re-pointed at a foreign key that is still `NO ACTION`), 9xd.1's `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`. **NOT COMMITTED (2026-10-03): implemented and green in the working tree, held back by the 800-line limit** (the unit stands at about 900 changed lines with it). The re-pointed guard and backstop tests are already in c36601c. Decision needed: a size exception, or a split.
+- [ ] 9xf.4 GREEN: `StrategyHistory.blocking()` no longer includes `enablement_events`; the count stays in the body for the other refusals and feeds the INFO line. NOT COMMITTED, with 9xf.3: the INFO line needs a new `EnablementReaderPort` and a clock in `DeleteStrategy`.
 - [ ] 9xf.5 Owner step: the 0028 rehearsal of "Migration rehearsal", on a throwaway database restored from a fresh backup, before production migrates. Then deploy: pull, `alembic upgrade head`, restart both services.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Harness: real PostgreSQL, migration up and down; the VPS rehearsal.
 Rollback boundary: migration 0028's downgrade (schema only, no data discarded, no refusal clause) and one change to `blocking()`. Reverting the code alone, with 0028 applied, restores "events block" in the application; the cascade then never fires.
-Forecast: 400–600 lines.
+Forecast: 400–600 lines. Actual so far: 622 changed lines in the first code commit (c36601c: 598 insertions, 24 deletions, of which about 105 are the migration and the rest tests), plus 281 in the uncommitted working tree for 9xf.3 and 9xf.4 (about 60 of them production code), 903 in all, 103 over the 800 limit.
 
 ---
 
