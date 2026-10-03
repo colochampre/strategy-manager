@@ -25,7 +25,9 @@ from strategy_manager.signals.domain.alert import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_FIXTURE = _REPO_ROOT / "frontend" / "src" / "features" / "strategies" / "webhook-message.fixture.json"
+_FIXTURE = (
+    _REPO_ROOT / "frontend" / "src" / "features" / "strategies" / "webhook-message.fixture.json"
+)
 
 _PLACEHOLDER = re.compile(r"\{\{([^{}]+)\}\}")
 
@@ -49,14 +51,17 @@ def _read_fixture_text() -> str:
 
 
 def _payload_after_substitution() -> dict[str, Any]:
-    text = _PLACEHOLDER.sub(lambda match: _TRADINGVIEW_SAMPLES[match.group(1)], _read_fixture_text())
+    text = _PLACEHOLDER.sub(
+        lambda match: _TRADINGVIEW_SAMPLES[match.group(1)], _read_fixture_text()
+    )
     payload: dict[str, Any] = json.loads(text)
     # The panel puts the strategy id where the fixture holds its own token.
     payload["signal_type"] = _STRATEGY_ID
     return payload
 
 
-def test_frontend_fixture_parses_through_tradingview_alert_from_payload_after_placeholder_substitution() -> None:
+# The name is the one tasks.md 9w.1 fixes, so it stays whole.
+def test_frontend_fixture_parses_through_tradingview_alert_from_payload_after_placeholder_substitution() -> None:  # noqa: E501
     placeholders = set(_PLACEHOLDER.findall(_read_fixture_text()))
     assert placeholders == set(_TRADINGVIEW_SAMPLES), (
         "the fixture's {{...}} placeholders and this test's samples must be the same set, "
