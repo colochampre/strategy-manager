@@ -596,11 +596,14 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     expect(note).toHaveTextContent("Balance is out of date: last synced");
   });
 
-  it("keeps the ledger line to its own row: four pairs, each held together", async () => {
+  it("keeps the ledger line to its own row: four pairs, each held together from lg up", async () => {
     const panel = await renderOne();
     const pairs = within(panel).queryAllByTestId("ledger-pair");
     expect(pairs).toHaveLength(4);
-    for (const pair of pairs) expect(pair).toHaveClass("whitespace-nowrap");
+    for (const pair of pairs) {
+      expect(pair).toHaveClass("lg:whitespace-nowrap");
+      expect(pair).not.toHaveClass("whitespace-nowrap");
+    }
     expect(within(panel).getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
   });
 

@@ -29,13 +29,14 @@ interface PairProps {
 }
 
 /**
- * One label with its value. The pair never breaks inside (a value stranded from
- * its label reads as another figure, worst with eight-decimal BTC); the line
- * wraps only BETWEEN pairs.
+ * One label with its value. From `lg` up the pair never breaks inside (a value
+ * stranded from its label reads as another figure, worst with eight-decimal
+ * BTC); the line wraps only BETWEEN pairs. Below `lg` a pair may break like any
+ * text: one that cannot is wider than a small screen and overflows it sideways.
  */
 function Pair({ children, separator = false }: PairProps) {
   return (
-    <span data-testid="ledger-pair" className="whitespace-nowrap">
+    <span data-testid="ledger-pair" className="lg:whitespace-nowrap">
       {children}
       {separator && (
         <span aria-hidden="true" className="text-rule">
@@ -49,7 +50,7 @@ function Pair({ children, separator = false }: PairProps) {
 /**
  * One pool's headline: the available balance as the lead figure, then the
  * range's PnL and return and the deepest drawdown, as four label and value pairs
- * that wrap only between one another. Figures are parsed only to be
+ * that, from `lg` up, wrap only between one another. Figures are parsed only to be
  * formatted; nothing is computed (CLAUDE.md, rule 7).
  */
 export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown }: LedgerLineProps) {
