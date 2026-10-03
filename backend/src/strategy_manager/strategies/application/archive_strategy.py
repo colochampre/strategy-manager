@@ -167,7 +167,7 @@ class ArchiveStrategy:
         # concurrent PATCH disabling the strategy between steps 1 and 3
         # must be observed.
         strategy = await self._repository.get_by_id_for_update(strategy_id)
-        if strategy is None:  # pragma: no cover -- strategies are never deleted
+        if strategy is None:
             raise UnknownStrategy(f"no strategy registered under id {strategy_id}")
 
         if strategy.archived_at is not None:
