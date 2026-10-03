@@ -76,8 +76,9 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
 }
 
 /**
- * An `ExtraRoute` that serves one strategy's detail and its empty enable
- * history, so a deep link to its page can load. Pass it as `stubApi`'s `extra`.
+ * An `ExtraRoute` that serves one strategy's detail, its empty enable history
+ * and its empty performance report and trades list, so a deep link to its page
+ * can load. Pass it as `stubApi`'s `extra`.
  */
 export function strategyRoute(id: string, name: string): ExtraRoute {
   const detail = {
@@ -94,6 +95,14 @@ export function strategyRoute(id: string, name: string): ExtraRoute {
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
   };
   return (url) => {
+    if (url.includes(`/performance/strategies/${id}/trades`)) {
+      return Promise.resolve(jsonResponse({ trades: [], next_cursor: null }));
+    }
+    if (url.endsWith(`/performance/strategies/${id}`)) {
+      return Promise.resolve(
+        jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: id, by_pair: [] }),
+      );
+    }
     if (url.endsWith(`/strategies/${id}/events`)) return Promise.resolve(jsonResponse([]));
     if (url.endsWith(`/strategies/${id}`)) return Promise.resolve(jsonResponse(detail));
     return undefined;
