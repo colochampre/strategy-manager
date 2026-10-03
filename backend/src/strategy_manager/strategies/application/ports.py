@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import Strategy
 
@@ -52,6 +53,29 @@ class StrategyRepositoryPort(Protocol):
         is not an edit.
         """
         ...
+
+    async def delete(self, strategy_id: UUID) -> None:
+        """Removes the ``strategies`` row with one ``DELETE`` statement, flushed
+        but NOT committed. A foreign key that still points at the row refuses it
+        in the database, and the adapter raises ``StrategyStillReferenced``
+        carrying the violated constraint's NAME: the application layer never sees
+        an ``IntegrityError``. ``DeleteStrategy`` is the only caller, and only
+        after it has read an empty ``StrategyHistory`` under both locks."""
+        ...
+
+
+class StrategyStillReferenced(DomainError):
+    """The database refused a ``DELETE`` of a strategy because a row still
+    references it through a foreign key. Raised by the repository adapter
+    (design.md addendum 9x, § B): ``DeleteStrategy`` counted nothing, so the count
+    is incomplete and that is a defect, not a user error.
+
+    ``constraint`` is the violated constraint's NAME, ``None`` when the driver
+    did not report one."""
+
+    def __init__(self, constraint: str | None) -> None:
+        super().__init__(f"a foreign key still references the strategy: {constraint}")
+        self.constraint = constraint
 
 
 class PoolCatalogPort(Protocol):

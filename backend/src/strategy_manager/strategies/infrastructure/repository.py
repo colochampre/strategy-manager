@@ -3,10 +3,13 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.application.ports import StrategyStillReferenced
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
@@ -15,6 +18,9 @@ from strategy_manager.strategies.domain.strategy import (
     Strategy,
 )
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+
+FOREIGN_KEY_VIOLATION = "23503"
+"""PostgreSQL's SQLSTATE for ``foreign_key_violation``."""
 
 
 class SqlAlchemyStrategyRepository:
@@ -105,6 +111,26 @@ class SqlAlchemyStrategyRepository:
         row.archived_at = strategy.archived_at
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
+
+    async def delete(self, strategy_id: UUID) -> None:
+        """One ``DELETE`` statement, flushed and not committed.
+
+        A foreign key that still points at the row refuses it in the database. That
+        is recognised by the SQLSTATE (``23503``, ``foreign_key_violation``) and the
+        violated constraint is reported by its NAME, never by the message text, which
+        follows the server's locale. Any other integrity error propagates unchanged.
+        The failed statement leaves the transaction aborted: the caller rolls back.
+        """
+        try:
+            await self._session.execute(
+                sa_delete(StrategyRow).where(StrategyRow.id == strategy_id)
+            )
+            await self._session.flush()
+        except IntegrityError as error:
+            cause = error.orig.__cause__  # type: ignore[union-attr]
+            if getattr(cause, "sqlstate", None) == FOREIGN_KEY_VIOLATION:
+                raise StrategyStillReferenced(getattr(cause, "constraint_name", None)) from error
+            raise
 
 
 def _to_domain(row: StrategyRow) -> Strategy:
