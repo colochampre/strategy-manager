@@ -19,6 +19,7 @@ load, not the archive action itself (binding instruction: no
 archived-strategy refusals in this unit).
 """
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from uuid import UUID, uuid4
@@ -29,13 +30,24 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.performance.infrastructure.performance_router import (
+    router as performance_router,
+)
+from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.strategies.application.ports import PoolKey
+from strategy_manager.strategies.application.delete_strategy import DeleteStrategy
+from strategy_manager.strategies.application.ports import PoolKey, StrategyHistory
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
     PairCatalogUnavailable,
 )
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
+from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from strategy_manager.strategies.infrastructure.router import (
+    SessionDep,
+    get_delete_strategy,
+)
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
 
 pytestmark = pytest.mark.integration
@@ -704,3 +716,361 @@ async def test_a_listed_pair_sent_as_tradingview_spells_it_is_stored_as_the_mark
     assert response.status_code == 201
     assert response.json()["allowed_pairs"] == ["STXUSDT"]
     assert catalog.asked == [("pionex", "spot", "USDT")]
+
+
+# --------------------------------------------------------------------------
+# 9xd.1 -- DELETE /strategies/{id} (decision 42, design addendum 9x, § F).
+#
+# The ORM schema is enough here: the route MAPS what 9xc proved on ``head``. The
+# ORM does carry the foreign key on ``reservations.strategy_id``, which is what
+# the database-refusal tests use for a real aborted transaction (named by the ORM
+# ``reservations_strategy_id_fkey``, not the migration's ``fk_reservations_strategy``); the other
+# refusals are decided by the counts.
+#
+# Spelling: the fake venue lists ``STXUSDT`` (the strategy's allowed pair); the
+# seeded signal is ``STXUSDT.P`` as the alert sends it.
+#
+# The client does NOT re-raise application exceptions: an unmapped domain error
+# is a 500 the test sees as ``assert 500 == 409``, not as a raised exception.
+# --------------------------------------------------------------------------
+
+_HISTORY_KEYS = {
+    "signals",
+    "reservations",
+    "execution_attempts",
+    "ledger_entries",
+    "booking_proposals",
+    "enablement_events",
+}
+
+
+def _history_body(**counts: int) -> dict[str, int]:
+    return {key: counts.get(key, 0) for key in sorted(_HISTORY_KEYS)}
+
+
+class _NoHistory:
+    """A ``StrategyHistoryPort`` that always answers zeros: the count that
+    "missed" the row the database then refuses."""
+
+    async def history(self, strategy_id: UUID) -> StrategyHistory:
+        return StrategyHistory(
+            signals=0,
+            reservations=0,
+            execution_attempts=0,
+            ledger_entries=0,
+            booking_proposals=0,
+            enablement_events=0,
+        )
+
+
+async def _delete_client(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    catalog: _Catalog,
+    shared_session: AsyncSession | None = None,
+    miscounting: bool = False,
+) -> AsyncIterator[AsyncClient]:
+    """The strategies AND performance routers over ASGI on real PostgreSQL.
+
+    ``shared_session`` makes every request use ONE session that no request
+    closes, so a transaction a request leaves aborted is still there for the next
+    one; the default (a session per request) would hide a missing rollback.
+    ``miscounting`` replaces the history with zeros, so the database refuses.
+    """
+    async with pg_session_factory() as session:
+        await session.execute(text("TRUNCATE strategy_enablement_events"))
+        await session.commit()
+
+    app = _app(catalog)
+    app.include_router(performance_router)
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        if shared_session is not None:
+            yield shared_session
+            return
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _override_get_session
+
+    if miscounting:
+
+        def _override_delete(session: SessionDep) -> DeleteStrategy:
+            return DeleteStrategy(
+                repository=SqlAlchemyStrategyRepository(session),
+                pool_lock=PoolLockAdapter(session),
+                history=_NoHistory(),
+                commit=session,
+            )
+
+        app.dependency_overrides[get_delete_strategy] = _override_delete
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as api:
+        yield api
+
+
+@pytest.fixture
+async def deleting(
+    pg_session_factory: async_sessionmaker[AsyncSession], catalog: _Catalog
+) -> AsyncIterator[AsyncClient]:
+    catalog.available = frozenset({"STXUSDT"})
+    async for api in _delete_client(pg_session_factory, catalog):
+        yield api
+
+
+@pytest.fixture
+async def miscounting(
+    pg_session_factory: async_sessionmaker[AsyncSession], catalog: _Catalog
+) -> AsyncIterator[AsyncClient]:
+    catalog.available = frozenset({"STXUSDT"})
+    async for api in _delete_client(pg_session_factory, catalog, miscounting=True):
+        yield api
+
+
+async def _seed_signal(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    strategy_id: UUID,
+    reservation: bool = False,
+) -> None:
+    """One signal as the alert spells it (``STXUSDT.P``), and optionally a
+    reservation on it, by plain SQL."""
+    signal_id = uuid4()
+    async with pg_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO signals (id, strategy_id, idempotency_key, raw_payload, "
+                "action, contracts, position_size, price, symbol, signal_type) "
+                "VALUES (:id, :strategy_id, :key, '{}'::jsonb, 'buy', 1, 1, 1, 'STXUSDT.P', "
+                ":signal_type)"
+            ),
+            {
+                "id": signal_id,
+                "strategy_id": strategy_id,
+                "key": f"k-{signal_id}",
+                "signal_type": str(strategy_id),
+            },
+        )
+        if reservation:
+            await session.execute(
+                text(
+                    "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
+                    "settlement_currency, amount, status, expires_at) "
+                    "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
+                    "'RELEASED', now() + interval '30 seconds')"
+                ),
+                {"id": uuid4(), "strategy_id": strategy_id, "signal_id": signal_id},
+            )
+        await session.commit()
+
+
+async def test_delete_a_strategy_with_no_history_204_no_body_and_get_is_404_afterwards(
+    deleting: AsyncClient,
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+
+
+async def test_delete_unknown_id_404(deleting: AsyncClient) -> None:
+    unknown = uuid4()
+
+    response = await deleting.delete(f"/strategies/{unknown}", headers=_auth())
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"no strategy registered under id {unknown}"
+
+
+async def test_delete_repeated_404(deleting: AsyncClient) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+
+    first = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    second = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert (first.status_code, second.status_code) == (204, 404)
+
+
+async def test_delete_enabled_409_still_enabled_and_the_strategy_remains_enabled(
+    deleting: AsyncClient,
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await deleting.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STILL_ENABLED"
+    kept = await deleting.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert kept.status_code == 200
+    assert kept.json()["enabled"] is True
+
+
+async def test_delete_with_history_409_has_history_carries_all_six_integer_counts(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await _seed_signal(pg_session_factory, strategy_id)
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "HAS_HISTORY"
+    assert isinstance(detail["message"], str)
+    assert detail["history"] == _history_body(signals=1)
+    assert all(type(count) is int for count in detail["history"].values())
+    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 200
+
+
+async def test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events(
+    deleting: AsyncClient,
+) -> None:
+    # Owner answer Q1 (decision 42): enablement events stop blocking only with
+    # unit 9xf (migration 0028). Until then they fail closed.
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    for enabled in (True, False):
+        toggled = await deleting.patch(
+            f"/strategies/{strategy_id}", json={"enabled": enabled}, headers=_auth()
+        )
+        assert toggled.status_code == 200
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "HAS_HISTORY"
+    assert detail["history"] == _history_body(enablement_events=2)
+
+
+async def test_delete_database_refusal_is_409_has_history_never_500(
+    miscounting: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy_id = await _register(miscounting, allowed_pairs=["STXUSDT"])
+    await _seed_signal(pg_session_factory, strategy_id, reservation=True)
+
+    with caplog.at_level(logging.WARNING):
+        response = await miscounting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "HAS_HISTORY"
+    assert detail["history"] == _history_body()
+    assert "reservations_strategy_id_fkey" in detail["message"]
+    errors = [record for record in caplog.records if record.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert "reservations_strategy_id_fkey" in errors[0].getMessage()
+    kept = await miscounting.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert kept.status_code == 200
+
+
+async def test_after_a_delete_events_performance_and_archive_answer_404(
+    deleting: AsyncClient,
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    assert deleted.status_code == 204
+
+    answers = {
+        "events": await deleting.get(f"/strategies/{strategy_id}/events", headers=_auth()),
+        "performance": await deleting.get(
+            f"/performance/strategies/{strategy_id}", headers=_auth()
+        ),
+        "trades": await deleting.get(
+            f"/performance/strategies/{strategy_id}/trades", headers=_auth()
+        ),
+        "archive": await deleting.post(f"/strategies/{strategy_id}/archive", headers=_auth()),
+    }
+
+    assert {name: r.status_code for name, r in answers.items()} == dict.fromkeys(answers, 404)
+
+
+async def test_a_deleted_id_registers_again_201_with_zero_uptime(deleting: AsyncClient) -> None:
+    strategy_id = await _register(deleting, name="again", allowed_pairs=["STXUSDT"])
+    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    assert deleted.status_code == 204
+
+    response = await deleting.post(
+        "/strategies",
+        json=_post_body(id=str(strategy_id), name="again", allowed_pairs=["STXUSDT.P"]),
+        headers=_auth(),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["uptime"] == {
+        "seconds": 0.0,
+        "first_enabled_at": None,
+        "baseline": False,
+    }
+    events = await deleting.get(f"/strategies/{strategy_id}/events", headers=_auth())
+    assert events.json() == []
+
+
+async def test_a_refused_delete_leaves_the_session_usable_for_the_next_request(
+    pg_session_factory: async_sessionmaker[AsyncSession], catalog: _Catalog
+) -> None:
+    """The database refusal aborts the transaction. Both requests share ONE
+    session, so without the route's ``rollback()`` the next request fails on an
+    aborted transaction instead of answering."""
+    catalog.available = frozenset({"STXUSDT"})
+    async with pg_session_factory() as shared:
+        async for api in _delete_client(
+            pg_session_factory, catalog, shared_session=shared, miscounting=True
+        ):
+            strategy_id = await _register(api, allowed_pairs=["STXUSDT"])
+            await _seed_signal(pg_session_factory, strategy_id, reservation=True)
+
+            refused = await api.delete(f"/strategies/{strategy_id}", headers=_auth())
+            assert refused.status_code == 409
+            after = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+
+            assert after.status_code == 200
+            assert after.json()["id"] == str(strategy_id)
+
+
+@pytest.mark.parametrize("refusal", ["still_enabled", "has_history"])
+async def test_a_refused_delete_releases_the_row_lock_before_the_session_closes(
+    refusal: str,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    catalog: _Catalog,
+) -> None:
+    """The use case takes the strategy row lock and raises without rolling back.
+    The session is shared and still open, so only the route's ``rollback()``
+    frees the row for another connection (``NOWAIT`` raises if it did not)."""
+    catalog.available = frozenset({"STXUSDT"})
+    async with pg_session_factory() as shared:
+        async for api in _delete_client(pg_session_factory, catalog, shared_session=shared):
+            strategy_id = await _register(api, allowed_pairs=["STXUSDT"])
+            if refusal == "still_enabled":
+                await api.patch(
+                    f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth()
+                )
+            else:
+                await _seed_signal(pg_session_factory, strategy_id)
+
+            refused = await api.delete(f"/strategies/{strategy_id}", headers=_auth())
+            assert refused.status_code == 409
+
+            async with pg_session_factory() as other:
+                row = await other.execute(
+                    text("SELECT id FROM strategies WHERE id = :id FOR UPDATE NOWAIT"),
+                    {"id": strategy_id},
+                )
+                assert row.scalar_one() == strategy_id
+
+
+async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> None:
+    # Q3 answered "yes" (decision 42): an archived strategy is still deletable.
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    archived = await deleting.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+
+    assert response.status_code == 204
+    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404

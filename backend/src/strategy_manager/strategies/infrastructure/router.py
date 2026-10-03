@@ -1,7 +1,9 @@
 """``/strategies`` — registering what this system will act on, and arming it.
 
 Nothing here executes a trade or touches an exchange. It writes configuration
-rows, and the worker reads them.
+rows, and the worker reads them. The one thing it removes is a strategy that never
+acted (``DELETE``, decision 42): a strategy with any history is refused and can
+only be archived.
 
 **Two things about this surface are deliberate and will look like omissions.**
 
@@ -22,12 +24,13 @@ UUID. The webhook looks a strategy up under exactly that id, so an id chosen
 here rather than copied from the alert would never match anything.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,14 +43,22 @@ from strategy_manager.execution.infrastructure.repository import (
 )
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
+    SqlAlchemyBookingProposalRepository,
+)
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.archive_strategy import (
     ArchiveStrategy,
     OpenPosition,
     StillEnabled,
+)
+from strategy_manager.strategies.application.delete_strategy import (
+    DeleteStrategy,
+    StrategyHasHistory,
 )
 from strategy_manager.strategies.application.ports import PairCatalogPort
 from strategy_manager.strategies.application.register_strategy import (
@@ -81,6 +92,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 from strategy_manager.strategies.infrastructure.exposure_adapter import (
     StrategyExposureAdapter,
 )
+from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
@@ -275,6 +287,24 @@ def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> Registe
 def get_replace_allowed_pairs(session: SessionDep, pairs: PairCatalogDep) -> ReplaceAllowedPairs:
     return ReplaceAllowedPairs(
         repository=SqlAlchemyStrategyRepository(session), pairs=pairs, commit=session
+    )
+
+
+def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
+    """The real wiring, the ``get_register_strategy`` pattern: a router test
+    overrides this ONE dependency."""
+    return DeleteStrategy(
+        repository=SqlAlchemyStrategyRepository(session),
+        pool_lock=PoolLockAdapter(session),
+        history=StrategyHistoryAdapter(
+            signals=SqlAlchemySignalRepository(session),
+            reservations=SqlAlchemyReservationRepository(session),
+            attempts=SqlAlchemyExecutionAttemptRepository(session),
+            ledger=SqlAlchemyLedgerRepository(session),
+            proposals=SqlAlchemyBookingProposalRepository(session),
+            enablement_log=SqlAlchemyEnablementLog(session),
+        ),
+        commit=session,
     )
 
 
@@ -474,3 +504,42 @@ async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyVi
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return StrategyView.of(result.strategy, uptime(events, datetime.now(UTC)))
+
+
+@router.delete("/{strategy_id}", status_code=204)
+async def delete_strategy(
+    strategy_id: UUID,
+    session: SessionDep,
+    use_case: Annotated[DeleteStrategy, Depends(get_delete_strategy)],
+) -> Response:
+    """Decision 42: delete a strategy that never acted. Hard delete, answered 204
+    with no body (there is no strategy left to describe). A repeated delete is a
+    404, never a 204, so a wrong id is not hidden.
+
+    Every refusal rolls the session back. The use case raises without rolling
+    back, so the pool advisory lock and the strategy row lock would otherwise be
+    held until the session closes, and a refusal by the database (a foreign key
+    the count missed) leaves the transaction aborted for whoever uses the session
+    next. The use case already logged one line for each outcome, so nothing is
+    logged here (design addendum 9x, § F and § I).
+    """
+    try:
+        await use_case.delete(strategy_id)
+    except UnknownStrategy as exc:
+        await session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StillEnabled as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except StrategyHasHistory as exc:
+        await session.rollback()
+        # All six counts, always, as integers (counts, not money): a fixed shape
+        # the panel renders without guessing which key is absent. A refusal by the
+        # database carries the counts as read, and its message names the constraint.
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "HAS_HISTORY", "message": str(exc), "history": asdict(exc.history)},
+        ) from exc
+    return Response(status_code=204)
