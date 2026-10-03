@@ -201,6 +201,16 @@ describe("StrategyDetailPage", () => {
     ]);
   });
 
+  it("test_the_history_list_has_a_fixed_max_height_scrolls_and_is_keyboard_reachable", async () => {
+    renderPage(strategy(), { events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }] });
+    await heading("ETH Breakout");
+
+    const history = await screen.findByRole("list", { name: i18n.t("strategies.detail.history.title") });
+    expect(history).toHaveClass("max-h-96", "overflow-y-auto");
+    expect(history).toHaveAttribute("tabindex", "0");
+    expect(history).not.toHaveClass("h-96");
+  });
+
   it("says so when nothing was ever enabled or disabled", async () => {
     renderPage();
     expect(await screen.findByText(i18n.t("strategies.detail.history.empty"))).toBeInTheDocument();

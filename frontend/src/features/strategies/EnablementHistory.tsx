@@ -30,7 +30,12 @@ export function EnablementHistory({ strategyId }: EnablementHistoryProps) {
     body = <p className="text-xs text-ink-3">{t("strategies.detail.history.empty")}</p>;
   } else if (events.status === "success") {
     body = (
-      <ul aria-label={title} className="flex flex-col gap-1 font-mono text-xs text-ink-2">
+      // A long history scrolls inside its own box instead of pushing the page down; focusable so the keyboard can scroll it.
+      <ul
+        aria-label={title}
+        tabIndex={0}
+        className="flex max-h-96 flex-col gap-1 overflow-y-auto font-mono text-xs text-ink-2"
+      >
         {[...events.data].reverse().map((event) => {
           const state = t(event.enabled ? "strategies.detail.history.enabled" : "strategies.detail.history.disabled");
           const baseline = event.origin === "BASELINE" ? ` · ${t("strategies.detail.history.baseline")}` : "";
