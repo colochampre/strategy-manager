@@ -153,6 +153,31 @@
     "detail": {
       "title": "Strategy"
     },
+    "archive": {
+      "title": "Archive strategy",
+      "description": "Archiving is permanent: the strategy stops for good and its history is kept.",
+      "button": "Archive",
+      "disabledHint": "Archive is available once the strategy is disabled and has no open position.",
+      "confirmTitle": "Archive {{name}}?",
+      "confirmBody": "{{name}} will stop receiving signals and cannot be enabled or restored afterwards. Its history is kept.",
+      "confirm": "Archive permanently",
+      "cancel": "Cancel",
+      "pending": "Archiving…",
+      "errors": {
+        "stillEnabled": "This strategy is still enabled. Disable it first.",
+        "openPosition": "This strategy still has an open position or live capital, so it cannot be archived yet.",
+        "generic": "The strategy was not archived. Try again."
+      },
+      "reasons": {
+        "symbols": "Open position on: {{symbols}}",
+        "allocations_one": "{{count}} open allocation",
+        "allocations_other": "{{count}} open allocations",
+        "liveReservations_one": "{{count}} live reservation",
+        "liveReservations_other": "{{count}} live reservations",
+        "inFlightAttempts_one": "{{count}} execution attempt in flight",
+        "inFlightAttempts_other": "{{count}} execution attempts in flight"
+      }
+    },
     "delete": {
       "title": "Delete strategy",
       "description": "Permanently removes this strategy. Only a strategy with no history can be deleted.",
