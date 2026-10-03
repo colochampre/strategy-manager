@@ -19,6 +19,13 @@ import { TopBar } from "@/shared/layout/TopBar";
  * lives in one centred column capped at 90rem (decision 38), so a very wide
  * screen adds margin around the content instead of stretching it, and the
  * space between the pool panel and the decision rail never grows.
+ *
+ * That column deliberately has NO `min-h-0`: it must be as tall as its content.
+ * Capped at the space `main` leaves, a long page overflowed the column, so the
+ * padding of `main` sat under the capped column and not under the last row, and
+ * the row ended flush with the bottom of the viewport. Uncapped, `main` scrolls
+ * the whole column and its bottom padding follows the content (task 7p.3). A
+ * short page still fills `main`, because the column is `flex-1`.
  */
 export function AppShell() {
   return (
@@ -27,7 +34,7 @@ export function AppShell() {
       <div className="flex min-h-0 flex-1">
         <SideNav />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
-          <div className="mx-auto flex w-full max-w-[90rem] min-h-0 flex-1 flex-col">
+          <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <TokenGate>
               <Outlet />
             </TokenGate>

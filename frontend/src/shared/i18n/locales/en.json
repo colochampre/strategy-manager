@@ -147,11 +147,67 @@
       "errors": {
         "unknown": "The exchange does not list: {{symbols}}.",
         "venueUnavailable": "The exchange's pair list could not be read, so nothing was saved. Try again.",
-        "notServed": "Pairs cannot be checked for this pool, so a strategy cannot be created on it."
+        "notServed": "Pairs cannot be checked for this pool, so a strategy cannot be created on it.",
+        "changed": "The list changed while you were editing. Review it and save again."
       }
     },
     "detail": {
-      "title": "Strategy"
+      "back": "All strategies",
+      "loading": "Loading strategy…",
+      "notFound": "This strategy does not exist. It may have been deleted.",
+      "error": "The strategy could not be loaded.",
+      "settings": "Settings of this strategy",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enable": "Enable strategy",
+      "disable": "Disable strategy",
+      "uptime": {
+        "active_one": "active {{count}} day since {{date}}",
+        "active_other": "active {{count}} days since {{date}}",
+        "activeAtLeast_one": "active at least {{count}} day, since at least {{date}}",
+        "activeAtLeast_other": "active at least {{count}} days, since at least {{date}}"
+      },
+      "history": {
+        "title": "Enable history",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "baseline": "already enabled when the history began",
+        "empty": "No enable or disable has been recorded yet.",
+        "error": "The enable history could not be loaded."
+      },
+      "pairs": {
+        "title": "Allowed pairs",
+        "hint": "Removing a pair stops new entries on it. An open position still closes.",
+        "save": "Save pairs",
+        "saving": "Saving…",
+        "lastPair": "A strategy needs at least one allowed pair.",
+        "saveFailed": "The allowed pairs were not saved. Try again."
+      }
+    },
+    "archive": {
+      "title": "Archive strategy",
+      "description": "Archiving is permanent: the strategy stops for good and its history is kept.",
+      "button": "Archive",
+      "disabledHint": "Archive is available once the strategy is disabled and has no open position.",
+      "confirmTitle": "Archive {{name}}?",
+      "confirmBody": "{{name}} will stop receiving signals and cannot be enabled or restored afterwards. Its history is kept.",
+      "confirm": "Archive permanently",
+      "cancel": "Cancel",
+      "pending": "Archiving…",
+      "errors": {
+        "stillEnabled": "This strategy is still enabled. Disable it first.",
+        "openPosition": "This strategy still has an open position or live capital, so it cannot be archived yet.",
+        "generic": "The strategy was not archived. Try again."
+      },
+      "reasons": {
+        "symbols": "Open position on: {{symbols}}",
+        "allocations_one": "{{count}} open allocation",
+        "allocations_other": "{{count}} open allocations",
+        "liveReservations_one": "{{count}} live reservation",
+        "liveReservations_other": "{{count}} live reservations",
+        "inFlightAttempts_one": "{{count}} execution attempt in flight",
+        "inFlightAttempts_other": "{{count}} execution attempts in flight"
+      }
     },
     "delete": {
       "title": "Delete strategy",
@@ -179,9 +235,7 @@
         "ledgerEntries_one": "{{count}} ledger entry",
         "ledgerEntries_other": "{{count}} ledger entries",
         "bookingProposals_one": "{{count}} booking proposal",
-        "bookingProposals_other": "{{count}} booking proposals",
-        "enablementEvents_one": "{{count}} enablement event",
-        "enablementEvents_other": "{{count}} enablement events"
+        "bookingProposals_other": "{{count}} booking proposals"
       }
     }
   },

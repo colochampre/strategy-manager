@@ -1,0 +1,211 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
+import type { Strategy } from "@/shared/api/types";
+import { useTokenStore } from "@/shared/auth/token-store";
+import i18n from "@/shared/i18n";
+import { availablePairs, jsonResponse, stubApi } from "@/test/harness";
+
+const ID = "11111111-1111-4111-8111-111111111111";
+const POOL = "bybit/usdt-m/USDT";
+
+function strategy(overrides: Partial<Strategy> = {}): Strategy {
+  return {
+    id: ID,
+    name: "ETH Breakout",
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    fill_mode: "SKIP",
+    allocation_percent: "100",
+    enabled: false,
+    archived_at: null,
+    allowed_pairs: ["ETHUSDT"],
+    uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+    ...overrides,
+  };
+}
+
+type Put = { pairs: string[] };
+
+/** Stubs the available pairs of the pool and the PUT; the PUT answers `answer` and its bodies are collected. */
+function setup(
+  subject: Strategy,
+  options: { listed?: string[] | "fail"; answer?: (body: Put) => Response } = {},
+) {
+  const puts: Put[] = [];
+  const listed = options.listed ?? ["ETHUSDT", "SOLUSDT", "BTCUSDT"];
+  const fetchMock = stubApi(
+    { kind: "ok", body: { status: "ok", dry_run: true } },
+    [],
+    undefined,
+    {},
+    (url, init) => {
+      if (!url.endsWith("/allowed-pairs") || init?.method !== "PUT") return undefined;
+      const body = JSON.parse(String(init.body)) as Put;
+      puts.push(body);
+      return Promise.resolve(options.answer?.(body) ?? jsonResponse({ ...subject, allowed_pairs: body.pairs }));
+    },
+    {
+      [POOL]:
+        listed === "fail"
+          ? { kind: "status", status: 502, body: { detail: { error: "PAIR_CATALOGUE_UNAVAILABLE", message: "down" } } }
+          : { kind: "ok", body: availablePairs("bybit", "usdt-m", "USDT", listed) },
+    },
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const ui = (current: Strategy) => (
+    <QueryClientProvider client={client}>
+      <AllowedPairsEditor strategy={current} />
+    </QueryClientProvider>
+  );
+  const view = render(ui(subject));
+  return { puts, fetchMock, rerender: (current: Strategy) => view.rerender(ui(current)) };
+}
+
+const saveButton = () => screen.getByRole("button", { name: i18n.t("strategies.detail.pairs.save") });
+const remove = (symbol: string) => fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol }) }));
+/** The available-pairs query retries once after a second before it reports a failure. */
+const loadFailed = () => screen.findByText(i18n.t("strategies.pairs.loadFailed"), {}, { timeout: 3000 });
+const add = async (symbol: string) => fireEvent.click(await screen.findByRole("checkbox", { name: symbol }));
+
+beforeEach(() => {
+  useTokenStore.setState({ token: "a-token" });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useTokenStore.setState({ token: null });
+});
+
+describe("AllowedPairsEditor", () => {
+  it("test_removing_last_pair_without_replacement_prevented", async () => {
+    const { puts } = setup(strategy());
+    await screen.findByRole("checkbox", { name: "SOLUSDT" });
+
+    remove("ETHUSDT");
+
+    expect(saveButton()).toBeDisabled();
+    expect(screen.getByText(i18n.t("strategies.detail.pairs.lastPair"))).toBeInTheDocument();
+    fireEvent.click(saveButton());
+    expect(puts).toEqual([]);
+  });
+
+  it("allows the save once a replacement is added after removing the last pair", async () => {
+    const { puts } = setup(strategy());
+
+    remove("ETHUSDT");
+    await add("SOLUSDT");
+
+    expect(saveButton()).toBeEnabled();
+    expect(screen.queryByText(i18n.t("strategies.detail.pairs.lastPair"))).toBeNull();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["SOLUSDT"] }]));
+  });
+
+  it("test_adding_a_pair_submits_full_updated_set", async () => {
+    const { puts } = setup(strategy());
+    expect(saveButton()).toBeDisabled();
+
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT", "SOLUSDT"] }]));
+  });
+
+  it("test_stored_pair_missing_from_the_catalogue_is_kept_and_marked_no_longer_listed", async () => {
+    const { puts } = setup(strategy({ allowed_pairs: ["SFPUSDT"] }), { listed: ["SOLUSDT", "STXUSDT"] });
+
+    await screen.findByRole("checkbox", { name: "SOLUSDT" });
+    const chips = screen.getByRole("list", { name: i18n.t("strategies.pairs.selected") });
+    expect(chips).toHaveTextContent("SFPUSDT");
+    expect(chips).toHaveTextContent(i18n.t("strategies.pairs.notListed"));
+    expect(saveButton()).toBeDisabled();
+
+    await add("STXUSDT");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["SFPUSDT", "STXUSDT"] }]));
+  });
+
+  it("test_a_removal_only_save_is_allowed_when_the_available_pairs_failed_to_load", async () => {
+    const { puts } = setup(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }), { listed: "fail" });
+    await loadFailed();
+
+    remove("SOLUSDT");
+
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT"] }]));
+  });
+
+  it("test_adding_is_blocked_while_the_available_pairs_failed_to_load", async () => {
+    setup(strategy(), { listed: "fail" });
+    await loadFailed();
+
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.getByLabelText(i18n.t("strategies.pairs.search"))).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("test_409_pairs_changed_shows_the_review_and_save_again_text", async () => {
+    setup(strategy(), {
+      answer: () => jsonResponse({ detail: { error: "PAIRS_CHANGED", message: "changed" } }, 409),
+    });
+
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.pairs.errors.changed"));
+    expect(i18n.t("strategies.pairs.errors.changed")).toBe("The list changed while you were editing. Review it and save again.");
+  });
+
+  it("test_422_unknown_pairs_names_the_symbols", async () => {
+    setup(strategy(), {
+      answer: () => jsonResponse({ detail: { error: "UNKNOWN_PAIRS", message: "unknown", unknown: ["SOLUSDT", "XYZUSDT"] } }, 422),
+    });
+
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.pairs.errors.unknown", { symbols: "SOLUSDT, XYZUSDT" }));
+  });
+
+  it("says nothing was saved when the exchange's pair list could not be read, and any other refusal generically", async () => {
+    setup(strategy(), {
+      answer: () => jsonResponse({ detail: { error: "PAIR_CATALOGUE_UNAVAILABLE", message: "down" } }, 502),
+    });
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.pairs.errors.venueUnavailable"));
+  });
+
+  it("reports a refusal that carries no known code with the generic text", async () => {
+    setup(strategy(), { answer: () => jsonResponse({ detail: "boom" }, 500) });
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.detail.pairs.saveFailed"));
+  });
+
+  it("drops an edit made on a stored list that has since changed, and shows the stored list", async () => {
+    const { rerender } = setup(strategy());
+    await add("SOLUSDT");
+    expect(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "SOLUSDT" }) })).toBeInTheDocument();
+
+    rerender(strategy({ allowed_pairs: ["ETHUSDT", "BTCUSDT"] }));
+
+    expect(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "BTCUSDT" }) })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "SOLUSDT" }) })).toBeNull();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("is read-only for an archived strategy: chips cannot be removed and nothing can be saved", async () => {
+    const { puts } = setup(strategy({ archived_at: "2026-09-01T00:00:00+00:00", allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+    await screen.findByRole("list", { name: i18n.t("strategies.pairs.selected") });
+
+    expect(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "SOLUSDT" }) })).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
+    expect(puts).toEqual([]);
+  });
+});

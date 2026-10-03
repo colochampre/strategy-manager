@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
-import { lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { lock, renderAt, strategyRoute, stubApi, unlock } from "@/test/harness";
 
 const STRATEGY_ID = "5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11";
 
@@ -17,6 +17,7 @@ describe("route map", () => {
   });
 
   it("test_route_map_renders_overview_strategies_strategy_detail_settings_in_memory_router", async () => {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     const cases: Array<[string, string]> = [
       ["/", "Overview"],
       ["/strategies", "Strategies"],
@@ -30,10 +31,12 @@ describe("route map", () => {
     }
   });
 
-  it("hands the strategy id in the path to the detail page", async () => {
+  it("requests the strategy named in the path and renders it", async () => {
+    const fetchMock = stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     renderAt(<AppRoutes />, `/strategies/${STRATEGY_ID}`);
 
-    expect(await screen.findByText(STRATEGY_ID)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Strategy" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith(`/strategies/${STRATEGY_ID}`))).toBe(true);
   });
 
   it("test_unknown_path_renders_not_found_client_side", async () => {

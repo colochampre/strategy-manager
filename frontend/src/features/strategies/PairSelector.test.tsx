@@ -70,6 +70,13 @@ afterEach(async () => {
 });
 
 describe("PairSelector", () => {
+  it("test_the_option_list_is_capped_at_max_h_36_and_scrolls_on_its_own", () => {
+    selector();
+    const list = screen.getAllByRole("checkbox")[0]?.closest("ul") as HTMLElement;
+    expect(list).toHaveClass("max-h-36", "overflow-auto");
+    expect(list).not.toHaveClass("max-h-60");
+  });
+
   it("idle shows choose-a-pool and a disabled search field", () => {
     selector({ status: "idle", options: undefined });
 

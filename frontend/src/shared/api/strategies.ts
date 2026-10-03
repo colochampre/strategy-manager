@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import type { RegisterStrategyBody, Strategy } from "@/shared/api/types";
+import type { EnablementEvent, RegisterStrategyBody, Strategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -99,6 +99,106 @@ export function useSetStrategyEnabled(strategyId: string) {
       await queryClient.invalidateQueries({ queryKey: ["strategies"] });
       await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
     },
+  });
+}
+
+function isEnablementEvent(value: unknown): value is EnablementEvent {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === "boolean" &&
+    typeof value.occurred_at === "string" &&
+    typeof value.origin === "string"
+  );
+}
+
+/** Retried once or twice only when the failure may be transient: a refusal (4xx) or a malformed body will answer the same. */
+function retryTransient(failureCount: number, error: unknown): boolean {
+  const transient = error instanceof ApiError && (error.status === 0 || error.status >= 500);
+  return transient && failureCount < 2;
+}
+
+/**
+ * `GET /api/strategies/{id}`, archived ones included. The body is checked: a
+ * payload that is not a strategy must read as an error, because the page would
+ * otherwise render controls over a strategy it cannot describe.
+ */
+export async function fetchStrategy(strategyId: string): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`);
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from GET /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
+/** Query key `['strategy',id]`, invalidated by every mutation of that strategy (design.md § 15). */
+export function useStrategy(strategyId: string) {
+  return useQuery({
+    queryKey: ["strategy", strategyId],
+    queryFn: () => fetchStrategy(strategyId),
+    retry: retryTransient,
+  });
+}
+
+/** `GET /api/strategies/{id}/events`: every enable and disable, oldest first as the server writes them. */
+export async function fetchStrategyEvents(strategyId: string): Promise<EnablementEvent[]> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}/events`);
+  if (!Array.isArray(body) || !body.every(isEnablementEvent)) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /strategies/{id}/events: expected a list of enablement events",
+    });
+  }
+  return body;
+}
+
+/** Query key `['strategy',id,'events']`, under the strategy's own key so one invalidation refreshes both. */
+export function useStrategyEvents(strategyId: string) {
+  return useQuery({
+    queryKey: ["strategy", strategyId, "events"],
+    queryFn: () => fetchStrategyEvents(strategyId),
+    retry: retryTransient,
+  });
+}
+
+/** `POST /api/strategies/{id}/archive`. Refusals (409 `STILL_ENABLED`, `OPEN_POSITION`) are thrown with their reasons. */
+export function archiveStrategy(strategyId: string): Promise<Strategy> {
+  return apiFetch<Strategy>(`/strategies/${encodeURIComponent(strategyId)}/archive`, { method: "POST" });
+}
+
+/** `PUT /api/strategies/{id}/allowed-pairs`: the FULL set the strategy should end with, never a delta. */
+export function replaceAllowedPairs(strategyId: string, pairs: readonly string[]): Promise<Strategy> {
+  return apiFetch<Strategy>(`/strategies/${encodeURIComponent(strategyId)}/allowed-pairs`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pairs }),
+  });
+}
+
+/**
+ * Settled, not only success, for the same reason as the enable switch: a
+ * refused change (409) says the stored state is not what the page showed, so
+ * the page and the list read it again.
+ */
+function useInvalidateOnSettled(strategyId: string) {
+  const queryClient = useQueryClient();
+  return async () => {
+    await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+    await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+  };
+}
+
+export function useArchiveStrategy(strategyId: string) {
+  const invalidate = useInvalidateOnSettled(strategyId);
+  return useMutation<Strategy, Error, void>({
+    mutationFn: () => archiveStrategy(strategyId),
+    onSettled: invalidate,
+  });
+}
+
+export function useReplaceAllowedPairs(strategyId: string) {
+  const invalidate = useInvalidateOnSettled(strategyId);
+  return useMutation<Strategy, Error, readonly string[]>({
+    mutationFn: (pairs) => replaceAllowedPairs(strategyId, pairs),
+    onSettled: invalidate,
   });
 }
 

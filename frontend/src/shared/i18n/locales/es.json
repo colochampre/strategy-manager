@@ -147,11 +147,67 @@
       "errors": {
         "unknown": "El exchange no lista: {{symbols}}.",
         "venueUnavailable": "No se pudo leer la lista de pares del exchange, por lo que no se guardó nada. Inténtelo de nuevo.",
-        "notServed": "No se pueden verificar los pares de este pool, por lo que no se puede crear una estrategia en él."
+        "notServed": "No se pueden verificar los pares de este pool, por lo que no se puede crear una estrategia en él.",
+        "changed": "La lista cambió mientras la editaba. Revísela y guarde de nuevo."
       }
     },
     "detail": {
-      "title": "Estrategia"
+      "back": "Todas las estrategias",
+      "loading": "Cargando la estrategia…",
+      "notFound": "Esta estrategia no existe. Puede que se haya eliminado.",
+      "error": "No se pudo cargar la estrategia.",
+      "settings": "Ajustes de esta estrategia",
+      "enabled": "Activada",
+      "disabled": "Desactivada",
+      "enable": "Activar estrategia",
+      "disable": "Desactivar estrategia",
+      "uptime": {
+        "active_one": "activa {{count}} día desde el {{date}}",
+        "active_other": "activa {{count}} días desde el {{date}}",
+        "activeAtLeast_one": "activa al menos {{count}} día, desde al menos el {{date}}",
+        "activeAtLeast_other": "activa al menos {{count}} días, desde al menos el {{date}}"
+      },
+      "history": {
+        "title": "Historial de activación",
+        "enabled": "Activada",
+        "disabled": "Desactivada",
+        "baseline": "ya estaba activada cuando comenzó el historial",
+        "empty": "Todavía no se registró ninguna activación ni desactivación.",
+        "error": "No se pudo cargar el historial de activación."
+      },
+      "pairs": {
+        "title": "Pares permitidos",
+        "hint": "Quitar un par detiene las nuevas entradas en él. Una posición abierta se sigue cerrando.",
+        "save": "Guardar pares",
+        "saving": "Guardando…",
+        "lastPair": "Una estrategia necesita al menos un par permitido.",
+        "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
+      }
+    },
+    "archive": {
+      "title": "Archivar estrategia",
+      "description": "Archivar es permanente: la estrategia se detiene para siempre y su historial se conserva.",
+      "button": "Archivar",
+      "disabledHint": "Se puede archivar cuando la estrategia está desactivada y no tiene ninguna posición abierta.",
+      "confirmTitle": "¿Archivar {{name}}?",
+      "confirmBody": "{{name}} dejará de recibir señales y después no se podrá activar ni restaurar. Su historial se conserva.",
+      "confirm": "Archivar definitivamente",
+      "cancel": "Cancelar",
+      "pending": "Archivando…",
+      "errors": {
+        "stillEnabled": "Esta estrategia sigue activada. Desactívela primero.",
+        "openPosition": "Esta estrategia todavía tiene una posición abierta o capital en uso, por lo que aún no se puede archivar.",
+        "generic": "No se archivó la estrategia. Inténtelo de nuevo."
+      },
+      "reasons": {
+        "symbols": "Posición abierta en: {{symbols}}",
+        "allocations_one": "{{count}} asignación abierta",
+        "allocations_other": "{{count}} asignaciones abiertas",
+        "liveReservations_one": "{{count}} reserva vigente",
+        "liveReservations_other": "{{count}} reservas vigentes",
+        "inFlightAttempts_one": "{{count}} intento de ejecución en curso",
+        "inFlightAttempts_other": "{{count}} intentos de ejecución en curso"
+      }
     },
     "delete": {
       "title": "Eliminar estrategia",
@@ -179,9 +235,7 @@
         "ledgerEntries_one": "{{count}} asiento del libro mayor",
         "ledgerEntries_other": "{{count}} asientos del libro mayor",
         "bookingProposals_one": "{{count}} propuesta de registro",
-        "bookingProposals_other": "{{count}} propuestas de registro",
-        "enablementEvents_one": "{{count}} evento de activación",
-        "enablementEvents_other": "{{count}} eventos de activación"
+        "bookingProposals_other": "{{count}} propuestas de registro"
       }
     }
   },

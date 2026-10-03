@@ -150,7 +150,7 @@ export function PairSelector({
             {matches.length > shown.length && <p>{t("strategies.pairs.narrow")}</p>}
           </div>
           {shown.length > 0 && (
-            <ul className="max-h-60 overflow-auto rounded-md border border-rule bg-ground p-1">
+            <ul className="max-h-36 overflow-auto rounded-md border border-rule bg-ground p-1">
               {shown.map((pair) => (
                 <li key={pair}>
                   <label className="flex items-center gap-2 rounded px-2 py-1 text-sm text-ink hover:bg-panel-2">

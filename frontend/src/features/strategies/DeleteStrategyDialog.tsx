@@ -12,14 +12,20 @@ interface DeleteStrategyDialogProps {
   onCancel: () => void;
 }
 
-/** The six kinds of history `HAS_HISTORY` counts, in the order the server lists them. */
+/**
+ * The six counts `HAS_HISTORY` carries, in the order the server lists them, with
+ * the i18n key of the line each one gets. Enablement events have no line: since
+ * migration 0028 they are deleted with the strategy and block nothing, so naming
+ * them beside a signal would suggest something the owner has to resolve. The
+ * count is still validated with the rest before any line is trusted.
+ */
 const HISTORY_KINDS = [
   ["signals", "signals"],
   ["reservations", "reservations"],
   ["execution_attempts", "executionAttempts"],
   ["ledger_entries", "ledgerEntries"],
   ["booking_proposals", "bookingProposals"],
-  ["enablement_events", "enablementEvents"],
+  ["enablement_events", null],
 ] as const;
 
 interface HistoryLine {
@@ -28,7 +34,7 @@ interface HistoryLine {
 }
 
 /**
- * The non-zero kinds of a refusal's `history`. A body that is missing, is not
+ * The non-zero blocking kinds of a refusal's `history`. A body that is missing, is not
  * an object or carries any count that is not a non-negative integer yields no
  * lines at all: the main sentence is then shown alone, never a half-trusted list.
  */
@@ -40,7 +46,7 @@ function historyLines(error: ApiError): HistoryLine[] {
   for (const [field, key] of HISTORY_KINDS) {
     const count = counts[field];
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return [];
-    if (count > 0) lines.push({ key, count });
+    if (key !== null && count > 0) lines.push({ key, count });
   }
   return lines;
 }

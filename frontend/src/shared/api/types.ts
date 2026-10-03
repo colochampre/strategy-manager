@@ -159,6 +159,18 @@ export interface StrategyUptime {
   baseline: boolean;
 }
 
+/**
+ * One row of `GET /api/strategies/{id}/events` (`EnablementEventView`).
+ * `origin` is `OBSERVED` for a change this system saw and `BASELINE` for the one
+ * row a migration wrote for a strategy that was already enabled.
+ */
+export interface EnablementEvent {
+  enabled: boolean;
+  /** ISO-8601 with an explicit offset. */
+  occurred_at: string;
+  origin: string;
+}
+
 export type FillMode = "SKIP" | "PARTIAL";
 
 /**

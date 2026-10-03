@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/app/App";
-import { lock, stubApi, unlock } from "@/test/harness";
+import { lock, strategyRoute, stubApi, unlock } from "@/test/harness";
 
 function renderApp(path: string) {
   window.history.pushState({}, "", path);
@@ -27,6 +27,7 @@ afterEach(() => {
 describe("App", () => {
   it("hosts the router: a deep link opens its page on load, as a refresh would", async () => {
     unlock();
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute("5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11", "Strategy"));
     renderApp("/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Strategy" })).toBeInTheDocument();
