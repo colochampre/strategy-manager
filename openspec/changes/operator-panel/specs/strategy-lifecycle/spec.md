@@ -369,33 +369,42 @@ not only in its own `(exchange, venue, settlement_currency)` pool:
 - a capital reservation;
 - an execution attempt, opening or closing;
 - a ledger entry;
-- a booking proposal;
-- an enablement event.
+- a booking proposal.
+
+An enablement event is NOT history. The record of when a strategy was switched
+on and off MUST NOT block a delete: a strategy whose only references are its
+enablement events MUST be deletable, and its events MUST be deleted with it, by
+the database as part of the strategy's own delete and by no other path.
 
 A delete of a strategy that is enabled MUST be refused naming that it is still
 enabled. A delete of a strategy with any history MUST be refused naming each
 kind of history that exists and how many rows of it exist; archiving stays the
 only way to retire that strategy. A refused delete MUST change nothing. Every
 refusal and every successful delete MUST log exactly one line; the line of a
-successful delete MUST name the strategy's id and name.
+successful delete MUST name the strategy's id and name, the number of
+enablement events deleted with it, the time it was first enabled (none if it
+never was) and its cumulative uptime, so that the fact survives in the log.
 
 A successful delete MUST remove the strategy row and MUST leave no row in any
-table that carries its id. It MUST NOT remove, update or rewrite any ledger
-entry or any signal of any strategy, in any pool. After it, the id and the name
+table that carries its id. The only rows removed with it are its own
+enablement events. It MUST NOT remove, update or rewrite any ledger entry or
+any signal of any strategy, in any pool. The append-only protection of
+enablement events MUST hold on every other path: a direct delete of an event
+whose strategy exists, and any update of an event, MUST still be refused. After it, the id and the name
 MAY be used to register a new strategy, which MUST inherit nothing.
 
 The check MUST be exhaustive: a table that references a strategy and is not
 among the kinds above MUST make the delete fail as a refusal, never succeed
 and never leave a row without its strategy.
 
-> **Open (design addendum 9x § L, Q1).** Whether enablement events block a
-> delete is the owner's decision. Until it is answered they MUST block, as
-> written above. If the answer is that they do not, this requirement is revised
-> so that they are deleted with the strategy and nothing else is.
+> **Decided 2026-10-02 (owner decision 42, design addendum 9x § L, Q1).**
+> Enablement events do not block a delete; they are deleted with the strategy
+> (migration 0028). Until that migration is deployed they still block, which
+> fails closed.
 >
-> **Open (design addendum 9x § L, Q3).** Whether an archived strategy with no
-> history may be deleted is the owner's decision. This requirement does not
-> state it either way until it is answered.
+> **Decided 2026-10-02 (owner decision 42, design addendum 9x § L, Q3).** An
+> archived strategy with no history MAY be deleted. An archived strategy is
+> still never re-enabled or un-archived.
 
 #### Scenario: A disabled strategy with no history is deleted
 
@@ -439,11 +448,23 @@ and never leave a row without its strategy.
 - WHEN a delete is requested for S1
 - THEN the delete is refused naming 1 booking proposal, and the proposal is unchanged
 
-#### Scenario: A strategy that was enabled once is refused
+#### Scenario: A strategy that was enabled once is deleted with its events
 
 - GIVEN strategy S1 is disabled, has never received a signal, and has two enablement events
 - WHEN a delete is requested for S1
-- THEN the delete is refused naming 2 enablement events, and S1's row and both events are unchanged
+- THEN S1's row and both events no longer exist, and exactly one line is logged naming S1's id and name, 2 events, the time S1 was first enabled and its uptime
+
+#### Scenario: A strategy with a signal and events is refused and keeps its events
+
+- GIVEN strategy S1 is disabled, has one signal, and has two enablement events
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 signal, and S1's row, the signal and both events are unchanged
+
+#### Scenario: An enablement event cannot be deleted on its own
+
+- GIVEN strategy S1 exists and has an enablement event
+- WHEN that event is deleted directly, or updated
+- THEN the database refuses it and the event is unchanged
 
 #### Scenario: History in another pool still blocks
 

@@ -310,7 +310,9 @@ async def test_one_row_of_each_kind_is_counted_in_its_own_kind(
     history = await _history_of(pg_session_factory, strategy_id)
 
     assert history == expected
-    assert history.is_empty() is False
+    # Migration 0028: an enablement event is counted, and is the one kind that
+    # does not make the history non-empty.
+    assert history.is_empty() is (seed is _seed_event_only)
 
 
 async def test_an_execution_attempt_is_counted_through_its_reservation_its_closed_allocation_and_its_signal(  # noqa: E501

@@ -95,9 +95,8 @@ class SqlAlchemyEnablementLog:
     async def count_for(self, strategy_id: UUID) -> int:
         """How many enablement events (OBSERVED or BASELINE) exist for one
         strategy. Read-only: ``StrategyHistoryPort``'s ``enablement_events``
-        count (design.md addendum 9x, § C). Until migration 0028 the events
-        keep ``fk_strategy_enablement_events_strategy`` as ``NO ACTION``, so
-        any event blocks a delete."""
+        count (design.md addendum 9x, § C). Reported, never a reason to refuse:
+        migration 0028 deletes the events with their strategy."""
         result = await self._session.execute(
             select(func.count())
             .select_from(StrategyEnablementEventRow)

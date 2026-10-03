@@ -34,21 +34,30 @@ def test_a_history_of_zeros_is_empty() -> None:
     assert _history().is_empty() is True
 
 
-@pytest.mark.parametrize("kind", _KINDS)
-def test_is_empty_only_when_all_six_counts_are_zero(kind: str) -> None:
+# Migration 0028 (owner decision 42, Q1): enablement events are counted and
+# reported, and they never block.
+_BLOCKING_KINDS = [kind for kind in _KINDS if kind != "enablement_events"]
+
+
+@pytest.mark.parametrize("kind", _BLOCKING_KINDS)
+def test_is_empty_only_when_all_five_blocking_counts_are_zero(kind: str) -> None:
     assert _history(**{kind: 1}).is_empty() is False
 
 
-def test_blocking_names_only_the_nonzero_kinds_in_a_fixed_order() -> None:
+def test_enablement_events_alone_do_not_block() -> None:
+    history = _history(enablement_events=2)
+
+    assert history.is_empty() is True
+    assert history.blocking() == {}
+    assert history.enablement_events == 2  # still counted, for the body and the log
+
+
+def test_blocking_names_only_the_nonzero_blocking_kinds_in_a_fixed_order() -> None:
     history = _history(enablement_events=4, signals=3, ledger_entries=2)
 
     blocking = history.blocking()
 
-    assert list(blocking.items()) == [
-        ("signals", 3),
-        ("ledger_entries", 2),
-        ("enablement_events", 4),
-    ]
+    assert list(blocking.items()) == [("signals", 3), ("ledger_entries", 2)]
 
 
 def test_blocking_of_an_empty_history_is_empty() -> None:

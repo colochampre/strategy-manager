@@ -4,8 +4,9 @@ design.md addendum 9x, § D and § I; tasks.md 9xc).
 ``ArchiveStrategy``'s sibling. A strategy the owner registered by mistake or as a
 test has nothing worth keeping, and archiving it would keep its name and its id
 forever. A strategy that ever acted (a signal, a reservation, an execution attempt,
-a ledger entry, a booking proposal, an enablement event) cannot be removed without
-breaking a record, so it is refused and archiving stays the only path.
+a ledger entry, a booking proposal) cannot be removed without breaking a record, so
+it is refused and archiving stays the only path. Enablement events are NOT history
+(owner decision 42, Q1): migration 0028 deletes them with their strategy.
 
 **The sequence, in order:**
 
@@ -18,10 +19,14 @@ breaking a record, so it is refused and archiving stays the only path.
 4. Still enabled? Refused (``StillEnabled``) before any history is read.
 5. Archived? Nothing to decide (owner decision 42, Q3): an archived strategy is
    disabled by construction and the history alone decides. It is never un-archived.
-6. The history, read inside both locks. Any non-zero count refuses (``StrategyHasHistory``).
+6. The history, read inside both locks. Any non-zero BLOCKING count refuses
+   (``StrategyHasHistory``); the enablement events never do. Then the events are read,
+   while they still exist, for the INFO line.
 7. The ``DELETE``. A foreign-key refusal here means the count missed something: it is
    logged at ERROR naming the constraint and answered as ``StrategyHasHistory``.
-8. Commit, releasing both locks, then one INFO line.
+8. Commit, releasing both locks, then one INFO line. The events went with the strategy
+   (the foreign key cascades), so that line is the only record of how many there were,
+   when the strategy was first enabled and for how long it ran.
 
 **Lock order: the pool advisory lock, then the row lock -- never the other way
 round**, as ``ArchiveStrategy`` documents (a reachable deadlock against a concurrent
@@ -46,10 +51,12 @@ from dataclasses import fields
 from typing import NoReturn
 from uuid import UUID
 
+from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.strategies.application.archive_strategy import StillEnabled
 from strategy_manager.strategies.application.ports import (
     CommitPort,
+    EnablementReaderPort,
     PoolLockPort,
     StrategyHistory,
     StrategyHistoryPort,
@@ -57,6 +64,7 @@ from strategy_manager.strategies.application.ports import (
     StrategyStillReferenced,
 )
 from strategy_manager.strategies.application.update_strategy import UnknownStrategy
+from strategy_manager.strategies.domain.enablement import uptime
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +90,15 @@ class DeleteStrategy:
         repository: StrategyRepositoryPort,
         pool_lock: PoolLockPort,
         history: StrategyHistoryPort,
+        enablement_log: EnablementReaderPort,
+        clock: ClockPort,
         commit: CommitPort,
     ) -> None:
         self._repository = repository
         self._pool_lock = pool_lock
         self._history = history
+        self._enablement_log = enablement_log
+        self._clock = clock
         self._commit = commit
 
     async def delete(self, strategy_id: UUID) -> None:
@@ -142,6 +154,9 @@ class DeleteStrategy:
                 history,
             )
 
+        # The events are about to go with the strategy: read them now, for the INFO line.
+        enablement = uptime(await self._enablement_log.list_for(strategy_id), self._clock.now())
+
         # Step 7: the delete. The database is the backstop for an incomplete count.
         try:
             await self._repository.delete(strategy_id)
@@ -165,11 +180,15 @@ class DeleteStrategy:
         # that the strategy ever existed.
         await self._commit.commit()
         logger.info(
-            "strategy deleted: id=%s name=%r pool=%s/%s/%s archived=%s",
+            "strategy deleted: id=%s name=%r pool=%s/%s/%s archived=%s "
+            "enablement_events=%d first_enabled_at=%s uptime_seconds=%d",
             strategy_id,
             strategy.name,
             *pool,
             strategy.archived_at is not None,
+            history.enablement_events,
+            enablement.first_enabled_at.isoformat() if enablement.first_enabled_at else "never",
+            round(enablement.seconds),
         )
 
     @staticmethod

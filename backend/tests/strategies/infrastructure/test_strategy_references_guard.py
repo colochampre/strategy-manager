@@ -27,6 +27,9 @@ from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
 
+_NO_ACTION = "a"
+_CASCADE = "c"
+
 _EXTEND_THE_HISTORY = (
     "extend StrategyHistory, StrategyHistoryAdapter and COUNTED_STRATEGY_REFERENCES "
     "so DeleteStrategy counts this reference"
@@ -49,7 +52,7 @@ async def conn(head_database_url: str) -> AsyncIterator[AsyncConnection]:
 
 async def _foreign_keys_into_strategies(conn: AsyncConnection) -> dict[str, tuple[str, str]]:
     """Constraint name -> ``(referencing table, ON DELETE action code)``.
-    ``a`` is ``NO ACTION``."""
+    ``a`` is ``NO ACTION``, ``c`` is ``CASCADE``."""
     rows = await conn.execute(
         text(
             "SELECT c.conname, c.conrelid::regclass::text AS referencing_table, "
@@ -87,7 +90,15 @@ async def test_every_foreign_key_into_strategies_is_one_the_history_check_counts
     assert set(COUNTED_STRATEGY_REFERENCES) == set(present), (
         "COUNTED_STRATEGY_REFERENCES names a constraint the database no longer has"
     )
-    assert {on_delete for _, on_delete in present.values()} == {"a"}
+    # Migration 0028 (owner decision 42, Q1): the enablement events go with their
+    # strategy, so that one key cascades; every other key is NO ACTION and refuses.
+    assert {name: on_delete for name, (_, on_delete) in present.items()} == {
+        "fk_signals_strategy": _NO_ACTION,
+        "fk_reservations_strategy": _NO_ACTION,
+        "fk_ledger_entries_strategy": _NO_ACTION,
+        "fk_booking_proposals_strategy": _NO_ACTION,
+        "fk_strategy_enablement_events_strategy": _CASCADE,
+    }
     assert {name: table for name, (table, _) in present.items()} == {
         name: table for name, (table, _) in COUNTED_STRATEGY_REFERENCES.items()
     }

@@ -304,6 +304,8 @@ def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
             proposals=SqlAlchemyBookingProposalRepository(session),
             enablement_log=SqlAlchemyEnablementLog(session),
         ),
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=SystemClock(),
         commit=session,
     )
 

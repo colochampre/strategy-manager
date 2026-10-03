@@ -126,6 +126,8 @@ def _use_case(session: AsyncSession, history: object | None = None) -> DeleteStr
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
         history=history if history is not None else _real_history(session),  # type: ignore[arg-type]
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=_Clock(),  # type: ignore[arg-type]
         commit=session,  # type: ignore[arg-type]
     )
 
@@ -216,6 +218,64 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
         )
         assert count == 0, f"{table} still carries the deleted strategy's id"
     assert await _strategy_rows(factory, strategy_id) == 0
+
+
+def _signal_of(strategy_id: UUID) -> SignalRow:
+    return SignalRow(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        idempotency_key=f"key-{uuid4()}",
+        raw_payload={},
+        action="buy",
+        contracts=Decimal("1"),
+        position_size=Decimal("1"),
+        price=Decimal("1"),
+        symbol="STXUSDT.P",
+        signal_type=str(strategy_id),
+    )
+
+
+async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
+    factory: Factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Migration 0028: the events go with their strategy, through the real foreign
+    key and the real append-only trigger. The first enable time and the uptime of
+    the deleted strategy survive in the INFO line."""
+    strategy_id = await _strategy(factory)
+    enabled_at = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+    await _seed(
+        factory,
+        *(
+            StrategyEnablementEventRow(
+                id=uuid4(),
+                strategy_id=strategy_id,
+                enabled=enabled,
+                occurred_at=enabled_at + timedelta(minutes=minutes),
+                origin="OBSERVED",
+            )
+            for enabled, minutes in ((True, 0), (False, 90))
+        ),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(factory, strategy_id)
+
+    assert refusal is None, repr(refusal)
+    assert await _strategy_rows(factory, strategy_id) == 0
+    assert (
+        await _scalar(
+            factory,
+            "SELECT count(*) FROM strategy_enablement_events WHERE strategy_id = :id",
+            id=strategy_id,
+        )
+        == 0
+    )
+    records = [record for record in caplog.records if record.name == LOGGER]
+    assert [record.levelno for record in records] == [logging.INFO]
+    message = records[0].getMessage()
+    assert "enablement_events=2" in message
+    assert f"first_enabled_at={enabled_at.isoformat()}" in message
+    assert "uptime_seconds=5400" in message
 
 
 def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
@@ -309,21 +369,16 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
 async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
     factory: Factory, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The history answers zero over a strategy that owns one enablement event.
-    The ``NO ACTION`` foreign key still refuses, the use case reports it as
+    """The history answers zero over a strategy that owns one signal. The
+    ``NO ACTION`` foreign key still refuses, the use case reports it as
     ``StrategyHasHistory`` with one ERROR naming the constraint, and the session
-    is usable after the caller's rollback."""
+    is usable after the caller's rollback.
+
+    Re-pointed by migration 0028 (tasks.md 9xf.3): it used an enablement event, whose
+    foreign key now cascades, so the backstop is shown on a key that is still
+    ``NO ACTION``."""
     strategy_id = await _strategy(factory)
-    await _seed(
-        factory,
-        StrategyEnablementEventRow(
-            id=uuid4(),
-            strategy_id=strategy_id,
-            enabled=True,
-            occurred_at=datetime.now(UTC),
-            origin="OBSERVED",
-        ),
-    )
+    await _seed(factory, _signal_of(strategy_id))
 
     async with factory() as session:
         with caplog.at_level(logging.DEBUG, logger=LOGGER):
@@ -334,7 +389,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
             else:
                 refusal = None
         assert isinstance(refusal, StrategyHasHistory), repr(refusal)
-        assert refusal.constraint == "fk_strategy_enablement_events_strategy"
+        assert refusal.constraint == "fk_signals_strategy"
 
         await session.rollback()  # what the route does on every refusal
 
@@ -347,7 +402,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
         )
         assert (
             await session.scalar(
-                text("SELECT count(*) FROM strategy_enablement_events WHERE strategy_id = :id"),
+                text("SELECT count(*) FROM signals WHERE strategy_id = :id"),
                 {"id": strategy_id},
             )
             == 1
@@ -355,7 +410,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
 
     records = [record for record in caplog.records if record.name == LOGGER]
     assert [record.levelno for record in records] == [logging.ERROR]
-    assert "fk_strategy_enablement_events_strategy" in records[0].getMessage()
+    assert "fk_signals_strategy" in records[0].getMessage()
     assert str(strategy_id) in records[0].getMessage()
 
 
