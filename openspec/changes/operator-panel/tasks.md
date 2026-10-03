@@ -1518,6 +1518,21 @@ Harness: N/A backend (pure parse test reading a fixture file); `vi.stubGlobal("f
 Rollback boundary: one shared fixture + one component; revert removes "Show secret", the placeholder-only message still renders.
 Forecast: 300–400 lines. Actual: 738 changed lines in four code commits (3fca0ed 87, 2866928 77, bc1db3b 563, 2c956ef 11), of which about 150 are production code and locale keys and the rest tests; the tests are heavy because each way the secret could leak or linger has its own test.
 
+### Unit 12f — follow-ups to PR 12b and PR 12c (not started; each needs the owner's decision)
+
+Recorded 2026-10-03. The design and the spec left these open, so the detail page was built
+without them rather than with an invented answer. None is designed. Each one starts with the
+owner's decision, recorded in owner-decisions.md, and only then gets a design note and tasks.
+
+- [ ] 12f.1 **Share of the pool per trade.** `Strategy.dc.html` shows `allocation_percent` as an editable field in the settings column. No task of unit 9d covers it and the detail page does not show it. `PATCH /api/strategies/{id}` already accepts `allocation_percent`. To decide: whether it is editable from the panel, and what a change means for an allocation already reserved.
+- [ ] 12f.2 **How an archived strategy looks on the detail page.** Unspecified. Built as read-only: the pairs editor and the enable switch are disabled, the archive control is hidden, the badge says "Archived", and the delete control is offered. To decide: whether that is the intended look.
+- [ ] 12f.3 **The archive confirmation.** A plain confirm button; the spec asks only for an explicit confirmation. The delete dialog makes the owner type the strategy's name. To decide: whether archiving, which is also permanent, should ask for the same.
+- [ ] 12f.4 **Feedback after saving the allowed pairs.** There is none: the chips persist and the Save button disables. To decide: whether a "saved" confirmation is wanted, and in what form.
+- [ ] 12f.5 **A Copy button beside the webhook URL.** `Strategy.dc.html` shows one; no task or spec scenario defines it, so it is not built and the text is selectable. To decide: what it copies (the URL with the placeholder, the URL with the secret, the alert message), since the second puts the secret on the clipboard.
+- [ ] 12f.6 **The host in the webhook URL.** The mockup shows `https://[WEBHOOK HOST]/webhook/tradingview?...`; design.md says the path alone, and that is what was built, because the frontend does not know the public host. The owner prepends the host by hand when pasting into TradingView. To decide: whether the panel shows the full URL, and where the host comes from (a setting served by the API, never a value compiled into the bundle).
+- [ ] 12f.7 **A revealed secret stays revealed.** There is no warning text beside it and no timer hides it; it goes when the owner hides it or leaves the view. To decide: whether either is wanted.
+- [ ] 12f.8 **Placement of the webhook block.** The mockup puts it last in the left column, after the "By pair" table, which belongs to unit 9p and does not exist yet. It sits after the enable history today. No decision needed: unit 9p (PR 12d) places it after the table it adds, and ticks this.
+
 ### Unit 9p-pairs — `PairStatsTable`, `TradesTable`, `StrategyPerformance` (200–250 lines)
 
 **Files**: Create `frontend/src/features/strategies/{PairStatsTable,TradesTable,StrategyPerformance}.tsx`.
