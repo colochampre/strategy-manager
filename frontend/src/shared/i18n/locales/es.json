@@ -184,6 +184,18 @@
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       }
     },
+    "performance": {
+      "byPair": {
+        "title": "Por par",
+        "pair": "Par",
+        "trades": "Operaciones",
+        "pnl": "PnL {{currency}}",
+        "return": "Rendimiento",
+        "empty": "Ningún par tiene todavía una operación cerrada.",
+        "unreadable": "No se pudieron leer las cifras por par.",
+        "noReturn": "No hay capital registrado al abrir las operaciones de este par, por lo que no tiene rendimiento."
+      }
+    },
     "webhook": {
       "title": "Conectar una alerta de TradingView",
       "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje.",

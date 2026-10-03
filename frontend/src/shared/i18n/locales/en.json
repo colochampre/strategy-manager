@@ -184,6 +184,18 @@
         "saveFailed": "The allowed pairs were not saved. Try again."
       }
     },
+    "performance": {
+      "byPair": {
+        "title": "By pair",
+        "pair": "Pair",
+        "trades": "Trades",
+        "pnl": "PnL {{currency}}",
+        "return": "Return",
+        "empty": "No pair has a closed trade yet.",
+        "unreadable": "The figures by pair could not be read.",
+        "noReturn": "No capital at open is recorded for this pair's trades, so it has no return."
+      }
+    },
     "webhook": {
       "title": "Connect a TradingView alert",
       "hint": "Use the same URL and message for every pair's alert. The ticker travels in the message.",
