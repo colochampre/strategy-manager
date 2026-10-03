@@ -147,11 +147,20 @@
       "errors": {
         "unknown": "The exchange does not list: {{symbols}}.",
         "venueUnavailable": "The exchange's pair list could not be read, so nothing was saved. Try again.",
-        "notServed": "Pairs cannot be checked for this pool, so a strategy cannot be created on it."
+        "notServed": "Pairs cannot be checked for this pool, so a strategy cannot be created on it.",
+        "changed": "The list changed while you were editing. Review it and save again."
       }
     },
     "detail": {
-      "title": "Strategy"
+      "title": "Strategy",
+      "pairs": {
+        "title": "Allowed pairs",
+        "hint": "Removing a pair stops new entries on it. An open position still closes.",
+        "save": "Save pairs",
+        "saving": "Saving…",
+        "lastPair": "A strategy needs at least one allowed pair.",
+        "saveFailed": "The allowed pairs were not saved. Try again."
+      }
     },
     "archive": {
       "title": "Archive strategy",

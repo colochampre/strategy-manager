@@ -147,11 +147,20 @@
       "errors": {
         "unknown": "El exchange no lista: {{symbols}}.",
         "venueUnavailable": "No se pudo leer la lista de pares del exchange, por lo que no se guardó nada. Inténtelo de nuevo.",
-        "notServed": "No se pueden verificar los pares de este pool, por lo que no se puede crear una estrategia en él."
+        "notServed": "No se pueden verificar los pares de este pool, por lo que no se puede crear una estrategia en él.",
+        "changed": "La lista cambió mientras la editaba. Revísela y guarde de nuevo."
       }
     },
     "detail": {
-      "title": "Estrategia"
+      "title": "Estrategia",
+      "pairs": {
+        "title": "Pares permitidos",
+        "hint": "Quitar un par detiene las nuevas entradas en él. Una posición abierta se sigue cerrando.",
+        "save": "Guardar pares",
+        "saving": "Guardando…",
+        "lastPair": "Una estrategia necesita al menos un par permitido.",
+        "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
+      }
     },
     "archive": {
       "title": "Archivar estrategia",
