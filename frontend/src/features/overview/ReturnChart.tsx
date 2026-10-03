@@ -26,6 +26,8 @@ interface ReturnChartProps {
   asOf: number;
   /** Shown at the right of the header, on the title's row: the range selector. */
   headerAction?: ReactNode;
+  /** Replaces the Overview's title (already translated), for a chart of one strategy. */
+  title?: string;
 }
 
 /**
@@ -99,7 +101,7 @@ function percentLabel(ratio: number): string {
   return "0%";
 }
 
-export function ReturnChart({ curve, range, asOf, headerAction = null }: ReturnChartProps) {
+export function ReturnChart({ curve, range, asOf, headerAction = null, title }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
@@ -115,7 +117,7 @@ export function ReturnChart({ curve, range, asOf, headerAction = null }: ReturnC
     <div data-testid="chart-header" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="flex min-w-0 flex-col">
         <h2 className="font-display text-base font-semibold text-ink">
-          {t("overview.returnChart.title")}
+          {title ?? t("overview.returnChart.title")}
         </h2>
         <span className="font-mono text-[11px] text-ink-3">{t("overview.returnChart.caption")}</span>
       </div>

@@ -138,4 +138,37 @@ describe("LedgerLine", () => {
     rerender(<LedgerLine {...BASE} maxDrawdown="-" />);
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
+
+  describe("without an available balance (one strategy's line)", () => {
+    const { available: _omitted, ...WITHOUT_BALANCE } = BASE;
+
+    it("leads with the PnL and has no balance pair", () => {
+      render(<LedgerLine {...WITHOUT_BALANCE} />);
+
+      expect(text()).toBe("PnL 30D +41.20 · return 30D +3.4% · deepest -2.0%");
+      expect(screen.queryByTestId("ledger-lead")).toBeNull();
+      expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-[26px]", "font-semibold", "text-gain");
+    });
+
+    it("gives the lead figure the sign colour of a loss", () => {
+      render(<LedgerLine {...WITHOUT_BALANCE} pnl="-41.2000000000" />);
+
+      expect(text()).toBe("PnL 30D -41.20 · return 30D +3.4% · deepest -2.0%");
+      expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-loss", "text-[26px]");
+    });
+
+    it("still renders a null return as an em dash and an unreadable figure as an alert", () => {
+      const { rerender } = render(<LedgerLine {...WITHOUT_BALANCE} ret={null} />);
+      expect(text()).toBe("PnL 30D +41.20 · return 30D — · deepest -2.0%");
+
+      rerender(<LedgerLine {...WITHOUT_BALANCE} pnl="1e3" />);
+      expect(screen.getByRole("alert")).toHaveTextContent("The figures could not be read.");
+    });
+
+    it("uses the return label it is given in place of the pool's", () => {
+      render(<LedgerLine {...WITHOUT_BALANCE} returnLabel="contribution to the pool 30D" />);
+
+      expect(text()).toBe("PnL 30D +41.20 · contribution to the pool 30D +3.4% · deepest -2.0%");
+    });
+  });
 });

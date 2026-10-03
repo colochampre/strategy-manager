@@ -185,6 +185,11 @@
       }
     },
     "performance": {
+      "loading": "Cargando el rendimiento de esta estrategia…",
+      "error": "No se pudo cargar el rendimiento de esta estrategia.",
+      "noReport": "Esta estrategia todavía no tiene informe de rendimiento.",
+      "chartTitle": "Aporte al pool, compuesto",
+      "contribution": "aporte al pool {{range}}",
       "byPair": {
         "title": "Por par",
         "pair": "Par",

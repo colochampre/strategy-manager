@@ -185,6 +185,11 @@
       }
     },
     "performance": {
+      "loading": "Loading this strategy's performance…",
+      "error": "This strategy's performance could not be loaded.",
+      "noReport": "No performance report exists for this strategy yet.",
+      "chartTitle": "Contribution to the pool, compounded",
+      "contribution": "contribution to the pool {{range}}",
       "byPair": {
         "title": "By pair",
         "pair": "Pair",
