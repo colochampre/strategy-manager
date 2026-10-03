@@ -101,3 +101,35 @@ export function useSetStrategyEnabled(strategyId: string) {
     },
   });
 }
+
+/** `DELETE /api/strategies/{id}`: 204 and no body. Refusals (404, 409) are thrown as `ApiError`. */
+export function deleteStrategy(strategyId: string): Promise<void> {
+  return apiFetch<void>(`/strategies/${encodeURIComponent(strategyId)}`, { method: "DELETE" });
+}
+
+/**
+ * Deletes a strategy that has no history. A 404 is read as "already gone" (a
+ * double click, or another tab, got there first), so it resolves and runs the
+ * same cache effects as a 204. Any other refusal is thrown with its code and
+ * its history counts (`ApiError.code`, `ApiError.fields`), and no cache moves.
+ *
+ * The strategy's own queries are REMOVED, not invalidated: an invalidation
+ * would refetch a detail that now answers 404 and flash an error before the
+ * caller navigates away. The prefix covers the events and performance queries.
+ */
+export function useDeleteStrategy(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, void>({
+    mutationFn: async () => {
+      try {
+        await deleteStrategy(strategyId);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    },
+    onSuccess: async () => {
+      queryClient.removeQueries({ queryKey: ["strategy", strategyId] });
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+    },
+  });
+}
