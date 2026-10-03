@@ -75,6 +75,31 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
   };
 }
 
+/**
+ * An `ExtraRoute` that serves one strategy's detail and its empty enable
+ * history, so a deep link to its page can load. Pass it as `stubApi`'s `extra`.
+ */
+export function strategyRoute(id: string, name: string): ExtraRoute {
+  const detail = {
+    id,
+    name,
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    fill_mode: "SKIP",
+    allocation_percent: "100",
+    enabled: false,
+    archived_at: null,
+    allowed_pairs: ["ETHUSDT"],
+    uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+  };
+  return (url) => {
+    if (url.endsWith(`/strategies/${id}/events`)) return Promise.resolve(jsonResponse([]));
+    if (url.endsWith(`/strategies/${id}`)) return Promise.resolve(jsonResponse(detail));
+    return undefined;
+  };
+}
+
 /** One Bybit pool unless a test says otherwise, so the exchange scope is ready. */
 const DEFAULT_POOLS: PoolsStub = { kind: "ok", body: [pool("bybit", "usdt-m")] };
 

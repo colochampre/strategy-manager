@@ -152,7 +152,29 @@
       }
     },
     "detail": {
-      "title": "Estrategia",
+      "back": "Todas las estrategias",
+      "loading": "Cargando la estrategia…",
+      "notFound": "Esta estrategia no existe. Puede que se haya eliminado.",
+      "error": "No se pudo cargar la estrategia.",
+      "settings": "Ajustes de esta estrategia",
+      "enabled": "Activada",
+      "disabled": "Desactivada",
+      "enable": "Activar estrategia",
+      "disable": "Desactivar estrategia",
+      "uptime": {
+        "active_one": "activa {{count}} día desde el {{date}}",
+        "active_other": "activa {{count}} días desde el {{date}}",
+        "activeAtLeast_one": "activa al menos {{count}} día, desde al menos el {{date}}",
+        "activeAtLeast_other": "activa al menos {{count}} días, desde al menos el {{date}}"
+      },
+      "history": {
+        "title": "Historial de activación",
+        "enabled": "Activada",
+        "disabled": "Desactivada",
+        "baseline": "ya estaba activada cuando comenzó el historial",
+        "empty": "Todavía no se registró ninguna activación ni desactivación.",
+        "error": "No se pudo cargar el historial de activación."
+      },
       "pairs": {
         "title": "Pares permitidos",
         "hint": "Quitar un par detiene las nuevas entradas en él. Una posición abierta se sigue cerrando.",

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
-import { lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { lock, pool, renderAt, resetExchangeScope, strategyRoute, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
 const TWO_EXCHANGES = {
@@ -32,7 +32,7 @@ describe("which routes show the tabs", () => {
     ["/strategies", "Strategies"],
     [`/strategies/${STRATEGY_ID}`, "Strategy"],
   ])("shows one tab per distinct exchange on %s, in both surfaces", async (path, title) => {
-    stubApi(HEALTH, [], TWO_EXCHANGES);
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     renderAt(<AppRoutes />, path);
 
     await screen.findByRole("heading", { level: 1, name: title });

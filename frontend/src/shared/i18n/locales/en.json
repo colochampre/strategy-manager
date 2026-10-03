@@ -152,7 +152,29 @@
       }
     },
     "detail": {
-      "title": "Strategy",
+      "back": "All strategies",
+      "loading": "Loading strategy…",
+      "notFound": "This strategy does not exist. It may have been deleted.",
+      "error": "The strategy could not be loaded.",
+      "settings": "Settings of this strategy",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enable": "Enable strategy",
+      "disable": "Disable strategy",
+      "uptime": {
+        "active_one": "active {{count}} day since {{date}}",
+        "active_other": "active {{count}} days since {{date}}",
+        "activeAtLeast_one": "active at least {{count}} day, since at least {{date}}",
+        "activeAtLeast_other": "active at least {{count}} days, since at least {{date}}"
+      },
+      "history": {
+        "title": "Enable history",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "baseline": "already enabled when the history began",
+        "empty": "No enable or disable has been recorded yet.",
+        "error": "The enable history could not be loaded."
+      },
       "pairs": {
         "title": "Allowed pairs",
         "hint": "Removing a pair stops new entries on it. An open position still closes.",
