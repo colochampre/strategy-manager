@@ -8,6 +8,7 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
+import { WebhookMessage } from "@/features/strategies/WebhookMessage";
 import { ApiError } from "@/shared/api/client";
 import { useStrategy } from "@/shared/api/strategies";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
@@ -63,6 +64,7 @@ export function StrategyDetailPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <StrategyHeader strategy={subject} />
           <EnablementHistory strategyId={subject.id} />
+          <WebhookMessage strategyId={subject.id} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
