@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
@@ -31,11 +32,32 @@ class InsertOutcome:
     inserted: bool
 
 
+class UnknownSignalStrategy(DomainError):
+    """The alert names a strategy id that is not registered.
+
+    Raised by ``SignalRepositoryPort.insert_or_get`` when the database refuses
+    the insert on the foreign key into ``strategies``. Ingress performs no
+    strategy lookup (CLAUDE.md rule 3): the foreign key the ``INSERT`` already
+    carries is the check.
+    """
+
+    def __init__(self, strategy_id: UUID) -> None:
+        super().__init__(f"no strategy is registered under id {strategy_id}")
+        self.strategy_id = strategy_id
+
+
 class SignalRepositoryPort(Protocol):
     """Idempotent persistence: ``ON CONFLICT (strategy_id, idempotency_key)
     DO NOTHING`` semantics, resolved to the existing row on conflict."""
 
-    async def insert_or_get(self, signal: WebhookSignal) -> InsertOutcome: ...
+    async def insert_or_get(self, signal: WebhookSignal) -> InsertOutcome:
+        """Insert the signal, or resolve to the existing row on a duplicate key.
+
+        Raises ``UnknownSignalStrategy`` when ``signal.strategy_id`` is not a
+        registered strategy. Every other integrity error propagates unchanged.
+        The session is left in a failed transaction: the caller rolls back.
+        """
+        ...
 
     async def get_by_id(self, signal_id: UUID) -> WebhookSignal | None: ...
 

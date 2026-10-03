@@ -30,6 +30,7 @@ from strategy_manager.signals.application.ingest_signal import (
     IngestSignal,
     MissingIdempotencyKeyError,
 )
+from strategy_manager.signals.application.ports import UnknownSignalStrategy
 from strategy_manager.signals.domain.alert import (
     AlertParsingError,
     TradingViewAlert,
@@ -99,6 +100,19 @@ async def receive_tradingview_webhook(
         result = await use_case.ingest(command)
     except MissingIdempotencyKeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except UnknownSignalStrategy as exc:
+        # The failed INSERT left the transaction aborted; nothing was stored.
+        await session.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "UNKNOWN_STRATEGY",
+                "message": (
+                    "no strategy is registered under this signal_type; "
+                    "remove the TradingView alert or register the strategy"
+                ),
+            },
+        ) from exc
 
     return WebhookResponse(
         signal_id=result.signal_id, accepted=True, duplicate=result.duplicate

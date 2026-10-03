@@ -13,6 +13,13 @@ without deleting its history.
 > list only when the pool's venue lists it. Four requirements are added after
 > "New Strategies Require At Least One Allowed Pair". Pairs already stored are
 > never revalidated, so the seeding requirement and decision 15 are unchanged.
+>
+> **Revised 2026-10-02 (owner decision 42).** A strategy with no history can be
+> deleted; one with any history can only be archived. "Archive Is Terminal —
+> Never Deleted, Never Reversed" is revised to "Archive Is Terminal — Never
+> Reversed", and three requirements are added after it: the delete, its
+> serialization against a concurrent signal, and the refusal of an alert whose
+> strategy is not registered. Archive itself is unchanged.
 
 ## Requirements
 
@@ -319,14 +326,22 @@ refused with a reason naming which condition is unmet.
 - WHEN archive is requested for S1
 - THEN the request is refused, naming that S1 holds an open position, and `archived_at` remains unset
 
-### Requirement: Archive Is Terminal — Never Deleted, Never Reversed
+### Requirement: Archive Is Terminal — Never Reversed
 
-A strategy row MUST NEVER be deleted by archiving. Once `archived_at` is set,
-it MUST NEVER be cleared; there is no un-archive operation.
+> **Revised 2026-10-02 (owner decision 42).** Was "Archive Is Terminal — Never
+> Deleted, Never Reversed". Archiving still deletes nothing and is still never
+> undone. What changed is that a separate delete operation now exists, for a
+> strategy with no history only (next requirement). A strategy with any history
+> is still never deleted, archived or not.
+
+Archiving a strategy MUST NOT delete its row or any row that references it.
+Once `archived_at` is set, it MUST NEVER be cleared; there is no un-archive
+operation. A strategy that has any history MUST NEVER be deleted, so archive
+remains the only way to retire it.
 
 #### Scenario: Archived strategy row still exists and is readable
 
-- GIVEN strategy S1 has been archived
+- GIVEN strategy S1 has been archived and has not been deleted
 - WHEN S1's detail is requested by id
 - THEN S1's row is returned, including its `archived_at` timestamp and full history
 
@@ -335,6 +350,220 @@ it MUST NEVER be cleared; there is no un-archive operation.
 - GIVEN strategy S1 is archived
 - WHEN any update request for S1 is submitted
 - THEN no request clears `archived_at`, and any request attempting to do so is refused
+
+#### Scenario: An archived strategy with history cannot be deleted
+
+- GIVEN strategy S1 is archived and has one ledger entry in pool `(bybit, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming the ledger entry, and S1's row, its `archived_at` and the ledger entry are unchanged
+
+### Requirement: A Strategy With No History Can Be Deleted
+
+> **Added 2026-10-02 (owner decision 42).**
+
+A strategy MUST be deletable only when it is disabled AND has no history. The
+history of a strategy is every row that references it, in every capital pool,
+not only in its own `(exchange, venue, settlement_currency)` pool:
+
+- a signal;
+- a capital reservation;
+- an execution attempt, opening or closing;
+- a ledger entry;
+- a booking proposal;
+- an enablement event.
+
+A delete of a strategy that is enabled MUST be refused naming that it is still
+enabled. A delete of a strategy with any history MUST be refused naming each
+kind of history that exists and how many rows of it exist; archiving stays the
+only way to retire that strategy. A refused delete MUST change nothing. Every
+refusal and every successful delete MUST log exactly one line; the line of a
+successful delete MUST name the strategy's id and name.
+
+A successful delete MUST remove the strategy row and MUST leave no row in any
+table that carries its id. It MUST NOT remove, update or rewrite any ledger
+entry or any signal of any strategy, in any pool. After it, the id and the name
+MAY be used to register a new strategy, which MUST inherit nothing.
+
+The check MUST be exhaustive: a table that references a strategy and is not
+among the kinds above MUST make the delete fail as a refusal, never succeed
+and never leave a row without its strategy.
+
+> **Open (design addendum 9x § L, Q1).** Whether enablement events block a
+> delete is the owner's decision. Until it is answered they MUST block, as
+> written above. If the answer is that they do not, this requirement is revised
+> so that they are deleted with the strategy and nothing else is.
+>
+> **Open (design addendum 9x § L, Q3).** Whether an archived strategy with no
+> history may be deleted is the owner's decision. This requirement does not
+> state it either way until it is answered.
+
+#### Scenario: A disabled strategy with no history is deleted
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` is disabled, was never enabled, and has no signal, reservation, execution attempt, ledger entry or booking proposal
+- WHEN a delete is requested for S1
+- THEN S1's row no longer exists, no row in any table carries S1's id, and exactly one line is logged naming S1's id and name
+
+#### Scenario: An enabled strategy is refused
+
+- GIVEN strategy S1 is enabled and has no signal
+- WHEN a delete is requested for S1
+- THEN the delete is refused, naming that S1 is still enabled, and S1's row is unchanged
+
+#### Scenario: A strategy with a signal is refused
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` is disabled, allows `STXUSDT`, and has one signal for `STXUSDT.P` that was refused during processing and reserved nothing
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 signal, and S1's row and the signal are unchanged
+
+#### Scenario: A strategy with a capital reservation is refused
+
+- GIVEN strategy S1 is disabled and has one released reservation against pool `(bybit, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 reservation, and S1's row and the reservation are unchanged
+
+#### Scenario: A strategy with an execution attempt is refused
+
+- GIVEN strategy S1 is disabled and has one failed execution attempt on `STXUSDT` in pool `(bybit, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 execution attempt, and S1's row and the attempt are unchanged
+
+#### Scenario: A strategy with a ledger entry is refused
+
+- GIVEN strategy S1 is disabled, flat, and has two ledger entries in pool `(bybit, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 2 ledger entries, and both ledger entries are unchanged
+
+#### Scenario: A strategy with a booking proposal is refused
+
+- GIVEN strategy S1 is disabled and has one rejected booking proposal in pool `(bybit, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 booking proposal, and the proposal is unchanged
+
+#### Scenario: A strategy that was enabled once is refused
+
+- GIVEN strategy S1 is disabled, has never received a signal, and has two enablement events
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 2 enablement events, and S1's row and both events are unchanged
+
+#### Scenario: History in another pool still blocks
+
+- GIVEN strategy S1 is bound to pool `(bybit, usdt-m, USDT)` and a reservation carrying S1's id exists against pool `(binance, usdt-m, USDT)`
+- WHEN a delete is requested for S1
+- THEN the delete is refused naming 1 reservation
+
+#### Scenario: An unknown id is refused
+
+- GIVEN no strategy is registered under id X
+- WHEN a delete is requested for X
+- THEN the request is refused as not found, and nothing is changed
+
+#### Scenario: A repeated delete is refused as not found
+
+- GIVEN strategy S1 was deleted
+- WHEN a delete is requested for S1 again
+- THEN the request is refused as not found, and nothing is changed
+
+#### Scenario: A deleted id can be registered again and inherits nothing
+
+- GIVEN strategy S1 was deleted
+- WHEN a strategy is registered under S1's id and name on pool `(bybit, usdt-m, USDT)`
+- THEN the registration succeeds, and the new strategy is disabled, has no enablement event, no signal and zero uptime
+
+#### Scenario: A reference the check does not know still refuses
+
+- GIVEN strategy S1 is disabled, every known kind of history counts zero, and a row in some table still references S1
+- WHEN a delete is requested for S1
+- THEN the delete is refused, S1's row and that row are unchanged, and exactly one ERROR is logged naming the constraint that refused it
+
+### Requirement: A Delete And A Concurrent Signal Are Serialized
+
+> **Added 2026-10-02 (owner decision 42).**
+
+The no-history check and the removal of the strategy row MUST be one step with
+respect to every writer of that strategy's history. A signal for the strategy
+MUST end in exactly one of two states: stored as part of the strategy's
+history before the delete decides, in which case the delete is refused; or
+refused because the strategy no longer exists. A signal MUST NEVER be stored
+for a strategy that has been deleted, and MUST NEVER be attributed to another
+strategy.
+
+The delete MUST take the advisory lock of the strategy's own capital pool
+`(exchange, venue, settlement_currency)` before it locks the strategy row, the
+same order every other use case follows, and MUST read reservations under that
+lock. It MUST NOT take the lock of any other pool. The webhook MUST NOT take a
+pool lock and MUST NOT perform a strategy lookup for this.
+
+#### Scenario: A signal being ingested makes the delete wait, then refuses it
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` is disabled with no history, and a webhook request for S1 on `STXUSDT.P` has written its signal and not yet committed
+- WHEN a delete is requested for S1
+- THEN the delete waits until that request commits, then is refused naming 1 signal, and S1's row and the signal both exist
+
+#### Scenario: A signal that arrives during a delete is refused, not orphaned
+
+- GIVEN strategy S1 is disabled with no history, and a delete of S1 has removed the row and not yet committed
+- WHEN a webhook request for S1 arrives
+- THEN the request waits until the delete commits, then is refused because no strategy is registered under that id, and no signal and no job exist for it
+
+#### Scenario: An allocation in the strategy's pool makes the delete wait
+
+- GIVEN an allocation holds the advisory lock of pool `(bybit, usdt-m, USDT)`, and strategy S1 is bound to that pool
+- WHEN a delete is requested for S1
+- THEN the delete waits for that pool's lock, holding no lock on S1's row while it waits
+
+#### Scenario: An enable in flight refuses the delete
+
+- GIVEN strategy S1 is disabled with no history, and a request enabling S1 has not yet committed
+- WHEN a delete is requested for S1
+- THEN the delete waits until that request commits, then is refused naming that S1 is still enabled
+
+#### Scenario: An archive that waited behind a delete finds nothing
+
+- GIVEN a delete of strategy S1 holds the lock of pool `(bybit, usdt-m, USDT)` and an archive of S1 is waiting for it
+- WHEN the delete commits
+- THEN the archive is refused as not found
+
+### Requirement: An Alert Whose Strategy Is Not Registered Is Refused At The Webhook
+
+> **Added 2026-10-02 (owner decision 42).** Before this, such an alert ended as
+> an unhandled server error. A deleted strategy's leftover alert is the case
+> that makes it routine.
+
+A webhook request whose `signal_type` names no registered strategy MUST be
+refused: no signal MUST be persisted, no job MUST be enqueued, and no capital
+MUST be reserved in any pool. Exactly one WARNING MUST be logged naming the
+strategy id and instructing the owner to remove the TradingView alert or
+register the strategy. The line MUST NOT carry the webhook secret or the raw
+payload. The refusal MUST NOT add a database lookup or a lock to the ingress
+path: it MUST come from the persistence attempt itself. A repeated alert MUST
+be refused the same way each time.
+
+This does not change the requirement below for an ARCHIVED strategy, whose row
+exists: its signals are still persisted and refused during processing.
+
+#### Scenario: An alert for a deleted strategy is refused with one WARNING
+
+- GIVEN strategy S1 was deleted and its TradingView alert still fires for `STXUSDT.P`
+- WHEN the webhook request arrives with a valid idempotency key
+- THEN it is refused, no signal and no job exist for it, and exactly one WARNING is logged naming S1's id
+
+#### Scenario: An alert for an id that was never registered is refused the same way
+
+- GIVEN no strategy was ever registered under id X
+- WHEN a webhook request with `signal_type` X arrives
+- THEN it is refused, nothing is persisted, and exactly one WARNING is logged naming X
+
+#### Scenario: The same alert replayed is refused again
+
+- GIVEN a webhook request for deleted strategy S1 was refused
+- WHEN the identical request arrives again
+- THEN it is refused again, nothing is persisted, and one more WARNING is logged
+
+#### Scenario: An alert for a registered strategy is unaffected
+
+- GIVEN strategy S1 is registered on pool `(bybit, usdt-m, USDT)`
+- WHEN a webhook request for S1 arrives with a valid idempotency key
+- THEN the signal is persisted and a job is enqueued exactly as before, with no strategy lookup performed at ingress
 
 ### Requirement: Enabling An Archived Strategy Is Refused
 

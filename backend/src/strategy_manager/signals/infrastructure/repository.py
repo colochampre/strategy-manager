@@ -10,12 +10,27 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.execution.domain.market_symbol import market_spellings
-from strategy_manager.signals.application.ports import InsertOutcome
+from strategy_manager.signals.application.ports import InsertOutcome, UnknownSignalStrategy
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
 from strategy_manager.signals.infrastructure.models import SignalRow
+
+UNKNOWN_STRATEGY_CONSTRAINT = "fk_signals_strategy"
+"""The foreign key from ``signals.strategy_id`` into ``strategies`` (migration
+``0003``). It exists only in the migrations, not in the ORM model."""
+
+
+def _constraint_name(error: IntegrityError) -> str | None:
+    """Same helper as ``booking_writer._constraint_name``: asyncpg wraps its
+    ``PostgresError`` (which carries ``constraint_name``) as ``__cause__`` of
+    SQLAlchemy's DBAPI wrapper. The NAME identifies the constraint; message
+    text never does (it follows the server's locale)."""
+
+    cause = error.orig.__cause__  # type: ignore[union-attr]
+    return getattr(cause, "constraint_name", None)
 
 
 def _to_domain(row: SignalRow) -> WebhookSignal:
@@ -60,7 +75,16 @@ class SqlAlchemySignalRepository:
             .on_conflict_do_nothing(index_elements=["strategy_id", "idempotency_key"])
             .returning(SignalRow.id)
         )
-        result = await self._session.execute(stmt)
+        try:
+            result = await self._session.execute(stmt)
+        except IntegrityError as error:
+            # Only the foreign key into ``strategies`` means "not registered",
+            # and it is recognised by the violated constraint's NAME. A
+            # duplicate key never reaches here (ON CONFLICT DO NOTHING above);
+            # any other constraint keeps propagating exactly as before.
+            if _constraint_name(error) == UNKNOWN_STRATEGY_CONSTRAINT:
+                raise UnknownSignalStrategy(signal.strategy_id) from error
+            raise
         row = result.first()
         if row is not None:
             return InsertOutcome(signal_id=row.id, inserted=True)

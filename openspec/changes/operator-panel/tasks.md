@@ -66,6 +66,17 @@ is why it is three. The guard lines above do not change: `Decision needed before
 (design addendum § L lists three owner questions; none blocks 12v-0 or 12v-1),
 `Chained PRs recommended: Yes`, `400-line budget risk: High`.
 
+**Added 2026-10-02 (unit 9x, decision 42).** Deleting a strategy that has no history adds
+**2,000–2,950** authored lines, in five sequential PRs to `main`: **12x-1** webhook refusal for
+an unregistered strategy (300–450), **12x-2** history read (450–650), **12x-3** `DeleteStrategy`
+and its lock-hold tests (550–800), **12x-4** endpoint (300–450), **12x-5** panel control
+(400–600). A sixth, **12x-6** migration 0028 (400–600), is built only if the owner answers
+design addendum 9x § L, Q1 with "enablement events do not block"; with it the total is
+2,400–3,550. As one PR the unit would be five to seven times the review budget. The guard lines
+above do not change: `Decision needed before apply: No` (three owner questions are open; each
+blocks only the tasks marked with it in PR 12x, and none blocks 12x-1 or 12x-2),
+`Chained PRs recommended: Yes`, `400-line budget risk: High`.
+
 ### Suggested Work Units (PR-level; see per-PR tables below for unit-level detail)
 
 | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
@@ -93,13 +104,19 @@ is why it is three. The guard lines above do not change: `Decision needed before
 | 9vc | Unlisted-pair refusals in `RegisterStrategy` and `ReplaceAllowedPairs`, venue call before the row lock | PR 12v-3 | `cd backend && uv run pytest --tb=short backend/tests/strategies` | Real PostgreSQL, lock-hold harness (row lock) | Two use cases and their HTTP mapping; revert restores normalize-only saves, stored pairs stay valid |
 | 9vd | `ApiError` structured detail, `useAvailablePairs`, `PairSelector` (not mounted) | PR 12v-4 | `cd frontend && npm test -- client pairs PairSelector` | N/A — frontend-only, `vi.stubGlobal("fetch")` | New files and two added `ApiError` fields; nothing mounts the selector |
 | 9ve | Selector in `NewStrategyDialog`, refusal texts, harness venue corrected | PR 12v-5 | `cd frontend && npm test -- NewStrategyDialog StrategiesPage` | N/A — frontend-only | One dialog; revert restores the textarea, the server still validates |
+| 9xa | The webhook refuses an alert whose strategy is not registered: 422, one WARNING (decision 42) | PR 12x-1 | `cd backend && uv run pytest --tb=short backend/tests/signals/infrastructure/test_unknown_strategy_ingress.py backend/tests/signals/application/test_ingest_signal.py` | Real PostgreSQL migrated to `head` (the foreign key exists only there) | One caught error and its HTTP mapping; revert restores the unhandled 500 |
+| 9xb | `StrategyHistoryPort`, the six counts, the exhaustiveness guard | PR 12x-2 | `cd backend && uv run pytest --tb=short backend/tests/strategies` | Real PostgreSQL: ORM schema for the counts, `head` for the guard | Read methods and one adapter nothing calls |
+| 9xc | `DeleteStrategy`, `repository.delete`, lock-hold concurrency tests | PR 12x-3 | `cd backend && uv run pytest --tb=short backend/tests/strategies` | Real PostgreSQL migrated to `head`, lock-hold harness (advisory lock and row lock) | A use case nothing routes to |
+| 9xd | `DELETE /api/strategies/{id}` and its refusals | PR 12x-4 | `cd backend && uv run pytest --tb=short backend/tests/strategies/infrastructure/test_router.py backend/tests/strategies/infrastructure/test_router_auth.py` | `httpx.AsyncClient` over ASGI, real PostgreSQL | One route; revert answers 405 |
+| 9xe | `useDeleteStrategy`, `DeleteStrategyControl`, `DeleteStrategyDialog` (not mounted) | PR 12x-5 | `cd frontend && npm test -- strategies DeleteStrategy` | N/A — frontend-only, `vi.stubGlobal("fetch")` | New files; nothing mounts them until task 9d.6 |
+| 9xf | Migration 0028: enablement events are deleted with their strategy (ONLY if Q1 says so) | PR 12x-6 | `cd backend && uv run pytest --tb=short backend/tests/migrations/test_0028_enablement_events_cascade.py backend/tests/strategies` | Real PostgreSQL, migration up and down, VPS rehearsal | Migration 0028's downgrade; the use-case change reverts alone |
 
 ## Delivery log
 
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-10-02, VPS time): `main` at `3d5af4a`, alembic `0027`, `DRY_RUN=true`, the
+**Production now** (2026-10-02, VPS time): `main` at `c4499ae`, alembic `0027`, `DRY_RUN=true`, the
 frontend is not served. Enabled pools: `bybit/usdt-m/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -146,6 +163,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 12v-2 | #46 | `ad9dbdd` | — | 2026-10-02 | Unit 9vb (tasks 9vb.1-9vb.7): `PairCatalogPort`, `VenuePairCatalog` (credential-free, 300 s TTL per pool triple, single flight, failures not cached), `ReadAvailablePairs` and `GET /api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs`. Risk **medium**: the first PR in which the API process reads the venues' public catalogues; no save depends on it yet. No migration. Pulled as `strategy`, restarted; the API and the worker are active. **Checked in production by the owner:** `bybit/usdt-m/USDT` answers 200 with 783 pairs (`AAVEUSDT` and `STXUSDT` listed, `SFPUSDT` not), and `binance/usdt-m/USDT` answers 200 with 528 pairs (all three listed). Both counts equal probe P7.4, so the real parser drops no pair the probe's filter kept. One existing test changed: the secret sweep was taught the new route. |
 | PR 12v-3 | #47 | `e6ffd58` | — | 2026-10-02 | Unit 9vc (tasks 9vc.1-9vc.8): `RegisterStrategy` refuses every unlisted pair; `ReplaceAllowedPairs` validates only added pairs, asks the venue before the row lock and re-checks under it (409 `PAIRS_CHANGED`); 422 `UNKNOWN_PAIRS` with the symbols, 422 `PAIR_CATALOGUE_NOT_SERVED`, 502 `PAIR_CATALOGUE_UNAVAILABLE`. Risk **medium**: it changes what a save accepts, and `get_by_id_for_update` now uses `populate_existing=True` (found doing it: a locked read of a row the session had already loaded returned stale ORM values). No migration. Pulled as `strategy`, restarted the API; the API and the worker are active. **Checked in production by the owner:** a `POST /api/strategies` on `binance/usdt-m/USDT` with pairs `BTCUSDT` and `YPF` answered 422 `UNKNOWN_PAIRS`, "the venue does not list: YPF", and stored nothing. Until PR 12v-5 the dialog's free-text field shows that refusal as a generic message. |
 | PR 12v-4 | #48 | `3d5af4a` | — | 2026-10-02 | Unit 9vd (tasks 9vd.1-9vd.4): `ApiError` exposes a structured detail's `code` and `fields` and always carries human text; `fetchAvailablePairs` and `useAvailablePairs` with the response validated (shape, pool match, count); `PairSelector`, presentational and not mounted. Risk **low** (frontend only; nothing on screen changes). One behaviour change: a list `detail` from a FastAPI validation failure is no longer kept under a string type. No migration. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). The visual review waits for PR 12v-5, which mounts the selector. |
+| PR 12v-5 | #49 | `c4499ae` | — | 2026-10-02 | Unit 9ve (tasks 9ve.1-9ve.3), the last PR of unit 9v: `PairSelector` mounted in `NewStrategyDialog` over `useAvailablePairs`; the free-text field, `parsePairs` and `pairsHint` removed; Create disabled until the pool's list has loaded; refusals read by `error.code` and naming the unknown symbols; the test harness's default pool corrected to `bybit/usdt-m/USDT`. Risk **low** (frontend only). No migration. The owner reviewed it locally against the real public catalogues and accepted the double alert on a pool with no catalogue source. Pulled as `strategy`, no restart (frontend only, not served while `PANEL_DIST_DIR` is unset). **Unit 9v is complete: decisions 40 and 41 are delivered.** Owner polish 7p.3 (bottom padding of the scrolled content) was recorded with it. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -199,6 +217,21 @@ string in a log line, a commit message, or this file.
   row `trade_capable=true` (correct by construction — every current store script already
   refuses a key that cannot trade) and that the downgrade refuses while `trade_capable=false`
   exists.
+- **0028** (PR 12x-6, enablement events cascade; **only if the owner answers design addendum
+  9x § L, Q1 with "enablement events do not block a delete"** — otherwise unit 9x has no
+  migration and this entry does not apply). Rehearse on a throwaway database restored from a
+  FRESH backup, as above, and additionally, inside `sm_rehearsal` only:
+  1. After `upgrade head`: confirm `fk_strategy_enablement_events_strategy` is `ON DELETE
+     CASCADE` and that the count of `strategy_enablement_events` rows is unchanged (the
+     migration moves no data).
+  2. `DELETE` one event of a strategy that exists: it must be refused (`restrict_violation`).
+  3. `DELETE` a strategy that has a signal: it must be refused by `fk_signals_strategy`, and its
+     events must still be there.
+  4. `DELETE` a strategy that has only events (create one for the purpose if production has
+     none): it must succeed and take its events with it.
+  5. `alembic downgrade -1`: it must succeed with no refusal (it discards no data), and step 4
+     must then be refused again.
+  Schema-only on both sides: no seeding and no backfill log to read.
 
 ## Dependencies
 
@@ -230,6 +263,23 @@ string in a log line, a commit message, or this file.
   - Unit 9d's task 9d.5 (`AllowedPairsEditor` on the selector) needs PR 12v-4.
   - PR 12v-1 to 12v-3 ⟂ the rest of PR 12 (units 9d, 9w, 9p) and PR 13: no shared file.
     Only 9d.5 and PR 12v-5 touch files the rest of PR 12 touches.
+- Unit 9x (added 2026-10-02, decision 42), strictly in this order, each cut from `main` after
+  the previous one merged and deployed:
+  - PR 12x-1 needs nothing. It is independent of unit 9d and of PR 13.
+  - PR 12x-2 needs nothing from 12x-1 in code; it follows it in delivery order only.
+  - PR 12x-3 needs PR 12x-1 (`UnknownSignalStrategy`, used by its concurrency test) and
+    PR 12x-2 (`StrategyHistoryPort`). Its task 9xc.6 needs the owner's answer to Q3.
+  - PR 12x-4 needs PR 12x-3, and PR 12x-1 **deployed**: no strategy may be deletable in
+    production while the webhook still answers a 500 for its leftover alert. The archived case
+    of 9xd.1 needs Q3.
+  - PR 12x-5 needs PR 12x-4 (the refusal bodies it parses). It does NOT need unit 9d: the
+    control ships unmounted. The archived case of 9xe.3 needs Q3.
+  - **Unit 9d and PR 12x-5, either order.** If 12x-5 merges first, unit 9d mounts the control
+    (task 9d.6). If unit 9d merges first, task 9d.6 moves into PR 12x-5 as task 9xe.5. The
+    mounting is one edit and is done once.
+  - PR 12x-6 needs PR 12x-3 and the owner's answer to Q1. It is built only for the answer
+    "enablement events do not block". It may land before or after 12x-4 and 12x-5.
+  - PR 12x-1 to 12x-4 ⟂ the rest of PR 12 (units 9d, 9w, 9p) and PR 13: no shared file.
 
 ### Safe pause points (prefixes)
 
@@ -256,6 +306,12 @@ Unit 9v (added 2026-10-02) adds its own pause points, each deployable and revert
 after **12v-0** (a dev script), after **12v-1** (venue classes nothing calls), after **12v-2**
 (a read endpoint no view uses), after **12v-3** (saves validated; the textarea still works and
 a typo is refused), after **12v-4** (a selector nothing mounts), after **12v-5** (end state).
+
+Unit 9x (added 2026-10-02) adds its own pause points, each deployable and revertible alone:
+after **12x-1** (the webhook refuses an unregistered strategy cleanly; nothing can be deleted
+yet), after **12x-2** (reads nothing calls), after **12x-3** (a use case nothing routes to),
+after **12x-4** (delete works through the API), after **12x-5** (a control nothing mounts until
+9d.6), after **12x-6** if it is built (a toggled test strategy becomes deletable).
 
 ---
 
@@ -1424,6 +1480,7 @@ Forecast: 400–550 lines.
 - [ ] 9d.3 RED `frontend/src/features/strategies/AllowedPairsEditor.test.tsx::test_removing_last_pair_without_replacement_prevented`, `::test_adding_a_pair_submits_full_updated_set`.
 - [ ] 9d.4 GREEN: the container + presentational tree per design's component list; `['strategy',id]`, `['strategy',id,'events']` queries.
 - [ ] 9d.5 (added 2026-10-02, decision 41; needs PR 12v-4) `AllowedPairsEditor` is built on `PairSelector` (unit 9vd), never on a free-text field. RED `frontend/src/features/strategies/AllowedPairsEditor.test.tsx::test_stored_pair_missing_from_the_catalogue_is_kept_and_marked_no_longer_listed` (stored `SFPUSDT`, available pairs without it: the chip stays, and an untouched save sends it), `::test_a_removal_only_save_is_allowed_when_the_available_pairs_failed_to_load`, `::test_adding_is_blocked_while_the_available_pairs_failed_to_load`, `::test_409_pairs_changed_shows_the_review_and_save_again_text`, `::test_422_unknown_pairs_names_the_symbols`. 9d.3's two tests keep their names and meaning, driven through the selector.
+- [ ] 9d.6 (added 2026-10-02, decision 42; needs PR 12x-5) Mount `<DeleteStrategyControl strategy={…} />` in its own block at the bottom of `StrategyDetailPage`, below the archive control (design addendum 9x § H). RED `frontend/src/features/strategies/StrategyDetailPage.test.tsx::test_the_delete_control_is_rendered_below_the_archive_control_for_the_loaded_strategy`. If unit 9d merges before PR 12x-5, this task is done there instead, as 9xe.5, and is ticked here with a pointer.
 
 Gate: `cd frontend && npm run lint && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
@@ -1667,11 +1724,196 @@ Forecast: 400–600 lines.
 - [x] 9vf.1 The ORDER path reads one page of Bybit's catalogue: `bybit/trade_client.py:130` calls `BybitReadOnlyClient.perp_contracts()` (`limit=1000`, no cursor). Past 1,000 `linear` entries, a market on the second page is refused at order time as not listed (P7.2 records today's count). Reuse 9va's cursor loop in the signed client. Its own small PR, because it touches the order path; priority is design addendum § L, Q3. RED first: a two-page listing whose second page holds the ordered symbol.
 - [x] 9vf.2 `tasks.md` "Production now" still names the Bybit pool `bybit/linear/USDT`; the row is `bybit/usdt-m/USDT` (task 6d.1). Correct the label on the next delivery-log update. Done with the PR 12a-2 entry (2026-10-02).
 
-### Unit 9x — delete a strategy that has no history (decision 42, not started)
+### Unit 9x — delete a strategy that has no history (decision 42, designed, not implemented)
 
-- [ ] 9x.1 Design first: list every table that references a strategy (signals, reservations, execution attempts, ledger entries, enablement events and any other), define the no-history check and its lock, and revise the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed". No code before this.
-- [ ] 9x.2 Backend: `DELETE /api/strategies/{id}`, allowed only for a disabled strategy with no history; any history refuses with the reasons, and archive stays the only path. RED first: a strategy with one signal is refused, and a strategy with none is deleted.
-- [ ] 9x.3 Frontend: the delete control on the strategy detail page (unit 9d), behind an explicit confirmation, showing the refusal reasons. Depends on 9x.2.
+- [x] 9x.1 Design first: list every table that references a strategy (signals, reservations, execution attempts, ledger entries, enablement events and any other), define the no-history check and its lock, and revise the spec requirement "Archive Is Terminal — Never Deleted, Never Reversed". No code before this. Done 2026-10-02: design.md, "Addendum: deleting a strategy that has no history (decision 42)"; specs `strategy-lifecycle`, `admin-api` and `operator-panel` revised. Two more references than decision 42 lists were found (`booking_proposals`, `strategy_enablement_events`), and three owner questions are open (design addendum 9x § L).
+
+The two placeholder tasks (9x.2 backend, 9x.3 frontend) are replaced by the units of **PR 12x**
+below. Unit 9d gains task 9d.6.
+
+---
+
+## PR 12x — Delete a strategy that has no history (decision 42) (2,000–2,950 lines; 2,400–3,550 with 12x-6)
+
+Five sequential PRs to `main`, never stacked: **12x-1** (9xa) → **12x-2** (9xb) → **12x-3** (9xc)
+→ **12x-4** (9xd) → **12x-5** (9xe). Each merges and deploys before the next branch is cut.
+**12x-6** (9xf) is conditional on the owner's answer to Q1. No migration in 12x-1 to 12x-5;
+migration 0028 in 12x-6 only.
+
+**Open owner questions and exactly what each blocks** (design addendum 9x § L). Everything not
+listed here can start now.
+
+| Question | Blocks | Does not block |
+|---|---|---|
+| **Q1** Do enablement events count as history? | All of unit 9xf (PR 12x-6). It is built only for "they do not count". | 9xa–9xe. Until answered, events block a delete, which is the only behaviour possible without a migration. |
+| **Q2** Booking proposals as a fifth blocking kind | Nothing. The foreign key forces it; the question is asked so the owner knows. | Everything. |
+| **Q3** May an archived strategy with no history be deleted? | Task **9xc.6**; the archived case of **9xd.1**; the archived case of **9xe.3**. | Every other task of 9xc, 9xd and 9xe. |
+
+Rules that bind every unit here, on top of the cross-cutting rules:
+
+- **RED fails on an ASSERTION.** A new port, class, method or route is first added as a stub that
+  compiles and answers WRONGLY (a history that is always empty, a delete with no check and no
+  lock, a route that always answers 204), in the same commit as the RED test. The first failure
+  is never an `ImportError` or a `TypeError`. Where the wrong behaviour is "another exception is
+  raised", the test captures the exception and asserts on its type, so the failure is still an
+  assertion. Each task records the assertion it failed on. A test that passes at once is proven
+  by the mutation its task names.
+- **The `head` schema is mandatory wherever a foreign key or a trigger decides the outcome.** The
+  ORM-built test database has no foreign key on `signals.strategy_id`,
+  `booking_proposals.strategy_id` or `strategy_enablement_events.strategy_id`, and no append-only
+  trigger (design addendum 9x § A, X2). A test that relies on one and runs on the ORM schema
+  proves nothing. Such files use `tests/pg_head_schema.py` (task 9xa.1) and say why in their
+  docstring.
+- **Concurrency is proven on real PostgreSQL with a lock-hold harness.** The second actor is
+  shown to WAIT: `assert not task.done()` after the first actor is parked on an `asyncio.Event`,
+  AND a poll of `pg_locks` until the second actor shows as waiting, so "still pending" is never
+  mistaken for "not started". Never a `sleep(0)` barrier. Precedents:
+  `tests/strategies/application/test_archive_vs_allocate_concurrency.py` and
+  `tests/strategies/infrastructure/test_replace_allowed_pairs_catalogue_integration.py`.
+- **Lock order.** Pool advisory lock first, then the strategy row lock. One test asserts the order
+  with fakes (9xc.2) and one proves it on PostgreSQL (9xc.5).
+- **Symbol spelling across a boundary.** The alert sends `STXUSDT.P`; a row seeded on the venue
+  side (attempt, ledger entry) is `STXUSDT`; a strategy's allowed pair is `STXUSDT`. No test uses
+  the same spelling on both sides of the webhook or of a module boundary.
+- **What fails here without a log line?** is answered in design addendum 9x § I. Every refusal,
+  the successful delete and the database backstop have a test asserting their one log line and
+  its level. No line carries a token, a credential, a DSN, the webhook secret or a raw payload.
+
+### Unit 9xa — the webhook refuses an alert whose strategy is not registered (300–450 lines) — PR 12x-1
+
+**Files**: Modify `backend/src/strategy_manager/signals/application/{ports,ingest_signal}.py`,
+`backend/src/strategy_manager/signals/infrastructure/{repository,router}.py`; Create
+`backend/tests/pg_head_schema.py`, `backend/tests/test_pg_head_schema.py`,
+`backend/tests/signals/infrastructure/{test_repository_constraint_name,test_unknown_strategy_ingress}.py`;
+Modify `backend/tests/signals/application/test_ingest_signal.py` (new tests only).
+
+- [x] 9xa.1 Test plumbing, no production change: `tests/pg_head_schema.py` gives a module-scoped database created empty and migrated with `alembic upgrade head` in a subprocess, dropped afterwards (the pattern of `tests/migrations/test_0024_strategy_lifecycle.py:140-153`, extracted, not copied a tenth time). `backend/tests/test_pg_head_schema.py::test_the_head_database_has_the_three_foreign_keys_the_orm_schema_lacks` (`fk_signals_strategy`, `fk_booking_proposals_strategy`, `fk_strategy_enablement_events_strategy` in `pg_constraint`). It passes at once; mutation: building the database with `Base.metadata.create_all` instead of alembic reds it.
+- [x] 9xa.2 RED `backend/tests/signals/infrastructure/test_repository_constraint_name.py` (a scripted session, the `tests/accounts/infrastructure/test_credential_vault_constraint_name.py` pattern): `::test_a_violation_of_fk_signals_strategy_raises_unknown_signal_strategy_carrying_the_id`, `::test_any_other_integrity_error_is_reraised_unchanged`, `::test_the_constraint_is_matched_by_name_and_never_by_message_text` (a message that contains the constraint name, with another `constraint_name`, is NOT translated). RED against `UnknownSignalStrategy` declared and the repository unchanged: `assert IntegrityError is UnknownSignalStrategy`.
+- [x] 9xa.3 RED `backend/tests/signals/application/test_ingest_signal.py::test_an_unregistered_strategy_logs_one_warning_naming_the_id_and_the_alerts_symbol_and_reraises` (symbol `STXUSDT.P`), `::test_nothing_is_enqueued_and_nothing_is_committed_for_an_unregistered_strategy`, `::test_the_warning_carries_no_raw_payload`. RED: `assert 0 == 1` on the WARNING count. The other two pass at once; mutations: enqueueing before the insert reds the first, logging `command.raw_payload` reds the second.
+- [x] 9xa.4 RED `backend/tests/signals/infrastructure/test_unknown_strategy_ingress.py` — **`head` database**, the ASGI app with `raise_app_exceptions=False`: `::test_an_alert_for_an_unregistered_strategy_is_422_unknown_strategy_and_persists_nothing` (`detail.error == "UNKNOWN_STRATEGY"`; zero rows in `signals` and `jobs`), `::test_the_same_alert_replayed_is_refused_again_and_still_persists_nothing`, `::test_a_valid_alert_after_a_refused_one_is_accepted` (the session and the app are usable after the rollback), `::test_an_alert_for_a_registered_strategy_is_still_accepted_and_enqueues_one_job` (the strategy allows `STXUSDT`, the alert sends `STXUSDT.P`), `::test_the_refusal_logs_one_warning_and_no_error`. RED: `assert 500 == 422`. The registered-strategy test passes at once; mutation: a pre-insert strategy lookup that always misses reds it.
+- [x] 9xa.5 GREEN: `UnknownSignalStrategy` in `signals/application/ports.py` (documented on `SignalRepositoryPort.insert_or_get`); the repository translates by constraint name; `IngestSignal` logs and re-raises; the route rolls back and answers 422 `{"error": "UNKNOWN_STRATEGY", "message"}` (design addendum 9x § E). No lookup and no lock is added to the ingress path.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: a scripted session and fakes for the unit tests; real PostgreSQL migrated to `head` for the route.
+Rollback boundary: one caught error, one log line and one HTTP mapping on the webhook; revert restores today's unhandled 500. The success path's code is not edited.
+Forecast: 300–450 lines.
+
+### Unit 9xb — `StrategyHistoryPort` and the six counts (450–650 lines) — PR 12x-2
+
+**Files**: Modify `backend/src/strategy_manager/strategies/application/ports.py`,
+`backend/src/strategy_manager/signals/infrastructure/repository.py`,
+`backend/src/strategy_manager/allocation/infrastructure/repository.py`,
+`backend/src/strategy_manager/execution/infrastructure/repository.py`,
+`backend/src/strategy_manager/ledger/infrastructure/repository.py`,
+`backend/src/strategy_manager/reconciliation/infrastructure/booking_proposal_repository.py`,
+`backend/src/strategy_manager/strategies/infrastructure/enablement_log.py`; Create
+`backend/src/strategy_manager/strategies/infrastructure/history_adapter.py`; Create
+`backend/tests/strategies/application/test_strategy_history.py`,
+`backend/tests/strategies/infrastructure/{test_history_adapter_integration,test_strategy_references_guard}.py`;
+Modify `backend/tests/strategies/infrastructure/conftest.py` (register `BookingProposalRow` on the metadata).
+
+- [ ] 9xb.1 RED `backend/tests/strategies/application/test_strategy_history.py::test_is_empty_only_when_all_six_counts_are_zero` (parametrized: each kind alone non-zero), `::test_blocking_names_only_the_nonzero_kinds_in_a_fixed_order`, `::test_the_ports_module_imports_no_type_of_another_module` (module source: no `signals`, `allocation`, `execution`, `ledger` or `reconciliation` import). GREEN in the same task: `StrategyHistory`, `StrategyHistoryPort`. RED against `is_empty()` returning `True`: `assert True is False`.
+- [ ] 9xb.2 RED `backend/tests/strategies/infrastructure/test_history_adapter_integration.py` (real PostgreSQL, the module's conftest; the strategy is on `bybit/usdt-m/USDT`): `::test_a_strategy_with_nothing_counts_zero_in_every_kind`, `::test_one_row_of_each_kind_is_counted_in_its_own_kind` (parametrized over the six), `::test_an_execution_attempt_is_counted_through_its_reservation_its_closed_allocation_and_its_signal` (one of each: the count is 3, and each alone is 1), `::test_terminal_rows_count_too` (a REJECTED signal, a RELEASED reservation, a FAILED attempt, a REJECTED proposal), `::test_another_strategys_rows_are_never_counted`, `::test_a_reservation_in_another_pool_is_counted` (against `pionex/spot/USDT`), `::test_a_signal_spelled_as_tradingview_spells_it_counts_for_a_strategy_allowing_the_market_key` (signal `STXUSDT.P`, attempt `STXUSDT`, allowed pair `STXUSDT`). RED against an adapter stub that answers six zeros: `assert 0 == 1`. The first and the "another strategy" tests pass at once; mutation: dropping the `strategy_id` filter from one count reds both.
+- [ ] 9xb.3 GREEN: `count_for_strategy` on the five provider repositories, `SqlAlchemyEnablementLog.count_for`, `StrategyHistoryAdapter` (design addendum 9x § B, § C). Counts filter by strategy id only, never by pool.
+- [ ] 9xb.4 RED `backend/tests/strategies/infrastructure/test_strategy_references_guard.py` — **`head` database**: `::test_every_foreign_key_into_strategies_is_one_the_history_check_counts` (the set read from `pg_constraint` equals the five names of design addendum 9x § A, each `NO ACTION`), `::test_every_strategy_id_column_belongs_to_a_counted_table` (`information_schema.columns`), `::test_execution_attempts_reach_a_strategy_only_through_reservations_and_signals`, `::test_the_guard_reports_a_reference_added_in_a_transaction` (creates `x(strategy_id uuid REFERENCES strategies(id))` inside a transaction, runs the same check function, asserts it names the new constraint, rolls back). The first three pass at once by construction; the fourth is their mutation, kept as a test. The failure message tells the author to extend `StrategyHistory`.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL. The ORM schema is enough for the counts (they are plain reads); the guard needs `head`.
+Rollback boundary: six read methods, one dataclass, one port and one adapter that nothing calls. The worker imports the edited repository files, so both services restart, with no behaviour change.
+Forecast: 450–650 lines.
+
+### Unit 9xc — `DeleteStrategy`, the delete statement, the lock-hold tests (550–800 lines) — PR 12x-3
+
+**Needs**: PR 12x-1 and PR 12x-2. Task 9xc.6 needs the owner's answer to Q3.
+
+**Files**: Create `backend/src/strategy_manager/strategies/application/delete_strategy.py`; Modify
+`backend/src/strategy_manager/strategies/application/{ports,archive_strategy}.py`,
+`backend/src/strategy_manager/strategies/infrastructure/repository.py`; Create
+`backend/tests/strategies/application/test_delete_strategy.py`,
+`backend/tests/strategies/infrastructure/{test_delete_strategy_integration,test_delete_strategy_concurrency}.py`.
+
+- [ ] 9xc.1 Plumbing: `StrategyRepositoryPort.delete`, `StrategyStillReferenced`, and a `DeleteStrategy` whose `delete()` removes the row with no lock and no check. This is the stub every RED below fails against on an assertion.
+- [ ] 9xc.2 RED `backend/tests/strategies/application/test_delete_strategy.py` (fakes; one shared event log): `::test_an_unknown_id_raises_unknown_strategy_before_any_lock`, `::test_the_pool_lock_is_taken_before_the_row_lock_and_history_is_read_after_both` (`['get_by_id', 'pool_lock', 'get_by_id_for_update', 'history', 'delete', 'commit']`), `::test_the_pool_locked_is_the_strategys_own_exchange_venue_and_settlement_currency`, `::test_a_row_gone_after_the_lock_raises_unknown_strategy`, `::test_an_enabled_strategy_is_refused_before_history_is_read`, `::test_enabled_is_decided_from_the_locked_read_not_the_unlocked_one`, `::test_each_kind_of_history_alone_refuses_and_nothing_is_deleted` (parametrized over the six), `::test_the_refusal_carries_all_six_counts`, `::test_no_history_deletes_and_commits_exactly_once`, `::test_a_database_refusal_becomes_has_history_and_logs_one_error_naming_the_constraint`, `::test_a_successful_delete_logs_one_info_with_id_name_and_pool`, `::test_each_refusal_logs_exactly_one_warning` (parametrized: unknown, enabled, history), `::test_no_refusal_writes_or_commits_anything`. RED: `DID NOT RAISE`, and the event-log comparison.
+- [ ] 9xc.3 GREEN `DeleteStrategy` per design addendum 9x § D, steps 1–4 and 6–8; `SqlAlchemyStrategyRepository.delete` (one `DELETE`, flushed; a foreign-key `IntegrityError` becomes `StrategyStillReferenced(constraint_name)`, by name).
+- [ ] 9xc.4 RED `backend/tests/strategies/infrastructure/test_delete_strategy_integration.py` — **`head` database**, the real repository, lock adapter and history adapter: `::test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id` (the five tables of § A are scanned), `::test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_for_byte_unchanged`, `::test_the_database_refuses_a_delete_the_count_wrongly_allowed` (a history fake that answers zeros over a strategy with one enablement event: `StrategyHasHistory`, one ERROR naming `fk_strategy_enablement_events_strategy`, the row and the event remain, and the session is usable after the rollback), `::test_a_deleted_id_registers_again_with_no_event_and_zero_uptime`. RED against the 9xc.1 stub for the ledger test (`DID NOT RAISE`); the backstop test is RED until `delete` translates the error (`assert IntegrityError is StrategyHasHistory`).
+- [ ] 9xc.5 RED `backend/tests/strategies/infrastructure/test_delete_strategy_concurrency.py` — **`head` database**, lock-hold harness, no `sleep(0)` barrier:
+  - `::test_delete_waits_for_a_signal_being_ingested_then_is_refused_with_one_signal` — a real `IngestSignal` for `STXUSDT.P` is parked before its commit, after its `INSERT`. The delete is started: `not task.done()`, and `pg_locks` shows it waiting on the strategy row. The ingest commits; the delete raises `StrategyHasHistory` with `signals == 1`; the strategy and the signal exist. Non-vacuity, recorded and not committed: with `fk_signals_strategy` dropped in the test database the delete does not wait and the test is red.
+  - `::test_a_signal_waits_for_a_delete_in_flight_then_is_refused_and_nothing_is_persisted` — the delete is parked before its commit, after its `DELETE`. The ingest is started: `not task.done()`. The delete commits; the ingest raises `UnknownSignalStrategy`; `signals` and `jobs` are empty.
+  - `::test_delete_waits_on_the_pool_advisory_lock_and_holds_no_row_lock_meanwhile` — a holder takes the advisory lock of `(bybit, usdt-m, USDT)` through allocation's own `PgAdvisoryLockAdapter`. The delete is started: `not task.done()`, `pg_locks` shows it waiting on an `advisory` lock, and a third connection takes the strategy row with `SELECT ... FOR UPDATE NOWAIT` and succeeds. Mutation: taking the row lock before the pool lock makes `NOWAIT` raise `LockNotAvailableError`. A second mutation: a `PoolLockAdapter` deriving another key makes the delete not wait.
+  - `::test_delete_waits_for_an_enable_in_flight_then_is_refused_still_enabled` — an `UpdateStrategy` enabling the strategy is parked before its commit.
+  - `::test_an_archive_waiting_behind_a_delete_answers_unknown_strategy` — the delete is parked before its commit; the archive waits; after the commit it raises `UnknownStrategy`.
+  - `::test_two_concurrent_deletes_delete_once_and_the_second_answers_unknown_strategy`.
+- [ ] 9xc.6 **(blocked by Q3)** The archived branch. RED `backend/tests/strategies/application/test_delete_strategy.py::test_an_archived_strategy_with_no_history_<is_deleted | is_refused_strategy_archived>`, plus `::test_an_archived_strategy_with_history_is_refused_has_history`. GREEN: step 5 of § D, per the owner's answer. Until then `DeleteStrategy` has no archived branch, and the spec states neither outcome.
+- [ ] 9xc.7 `archive_strategy.py:170`: remove `# pragma: no cover -- strategies are never deleted` and its comment; the branch is now reachable and is covered by 9xc.5's archive test. No other line of `ArchiveStrategy` changes.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL migrated to `head`; lock-hold harness on BOTH locks (`rules.tasks`: advisory locks have no meaningful fake). The row lock's partner is the foreign key's own `FOR KEY SHARE`, which exists only on `head`.
+Rollback boundary: one use case, one repository method and one port method that no route calls; one deleted pragma. Revert removes them; nothing in production can delete a strategy before PR 12x-4.
+Forecast: 550–800 lines.
+
+### Unit 9xd — `DELETE /api/strategies/{id}` (300–450 lines) — PR 12x-4
+
+**Needs**: PR 12x-3, and PR 12x-1 **deployed**. The archived case of 9xd.1 needs Q3.
+
+**Files**: Modify `backend/src/strategy_manager/strategies/infrastructure/router.py`; Modify
+`backend/tests/strategies/infrastructure/test_router.py` (new tests only).
+
+- [ ] 9xd.1 RED `backend/tests/strategies/infrastructure/test_router.py` (a client with `raise_app_exceptions=False`): `::test_delete_a_strategy_with_no_history_204_no_body_and_get_is_404_afterwards`, `::test_delete_unknown_id_404`, `::test_delete_repeated_404`, `::test_delete_enabled_409_still_enabled_and_the_strategy_remains_enabled`, `::test_delete_with_history_409_has_history_carries_all_six_integer_counts` (one signal for `STXUSDT.P` on a strategy allowing `STXUSDT`; `detail.history == {"signals": 1, "reservations": 0, "execution_attempts": 0, "ledger_entries": 0, "booking_proposals": 0, "enablement_events": 0}`), `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`, `::test_delete_database_refusal_is_409_has_history_never_500` (`dependency_overrides[get_delete_strategy]`), `::test_after_a_delete_events_performance_and_archive_answer_404`, `::test_a_deleted_id_registers_again_201_with_zero_uptime`, `::test_a_refused_delete_leaves_the_session_usable_for_the_next_request`. **(Blocked by Q3)** `::test_delete_archived_with_no_history_<204 | 409_strategy_archived>`. RED against a route that always answers 204: `assert 200 == 404`, `assert 204 == 409`.
+- [ ] 9xd.2 GREEN: the route, `get_delete_strategy` (the `get_register_strategy` pattern), the mapping of design addendum 9x § F, and `session.rollback()` on every refusal. The module docstring's "nothing here executes a trade" stays true; add one sentence on the delete.
+- [ ] 9xd.3 Confirm, unmodified: `tests/strategies/infrastructure/test_router_auth.py::test_every_registered_route_refuses_a_request_without_a_token` enumerates the new route and it answers 401. If any route-inventory test must be taught the new `DELETE`, record the edit here; no assertion is relaxed.
+- [ ] 9xd.4 Owner step, after the deploy and at the owner's choice: delete the two test strategies with `curl -X DELETE` against `/api/strategies/{id}` (the admin token is never pasted into a chat or a log), or wait for the panel control. A 409 `HAS_HISTORY` naming `enablement_events` is Q1 showing up in production; record what was answered in the delivery log.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: `httpx.AsyncClient` over ASGI, real PostgreSQL through the module's conftest. The ORM schema is enough here: the route maps what 9xc proved on `head`, and the database-refusal case is driven by a dependency override.
+Rollback boundary: one route and its dependency factory; revert answers 405 on `DELETE`. Strategies deleted meanwhile stay deleted.
+Forecast: 300–450 lines.
+
+### Unit 9xe — the panel's delete control (400–600 lines) — PR 12x-5
+
+**Needs**: PR 12x-4. Not unit 9d. The archived case of 9xe.3 needs Q3.
+
+**Files**: Modify `frontend/src/shared/api/strategies.ts`; Create
+`frontend/src/shared/api/strategies.delete.test.ts`,
+`frontend/src/features/strategies/{DeleteStrategyControl,DeleteStrategyDialog}.tsx` and their
+`.test.tsx`; Modify `frontend/src/shared/i18n/locales/{en,es}.json`.
+
+- [ ] 9xe.1 RED `frontend/src/shared/api/strategies.delete.test.ts::sends DELETE /api/strategies/{id} and resolves on a 204`, `::removes the deleted strategy's queries instead of refetching them`, `::invalidates both strategies lists on success`, `::treats a 404 as already deleted and runs the same cache effects`, `::keeps the code and the history counts of a 409`. GREEN in the same task: `deleteStrategy`, `useDeleteStrategy(strategyId)`. RED against a stub that sends a `GET` and touches no cache.
+- [ ] 9xe.2 RED `frontend/src/features/strategies/DeleteStrategyDialog.test.tsx::test_confirm_is_disabled_until_the_typed_text_equals_the_name`, `::test_enter_in_the_field_does_not_confirm_while_the_name_does_not_match`, `::test_cancel_and_escape_call_onCancel_and_never_onConfirm`, `::test_it_states_that_the_delete_cannot_be_undone`, `::test_still_enabled_refusal_is_rendered`, `::test_has_history_names_each_nonzero_kind_with_its_count_and_no_zero_kind` (3 signals, 2 ledger entries; no "reservations" line), `::test_has_history_says_the_strategy_can_be_archived_instead`, `::test_a_missing_or_malformed_history_shows_the_main_sentence_alone`, `::test_pending_disables_both_buttons`, `::test_every_control_has_an_accessible_name`, `::test_every_key_exists_in_en_and_es`. RED against a component that renders an empty `<dialog />`. Texts are read through `i18n.t`, so a missing key fails on its text.
+- [ ] 9xe.3 RED `frontend/src/features/strategies/DeleteStrategyControl.test.tsx::test_a_single_click_opens_the_confirmation_and_sends_no_request`, `::test_the_button_is_disabled_with_a_hint_while_the_strategy_is_enabled`, `::test_a_confirmed_delete_sends_the_request_and_navigates_to_the_list_with_replace`, `::test_a_404_navigates_to_the_list_without_showing_an_error`, `::test_a_refusal_keeps_the_dialog_open_and_does_not_navigate`, `::test_texts_render_in_es`. **(Blocked by Q3)** `::test_the_control_for_an_archived_strategy_<is_offered | is_not_offered>`.
+- [ ] 9xe.4 GREEN: both components per design addendum 9x § H; `strategies.delete.*` keys in EN and ES. Native `<dialog>`, palette tokens only, no new dependency.
+- [ ] 9xe.5 Only if unit 9d merged before this PR: mount the control (task 9d.6) here and tick 9d.6 with a pointer. Otherwise this task is void and 9d.6 stands.
+
+Gate: `cd frontend && npm run lint && npm test`.
+Harness: `vi.stubGlobal("fetch")`; the dialog is tested as a presentational component with props.
+Rollback boundary: three new files, one hook and i18n keys; nothing mounts them until 9d.6. The server refuses on its own.
+Forecast: 400–600 lines.
+
+### Unit 9xf — enablement events are deleted with their strategy, migration 0028 (400–600 lines) — PR 12x-6
+
+**Conditional. Built ONLY if the owner answers Q1 with "enablement events do not block a
+delete". Blocked until that answer is recorded in owner-decisions.md. Not started and not to be
+started on an assumption.**
+
+**Needs**: PR 12x-3. Independent of 12x-4 and 12x-5.
+
+**Files**: Create `backend/migrations/versions/0028_enablement_events_cascade.py`,
+`backend/tests/migrations/test_0028_enablement_events_cascade.py`; Modify
+`backend/src/strategy_manager/strategies/application/{ports,delete_strategy}.py`,
+`backend/tests/strategies/application/{test_strategy_history,test_delete_strategy}.py`,
+`backend/tests/strategies/infrastructure/{test_strategy_references_guard,test_delete_strategy_integration,test_router}.py`;
+Modify `specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md` (the two "Open" notes become the decided text).
+
+- [ ] 9xf.0 Record the owner's answer as a decision in owner-decisions.md and revise the two spec requirements. No code before this.
+- [ ] 9xf.1 RED `backend/tests/migrations/test_0028_enablement_events_cascade.py` (the `tests/migrations/` pattern): `::test_deleting_a_strategy_takes_its_enablement_events_with_it` — **this is the design's assumption** (inside the cascade the trigger no longer sees the parent row); if it cannot be made green with the `NOT EXISTS` condition, stop, record it, and amend design addendum 9x § G to the `pg_trigger_depth()` fallback before writing anything else; `::test_a_direct_delete_of_an_event_whose_strategy_exists_is_still_refused` (SQLSTATE `23001`), `::test_an_update_of_an_event_is_still_refused`, `::test_a_strategy_with_a_signal_is_still_refused_and_its_events_survive` (constraint name `fk_signals_strategy`), `::test_truncate_strategies_cascade_still_works` (the conftests rely on it), `::test_downgrade_restores_no_action_and_the_unconditional_trigger`, `::test_upgrade_downgrade_upgrade_is_clean`, `::test_the_migration_moves_no_row`.
+- [ ] 9xf.2 GREEN: migration 0028, `down_revision = "0027"` (design addendum 9x § G: `CREATE OR REPLACE FUNCTION`, then the foreign key recreated with `ON DELETE CASCADE`; the downgrade restores both and logs one WARNING).
+- [ ] 9xf.3 RED: `test_strategy_history.py::test_enablement_events_alone_do_not_block`; `test_delete_strategy.py::test_a_strategy_with_only_enablement_events_is_deleted`, `::test_the_info_line_names_the_events_deleted_the_first_enable_time_and_the_uptime`; `test_delete_strategy_integration.py::test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events`; `test_router.py::test_delete_a_toggled_strategy_204`; `test_strategy_references_guard.py` expects `CASCADE` on the events key and `NO ACTION` on the other four. The tests they replace are renamed in the same commit, never deleted silently: 9xb.1's and 9xc.2's `enablement_events` parameter, 9xc.4's `::test_the_database_refuses_a_delete_the_count_wrongly_allowed` (re-pointed at a foreign key that is still `NO ACTION`), 9xd.1's `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`.
+- [ ] 9xf.4 GREEN: `StrategyHistory.blocking()` no longer includes `enablement_events`; the count stays in the body for the other refusals and feeds the INFO line.
+- [ ] 9xf.5 Owner step: the 0028 rehearsal of "Migration rehearsal", on a throwaway database restored from a fresh backup, before production migrates. Then deploy: pull, `alembic upgrade head`, restart both services.
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: real PostgreSQL, migration up and down; the VPS rehearsal.
+Rollback boundary: migration 0028's downgrade (schema only, no data discarded, no refusal clause) and one change to `blocking()`. Reverting the code alone, with 0028 applied, restores "events block" in the application; the cascade then never fires.
+Forecast: 400–600 lines.
 
 ---
 
