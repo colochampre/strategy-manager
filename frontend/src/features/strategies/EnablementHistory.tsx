@@ -31,10 +31,11 @@ export function EnablementHistory({ strategyId }: EnablementHistoryProps) {
   } else if (events.status === "success") {
     body = (
       // A long history scrolls inside its own box instead of pushing the page down; focusable so the keyboard can scroll it.
+      // Four rows show: with the webhook block below it, a taller box pushes the delete control off the screen.
       <ul
         aria-label={title}
         tabIndex={0}
-        className="flex max-h-100 flex-col gap-1 overflow-y-auto font-mono text-xs text-ink-2"
+        className="flex max-h-18 flex-col gap-1 overflow-y-auto font-mono text-xs text-ink-2"
       >
         {[...events.data].reverse().map((event) => {
           const state = t(event.enabled ? "strategies.detail.history.enabled" : "strategies.detail.history.disabled");
