@@ -280,7 +280,9 @@ nothing:
   `HAS_HISTORY` and a `detail.history` object that always carries the six
   integer counts `signals`, `reservations`, `execution_attempts`,
   `ledger_entries`, `booking_proposals` and `enablement_events`, counted across
-  every capital pool `(exchange, venue, settlement_currency)`;
+  every capital pool `(exchange, venue, settlement_currency)`. Enablement
+  events are reported but are not history: they never cause a refusal on their
+  own, and a strategy that has only them is deleted with them;
 - a delete the database refuses although every count is zero MUST answer 409
   `HAS_HISTORY` too, never a 5xx.
 
@@ -288,8 +290,11 @@ No response of this endpoint MUST contain a credential, a balance, or a sum of
 money across pools. The refusals of the other strategy endpoints MUST keep
 their status and shape.
 
-> **Open (design addendum 9x § L, Q3).** The answer for an archived strategy
-> with no history is not stated until the owner decides it.
+> **Decided 2026-10-02 (owner decision 42, design addendum 9x § L, Q3).** An
+> archived strategy with no history is deleted like any other disabled one.
+>
+> **Decided 2026-10-02 (owner decision 42, design addendum 9x § L, Q1).**
+> Enablement events do not block the delete (migration 0028).
 
 #### Scenario: A disabled strategy with no history is deleted
 
@@ -327,11 +332,17 @@ their status and shape.
 - WHEN `DELETE /api/strategies/{S1}` is called
 - THEN it answers 409 with `detail.error` `HAS_HISTORY` and `detail.history` `{"signals": 3, "reservations": 1, "execution_attempts": 1, "ledger_entries": 2, "booking_proposals": 0, "enablement_events": 0}`, and S1 and all seven rows still exist
 
-#### Scenario: A strategy that was only ever toggled is a 409 naming its events
+#### Scenario: A strategy that was only ever toggled is deleted with its events
 
 - GIVEN a valid bearer token and strategy S1, disabled, with no signal and 2 enablement events
 - WHEN `DELETE /api/strategies/{S1}` is called
-- THEN it answers 409 with `detail.error` `HAS_HISTORY` and `detail.history.enablement_events` 2, every other count 0
+- THEN it answers 204 with no body, and `GET /api/strategies/{S1}` answers 404 afterwards
+
+#### Scenario: Events do not hide the other history
+
+- GIVEN a valid bearer token and strategy S1, disabled, with 1 signal and 2 enablement events
+- WHEN `DELETE /api/strategies/{S1}` is called
+- THEN it answers 409 with `detail.error` `HAS_HISTORY` and `detail.history` carrying `signals` 1 and `enablement_events` 2, and S1, the signal and both events still exist
 
 #### Scenario: After a delete the strategy's other routes answer 404
 
