@@ -1855,7 +1855,7 @@ Forecast: 450–650 lines.
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
 Harness: real PostgreSQL migrated to `head`; lock-hold harness on BOTH locks (`rules.tasks`: advisory locks have no meaningful fake). The row lock's partner is the foreign key's own `FOR KEY SHARE`, which exists only on `head`.
 Rollback boundary: one use case, one repository method and one port method that no route calls; one deleted pragma. Revert removes them; nothing in production can delete a strategy before PR 12x-4.
-Forecast: 550–800 lines.
+Forecast: 550–800 lines. Actual: 1,627 lines over three code commits (445f84d 708, dde0191 410, c10a0b6 509), of which about 200 are production code and the rest tests. The owner approved a size exception on 2026-10-03: one PR, not split. The forecast missed because of the test files, so the 12x-4 and 12x-5 forecasts are likely low too.
 
 ### Unit 9xd — `DELETE /api/strategies/{id}` (300–450 lines) — PR 12x-4
 
