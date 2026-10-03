@@ -6,7 +6,7 @@ import { AppRoutes } from "@/app/router";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { AppShell } from "@/shared/layout/AppShell";
-import { lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
 
 function renderShell(path = "/") {
   return renderAt(
@@ -216,8 +216,25 @@ describe("layout contract", () => {
     expect(main.className).not.toMatch(/\bmax-w-/);
     const column = main.firstElementChild as HTMLElement;
     expect(column).toHaveClass("mx-auto", "w-full", "max-w-[90rem]");
-    // It passes the one-viewport contract down, so the token gate still fills it.
-    expect(column).toHaveClass("flex", "flex-1", "flex-col", "min-h-0");
+    // It fills `main` (so the token gate still fills it) and is a flex column.
+    expect(column).toHaveClass("flex", "flex-1", "flex-col");
+  });
+
+  it("test_the_content_column_grows_with_its_content_so_the_bottom_padding_sits_below_the_last_row", () => {
+    renderShell();
+
+    const main = screen.getByRole("main");
+    // `main` pads every edge, the bottom one included, at both widths.
+    expect(main.className).toMatch(/(^|\s)p-\d/);
+    expect(main.className).toMatch(/(^|\s)lg:py-\d/);
+    // The padding only helps if the column is as tall as its content. With
+    // `min-h-0` the column is capped at the space `main` leaves, the content
+    // overflows it, and the last row ends flush with the scroll edge, because
+    // the padding sits under the capped column, not under the content (7p.3).
+    const column = main.firstElementChild as HTMLElement;
+    expect(column).not.toHaveClass("min-h-0");
+    // `main` is the one scroller and still may shrink below its content.
+    expect(main).toHaveClass("min-h-0", "overflow-auto");
   });
 
   it("does not reserve bottom-bar space with padding hacks that can overflow", () => {
@@ -247,6 +264,27 @@ describe("layout contract", () => {
 });
 
 describe("pages", () => {
+  it("test_an_overview_with_several_pools_has_no_height_cap_between_its_content_and_main", async () => {
+    const pools = [pool("bybit", "usdt-m", "USDT"), pool("bybit", "coin-m", "BTC"), pool("bybit", "coin-m", "ETH")];
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], { kind: "ok", body: pools });
+    renderAt(<AppRoutes />, "/");
+
+    const main = screen.getByRole("main");
+    const title = await screen.findByRole("heading", { level: 1, name: "Overview" });
+    expect(await screen.findAllByRole("region", { name: /USDT|BTC|ETH/ })).not.toHaveLength(0);
+    // Every ancestor up to `main` must be as tall as its content, or the last
+    // panel overflows it and ends flush with the scroll edge (7p.3).
+    let node = title.parentElement;
+    let depth = 0;
+    while (node !== null && node !== main) {
+      expect(node.className).not.toMatch(/(^|\s)(min-h-0|overflow-\S+|max-h-\S+|h-\S+)(\s|$)/);
+      node = node.parentElement;
+      depth += 1;
+    }
+    expect(node).toBe(main);
+    expect(depth).toBeGreaterThan(1);
+  });
+
   it("renders the routed shell from the real route map", async () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
     renderAt(<AppRoutes />, "/settings");
