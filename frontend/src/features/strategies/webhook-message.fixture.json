@@ -1,0 +1,12 @@
+{
+  "data": {
+    "action": "{{strategy.order.action}}",
+    "contracts": "{{strategy.order.contracts}}",
+    "position_size": "{{strategy.position_size}}"
+  },
+  "price": "{{close}}",
+  "signal_param": "{}",
+  "signal_type": "<strategy-id>",
+  "symbol": "{{ticker}}",
+  "time": "{{timenow}}"
+}

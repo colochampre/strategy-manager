@@ -106,11 +106,15 @@ describe("LedgerLine", () => {
     );
   });
 
-  it("holds each label with its value: a line may wrap between pairs, never inside one", () => {
+  it("holds each label with its value from lg up: a narrow screen may break inside a pair", () => {
     render(<LedgerLine {...BASE} currency="BTC" available="0.12345678" pnl="0.00012340" />);
     const pairs = screen.queryAllByTestId("ledger-pair");
     expect(pairs).toHaveLength(4);
-    for (const pair of pairs) expect(pair).toHaveClass("whitespace-nowrap");
+    for (const pair of pairs) {
+      expect(pair).toHaveClass("lg:whitespace-nowrap");
+      // Unconditional, a pair wider than a small screen overflows it sideways.
+      expect(pair).not.toHaveClass("whitespace-nowrap");
+    }
     expect(screen.getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
     const [lead, pnl, ret, deepest] = pairs as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
     expect(lead).toContainElement(screen.getByTestId("ledger-lead"));

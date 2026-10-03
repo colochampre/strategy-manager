@@ -184,6 +184,17 @@
         "saveFailed": "The allowed pairs were not saved. Try again."
       }
     },
+    "webhook": {
+      "title": "Connect a TradingView alert",
+      "hint": "Use the same URL and message for every pair's alert. The ticker travels in the message.",
+      "urlLabel": "Webhook URL",
+      "messageLabel": "Alert message",
+      "secretPlaceholder": "<your WEBHOOK_SECRET>",
+      "show": "Show secret",
+      "showing": "Fetching the secret…",
+      "hide": "Hide secret",
+      "error": "The secret could not be loaded. The URL still shows the placeholder."
+    },
     "archive": {
       "title": "Archive strategy",
       "description": "Archiving is permanent: the strategy stops for good and its history is kept.",

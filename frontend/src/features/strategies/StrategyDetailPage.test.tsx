@@ -223,6 +223,17 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
   });
 
+  it("shows the webhook message of the loaded strategy, with its id as signal_type, above the delete control", async () => {
+    renderPage();
+    await heading("ETH Breakout");
+
+    const message = screen.getByRole("group", { name: en.strategies.webhook.messageLabel });
+    expect(JSON.parse(message.textContent ?? "")).toMatchObject({ signal_type: ID });
+    expect(screen.getByText(`/webhook/tradingview?secret=${en.strategies.webhook.secretPlaceholder}`)).toBeInTheDocument();
+    const deleteButton = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
+    expect(message.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("renders in Spanish and has the same keys in both locales", async () => {
     await i18n.changeLanguage("es");
     renderPage(strategy({ uptime: { seconds: 2 * DAY, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: false } }));

@@ -184,6 +184,17 @@
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       }
     },
+    "webhook": {
+      "title": "Conectar una alerta de TradingView",
+      "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje.",
+      "urlLabel": "URL del webhook",
+      "messageLabel": "Mensaje de la alerta",
+      "secretPlaceholder": "<su WEBHOOK_SECRET>",
+      "show": "Mostrar el secreto",
+      "showing": "Obteniendo el secreto…",
+      "hide": "Ocultar el secreto",
+      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador."
+    },
     "archive": {
       "title": "Archivar estrategia",
       "description": "Archivar es permanente: la estrategia se detiene para siempre y su historial se conserva.",
