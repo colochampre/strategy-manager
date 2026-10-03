@@ -152,6 +152,37 @@
     },
     "detail": {
       "title": "Estrategia"
+    },
+    "delete": {
+      "title": "Eliminar estrategia",
+      "description": "Elimina esta estrategia de forma permanente. Solo se puede eliminar una estrategia sin historial.",
+      "button": "Eliminar estrategia",
+      "disabledHint": "Desactive la estrategia primero.",
+      "confirmTitle": "¿Eliminar {{name}}?",
+      "confirmBody": "{{name}} se eliminará de forma permanente. Esta acción no se puede deshacer.",
+      "typeName": "Escriba el nombre de la estrategia para confirmar",
+      "confirm": "Eliminar definitivamente",
+      "cancel": "Cancelar",
+      "pending": "Eliminando…",
+      "errors": {
+        "stillEnabled": "Esta estrategia sigue activada. Desactívela primero.",
+        "hasHistory": "Esta estrategia tiene historial, por lo que no se puede eliminar. Archívela en su lugar.",
+        "generic": "No se eliminó la estrategia. Inténtelo de nuevo."
+      },
+      "history": {
+        "signals_one": "{{count}} señal",
+        "signals_other": "{{count}} señales",
+        "reservations_one": "{{count}} reserva",
+        "reservations_other": "{{count}} reservas",
+        "executionAttempts_one": "{{count}} intento de ejecución",
+        "executionAttempts_other": "{{count}} intentos de ejecución",
+        "ledgerEntries_one": "{{count}} asiento del libro mayor",
+        "ledgerEntries_other": "{{count}} asientos del libro mayor",
+        "bookingProposals_one": "{{count}} propuesta de registro",
+        "bookingProposals_other": "{{count}} propuestas de registro",
+        "enablementEvents_one": "{{count}} evento de activación",
+        "enablementEvents_other": "{{count}} eventos de activación"
+      }
     }
   },
   "settings": {
