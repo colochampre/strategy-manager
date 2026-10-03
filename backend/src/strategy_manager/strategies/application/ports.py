@@ -2,7 +2,7 @@
 provider owns the adapter — ``main.py`` binds them together.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -164,6 +164,52 @@ class StrategyExposurePort(Protocol):
     (design.md's component inventory)."""
 
     async def exposure(self, strategy_id: UUID, pool: PoolKey) -> StrategyExposure: ...
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyHistory:
+    """How many rows of each kind reference a strategy (design.md addendum
+    9x, § C). ``DeleteStrategy`` deletes only when every count is zero.
+
+    Counts are by strategy id alone, across EVERY capital pool: a strategy
+    lives in one pool and cannot be moved, so a row in another pool should
+    not exist, and if one does it must still block. Plain integers: nothing
+    of ``signals``, ``allocation``, ``execution``, ``ledger`` or
+    ``reconciliation`` appears here, so this port stays free of those modules.
+
+    The six kinds are the five foreign keys into ``strategies`` plus the
+    execution attempts that reach a strategy through a reservation or a
+    signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
+    fails when a migration adds a reference this class does not count.
+    """
+
+    signals: int
+    reservations: int
+    execution_attempts: int
+    ledger_entries: int
+    booking_proposals: int
+    enablement_events: int
+
+    def blocking(self) -> dict[str, int]:
+        """The non-zero kinds, in the fixed order of the fields."""
+        return {
+            field.name: count
+            for field in fields(self)
+            if (count := getattr(self, field.name)) > 0
+        }
+
+    def is_empty(self) -> bool:
+        return not self.blocking()
+
+
+class StrategyHistoryPort(Protocol):
+    """Implemented by
+    ``strategies.infrastructure.history_adapter.StrategyHistoryAdapter``,
+    which composes one narrow count per provider repository, following the
+    ``StrategyExposurePort`` precedent. Takes no pool: see ``StrategyHistory``.
+    Read-only: it takes no lock and writes nothing."""
+
+    async def history(self, strategy_id: UUID) -> StrategyHistory: ...
 
 
 class PoolLockPort(Protocol):
