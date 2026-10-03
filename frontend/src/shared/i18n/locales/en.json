@@ -194,6 +194,28 @@
         "empty": "No pair has a closed trade yet.",
         "unreadable": "The figures by pair could not be read.",
         "noReturn": "No capital at open is recorded for this pair's trades, so it has no return."
+      },
+      "trades": {
+        "title": "Closed trades",
+        "opened": "Opened (UTC)",
+        "closed": "Closed (UTC)",
+        "pair": "Pair",
+        "side": "Side",
+        "direction": { "LONG": "LONG", "SHORT": "SHORT" },
+        "pnl": "PnL {{currency}}",
+        "return": "Return",
+        "capital": "Pool capital at open",
+        "feesIncomplete": "fees incomplete",
+        "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
+        "noValue": "No capital at open is recorded for this trade, so it has no return.",
+        "cellUnreadable": "unreadable",
+        "loading": "Loading the closed trades…",
+        "error": "The closed trades could not be loaded.",
+        "retry": "Try again",
+        "empty": "No closed trades yet.",
+        "loadMore": "Load more",
+        "loadingMore": "Loading…",
+        "nextFailed": "The next page could not be loaded. The trades above are still shown."
       }
     },
     "webhook": {

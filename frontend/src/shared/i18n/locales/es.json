@@ -194,6 +194,28 @@
         "empty": "Ningún par tiene todavía una operación cerrada.",
         "unreadable": "No se pudieron leer las cifras por par.",
         "noReturn": "No hay capital registrado al abrir las operaciones de este par, por lo que no tiene rendimiento."
+      },
+      "trades": {
+        "title": "Operaciones cerradas",
+        "opened": "Apertura (UTC)",
+        "closed": "Cierre (UTC)",
+        "pair": "Par",
+        "side": "Sentido",
+        "direction": { "LONG": "Largo", "SHORT": "Corto" },
+        "pnl": "PnL {{currency}}",
+        "return": "Rendimiento",
+        "capital": "Capital del pool al abrir",
+        "feesIncomplete": "comisiones incompletas",
+        "feesIncompleteHint": "Una comisión pagada en una tercera moneda no está en este PnL.",
+        "noValue": "No hay capital registrado al abrir esta operación, por lo que no tiene rendimiento.",
+        "cellUnreadable": "ilegible",
+        "loading": "Cargando las operaciones cerradas…",
+        "error": "No se pudieron cargar las operaciones cerradas.",
+        "retry": "Reintentar",
+        "empty": "Todavía no hay operaciones cerradas.",
+        "loadMore": "Cargar más",
+        "loadingMore": "Cargando…",
+        "nextFailed": "No se pudo cargar la página siguiente. Las operaciones de arriba siguen visibles."
       }
     },
     "webhook": {

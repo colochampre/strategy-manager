@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type {
@@ -165,6 +165,21 @@ export function useStrategyPerformance(strategyId: string) {
   return useQuery({
     queryKey: ["performance", "strategy", strategyId],
     queryFn: () => fetchStrategyPerformance(strategyId),
+    staleTime: PERFORMANCE_STALE_MS,
+  });
+}
+
+/**
+ * `['performance','strategy',id,'trades']` (design.md § 15): an infinite query on the
+ * keyset cursor. The next page's parameter is exactly the `next_cursor` the server
+ * answered; a null cursor ends the list.
+ */
+export function useStrategyTrades(strategyId: string) {
+  return useInfiniteQuery({
+    queryKey: ["performance", "strategy", strategyId, "trades"],
+    initialPageParam: null as TradeCursor | null,
+    queryFn: ({ pageParam }) => fetchStrategyTrades(strategyId, pageParam),
+    getNextPageParam: (lastPage) => lastPage.next_cursor,
     staleTime: PERFORMANCE_STALE_MS,
   });
 }
