@@ -1741,17 +1741,18 @@ below. Unit 9d gains task 9d.6.
 
 Five sequential PRs to `main`, never stacked: **12x-1** (9xa) → **12x-2** (9xb) → **12x-3** (9xc)
 → **12x-4** (9xd) → **12x-5** (9xe). Each merges and deploys before the next branch is cut.
-**12x-6** (9xf) is conditional on the owner's answer to Q1. No migration in 12x-1 to 12x-5;
-migration 0028 in 12x-6 only.
+**12x-6** (9xf) was conditional on the owner's answer to Q1, which is now "they do not count"
+(decision 42), so it is built, after 12x-3. No migration in 12x-1 to 12x-5; migration 0028 in
+12x-6 only.
 
-**Open owner questions and exactly what each blocks** (design addendum 9x § L). Everything not
-listed here can start now.
+**Owner questions of design addendum 9x § L: all three ANSWERED 2026-10-02** (owner-decisions.md,
+decision 42). Nothing is blocked on an answer any more.
 
-| Question | Blocks | Does not block |
+| Question | Answer | Effect on the tasks |
 |---|---|---|
-| **Q1** Do enablement events count as history? | All of unit 9xf (PR 12x-6). It is built only for "they do not count". | 9xa–9xe. Until answered, events block a delete, which is the only behaviour possible without a migration. |
-| **Q2** Booking proposals as a fifth blocking kind | Nothing. The foreign key forces it; the question is asked so the owner knows. | Everything. |
-| **Q3** May an archived strategy with no history be deleted? | Task **9xc.6**; the archived case of **9xd.1**; the archived case of **9xe.3**. | Every other task of 9xc, 9xd and 9xe. |
+| **Q1** Do enablement events count as history? | **No: they are deleted with the strategy.** | Unit 9xf (PR 12x-6) is in scope. Until it is deployed, events still block a delete (fail closed): 9xa–9xe keep `enablement_events` as a blocking kind, which is the only behaviour possible without a migration. |
+| **Q2** Booking proposals as a fifth blocking kind | **Yes: they block.** | None. The foreign key forces it; it is already one of the six counts. |
+| **Q3** May an archived strategy with no history be deleted? | **Yes.** An archived strategy is still never re-enabled or un-archived. | Task **9xc.6** and the archived cases of **9xd.1** and **9xe.3** are unblocked and take the "is deleted" branch. |
 
 Rules that bind every unit here, on top of the cross-cutting rules:
 
@@ -1828,7 +1829,7 @@ Forecast: 450–650 lines.
 
 ### Unit 9xc — `DeleteStrategy`, the delete statement, the lock-hold tests (550–800 lines) — PR 12x-3
 
-**Needs**: PR 12x-1 and PR 12x-2. Task 9xc.6 needs the owner's answer to Q3.
+**Needs**: PR 12x-1 and PR 12x-2. Task 9xc.6 was waiting on Q3, answered "yes" (decision 42).
 
 **Files**: Create `backend/src/strategy_manager/strategies/application/delete_strategy.py`; Modify
 `backend/src/strategy_manager/strategies/application/{ports,archive_strategy}.py`,
@@ -1847,7 +1848,7 @@ Forecast: 450–650 lines.
   - `::test_delete_waits_for_an_enable_in_flight_then_is_refused_still_enabled` — an `UpdateStrategy` enabling the strategy is parked before its commit.
   - `::test_an_archive_waiting_behind_a_delete_answers_unknown_strategy` — the delete is parked before its commit; the archive waits; after the commit it raises `UnknownStrategy`.
   - `::test_two_concurrent_deletes_delete_once_and_the_second_answers_unknown_strategy`.
-- [ ] 9xc.6 **(blocked by Q3)** The archived branch. RED `backend/tests/strategies/application/test_delete_strategy.py::test_an_archived_strategy_with_no_history_<is_deleted | is_refused_strategy_archived>`, plus `::test_an_archived_strategy_with_history_is_refused_has_history`. GREEN: step 5 of § D, per the owner's answer. Until then `DeleteStrategy` has no archived branch, and the spec states neither outcome.
+- [ ] 9xc.6 The archived branch (Q3 answered "yes", decision 42: unblocked). RED `backend/tests/strategies/application/test_delete_strategy.py::test_an_archived_strategy_with_no_history_is_deleted`, plus `::test_an_archived_strategy_with_history_is_refused_has_history`. GREEN: step 5 of § D: an archived strategy takes the same path as any other (it is disabled by construction), so the history count alone decides, and the INFO line carries `archived=True`. An archived strategy is still never re-enabled or un-archived.
 - [ ] 9xc.7 `archive_strategy.py:170`: remove `# pragma: no cover -- strategies are never deleted` and its comment; the branch is now reachable and is covered by 9xc.5's archive test. No other line of `ArchiveStrategy` changes.
 
 Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
@@ -1857,12 +1858,12 @@ Forecast: 550–800 lines.
 
 ### Unit 9xd — `DELETE /api/strategies/{id}` (300–450 lines) — PR 12x-4
 
-**Needs**: PR 12x-3, and PR 12x-1 **deployed**. The archived case of 9xd.1 needs Q3.
+**Needs**: PR 12x-3, and PR 12x-1 **deployed**. The archived case of 9xd.1 was waiting on Q3, answered "yes" (decision 42).
 
 **Files**: Modify `backend/src/strategy_manager/strategies/infrastructure/router.py`; Modify
 `backend/tests/strategies/infrastructure/test_router.py` (new tests only).
 
-- [ ] 9xd.1 RED `backend/tests/strategies/infrastructure/test_router.py` (a client with `raise_app_exceptions=False`): `::test_delete_a_strategy_with_no_history_204_no_body_and_get_is_404_afterwards`, `::test_delete_unknown_id_404`, `::test_delete_repeated_404`, `::test_delete_enabled_409_still_enabled_and_the_strategy_remains_enabled`, `::test_delete_with_history_409_has_history_carries_all_six_integer_counts` (one signal for `STXUSDT.P` on a strategy allowing `STXUSDT`; `detail.history == {"signals": 1, "reservations": 0, "execution_attempts": 0, "ledger_entries": 0, "booking_proposals": 0, "enablement_events": 0}`), `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`, `::test_delete_database_refusal_is_409_has_history_never_500` (`dependency_overrides[get_delete_strategy]`), `::test_after_a_delete_events_performance_and_archive_answer_404`, `::test_a_deleted_id_registers_again_201_with_zero_uptime`, `::test_a_refused_delete_leaves_the_session_usable_for_the_next_request`. **(Blocked by Q3)** `::test_delete_archived_with_no_history_<204 | 409_strategy_archived>`. RED against a route that always answers 204: `assert 200 == 404`, `assert 204 == 409`.
+- [ ] 9xd.1 RED `backend/tests/strategies/infrastructure/test_router.py` (a client with `raise_app_exceptions=False`): `::test_delete_a_strategy_with_no_history_204_no_body_and_get_is_404_afterwards`, `::test_delete_unknown_id_404`, `::test_delete_repeated_404`, `::test_delete_enabled_409_still_enabled_and_the_strategy_remains_enabled`, `::test_delete_with_history_409_has_history_carries_all_six_integer_counts` (one signal for `STXUSDT.P` on a strategy allowing `STXUSDT`; `detail.history == {"signals": 1, "reservations": 0, "execution_attempts": 0, "ledger_entries": 0, "booking_proposals": 0, "enablement_events": 0}`), `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`, `::test_delete_database_refusal_is_409_has_history_never_500` (`dependency_overrides[get_delete_strategy]`), `::test_after_a_delete_events_performance_and_archive_answer_404`, `::test_a_deleted_id_registers_again_201_with_zero_uptime`, `::test_a_refused_delete_leaves_the_session_usable_for_the_next_request`. `::test_delete_archived_with_no_history_204` (Q3 answered "yes", decision 42). RED against a route that always answers 204: `assert 200 == 404`, `assert 204 == 409`.
 - [ ] 9xd.2 GREEN: the route, `get_delete_strategy` (the `get_register_strategy` pattern), the mapping of design addendum 9x § F, and `session.rollback()` on every refusal. The module docstring's "nothing here executes a trade" stays true; add one sentence on the delete.
 - [ ] 9xd.3 Confirm, unmodified: `tests/strategies/infrastructure/test_router_auth.py::test_every_registered_route_refuses_a_request_without_a_token` enumerates the new route and it answers 401. If any route-inventory test must be taught the new `DELETE`, record the edit here; no assertion is relaxed.
 - [ ] 9xd.4 Owner step, after the deploy and at the owner's choice: delete the two test strategies with `curl -X DELETE` against `/api/strategies/{id}` (the admin token is never pasted into a chat or a log), or wait for the panel control. A 409 `HAS_HISTORY` naming `enablement_events` is Q1 showing up in production; record what was answered in the delivery log.
@@ -1874,7 +1875,7 @@ Forecast: 300–450 lines.
 
 ### Unit 9xe — the panel's delete control (400–600 lines) — PR 12x-5
 
-**Needs**: PR 12x-4. Not unit 9d. The archived case of 9xe.3 needs Q3.
+**Needs**: PR 12x-4. Not unit 9d. The archived case of 9xe.3 was waiting on Q3, answered "yes" (decision 42).
 
 **Files**: Modify `frontend/src/shared/api/strategies.ts`; Create
 `frontend/src/shared/api/strategies.delete.test.ts`,
@@ -1883,7 +1884,7 @@ Forecast: 300–450 lines.
 
 - [ ] 9xe.1 RED `frontend/src/shared/api/strategies.delete.test.ts::sends DELETE /api/strategies/{id} and resolves on a 204`, `::removes the deleted strategy's queries instead of refetching them`, `::invalidates both strategies lists on success`, `::treats a 404 as already deleted and runs the same cache effects`, `::keeps the code and the history counts of a 409`. GREEN in the same task: `deleteStrategy`, `useDeleteStrategy(strategyId)`. RED against a stub that sends a `GET` and touches no cache.
 - [ ] 9xe.2 RED `frontend/src/features/strategies/DeleteStrategyDialog.test.tsx::test_confirm_is_disabled_until_the_typed_text_equals_the_name`, `::test_enter_in_the_field_does_not_confirm_while_the_name_does_not_match`, `::test_cancel_and_escape_call_onCancel_and_never_onConfirm`, `::test_it_states_that_the_delete_cannot_be_undone`, `::test_still_enabled_refusal_is_rendered`, `::test_has_history_names_each_nonzero_kind_with_its_count_and_no_zero_kind` (3 signals, 2 ledger entries; no "reservations" line), `::test_has_history_says_the_strategy_can_be_archived_instead`, `::test_a_missing_or_malformed_history_shows_the_main_sentence_alone`, `::test_pending_disables_both_buttons`, `::test_every_control_has_an_accessible_name`, `::test_every_key_exists_in_en_and_es`. RED against a component that renders an empty `<dialog />`. Texts are read through `i18n.t`, so a missing key fails on its text.
-- [ ] 9xe.3 RED `frontend/src/features/strategies/DeleteStrategyControl.test.tsx::test_a_single_click_opens_the_confirmation_and_sends_no_request`, `::test_the_button_is_disabled_with_a_hint_while_the_strategy_is_enabled`, `::test_a_confirmed_delete_sends_the_request_and_navigates_to_the_list_with_replace`, `::test_a_404_navigates_to_the_list_without_showing_an_error`, `::test_a_refusal_keeps_the_dialog_open_and_does_not_navigate`, `::test_texts_render_in_es`. **(Blocked by Q3)** `::test_the_control_for_an_archived_strategy_<is_offered | is_not_offered>`.
+- [ ] 9xe.3 RED `frontend/src/features/strategies/DeleteStrategyControl.test.tsx::test_a_single_click_opens_the_confirmation_and_sends_no_request`, `::test_the_button_is_disabled_with_a_hint_while_the_strategy_is_enabled`, `::test_a_confirmed_delete_sends_the_request_and_navigates_to_the_list_with_replace`, `::test_a_404_navigates_to_the_list_without_showing_an_error`, `::test_a_refusal_keeps_the_dialog_open_and_does_not_navigate`, `::test_texts_render_in_es`. `::test_the_control_for_an_archived_strategy_is_offered` (Q3 answered "yes", decision 42).
 - [ ] 9xe.4 GREEN: both components per design addendum 9x § H; `strategies.delete.*` keys in EN and ES. Native `<dialog>`, palette tokens only, no new dependency.
 - [ ] 9xe.5 Only if unit 9d merged before this PR: mount the control (task 9d.6) here and tick 9d.6 with a pointer. Otherwise this task is void and 9d.6 stands.
 
@@ -1894,9 +1895,9 @@ Forecast: 400–600 lines.
 
 ### Unit 9xf — enablement events are deleted with their strategy, migration 0028 (400–600 lines) — PR 12x-6
 
-**Conditional. Built ONLY if the owner answers Q1 with "enablement events do not block a
-delete". Blocked until that answer is recorded in owner-decisions.md. Not started and not to be
-started on an assumption.**
+**In scope: the owner answered Q1 with "enablement events do not block a delete" (decision 42,
+owner-decisions.md, 2026-10-02). It was conditional on that answer, and the answer is recorded.
+Not started until 12x-3 is merged and deployed.**
 
 **Needs**: PR 12x-3. Independent of 12x-4 and 12x-5.
 
@@ -1907,7 +1908,7 @@ started on an assumption.**
 `backend/tests/strategies/infrastructure/{test_strategy_references_guard,test_delete_strategy_integration,test_router}.py`;
 Modify `specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md` (the two "Open" notes become the decided text).
 
-- [ ] 9xf.0 Record the owner's answer as a decision in owner-decisions.md and revise the two spec requirements. No code before this.
+- [ ] 9xf.0 The owner's answer is already recorded (owner-decisions.md, decision 42, Q1). Remaining: revise the two spec requirements (`specs/strategy-lifecycle/spec.md`, `specs/admin-api/spec.md`; the two "Open" notes become the decided text). No code before this.
 - [ ] 9xf.1 RED `backend/tests/migrations/test_0028_enablement_events_cascade.py` (the `tests/migrations/` pattern): `::test_deleting_a_strategy_takes_its_enablement_events_with_it` — **this is the design's assumption** (inside the cascade the trigger no longer sees the parent row); if it cannot be made green with the `NOT EXISTS` condition, stop, record it, and amend design addendum 9x § G to the `pg_trigger_depth()` fallback before writing anything else; `::test_a_direct_delete_of_an_event_whose_strategy_exists_is_still_refused` (SQLSTATE `23001`), `::test_an_update_of_an_event_is_still_refused`, `::test_a_strategy_with_a_signal_is_still_refused_and_its_events_survive` (constraint name `fk_signals_strategy`), `::test_truncate_strategies_cascade_still_works` (the conftests rely on it), `::test_downgrade_restores_no_action_and_the_unconditional_trigger`, `::test_upgrade_downgrade_upgrade_is_clean`, `::test_the_migration_moves_no_row`.
 - [ ] 9xf.2 GREEN: migration 0028, `down_revision = "0027"` (design addendum 9x § G: `CREATE OR REPLACE FUNCTION`, then the foreign key recreated with `ON DELETE CASCADE`; the downgrade restores both and logs one WARNING).
 - [ ] 9xf.3 RED: `test_strategy_history.py::test_enablement_events_alone_do_not_block`; `test_delete_strategy.py::test_a_strategy_with_only_enablement_events_is_deleted`, `::test_the_info_line_names_the_events_deleted_the_first_enable_time_and_the_uptime`; `test_delete_strategy_integration.py::test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events`; `test_router.py::test_delete_a_toggled_strategy_204`; `test_strategy_references_guard.py` expects `CASCADE` on the events key and `NO ACTION` on the other four. The tests they replace are renamed in the same commit, never deleted silently: 9xb.1's and 9xc.2's `enablement_events` parameter, 9xc.4's `::test_the_database_refuses_a_delete_the_count_wrongly_allowed` (re-pointed at a foreign key that is still `NO ACTION`), 9xd.1's `::test_delete_a_toggled_strategy_409_has_history_naming_its_enablement_events`.
