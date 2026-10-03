@@ -1509,6 +1509,8 @@ Forecast: 300–400 lines.
 - [ ] 9p.1 RED `frontend/src/features/strategies/PairStatsTable.test.tsx::test_pair_removed_from_allowlist_still_shown_with_historical_stats`.
 - [ ] 9p.2 RED `frontend/src/features/strategies/TradesTable.test.tsx::test_infinite_query_keyset_cursor_loads_more_on_scroll_or_click`.
 - [ ] 9p.3 GREEN: both tables + the reuse of `LedgerLine`/`ReturnChart`/`MonthlyGrid` for one strategy's contribution.
+- [ ] 9p.4 (decision 43, design pending) Backend: `GET /api/performance/strategies/{id}/trades` also serves each operation's entry and exit price, size and fees paid, derived from its fills; PnL % stays the existing `return` on the pool's capital at open. Settle first how rehearsal fills (`DRY_RUN=true`) appear in the list.
+- [ ] 9p.5 (decision 43, design pending) Frontend: `TradesTable` shows those columns, and each operation opens in a detail view.
 
 Gate: `cd frontend && npm test`.
 Harness: `vi.stubGlobal("fetch")`.
