@@ -34,7 +34,7 @@ export function EnablementHistory({ strategyId }: EnablementHistoryProps) {
       <ul
         aria-label={title}
         tabIndex={0}
-        className="flex max-h-96 flex-col gap-1 overflow-y-auto font-mono text-xs text-ink-2"
+        className="flex max-h-100 flex-col gap-1 overflow-y-auto font-mono text-xs text-ink-2"
       >
         {[...events.data].reverse().map((event) => {
           const state = t(event.enabled ? "strategies.detail.history.enabled" : "strategies.detail.history.disabled");

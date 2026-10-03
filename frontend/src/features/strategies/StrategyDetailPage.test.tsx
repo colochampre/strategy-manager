@@ -206,9 +206,9 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     const history = await screen.findByRole("list", { name: i18n.t("strategies.detail.history.title") });
-    expect(history).toHaveClass("max-h-96", "overflow-y-auto");
+    expect(history).toHaveClass("max-h-100", "overflow-y-auto");
     expect(history).toHaveAttribute("tabindex", "0");
-    expect(history).not.toHaveClass("h-96");
+    expect(history).not.toHaveClass("h-100");
   });
 
   it("says so when nothing was ever enabled or disabled", async () => {
