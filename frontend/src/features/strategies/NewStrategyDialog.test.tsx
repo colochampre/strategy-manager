@@ -103,6 +103,13 @@ afterEach(async () => {
   await act(() => i18n.changeLanguage("en"));
 });
 
+/** The list shows nothing until the operator types: waits for the search field to be ready, then types. */
+async function typeSearch(text: string) {
+  const search = await screen.findByRole("searchbox", { name: en.strategies.pairs.search });
+  await waitFor(() => expect(search).toBeEnabled());
+  fireEvent.change(search, { target: { value: text } });
+}
+
 describe("the new-strategy dialog", () => {
   it("test_pairs_are_chosen_from_the_pools_available_pairs_and_no_free_text_field_exists", async () => {
     const api = creationApi(created);
@@ -123,6 +130,10 @@ describe("the new-strategy dialog", () => {
 
     // The group is rebuilt for the chosen pool, so it is looked up again.
     const chosen = within(dialog).getByRole("group", { name: en.strategies.new.pairs });
+    // Ready, but nothing is listed until the operator types; the group says how many pairs can be searched.
+    expect(await within(chosen).findByText("3 pairs can be searched")).toBeInTheDocument();
+    expect(within(chosen).queryAllByRole("checkbox")).toEqual([]);
+    await typeSearch("usdt");
     await within(chosen).findByRole("checkbox", { name: "STXUSDT" });
     expect(within(chosen).getAllByRole("checkbox").map((box) => box.closest("label")?.textContent)).toEqual([
       "AAVEUSDT",
@@ -168,14 +179,18 @@ describe("the new-strategy dialog", () => {
     selectPool("inverse/BTC");
 
     // The previous pool's choice is gone and the new pool's list is on screen.
+    // The search field starts empty for the new pool (the selector is rebuilt), so nothing is listed yet.
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: en.strategies.pairs.search })).toBeEnabled());
+    expect(screen.getByRole("searchbox", { name: en.strategies.pairs.search })).toHaveValue("");
+    await typeSearch("btc");
     await screen.findByRole("checkbox", { name: "BTCUSD" });
     expect(screen.queryByRole("list", { name: en.strategies.pairs.selected })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "STXUSDT" })).not.toBeInTheDocument();
-    expect(screen.getByRole("searchbox", { name: en.strategies.pairs.search })).toHaveValue("");
     expect(pairsRequests(fetchMock).at(-1)).toMatch(/\/api\/pools\/bybit\/inverse\/BTC\/available-pairs$/);
 
     // Going back does not bring the old choice back either.
     selectPool("usdt-m/USDT");
+    await typeSearch("stx");
     expect(await screen.findByRole("checkbox", { name: "STXUSDT" })).not.toBeChecked();
     expect(screen.queryByRole("list", { name: en.strategies.pairs.selected })).not.toBeInTheDocument();
 
@@ -233,6 +248,7 @@ describe("the new-strategy dialog", () => {
 
     fireEvent.click(within(group).getByRole("button", { name: en.strategies.pairs.retry }));
 
+    await typeSearch("stx");
     expect(await within(group).findByRole("checkbox", { name: "STXUSDT" })).toBeInTheDocument();
     expect(within(group).queryByText(en.strategies.pairs.loadFailed)).not.toBeInTheDocument();
   });
@@ -368,7 +384,7 @@ describe("the new-strategy dialog", () => {
 
     fill("Delta");
     // Ready, with nothing chosen: submit is available and says a pair is needed.
-    await screen.findByRole("checkbox", { name: "STXUSDT" });
+    await waitFor(() => expect(screen.getByRole("searchbox", { name: en.strategies.pairs.search })).toBeEnabled());
     await waitFor(() => expect(submitButton()).toBeEnabled());
     fireEvent.click(submitButton());
 

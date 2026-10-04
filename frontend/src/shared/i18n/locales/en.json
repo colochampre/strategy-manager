@@ -134,6 +134,9 @@
     },
     "pairs": {
       "search": "Search pairs",
+      "searchPlaceholder": "Type a symbol to search",
+      "searchable_one": "{{count}} pair can be searched",
+      "searchable_other": "{{count}} pairs can be searched",
       "choosePool": "Choose a pool first",
       "loading": "Loading the pair list…",
       "loadFailed": "The pair list could not be loaded.",

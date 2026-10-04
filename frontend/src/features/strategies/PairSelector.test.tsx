@@ -10,6 +10,9 @@ import es from "@/shared/i18n/locales/es.json";
 /** Every `strategies.pairs.*` key the selector renders. The test below holds this list to en and es. */
 const KEYS = [
   "search",
+  "searchPlaceholder",
+  "searchable_one",
+  "searchable_other",
   "choosePool",
   "loading",
   "loadFailed",
@@ -23,7 +26,7 @@ const KEYS = [
 ] as const;
 
 /** The text of a key in the active language; a missing key reads as the key itself, so a test fails on text. */
-function copy(key: (typeof KEYS)[number], values: Record<string, string | number> = {}): string {
+function copy(key: (typeof KEYS)[number] | "searchable", values: Record<string, string | number> = {}): string {
   return i18n.t(`strategies.pairs.${key}`, values);
 }
 
@@ -70,8 +73,91 @@ afterEach(async () => {
 });
 
 describe("PairSelector", () => {
+  it("test_an_empty_search_field_renders_no_option_list_and_says_how_many_pairs_can_be_searched", () => {
+    selector();
+
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByText(/^Showing/)).toBeNull();
+    expect(screen.getByText(copy("searchable", { count: 3 }))).toBeInTheDocument();
+    expect(copy("searchable", { count: 3 })).toBe("3 pairs can be searched");
+  });
+
+  it("says one pair can be searched in the singular", () => {
+    selector({ options: ["STXUSDT"] });
+
+    expect(screen.getByText("1 pair can be searched")).toBeInTheDocument();
+  });
+
+  it("test_the_matches_show_from_the_first_character_and_hide_again_when_the_field_is_cleared", () => {
+    selector();
+
+    type("S");
+    expect(optionNames()).toEqual(["AAVEUSDT", "SFPUSDT", "STXUSDT"]);
+    expect(screen.queryByText(copy("searchable", { count: 3 }))).toBeNull();
+
+    type("SFP");
+    expect(optionNames()).toEqual(["SFPUSDT"]);
+
+    type("");
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.getByText(copy("searchable", { count: 3 }))).toBeInTheDocument();
+  });
+
+  it("keeps the 50 cap and its text from the first character on", () => {
+    selector({ options: manyOptions(60) });
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+
+    type("T");
+
+    expect(screen.getAllByRole("checkbox")).toHaveLength(50);
+    expect(screen.getByText(copy("showing", { shown: 50, total: 60 }))).toBeInTheDocument();
+  });
+
+  it.each([[" "], ["   "], [".P"], ["_PERP"]])("treats %j as an empty field: no list", (typed) => {
+    selector();
+
+    type(typed);
+
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.getByText(copy("searchable", { count: 3 }))).toBeInTheDocument();
+  });
+
+  it("gives the search field a placeholder", () => {
+    selector();
+
+    expect(search()).toHaveAttribute("placeholder", copy("searchPlaceholder"));
+    expect(copy("searchPlaceholder")).toBe("Type a symbol to search");
+  });
+
+  it("test_selected_pairs_are_always_visible_whatever_the_search_field_holds", () => {
+    selector({ value: ["STXUSDT"] });
+    const chips = () => within(screen.getByRole("list", { name: copy("selected") })).getAllByRole("listitem");
+
+    expect(chips().map((chip) => chip.textContent)).toEqual(["STXUSDT×"]);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+
+    type("AAVE");
+    expect(chips().map((chip) => chip.textContent)).toEqual(["STXUSDT×"]);
+    expect(optionNames()).toEqual(["AAVEUSDT"]);
+
+    type("ZZZ");
+    expect(chips().map((chip) => chip.textContent)).toEqual(["STXUSDT×"]);
+  });
+
+  it("keeps the loading line, and the error with Retry, visible with an empty field", () => {
+    const { rerender, props } = selector({ status: "loading", options: undefined });
+    expect(screen.getByRole("status")).toHaveTextContent(copy("loading"));
+    expect(screen.queryByText(/can be searched/)).toBeNull();
+
+    rerender(<PairSelector {...props} status="error" options={undefined} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(copy("loadFailed"));
+    expect(screen.getByRole("button", { name: copy("retry") })).toBeInTheDocument();
+    expect(screen.queryByText(/can be searched/)).toBeNull();
+  });
+
   it("test_the_option_list_is_capped_at_max_h_36_and_scrolls_on_its_own", () => {
     selector();
+    type("USDT");
     const list = screen.getAllByRole("checkbox")[0]?.closest("ul") as HTMLElement;
     expect(list).toHaveClass("max-h-36", "overflow-auto");
     expect(list).not.toHaveClass("max-h-60");
@@ -103,8 +189,9 @@ describe("PairSelector", () => {
     expect(props.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("ready offers every listed pair as a checkbox", () => {
+  it("ready offers every listed pair as a checkbox once the operator types", () => {
     selector();
+    type("USDT");
 
     expect(optionNames()).toEqual(LISTED);
     expect(search()).toBeEnabled();
@@ -130,6 +217,7 @@ describe("PairSelector", () => {
 
   it("toggling an option with the keyboard calls onChange with the pair", () => {
     const { props } = selector({ value: ["AAVEUSDT"] });
+    type("USDT");
 
     const box = screen.getByRole("checkbox", { name: "STXUSDT" });
     box.focus();
@@ -143,6 +231,7 @@ describe("PairSelector", () => {
 
   it("unchecking a selected option removes only that pair", () => {
     const { props } = selector({ value: ["AAVEUSDT", "STXUSDT"] });
+    type("USDT");
 
     expect(screen.getByRole("checkbox", { name: "AAVEUSDT" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "SFPUSDT" })).not.toBeChecked();
@@ -168,6 +257,7 @@ describe("PairSelector", () => {
 
   it("more than fifty matches renders fifty and says how many match", () => {
     selector({ options: manyOptions(120) });
+    type("T");
 
     expect(optionNames()).toHaveLength(50);
     expect(optionNames()[0]).toBe("T000USDT");
@@ -183,6 +273,7 @@ describe("PairSelector", () => {
 
   it("exactly fifty matches are all rendered", () => {
     selector({ options: manyOptions(50) });
+    type("T");
 
     expect(optionNames()).toHaveLength(50);
     expect(screen.getByText(copy("showing", { shown: 50, total: 50 }))).toBeInTheDocument();
@@ -190,6 +281,7 @@ describe("PairSelector", () => {
 
   it("announces the count in a polite live region", () => {
     const { container } = selector({ options: manyOptions(120) });
+    type("T");
 
     const live = container.querySelector('[aria-live="polite"]');
     expect(live).toHaveTextContent(copy("showing", { shown: 50, total: 120 }));
@@ -207,6 +299,7 @@ describe("PairSelector", () => {
 
   it("a selected pair missing from the options is kept and marked no longer listed", () => {
     const { props } = selector({ value: ["SFPUSDT", "STXUSDT"], options: ["AAVEUSDT", "STXUSDT"] });
+    type("USDT");
 
     const chips = within(screen.getByRole("list", { name: copy("selected") })).getAllByRole("listitem");
     expect(chips).toHaveLength(2);
@@ -225,6 +318,7 @@ describe("PairSelector", () => {
 
   it("a delisted pair is not offered again once it is no longer selected", () => {
     selector({ value: [], options: ["AAVEUSDT", "STXUSDT"] });
+    type("USDT");
 
     expect(optionNames()).toEqual(["AAVEUSDT", "STXUSDT"]);
     expect(screen.queryByText(copy("notListed"))).not.toBeInTheDocument();
@@ -255,6 +349,7 @@ describe("PairSelector", () => {
 
   it("the search field, every option and every remove control have an accessible name", () => {
     selector({ value: ["STXUSDT", "SFPUSDT"], options: ["AAVEUSDT", "STXUSDT"] });
+    type("USDT");
 
     expect(screen.getByRole("group", { name: LABEL })).toBeInTheDocument();
     expect(search()).toHaveAccessibleName(copy("search"));
@@ -277,6 +372,7 @@ describe("PairSelector", () => {
 
   it("disables every control when disabled", () => {
     selector({ disabled: true, value: ["STXUSDT"] });
+    type("USDT");
 
     expect(search()).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "AAVEUSDT" })).toBeDisabled();

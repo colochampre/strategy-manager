@@ -134,6 +134,9 @@
     },
     "pairs": {
       "search": "Buscar pares",
+      "searchPlaceholder": "Escriba un símbolo para buscar",
+      "searchable_one": "Se puede buscar entre {{count}} par",
+      "searchable_other": "Se puede buscar entre {{count}} pares",
       "choosePool": "Elija primero un pool",
       "loading": "Cargando la lista de pares…",
       "loadFailed": "No se pudo cargar la lista de pares.",
