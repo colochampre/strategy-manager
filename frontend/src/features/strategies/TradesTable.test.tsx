@@ -339,6 +339,6 @@ describe("TradesTable", () => {
       "Rendimiento",
       "Capital del pool al abrir",
     ]);
-    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("Corto");
+    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("SHORT");
   });
 });

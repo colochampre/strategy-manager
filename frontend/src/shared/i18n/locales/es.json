@@ -206,7 +206,7 @@
         "closed": "Cierre (UTC)",
         "pair": "Par",
         "side": "Sentido",
-        "direction": { "LONG": "Largo", "SHORT": "Corto" },
+        "direction": { "LONG": "LONG", "SHORT": "SHORT" },
         "pnl": "PnL {{currency}}",
         "return": "Rendimiento",
         "capital": "Capital del pool al abrir",
