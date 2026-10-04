@@ -863,6 +863,7 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
         first_filled_at=DAY1,
         last_filled_at=DAY1,
         pool_total_at_open=Decimal("1000"),
+        rehearsal=False,
     )
     app = _app(pg_session_factory)
     app.dependency_overrides[get_fills_source] = lambda: FakeFillsSource([stray])

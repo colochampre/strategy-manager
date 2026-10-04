@@ -67,6 +67,7 @@ def _group(
         first_filled_at=at,
         last_filled_at=at,
         pool_total_at_open=None if capital is None else Decimal(capital),
+        rehearsal=False,
     )
 
 

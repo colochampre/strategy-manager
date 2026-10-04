@@ -101,6 +101,7 @@ class SqlAlchemyAllocationFillsSource:
                 pool_total_at_open=(
                     None if pool_total_at_open is None else Decimal(pool_total_at_open)
                 ),
+                rehearsal=False,
             )
             for (
                 allocation_id,
