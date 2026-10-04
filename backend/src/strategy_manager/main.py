@@ -851,7 +851,12 @@ def build_worker_runner(
     # ``(BybitFuturesExchangeAdapter, BinanceFuturesExchangeAdapter)`` tuple
     # regardless of ``pools``.
     fakes_by_exchange = {
-        exchange: FakeExchangeAdapter(exchange=exchange, book=fake_venue_book)
+        # TEMPORARY (unit 9q.3): an explicit zero rate until 9q.23 reads the
+        # simulated taker fee rates table by key. No commit of this unit is
+        # deployed before then.
+        exchange: FakeExchangeAdapter(
+            exchange=exchange, book=fake_venue_book, fee_rate=Decimal("0")
+        )
         for exchange in {pool.exchange.value for pool in pools} | {
             BYBIT_EXCHANGE,
             BINANCE_EXCHANGE,

@@ -26,7 +26,10 @@ class FakeLedgerReader:
 async def test_fetch_fills_returns_the_fill_recorded_at_place_time() -> None:
     """Baseline behaviour, unaffected by the optional book: no book, no
     normalisation, nothing new."""
-    adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("100"),
+        fee_rate=Decimal("0"),
+    )
     order = await adapter.build_open_order(
         OpenOrderSpec(
             side=OrderSide.BUY,
@@ -45,7 +48,7 @@ async def test_fetch_fills_returns_the_fill_recorded_at_place_time() -> None:
 
 
 async def test_fetch_fills_with_no_such_order_still_raises_order_not_found() -> None:
-    adapter = FakeExchangeAdapter(exchange="bybit")
+    adapter = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
 
     with pytest.raises(OrderNotFound):
         await adapter.fetch_fills("nope", "ETHUSDT.P")
@@ -53,7 +56,10 @@ async def test_fetch_fills_with_no_such_order_still_raises_order_not_found() -> 
 
 async def test_a_buy_records_a_positive_delta_in_the_book() -> None:
     book = FakeVenueBook(FakeLedgerReader())
-    adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"), book=book)
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("100"), book=book,
+        fee_rate=Decimal("0"),
+    )
     order = await adapter.build_open_order(
         OpenOrderSpec(
             side=OrderSide.BUY,
@@ -73,7 +79,10 @@ async def test_a_buy_records_a_positive_delta_in_the_book() -> None:
 
 async def test_a_sell_records_a_negative_delta_in_the_book() -> None:
     book = FakeVenueBook(FakeLedgerReader())
-    adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"), book=book)
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("100"), book=book,
+        fee_rate=Decimal("0"),
+    )
     order = await adapter.build_close_order(
         CloseOrderSpec(
             side=OrderSide.SELL,
@@ -94,7 +103,7 @@ async def test_fill_latency_polls_returns_no_fills_for_the_first_n_calls() -> No
     """design.md § S5 testing, "Timing": rehearses an order whose fill is
     not published on the exchange's first few answers."""
     adapter = FakeExchangeAdapter(
-        exchange="bybit", fill_price=Decimal("100"), fill_latency_polls=3
+        exchange="bybit", fill_price=Decimal("100"), fill_latency_polls=3, fee_rate=Decimal("0")
     )
     order = await adapter.build_open_order(
         OpenOrderSpec(
@@ -120,7 +129,11 @@ async def test_fill_latency_polls_returns_no_fills_for_the_first_n_calls() -> No
 async def test_fill_latency_polls_reveals_the_fill_past_the_nth_call() -> None:
     book = FakeVenueBook(FakeLedgerReader())
     adapter = FakeExchangeAdapter(
-        exchange="bybit", fill_price=Decimal("100"), book=book, fill_latency_polls=3
+        exchange="bybit",
+        fill_price=Decimal("100"),
+        book=book,
+        fill_latency_polls=3,
+        fee_rate=Decimal("0"),
     )
     order = await adapter.build_open_order(
         OpenOrderSpec(
@@ -150,7 +163,10 @@ async def test_fill_latency_polls_reveals_the_fill_past_the_nth_call() -> None:
 async def test_default_fill_latency_reveals_immediately() -> None:
     """``fill_latency_polls=0`` (the default) preserves every caller that
     predates it: ``is_revealed`` is already True after the first call."""
-    adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("100"),
+        fee_rate=Decimal("0"),
+    )
     order = await adapter.build_open_order(
         OpenOrderSpec(
             side=OrderSide.BUY,
@@ -171,7 +187,10 @@ async def test_default_fill_latency_reveals_immediately() -> None:
 async def test_no_book_configured_leaves_fetch_fills_unaffected() -> None:
     """The default (``book=None``) preserves every pre-S4 caller's
     behaviour exactly -- nothing about ``fetch_fills`` needs a book to run."""
-    adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("100"),
+        fee_rate=Decimal("0"),
+    )
     order = await adapter.build_open_order(
         OpenOrderSpec(
             side=OrderSide.BUY,
@@ -202,7 +221,10 @@ async def test_fake_fill_ids_use_the_named_rehearsal_prefix_constant(
     from strategy_manager.execution.infrastructure import fake_exchange
 
     async def mint() -> str:
-        adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+        adapter = FakeExchangeAdapter(
+            exchange="bybit", fill_price=Decimal("100"),
+            fee_rate=Decimal("0"),
+        )
         order = await adapter.build_open_order(
             OpenOrderSpec(
                 side=OrderSide.BUY,
@@ -235,7 +257,10 @@ async def test_fake_order_ids_use_the_named_rehearsal_prefix_constant(
     from strategy_manager.execution.infrastructure import fake_exchange
 
     async def mint() -> str:
-        adapter = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("100"))
+        adapter = FakeExchangeAdapter(
+            exchange="bybit", fill_price=Decimal("100"),
+            fee_rate=Decimal("0"),
+        )
         order = await adapter.build_open_order(
             OpenOrderSpec(
                 side=OrderSide.BUY,

@@ -110,7 +110,9 @@ def _place_order(
 ) -> PlaceOrder:
     return PlaceOrder(
         reservations=ReservationGatewayAdapter(SqlAlchemyReservationRepository(session)),
-        exchanges=VenueExchangeRegistry([exchange or FakeExchangeAdapter(exchange="bybit")]),
+        exchanges=VenueExchangeRegistry(
+            [exchange or FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))]
+        ),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         queue=PostgresJobQueue(session, clock=_FixedClock()),
         clock=_FixedClock(),
@@ -380,7 +382,7 @@ async def test_a_placed_close_and_processing_land_in_the_same_final_commit(
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
-            session, commit, FakeExchangeAdapter(exchange="bybit")
+            session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
         ).close(_close_command(strategy_id, allocation_id, signal_id))
 
     assert result.status == "PLACED"
@@ -400,7 +402,7 @@ async def test_a_failed_final_commit_loses_the_close_placed_mark_and_processing_
         commit = _FaultyCommit(session, fail_on=2)
         with pytest.raises(RuntimeError, match="injected commit failure"):
             await _close_position(
-                session, commit, FakeExchangeAdapter(exchange="bybit")
+                session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
             ).close(_close_command(strategy_id, allocation_id, signal_id))
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
@@ -423,7 +425,7 @@ async def test_a_dust_close_rejection_and_the_staged_seed_land_in_the_added_comm
         )
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
-            session, commit, _DustExchange(exchange="bybit")
+            session, commit, _DustExchange(exchange="bybit", fee_rate=Decimal("0"))
         ).close(_close_command(strategy_id, allocation_id, signal_id))
 
     assert result.status == "NOT_CLOSABLE"
@@ -450,7 +452,7 @@ async def test_a_failed_dust_commit_loses_the_rejection_and_the_staged_seed_toge
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
             await _close_position(
-                session, commit, _DustExchange(exchange="bybit")
+                session, commit, _DustExchange(exchange="bybit", fee_rate=Decimal("0"))
             ).close(_close_command(strategy_id, allocation_id, signal_id))
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
@@ -468,7 +470,7 @@ async def test_a_close_with_no_signal_leaves_every_signal_untouched(
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
-            session, commit, FakeExchangeAdapter(exchange="bybit")
+            session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
         ).close(_close_command(strategy_id, allocation_id, None))
 
     assert result.status == "PLACED"

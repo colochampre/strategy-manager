@@ -335,7 +335,10 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         await session.commit()
 
     clock = SteppableClock(START)
-    exchange = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("2"), fill_latency_polls=3)
+    exchange = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("2"), fill_latency_polls=3,
+        fee_rate=Decimal("0"),
+    )
     registry = VenueExchangeRegistry([exchange])
 
     # ---- submit the close for real, through the production use case ----

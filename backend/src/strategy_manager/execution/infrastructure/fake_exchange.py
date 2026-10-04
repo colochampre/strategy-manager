@@ -67,6 +67,8 @@ class FakeExchangeAdapter:
         fill_price: Decimal = Decimal("1"),
         book: FakeVenueBook | None = None,
         fill_latency_polls: int = 0,
+        *,
+        fee_rate: Decimal,
     ) -> None:
         """``exchange`` is per instance, not per class: the registry is keyed by
         it, so a dry run needs one fake standing in for each configured
@@ -88,6 +90,7 @@ class FakeExchangeAdapter:
         self._fill_price = fill_price
         self._book = book
         self._fill_latency_polls = fill_latency_polls
+        self._fee_rate = fee_rate
         self._placed: dict[str, Fill] = {}
         self._signed_deltas: dict[str, Decimal] = {}
         self._fetch_calls: dict[str, int] = {}
