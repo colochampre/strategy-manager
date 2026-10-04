@@ -8,16 +8,20 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
-import { WebhookMessage } from "@/features/strategies/WebhookMessage";
+import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
+import { TradesTable } from "@/features/strategies/TradesTable";
 import { ApiError } from "@/shared/api/client";
 import { useStrategy } from "@/shared/api/strategies";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
 /**
- * One strategy: its header and uptime, its enable history, and a settings
- * column with the allowed-pairs editor, the enable switch and the archive
- * control. The delete control has its own block at the very bottom, below
- * archive (design addendum 9x § H): a different act, never beside the switch.
+ * One strategy. The left column is its header and uptime, its performance (the
+ * Overview's ledger line, chart and month grid for this strategy, then the By
+ * pair table) and its closed trades. The webhook block is a disclosure
+ * opened from the header (decision: 12f.8 superseded). The settings column holds the allowed-pairs editor, the
+ * enable switch, that switch's history and, last, the archive control. The delete control has its
+ * own block at the very bottom, below archive (design addendum 9x § H): a
+ * different act, never beside the switch.
  *
  * The exchange tabs follow the strategy: once it is loaded, the scope is set to
  * its exchange (design § 15), so the tabs never claim another exchange than the
@@ -63,8 +67,8 @@ export function StrategyDetailPage() {
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <StrategyHeader strategy={subject} />
-          <EnablementHistory strategyId={subject.id} />
-          <WebhookMessage strategyId={subject.id} />
+          <StrategyPerformance key={subject.id} strategyId={subject.id} />
+          <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
@@ -74,6 +78,7 @@ export function StrategyDetailPage() {
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />
+            <EnablementHistory strategyId={subject.id} />
             <ArchiveControl strategy={subject} />
           </div>
         </aside>

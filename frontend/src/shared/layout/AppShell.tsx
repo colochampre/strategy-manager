@@ -20,6 +20,11 @@ import { TopBar } from "@/shared/layout/TopBar";
  * screen adds margin around the content instead of stretching it, and the
  * space between the pool panel and the decision rail never grows.
  *
+ * `main` is `relative`: it is the scroll container, so it must also be the
+ * containing block of anything `position: absolute` inside it (the `sr-only`
+ * spans of the tables). Unpositioned, those are laid out against the document,
+ * far below, and stretch its height into a second scrollbar over empty space.
+ *
  * That column deliberately has NO `min-h-0`: it must be as tall as its content.
  * Capped at the space `main` leaves, a long page overflowed the column, so the
  * padding of `main` sat under the capped column and not under the last row, and
@@ -33,7 +38,7 @@ export function AppShell() {
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <SideNav />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <TokenGate>
               <Outlet />

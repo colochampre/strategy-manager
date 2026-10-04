@@ -69,7 +69,15 @@ const saveButton = () => screen.getByRole("button", { name: i18n.t("strategies.d
 const remove = (symbol: string) => fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol }) }));
 /** The available-pairs query retries once after a second before it reports a failure. */
 const loadFailed = () => screen.findByText(i18n.t("strategies.pairs.loadFailed"), {}, { timeout: 3000 });
-const add = async (symbol: string) => fireEvent.click(await screen.findByRole("checkbox", { name: symbol }));
+/** The catalogue is listed only once the operator types: waits for the search field, types the symbol, ticks it. */
+const add = async (symbol: string) => {
+  const search = await screen.findByLabelText(i18n.t("strategies.pairs.search"));
+  await waitFor(() => expect(search).toBeEnabled());
+  fireEvent.change(search, { target: { value: symbol } });
+  fireEvent.click(await screen.findByRole("checkbox", { name: symbol }));
+};
+const catalogueReady = () =>
+  waitFor(() => expect(screen.getByLabelText(i18n.t("strategies.pairs.search"))).toBeEnabled());
 
 beforeEach(() => {
   useTokenStore.setState({ token: "a-token" });
@@ -82,7 +90,7 @@ afterEach(() => {
 describe("AllowedPairsEditor", () => {
   it("test_removing_last_pair_without_replacement_prevented", async () => {
     const { puts } = setup(strategy());
-    await screen.findByRole("checkbox", { name: "SOLUSDT" });
+    await catalogueReady();
 
     remove("ETHUSDT");
 
@@ -117,7 +125,7 @@ describe("AllowedPairsEditor", () => {
   it("test_stored_pair_missing_from_the_catalogue_is_kept_and_marked_no_longer_listed", async () => {
     const { puts } = setup(strategy({ allowed_pairs: ["SFPUSDT"] }), { listed: ["SOLUSDT", "STXUSDT"] });
 
-    await screen.findByRole("checkbox", { name: "SOLUSDT" });
+    await catalogueReady();
     const chips = screen.getByRole("list", { name: i18n.t("strategies.pairs.selected") });
     expect(chips).toHaveTextContent("SFPUSDT");
     expect(chips).toHaveTextContent(i18n.t("strategies.pairs.notListed"));

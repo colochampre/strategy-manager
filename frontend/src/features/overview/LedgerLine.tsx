@@ -10,8 +10,8 @@ const DASH = "—";
 interface LedgerLineProps {
   /** The pool's settlement currency; every figure is in it. */
   currency: string;
-  /** `balance.available` from `GET /pools`; null while nothing has synced. */
-  available: string | null;
+  /** `balance.available` from `GET /pools`; null while nothing has synced. Left out, the line has no balance pair. */
+  available?: string | null;
   /** Which range summary `pnl` and `ret` belong to. */
   range: RangeName;
   /** The range's `pnl`, money. */
@@ -20,6 +20,8 @@ interface LedgerLineProps {
   ret: string | null;
   /** The pool's all-time `max_drawdown`, a ratio at most zero. */
   maxDrawdown: string;
+  /** Replaces the return's label (already translated, range included), for a figure that is not the pool's own return. */
+  returnLabel?: string;
 }
 
 interface PairProps {
@@ -53,17 +55,19 @@ function Pair({ children, separator = false }: PairProps) {
  * that, from `lg` up, wrap only between one another. Figures are parsed only to be
  * formatted; nothing is computed (CLAUDE.md, rule 7).
  */
-export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown }: LedgerLineProps) {
+export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown, returnLabel }: LedgerLineProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
 
-  const availableValue = available === null ? null : parseDecimal(available);
+  // Omitted is a line with no balance at all (one strategy's); null is a balance nothing has synced yet.
+  const hasBalance = available !== undefined;
+  const availableValue = available === undefined || available === null ? null : parseDecimal(available);
   const pnlValue = parseDecimal(pnl);
   const returnValue = ret === null ? null : parseDecimal(ret);
   const drawdownValue = parseDecimal(maxDrawdown);
 
   if (
-    (available !== null && availableValue === null) ||
+    (available !== undefined && available !== null && availableValue === null) ||
     pnlValue === null ||
     (ret !== null && returnValue === null) ||
     drawdownValue === null
@@ -82,20 +86,25 @@ export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown }
       data-testid="ledger-line"
       className="font-mono text-[15px] leading-normal text-ink-2 tabular-nums"
     >
-      <Pair separator>
-        <span data-testid="ledger-lead" className="text-[26px] font-semibold leading-none text-ink">
-          {availableValue === null ? DASH : amountText(availableValue, currency, locale)}
-        </span>{" "}
-        {t("overview.ledger.available", { currency })}
-      </Pair>
+      {hasBalance && (
+        <Pair separator>
+          <span data-testid="ledger-lead" className="text-[26px] font-semibold leading-none text-ink">
+            {availableValue === null ? DASH : amountText(availableValue, currency, locale)}
+          </span>{" "}
+          {t("overview.ledger.available", { currency })}
+        </Pair>
+      )}
       <Pair separator>
         {t("overview.ledger.pnl", { range: rangeLabel })}{" "}
-        <span data-testid="ledger-pnl" className={cn("font-semibold", toneClass(pnlValue))}>
+        <span
+          data-testid="ledger-pnl"
+          className={cn("font-semibold", toneClass(pnlValue), !hasBalance && "text-[26px] leading-none")}
+        >
           {amountText(pnlValue, currency, locale, true)}
         </span>
       </Pair>
       <Pair separator>
-        {t("overview.ledger.return", { range: rangeLabel })}{" "}
+        {returnLabel ?? t("overview.ledger.return", { range: rangeLabel })}{" "}
         <span
           data-testid="ledger-return"
           className={cn("font-semibold", returnValue !== null && toneClass(returnValue))}

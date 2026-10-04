@@ -188,6 +188,15 @@ describe("layout contract", () => {
     expect(main.parentElement).toHaveClass("min-h-0", "flex-1");
   });
 
+  it("makes the scroll container the containing block of absolutely positioned content, so an sr-only span cannot stretch the document", () => {
+    renderShell();
+
+    // Pins the fix, not a measurement: jsdom has no layout. `sr-only` is `position: absolute`; in a scroll
+    // container that is not positioned, such a span is laid out against the document and adds a second scrollbar.
+    const main = screen.getByRole("main");
+    expect(main).toHaveClass("relative", "overflow-auto");
+  });
+
   it("keeps the one-viewport contract with the exchange tabs row in the header", async () => {
     const { container } = renderShell();
 

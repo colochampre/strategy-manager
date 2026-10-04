@@ -41,6 +41,11 @@ function searchTerm(typed: string): string {
  * search input, checkboxes, buttons), so the keyboard works without any
  * handler of its own.
  *
+ * The option list stays empty until the operator types the first character of
+ * a search; with an empty field the selector says how many pairs can be
+ * searched. The selected pairs and the loading and error lines show whatever
+ * the field holds, so the operator still learns that pairs cannot be added.
+ *
  * A selected pair that is not among the options (`ready` only, when the list
  * is known) stays in the selection as a "no longer listed" chip until the
  * operator removes it: dropping it silently would turn the next save into an
@@ -63,7 +68,9 @@ export function PairSelector({
   const ready = status === "ready" && options !== undefined;
 
   const term = searchTerm(typed);
-  const matches = ready ? options.filter((pair) => pair.toUpperCase().includes(term)) : [];
+  // Nothing is listed until the operator types: a catalogue can hold hundreds of pairs.
+  const searching = term !== "";
+  const matches = ready && searching ? options.filter((pair) => pair.toUpperCase().includes(term)) : [];
   const shown = matches.slice(0, MAX_RENDERED);
   const listed = new Set(options);
   const selected = new Set(value);
@@ -111,6 +118,7 @@ export function PairSelector({
           if (event.key === "Enter") event.preventDefault();
         }}
         disabled={!ready}
+        placeholder={t("strategies.pairs.searchPlaceholder")}
         autoComplete="off"
         spellCheck={false}
         className="rounded-md border border-rule bg-ground px-3 py-2 font-mono text-sm text-ink disabled:opacity-50"
@@ -139,7 +147,13 @@ export function PairSelector({
         </div>
       )}
 
-      {ready && (
+      {ready && !searching && (
+        <p aria-live="polite" className="text-xs text-ink-3">
+          {t("strategies.pairs.searchable", { count: options.length })}
+        </p>
+      )}
+
+      {ready && searching && (
         <>
           <div aria-live="polite" className="text-xs text-ink-3">
             {matches.length === 0 ? (

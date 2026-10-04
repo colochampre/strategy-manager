@@ -239,6 +239,19 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - The entry and exit prices, the size and the fees are derived from the operation's fills in the ledger and added to the trades endpoint. No migration.
     - It extends unit 9p (PR 12d), whose `TradesTable` already reads that endpoint. Its design must settle how rehearsal fills (`fake-fill-`, `DRY_RUN=true`) appear: today they are excluded from performance, so a strategy that only ran in dry run may show an empty list.
     - Status: decided, NOT designed or implemented yet.
+    - **Answered 2026-10-03: rehearsal fills are listed, marked as rehearsal, and stay out of every total.** A strategy that only ran in dry run therefore shows its operations instead of an empty list. Production runs with `DRY_RUN=true`, so excluding them would show nothing until real trading starts. They never enter PnL, return, the curve, the monthly grid or the By pair figures. This unblocks the design of tasks 9p.4 and 9p.5.
+    - **Answered 2026-10-03: the "Pool capital at open" column stays** in the list, although the list above does not name it: it is what explains the PnL %.
+44. **The open questions of the strategy detail page, answered** (2026-10-03, owner, after reviewing PRs 12b, 12c and the tables of PR 12d by eye). They are the follow-ups of unit 12f in tasks.md and the gaps of unit 9p. None is designed or implemented yet.
+    - **12f.1 Share of the pool per trade: an editable field in the settings column.** A change applies to the next allocation only and never touches one already reserved.
+    - **12f.2 An archived strategy stays as built:** read-only, with the "Archived" badge, the archive control hidden and the delete control offered.
+    - **12f.3 The archive confirmation stays a plain confirm button.** Archiving keeps the history; only the delete asks for the typed name.
+    - **12f.4 Saving the allowed pairs gives a short "saved" text** beside the button.
+    - **12f.5 Two Copy buttons: one for the webhook URL, one for the alert message.** The URL's button copies what is on screen: the placeholder while the secret is hidden, the real URL once it is revealed.
+    - **12f.6 The panel shows the full webhook URL, with the host.** The host is served by the backend from a setting, never compiled into the bundle.
+    - **12f.7 A revealed secret stays revealed** until the owner hides it or leaves the view. No timer and no warning text.
+    - **By pair: a WIN RATE column is built**, which needs the backend to serve it. **The OPEN column of the mockup is dropped.**
+    - **Closed trades are paged 20 rows at a time**, on a click. Nothing loads on scroll.
+    - **In Spanish the side reads "LONG" and "SHORT"**, as the exchanges show it, not "Largo" and "Corto". The chart's title, "Contribution to the pool, compounded", stays.
 
 ## Standing constraints
 

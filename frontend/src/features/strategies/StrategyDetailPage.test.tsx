@@ -3,12 +3,12 @@ import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
-import type { EnablementEvent, Strategy } from "@/shared/api/types";
+import type { EnablementEvent, PairStat, Strategy, StrategyTrade } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
-import { jsonResponse, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { emptyPerformance, jsonResponse, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const DAY = 86_400;
@@ -32,6 +32,12 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
 }
 
 interface Options {
+  /** `by_pair` of the strategy's report. */
+  byPair?: PairStat[];
+  /** What the trades endpoint answers for the first page. */
+  trades?: StrategyTrade[];
+  /** Replaces the performance report's answer. */
+  reportAnswer?: () => Response;
   events?: EnablementEvent[];
   pools?: unknown[];
   strategyAnswer?: () => Response;
@@ -47,6 +53,19 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
     {},
     (url, init) => {
       const method = init?.method ?? "GET";
+      if (url.includes(`/performance/strategies/${ID}/trades`)) {
+        return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null }));
+      }
+      if (url.endsWith(`/performance/strategies/${ID}`)) {
+        return Promise.resolve(
+          options.reportAnswer?.() ??
+            jsonResponse({
+              ...emptyPerformance(subject.exchange, subject.venue, subject.settlement_currency),
+              strategy_id: ID,
+              by_pair: options.byPair ?? [],
+            }),
+        );
+      }
       if (!url.includes(`/strategies/${ID}`)) return undefined;
       requests.push({ method, url });
       if (url.endsWith("/events")) return Promise.resolve(jsonResponse(options.events ?? []));
@@ -206,9 +225,9 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     const history = await screen.findByRole("list", { name: i18n.t("strategies.detail.history.title") });
-    expect(history).toHaveClass("max-h-100", "overflow-y-auto");
+    expect(history).toHaveClass("max-h-18", "overflow-y-auto");
     expect(history).toHaveAttribute("tabindex", "0");
-    expect(history).not.toHaveClass("h-100");
+    expect(history).not.toHaveClass("h-18");
   });
 
   it("says so when nothing was ever enabled or disabled", async () => {
@@ -223,15 +242,104 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
   });
 
-  it("shows the webhook message of the loaded strategy, with its id as signal_type, above the delete control", async () => {
+  it("shows the webhook message of the loaded strategy, with its id as signal_type, once it is opened from the header, above the delete control", async () => {
     renderPage();
     await heading("ETH Breakout");
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.webhook.open }));
 
     const message = screen.getByRole("group", { name: en.strategies.webhook.messageLabel });
     expect(JSON.parse(message.textContent ?? "")).toMatchObject({ signal_type: ID });
     expect(screen.getByText(`/webhook/tradingview?secret=${en.strategies.webhook.secretPlaceholder}`)).toBeInTheDocument();
     const deleteButton = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
     expect(message.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Was test_left_column_runs_performance_by_pair_trades_and_ends_with_the_webhook_block: the webhook block
+  // left the column's end for a disclosure in the header (it supersedes the placement of 12f.8).
+  it("test_left_column_runs_performance_by_pair_and_trades_and_holds_no_webhook_block_until_it_is_opened", async () => {
+    renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
+    await heading("ETH Breakout");
+
+    const titles = [
+      await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
+      await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
+      await screen.findByRole("heading", { name: en.strategies.performance.trades.title }),
+    ];
+    const column = (titles[2] as HTMLElement).closest("section")?.parentElement as HTMLElement;
+    for (const title of titles) expect(column).toContainElement(title);
+    for (let index = 1; index < titles.length; index += 1) {
+      const previous = titles[index - 1] as HTMLElement;
+      const next = titles[index] as HTMLElement;
+      expect(previous.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // The closed trades are now the last block of the column, and the webhook block is closed.
+    expect(column.lastElementChild).toContainElement(titles[2] as HTMLElement);
+    expect(screen.queryByRole("heading", { name: en.strategies.webhook.title })).toBeNull();
+    expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive", async () => {
+    renderPage(strategy(), { events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }] });
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const history = await within(settings).findByRole("heading", { name: en.strategies.detail.history.title });
+    const enableSwitch = within(settings).getByRole("button", { name: en.strategies.detail.enable });
+    const archive = within(settings).getByRole("button", { name: en.strategies.archive.button });
+
+    expect(enableSwitch.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(history.compareDocumentPosition(archive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // It keeps its height cap, its scroll and its keyboard focus.
+    const list = within(settings).getByRole("list", { name: en.strategies.detail.history.title });
+    expect(list).toHaveClass("max-h-18", "overflow-y-auto");
+    expect(list).toHaveAttribute("tabindex", "0");
+  });
+
+  it("test_a_pair_removed_from_the_allowed_pairs_is_still_listed_with_its_stats_on_the_page", async () => {
+    renderPage(strategy({ allowed_pairs: ["ETHUSDT"] }), {
+      byPair: [
+        { pair: "ETHUSDT", trades: 19, pnl: "52.60", return: "0.0526000000" },
+        { pair: "SOLUSDT", trades: 24, pnl: "-5.30", return: "-0.0053000000" },
+      ],
+    });
+    await heading("ETH Breakout");
+
+    const table = await screen.findByRole("table", { name: en.strategies.performance.byPair.title });
+
+    const removed = within(within(table).getByRole("row", { name: /^SOLUSDT/ }));
+    expect(removed.getByText("24")).toBeInTheDocument();
+    expect(removed.getByText("-5.30")).toBeInTheDocument();
+  });
+
+  it("lists this strategy's closed trades in its pool's currency", async () => {
+    const trade: StrategyTrade = {
+      allocation_id: "00000000-0000-4000-8000-000000000001",
+      pair: "BTCUSD",
+      direction: "SHORT",
+      opened_at: "2026-09-29T10:00:00Z",
+      closed_at: "2026-09-30T10:00:00Z",
+      pnl: "0.00120000",
+      capital_at_open: null,
+      return: null,
+      fees_complete: true,
+    };
+    renderPage(strategy({ settlement_currency: "BTC" }), { trades: [trade] });
+    await heading("ETH Breakout");
+
+    const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
+
+    expect(within(table).getByRole("columnheader", { name: "PnL BTC" })).toBeInTheDocument();
+    expect(within(table).getByText("+0.00120000")).toBeInTheDocument();
+    expect(within(table).getByText("BTCUSD")).toBeInTheDocument();
+  });
+
+  it("keeps the settings and the controls when the performance report fails, and says so", async () => {
+    renderPage(strategy(), { reportAnswer: () => jsonResponse({ detail: "boom" }, 500) });
+    await heading("ETH Breakout");
+
+    expect(await screen.findByText(en.strategies.performance.error)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
+    expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toBeEnabled();
   });
 
   it("renders in Spanish and has the same keys in both locales", async () => {

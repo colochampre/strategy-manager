@@ -134,6 +134,9 @@
     },
     "pairs": {
       "search": "Buscar pares",
+      "searchPlaceholder": "Escriba un símbolo para buscar",
+      "searchable_one": "Se puede buscar entre {{count}} par",
+      "searchable_other": "Se puede buscar entre {{count}} pares",
       "choosePool": "Elija primero un pool",
       "loading": "Cargando la lista de pares…",
       "loadFailed": "No se pudo cargar la lista de pares.",
@@ -184,7 +187,51 @@
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       }
     },
+    "performance": {
+      "loading": "Cargando el rendimiento de esta estrategia…",
+      "error": "No se pudo cargar el rendimiento de esta estrategia.",
+      "retry": "Reintentar",
+      "noReport": "Esta estrategia todavía no tiene informe de rendimiento.",
+      "chartTitle": "Aporte al pool, compuesto",
+      "contribution": "aporte al pool {{range}}",
+      "byPair": {
+        "title": "Por par",
+        "pair": "Par",
+        "trades": "Operaciones",
+        "pnl": "PnL {{currency}}",
+        "return": "Rendimiento",
+        "empty": "Ningún par tiene todavía una operación cerrada.",
+        "unreadable": "No se pudieron leer las cifras por par.",
+        "noReturn": "No hay capital registrado al abrir las operaciones de este par, por lo que no tiene rendimiento."
+      },
+      "trades": {
+        "title": "Operaciones cerradas",
+        "opened": "Apertura (UTC)",
+        "closed": "Cierre (UTC)",
+        "pair": "Par",
+        "side": "Sentido",
+        "direction": { "LONG": "LONG", "SHORT": "SHORT" },
+        "pnl": "PnL {{currency}}",
+        "return": "Rendimiento",
+        "capital": "Capital del pool al abrir",
+        "feesIncomplete": "comisiones incompletas",
+        "feesIncompleteHint": "Una comisión pagada en una tercera moneda no está en este PnL.",
+        "noValue": "No hay capital registrado al abrir esta operación, por lo que no tiene rendimiento.",
+        "cellUnreadable": "ilegible",
+        "loading": "Cargando las operaciones cerradas…",
+        "error": "No se pudieron cargar las operaciones cerradas.",
+        "retry": "Reintentar",
+        "empty": "Todavía no hay operaciones cerradas.",
+        "pagination": "Páginas de operaciones cerradas",
+        "page": "Página {{page}}",
+        "previous": "Anterior",
+        "next": "Siguiente",
+        "loadingMore": "Cargando…",
+        "nextFailed": "No se pudo cargar la página siguiente. Se sigue mostrando esta página."
+      }
+    },
     "webhook": {
+      "open": "Conectar una alerta de TradingView",
       "title": "Conectar una alerta de TradingView",
       "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje.",
       "urlLabel": "URL del webhook",

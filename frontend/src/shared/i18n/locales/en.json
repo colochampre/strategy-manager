@@ -134,6 +134,9 @@
     },
     "pairs": {
       "search": "Search pairs",
+      "searchPlaceholder": "Type a symbol to search",
+      "searchable_one": "{{count}} pair can be searched",
+      "searchable_other": "{{count}} pairs can be searched",
       "choosePool": "Choose a pool first",
       "loading": "Loading the pair list…",
       "loadFailed": "The pair list could not be loaded.",
@@ -184,7 +187,51 @@
         "saveFailed": "The allowed pairs were not saved. Try again."
       }
     },
+    "performance": {
+      "loading": "Loading this strategy's performance…",
+      "error": "This strategy's performance could not be loaded.",
+      "retry": "Try again",
+      "noReport": "No performance report exists for this strategy yet.",
+      "chartTitle": "Contribution to the pool, compounded",
+      "contribution": "contribution to the pool {{range}}",
+      "byPair": {
+        "title": "By pair",
+        "pair": "Pair",
+        "trades": "Trades",
+        "pnl": "PnL {{currency}}",
+        "return": "Return",
+        "empty": "No pair has a closed trade yet.",
+        "unreadable": "The figures by pair could not be read.",
+        "noReturn": "No capital at open is recorded for this pair's trades, so it has no return."
+      },
+      "trades": {
+        "title": "Closed trades",
+        "opened": "Opened (UTC)",
+        "closed": "Closed (UTC)",
+        "pair": "Pair",
+        "side": "Side",
+        "direction": { "LONG": "LONG", "SHORT": "SHORT" },
+        "pnl": "PnL {{currency}}",
+        "return": "Return",
+        "capital": "Pool capital at open",
+        "feesIncomplete": "fees incomplete",
+        "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
+        "noValue": "No capital at open is recorded for this trade, so it has no return.",
+        "cellUnreadable": "unreadable",
+        "loading": "Loading the closed trades…",
+        "error": "The closed trades could not be loaded.",
+        "retry": "Try again",
+        "empty": "No closed trades yet.",
+        "pagination": "Pages of closed trades",
+        "page": "Page {{page}}",
+        "previous": "Previous",
+        "next": "Next",
+        "loadingMore": "Loading…",
+        "nextFailed": "The next page could not be loaded. This page is still shown."
+      }
+    },
     "webhook": {
+      "open": "Connect a TradingView alert",
       "title": "Connect a TradingView alert",
       "hint": "Use the same URL and message for every pair's alert. The ticker travels in the message.",
       "urlLabel": "Webhook URL",

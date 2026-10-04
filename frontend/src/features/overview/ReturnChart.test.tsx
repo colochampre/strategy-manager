@@ -298,6 +298,19 @@ describe("ReturnChart", () => {
     expect(screen.getByText(en.overview.returnChart.caption)).toBeInTheDocument();
     expect(Object.keys(es.overview.returnChart).sort()).toEqual(Object.keys(en.overview.returnChart).sort());
   });
+
+  it("shows the title it is given instead of the Overview's, keeping the caption, and also when the curve is unreadable", () => {
+    const { rerender } = render(<ReturnChart curve={[]} range="All" asOf={AS_OF} title="Contribution of this strategy" />);
+    expect(screen.getByRole("heading", { name: "Contribution of this strategy" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: en.overview.returnChart.title })).toBeNull();
+    expect(screen.getByText(en.overview.returnChart.caption)).toBeInTheDocument();
+
+    rerender(
+      <ReturnChart curve={[point("2026-07-10", Number.NaN, 0)]} range="All" asOf={AS_OF} title="Contribution of this strategy" />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(en.overview.returnChart.unreadable);
+    expect(screen.getByRole("heading", { name: "Contribution of this strategy" })).toBeInTheDocument();
+  });
 });
 
 /**
