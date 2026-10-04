@@ -2,6 +2,11 @@
 ``DRY_RUN`` is on (design.md § Purpose; spec: trade-execution § DRY_RUN
 Safety). ``is_live = False`` so the startup invariant never allows
 ``dry_run=false`` against it (CLAUDE.md rule 1).
+
+Since owner decision 45 it fills each order at the price its alert carried,
+exactly, and charges the venue's taker fee in USDT on the notional (see the
+class docstring). Rehearsal ids keep their ``fake-fill-`` / ``fake-order-``
+prefixes: the prefix, no longer the price, is what marks a rehearsal row.
 """
 
 import logging
@@ -65,9 +70,24 @@ def _is_usable(price: Decimal | None) -> TypeGuard[Decimal]:
 class FakeExchangeAdapter:
     """Implements ``execution.application.ports.ExchangePort``.
 
-    Accepts every order and fills it immediately at a fixed reference price,
-    with zero fee — enough to exercise the flow without a real API
-    credential.
+    Accepts an order and fills it immediately and in full, with no real API
+    credential:
+
+    * **Price.** At the price of the alert behind the order, exactly: an
+      opening order's own price, a closing order's ``reference_price``. Each
+      build remembers its price under the client order id and ``place`` takes
+      it back, so orders built before either is placed keep their own. No
+      rounding, no tick, no slippage. An order with no usable price (absent,
+      not finite, not above zero) is refused with ``ExchangeError``: there is
+      no fallback, not to 1, not to the last price seen. An explicit
+      ``fill_price`` is the FIXED mode (tests only): every order fills at it.
+    * **Size.** At leverage 1 (``FAKE_LEVERAGE``): a futures position's
+      notional equals the capital granted, and a spot buy's quantity is the
+      granted amount over the price of its fill.
+    * **Fee.** ``quantity x price x fee_rate``, in USDT, quantised once to 18
+      places half-even, on both sides; the base quantity is never touched. A
+      market not quoted in USDT is refused rather than charged in another
+      currency.
 
     It keeps what it was told, keyed by client order id, so the two-step
     place-then-settle flow can be exercised end to end: an order nobody placed

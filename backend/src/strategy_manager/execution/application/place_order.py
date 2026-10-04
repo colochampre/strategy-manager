@@ -65,7 +65,11 @@ SUBMITTED = "SUBMITTED"
 class PlaceCommand:
     """``price`` is the alert's bar-close reference price, used only to
     derive ``quantity = granted / price`` — never the ledger fill price
-    (design.md § "Order size never comes from the alert")."""
+    (design.md § "Order size never comes from the alert").
+
+    That holds of a live fill. A rehearsal fill is priced at this same price
+    by the simulated exchange (decision 45), which remembers it between its
+    own build and its own place."""
 
     reservation_id: UUID
     symbol: str

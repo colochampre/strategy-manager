@@ -112,6 +112,10 @@ class OpenOrderSpec:
     ``granted`` verbatim as a quote amount, while on futures ``granted`` is
     margin and the size is ``granted * leverage / price`` at a leverage only
     the adapter can read.
+
+    ``price`` is never a live fill's price. It is, since decision 45, the
+    price a REHEARSAL fill is minted at: the simulated exchange remembers it
+    between its own build and its own place.
     """
 
     client_order_id: str
