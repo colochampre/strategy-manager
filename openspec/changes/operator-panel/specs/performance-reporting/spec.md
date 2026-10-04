@@ -6,6 +6,17 @@
 > settlement-currency fees are subtracted; nothing is converted), F4 (pairs are
 > keyed by `market_key()` per allocation), decision 16 (UTC day and month
 > boundaries) and decision 17 (the return formula in design §11 is confirmed).
+>
+> **Revised 2026-10-04 (owner decisions 43 and 45, design addendum "decision
+> 43").** A strategy's operations are listed one by one with their prices, size
+> and fees. Rehearsal operations are listed, marked, and only on request; they
+> stay out of every figure. Two requirements are revised so they no longer
+> contradict that: "Rehearsal Fills Are Excluded From Every Figure" and "No
+> Qualifying Trades Produce Empty Results, Not an Error". Four requirements are
+> added at the end of this file: "Each Operation In The Trades List Carries Its
+> Prices, Size And Fees", "Rehearsal Operations Are Listed Only On Request",
+> "A Rehearsal Operation Says How Its Opening Fills Were Priced" and "One
+> Operation's Fills Are Read By Strategy And Allocation Together".
 
 ## Purpose
 
@@ -46,15 +57,54 @@ are introduced.
 
 Fills minted by the DRY_RUN fake exchange carry an `exchange_fill_id` starting
 with the named domain constant `REHEARSAL_FILL_ID_PREFIX` (`"fake-fill-"`).
-Every read model in this domain MUST exclude those fills. The constant MUST be
-the single definition used both by the fake exchange that mints the ids and by
-the reads that exclude them.
+Every figure of this domain MUST exclude those fills. A figure is every sum,
+count, ratio or series any read model returns: trade counts, realized PnL, the
+return, the compounded curve, drawdown, the monthly grid, the PnL ranges, the
+by-pair and by-strategy statistics, and the open-trade and exclusion counts.
+Every read model's response to a request that does not ask for rehearsal rows
+MUST be computed as if no rehearsal fill existed. The constant MUST be the
+single definition used both by the fake exchange that mints the ids and by the
+reads that exclude them.
+
+The one exception is the strategy's trades list (see "Rehearsal Operations Are
+Listed Only On Request"): requested with `include_rehearsal=true`, it MAY list
+a rehearsal operation as a marked row. The exception covers rows only. A
+rehearsal operation's own figures belong to that row alone, and no figure of
+any read model, including the other fields of the same response, MUST include
+them.
+
+`excluded.rehearsal_fill_count` MUST keep its meaning: the number of rehearsal
+fills in the read's scope, including fills of allocations that are still open
+and of mixed allocations. No other `excluded` key is added.
+
+(Previously: "Every read model in this domain MUST exclude those fills", with
+no exception, which the trades list of owner decision 43 contradicts. The rule
+now holds for every figure and for every default request, and names the one
+exception precisely.)
 
 #### Scenario: A rehearsal fill never reaches a figure
 
 - GIVEN pool `(bybit, usdt-m, USDT)` has a settled rehearsal allocation whose fills carry `fake-fill-` ids, and one real closed allocation
-- WHEN any performance read model is requested for that pool
+- WHEN any performance read model is requested for that pool without `include_rehearsal`
 - THEN only the real allocation is counted, in trades, PnL, the curve, the grid and the ranges
+
+#### Scenario: Asking for rehearsal rows changes no figure
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` has one real closed trade with PnL +14.245 USDT and one rehearsal round trip
+- WHEN S1's pool report, strategy report, curve, monthly grid, ranges and by-pair statistics are read, and S1's trades list is read with `include_rehearsal=true`
+- THEN every report, curve, grid, range and by-pair response is identical to the one read from a ledger that holds the real trade alone, and the trade count is 1
+
+#### Scenario: The rehearsal fill count keeps counting every rehearsal fill
+
+- GIVEN pool `(bybit, usdt-m, USDT)` holds 4 rehearsal fills of a closed rehearsal allocation, 1 rehearsal fill of a rehearsal allocation still open, and 2 rehearsal fills inside a mixed allocation
+- WHEN the pool's report is read
+- THEN `excluded.rehearsal_fill_count` is 7, and no new `excluded` key is present
+
+#### Scenario: A rehearsal operation's own PnL is in no total
+
+- GIVEN a rehearsal operation in pool `(bybit, usdt-m, USDT)` whose own PnL is +3 USDT
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN that row carries +3 USDT as its own PnL, and every total in the pool report remains the sum over real operations only
 
 ### Requirement: Realized PnL Per Closed Allocation, In Native Settlement Currency
 
@@ -226,7 +276,17 @@ produce a blended total anywhere in this domain.
 When a pool has no qualifying closed trades (no ledger entries at all, or only
 rehearsal fills, as is normal under `DRY_RUN`), every read model in this
 domain MUST return a well-defined empty result (zero trades, no curve points,
-zero PnL) rather than an error.
+zero PnL) rather than an error. Rehearsal operations are never qualifying
+trades, so a pool that holds only rehearsal fills has no qualifying trades.
+
+The one exception is the strategy's trades list requested with
+`include_rehearsal=true`: for a ledger of only rehearsal fills it MUST list the
+closed rehearsal operations, marked, instead of an empty list. Every total in
+that same pool, and the trades list on a default request, MUST still be empty.
+
+(Previously: "every read model" returned the empty result for a ledger of only
+rehearsal fills, with no exception. The trades list on request is now the one
+read that does not.)
 
 #### Scenario: An empty ledger yields empty performance data
 
@@ -237,5 +297,362 @@ zero PnL) rather than an error.
 #### Scenario: A ledger holding only rehearsal fills yields empty performance data
 
 - GIVEN pool `(bybit, usdt-m, USDT)` holds only fills whose ids start with `fake-fill-`
-- WHEN any performance read model is requested for that pool
+- WHEN any performance read model is requested for that pool without `include_rehearsal`
 - THEN it returns the same empty result, with no error raised
+
+#### Scenario: A rehearsal-only ledger lists its operations on request and still totals nothing
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` whose ledger holds one closed rehearsal round trip and nothing else
+- WHEN S1's trades list is read with `include_rehearsal=true`, and S1's strategy report, the pool's curve and monthly grid are read
+- THEN the list holds exactly one row, marked rehearsal, and the report shows 0 trades and 0 PnL, the curve has no points and the grid is empty, with no error raised
+
+### Requirement: Each Operation In The Trades List Carries Its Prices, Size And Fees
+
+> **Added 2026-10-04 (owner decision 43).**
+
+An operation is one allocation of a strategy: one reservation and every ledger
+row carrying its id, all in the strategy's own pool, for example
+`(bybit, usdt-m, USDT)`. The strategy's trades list MUST serve, for each closed
+operation, its base currency, entry price, exit price, size, fees paid and fees
+in other currencies, all derived from that operation's own fills, with no new
+stored value. The derivation is made per operation and the figures are never
+summed across operations.
+
+- The opening fills are the fills on the side of the allocation's earliest fill
+  (a tie goes to BUY) and the closing fills are those on the other side. An
+  operation is closed when its net base quantity is zero under the existing
+  base-fee rule with at least one fill on each side. An operation that has not
+  netted to zero is not listed.
+- The entry price MUST be the quantity-weighted average of the opening fills:
+  the sum of their notional over the sum of their quantity. The exit price MUST
+  be the same over the closing fills. The average MUST NOT be a mean of
+  per-fill or per-group averages.
+- The size MUST be the sum of the opening fills' quantity, in the base
+  currency. The base currency MUST be the base of the allocation's market in
+  upper case.
+- The fees paid MUST be the sum of every fill's fee, both sides, whose fee
+  currency is the pool's settlement currency, which is exactly the amount
+  subtracted from the operation's PnL. A fee in any other currency MUST be
+  listed once per currency, with its own summed amount above zero, sorted by
+  currency, and MUST NOT be converted. Fee currencies are compared upper-cased.
+- The operation's `fees_complete` flag keeps its meaning: a fee in the base
+  currency is listed with the other fees and leaves the flag true, because the
+  PnL already contains it. A fee in a third currency is listed and makes the
+  flag false.
+- When the figures cannot be derived (a side whose summed quantity or notional
+  is not above zero, or fills naming more than one market), the base currency,
+  entry price, exit price and size MUST all be absent together, the operation
+  MUST stay in the list because it is in the totals, and the read MUST log one
+  warning naming the pool, strategy and allocation. Two spellings of one market
+  (`STXUSDT.P` and `STXUSDT`) are not a disagreement. The fees paid and the
+  other fees are plain sums, are never absent, and an absent figure MUST NEVER
+  be served as zero.
+- The return keeps its meaning: PnL over the pool capital recorded on the
+  operation's reservation, absent when none was recorded.
+- When both sides hold the same quantity and every fee is in the settlement
+  currency, PnL MUST equal `(exit price - entry price) x size x (+1 for LONG,
+  -1 for SHORT) - fees paid`.
+
+#### Scenario: One fill per side gives that fill's prices
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` has a closed LONG that bought 1250 `STXUSDT.P` at 0.4512 (notional 564.0, fee 0.31 USDT) and sold 1250 `STXUSDT` at 0.4631 (notional 578.875, fee 0.32 USDT)
+- WHEN S1's trades list is read
+- THEN the row has pair `STXUSDT`, base currency `STX`, entry price 0.4512, exit price 0.4631, size 1250, fees paid 0.63 USDT, no other fees, and PnL 14.245 USDT
+
+#### Scenario: Several opening fills are averaged by quantity
+
+- GIVEN a closed LONG in pool `(bybit, usdt-m, USDT)` that bought 100 at 0.40, 300 at 0.44 and 600 at 0.46 (total notional 448) and sold 1000 at 0.50
+- WHEN the trades list is read
+- THEN the entry price is 0.448, not 0.4333..., the size is 1000, and the exit price is 0.50
+
+#### Scenario: A SHORT's entry is its SELL side
+
+- GIVEN a closed SHORT in pool `(bybit, usdt-m, USDT)` that sold 2 `SOLUSDT` at 150 first and bought 2 at 140 later, with no fees
+- WHEN the trades list is read
+- THEN the direction is SHORT, the entry price is 150, the exit price is 140, the size is 2, and PnL is +20 USDT
+
+#### Scenario: A fee in the base currency is listed and the PnL stays complete
+
+- GIVEN a closed operation that bought 1000 `STX` with a fee of 1 STX and sold 999 `STX`, with every other fee in USDT
+- WHEN the trades list is read
+- THEN the size is 1000, the other fees list one entry of 1 STX, and `fees_complete` is true
+
+#### Scenario: A fee in a third currency is listed, never converted
+
+- GIVEN a closed operation in pool `(binance, usdt-m, USDT)` that paid 0.00012 BNB in fees and 0.63 USDT in fees
+- WHEN the trades list is read
+- THEN the fees paid are 0.63 USDT, the other fees list one entry of 0.00012 BNB, and `fees_complete` is false
+
+#### Scenario: A figure that cannot be derived is absent, never zero, and the operation stays listed
+
+- GIVEN a closed operation in pool `(bybit, usdt-m, USDT)` whose fills name `STXUSDT` and `SOLUSDT`
+- WHEN the trades list is read
+- THEN the operation is listed with the base currency, entry price, exit price and size all absent, its fees paid and other fees present, its PnL as before, and one warning names the pool, the strategy, the allocation and both markets
+
+#### Scenario: Two spellings of one market are not a disagreement
+
+- GIVEN a closed operation opened under `STXUSDT.P` and closed under `STXUSDT`
+- WHEN the trades list is read
+- THEN all four figures are present and no warning is logged
+
+#### Scenario: An operation that has not netted to zero is not listed
+
+- GIVEN an operation in pool `(bybit, usdt-m, USDT)` that bought 1.000 and sold 0.600, or that has only a BUY
+- WHEN the trades list is read
+- THEN it is not in the list, and it is counted in the report's open trade count as before
+
+#### Scenario: A close that leaves the net at zero lists once, averaging every closing fill
+
+- GIVEN an operation that bought 1.000 at 100 and whose close filled 0.600 at 110, then 0.400 at 105 in a later order
+- WHEN the trades list is read after the second close fill
+- THEN it is listed once, with exit price 108 (notional 108 over quantity 1.000), closed at the last fill's instant
+
+#### Scenario: The return is absent when no capital was recorded
+
+- GIVEN a closed operation whose reservation recorded no pool capital at open
+- WHEN the trades list is read
+- THEN its return and capital at open are absent, its PnL is present, and the other figures are served as usual
+
+### Requirement: Rehearsal Operations Are Listed Only On Request
+
+> **Added 2026-10-04 (owner decision 43, answered 2026-10-03).**
+
+A rehearsal operation is an allocation every one of whose fills carries the
+rehearsal fill marker (`REHEARSAL_FILL_ID_PREFIX`, a prefix test), closed under
+the same rule as any operation. An operation MUST be wholly real or wholly
+rehearsal. An allocation holding fills of both origins (a mixed allocation) is
+NOT a rehearsal operation: its real fills MUST be derived exactly as before, its
+rehearsal fills MUST NEVER be listed, and the read MUST log one warning naming
+the pool, strategy and allocation. An allocation id MUST therefore appear at
+most once in the list.
+
+The strategy's trades list MUST serve rehearsal operations only when requested
+with `include_rehearsal=true`; the default request MUST serve exactly what it
+served before this requirement, with no rehearsal row. Each row MUST say
+whether it is a rehearsal row, never absent, false for a real one. A rehearsal
+row MUST carry the same derived figures as any row (derived from its own
+fills), and those figures MUST be that operation's own and MUST NOT enter any
+total (see "Rehearsal Fills Are Excluded From Every Figure"). A rehearsal row's
+figures are what the ledger holds, never blanked or substituted. A rehearsal
+operation whose fills were ALL written before owner decision 45 took effect (the
+simulated exchange then filled every order at a price of 1 with no fee) reads
+entry price 1, exit price 1, fees 0 and PnL 0. A rehearsal operation with at
+least one fill written after decision 45 took effect carries that fill's alert
+price and its simulated taker fee, and its figures are derived from them like any
+row's. How a simulated fill is priced and charged is outside this requirement
+(owner decision 45; see the trade-execution spec).
+(Previously: "while the simulated exchange fills every order at a price of 1 with
+no fee, a rehearsal row reads entry price 1, exit price 1, fees 0 and PnL 0",
+which stopped being true of new rows when decision 45 took effect.)
+
+Real and rehearsal operations MUST form one list in one order: the close
+instant descending, ties broken by allocation id descending, and the paging
+cursor (the close instant and the allocation id of the last row served) MUST be
+the same with or without rehearsal rows. A cursor minted by a request without
+rehearsal rows MUST be a valid position in the list with them, and the reverse.
+
+#### Scenario: The default request lists no rehearsal row
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` has one real closed operation and one closed rehearsal operation
+- WHEN S1's trades list is read without `include_rehearsal`
+- THEN it holds the real operation only, and its row says it is not a rehearsal row
+
+#### Scenario: A requested list holds both kinds, each marked
+
+- GIVEN the same strategy S1
+- WHEN S1's trades list is read with `include_rehearsal=true`
+- THEN it holds both operations, the real row marked not rehearsal and the other marked rehearsal, in close-instant order
+
+#### Scenario: A rehearsal row carries the stored numbers
+
+- GIVEN a closed rehearsal operation in pool `(bybit, usdt-m, USDT)` whose fills are at price 1 with no fee, size 12.5
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN its row has entry price 1, exit price 1, size 12.5, fees paid 0 and PnL 0, none blanked
+
+#### Scenario: A mixed allocation is never listed as a rehearsal operation
+
+- GIVEN an allocation in pool `(bybit, usdt-m, USDT)` holding a full real round trip and a full rehearsal round trip
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the allocation appears once, derived from its real fills only, as a real row, and one warning names the pool, the strategy and the allocation
+
+#### Scenario: A real and a rehearsal operation closing at the same instant straddle a page edge
+
+- GIVEN a real and a rehearsal operation that close at the same instant, and a page limit of 1
+- WHEN the first page and then the page after its cursor are read with `include_rehearsal=true`
+- THEN each operation is served exactly once, the higher allocation id first
+
+#### Scenario: A cursor from a list without rehearsal rows resumes the list with them
+
+- GIVEN a cursor taken from the last row of a request made without `include_rehearsal`
+- WHEN the next page is read with that cursor and `include_rehearsal=true`
+- THEN it resumes at the same position, and no real operation is skipped or repeated
+
+#### Scenario: An operation still open is not listed, rehearsal or not
+
+- GIVEN a rehearsal operation that has only its opening BUY
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN it is not in the list
+
+### Requirement: A Rehearsal Operation Says How Its Opening Fills Were Priced
+
+> **Added 2026-10-04 (owner decision 43, answered 2026-10-04; owner decision 45).**
+
+Every rehearsal row MUST carry a fill-price classification, and a real row
+MUST carry none. It is derived from stored data alone, by exact decimal
+equality between the `price` of the operation's OPENING fills and the price of
+the alert that ordered it (the price stored on the signal its reservation
+names), and MUST NOT be derived from the averaged entry price:
+
+- `FIXED_ONE`: every opening fill is priced exactly 1 and the alert's price is
+  not 1;
+- `ALERT`: every opening fill is priced exactly at the alert's price (which
+  includes an alert whose price is exactly 1);
+- `UNDETERMINED`: anything else, including opening fills of mixed prices and a
+  case where the alert's price cannot be read.
+
+The classification MUST NOT depend on the closing fills. It MUST NOT require a
+new stored marker. For the rehearsal rows of one page the facts MUST be read in
+a single request and not once per row. When the facts of a rehearsal row are
+missing, the row MUST read `UNDETERMINED` and the read MUST log one warning
+naming the pool, strategy and allocation. When a page holds rehearsal rows
+read `UNDETERMINED`, the read MUST log one informational line with their
+count.
+
+#### Scenario: Filled at 1 against another alert price is FIXED_ONE
+
+- GIVEN a rehearsal operation in pool `(bybit, usdt-m, USDT)` whose opening fill is priced 1 and whose alert carried 0.4512
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `FIXED_ONE`
+
+#### Scenario: Filled at the alert's price is ALERT, even when the average differs in the last places
+
+- GIVEN a rehearsal operation whose opening fill is priced 0.4512 against an alert of 0.4512, with a quantity small enough that the derived entry price differs from 0.4512 in its last places
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `ALERT`
+
+#### Scenario: An alert priced exactly 1 reads ALERT
+
+- GIVEN a rehearsal operation whose opening fill is priced 1 against an alert of exactly 1
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `ALERT`
+
+#### Scenario: A fill at neither price is UNDETERMINED
+
+- GIVEN a rehearsal operation whose opening fill is priced 0.45 against an alert of 0.4512
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `UNDETERMINED`, and one informational line counts it
+
+#### Scenario: Opening fills at different prices are UNDETERMINED
+
+- GIVEN a rehearsal operation with two opening fills, one priced 1 and one priced 0.4512, against an alert of 0.4512
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `UNDETERMINED`
+
+#### Scenario: Only the opening side decides
+
+- GIVEN a rehearsal operation opened at 1 and closed at its alert's price 0.4512
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `FIXED_ONE`
+
+#### Scenario: Missing facts read UNDETERMINED and are logged
+
+- GIVEN a rehearsal row whose alert price cannot be read
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN the row's classification is `UNDETERMINED` and one warning names the pool, the strategy and the allocation
+
+#### Scenario: A real row has no classification
+
+- GIVEN a real closed operation
+- WHEN the trades list is read with `include_rehearsal=true`
+- THEN its classification is absent
+
+### Requirement: One Operation's Fills Are Read By Strategy And Allocation Together
+
+> **Added 2026-10-04 (owner decision 43, answered 2026-10-04).**
+
+The system MUST read the individual fills of one operation of a strategy, in
+the strategy's own pool, by the strategy id AND the allocation id together; the
+read MUST NOT be possible by the allocation id alone. For each fill it MUST
+return the instant, side, the fill's own price, quantity, fee, fee currency
+(upper-cased) and whether it is a rehearsal fill, each never absent. It MUST
+NOT average, round, convert or sum, and MUST NOT return the fill's USD rate,
+venue order or fill ids, notional or symbol.
+
+- Fills MUST be ordered by instant ascending, ties broken by the row id.
+- The read MUST be capped at 200 fills and MUST say whether the cap cut it
+  (`truncated`); exactly 200 fills are not truncated, 201 are. A cut MUST log
+  one warning naming the strategy, the allocation and the cap.
+- The fills of an allocation MUST be returned whatever the spelling of the
+  symbol each was written under. An allocation that is still open MUST be
+  served. A rehearsal operation's fills MUST each carry the rehearsal flag
+  true; a mixed allocation's fills MUST ALL be returned, each with its own flag
+  and one warning.
+- When no fill carries both the strategy id and the allocation id, the outcome
+  MUST be the same "no such operation" whether the allocation does not exist,
+  belongs to another strategy, or never had a fill, and one warning MUST name
+  the strategy and the allocation.
+- A fill of the allocation and strategy that sits in another pool than the
+  strategy's MUST refuse the whole read as an integrity failure, not filter
+  that fill out.
+- The read MUST issue the same number of statements for 1 fill and for 50, and
+  MUST write nothing and take no lock.
+
+#### Scenario: A closed operation's fills come in the order they happened
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` has an operation whose later fill was inserted first
+- WHEN the operation's fills are read
+- THEN they are returned by instant ascending, each with price, quantity, fee and fee currency as stored
+
+#### Scenario: Fills written under two spellings are all returned
+
+- GIVEN an operation opened as `STXUSDT.P` and closed as `STXUSDT`
+- WHEN its fills are read by S1 and the allocation id
+- THEN the fills of both spellings are returned
+
+#### Scenario: A rehearsal operation's fills each say so
+
+- GIVEN a closed rehearsal operation
+- WHEN its fills are read
+- THEN every fill carries the rehearsal flag true, and a real operation's fills carry false
+
+#### Scenario: A mixed allocation hides nothing
+
+- GIVEN an allocation holding 2 real fills and 2 rehearsal fills
+- WHEN its fills are read
+- THEN all 4 are returned, each with its own flag, and one warning names the strategy and the allocation
+
+#### Scenario: The cap cuts at 200 and says so
+
+- GIVEN an operation with 201 fills
+- WHEN its fills are read
+- THEN the first 200 are returned with `truncated` true and one warning is logged; an operation with exactly 200 returns 200 with `truncated` false
+
+#### Scenario: Another strategy's operation is not readable through this strategy
+
+- GIVEN strategies S1 and S2 in the same pool `(bybit, usdt-m, USDT)`, and S2 has an operation A2
+- WHEN S1's fills are read for allocation A2
+- THEN the outcome is "no such operation", and no fill of A2 leaves the database
+
+#### Scenario: An unknown, a foreign and an empty allocation are the same outcome
+
+- GIVEN a random allocation id, S2's allocation A2, and a reservation of S1 that never had a fill
+- WHEN S1's fills are read for each
+- THEN each yields the identical "no such operation" outcome
+
+#### Scenario: A fill in another pool refuses the read
+
+- GIVEN an allocation of S1 with one fill written under pool `(bybit, spot, USDT)` while S1's pool is `(bybit, usdt-m, USDT)`
+- WHEN its fills are read
+- THEN the read fails as an integrity failure and returns no partial list
+
+#### Scenario: An open allocation's fills are served
+
+- GIVEN an allocation with only its opening BUY
+- WHEN its fills are read
+- THEN that one fill is returned
+
+#### Scenario: The statement count does not grow with the fills
+
+- GIVEN one operation with 1 fill and another with 50
+- WHEN each one's fills are read
+- THEN both reads issue the same number of statements

@@ -68,9 +68,19 @@ class TimelineCloseOrphans(SpyCloseOrphans):
         symbol: str,
         holdings: list[HeldAllocation],
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         self._timeline.log.append("close_orphans")
-        await super().close(signal_id, pool, strategy_id, symbol, holdings, next_poll)
+        await super().close(
+            signal_id,
+            pool,
+            strategy_id,
+            symbol,
+            holdings,
+            next_poll,
+            reference_price=reference_price,
+        )
 
 
 def _open_context(symbol: str = "ETHUSDT") -> SignalContext:

@@ -112,6 +112,10 @@ class OpenOrderSpec:
     ``granted`` verbatim as a quote amount, while on futures ``granted`` is
     margin and the size is ``granted * leverage / price`` at a leverage only
     the adapter can read.
+
+    ``price`` is never a live fill's price. It is, since decision 45, the
+    price a REHEARSAL fill is minted at: the simulated exchange remembers it
+    between its own build and its own place.
     """
 
     client_order_id: str
@@ -129,12 +133,20 @@ class CloseOrderSpec:
     the honest number, so no venue re-derives it. What differs is what the
     venue does with it: spot sells the base currency, futures sends a
     reduce-only order in the closing direction.
+
+    ``reference_price`` is the price of the ALERT that caused this close. It is
+    read only by the simulated exchange, which fills a rehearsal close at it
+    (decision 45); it sizes nothing and is sent nowhere. A real adapter never
+    reads it, and ``ExchangePort.place`` cannot see it. It defaults to
+    ``None`` so every real adapter, and every test that builds a spec for
+    one, stays exactly as it was.
     """
 
     client_order_id: str
     symbol: str
     side: OrderSide
     base_size: Decimal
+    reference_price: Decimal | None = None
 
 
 class ExchangePort(Protocol):

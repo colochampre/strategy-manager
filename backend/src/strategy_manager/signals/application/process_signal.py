@@ -279,6 +279,8 @@ class CloseOrphansPort(Protocol):
         symbol: str,
         holdings: list[HeldAllocation],
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None: ...
 
 
@@ -554,6 +556,7 @@ class ProcessSignalHandler:
                     symbol=context.symbol,
                     holdings=guard_outcome.real_orphan_holdings,
                     next_poll=next_poll,
+                    reference_price=context.price,
                 )
                 return ProcessSignalResult(transition.kind.value, None, False)
             # DEFERRED (design.md § S5, amending S2): work is still in
@@ -771,6 +774,7 @@ class ProcessSignalHandler:
                 symbol=context.symbol,
                 side=_releasing_side(_prior_of(context)),
                 signal_id=signal_id,
+                reference_price=context.price,
             )
         )
         if close_result.status in ("FAILED", "NOT_CLOSABLE"):

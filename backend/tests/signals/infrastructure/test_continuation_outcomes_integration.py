@@ -230,7 +230,7 @@ async def _run_continuation(
     """One ``signal.open_after_close`` job exactly as the worker runs it: the
     production handler, ``poll``, then the handler's trailing commit."""
     settings = get_settings()
-    exchange = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("2"))
+    exchange = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("2"), fee_rate=Decimal("0"))
     pools = {
         _POOL: PoolConfig(
             exchange=Exchange("bybit"),

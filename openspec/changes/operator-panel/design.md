@@ -2600,3 +2600,994 @@ Total 2,000 to 2,950 authored lines without 12x-6, 2,400 to 3,550 with it.
   - *No:* the delete answers 409 `STRATEGY_ARCHIVED`, and an archived test strategy stays in the archive for good.
   - **Recommended: yes.** An archived strategy is disabled by construction (`ck_strategies_archived_requires_disabled`), and without history there is nothing the archive preserves. Refusing would defeat decision 42 for any strategy archived before this feature existed.
   - **Blocks:** task 9xc.6 (use case), the archived case of 9xd.1 (router) and of 9xe.3 (control). Everything else in those units proceeds.
+
+## Addendum: a strategy's operations, listed and opened one by one (decision 43) - 2026-10-04
+
+Unit 9p, tasks 9p.4 (backend) and 9p.5 (frontend). HEAD `9c8fc6d`. Decision 43 with its two answers of 2026-10-03, and the paging and LONG/SHORT answers of decision 44, are binding and are not reopened here. This addendum settles what they left to the design: what an operation is in terms of the tables that exist, how each new figure is derived, how a rehearsal operation is recognised, served and kept out of every total, the response shape, the detail view, and the delivery. It extends the trades row of § 14 and the "As built (PR 6c)" notes of § 11. It adds one read-only endpoint, the fills of one operation, changes no other, and needs **no migration**.
+
+> **Revised 2026-10-04.** The owner answered the three questions of § L the same day (decision 43's lines of 2026-10-04, and decision 45). The answers are folded into §§ C to L below. Nothing in this addendum is open.
+
+**The answer in one paragraph.** An operation is one allocation: one row of `reservations` and the ledger rows that carry its id. The grouped aggregate that every performance read already makes holds, per side, the summed quantity, notional and fee, so entry price, exit price, size and fees are derived from it in the domain with no new statement. The source stops discarding rehearsal fills and returns them as a second, separate set of groups. Only the trades list reads that set, and only when the request asks with `include_rehearsal=true`; every total keeps reading the first set, so no figure of any report changes. A rehearsal operation is an allocation every one of whose fills carries the `fake-fill-` prefix. It is served in the same list and the same keyset order, with `rehearsal: true`. The row carries every figure, so the detail view is a dialog that opens with no request; it then reads the operation's individual fills from one new endpoint, in one indexed statement. The code also shows something decision 43 could not know: the simulated exchange fills every order at a fixed price of 1 with no fee, so today a rehearsal operation reads entry 1, exit 1 and PnL 0 (finding T9). The owner answered that such a row shows its stored numbers and says how it was filled, and that the simulated exchange will fill at the alert's price from decision 45 on. So a dry-run row also says how its opening fill was priced, derived from stored data alone: the fill's price is compared with the price of the alert that ordered it, which the `signals` table holds (§ C).
+
+### A. What an operation is (findings from the code, verified at HEAD `9c8fc6d`)
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| T1 | A trade is derived per `allocation_id`, never per symbol. An allocation IS its reservation: the source joins `ledger_entries.allocation_id` to `reservations.id`. | `performance/domain/derive_trade.py:141-168`; `performance/infrastructure/allocation_fills_source.py:71` | An operation is one `reservations` row plus the ledger rows that name it. No other table is needed to list it. |
+| T2 | One opening order per allocation: `execution_attempts.reservation_id` is UNIQUE. Closing orders name the allocation in `closes_allocation_id`; several may exist over time, one live at most. | `execution/infrastructure/models.py:33-65` | The opening side is filled by one order (several fills possible). The closing side may be filled by several orders. |
+| T3 | A close is always sized at the allocation's whole net base (`base_size = abs(net)`). The system never asks for a partial close. | `execution/application/close_position.py:142-152` | A partial close exists only as a venue's partial fill, a close that left dust, or a booked venue close. In each case the allocation is OPEN until its net is exactly zero. |
+| T4 | The read does not join `execution_attempts`. LONG or SHORT is the side of the allocation's earliest fill; a tie goes to BUY. | `derive_trade.py:72-83` | "Opening fills" are the fills on that side, "closing fills" the fills on the other. One rule decides direction, entry and exit together. |
+| T5 | A ledger row stores `quantity`, `price`, `fee`, `fee_currency`, `notional` (written as `quantity * price` by both writers) and `usd_rate_at_fill`. One row per venue fill. | `ledger/infrastructure/models.py:53-61`; `execution/application/settle_execution.py:220-240`; `reconciliation/application/approve_booking.py:314-335` | Every figure decision 43 names is in the ledger already. Decision 43's "no migration" holds. |
+| T6 | `quantity > 0`, `price > 0`, `fee >= 0` and `notional > 0` are CHECK constraints of migration 0005. The ORM model declares none of them. | `migrations/versions/0005_ledger_execution.py:114-118`; `ledger/infrastructure/models.py:19-64` | In production a null or non-positive price cannot be stored. A test that relies on that must run on a `head` schema (§ H). |
+| T7 | The aggregate already returns, per `(allocation, strategy, side, fee currency)`: `sum(quantity)`, `sum(notional)`, `sum(fee)`, `min` and `max(filled_at)`. | `allocation_fills_source.py:57-85` | Entry price, exit price, size and fees need no new column and no new statement. |
+| T8 | Rehearsal fills are dropped in SQL (`~is_rehearsal`) and counted by a second statement. Nothing downstream ever sees one. | `allocation_fills_source.py:53-55, 72, 120-125` | To list them the source must return them. § C says how, without letting one reach a total. |
+| T9 | **The simulated exchange fills every order at a fixed price of 1, with a fee of 0 in `USDT`.** Production builds it with that default. The SIZE is realistic (`granted * 1 / alert price`), the price is not. | `execution/infrastructure/fake_exchange.py:62, 67, 143-154`; `main.py:853-854`; `execution/domain/futures_order.py:92-111` | A rehearsal operation reads entry 1, exit 1, fees 0 and PnL exactly 0. Listing it shows that the strategy acted, when and on which pair. It says nothing about price or result (§ C; decision 45). |
+| T10 | An allocation cannot normally hold fills of both origins: decision 28's guard refuses a start on a mismatch, and approving a booked close is refused under `DRY_RUN`. The guard still names the leftover case, `Origin.MIXED`. | `execution/domain/mode_origin.py:29-32, 153-189`; `reconciliation/infrastructure/router.py:421-430` | A mixed allocation is a data fault from before PR 6d or from a manual act. The design must say what it does (§ C), not assume it away. |
+| T11 | `AllocateCapital` has no `DRY_RUN` branch (no occurrence of `dry_run` in `allocation/`). | `allocation/` | A rehearsal allocation records `pool_total_at_open` like a live one, from migration 0026 on. Production's two rehearsal round trips predate it and have none (tasks.md delivery log, PR 6a and PR 6b). |
+| T12 | The panel's shape check reads nine named fields by type and ignores any other key. It sends `limit` and the cursor, nothing else. | `frontend/src/shared/api/performance.ts:107-120, 144-161` | New fields on a row do not break a bundle that predates them (§ D). |
+| T13 | The trades table sits in the left column of a `minmax(0,1fr) 25rem` grid. With the 13rem side rail and `lg:px-9`, that column is about 724 px wide at a 1440 px viewport and about 308 px at 1024 px. | `frontend/src/features/strategies/StrategyDetailPage.tsx:67-72`; `shared/layout/SideNav.tsx:14`; `shared/layout/AppShell.tsx:41-42` | Eleven columns do not fit there at any width. § F moves the table. |
+| T14 | The panel is not served in production (`PANEL_DIST_DIR` is unset); the owner reviews it locally, usually with `vite.fixture.config.ts`, a local unstaged file that fakes the reports and the trades. | tasks.md delivery log ("Production now", PR 12d) | There is no deployed bundle to break today. The compatibility rules of § D still bind `main` and the day the panel is served. |
+| T15 | The alert's price is stored on the signal (`signals.price`, NOT NULL), and it is the price the opening order is built with. A reservation names its signal (`reservations.signal_id`, NOT NULL and UNIQUE). | `signals/infrastructure/models.py:42`; `signals/infrastructure/signal_context.py:53`; `signals/application/process_signal.py:642`; `execution/application/place_order.py:149-155`; `allocation/infrastructure/models.py:39-40` | The price an opening fill has when it is "filled at the alert's price" is already in the database and is reachable from the allocation. A fixed-price row can be told from an alert-priced one without a new column (§ C). |
+| T16 | A closing order is built without a price (`CloseOrderSpec` carries the client order id, the symbol, the side and the base size). A closing fill reaches its alert only through `execution_attempts.signal_id`, which is NULL on every close written before PR 5c and on a close no signal asked for. | `execution/application/ports.py:124-129`; `execution/application/close_position.py:159-165, 220-224`; `execution/infrastructure/models.py:66-73` | The EXIT of an operation cannot be compared with its alert for every row. § C tests the opening side and says why that is enough. |
+| T17 | `ix_ledger_allocation` (`ledger_entries.allocation_id`) is created by migration 0012. The ORM model declares no index. | `migrations/versions/0012_closing_execution_attempts.py:61, 82`; `ledger/infrastructure/models.py` | The fills read of § D is one indexed statement in production. A test that pins the index must run on a `head` schema (§ H). |
+
+**Definition.** An **operation** is one allocation of the strategy: the `reservations` row whose `id` is the allocation id, and every `ledger_entries` row with that `allocation_id`. Its **opening fills** are its fills on the side of its earliest fill (T4); its **closing fills** are its fills on the other side. It is **closed** when its net base quantity is exactly zero under the base-fee rule with at least one fill on each side, which is `derive_trade`'s existing test, unchanged (§ 11, "As built (PR 6b)"). The list is the list of closed operations.
+
+| Case | What the tables hold | What the list does |
+| --- | --- | --- |
+| Several fills on one side | Several ledger rows, one per venue fill | One operation. Each price is an average over that side (§ B). |
+| A close that filled in part, or left dust | Net base is not zero | Not in the list: the operation is open. It appears when a later close brings the net to exactly zero, with every closing fill averaged into the exit and `closed_at` at the last fill. Dust that no order can close never appears; `ClosePosition` already logs that ERROR. |
+| A close retried after a failure, or a booked venue close | Closing fills from more than one attempt, possibly under another spelling of the symbol | One operation. Attempts are not part of the definition; the allocation id is. |
+| A REVERSE that flips | The close's fills carry the OLD allocation's id; the new position is a NEW reservation | Two operations. The first is closed now, the second when it closes. |
+| A REVERSE that ends flat (decision 26) | Only the old allocation has fills | One operation, the closed one. A reservation without a fill is not an operation. |
+| Still open | A BUY or a SELL, not both, or a net that is not zero | Not in the list. A live one is counted in the report's `excluded.open_trade_count`, as today. It enters the list at the top when it closes (the newest `closed_at`). Open positions are shown nowhere on this page; decision 44 dropped the OPEN column, and this design does not add one. |
+| A reservation that expired or was released before any fill | No ledger row | Not an operation. |
+
+### B. How each new figure is derived
+
+All of it is pure `Decimal` arithmetic in `performance/domain`, over the groups of ONE allocation that the source already returns. "Opening side" and "closing side" are those of § A.
+
+| Field | Derivation | Unit |
+| --- | --- | --- |
+| `entry_price` | `Σ notional(opening side) / Σ quantity(opening side)` | settlement currency per one unit of base |
+| `exit_price` | `Σ notional(closing side) / Σ quantity(closing side)` | the same |
+| `size` | `Σ quantity(opening side)` | base currency |
+| `base_currency` | `base_currency_of(symbol, settlement_currency)`, upper-cased | the unit of `size` |
+| `fees` | `Σ fee` of every fill, both sides, whose `fee_currency` is the settlement currency | settlement currency |
+| `other_fees` | one `{currency, amount}` per OTHER fee currency whose summed fee is above zero, sorted by currency | each amount in its own currency, never converted |
+
+- **Which average.** The quantity-weighted average price: `Σ(qᵢ·pᵢ) / Σqᵢ`, because `notional` is `q·p` per fill (T5). It is taken from `notional`, not from the `price` column, for two reasons: the aggregate already carries the sum, and it is the same number `pnl` is built from. So a row is self-consistent and can be checked by hand: when both sides have the same quantity and every fee is in the settlement currency, `pnl = (exit_price − entry_price) × size × (+1 for LONG, −1 for SHORT) − fees`. A test asserts that identity.
+- **Size when the two quantities differ.** They differ only when a fee was charged in the base coin, which is Pionex spot's behaviour on a BUY: less was sold than was bought. `size` is the OPENING quantity, the number a venue shows for the position it opened. The closing quantity is not a second field; the difference is the base-currency fee, and that fee is in `other_fees`. On Bybit the two are equal, because the fee is charged in USDT on both sides (CLAUDE.md, "The first real futures round trip").
+- **Fees.** `fees` is exactly the amount `derive_trade` subtracts from `pnl`. Nothing is converted (rule 7). A fee in the base currency is listed in `other_fees` and leaves `fees_complete` TRUE, because `pnl` already contains it (§ 11). A fee in a third currency is listed in `other_fees` and makes `fees_complete` FALSE, as today. So a non-empty `other_fees` does not by itself mean the PnL is incomplete; `fees_complete` keeps that meaning and is unchanged. Fee currencies are compared and reported upper-cased, as `derive_trade` compares them.
+- **Precision and JSON form.** `size`, `fees` and each `other_fees` amount are exact sums, written with the existing `Money` type (a plain-notation string). The two prices are quotients. The domain divides inside a local context of 60 digits (`decimal` is the standard library, so `domain/` gains no framework import), and a new wire type `Price` in `shared/infrastructure/wire.py` rounds half-even to 18 places, the ledger's own scale, and writes plain notation. With one fill per side the price equals that fill's price up to the rounding of the stored `notional` (at most `1e-18 / quantity`).
+- **`return` and `capital_at_open` are not touched.** `return` stays `pnl / pool_total_at_open`, null when no capital was recorded (decisions 17 and 43).
+- **`usd_rate_at_fill` is still never read** (§ 11).
+- **When a figure cannot be derived**, `base_currency`, `entry_price`, `exit_price` and `size` are null together and the operation stays in the list, because it is in the totals. § G says when and what is logged. `fees` and `other_fees` are plain sums and are never null.
+
+### C. Rehearsal operations
+
+- **Recognised from stored data alone.** A fill is a rehearsal fill when its `exchange_fill_id` starts with `REHEARSAL_FILL_ID_PREFIX` (`"fake-fill-"`, `execution/domain/fill.py:16`), the same prefix test, with the same escaping, that the source and the mode guard use today. A **rehearsal operation** is an allocation EVERY one of whose fills is a rehearsal fill, closed under the same rule as any other. An operation is therefore wholly real or wholly rehearsal. There is no partly-rehearsal row.
+- **A mixed allocation** (fills of both origins, T10) is not a rehearsal operation. Its live fills are derived exactly as today: a closed real trade if they net to zero alone, an open trade otherwise. Its rehearsal fills are never listed, and the read logs one WARNING with the allocation ids. This rule is also what keeps an allocation id from appearing twice in the list, which would break the keyset.
+- **How the source returns them.** The aggregate gains the prefix test as a grouped column and loses its `NOT LIKE` filter. The adapter splits the rows: `PoolFills.groups` keeps the non-rehearsal groups, exactly what it holds today, and a new `PoolFills.rehearsal_groups` holds the rest. `FillGroup` gains `rehearsal: bool`.
+- **How they stay out of every total. Two walls.**
+  1. By construction: `ReadPoolPerformance` and `ReadStrategyPerformance` read `PoolFills.groups` and nothing else. `rehearsal_groups` has one reader, `ReadStrategyTrades`.
+  2. By refusal: a new `scope.require_live_only(groups)` raises `InvariantViolation` when a group in the live set is marked rehearsal. Both performance reads and the list call it, so a source that puts a rehearsal group in the wrong set ends as the existing fixed 500 and one ERROR, never as a figure.
+- **What changes in the reports: nothing.** The pool report, the strategy report, the curve, the monthly grid, the ranges and `by_pair` are the same bytes for the same ledger. `excluded.rehearsal_fill_count` is unchanged in meaning and in source (the count statement stays); it still counts every rehearsal fill of the scope, including those of open and of mixed allocations. No new `excluded` key is added.
+- **How a rehearsal row is marked.** `"rehearsal": true` on the row. It is a required boolean on every row, `false` for a real one.
+- **What its figures carry.** The same derivations over its own fills: `entry_price`, `exit_price`, `size`, `fees`, `pnl`, and `return = pnl / pool_total_at_open` with the pool capital its reservation recorded (T11), null when none was. They are that operation's own figures and are never summed with anything. Today that means entry 1, exit 1, fees 0, PnL 0 (T9). The API serves what the ledger holds, and the panel shows those numbers as they are (§ L, Q1, answered).
+- **How a fixed-price row is told from an alert-priced one, from stored data alone** (decision 43, answered 2026-10-04). Nothing in a ledger row says which version of the simulated exchange wrote it: the fill id is `fake-fill-<uuid>` either way. What IS stored is the price the fill would have if it had been filled at the alert's price: `signals.price`, on the signal the operation's reservation names (T15). So, for each rehearsal row of the page, the read compares the price of its OPENING fills with that alert's price and serves the result as `rehearsal_fill_price`:
+
+  | Value | Rule (exact `Decimal` equality on the stored values) | What the panel may say |
+  | --- | --- | --- |
+  | `FIXED_ONE` | every opening fill is priced exactly 1, and the alert's price is not 1 | opened at a fixed price of 1, not at a market price |
+  | `ALERT` | every opening fill is priced exactly at the alert's price | opened at the price its alert carried |
+  | `UNDETERMINED` | anything else | filled by the simulated exchange, with no claim about the price |
+
+  - It compares the fills' own `price`, not the derived `entry_price`. An average can differ from its only fill in the last places (§ B), and an exact comparison would then fail for a small quantity.
+  - **The one case stored data cannot separate.** When the alert's price was itself exactly 1, a fixed-price fill and an alert-priced one are the same row in every column. It reads `ALERT`, and that is true whichever code wrote it: 1 IS the alert's price. It is also the one case where the difference does not matter to a reader.
+  - **Only the opening side is tested**, for two reasons. A closing fill has no guaranteed path to its alert (T16). And time runs one way: fixed-price fills are written before decision 45 takes effect and alert-priced ones after, so a row whose entry is alert-priced has an alert-priced exit. The mixed row that CAN exist is a dry-run position that is open when decision 45 is deployed: entry 1, exit at the alert's price. It reads `FIXED_ONE`, which is the right answer: its entry is not a price, so its PnL is not a result.
+  - **`UNDETERMINED` is the fallback, never a guess.** It is what a row reads if decision 45's design prices an opening fill at anything other than the stored alert price exactly (a rounding to the tick, a simulated slippage), or if the comparison cannot be made. The panel then says only that the row was simulated, which is the smallest sentence that is true of every rehearsal row.
+  - **No marker is invented and no migration is needed.** The value is derived at read time from `ledger_entries.price`, `reservations.signal_id` and `signals.price`. It is null on a real row.
+- **Opt-in.** Rehearsal rows are served only for `include_rehearsal=true`. The default request is byte-for-byte today's list. So a client that does not know the marker never receives a row it would show as real (§ D).
+- **Order and cursor when both kinds are in one list.** One list, one total order: `(closed_at, allocation_id)` descending over the union of real and rehearsal closed operations. An allocation is in at most one of the two sets (the mixed rule above), so the pair stays a unique position. The cursor is unchanged, the same two parameters. A cursor minted by a request without rehearsal rows is a valid position in the list with them, and the reverse: both lists are the same order with or without some members. `next_cursor` is still the last row served, and the look-one-past-the-limit rule still decides whether it is null.
+- **A strategy that only ran in dry run** shows its operations in the list and still shows a zero report above it. The panel says why in one sentence (§ F).
+
+### D. The API
+
+`GET /api/performance/strategies/{id}/trades`, the existing route. One new query parameter, new fields on each row, nothing removed or renamed.
+
+```
+GET /api/performance/strategies/{id}/trades
+      ?limit=1..200                        default 50 (the panel asks for 20)
+      &before_closed_at=<ISO-8601, zone>   both or neither, as today
+      &before_allocation_id=<uuid>
+      &include_rehearsal=true|false        NEW, default false
+
+200
+{
+  "trades": [
+    {
+      "allocation_id":   "0b6f…",                         string (uuid)        unchanged
+      "pair":            "STXUSDT",                       string               unchanged
+      "direction":       "LONG",                          "LONG" or "SHORT"    unchanged
+      "opened_at":       "2026-09-30T12:00:00Z",          string (UTC instant) unchanged
+      "closed_at":       "2026-09-30T14:30:00.123456Z",   string (UTC instant) unchanged
+      "rehearsal":       false,                           boolean              NEW, never null
+      "rehearsal_fill_price": null,                       string or null       NEW, see below
+      "base_currency":   "STX",                           string or null       NEW
+      "entry_price":     "0.451200000000000000",          string or null       NEW, 18 places
+      "exit_price":      "0.463100000000000000",          string or null       NEW, 18 places
+      "size":            "1250.000000000000000000",       string or null       NEW, base units
+      "fees":            "0.630000000000000000",          string               NEW, never null
+      "other_fees":      [],                              list                 NEW, never null
+      "pnl":             "14.245000000000000000",         string               unchanged
+      "capital_at_open": "1000.000000000000000000",       string or null       unchanged
+      "return":          "0.0142450000",                  string or null       unchanged
+      "fees_complete":   true                             boolean              unchanged
+    }
+  ],
+  "next_cursor": { "before_closed_at": "…Z", "before_allocation_id": "…" }   or null, unchanged
+}
+```
+
+- `other_fees` entries are `{"currency": "BNB", "amount": "0.000120000000000000"}`: `currency` an upper-cased string, `amount` a string above zero.
+- `base_currency`, `entry_price`, `exit_price` and `size` are null TOGETHER or not at all. Null means "cannot be derived from this operation's fills" (§ G), never "zero" and never "not loaded". A healthy operation has all four.
+- `capital_at_open` and `return` are null for an operation opened before `pool_total_at_open` was recorded, as today.
+- `rehearsal` is `false` on every row of a request that did not ask for rehearsal rows.
+- `rehearsal_fill_price` is null exactly when `rehearsal` is false. On a rehearsal row it is `"FIXED_ONE"`, `"ALERT"` or `"UNDETERMINED"`, by the rule of § C.
+- Money, quantities, prices and ratios are JSON strings. The existing test that walks every response of every route for a JSON float or an exponent covers the new fields (`tests/performance/infrastructure/test_performance_router.py:800-827`).
+- Refusals are unchanged: 404 `no such strategy`; 422 for half a cursor, a naive `before_closed_at` or a `limit` outside 1..200. A value of `include_rehearsal` that is not a boolean is FastAPI's own 422.
+
+**The figures of the detail view need no endpoint.** The row carries every figure decision 43 names, so the dialog renders them from the row it was opened from (§ F), with no request. No `GET …/trades/{allocation_id}` is added: there is no cold-load path to serve, and a second read of the same figures would be a second place they could disagree.
+
+**The individual fills have their own read** (decision 43, answered 2026-10-04: the detail view shows each fill's time, side, price, quantity and fee).
+
+```
+GET /api/performance/strategies/{id}/trades/{allocation_id}/fills
+
+200
+{
+  "allocation_id": "0b6f…",                           string (uuid)        never null, the id asked for
+  "fills": [                                          list                 never null, never empty
+    {
+      "filled_at":    "2026-09-30T12:00:00.123456Z",  string (UTC instant) never null
+      "side":         "BUY",                          "BUY" or "SELL"      never null
+      "price":        "0.451200000000000000",         string               never null, the fill's own price
+      "quantity":     "1250.000000000000000000",      string               never null, base units
+      "fee":          "0.310000000000000000",         string               never null, may be zero
+      "fee_currency": "USDT",                         string               never null, upper-cased
+      "rehearsal":    false                           boolean              never null
+    }
+  ],
+  "truncated": false                                  boolean              never null
+}
+```
+
+- **No field is nullable.** Every one is a NOT NULL column of `ledger_entries` or a boolean derived from one.
+- `fee_currency` travels with `fee`. The owner asked for the fee; an amount without its currency is not a fee, and nothing is converted (rule 7).
+- `price`, `quantity` and `fee` are the stored values, written with the existing `Money` type. Nothing is averaged or rounded here: these rows are what the list's averages are made of.
+- Fills are ordered by `(filled_at, id)` ascending, the order they happened in, with the row id as a stable tie-break.
+- **Capped at 200 fills.** The statement asks for 201; when it gets them, the first 200 are served with `truncated: true`. An operation of this system has a handful of fills, so the cap bounds a response, it does not page one.
+- **A rehearsal operation** answers its fills, each with `rehearsal: true`. No opt-in parameter is needed: the route is new, so no client that predates the marker can call it. A real operation's fills carry `false`. A mixed allocation (§ C) answers ALL its fills, each with its own flag, so the one place a mixed allocation can be looked at hides nothing.
+- **Any allocation of the strategy that has a fill is served,** closed or still open. The panel links only closed operations; the read has no reason to derive closure, so it needs no `base_currency_of` and cannot fail on a symbol.
+- Not served: `usd_rate_at_fill` (§ 11), the venue's order and fill ids, `notional` (it is `quantity × price`) and the symbol (the dialog has the pair).
+
+| Case | Status | Body | Log |
+| --- | --- | --- | --- |
+| Fills found | 200 | above | nothing; WARNING when truncated or mixed (§ G) |
+| No such strategy | 404 | `{"detail": "no such strategy"}`, the existing shape | — (as the other routes) |
+| No fill carries BOTH this allocation id and this strategy's id | 404 | `{"detail": "no such operation"}` | WARNING: strategy id, allocation id |
+| `allocation_id` is not a UUID | 422 | FastAPI's own | — |
+| A fill of this allocation and strategy sits in another pool than the strategy's | 500 | `performance data failed an integrity check`, the existing answer | ERROR with the reason, the existing `_guarded` line |
+
+- **An operation of another strategy is not readable through this strategy's path.** The statement itself carries both predicates, `allocation_id = :allocation AND strategy_id = :strategy`, and `ledger_entries.strategy_id` is on every fill (rule 6). No row of another strategy leaves the database, so there is nothing for the application to filter and nothing to leak by forgetting to.
+- **One 404 for three cases:** an id that does not exist, an allocation of ANOTHER strategy, and an allocation of this strategy that never had a fill. Same status, same body. The answer does not say whether the id exists somewhere else.
+- **Why the pool is checked after the read and not in the WHERE.** A pool predicate would silently drop a fill written under another pool, and the reader would see a shorter list with no trace. Reading by allocation and strategy and then refusing a foreign-pool row is the rule `scope.require_single_pool` already applies to the list.
+
+**Backward compatibility, and the order of deploy.**
+
+| Order | What a reader sees | Why |
+| --- | --- | --- |
+| Backend first, panel later (the order of § I) | The older panel shows exactly what it shows today | Its check ignores keys it does not know (T12), it never sends `include_rehearsal`, so it never receives a rehearsal row, and it never calls the fills route. |
+| Panel first, backend later | The trades section shows its existing error state with "Try again"; the rest of the page works | The older API ignores `include_rehearsal` and serves rows without the new fields, and the new check rejects such a page rather than render a row with an invented figure. This is a refusal, not a crash, and it ends when the API restarts. The fills route does not exist there either; the dialog cannot be reached, because the list did not load. |
+
+The order is therefore backend, then panel, and the reverse order degrades one section and corrupts nothing. Today the second row cannot happen in production, because the panel is not served there (T14).
+
+**Rejected.**
+- *Always serving rehearsal rows.* A client that predates the marker would list them as real operations. The opt-in also keeps the current spec scenario literally true for the default request (§ J).
+- *A separate endpoint for rehearsal operations.* Two lists cannot be paged as one by a keyset.
+- *Nulling `pnl` and `return` on a rehearsal row.* They are derived from the ledger like any other. A null would hide them the day the simulated exchange fills at the alert's price (decision 45), and the owner chose to see the stored numbers (§ L, Q1).
+- *A marker for "written before decision 45"* (a new column, a second fill-id prefix, a deploy date compiled into the code). The first is a migration, and no backfill could mark the rows already written honestly. The second is a choice of decision 45's design, which is not made here, and this design must not rest on a marker the ledger does not carry today. The third is not stored data. The comparison with the alert's price needs none of them (§ C).
+- *Paging the fills.* A cap with a flag is enough for a list of a handful of rows, and a keyset over fills would be a second cursor contract for nothing.
+
+### E. Layering and cost
+
+| Component | Layer | File | Change |
+| --- | --- | --- | --- |
+| `FillGroup` | **domain**/performance | `performance/domain/closed_trade.py` | Gains `rehearsal: bool`, no default. `ClosedTrade` is NOT changed. |
+| `OperationFees`, `FeeAmount`, `OperationFigures`, `operation_fees(groups)`, `operation_figures(groups, direction)`, `sides_overlap(groups, direction)` | **domain**/performance | `performance/domain/operation.py` (new) | Pure functions of one allocation's groups. `operation_figures` returns `None` when the figures cannot be derived (§ G). Imports `decimal`, `dataclasses`, `market_symbol` and `closed_trade` only. |
+| `RehearsalPricing` (`FIXED_ONE`, `ALERT`, `UNDETERMINED`), `PricingFacts`, `classify_rehearsal_pricing(direction, facts)` | **domain**/performance | `performance/domain/operation.py` | Pure: the rule of § C over the alert's price and the lowest and highest fill price of each side. |
+| `OperationFill` | **domain**/performance | `performance/domain/operation.py` | One fill as the detail view shows it: instant, side, price, quantity, fee, fee currency, rehearsal flag, and its pool identity for the check of § D. |
+| `PoolFills.rehearsal_groups` | **application**/performance | `performance/application/ports.py` | A second tuple, default `()`. `AllocationFillsSourcePort.pool_fills(pool)` keeps its signature: still exactly one pool per call (rule 7). |
+| `RehearsalPricingSourcePort.pricing_facts(pool, strategy_id, allocation_ids)` | **application**/performance | `performance/application/ports.py` | Consumer-declared. Answers `{allocation_id: PricingFacts}` for the ids given, in one call. |
+| `OperationFillsSourcePort.operation_fills(strategy_id, allocation_id, limit)` | **application**/performance | `performance/application/ports.py` | Consumer-declared. Takes the strategy AND the allocation, never the allocation alone, so a read without the strategy predicate cannot be requested through it. |
+| `require_live_only(groups)` | **application**/performance | `performance/application/scope.py` | The second wall of § C. |
+| `ReadPoolPerformance`, `ReadStrategyPerformance` | **application**/performance | their own files | One added call, `require_live_only`. No other change. |
+| `ReadStrategyTrades(fills, pricing).read(..., include_rehearsal=False)`, `TradeItem` | **application**/performance | `performance/application/read_strategy_trades.py` | `TradeItem` gains `rehearsal`, `fees`, `figures`, `pricing`. The read merges the two sets, pages, then derives the figures of the rows on the page only, and classifies the rehearsal rows of the page. |
+| `ReadOperationFills(source).read(strategy_id, pool, allocation_id)`, `OperationFills`, `UnknownOperation` | **application**/performance | `performance/application/read_operation_fills.py` (new) | Asks for `limit + 1`, refuses a foreign-pool row (`InvariantViolation`), raises `UnknownOperation` on an empty answer, logs (§ G). `MAX_OPERATION_FILLS = 200`. |
+| `SqlAlchemyAllocationFillsSource` | **infrastructure**/performance | `performance/infrastructure/allocation_fills_source.py` | The aggregate groups by the prefix test and by `symbol` as well, and drops the `NOT LIKE` filter. The count statement is unchanged. |
+| `SqlAlchemyRehearsalPricingSource` | **infrastructure**/performance | `performance/infrastructure/rehearsal_pricing_source.py` (new) | One grouped SELECT: `ledger_entries` joined to `reservations` and `signals`, `WHERE allocation_id IN (:ids)` and the strategy and pool, answering per `(allocation, side)` the lowest and highest `price` and the signal's `price`. |
+| `SqlAlchemyOperationFillsSource` | **infrastructure**/performance | `performance/infrastructure/operation_fills_source.py` (new) | One SELECT on `ledger_entries`: `WHERE allocation_id = :a AND strategy_id = :s ORDER BY filled_at, id LIMIT :n`. No join. |
+| `TradeBody`, the `include_rehearsal` query parameter, the fills route, `FillBody`, `OperationFillsBody` | **infrastructure**/performance | `performance/infrastructure/performance_router.py` | § D. The fills route resolves the strategy's pool with the existing `_strategy_pool` (the 404) and maps `UnknownOperation` to the 404 of § D. |
+| `Price` | **infrastructure**/shared | `shared/infrastructure/wire.py` | A third annotated type beside `Money` and `Ratio`. |
+
+- **`domain/` gains no framework import.** The new module is arithmetic and comparisons over dataclasses. The division's local context is `decimal.localcontext`.
+- **Adapters read other modules' tables; the application never does.** `performance/infrastructure` already imports `ReservationRow` and `LedgerEntryRow`; the pricing adapter also imports `SignalRow`. The ports speak in `performance`'s own types (`PricingFacts`, `OperationFill`), so no `signals`, `allocation` or `ledger` type crosses into `application/` or `domain/`.
+- **Why the figures live beside `ClosedTrade` and not on it.** `ClosedTrade` is what the curve, the ranges, the grid and `by_pair` consume. Leaving it untouched means no total path can change by accident, and no existing test of those paths is edited. The figures are a display derivation with one consumer.
+- **Why `symbol` joins the GROUP BY.** Today each group reports `min(symbol)`, which hides an allocation whose fills name two markets. With the symbol grouped, the domain sees every spelling and can tell two spellings of one market (`market_key` equal) from two markets (§ G). `derive_trade` sums across groups, so its results do not change; the row count grows only for an allocation written under more than one spelling on the same side.
+- **The sequence of the list read.** (1) `pool_fills(pool)`. (2) `strategy_groups` and `require_live_only` over the live set, then `derive_trades`: today's list. (3) Only when asked: `strategy_groups` over the rehearsal set, minus every allocation that also has a live group (WARNING with the ids), then `derive_trades`. (4) Merge, sort by `(closed_at, allocation_id.int)` descending, apply the cursor, slice. (5) For the rows of the page only, `operation_fees`, `operation_figures`, `sides_overlap`. (6) Only when the page holds a rehearsal row: ONE call of `pricing_facts` with the ids of those rows, then `classify_rehearsal_pricing` for each.
+- **Cost of the list.** Three statements per page, the same three as today (the strategy row, the grouped aggregate, the rehearsal count), plus a fourth only when the page holds a rehearsal row: the pricing facts of those rows, at most `limit` ids in one `IN`. None is issued per row. The work is still bounded by the pool's allocation count (§ 11, "What bounds the work"), now counting rehearsal allocations too, which the SQL used to drop and Python now folds. In production today that is the whole ledger, a handful of rows. The figures are computed for at most `limit` rows.
+- **Why the pricing facts are a statement of their own and not three more columns of the shared aggregate.** The aggregate is what every report reads. A join to `signals` there would put another module's table under every total for the sake of a sentence on a rehearsal row. A separate statement keeps that out of the reports' path and runs only when a rehearsal row is on screen.
+- **Cost of the fills read.** Two statements: the strategy row, and one SELECT with `LIMIT 201` that `ix_ledger_allocation` serves (T17). Never one per fill. It derives nothing, so its cost does not grow with the pool.
+- **Paging stays in Python, over derived operations**, for the reason § 11 gives: "closed" is a domain rule SQL does not have.
+
+| Rule | Impact |
+| --- | --- |
+| `DRY_RUN` (rule 1) | The read is the same in both modes and needs no credential. No test needs one. |
+| Idempotency (rule 2), webhook (rule 3), allocation transaction (rule 4) | Untouched. The read takes no advisory lock and no row lock and writes nothing. |
+| Pools (rule 5), PnL in native currency (rule 7) | One pool per read, as today. `fees` is in the settlement currency; a fee in any other currency is listed in its own currency and never converted. No figure sums two pools or two currencies. The fills read sums nothing, serves each fee with its currency, and refuses a fill of another pool. |
+| Ledger (rule 6) | Read only. No row is written, updated or removed. |
+| Credentials (rule 8) | Untouched. |
+
+### F. Frontend
+
+**Where the table sits.** `TradesTable` leaves the left column and becomes a full-width section under the two-column grid, above the delete control. It is the widest thing on the page, and the left column cannot hold it (T13). The header, the performance block and the settings column do not move.
+
+**Columns.** Eleven figures and the control that opens the detail. Each tier is a Tailwind viewport variant on the `th` and the `td` (`hidden md:table-cell`, and so on); the page chrome is fixed, so the viewport decides the width the table gets. The pixel budgets are estimates from the classes (jsdom has no layout) and are confirmed by the owner by eye, like every table of unit 9p.
+
+| Shown from | Columns added | Estimated row width |
+| --- | --- | --- |
+| every width | Closed (UTC), Pair (with the rehearsal tag), Side, PnL {currency}, PnL %, Details | about 530 px |
+| `md` (768 px) | Entry, Exit | about 690 px |
+| `xl` (1280 px) | Size, Fees {currency}, Pool capital at open | about 930 px |
+| `min-[90rem]` (1440 px) | Opened (UTC) | about 1,090 px |
+
+- **At 1440 px and above** every column shows: the section is about 1,160 px wide there.
+- **Under 1024 px** the page is one column with no side rail. From 768 px the table shows eight columns; below it, six. Below about 560 px the six columns scroll sideways inside the `overflow-x-auto` wrapper the table already has. Every figure a tier hides is in the detail view, which is the reason the Details control is in the first tier.
+- Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool capital at open, Details.
+- The header "Return" becomes **"PnL %"** in both languages, decision 43's own words. The section title stays "Closed trades" / "Operaciones cerradas".
+- Prices and sizes are formatted for display from the server's string, with up to eight significant digits and no trailing zeros. Nothing is computed from them (§ 15, "Money is never computed in the browser").
+- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` keeps its existing mark on the PnL cell.
+
+**How a rehearsal row is marked** (decision 43, answered 2026-10-04: the stored numbers are shown as they are, beside the mark and a sentence that says how the row was filled).
+- A text tag in the Pair cell, on its own line under the pair, in the words of the mode badge (`DryRunBadge`, "Modo simulación") and in the same amber `decision` token. It is text, so it does not rest on colour. Its wording follows `rehearsal_fill_price`, and that is what tells the rows apart:
+
+  | `rehearsal_fill_price` | Tag (EN / ES) |
+  | --- | --- |
+  | `FIXED_ONE` | "Dry run · fixed price" / "Simulación · precio fijo" |
+  | `ALERT` | "Dry run · alert price" / "Simulación · precio de la alerta" |
+  | `UNDETERMINED`, or a value this panel does not know | "Dry run" / "Simulación" |
+
+- **Every cell of a rehearsal row shows the stored number.** Entry 1 and exit 1 are printed as 1. No cell of a rehearsal row is blanked or special-cased.
+- Its PnL and PnL % are drawn in neutral ink, never in the gain or loss colour. Green and red stay reserved for money that was made or lost.
+- **The sentences under the title** appear by what the page on screen holds, so each one is true of a row the reader can see:
+  1. At least one rehearsal row: those operations were filled by the simulated exchange, not at the venue, and are not counted in any figure of the page. This is what explains a list with rows under a report that says zero trades.
+  2. At least one `FIXED_ONE` row: a row marked "fixed price" was opened at a fixed price of 1 whatever the market price was, so its prices and its PnL are not a result.
+  3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried.
+- An `UNDETERMINED` row gets sentence 1 only. Nothing is claimed about its price, because stored data supports no claim (§ C).
+- The request always carries `include_rehearsal=true`.
+
+**The detail view: a dialog.**
+
+| Option | For | Against |
+| --- | --- | --- |
+| **A dialog (chosen)** | The row already holds every figure, so it opens at once and only its fills table loads. The list keeps its page (the page index is local state). The app has the pattern: a native `<dialog>` opened with `showModal()`, Escape and the `cancel` event routed to one handler (`ArchiveDialog`, `DeleteStrategyDialog`). On a narrow screen it has the whole viewport for the figures the table hides. One at a time is what "one by one" says. | No link to a single operation. |
+| A route (`/strategies/:id/trades/:allocationId`) | A link that survives a refresh | A refresh needs an endpoint that serves one operation by id, which nothing else needs. Leaving the page loses the list's page. A single-operator panel has nobody to send the link to. |
+| An expanding row | Keeps the context | The detail would be squeezed into the same narrow table whose missing columns it exists to show, and a table inside a table row reads badly with a screen reader. |
+
+- **`TradeDetailDialog`** is presentational: `trade`, `currency`, `locale`, `onClose`. It renders a title (pair, side, and the rehearsal tag when it applies) and a definition list: opened and closed (UTC), entry price, exit price, size with its base currency, fees paid, fees in other currencies when there are any, PnL, PnL % with one sentence saying it is measured against the pool's capital at open and not against the position's margin, pool capital at open, and the operation id (the allocation id, to find it in the logs). A rehearsal operation adds the sentence of its `rehearsal_fill_price` (fixed price, alert price, or simulated with no claim) and says it is in no total. Values are the server's strings with trailing zeros removed, which is a text operation, not arithmetic.
+- **The fills table** (decision 43, answered 2026-10-04) sits under the figures, in `OperationFillsTable`, a small container mounted inside the dialog. Being mounted is what asks for the fills, so the request is made when an operation is opened and never before: no fills are fetched for a row nobody opened.
+  - `useOperationFills(strategyId, allocationId)`, query key `['performance','strategy',id,'trade-fills',allocationId]`, over `fetchOperationFills`, which validates the body: every field of § D by type, `side` one of BUY and SELL, a non-empty list, and `allocation_id` equal to the one asked for. A body that fails is an error, never a partial table.
+  - Columns: Time (UTC), Side, Price, Quantity (with the base currency), Fee (the amount and its currency). A fill whose `rehearsal` differs from the operation's own mark carries the "Dry run" tag on its line; that can only be a mixed allocation.
+  - States: a loading line; an error with "Try again", under figures that stay on screen because they came from the row; the table; and, when `truncated` is true, one sentence saying only the first 200 fills are shown.
+  - It is a real `<table>` with a caption, inside the dialog's scrolling body, so a long list scrolls inside the dialog and not behind it.
+- **Keyboard.** The Details control is a real `<button>` in each row, so Tab reaches it and Enter or Space opens the dialog. Its visible text is "Details"; a screen-reader suffix names the pair, the side and the close time, so twenty buttons are not twenty identical names. The dialog is modal and focus moves into it. Escape or its Close button closes it, and focus returns to the button that opened it (the table keeps that element and focuses it on close; a test asserts `document.activeElement`). "Try again" in the fills table is a button in the same tab order.
+- `TradesTable` holds the open operation in local state. The figures need no request; the fills need one.
+
+**i18n**, under `strategies.performance.trades`:
+
+| Key | EN | ES |
+| --- | --- | --- |
+| `return` (text changed) | PnL % | PnL % |
+| `entry` | Entry | Entrada |
+| `exit` | Exit | Salida |
+| `size` | Size | Tamaño |
+| `fees` | Fees {{currency}} | Comisiones {{currency}} |
+| `otherFee` | + {{amount}} {{currency}} | + {{amount}} {{currency}} |
+| `notDerivable` | This figure cannot be derived from the operation's fills. | Esta cifra no se puede derivar de las ejecuciones de la operación. |
+| `rehearsal` | Dry run | Simulación |
+| `rehearsalFixed` | Dry run · fixed price | Simulación · precio fijo |
+| `rehearsalAlert` | Dry run · alert price | Simulación · precio de la alerta |
+| `rehearsalNote` | Operations marked "Dry run" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page. | Las operaciones marcadas "Simulación" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página. |
+| `rehearsalFixedNote` | A row marked "fixed price" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. | Una fila marcada "precio fijo" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. |
+| `rehearsalAlertNote` | A row marked "alert price" was opened at the price its alert carried. | Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. |
+| `details` | Details | Detalle |
+| `detailsOf` | Details of {{pair}} {{side}}, closed {{closed}} | Detalle de {{pair}} {{side}}, cierre {{closed}} |
+| `detail.title` | {{pair}} · {{side}} | {{pair}} · {{side}} |
+| `detail.entryPrice` | Entry price | Precio de entrada |
+| `detail.exitPrice` | Exit price | Precio de salida |
+| `detail.size` | Size ({{base}}) | Tamaño ({{base}}) |
+| `detail.fees` | Fees paid ({{currency}}) | Comisiones pagadas ({{currency}}) |
+| `detail.otherFees` | Fees in other currencies | Comisiones en otras monedas |
+| `detail.pnl` | PnL ({{currency}}) | PnL ({{currency}}) |
+| `detail.pnlPercent` | PnL % | PnL % |
+| `detail.returnHint` | PnL over the pool's capital when the operation opened, not over the position's margin. | PnL sobre el capital del pool al abrir la operación, no sobre el margen de la posición. |
+| `detail.capital` | Pool capital at open ({{currency}}) | Capital del pool al abrir ({{currency}}) |
+| `detail.rehearsalHint` | Dry run: filled by the simulated exchange, not at the venue. It is not counted in any total. | Simulación: ejecutada por el exchange simulado, no en el exchange real. No se cuenta en ningún total. |
+| `detail.rehearsalFixedHint` | Dry run at a fixed price: it was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. It is not counted in any total. | Simulación a precio fijo: se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. No se cuenta en ningún total. |
+| `detail.rehearsalAlertHint` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total. |
+| `detail.operationId` | Operation id | Id de la operación |
+| `detail.close` | Close | Cerrar |
+| `detail.fills.title` | Fills | Ejecuciones |
+| `detail.fills.time` | Time (UTC) | Hora (UTC) |
+| `detail.fills.side` | Side | Lado |
+| `detail.fills.sides.BUY` / `.SELL` | Buy / Sell | Compra / Venta |
+| `detail.fills.price` | Price | Precio |
+| `detail.fills.quantity` | Quantity ({{base}}) | Cantidad ({{base}}) |
+| `detail.fills.fee` | Fee | Comisión |
+| `detail.fills.loading` | Loading the fills… | Cargando las ejecuciones… |
+| `detail.fills.error` | The fills could not be loaded. | No se pudieron cargar las ejecuciones. |
+| `detail.fills.retry` | Try again | Reintentar |
+| `detail.fills.truncated` | Only the first {{count}} fills are shown. | Solo se muestran las primeras {{count}} ejecuciones. |
+
+The existing keys (`opened`, `closed`, `pair`, `side`, `direction.*`, `pnl`, `capital`, `noValue`, `feesIncomplete`, the pager) are reused. The side of an OPERATION stays "LONG" and "SHORT" in both languages (decision 44). The side of a FILL is a buy or a sell, translated; like every string of unit 9p it is confirmed by the owner's review by eye. The fixed-price sentences say "opened at", not "every fill", because that is what `FIXED_ONE` establishes (§ C): an operation open when decision 45 lands has an entry of 1 and an exit at the alert's price, and its fills table shows both. Tailwind palette tokens only: `decision` for the tag, `ink`, `ink-2`, `ink-3`, `rule`, `panel`, `gain`, `loss`; no hex and no `var()` in a `className`.
+
+**Files.** Modify `shared/api/types.ts`, `shared/api/performance.ts` (the page check, the query parameter, `fetchOperationFills`, `useOperationFills`), `features/strategies/TradesTable.tsx`, `features/strategies/StrategyDetailPage.tsx`, `features/strategies/format.ts`, both locale files. Create `features/strategies/TradeDetailDialog.tsx`, `features/strategies/OperationFillsTable.tsx` and their tests. The local `vite.fixture.config.ts` must serve the new fields, rehearsal rows of each of the three kinds and the fills route for the owner's review by eye; it is updated and stays unstaged.
+
+### G. What fails here without a log line?
+
+The domain reports and the application logs, the pattern `derive_trades` already follows for an allocation it cannot test. Levels are those of `performance/application/scope.py`: WARNING with ids for a data fault, never ERROR from a per-page read except for the refused read that already exists.
+
+| Failure | What the reader sees | What is logged |
+| --- | --- | --- |
+| **A fill is missing** and the allocation no longer nets to zero | The operation is not in the list. A live one is in the report's `open_trade_count`. | Nothing per page, as today: an open position is a normal state, and the read cannot tell it from a missing fill. |
+| **A fill is missing and the rest still nets to zero** (a part of the open and the same part of the close) | A closed operation with a smaller size | Nothing here. The ledger alone cannot show it. The control is the reconciliation of venue against ledger, not this read. Stated as a limit (§ K). |
+| **A fill with a null or non-positive price** | Cannot be stored: `price` and `notional` are NOT NULL with `CHECK > 0` (T6), and `LedgerEntry` refuses it before the insert. | — |
+| **A side whose summed quantity or notional is not above zero** (unreachable through those CHECKs; reachable only from a broken source) | The row is listed with `base_currency`, `entry_price`, `exit_price` and `size` null: an em dash with "cannot be derived" | WARNING: pool, strategy, allocation id, which side. No division is attempted. |
+| **A division by zero in an average** | The same row as above. The quotient is taken only after the divisor is checked. | The same WARNING |
+| **Fills that disagree in pair**: more than one `market_key` among the allocation's groups | The row is listed, its four figures null. `pair` and `pnl` are what they are today. | WARNING: pool, strategy, allocation id, the market keys. Two SPELLINGS of one market are not a disagreement and log nothing. |
+| **Fills that disagree in side**: the opening side's last fill is not earlier than the closing side's first fill, which includes the tie that `_direction` breaks in favour of BUY | The row is listed with its figures; the averages are still well defined. LONG or SHORT, and with it entry and exit, rest on the tie-break. | WARNING: pool, strategy, allocation id. The system cannot produce it (T2, T3); a line is the only way it would ever be noticed. |
+| **An ambiguous rehearsal marker: a mixed allocation** | Its live fills as today; its rehearsal fills never listed (§ C) | WARNING: pool, strategy, allocation ids |
+| **A rehearsal group handed to a total** | 500 `performance data failed an integrity check`, the existing answer | ERROR with the reason, the existing `_guarded` line |
+| **A live id that starts with the prefix** | Would be read as a rehearsal. Cannot be minted: Bybit ids are UUIDs, Binance ids are integers (§ 12). The test is a prefix test, not a substring test. | — |
+| **A non-positive pool capital on a rehearsal reservation** | The existing 500, as for a live one | The existing ERROR |
+| **The panel forgets `include_rehearsal`** | The list silently shows no rehearsal row, which under `DRY_RUN` is an empty list | Nothing can log it. A frontend test pins the parameter on every request, first page and next page. |
+| **A row arrives with a new field missing or mistyped** | The whole page is refused and the section shows its error with "Try again" | The browser has no log. One bad row never renders with a wrong figure. |
+| **A new field arrives as a string that is not a number** | That cell reads "unreadable", as the PnL cell does today | — |
+| **A rehearsal row whose opening fills are neither at 1 nor at its alert's price** | The plain "Dry run" tag and the general sentence; no claim about its price | INFO, one line per page with the count: it is a steady state if decision 45 prices a fill at anything but the stored alert price, and a WARNING per row per page view would be noise. |
+| **The pricing facts of a rehearsal row are missing** (no row came back for its allocation, which the NOT NULL foreign keys to `reservations` and `signals` forbid) | The same plain tag: `UNDETERMINED` | WARNING: pool, strategy, allocation ids |
+| **A fixed-price row is read as a real price** | Prevented by the tag and sentence 2 (§ F). Their one input is `rehearsal_fill_price`. | A test per value pins tag and sentence; the mutation that maps every value to the plain tag turns it red. |
+| **`rehearsal_fill_price` is null on a rehearsal row, or set on a real one** | The page is refused: the two fields contradict each other | The browser has no log |
+| **`rehearsal_fill_price` holds a value this panel does not know** | The plain "Dry run" tag. A later value cannot make an older panel say something false. | — |
+| **Fills asked for an allocation that is unknown, belongs to another strategy, or has no fill** | 404 `no such operation`; the dialog keeps its figures and shows the fills error with "Try again" | WARNING: strategy id, allocation id. The panel only asks for ids the list just served, and a closed operation never leaves the list, so this is a hand-typed id or a defect. |
+| **More than 200 fills** | The first 200, `truncated: true`, and a sentence saying so | WARNING: strategy id, allocation id, the cap |
+| **A fill of the allocation sits in another pool than the strategy's** | The existing 500 | The existing ERROR, with the reason |
+| **A mixed allocation, in the fills read** | Every fill, each with its own `rehearsal` flag; the dialog tags the odd ones | WARNING: strategy id, allocation id |
+| **The fills body is malformed, or names another allocation than the one asked for** | The fills error with "Try again"; the figures stay | The browser has no log. No partial table is ever drawn. |
+| **The fills request fails or the route does not exist** (an older API) | The same fills error; the figures stay | — |
+| **The fills read degrades to one statement per fill** | Nothing visible; a slow dialog | Cannot be logged. A test counts the statements of the route for 1 fill and for 50 and requires the same number (§ H). |
+
+No line of this unit carries a credential, a DSN, a token or a raw payload. They carry ids, the pool label, counts and market keys. The fills read logs no price, quantity or fee.
+
+**Threat matrix.** The skill's matrix stays N/A: no shell, subprocess, VCS automation or process integration. Two project rows, as in the decision 42 addendum:
+
+| Threat | Safe behaviour | RED test |
+| --- | --- | --- |
+| The new `/api` route ships without auth | Auth is a dependency of the performance router, so every route in it carries it | The existing parametrized walk over `app.routes` covers the new GET; the sweeps that enumerate routes (the JSON-float walk, the secret sweep) are taught the new path, as PR 12v-2 did for its route. |
+| One strategy's path reads another strategy's operation | The statement carries `allocation_id` AND `strategy_id`; the port cannot be called without the strategy | Two strategies in one pool; S1's path asked for S2's allocation answers 404 with the same body as an unknown id. Mutation: the `strategy_id` predicate removed. |
+
+### H. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, domain | `operation_figures`, `operation_fees`, `sides_overlap`, `classify_rehearsal_pricing` | Pure. Hand-built `FillGroup`s and `PricingFacts`. |
+| Unit, application | `ReadStrategyTrades` with and without rehearsal rows; both performance reads unchanged; `require_live_only`; `ReadOperationFills` (cap, unknown, foreign pool, mixed, each log line) | `FakeFillsSource` (extended with `rehearsal_groups`), fakes of the two new ports, `caplog` |
+| Integration, **real PostgreSQL, ORM schema** | The aggregate's new grouping; the split into the two sets; the list end to end; the pricing facts against real `signals` rows; the fills statement (order, cap, the strategy predicate) | The existing fixtures (`tests/performance/infrastructure/conftest.py`), fills written through `RecordFill`, the production write path |
+| Integration, **`head` schema** | The premise of § G: a non-positive `price`, `quantity` or `notional` cannot be stored. And `ix_ledger_allocation` exists on `ledger_entries(allocation_id)`. | `tests/pg_head_schema.py`. The ORM schema has no such CHECK (T6) and no such index (T17), so on it these tests would prove nothing. The index is asserted from `pg_indexes`, not from a query plan: on a table of a few rows the planner scans whatever the indexes are. |
+| Router | The shapes of § D field by field; the default; the 422; the fills route's three 404 cases with one body; the statement count | `httpx.AsyncClient` over ASGI |
+| Frontend | The checks, the requests, the columns, the three tags and their sentences, the dialog and its fills table | Vitest, `vi.stubGlobal("fetch")` |
+
+**Rules that bind the task breakdown.**
+
+- **Strict TDD.** Each RED fails on an ASSERTION. New functions, fields and the query parameter are first added as stubs that compile and answer WRONGLY (prices of zero, `rehearsal` always false, a parameter that is accepted and ignored), in the same commit as the RED test.
+- **No lock-hold harness applies.** The read takes no lock and writes nothing, so there is no second actor to prove waiting. The one concurrency property of the list, a trade that closes between two page reads, is already tested on real PostgreSQL (§ 11) and must stay green with rehearsal rows in the fixture.
+- **One fixture holds both kinds.** The integration fixture of the list has, for one strategy: a real LONG with three opening fills of different sizes and prices, a real SHORT, an open real position, an open rehearsal position, a mixed allocation, and four rehearsal round trips whose signals carry an alert price: one filled at 1 against an alert of 0.4512 (`FIXED_ONE`), one filled at its alert's price with a quantity small enough that the derived average differs from the fill in its last places (`ALERT`), one filled at 1 against an alert of exactly 1 (`ALERT`), and one opened at 1 and closed at its alert's price, the position that was open when decision 45 landed (`FIXED_ONE`). A second strategy in the same pool holds one closed operation, for the fills route's foreign case. Every assertion on the list, on the report and on the fills is made against that one ledger.
+- **No test depends on decision 45 being built.** A fill "at the alert's price" is written by the fixture through `RecordFill`, not by the simulated exchange. The classification is tested on stored rows, which is all it reads.
+- **Statement counts.** One test per route counts the statements a request issues (a SQLAlchemy `before_cursor_execute` listener): the list issues the same number for a page of 1 row and of 20, and one more when the page holds a rehearsal row; the fills route issues the same number for 1 fill and for 50. This is what pins "never one per row" and "never one per fill".
+- **Symbol spellings.** The fills are written under one spelling and asserted under another, and no assertion compares the two as text. The real LONG opens as `STXUSDT.P` (TradingView's) and closes as `STXUSDT` (the venue's); the rehearsal operation opens as `STXUSDT_PERP` (Pionex's) and closes as `STXUSDT.P`. On the performance side every one of them is asserted as pair `STXUSDT` with base currency `STX`. One domain test pins that `STXUSDT.P` and `STXUSDT` on the two sides of one allocation are NOT a pair disagreement, and that `STXUSDT` and `SOLUSDT` are. The fills route is asked for that same operation and must answer the fills of BOTH spellings: it keys on the allocation, never on the symbol.
+- **Mutations that prove the tests which pass at once.**
+
+  | Test | Mutation that must turn it red |
+  | --- | --- |
+  | The pool report and the strategy report are identical with and without rehearsal groups in the ledger | The read concatenates `groups` and `rehearsal_groups` |
+  | The default request serves no rehearsal row | The parameter defaults to true |
+  | A fill id that merely contains the prefix is a real fill (existing) | `startswith` becomes `contains` |
+  | The entry price is weighted by quantity (three fills of different sizes) | The mean of the group averages |
+  | A SHORT's entry is its SELL side | The entry is always the BUY side |
+  | The identity `pnl = (exit − entry) × size × sign − fees` | The closing side's quantity used as `size` in a base-fee fixture |
+  | A real and a rehearsal operation that close at the same instant straddle a page edge and each is served once | Rehearsal rows sorted after the real ones |
+  | A cursor minted without rehearsal rows resumes correctly with them | The cursor filter applied before the merge |
+  | An allocation that holds a full rehearsal round trip AND a full live one appears once | The mixed filter removed |
+  | `require_live_only` refuses a rehearsal group in the live set | The check removed |
+  | A row filled at 1 against an alert of 0.4512 is `FIXED_ONE`; against an alert of exactly 1 it is `ALERT` | The alert comparison dropped ("price is 1" alone decides) |
+  | A row filled at its alert's price with a small quantity is `ALERT` | The derived `entry_price` compared instead of the fills' own price |
+  | A row opened at 1 and closed at its alert's price is `FIXED_ONE` | The closing side tested instead of the opening side |
+  | A fill at 0.45 against an alert of 0.4512 is `UNDETERMINED` | "Not 1" read as `ALERT` |
+  | A real row carries a null `rehearsal_fill_price` | The classification run for every row |
+  | The list issues the same number of statements for 1 row and for 20 | The pricing facts read once per row |
+  | S1's path asked for S2's allocation answers 404, with the body of an unknown id | The `strategy_id` predicate removed |
+  | 201 fills answer 200 of them and `truncated: true` | The cap removed; and, separately, `LIMIT 200` instead of 201 (the flag never turns true) |
+  | The fills come in `(filled_at, id)` order | The ORDER BY removed, with the fixture inserting the later fill first |
+  | A rehearsal operation's fills each carry `rehearsal: true`; a mixed allocation's carry their own | The flag taken from the operation instead of from each fill |
+  | The fills route issues the same number of statements for 1 fill and for 50 | A lookup per fill |
+  | The panel refuses a page whose row lacks `rehearsal`, `fees`, `other_fees`, or carries a number where a string is due (one case per field) | That field's check removed |
+  | A rehearsal row's PnL is in neutral ink | `toneClass` applied to it |
+  | A rehearsal row filled at 1 prints "1" in its entry and exit cells | Those cells blanked on a rehearsal row |
+  | Each `rehearsal_fill_price` value shows its own tag, and its sentence appears only when such a row is on the page | Every value mapped to the plain tag; and, separately, the sentences shown unconditionally |
+  | No fills request is made until an operation is opened, and one is made when it is | The fills prefetched with the page |
+  | A fills body naming another allocation than the one asked for is refused | The `allocation_id` comparison removed |
+  | A failed fills read leaves the figures on screen | The dialog's body replaced by the error |
+  | Focus returns to the Details button on close | The focus call removed |
+  | Each column's tier | Its responsive class removed (a class assertion, as task 9p.7) |
+
+- **The existing tests of the list, the reports, the curve and `by_pair` are not edited**, except their `FillGroup` builders, which gain the `rehearsal` argument. A test of the source that asserts the exact groups of an allocation written under two spellings on one side changes with the GROUP BY, and its task says so.
+- **Gate after every unit.** Backend: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Frontend: `npm run lint` and `npm test`.
+
+### I. Delivery
+
+Two sequential PRs to `main`, never stacked. They are split for a reason that is not size.
+
+```
+ 12e-1 backend: figures, rehearsal rows on request,   ─►   12e-2 panel: columns, marks and sentences,
+       the price-source value, the fills route               detail dialog with its fills table
+
+ decision 45 (its own unit, its own design): independent of both; first if it is ready first
+```
+
+| PR | Task | Contents | What changes for a user at deploy | Deploy | Rollback boundary |
+| --- | --- | --- | --- | --- | --- |
+| **12e-1** | 9p.4 | `operation.py`, `FillGroup.rehearsal`, the source's grouping and split, `require_live_only`, `ReadStrategyTrades` with `include_rehearsal`, the pricing facts and `rehearsal_fill_price`, `ReadOperationFills` and the fills route, `TradeBody`, `Price` | Nothing visible. The trades route serves eight more fields per row (§ D), and rehearsal rows to a request that asks. A new GET serves one operation's fills. Every report is unchanged. | Pull as `strategy`, restart both services | A revert restores the nine-field row and removes the fills route (its path then answers 404). No data is touched and there is no migration. |
+| **12e-2** | 9p.5 | The checks and the parameter, the table's columns and tiers, the three tags and their sentences, `TradeDetailDialog`, `OperationFillsTable`, the table moved to full width, i18n | Locally, and in production once the panel is served: the list shows the new columns, lists dry-run operations marked by how they were priced, and each row opens onto its figures and its fills. | Pull as `strategy`, no restart (the panel is not served while `PANEL_DIST_DIR` is unset) | A revert restores the seven-column table, which still works against the new API (§ D). |
+
+- **Why two.** (1) The panel refuses a page without the new fields and reads a route that must exist, so the API must be merged and running before the panel that asks for it (§ D). (2) The panel PR is the one the owner reviews by eye, and that review produced seven follow-up tasks on PR 12d; they should not hold a finished backend change. The two also differ in risk: 12e-1 is **medium** (it edits the aggregate that every performance read shares, and adds a route), 12e-2 is **low**.
+- **Why the fills route does not get a PR of its own.** It has no order to respect against the list change: both precede the panel, and neither needs the other deployed. A third PR would be a split by size, which the owner does not want. Inside 12e-1 it is its own work-unit commits, so it can be reverted alone.
+- **One PR for everything is possible** if the owner prefers it: the panel is not served in production, so the order hazard of § D exists only on a developer machine today. The recommendation stays two, for reason (2).
+- **Decision 45 and this unit: independent, and decision 45 first if it is ready first.** They share no file: decision 45 changes `execution`, this unit changes `performance` and the panel. Neither needs the other deployed (§ J). The reason to put decision 45 first is the owner's own: every day of dry run without it writes fills at 1 that can never be repriced, while a day without this unit loses nothing, since the ledger keeps what the list will later show. Decision 45 still needs its design, so this unit does not wait for it: 12e-1 can be cut now. Whichever is ready is merged and deployed, then the next branch is cut from the updated `main`, never stacked.
+- **Forecast.** 12e-1: 1,500 to 2,200 authored lines. 12e-2: 1,400 to 2,000. Unit 9p's first forecast was low six-fold, so these already assume tests at about twice the production code. `Decision needed before apply: No` (the three questions of § L are answered and none is open) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| D1 | An operation is an allocation; opening and closing fills are told apart by side, with the existing earliest-fill rule | A |
+| D2 | Prices are quantity-weighted averages taken from `notional`; `size` is the opening quantity | B |
+| D3 | `fees` is the settlement-currency amount; other currencies are listed, never converted; `fees_complete` keeps its meaning | B |
+| D4 | Prices are rounded half-even to 18 places on the wire, through a new `Price` type | B |
+| D5 | A rehearsal operation is an allocation whose fills are ALL rehearsal fills; a mixed allocation's rehearsal fills are never listed | C |
+| D6 | Rehearsal groups travel in a separate tuple that only the list reads, and a refusal guards the live set | C, E |
+| D7 | Rehearsal rows are served only on `include_rehearsal=true`; the default response is today's | C, D |
+| D8 | One list, one keyset order over both kinds; the cursor is unchanged | C |
+| D9 | The figures live in a new domain module beside `ClosedTrade`, which is not changed | E |
+| D10 | `symbol` joins the aggregate's GROUP BY so that two markets in one allocation are detectable | E, G |
+| D11 | A figure that cannot be derived is null with a WARNING; the operation stays in the list | B, G |
+| D12 | The detail view is a dialog; its figures come from the row, with no endpoint, and its fills from their own read | D, F |
+| D13 | The table moves to a full-width section, with four column tiers | F |
+| D14 | A rehearsal row is marked with the mode badge's words and token, and its PnL is in neutral ink | F |
+| D15 | Two PRs, backend then panel; the fills route rides in the backend PR | I |
+| D16 | A fixed-price row is told from an alert-priced one by comparing its opening fills' price with `signals.price`; three values, `UNDETERMINED` when stored data supports no claim; no marker, no migration | C |
+| D17 | The pricing facts are one statement of their own, issued only when the page holds a rehearsal row | E |
+| D18 | The fills read is keyed by allocation AND strategy in the statement; unknown, foreign and empty answer one identical 404 | D |
+| D19 | The fills are capped at 200 with a `truncated` flag, not paged; a rehearsal operation's fills are served without an opt-in, each flagged | D |
+| D20 | A fill of another pool is refused after the read rather than filtered in the WHERE | D |
+| D21 | This unit and decision 45 are independent; decision 45 goes first if it is ready first | I, J |
+
+### J. Adjacent work, flagged and not designed
+
+- **WIN RATE in By pair (decision 44).** It should stay a separate unit. It is another endpoint (`GET /performance/strategies/{id}`) and another domain function (`by_pair`), it shares no code with this change beyond `ClosedTrade`, and it needs one definition this design must not invent: whether a trade with a PnL of exactly zero is a win. Rehearsal operations cannot reach it, by § C. Its backend may ride in PR 12e-1 as its own commit only if its design note exists before that PR is cut; otherwise it follows as its own small backend-then-panel pair.
+- **The simulated exchange's fill price (T9): decided as decision 45 on 2026-10-04, its own unit with its own design. It is not designed here.** What this addendum fixes is only the boundary between the two units.
+  - **What this design assumes about it.** (1) Every simulated fill keeps the `fake-fill-` prefix on its id, and every simulated order the `fake-order-` prefix. They are data contracts (§ 12); § C and the mode guard rest on them. (2) It reprices nothing: fills already in the ledger stay at 1, as decision 45 itself says. (3) It takes effect once: fixed-price fills are written before it, alert-priced ones after. That order in time is why § C tests the opening side only; rolling it back with a dry-run position open is the one way to an alert-priced entry with a fixed-price exit (§ K). (4) Nothing about HOW it prices. This design does NOT assume that an opening fill is priced at the stored alert price exactly, nor how a close is priced, nor what fee is simulated. If the opening fill equals `signals.price`, the row reads `ALERT`; if decision 45's design does anything else, the row reads `UNDETERMINED` and the panel makes no claim (§ C). The read is correct under either.
+  - **What changes for the operations list once it lands: nothing in the read, the API or the panel.** The same derivations run over the same columns. Operations opened after it carry the alert's price, so their entry, exit, PnL and PnL % become a simulated result, their tag reads "alert price", and they are still `rehearsal: true` and still outside every total. Operations already written keep an entry of 1 and the tag "fixed price", for good. A simulated fee, if decision 45's design adds one, arrives in `fees` and in `pnl` like any fee, with no change here.
+  - **One thing for decision 45's design to weigh, not decided here.** A dry-run position that is open when it is deployed will close at the alert's price against an entry of 1. Its PnL is then `size × (alert price − 1)` in one direction or the other, a number with no meaning. This list marks that row "fixed price" and keeps it out of every total (§ C), so nothing is corrupted; but the cleaner deploy is one made while no dry-run position is open.
+  - **Order.** § I.
+- **Open positions on the strategy page.** Nothing on the page shows an open operation, live or rehearsal. Decision 44 dropped the OPEN column. This design does not add one.
+- **The spec.** `specs/performance-reporting/spec.md`, "Rehearsal Fills Are Excluded From Every Figure", says every read model MUST exclude rehearsal fills, and "A ledger holding only rehearsal fills yields empty performance data" says any read model returns the empty result. Decision 43's answer revises both for the trades list. The spec phase must add the delta: figures still exclude them; the list serves them, marked, on request. It must also specify what the answers of 2026-10-04 added: the price-source value of a rehearsal row and its three wordings, and the fills read with its one 404 for an unknown, a foreign and an empty operation (admin-api and operator-panel).
+
+### K. Risks, and what could be wrong in this design
+
+| Risk | Why it matters | Mitigation or honest limit |
+| --- | --- | --- |
+| A rehearsal row's price and PnL are artefacts of a fixed fill price of 1 (T9) | The owner's answer expects a strategy in dry run to "show its operations". It will, with entry 1, exit 1, PnL 0. | Decided: the stored numbers are shown, the row is tagged "fixed price" and a sentence says its prices are not a result (§ F). Decision 45 is the real fix, and it cannot repair rows already written. |
+| The fixed-or-alert value rests on the OPENING side only | An operation with an alert-priced entry and a fixed-price exit would read "alert price" although its exit is 1 | It needs decision 45 rolled back while a dry-run position is open. The exit cannot be tested for every row from stored data (T16). The fills table shows the exit fill at 1 to anyone who opens the row. Accepted limit. |
+| The `ALERT` value needs decision 45 to price an opening fill at exactly `signals.price` | If its design rounds to the tick or simulates slippage, every new row reads `UNDETERMINED` and the "alert price" tag never appears | Nothing false is shown: the row keeps the plain tag and the general sentence. The INFO count per page makes it visible in the log (§ G). The remedy would then be a marker minted by the simulated exchange, which is decision 45's design to make, not this one's. |
+| A dry-run position open across decision 45's deploy shows a large meaningless PnL | Entry 1, exit at the alert's price: `size × (alert − 1)` | Tagged "fixed price", in neutral ink, in no total. Flagged to decision 45's design (§ J). |
+| The fills route is a new way to read the ledger by id | A missing predicate would let one strategy's path read another's operation | The predicate is in the statement, the port cannot be called without the strategy, and a test with its mutation pins it (§ G, § H). The panel is single-user behind one token today (decision 4), so this guards a defect and the day the panel has more than one owner. |
+| The fills cap hides fills beyond 200 | An operation with more would show an incomplete table | It says so on screen and in a WARNING. No operation of this system comes near it: one opening order, a few closing ones. |
+| The shared aggregate changes (grouped by origin and by symbol) | Every performance read depends on it; a wrong split would move a total | Two walls (§ C), the "identical with and without rehearsal groups" tests and their mutation, and the existing suites unedited |
+| LONG or SHORT, and so entry and exit, rest on the earliest-fill rule (T4), not on which order was the opening one | Fills at the same instant on both sides would label a SHORT as LONG and swap entry and exit. PnL is not affected. | A WARNING on the overlap (§ G). Rejected for now: joining `execution_attempts` to read the opening order, which would add a join to every performance read and a second definition of direction. |
+| A fill missing symmetrically from both sides is invisible here | The list would show a smaller size and a smaller PnL as if they were right | A limit of any read over the ledger alone. Reconciliation against the venue is the control. |
+| An average price differs from a single fill's own price in the last places | `notional` is stored rounded to 18 places | Bounded by `1e-18 / quantity`, far below anything displayed |
+| The estimated column widths are wrong | A tier could overflow or hide a column the owner wants at 1440 px, including "Pool capital at open", which decision 43 keeps | jsdom has no layout. The classes are pinned by tests, the widths by the owner's review by eye; the tiers are four class names to move. |
+| Moving the table to full width changes the page the owner approved on PR 12d | It is a visible change nobody asked for by name | It follows from eleven columns in a 724 px column. It is reviewed by eye, and reverting it is one edit. |
+| The opt-in parameter is one more thing a client can forget | A panel that forgets it shows an empty list under `DRY_RUN` | Pinned by a test on every request the panel makes |
+| Mixed allocations are logged, not shown | The owner reads the panel, not the log | They cannot be created since PR 6d, and the startup guard reports an open one as an ERROR. If production holds one, the first page view logs it. |
+| The compatibility argument was made for a bundle that is not deployed | § D's table matters only once the panel is served | Stated (T14). The rules still keep `main` coherent at every commit. |
+
+### L. Questions for the owner: all answered (2026-10-04)
+
+Three were asked, and the owner answered the three on 2026-10-04. They are kept here with their answers so that the reasoning stays beside the design. The record is owner-decisions.md: decision 43's lines of 2026-10-04, and decision 45. **No question is open, and folding the answers in raised no new one.**
+
+- **Q1. What do the price, fee and PnL cells of a dry-run row show?** The simulated exchange fills at a fixed price of 1 with no fee (T9), so such a row holds entry 1, exit 1, fees 0, PnL 0, PnL % 0. The choice was between *(a)* the stored numbers as they are, beside the mark and a sentence saying how the row was filled, and *(b)* those cells empty, with the stored numbers only in the detail view. The design recommended (a).
+  - **Answered 2026-10-04: (a).** A dry-run row shows the stored numbers as they are. The panel shows what the ledger holds and hides nothing.
+  - **With one requirement the owner added:** the sentence must tell apart the rows filled at the fixed price of 1 from those filled at the alert's price, so that an entry of 1 is never read as a real price.
+  - **How it is met, from stored data alone:** the opening fills' price is compared with the price of the alert that ordered them, `signals.price` (§ C). A row reads `FIXED_ONE`, `ALERT` or `UNDETERMINED`, and the tag and the sentence follow that value (§ F). No marker is invented and there is no migration. The one case stored data cannot separate, an alert whose price was itself exactly 1, is the case where the two are the same number.
+  - **Unblocked:** the rendering of a rehearsal row in 9p.5. It adds `rehearsal_fill_price` and one statement to 9p.4 (§ D, § E).
+- **Q2. Beyond the figures of the list, should the detail view show anything more?** The choice was between *(a)* nothing more in this unit, *(b)* the operation's individual fills, and *(c)* the margin reserved and the leverage of the opening order. The design recommended (a).
+  - **Answered 2026-10-04: (b).** The detail view also shows each fill's time, side, price, quantity and fee. They are what explains an average entry or exit price.
+  - **(c) is not wanted in this unit.** The margin reserved and the leverage are not shown; that would need its own design.
+  - **How it is met:** `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills` (§ D), one indexed statement keyed by allocation and strategy (§ E), a fills table mounted in the dialog (§ F), its failure modes (§ G), its tests (§ H). It rides in the two PRs of § I and adds none.
+- **Q3. Should the simulated exchange fill at the alert's price from now on, so that future dry-run operations show a simulated result?** The design recommended yes, as its own unit.
+  - **Answered 2026-10-04: yes, recorded as decision 45.** It is its own unit with its own design and touches `execution`, not this read. It reprices nothing already in the ledger.
+  - **It is not designed here.** What this addendum assumes about it, what changes for the list when it lands (nothing in the read), and the order of the two units are in § J and § I.
+
+## Addendum: the simulated exchange fills at the alert's price (decision 45) - 2026-10-04
+
+Proposed unit 9q, one PR (proposed name PR 12g; the tasks phase fixes both names). HEAD `929d1f0`. Decision 45 is binding and is not reopened here: from this unit on a dry-run fill is priced at the price its alert carried, nothing already in the ledger is repriced, rehearsal fills keep the `fake-fill-` prefix and stay out of every total, and the unit is delivered before or beside decision 43's (PR 12e), which does not wait for it. This addendum settles what decision 45 left to its design: where the price comes from for each kind of order, how it reaches the simulated exchange, whether the fill can equal the stored alert price exactly, what an unusable price does, the fee, the transition, and the delivery. It changes the `execution` module and two call sites in `signals`. It adds **no migration**, no route and no frontend change.
+
+> **Revised 2026-10-04.** The owner answered the two questions of § N the same day (decision 45's lines of 2026-10-04). A simulated fill carries the venue's taker fee, and a dry run keeps sizing at 1x. The answers are folded into §§ A to N below. Nothing in this addendum is open.
+
+**The answer in one paragraph.** An opening order already carries the alert's price: `OpenOrderSpec.price` is `signals.price`, read back from the database, on every opening path. The simulated exchange receives it in `build_open_order` and then loses it, because `place` is handed only the order and no order type carries a price. So the simulated exchange remembers the price between its own `build_*` call and its own `place` call, keyed by the client order id, and mints the fill at exactly that `Decimal`. Nothing outside `FakeExchangeAdapter` changes for an open. A closing order carries no price today, so `CloseOrderSpec` gains one optional field, `reference_price`, filled from the alert that caused the close; the two callers that build a close both have that alert in hand. The real adapters never read the field, and `place` cannot see it, so what they send to a venue is unchanged, and a test pins the request bytes. The simulated exchange never rounds, never quantises to a tick and never simulates slippage, so an opening fill equals `signals.price` exactly and decision 43's list reads `ALERT`. An order with no usable price is refused through the existing "rejected by venue" path. There is no fallback, and in particular none to 1. Each simulated fill carries the venue's taker fee on its notional, in USDT: `0.00055` on Bybit and `0.0005` on Binance, constants of an infrastructure module. An exchange with no rate gets no simulated exchange, so its signals are refused before any capital is reserved, and a market not quoted in USDT is refused rather than charged in a currency the rate was never verified for. A dry run keeps sizing at 1x. A simulated profit or loss cannot move a pool's availability, because dry-run balances are read from the real venue and nothing in `allocation` or `accounts` reads a fill's price.
+
+### A. Findings from the code (verified at HEAD `929d1f0`)
+
+**How a simulated fill is priced today, per kind of order.** `place` mints one `Fill` per order with `price=self._fill_price`, `fee=Decimal("0")`, `fee_currency="USDT"` (`execution/infrastructure/fake_exchange.py:143-154`). `_fill_price` is the constructor argument, default `Decimal("1")` (`:67, :88`), and `main.py:853-854` builds every fake without it.
+
+| Order | Built at | Size on the order | Fill quantity | Fill price | Fee |
+| --- | --- | --- | --- | --- | --- |
+| Spot buy that opens (`MarketBuy`) | `fake_exchange.py:112-118`, `domain/order.py:117-120` | `quote_amount = granted` | `quote_amount / fill price`, so `granted` (`fake_exchange.py:197-198`) | 1 | 0 USDT |
+| Spot sell that opens (`MarketSell`) | the same, `order.py:121-125` | `granted / alert price` | the order's base size (`:199-200`) | 1 | 0 USDT |
+| Spot sell that closes | `fake_exchange.py:137-141` | the ledger's net | the order's base size | 1 | 0 USDT |
+| Spot buy that would close a short | refused, as the live spot adapter refuses it (`:128-136`) | — | — | — | — |
+| Futures open (`FuturesMarketOrder`) | `fake_exchange.py:103-111`, `domain/futures_order.py:92-143` | `granted × 1 / alert price`, at `FAKE_LEVERAGE = 1` (`:62`) | the order's base size (`:201-202`) | 1 | 0 USDT |
+| Futures close, reduce-only | `fake_exchange.py:121-127` | the ledger's net | the order's base size | 1 | 0 USDT |
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| P1 | The alert's price reaches every opening order. `signals.price` is read back from the database, then `SignalContext.price`, `PlaceCommand.price`, `OpenOrderSpec.price`. Every opening path (a plain open, the open half of a REVERSE, an open deferred behind an orphan close or in-flight work) goes through `_handle_consumes`, and the continuation reloads the signal first. | `signals/infrastructure/signal_context.py:37, 53`; `signals/application/process_signal.py:436, 637-644`; `execution/application/place_order.py:146-156` | An open needs no new plumbing. The reservation names the same signal (`reservations.signal_id`), which is the one decision 43's classification compares with. |
+| P2 | `ExchangePort.place` receives the ORDER, not the spec, and no order type carries a price. | `execution/application/ports.py:189`; `domain/order.py:43-77`; `domain/futures_order.py:57-83` | The simulated exchange has the price in `build_open_order` and has lost it by `place`, where the fill is minted. § B closes that gap inside the adapter. |
+| P3 | A closing order carries no price anywhere. `CloseCommand` and `CloseOrderSpec` hold the client order id, the symbol, the side and the base size. | `execution/application/close_position.py:67-86, 159-166`; `ports.py:124-137` | A close needs one new field (§ B). |
+| P4 | A close is built in two places only, and both hold an alert. `_handle_releases` closes for the closing or reversing signal. `CloseOrphans` closes for an OPENING signal that found a real orphan; it passes `signal_id=None` on purpose, so that a dust orphan cannot reject the open waiting behind it. | `process_signal.py:764-775`; `signals/application/close_orphans.py:216-232` | "No `signal_id` on the close" does not mean "no alert". The price travels separately from the signal id (§ B). |
+| P5 | No order exists without an alert behind it. `PlaceCommand` and `CloseCommand` are constructed nowhere else in `src`. A reconciliation booking writes venue fills straight to the ledger, never through `ExchangePort`, and is refused or skipped under `DRY_RUN`. No route places or closes an order by hand. A retried `signal.process` job and the continuation both reload the signal from the database. A retried `execution.settle` builds nothing: it reads the fill minted at `place`. | grep of `src`; `reconciliation/application/approve_booking.py:124`; `reconciliation_scan_handler.py:111`; `main.py:1435-1448, 1490`; `process_signal.py:436`; `execution/application/settle_execution.py:101-104` | The "no alert at all" case is unreachable today. § F still says what it does, because a later caller could create it. |
+| P6 | `signals.price` and `ledger_entries.price` are both `NUMERIC(38, 18)`. `signals.price` has `CHECK (price > 0)` in migration 0002. The ORM model declares no such CHECK. | `signals/infrastructure/models.py:42`; `ledger/infrastructure/models.py:54`; `migrations/versions/0002_signals.py:58, 68` | The price is stored once, at ingress, at the same scale as the column the fill is written to. In production a zero or negative price cannot be stored. A test that relies on that must run on a `head` schema. |
+| P7 | The ingress validates only that `price` is a string `Decimal` can parse. A value the CHECK refuses raises `IntegrityError`, which the repository re-raises for every constraint except the strategy foreign key, so the webhook answers 500 and stores nothing. | `signals/domain/alert.py:53, 76-82`; `signals/infrastructure/repository.py:78-87`; `signals/infrastructure/router.py:99-115` | See § F for what each kind of value does. |
+| P8 | For an OPEN, the domain already refuses a non-positive price, in both modes: `market_order` and `futures_position_size` raise `InvariantViolation`. `PlaceOrder` catches only `OrderNotPlaceable` around the build, so it propagates and the job is retried. | `domain/order.py:114-115`; `domain/futures_order.py:108-109`; `place_order.py:147-178` | An open with an unusable price never reaches `place`, live or simulated. This unit does not change that (§ F, § M). |
+| P9 | The simulated exchange's state is in memory, per instance, for the life of the process: the fills it minted, the signed deltas waiting to be shown to the book, and the fetch counters. One instance per exchange is shared by every job. The book holds signed base quantities only, never a price. | `fake_exchange.py:91-93`; `main.py:853-859, 1012-1014`; `execution/infrastructure/fake_venue_book.py:38, 56-61` | The build and the place of one order run on the same instance, inside one use-case call (`place_order.py:146, 218`; `close_position.py:157, 241`). A price kept between them is safe. |
+| P10 | A fill becomes a ledger row unchanged: `price=fill.price`, `notional = fill.quantity * fill.price`, `usd_rate_at_fill` from `FixedUsdRateProvider({USDT: 1})`. | `settle_execution.py:119-124, 220-240`; `main.py:526` | No step between the simulated exchange and the ledger rounds or converts the price. |
+| P11 | **Under `DRY_RUN`, balances are read from the real venue.** `balance.sync` and the on-demand refresh have no `dry_run` branch and sign with the vault credential. Availability is the snapshot minus the active reservations. Nothing under `allocation/` or `accounts/` reads the ledger's `price`, `notional` or a PnL. | `main.py:1047-1131, 1278-1385`; `allocation/application/allocate_capital.py:248`; grep of both modules; `specs/exchange-credentials/spec.md:111` | § H. |
+| P12 | Neither real adapter reads anything from `CloseOrderSpec` beyond `symbol`, `base_size`, `side` and `client_order_id`, and both `place` methods read the order only. | `execution/infrastructure/bybit_futures_exchange.py:149-221`; `binance_futures_exchange.py:152-234` | A new field on the spec is invisible to what they send (§ B). |
+| P13 | `ledger_entries.price` has no reader in `src` today. `notional` has one (the performance aggregate, which drops rehearsal fills in SQL). `fee` has four: the same aggregate; the allocation's net base, which subtracts a fee whose currency is the BASE currency; the pool-wide net positions, which subtract a fee whose currency is NOT the settlement currency; and the mode-origin reader, which groups by fee currency for the same base-fee rule. | grep of `LedgerEntryRow.(price\|notional\|fee)`; `ledger/infrastructure/repository.py:71-88, 116-127`; `execution/infrastructure/mode_origin_reader.py:60-87` | A realistic price changes no existing read. A fee in USDT on a USDT-settled fill is netted by none of them; a USDT fee in any other pool would be subtracted from a base holding (§ E). |
+| P14 | 33 construction sites of the simulated exchange in 7 test files (32 of `FakeExchangeAdapter`, 1 of its subclass `CountingFakeExchange`). 12 pass an explicit `fill_price` (9 at 100, 3 at 2). 21 take the default. No test asserts a fill priced 1, and **no test asserts a simulated fee of 0**: every assertion on a fee is on a real adapter's fill, a performance fixture or a booking. The five `fee=Decimal("0")` under `tests/signals` are ledger rows a fixture writes through `RecordFill`. | grep of `backend/tests` | § K. |
+| P15 | A fee charged in the settlement currency is subtracted from `pnl` and leaves `fees_complete` true. A fee in the base currency is netted from the holding. A fee above zero in any third currency is left out of `pnl` and turns `fees_complete` false. Currencies are compared upper-cased, and no rate is read. | `performance/domain/derive_trade.py:104-120, 135` | A USDT fee on a USDT-settled fill is complete (§ E). |
+| P16 | A fill in a pool that does not settle in USDT cannot be recorded today, in either mode. Settlement asks for the settlement currency's USD rate, and the provider is built with USDT alone, so it raises and the job is retried. | `settle_execution.py:120-122`; `main.py:526`; `shared/infrastructure/usd_rate.py:21-27` | Refusing a simulated fill outside USDT takes nothing away that works (§ E). |
+| P17 | The product enables two pools only: Bybit `usdt-m`/USDT and Binance `usdt-m`/USDT. Under `DRY_RUN` a simulated exchange is built for every exchange with a pool at startup plus those two, `tradable_pools` is computed from them, and a pool none serves is warned about at startup and refused per signal as `UNTRADABLE_POOL` before any reservation. | `accounts/domain/known_pools.py:44-49`; `main.py:853-859, 882-903`; `process_signal.py:364-367` | An exchange with no fee rate can be left without a simulated exchange through machinery that exists (§ E). |
+
+### B. Where the alert's price comes from, and how it reaches the simulated exchange
+
+**The opening order: it already carries it (P1). The change is inside the adapter.**
+
+```
+webhook ─► signals.price ─► SignalContextAdapter.load ─► _handle_consumes ─► PlaceCommand.price
+   PlaceOrder.place
+     ├─ exchange.build_open_order(OpenOrderSpec(price=…))    simulated exchange REMEMBERS spec.price
+     │                                                         under spec.client_order_id
+     ├─ attempt + settle job committed (unchanged)
+     └─ exchange.place(order)                                 simulated exchange TAKES the price back
+                                                               and mints the Fill at it
+   execution.settle ─► fetch_fills ─► FillRecord.price ─► ledger_entries.price     (unchanged)
+```
+
+- `FakeExchangeAdapter` gains `_reference_prices: dict[str, Decimal]`, written by its two `build_*` methods and popped by `place`.
+- `OpenOrderSpec`, `PlaceCommand`, `PlaceOrder`, every order type and `ExchangePort` are not changed for an open.
+
+**The closing order: one optional field.**
+
+```
+closing or reversing alert ─► signals.price ─► SignalContext.price
+   _handle_releases ─► CloseCommand(reference_price=context.price)                    NEW field
+   _handle_consumes ─► CloseOrphans.close(…, reference_price=context.price)           NEW argument
+                          └─► CloseCommand(signal_id=None, reference_price=…)
+   ClosePosition.close
+     ├─ exchange.build_close_order(CloseOrderSpec(reference_price=…))                 NEW field
+     │                                                         simulated exchange remembers it
+     └─ exchange.place(order)                                 mints the Fill at it
+```
+
+```python
+# execution/application/ports.py
+@dataclass(frozen=True, slots=True)
+class CloseOrderSpec:
+    client_order_id: str
+    symbol: str
+    side: OrderSide
+    base_size: Decimal
+    reference_price: Decimal | None = None      # NEW
+
+# execution/application/close_position.py
+@dataclass(frozen=True, slots=True)
+class CloseCommand:
+    ...
+    signal_id: UUID | None
+    reference_price: Decimal | None              # NEW, required, no default
+```
+
+- **`reference_price` is the price of the alert that caused this close.** For a plain close and for a REVERSE it is the closing signal's price. For an orphan close it is the price of the opening signal that found the orphan: the same market, at the moment that alert fired. It is never the price of the signal that opened the position.
+- **It sizes nothing and is sent nowhere.** The size of a close is still the ledger's net (`close_position.py:143-152`). The field's docstring says it is read only by the simulated exchange.
+- **`CloseCommand.reference_price` is required with no default**, the rule `signal_id` already follows (`close_position.py:73-77`): a caller that closes for an alert says so, and one that closes for none says `None` explicitly. `CloseOrphans.close` and `CloseOrphansPort.close` gain it as a required keyword argument, for the same reason.
+- **`CloseOrderSpec.reference_price` has a default.** It is constructed once in `src` (`close_position.py:160`), and 10 times in the real adapters' tests. The default is what leaves those tests unedited, which is itself evidence that the real adapters' inputs did not move.
+
+**What each real adapter does with the change: nothing.**
+
+| Adapter | `OpenOrderSpec` | `CloseOrderSpec.reference_price` | `place` |
+| --- | --- | --- | --- |
+| `BybitFuturesExchangeAdapter` | unchanged type, unchanged use | never read (`build_close_order` reads four fields, P12) | receives the same `FuturesMarketOrder`; cannot see the spec |
+| `BinanceFuturesExchangeAdapter` | the same | never read | the same |
+| `PionexExchangeAdapter`, `PionexFuturesExchangeAdapter` (not registered) | the same | never read | the same |
+
+- No file under `execution/infrastructure/{bybit,binance,pionex}*` or `shared/infrastructure/{bybit,binance,pionex}/` is edited, and none of their test files is.
+- **How a test proves the request bytes are unchanged** (§ K): each real adapter builds and places the same close twice, once with `reference_price=None` and once with a price, and the two runs must produce equal orders and an identical sequence of requests. For the two registered adapters the comparison is made on the wire, through the real trade client over `httpx.MockTransport` with the frozen clock those suites already use, so method, path, query, body bytes and signature are compared byte for byte.
+
+**An order with no alert behind it.** Unreachable today (P5). If a later caller builds one, it passes `reference_price=None`; a real adapter places it as before, and the simulated exchange refuses it (§ F).
+
+**Rejected.**
+- *A price field on `MarketBuy`, `MarketSell` or `FuturesMarketOrder`.* Those are the domain objects the real adapters build and send. A price on them is one edit away from a limit order.
+- *The simulated exchange reads the price from the database by client order id.* It needs a session inside a process-lifetime adapter, makes `execution/infrastructure` read the `signals` table, and finds nothing for an orphan close, whose attempt has no signal id (P4).
+- *A separate price port injected into the simulated exchange.* A second path for a number the spec already carries.
+- *A last-known price per market kept by the simulated exchange.* It prices a close at some earlier alert's price and forgets everything at a restart.
+
+### C. The exact price
+
+- **No step between the alert and the fill rounds, quantises or converts it.** The alert's string becomes a `Decimal` (`alert.py:80`). PostgreSQL stores it in `NUMERIC(38, 18)`; a price with more than 18 decimal places is rounded there, once, at ingress. Every later step reads the STORED value: the order is built from `signals.price` read back from the database (P1), the simulated exchange keeps that `Decimal` object, the fill carries it, and the ledger column has the same scale (P6, P10).
+- **The simulated exchange applies no tick size, no rounding and no slippage.** It has no instrument rules to round with, and this design adds none. That is a rule of the unit, not an accident: decision 43's classification reads `ALERT` only on exact equality.
+- **So the opening fill equals `signals.price` exactly on every opening path** of P1, and the signal it equals is the one the allocation's reservation names. New rows read `ALERT`.
+- **The paths where the comparison is not made or not exact:**
+
+  | Case | What the ledger holds | What decision 43's list shows |
+  | --- | --- | --- |
+  | The alert's price was itself exactly 1 | a fill at 1 | `ALERT`, which is true (decision 43 § C) |
+  | A dry-run position open at the deploy | entry 1, exit at the alert's price | `FIXED_ONE` (§ G) |
+  | A CLOSING fill | the closing alert's price, exactly | not classified; the list tests the opening side only |
+  | The simulated exchange built with an explicit fixed price | that price | `UNDETERMINED`. Tests only; production never passes one (§ J, § K) |
+
+- **A test pins exactness to the last place** with an 18-decimal price and with a 19-decimal one (§ K).
+
+### D. Quantity and size
+
+- **Leverage is 1.** `FAKE_LEVERAGE = Decimal("1")` (`fake_exchange.py:62`): "there is no account to read one from". A futures position is `granted × 1 / alert price` in base units, so its notional equals the capital granted.
+- **There is no step size, minimum quantity or minimum notional.** The simulated exchange has no instrument rules. The quantity is the full `Decimal` quotient, where a live adapter truncates down to the contract's step.
+- **The quantity filled is the quantity the order asked for**, in full, in one fill, for a spot sell and for every futures order (`fake_exchange.py:199-202`).
+- **What changes: only the spot buy.** Its quantity is `quote_amount / fill price` (`:197-198`): `granted` today, `granted / alert price` after this unit, which is the quantity a venue would return. Decision 43's finding T9 ("the SIZE is realistic") held for futures and for a spot sell, not for a spot buy. No spot pool is enabled in production.
+- **What does not change: every futures quantity.** It was already sized with the alert's price. With the fill also at that price, `notional = quantity × price` now equals the capital granted, where today it equals the base quantity.
+- **A close still nets to zero.** It is sized from the ledger's stored net and filled at exactly that quantity. A simulated fee is charged in USDT, never in the base coin, so it does not move the holding (§ E).
+- **A dry run keeps sizing at 1x** (decision 45, answered 2026-10-04; § N, Q2). Nothing is built for it: `FAKE_LEVERAGE` stays 1. A dry-run operation's PnL and PnL % are what the reserved capital earns without leverage, one leverage-th of what the same alert would produce live at the venue's leverage (3x on the real round trip). The fee scales the same way, because it is charged on the notional. Sizing at the leverage the venue reports would be its own unit with its own design, and positions already written at 1x would keep their size.
+
+### E. The fee: the venue's taker rate, on both sides, in USDT
+
+Decided by the owner on 2026-10-04 (decision 45; § N, Q1). A simulated fill carries the venue's TAKER fee on the fill's notional, on the opening fill and on the closing fill, in USDT. A maker rate is never used: a simulated fill is a market order.
+
+**The rates.**
+
+| Exchange | Rate | Where the number comes from |
+| --- | --- | --- |
+| Bybit | `0.00055` (0.055%) | Verified: the real round trip of 2026-08-27 was charged it on both legs. Its fees, 0.05883625 USDT, are exactly `0.00055 × 106.975`, which is what two legs of 0.5 SOL at about 107 add up to. |
+| Binance | `0.0005` (0.05%) | The owner's figure, read on the account on 2026-10-04. **Not confirmed by a real round trip in this project.** Its maker rate, 0.02%, is not used. |
+
+**Where they live: a constant in infrastructure.** A new module, `execution/infrastructure/simulated_fee_rates.py` (layer: **infrastructure**/execution), holds `SIMULATED_TAKER_FEE_RATES`, a read-only mapping from exchange to `Decimal`, and `SIMULATED_FEE_CURRENCY = "USDT"`. Each entry carries its source and date in a comment; the Binance entry's comment says it is the owner's figure and is not yet confirmed by a real round trip. A test pins both values exactly.
+
+- **Why a constant and not configuration.** The repository is the record. A rate changes only when the account's fee tier does, and that should be a dated, reviewed commit, so that a ledger row's fee can be explained from history. A setting would live in the VPS's `.env`, outside the repository, where a typo silently changes every simulated result, and it would add one more value whose absence has to be handled.
+- **Why infrastructure.** It is a fact about two venues, read by an infrastructure adapter and wired by the composition root. `domain/` and `application/` gain nothing.
+
+**How the fee is computed.**
+
+- `fee = quantity × fill price × fee_rate`, on every fill. `fee_rate` is a constructor argument of `FakeExchangeAdapter`: **required, keyword-only, no default**, and refused when below 0 or when 1 or more. `main.py` passes `SIMULATED_TAKER_FEE_RATES[exchange]`.
+- **Why no default.** A default of zero would be a way to charge nothing without anyone deciding to. With a required argument a construction that forgets the rate does not type-check. A test that does not care about fees says `fee_rate=Decimal("0")` in so many words (§ K).
+- **Precision.** The product is taken inside a local `decimal` context of 60 digits and quantised to 18 decimal places, half-even: the scale of `ledger_entries.fee` (`NUMERIC(38, 18)`). So the fill carries exactly the value the column stores, and PostgreSQL rounds nothing. No venue rounding is imitated. A fee below `0.5e-18` quantises to 0, which the column's `fee >= 0` CHECK allows. A reader who recomputes `stored notional × rate` can differ from the stored fee by at most `1e-18`, because `notional` is itself stored rounded.
+- **The base quantity is untouched.** The fee is in USDT on both sides, as on the real round trip, so a close sized from the ledger equals the open exactly and the allocation nets to zero.
+
+**An exchange with no rate gets no simulated exchange. It is refused per signal, and the worker still starts.**
+
+- Today a simulated exchange is built for every exchange that has a pool at startup, plus Bybit and Binance (`main.py:853-859`). After this unit it is built only for the exchanges of that set that have a rate. Bybit and Binance both have one, so the standing requirement that both are always covered still holds, and a test pins that the table contains both.
+- An exchange left out is absent from the dry-run registry and from `tradable_pools`, which is computed from the simulated exchanges (`main.py:882-894`). So its pools are reported at startup by the existing unserved-pools WARNING, a second WARNING says why ("no simulated taker fee rate is defined for '<exchange>'"), and every signal on them ends `REJECTED` `UNTRADABLE_POOL` with its WARNING, before any capital is reserved (`process_signal.py:364-367`).
+- **Why refuse per signal and not refuse the start.** It is the rule the composition root already follows for a pool nothing serves: a pool nobody trades is not a reason to stop the pools somebody does (`main.py:861-867`). It is also what live does: today the only exchange without a rate is Pionex, which has no live adapter either, so a dry run now refuses exactly what live refuses. A refused start would take Bybit's and Binance's rehearsal down over a pool that cannot trade in any mode.
+- **It never charges zero silently.** The three ways to a zero fee are closed: the constructor has no default, the composition root reads the table by key, and an exchange outside the table has no simulated exchange to fill anything.
+- **One thing this takes away, checked at deploy.** A rehearsal position open on an exchange with no rate could no longer be closed in dry run. Production's Pionex pools are disabled, so none is expected; the deploy's query of open rehearsal allocations (§ G) confirms it before the restart.
+
+**A market not quoted in USDT is refused, not charged.** This is what happens to a simulated fill in a pool that does not settle in USDT.
+
+- The simulated exchange is handed a symbol and never the pool, so it cannot know the settlement currency. What it can check is the market: before minting a fill it requires the symbol to be quoted in `SIMULATED_FEE_CURRENCY`, with the domain's own `base_currency_of(symbol, "USDT")`, which accepts `STXUSDT`, `STXUSDT.P`, `STX_USDT` and `STX_USDT_PERP` and raises for anything else. When it raises, `place` raises `ExchangeError`: no fill, the reservation released or the close marked FAILED, the signal `REJECTED`, one ERROR (the path of § F).
+- **Why not a fee in the pool's settlement currency.** Rule 7: a fee is recorded in its own currency and never converted. The two rates are the venues' USDT-M futures rates; there is no verified rate for a BTC- or ETH-settled market, and on an inverse contract the fee is not `quantity × price × rate` at all. Inventing one would write a number no venue charges.
+- **Why not a USDT fee in such a pool.** It would be a fee in a currency that is not the pool's. The performance read would leave it out of `pnl` and mark the row `fees_complete: false`, and the pool-wide position read would subtract it from the BASE holding as if it were coin, because that read nets every fee whose currency is not the settlement currency (P13). That is a wrong net position written on purpose.
+- **Nothing that works today stops working.** A fill in a pool not settled in USDT cannot be recorded in either mode today: settlement asks for the settlement currency's USD rate, and the provider knows only USDT (P16). The refusal moves that failure from an endlessly retried settle job to one definitive ERROR at placement.
+- **The limit that remains.** A USDT-quoted market traded from a pool that settles in another currency passes this check. That is a misconfiguration the opening path does not catch in either mode; its settlement fails as today (P16).
+- **A spot-shaped order on Bybit or Binance** (a symbol with no contract marker) is charged the same rate. No spot pool exists on either: the only pools the product enables are the two USDT-M ones (P17). Stated as a limit (§ M).
+
+**What the fee changes elsewhere.**
+
+- **The ledger and `fees_complete`.** A USDT fee on a USDT-settled fill is complete. `derive_trade` subtracts a fee whose currency is the settlement currency from `pnl` and leaves `fees_complete` true (P15). None of the three position reads nets it (P13): it is neither in the base currency nor outside the settlement currency. So a USDT fee moves no holding, a close still equals its open, and the simulated venue book, which is seeded from the pool-wide read, is unaffected.
+- **The USD rate at fill time.** Unchanged. `usd_rate_at_fill` is the settlement currency's rate, 1 for USDT, recorded once per settlement (P10). The fee is in that same currency, so the one rate on the row covers it. No performance read uses the rate.
+- **Pool availability.** Unchanged (§ H). No real money pays a simulated fee.
+- **Decision 43's list.** A rehearsal operation written after this unit shows a non-zero `fees`, and its `pnl` and PnL % are net of it. Its design expected this: "a simulated fee … arrives in `fees` and in `pnl` like any fee, with no change here" (its § J). Its classification reads prices only. Nothing in that design assumes a rehearsal fee of 0. Two places in its spec and tasks are narrower than the rows production will now hold; they are reported to the coordinator, not edited here (§ M).
+- **Decision 28's mode guard.** Unchanged: it decides from origins and net base quantities, and a fee in USDT enters neither.
+
+### F. An alert with no usable price
+
+**What `signals.price` can hold, and what the ingress does today (P6, P7).**
+
+| Alert's `price` | Ingress today | Reaches the worker? |
+| --- | --- | --- |
+| Missing, not a string, or not a number (`"abc"`, `""`) | 422 from the parser | no |
+| `"0"` or negative | The row is refused by `ck_signals_price_positive`; the `IntegrityError` is re-raised; the webhook answers 500 and stores nothing | no, in production. Yes on an ORM-schema test database, which has no such CHECK. |
+| `"NaN"` | `Decimal` parses it. PostgreSQL's numeric ordering puts NaN above every number, so `price > 0` does not exclude it. **Not verified against this database**; a test on a `head` schema settles it (§ K). | possibly |
+| `"Infinity"` | `Decimal` parses it. A `NUMERIC(38, 18)` column cannot hold an infinity, so the insert should fail like the CHECK does. Not verified; the same test settles it. | expected no |
+| Positive but absurd (the wrong chart, a mistyped alert) | stored | yes |
+
+**What the simulated exchange does.** A price is **usable** when it is a finite `Decimal` above zero. The test is `price.is_finite() and price > 0`, in that order, because comparing a NaN raises.
+
+| Case | Behaviour | Path |
+| --- | --- | --- |
+| An OPEN whose price is zero, negative or NaN | Unchanged, and the same in both modes: the domain refuses to size the order before the simulated exchange is asked to fill anything (P8) | `build_open_order` raises; no fill |
+| A CLOSE whose `reference_price` is `None`, zero, negative, NaN or infinite | **Refused. No fill is minted.** | `place` raises `ExchangeError`; `ClosePosition` marks the attempt FAILED, records `CLOSE_REJECTED_BY_VENUE` on the signal when there is one, and logs its existing ERROR, which reaches Telegram (`close_position.py:242-266`). The position stays open in the ledger. TradingView believes it flat, so no second closing alert comes; the strategy's next OPENING alert on that market finds the holding, the simulated venue book still shows it, and the existing real-orphan path closes it at that alert's price before opening (`process_signal.py:521-558`). |
+| Any order the simulated exchange did not build itself (no price was remembered for its client order id) | Refused the same way | `place` raises `ExchangeError`; for an open, `PlaceOrder` releases the reservation and records `ORDER_REJECTED_BY_VENUE` (`place_order.py:219-246`) |
+| An order on a market not quoted in USDT, whatever its price | Refused the same way: the fee has no verified rate outside USDT (§ E) | `place` raises `ExchangeError`, with the two outcomes above |
+| A positive but absurd price | Filled at it. It is the price the alert carried, which is what decision 45 asks for. | — |
+
+- **There is no fallback: not to 1, not to the entry price, not to the last price seen.** A fallback to 1 would silently write the rows this decision exists to stop writing. Any other fallback would write a price no alert carried, and decision 43's list would call it nothing in particular.
+- **The refusal is raised in `place`, not in `build_close_order`.** A plain exception from the build is retried by the job until its attempts run out, and `OrderNotPlaceable` would be reported as dust with a venue minimum. `ExchangeError` from `place` is the definitive-rejection path both use cases already handle: one ERROR, an outcome on the signal, no retry storm.
+- **No new reason code.** The detail carries the cause ("the simulated exchange cannot price this order: its alert carried no usable price"), under the existing codes.
+- **Where a rehearsal now differs from live.** A live close ignores the alert's price entirely; a simulated close needs it. In production the only stored value that can be unusable is a NaN (if the test of § K shows it can be stored). Stated as a risk (§ M).
+
+### G. The transition
+
+- **What happens.** A dry-run position that is open when this unit is deployed was entered at 1 and will be closed at its closing alert's price. Its quantity is `granted / entry alert price`, so its PnL is `quantity × (exit alert price − 1)` for a long and the negative of that for a short: of the order of the granted amount, with a sign that depends on whether the market trades above or below 1. Its closing fill also carries a fee and its opening fill, written before this unit, does not. It is a number with no meaning.
+- **Who reads that PnL.** Decision 43's list, which marks the row "fixed price", draws it in neutral ink and keeps it out of every total (its § C, § K). Nothing else: every performance total drops rehearsal fills, and no other module reads a fill's price (P11, P13).
+- **Nothing is corrupted and nothing needs repair.** The ledger is right about what the simulated exchange did.
+- **Should the owner do anything before the deploy? No.** The alternative is to wait for a moment when no dry-run position is open. Waiting costs alert-priced history that can never be recovered, which is the reason decision 45 exists, and it buys the absence of rows that are already marked and counted nowhere. The owner can still choose the moment: it is a deploy, and the owner runs it.
+- **What the deploy records.** The delivery log notes the commit, the time of the first worker start on it, and the rehearsal allocations open at that moment (a read-only query the tasks phase writes), so the rows that straddle the change are known by id. The same query is run BEFORE the restart and gates it on one point: if any open rehearsal allocation sits on an exchange that has no fee rate, the deploy stops and the case is reported, because that position could no longer be closed in dry run (§ E). None is expected: production's Pionex pools are disabled.
+- **An order in flight at the restart** (placed, not yet settled) is lost with the simulated exchange's memory and ends `ORDER_NEVER_REACHED_EXCHANGE`, as at every restart today (P9). Unchanged by this unit.
+
+### H. Impact on `DRY_RUN`, idempotency and capital-pool isolation
+
+| Rule | Impact |
+| --- | --- |
+| `DRY_RUN` (rule 1) | The default stays true. `DRY_RUN` still selects the adapter and nothing else does (`main.py:809-815`). `is_live`, `assert_dry_run_safe`, the mode guard and both rehearsal id prefixes are untouched. No test needs a credential or the network. |
+| `DRY_RUN=false` | Behaves exactly as before. The simulated exchange is not registered. The real adapters receive one field they never read (§ B), and a test pins their requests. |
+| Idempotency (rule 2) | Untouched. The client order id is still minted before any network call; the remembered price is keyed by it. The signal's idempotency key and the unique constraints on reservations and attempts are not involved. |
+| Webhook (rule 3) | Untouched. The ingress is not edited. |
+| Allocation transaction (rule 4), lock order | Untouched. No new lock, no new transaction boundary, no new read inside the advisory lock. |
+| **Capital pools (rule 5)** | **A simulated profit or loss cannot change a pool's availability, a balance snapshot, a reservation or anything the allocation engine reads.** Dry-run balances come from the real venue, read with the stored key, in both modes (P11). Availability is that snapshot minus the active reservations. A rehearsal fill moves no real money, so the snapshot does not move, and nothing in `allocation/` or `accounts/` reads `ledger_entries.price`, `notional` or a PnL. What follows is already true today and stays true: in dry run an open rehearsal position does not reduce availability once its reservation is FILLED, so a dry run rehearses routing and results, not capital contention. |
+| Ledger (rule 6) | Append-only, unchanged. A rehearsal fill is still one row per fill with its `strategy_id` and `allocation_id`. No row is rewritten. |
+| PnL in native currency (rule 7) | The price is in the settlement currency per unit of base, as a live fill's is. `usd_rate_at_fill` is recorded exactly as today. The simulated fee is in USDT and is charged only on a USDT-quoted market; any other market is refused, never charged in another currency and never converted (§ E). Nothing is summed across pools. |
+| What a dry run serves | Narrower than today in one respect: an exchange with no fee rate has no simulated exchange, so its pools are refused per signal, as they are live (§ E). Bybit and Binance are unaffected. |
+| Credentials (rule 8) | Untouched. The simulated exchange signs nothing. |
+| A rehearsal fill never looks like a real one | The `fake-fill-` and `fake-order-` prefixes are unchanged, and the tests that pin them are not edited (`tests/execution/infrastructure/test_fake_exchange.py:191-256`). One thing does change: a rehearsal row used to be recognisable by its price of 1 as well. After this unit the prefix is the ONLY marker, so every reader must use it. The two that total anything already do (decision 43 § C). |
+| Reconciliation | Skipped under `DRY_RUN` (P5). The simulated venue book is fed signed base quantities, never a price (P9). No discrepancy can come from a simulated price. |
+
+### I. Layering
+
+| Component | Layer | File | Change |
+| --- | --- | --- | --- |
+| `CloseOrderSpec.reference_price` | **application**/execution | `execution/application/ports.py` | One optional field, default `None`. `ExchangePort` itself is not changed. |
+| `CloseCommand.reference_price`; `ClosePosition.close` | **application**/execution | `execution/application/close_position.py` | One required field; passed into the spec. No other line. |
+| `_handle_releases`; the `CloseOrphansPort` protocol; the call in `_handle_consumes` | **application**/signals | `signals/application/process_signal.py` | `context.price` passed to both. |
+| `CloseOrphans.close` | **application**/signals | `signals/application/close_orphans.py` | A required keyword argument, passed into `CloseCommand`. |
+| `FakeExchangeAdapter` | **infrastructure**/execution | `execution/infrastructure/fake_exchange.py` | `fill_price` becomes `Decimal` or `None`, default `None`; the remembered prices; the usable-price refusal; `fee_rate`, required and keyword-only; the fee and its quantisation; the USDT-quote refusal; a read-only `fixed_fill_price`; one INFO per fill (§ J). |
+| `SIMULATED_TAKER_FEE_RATES`, `SIMULATED_FEE_CURRENCY` | **infrastructure**/execution | `execution/infrastructure/simulated_fee_rates.py` (new) | The two rates and the fee currency, each with its source (§ E). |
+| The simulated exchanges built per exchange that has a rate; the two startup lines | **composition root** | `main.py` | `fee_rate=SIMULATED_TAKER_FEE_RATES[exchange]`; an exchange outside the table gets none and a WARNING (§ E, § J). The block keeps the name `fakes_by_exchange` and still names Bybit and Binance. |
+| `Fill`, `futures_position_size`, `PlaceCommand`, `OpenOrderSpec` | domain and application | their files | Docstrings only. They say a fill's price is never the alert's reference price; that stays true of a live fill and is now false of a rehearsal one. |
+
+- **`domain/` gains no import and no code.** No order type, no domain function and no domain class changes.
+- **No new component in `domain/` or `application/`.** The usable-price test and the fee product are private functions of the adapter that uses them. The USDT-quote check calls the existing domain function `base_currency_of`, which the adapter's module already imports from.
+- **The two modes of the simulated exchange.**
+
+  | `fill_price` | Meaning | Who uses it |
+  | --- | --- | --- |
+  | `None` (the default) | Each order fills at the price remembered for it | production, and any test that wants production's behaviour |
+  | a `Decimal` | Every order fills at that price, as today | tests that pin a price explicitly |
+
+### J. What fails here without a log line?
+
+| Failure | What happens | What is logged |
+| --- | --- | --- |
+| **The price did not arrive**: a close built with `reference_price=None`, or an order the simulated exchange did not build | Refused in `place`; no fill; the attempt is FAILED; the signal, when there is one, ends `REJECTED` | The existing ERROR of the caller (`close rejected by venue…` or `order rejected by venue…`), with the cause in its `error=` text. It reaches Telegram. |
+| **A price of zero, negative or NaN on a close** | The same refusal | The same ERROR; the text names the value |
+| **A price of zero, negative or NaN on an open** | The domain raises at build; the job is retried until its attempts run out; the signal then ends `REJECTED` through the exhausted-job recorder | The worker's existing exception line per attempt. Not changed here (§ M). |
+| **A close with no alert, for an orphan** | The same refusal; the attempt is FAILED; the continuation sees the FAILED close and ends the waiting open with its own outcome | The same ERROR. No outcome is written by the close itself, by design (P4). |
+| **Production builds the simulated exchange with a fixed price** (a later edit of `main.py`) | Every fill is priced at it and decision 43's list reads `UNDETERMINED` or `FIXED_ONE` | One line at worker start, per process, taken from each instance's own `fixed_fill_price` and rate: INFO "the simulated exchange prices each fill at its alert's price", with each exchange and its taker rate, when none is fixed; WARNING naming the exchange and the price when one is. And the end-to-end test of § K goes red. |
+| **A later edit rounds the price** | Rows read `UNDETERMINED` | Nothing at write time can know. The exactness tests of § K go red, and decision 43's list logs an INFO count of `UNDETERMINED` rows per page (its § G). |
+| **The moment the change took effect is not visible** | — | The startup INFO above, and one INFO per simulated fill: exchange, symbol, side, quantity, price, fee, client order id. |
+| **An exchange has a pool and no fee rate** | It gets no simulated exchange; every signal on its pools ends `REJECTED` `UNTRADABLE_POOL` before any reservation | At worker start: the existing unserved-pools WARNING, and one WARNING naming the exchange and the reason ("no simulated taker fee rate is defined"). Per signal: the existing `UNTRADABLE_POOL` WARNING. |
+| **A simulated fill is charged no fee** | Cannot happen unnoticed: the constructor has no default rate, the composition root reads the table by key, and the table's two values are pinned by a test | The startup INFO line names each simulated exchange with its rate, so the journal shows what was charged from which start |
+| **An order on a market not quoted in USDT** | Refused in `place`; no fill | The caller's existing ERROR, with the cause in its `error=` text ("the simulated exchange charges its fee in USDT and this market is not quoted in it") |
+| **The account's fee tier changes and the constant does not** | New rehearsal fills carry the old rate | Nothing can log it. The constant's comment carries its date and source, and the per-fill INFO shows the fee charged. Stated as a risk (§ M). |
+| **A remembered price is never used** (the build succeeded and the place never ran) | One `Decimal` stays in memory until the process restarts | Nothing. Bounded by the number of such failures; the fills kept per order already grow the same way (P9). |
+| **A worker restart between place and settle** | The order is forgotten; the existing `ORDER_NEVER_REACHED_EXCHANGE` | The existing WARNING. Unchanged. |
+
+No line of this unit carries a credential, a DSN, a token or a raw payload. They carry ids, the exchange, the symbol, the side, and a quantity, a price and a fee of a simulated fill.
+
+**Threat matrix.** N/A: no routing, shell, subprocess, VCS automation, executable-file classification or process integration. No route is added.
+
+### K. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, infrastructure | The simulated exchange in both modes: the price per kind of order, the refusals, the fee, the quantity of a spot buy | `tests/execution/infrastructure/test_fake_exchange.py`, no database |
+| Unit, application | `ClosePosition` passes the price into the spec; `_handle_releases` and `CloseOrphans` pass the alert's price | The existing stub exchanges and fakes of those suites |
+| Unit and wire, real adapters | The requests are unchanged | A new test file; the adapters' existing doubles, and `httpx.MockTransport` with the frozen clock |
+| Integration, **real PostgreSQL** | From the webhook to the ledger, through the production composition root | `build_worker_runner(session_factory_override=…)` and `run_once`, as `tests/signals/infrastructure/test_exhausted_jobs_wiring.py` does |
+| Integration, **`head` schema** | What `signals.price` can hold | `tests/pg_head_schema.py` |
+
+**The tests.**
+
+1. **An opening fill equals the alert's price to the last decimal place.** A futures open built with `price=Decimal("0.123456789012345678")` and placed: `fill.price == Decimal("0.123456789012345678")`, compared as `Decimal` and as `str`. One case per kind of order of § A.
+2. **From the webhook to the ledger, the stored price is read back.** A POST to `/webhook/tradingview` with `"price": "0.1234567890123456789"` (19 places) and `"symbol": "STXUSDT.P"`; the worker's `signal.process` and `execution.settle` jobs run through `build_worker_runner` with `DRY_RUN` on. Then, read from the database: the opening row's `ledger_entries.price` equals `signals.price` of the signal its reservation names, exactly, and its `exchange_fill_id` starts with `fake-fill-`. A closing alert at another price follows; the closing row's price equals that second signal's price, and the allocation nets to zero. Each of the two rows carries `fee_currency` `"USDT"` and a fee equal to its quantity times its price times `0.00055`, quantised to 18 places, and `derive_trade` over the two rows answers `fees_complete` true and a `pnl` net of both fees. The fixture seeds a balance snapshot young enough for the refresh's fallback, because no credential exists in a test.
+3. **A close is priced at the closing alert, not at the opening one.** Opening alert 0.4512, closing alert 0.4633: the closing fill is 0.4633.
+4. **A REVERSE.** The close of the old allocation and the open of the new one are both priced at the reversing alert's price, and the new allocation's opening fill equals the price of the signal its reservation names.
+5. **An orphan close** is priced at the price of the signal that found the orphan, although its `signal_id` is `None`.
+6. **Two orders built before either is placed, placed in the other order,** each fill at its own price.
+7. **The refusals of § F**, one case each: `None`, 0, a negative, NaN, infinity, and an order the adapter did not build. Each asserts the exception type, that no fill exists for the client order id, and, through `ClosePosition` on real PostgreSQL, that the attempt is FAILED, the signal `REJECTED` `CLOSE_REJECTED_BY_VENUE`, the ledger unchanged and the ERROR line present. Then a second `ClosePosition.close` for the same allocation, with a usable price, is placed and nets it to zero, which is what the orphan path does at the next opening alert.
+8. **The fee.** With `fee_rate=Decimal("0.00055")`: `fill.fee` equals `quantity × price × 0.00055` quantised to 18 places, in `"USDT"`, on an open and on a close; the base quantity is untouched and the close nets to zero. A case whose product has more than 18 decimal places pins the half-even quantisation, and one whose product exceeds 28 significant digits pins that nothing was rounded before it. With `fee_rate=Decimal("0")` the fee is 0. A rate below 0 or of 1 is refused by the constructor.
+9. **A spot buy** fills `granted / alert price` in base units.
+10. **The real adapters are untouched** (§ B). Per real adapter: the same close built from a spec with and without `reference_price` gives equal orders and identical recorded calls. Per registered adapter, on the wire: identical method, path, query, body bytes and signature.
+11. **`head` schema.** `signals.price` refuses 0 and a negative. The same test records what the database does with `NaN` and with `Infinity`; the design holds either way, and the result corrects § F's two unverified rows.
+12. **The startup line** says INFO with no fixed price, naming each exchange and its rate, and WARNING with a fixed price.
+13. **The rates table.** `SIMULATED_TAKER_FEE_RATES` holds exactly Bybit at `Decimal("0.00055")` and Binance at `Decimal("0.0005")`, and `SIMULATED_FEE_CURRENCY` is `"USDT"`.
+14. **An exchange with no rate.** A worker built under `DRY_RUN` with a pool on an exchange outside the table: no simulated exchange exists for it, both WARNINGs are logged at build time, Bybit and Binance still have theirs, and a signal on that pool, run on real PostgreSQL, ends `REJECTED` `UNTRADABLE_POOL` with no reservation and no ledger row.
+15. **A market not quoted in USDT** is refused in `place` (`ETHBTC`, `BTCUSD`), with no fill; each of the four USDT spellings (`STXUSDT`, `STXUSDT.P`, `STX_USDT`, `STX_USDT_PERP`) is filled and charged.
+16. **A USDT fee is complete and moves no holding.** Through the production write path on real PostgreSQL: after a simulated open with a non-zero fee, the allocation's net base equals the quantity bought, the pool-wide net position equals it too, and after the close both are zero.
+
+**Rules that bind the task breakdown.**
+
+- **Strict TDD.** Each RED fails on an ASSERTION. The new default is first a stub that still fills at 1 (`assert Decimal('1') == Decimal('0.123456789012345678')`); `reference_price` is first a field the simulated exchange accepts and ignores; `fee_rate` is first accepted and ignored, so the fee test fails on `assert Decimal('0') == …`; the rates module is first a table with both rates at 0. A refusal test captures the exception and asserts on its type, so a stub that does not raise fails on an assertion.
+- **The tests that take today's default.** 33 construction sites (P14).
+
+  | Group | Sites | What happens |
+  | --- | --- | --- |
+  | Pass an explicit `fill_price` (100 or 2) | 12 | **Kept as they are.** An explicit price is the fixed mode, which is today's behaviour. |
+  | Take the default and never produce a fill | 4 (`test_fake_exchange.py:48`, `test_dry_run_invariant.py:27, 42, 49`) | Unchanged, apart from the rate argument below. |
+  | Take the default and fill orders | 17 (`test_order_outcomes_integration.py`, 4; `test_settle_outcomes_integration.py`, 13) | Their opens go through `PlaceOrder` with `price=Decimal("2")` and now fill at 2 instead of 1. None asserts a price, so none changes for an open. Their closes go through `CloseCommand`, which gains the required field. |
+
+  - **The rule.** No test is deleted. A test whose subject is not the price keeps its assertions. A test found, when the suite runs, to depend on a fill of 1 is given `fill_price=Decimal("1")` explicitly, and its docstring says why. The task records each such test by name.
+  - **The fee: no assertion changes, every construction site says its rate.** The number of tests that assert a simulated fee of 0 today is **zero** (P14). `fee_rate` is required, so all 33 construction sites, and each instantiation of the two test subclasses (`CountingFakeExchange`, `_DustExchange`), gain `fee_rate=Decimal("0")`: they are kept with an explicit zero rate, because none of them is about the fee. No test is deleted and none loses an assertion. A test found, when the suite runs, to depend on a zero fee without asserting it (a PnL or a balance computed from fills) keeps its explicit zero rate and is recorded by name. The new fee tests pass their own non-zero rate.
+  - **Edits that the new required field forces:** the 5 constructions of `CloseCommand` in tests (`test_close_position.py`, 2; the three integration files, 1 each), every call of `CloseOrphans.close` in `tests/signals/application/test_close_orphans.py`, and the doubles of `CloseOrphansPort`. Each gains a price; none loses an assertion.
+  - **Two tests read `main.py` as text** (`tests/test_main_pool_reload.py:260-267`, `tests/test_mode_guard_wiring.py:28`). This unit edits the `fakes_by_exchange` block. The first of those tests reads the text between `fakes_by_exchange = {` and `tradable_pools` and requires both `BYBIT_EXCHANGE` and `BINANCE_EXCHANGE` in it, so the block keeps its name and both names, and test 13 is what now guarantees that both have a rate.
+  - **Tests that build the worker with a pool on an exchange outside the table** (a Pionex pool under `DRY_RUN`) change behaviour: that pool is no longer served. They were not counted here; the task finds them by running the suite, and each is either moved to a Bybit or Binance pool or turned into a case of test 14. None is deleted.
+- **No lock-hold harness applies.** This unit adds no lock and no transaction boundary. The remembered price is written and popped inside one use-case call on one instance, with distinct keys per order.
+- **Symbol spellings.** The webhook side uses TradingView's `STXUSDT.P`. The strategy's allowed pair is stored as `STXUSDT`. The ledger row is asserted through `market_key(symbol) == "STXUSDT"`, never by comparing the two spellings as text, and the simulated venue book is asserted under the venue's bare `STXUSDT`. The real-adapter test hands the adapter `STXUSDT.P` and asserts the request names `STXUSDT`.
+- **Mutations that prove the tests which pass at once.**
+
+  | Test | Mutation that must turn it red |
+  | --- | --- |
+  | The real adapters' requests are identical with and without `reference_price` (10) | The adapter forwards `spec.reference_price` into its request |
+  | The 12 tests with an explicit `fill_price` still fill at it | The fixed price ignored whenever a price was remembered |
+  | Two orders, each at its own price (6) | One "last price" attribute instead of a map keyed by client order id |
+  | Exactness at 18 places (1) | The price quantised to 2 places in the adapter |
+  | Webhook to ledger (2) | `main.py` builds the simulated exchange with `fill_price=Decimal("1")` |
+  | A close at the closing alert's price (3) | The simulated exchange reuses the price it remembered for the opening order |
+  | A refused close writes no ledger row (7) | A fallback to 1 in place of the refusal |
+  | The fee is on the notional (8) | The fee computed from the quantity alone |
+  | The fee is quantised to 18 places, half-even (8) | The quantisation removed; and, separately, the product taken in the default 28-digit context |
+  | Binance is charged the taker rate (13) | `0.0002`, the maker rate, in its place |
+  | An exchange with no rate has no simulated exchange (14) | The table read with a default of zero |
+  | A market not quoted in USDT is refused (15) | The quote check removed |
+  | A USDT fee moves no holding (16) | The fee written in the base currency |
+  | The webhook-to-ledger fee (2) | `main.py` passes `fee_rate=Decimal("0")` |
+  | The rehearsal prefix tests (existing, unedited) | Their own, already recorded |
+
+- **Gate after the unit.** `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. No frontend change.
+
+### L. Delivery
+
+**One PR** to `main`, cut from an up-to-date `main`, never stacked. It is not split, and the reason is not size: an exchange that prices opens at the alert and cannot yet price closes has no honest state to be deployed in. Its closes would have to be refused or filled at 1.
+
+| | |
+| --- | --- |
+| Contents | The simulated exchange's two modes, the remembered price, the refusals, `fee_rate` and the fee; the rates module; `CloseOrderSpec.reference_price`; `CloseCommand.reference_price` and its two callers; the composition root's wiring of the rates and its startup lines; the docstrings; the tests of § K. |
+| Risk | **Medium.** It edits a DTO of `ExchangePort` and the two use cases that close a position, in the module that sends real orders when `DRY_RUN` is false. What bounds it: no order type changes, no real adapter file is edited, and the request test. |
+| Migration | None. |
+| Deploy | First the read-only query of open rehearsal allocations, which gates the restart (§ G). Then pull as `strategy`, restart both services. Only the worker's behaviour changes; the API process places no orders. |
+| From which moment | The first worker start on the new commit. Every fill minted after it carries its alert's price and its venue's taker fee. The startup INFO line marks the moment in the journal and names the rates. |
+| What the operator sees | In the log: the startup line, then one INFO per simulated fill with its price and fee. In the panel: nothing until decision 43's list is served (PR 12e-2); then operations opened after this deploy read "alert price" and show a simulated result net of fees, those opened before it read "fixed price", for good. |
+| Rollback boundary | A revert restores the fixed price of 1 and the fee of 0 for NEW fills. The fills written meanwhile keep their alert price and their fee. A dry-run position open across the revert has an alert-priced entry and an exit of 1, and decision 43's list reads it `ALERT` (its § K names this case). No data is touched in either direction. |
+| Order against PR 12e | Independent (decision 43 § I). No shared file: this unit edits `execution` and `signals`, 12e-1 edits `performance`. Whichever is ready is merged and deployed first, then the next branch is cut from the updated `main`. This one should go first if it is ready, for the owner's reason: each day without it writes fills at 1. |
+
+- **Forecast.** 900 to 1,400 authored lines, tests about four times the production code; the 33 one-line `fee_rate=Decimal("0")` edits are part of it. `Decision needed before apply: No` (both questions of § N are answered) · `Chained PRs recommended: No` · `400-line budget risk: High`.
+- **The spec.** No spec of this change speaks of how a simulated fill is priced or charged, and `openspec/specs/trade-execution/spec.md` § "DRY_RUN Safety" says only which adapter is used. The spec phase must add a trade-execution delta to this change, each requirement naming its pool:
+  - a simulated fill in pool `(bybit, usdt-m, USDT)` or `(binance, usdt-m, USDT)` is priced at the stored price of its alert, exactly, and a close at the alert that caused it;
+  - it carries the taker fee on its notional in USDT, `0.00055` in the first pool and `0.0005` in the second, on both sides, quantised to 18 places, and never a maker rate;
+  - an order with no usable price, or on a market not quoted in USDT, is refused and never filled at a default;
+  - under `DRY_RUN` an exchange with no fee rate serves no pool, and its signals are refused as untradable before any reservation;
+  - a dry run sizes at 1x;
+  - rehearsal ids keep their prefixes, and a real adapter's requests do not depend on the price.
+
+  The performance and admin-api specs need no new requirement. Two existing statements there, and one in tasks.md, are narrower than what production will hold; see § M.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| E1 | The simulated exchange remembers the price between its own build and its own place, keyed by client order id; nothing outside it changes for an open | B |
+| E2 | A close carries the price as `CloseOrderSpec.reference_price`, optional on the spec, required on `CloseCommand` | B |
+| E3 | A close is priced at the alert that caused it; an orphan close at the alert that found the orphan | B |
+| E4 | No order type and no real adapter is edited; a test pins the real adapters' requests | B, K |
+| E5 | No rounding, tick or slippage in the simulated exchange; the fill equals the stored alert price exactly | C |
+| E6 | No instrument rule is simulated in this unit. (Leverage stays 1 by the owner's answer, not by this design.) | D |
+| E7 | The fee is `quantity × price × fee_rate`, quantised to 18 places half-even, in USDT; `fee_rate` is a required constructor argument with no default | E |
+| E12 | The two rates are constants of an infrastructure module, not configuration | E |
+| E13 | An exchange with no rate gets no simulated exchange and is refused per signal; the worker still starts | E |
+| E14 | A market not quoted in USDT is refused in `place`, never charged in another currency | E |
+| E8 | An order with no usable price is refused in `place` through the existing rejection path; no fallback | F |
+| E9 | An explicit `fill_price` stays as a fixed mode for tests; the default becomes the alert's price | I, K |
+| E10 | The deploy does not wait for dry-run positions to close | G |
+| E11 | One PR | L |
+
+### M. Risks, and what could be wrong in this design
+
+| Risk | Why it matters | Mitigation or honest limit |
+| --- | --- | --- |
+| The real adapters now receive a field that carries a price | A later edit could send it, turning a market order into something else | They never read it today; the request test and its mutation; the field's name and docstring; no order type carries it, and `place` sees only the order |
+| A rehearsal fill is now plausible | Its price of 1 was an incidental second marker. Any reader that forgets the prefix would take a rehearsal row for a result. | The prefix contract is unchanged and pinned. Both totalling readers use it. Stated in § H so a new reader is written with it. |
+| The simulated result is at 1x, with no step, no spread and no slippage, filled in full at the bar's close | It is what the alert's own prices imply, not what a venue would have filled. A live market order fills after the alert, at the book. At 3x a live PnL is three times the simulated one, and so is a live fee. | Stated (§ D). The owner chose 1x (§ N, Q2). The rest is the meaning of "the price the alert carried". |
+| A delayed open is filled at an old price | The open half of a REVERSE and a deferred open are placed after their close settles, up to the continuation's timeout later, at the alert's price | By decision 45 the price is the alert's. Live, the same order would fill at the market of that later moment. |
+| A simulated close can be refused where a live one would not be | A live close never reads the alert's price | Reachable in production only through a stored NaN, if one can be stored (§ F, test 11). The refusal is an ERROR that reaches Telegram, and the strategy's next opening alert closes the position through the orphan path. Until then the rehearsal position stays open, which also keeps decision 28's guard from allowing a switch to live. |
+| One class, two modes | A fixed price wired in production silently restores the old behaviour | The startup line reads each instance's own mode; the end-to-end test runs the production composition root (§ J, § K) |
+| The simulated fee exists only in USDT | A pool settled in another currency cannot be rehearsed | Its fills are refused, not charged in a currency no rate was verified for (§ E). Nothing is lost: such a pool cannot settle a fill in either mode today (P16), and the product enables none (P17). |
+| A USDT-quoted market traded from a pool that settles in another currency | The quote check passes and a USDT fee is minted | A misconfiguration the opening path does not catch in either mode; its settlement fails as today (P16), so no such row reaches the ledger. |
+| The Binance rate is not confirmed by a real round trip | It is the owner's figure read on the account | Said where the rate is defined (§ E). The first real Binance round trip confirms or corrects it; a correction is a one-line commit and applies to new fills only. |
+| A rate is a constant and an account's fee tier can change | New rehearsal fills would carry a stale rate, and rows already written keep theirs | The comment carries the date and source; the per-fill INFO shows what was charged. A change is a dated commit, which is the point of a constant (§ E). |
+| A spot-shaped order on Bybit or Binance is charged the futures taker rate | A symbol with no contract marker builds a spot order in the simulated exchange, and a spot taker rate is higher | No spot pool exists on either exchange (P17). An alert that names a futures market without its `.P` is the one way there, and its fee is then the right one. |
+| A dry run serves fewer pools than before | An exchange with no rate is refused per signal, where today it is filled | It is what live does, and today that exchange is Pionex, whose pools are disabled. The deploy checks that no rehearsal position is open on such an exchange (§ G). |
+| Rehearsal fills written before this unit have a fee of 0 and those after it do not | A reader comparing two rehearsal rows compares a result with fees against one without | Decision 43's "fixed price" mark already separates them: every fee-less rehearsal fill is a fixed-price one, except the opening fill of a position that straddles the deploy (§ G). |
+| The remembered prices and the minted fills live in memory | A restart between place and settle loses the order | Existing behaviour, with its existing WARNING and outcome (§ G) |
+| A dry-run position open at the deploy shows a large meaningless PnL | Of the order of the granted amount, in either direction | Marked and outside every total by decision 43; recorded by id in the delivery log (§ G) |
+| A revert with a dry-run position open | An alert-priced entry with an exit of 1 reads `ALERT` | Named in decision 43 § K. The fills table shows the exit at 1. |
+| Dry run does not rehearse capital contention | A rehearsal position does not reduce availability, so two strategies never compete in dry run as they would live | Existing, and not changed here (§ H). A result per operation is simulated; the allocation between strategies is not. |
+
+**What could be wrong here.**
+- **Nothing was run.** Every count in P14 and § K comes from a search of the test tree, not from the suite. The task that changes the default must run the suite and record what turned red.
+- **The two unverified rows of § F** (`NaN`, `Infinity`) rest on PostgreSQL's documented behaviour, not on a statement run against this database. Test 11 settles them; the design refuses both either way.
+- **The end-to-end test's fixture** (a balance snapshot that lets the refresh fall back with no credential) was read from `main.py:1047-1131` and `process_signal.py:588-605`, not exercised.
+- **Binance's taker rate** is the owner's figure. Nothing in this repository confirms it.
+- **The tests that build the worker with a pool outside the rates table** were not counted (§ K). If there are many, E13 costs more test edits than this design says.
+- **The real round trip's two notionals** are inferred: its fees divided by the rate give 106.975, which fits two legs of 0.5 SOL. The legs' own prices are not in the repository's documents.
+
+**What the fee does to decision 43's unit. Reported, not edited.** Its design holds: § J of that addendum expected a simulated fee to arrive in `fees` and `pnl`, and its classification reads prices only. Three statements outside this addendum are narrower than the rows production will hold once this unit is deployed:
+- `specs/admin-api/spec.md`, scenario "A rehearsal row's classification is served as stored data implies": its GIVEN fixes only the opening fill (priced 1 against an alert of 0.4512) and its THEN requires `pnl` 0. That holds only when the closing fill is also at 1 with no fee. A position that straddles this unit's deploy is `FIXED_ONE` too, with an alert-priced exit, a fee on its closing fill and a `pnl` that is not 0. The GIVEN needs "and whose closing fill is priced 1 with no fee".
+- `specs/performance-reporting/spec.md`, "Rehearsal Operations Are Listed Only On Request": "while the simulated exchange fills every order at a price of 1 with no fee, a rehearsal row reads … fees 0 and PnL 0". True as a conditional, and dated from this unit's deploy. Its scenario and the panel spec's "A fixed-price row shows its stored numbers" state their fills in the GIVEN and stay correct.
+- `tasks.md`, the check after PR 12e-1's deploy: it expects every dry-run operation to read `FIXED_ONE` with entry 1, exit 1 and PnL 0. If this unit is deployed first, as § L recommends, production may by then hold `ALERT` rows with fees and a non-zero PnL, and a straddling `FIXED_ONE` row.
+
+**Adjacent, flagged and not designed.**
+- **An opening alert with an unusable price is retried, not refused** (P8): the `InvariantViolation` leaves `PlaceOrder` uncaught after the reservation was taken, so the job repeats until its attempts run out and the reservation waits for its TTL. It is the same in both modes and predates this unit. In production the CHECK on `signals.price` makes it nearly unreachable.
+- **The webhook answers 500, not 422, to a price of zero or a negative** (P7). An ingress matter.
+- **The panel's sentence for an alert-priced row** ("opened at the price its alert carried", decision 43 § F) does not say that the row is sized without leverage or that its fees are simulated at the venue's taker rate. With 1x now decided, unit 9p.5 may want to say both. It is copy of that unit, not of this one, and no part of this unit waits for it.
+
+### N. Questions for the owner: all answered (2026-10-04)
+
+Two were asked, and the owner answered both on 2026-10-04. They are kept here with their answers so that the reasoning stays beside the design. The record is owner-decisions.md, decision 45's lines of 2026-10-04. No migration is needed, so no question about one was asked. **No question is open, and folding the answers in raised no new one.**
+
+- **Q1. What fee does a simulated fill carry?** The choice was between *(a)* none, as before this unit, and *(b)* the venue's taker rate on the fill's notional, on both sides, in USDT. The design recommended (b) and asked for a Binance rate, because none was verified in this project.
+  - **Answered 2026-10-04: (b), with both rates given.** A simulated fill carries the venue's TAKER fee, on the fill's notional, on both sides, in USDT. **Bybit `0.00055`** (0.055%), the rate of the real round trip of 2026-08-27. **Binance `0.0005`** (0.05%), the futures taker rate the owner reads on the account. Binance's maker rate, 0.02%, is not used: a simulated fill is a market order.
+  - **The Binance rate is the owner's figure**, not confirmed by a real round trip in this project. That is said where the rate is defined (§ E).
+  - **Why:** a result with no fee overstates every operation, and a fee, like a price, is written once.
+  - **How it is met:** two constants in a new infrastructure module, a required `fee_rate` on the simulated exchange, and a fee of `quantity × price × rate` quantised to 18 places (§ E). The fee is no longer optional anywhere in this design.
+  - **What the answer left to the design, and how it was settled:** an exchange with no rate gets no simulated exchange and is refused per signal, with the worker still starting; a market not quoted in USDT is refused rather than charged in another currency (§ E). Neither is a product decision: the first follows the composition root's own rule for a pool nothing serves, the second follows rule 7.
+- **Q2. At what leverage does a dry run size a position?** The simulated exchange sizes at 1x: the position's notional equals the capital granted. The choice was between *(a)* keeping 1x, *(b)* a fixed multiple per exchange set in configuration, and *(c)* the leverage the venue reports, read with the stored key. The design recommended (a) for this unit.
+  - **Answered 2026-10-04: (a).** A dry run keeps sizing a position at 1x. A dry-run operation's PnL and PnL % are one leverage-th of what the same alert would produce live at the venue's leverage (3x on the real round trip). A result at 1x is exact, depends on no venue read, and can be scaled by eye.
+  - **Nothing is built for it** (§ D). Sizing at the leverage the venue reports would be its own unit with its own design, and positions already written at 1x would keep their size.

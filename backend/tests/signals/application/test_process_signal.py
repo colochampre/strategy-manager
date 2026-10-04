@@ -273,11 +273,14 @@ class SpyCloseOrphans:
     branch (design.md § S6) asked it to close, without needing a real
     ``ClosePosition``/``OpenAfterClose`` stack. Records ``next_poll`` too
     (orchestrator review of `ee640d6`): the caller must thread it through,
-    never hardcode it."""
+    never hardcode it. ``reference_prices`` records the alert price handed to
+    each call, in a list of its own so the six-tuples of ``calls`` stay as
+    they are."""
 
     calls: list[tuple[UUID, PoolKey, UUID, str, list[HeldAllocation], int]] = field(
         default_factory=list
     )
+    reference_prices: list[Decimal | None] = field(default_factory=list)
 
     async def close(
         self,
@@ -287,8 +290,11 @@ class SpyCloseOrphans:
         symbol: str,
         holdings: list[HeldAllocation],
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
+        self.reference_prices.append(reference_price)
 
 
 @dataclass
@@ -3092,3 +3098,129 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "bybit" in warnings[0].message
+
+
+# ---- decision 45: the alert's price travels with every close -----------------
+#
+# ``SignalContext.price`` is the stored price of the signal being processed. A
+# close built for that signal, or for an orphan that signal found, is priced at
+# it (design § B). The price never sizes the close and reaches no real venue.
+
+_STX_ALLOWED = frozenset({"STXUSDT"})
+_OPENING_ALERT_PRICE = Decimal("0.4512")
+_CLOSING_ALERT_PRICE = Decimal("0.4633")
+
+
+def _stx_context(
+    *, position_size: Decimal, prior_position_size: Decimal, prior_reservation_id: UUID | None
+) -> SignalContext:
+    return SignalContext(
+        strategy_id=uuid4(),
+        symbol="STXUSDT.P",
+        price=_CLOSING_ALERT_PRICE,
+        position_size=position_size,
+        prior_position_size=prior_position_size,
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+
+
+async def test_a_closing_alerts_price_is_the_close_commands_reference_price() -> None:
+    """The held position was opened by a signal at 0.4512; the closing signal
+    carries 0.4633, and 0.4633 is what the close is priced at."""
+    close_position = SpyClosePosition()
+    context = _stx_context(
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_snapshot(allowed_pairs=_STX_ALLOWED),
+    )
+
+    await handler.handle(uuid4())
+
+    [command] = close_position.calls
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_a_reversing_alerts_price_prices_the_close_half() -> None:
+    close_position = SpyClosePosition()
+    context = _stx_context(
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_snapshot(allowed_pairs=_STX_ALLOWED),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.transition_kind == "reverse"
+    [command] = close_position.calls
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_an_opening_alerts_price_is_handed_to_close_orphans() -> None:
+    strategy_id = uuid4()
+    own_holding = HeldAllocation(
+        strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")
+    )
+    context = SignalContext(
+        strategy_id=strategy_id,
+        symbol="STXUSDT.P",
+        price=_CLOSING_ALERT_PRICE,
+        position_size=Decimal("1"),
+        prior_position_size=Decimal("0"),
+        prior_reservation_id=None,
+        settlement_currency="USDT",
+    )
+    close_orphans = SpyCloseOrphans()
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        holding_guard=_holding_guard(holdings=[own_holding], venue_net=Decimal("0.5")),
+        close_orphans=close_orphans,
+        policy=_snapshot(allowed_pairs=_STX_ALLOWED),
+    )
+
+    await handler.handle(uuid4())
+
+    assert len(close_orphans.calls) == 1
+    assert close_orphans.reference_prices == [Decimal("0.4633")]
+
+
+async def test_the_close_is_never_priced_at_the_price_of_the_signal_that_opened_the_position() -> (
+    None
+):
+    """The opening signal's price (0.4512) is nowhere in this context: the
+    only price a close can be given is the closing alert's."""
+    close_position = SpyClosePosition()
+    context = _stx_context(
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_snapshot(allowed_pairs=_STX_ALLOWED),
+    )
+
+    await handler.handle(uuid4())
+
+    [command] = close_position.calls
+    assert command.reference_price == _CLOSING_ALERT_PRICE
+    assert command.reference_price != _OPENING_ALERT_PRICE

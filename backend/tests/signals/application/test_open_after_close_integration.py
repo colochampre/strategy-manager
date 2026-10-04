@@ -187,7 +187,14 @@ class NeverCalledSeeder:
 
 class NeverCalledCloseOrphans:
     async def close(
-        self, signal_id: UUID, pool: object, strategy_id: UUID, symbol: str, holdings: object
+        self,
+        signal_id: UUID,
+        pool: object,
+        strategy_id: UUID,
+        symbol: str,
+        holdings: object,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         raise AssertionError(
             "open_now's guard never finds a REAL orphan once the close it "
@@ -335,7 +342,10 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         await session.commit()
 
     clock = SteppableClock(START)
-    exchange = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("2"), fill_latency_polls=3)
+    exchange = FakeExchangeAdapter(
+        exchange="bybit", fill_price=Decimal("2"), fill_latency_polls=3,
+        fee_rate=Decimal("0"),
+    )
     registry = VenueExchangeRegistry([exchange])
 
     # ---- submit the close for real, through the production use case ----
@@ -365,6 +375,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 symbol="STXUSDT.P",
                 side=OrderSide.SELL,
                 signal_id=None,
+                reference_price=Decimal("0.4633"),
             )
         )
     assert close_result.status == "PLACED"

@@ -96,7 +96,9 @@ def futures_position_size(
 
     ``granted`` is margin (see this module's docstring). ``price`` is the
     alert's bar-close reference price -- the only price available before the
-    order exists -- and it sizes the order, never the ledger row.
+    order exists -- and it sizes the order, never the ledger row. (A live fill's
+    price is the venue's own. A rehearsal fill is priced at this very price by
+    the simulated exchange since decision 45.)
 
     Multiplication happens before division so the leverage factor is never
     applied to an already-rounded quotient.

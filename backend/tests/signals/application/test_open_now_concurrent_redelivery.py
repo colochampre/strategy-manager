@@ -253,6 +253,8 @@ class NeverCalledCloseOrphans:
         symbol: str,
         holdings: object,
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         raise AssertionError("there is no orphan here -- the prior holding nets to zero")
 
@@ -565,7 +567,10 @@ async def test_two_concurrent_open_now_calls_reserve_once_and_order_once(
     strategy_id, signal_id = await _setup(pg_session_factory)
 
     clock = FixedClock(START)
-    exchange = CountingFakeExchange(exchange="bybit", fill_price=Decimal("2"))
+    exchange = CountingFakeExchange(
+        exchange="bybit", fill_price=Decimal("2"),
+        fee_rate=Decimal("0"),
+    )
     registry = VenueExchangeRegistry([exchange])
     balance_reader = FixedBalanceReader(pool=POOL, amount=POOL_BALANCE, clock=clock)
     pools_by_key = {

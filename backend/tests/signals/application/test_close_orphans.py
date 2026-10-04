@@ -36,6 +36,7 @@ from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.domain.holding import HeldAllocation
 
 POOL: PoolKey = ("bybit", "usdt-m", "USDT")
+ALERT_PRICE = Decimal("0.4633")
 
 
 @dataclass
@@ -169,7 +170,9 @@ async def test_seeds_the_continuation_before_closing_any_allocation() -> None:
         commit=SpyCommit(),
     )
 
-    await close_orphans.close(uuid4(), POOL, holding.strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, holding.strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert order == ["seed", "close"]
 
@@ -192,7 +195,12 @@ async def test_seeds_awaiting_every_allocation_id_at_once() -> None:
     )
 
     await close_orphans.close(
-        signal_id, POOL, strategy_id, "ETHUSDT.P", [holding_a, holding_b]
+        signal_id,
+        POOL,
+        strategy_id,
+        "ETHUSDT.P",
+        [holding_a, holding_b],
+        reference_price=ALERT_PRICE,
     )
 
     assert seeder.calls == [
@@ -217,7 +225,12 @@ async def test_closes_a_positive_net_with_a_sell_and_a_negative_net_with_a_buy()
     )
 
     await close_orphans.close(
-        uuid4(), POOL, strategy_id, "ETHUSDT.P", [long_holding, short_holding]
+        uuid4(),
+        POOL,
+        strategy_id,
+        "ETHUSDT.P",
+        [long_holding, short_holding],
+        reference_price=ALERT_PRICE,
     )
 
     sides = {call.allocation_id: call.side for call in close_position.calls}
@@ -242,7 +255,9 @@ async def test_an_orphan_close_carries_no_signal_so_it_never_decides_the_signal(
         commit=SpyCommit(),
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", holdings)
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", holdings, reference_price=ALERT_PRICE
+    )
 
     assert len(close_position.calls) == 2
     assert [call.signal_id for call in close_position.calls] == [None, None]
@@ -269,7 +284,9 @@ async def test_an_allocation_with_a_committed_close_is_skipped() -> None:
         commit=SpyCommit(),
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert close_position.calls == []
 
@@ -294,7 +311,9 @@ async def test_an_allocation_with_a_failed_close_is_retried() -> None:
         commit=SpyCommit(),
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert len(close_position.calls) == 1
     assert close_position.calls[0].allocation_id == holding.allocation_id
@@ -324,7 +343,12 @@ async def test_a_mix_of_skipped_and_fresh_allocations_only_closes_the_fresh_ones
     )
 
     await close_orphans.close(
-        uuid4(), POOL, strategy_id, "ETHUSDT.P", [already_closing, still_open]
+        uuid4(),
+        POOL,
+        strategy_id,
+        "ETHUSDT.P",
+        [already_closing, still_open],
+        reference_price=ALERT_PRICE,
     )
 
     assert [call.allocation_id for call in close_position.calls] == [still_open.allocation_id]
@@ -356,7 +380,9 @@ async def test_a_dust_residual_close_does_not_raise_out_of_close_orphans() -> No
         commit=SpyCommit(),
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert len(close_position.calls) == 1
 
@@ -383,7 +409,9 @@ async def test_when_every_allocation_is_already_closing_the_seed_is_committed_ex
         commit=commit,
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert close_position.calls == []
     assert commit.commits == 1
@@ -402,7 +430,9 @@ async def test_when_a_fresh_close_is_placed_the_caller_does_not_need_to_commit_a
         commit=commit,
     )
 
-    await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+    await close_orphans.close(
+        uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
 
     assert commit.commits == 0
 
@@ -422,7 +452,9 @@ async def test_logs_a_warning_naming_strategy_symbol_and_allocations(
     )
 
     with caplog.at_level("WARNING"):
-        await close_orphans.close(uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding])
+        await close_orphans.close(
+            uuid4(), POOL, strategy_id, "ETHUSDT.P", [holding], reference_price=ALERT_PRICE
+        )
 
     assert any(record.levelname == "WARNING" for record in caplog.records)
     message = caplog.records[-1].getMessage()
@@ -458,7 +490,13 @@ async def test_next_poll_is_threaded_not_hardcoded_to_zero() -> None:
     )
 
     await close_orphans.close(
-        signal_id, POOL, strategy_id, "ETHUSDT.P", [holding], next_poll=3
+        signal_id,
+        POOL,
+        strategy_id,
+        "ETHUSDT.P",
+        [holding],
+        next_poll=3,
+        reference_price=ALERT_PRICE,
     )
 
     assert seeder.calls == [(signal_id, [holding.allocation_id], 3, True)]
@@ -495,7 +533,9 @@ async def test_a_replay_that_collides_does_not_close_an_allocation_with_no_live_
     )
 
     # First attempt: genuinely fresh, places the close.
-    await close_orphans.close(signal_id, POOL, strategy_id, "ETHUSDT", [holding], next_poll=0)
+    await close_orphans.close(
+        signal_id, POOL, strategy_id, "ETHUSDT", [holding], next_poll=0, reference_price=ALERT_PRICE
+    )
     assert len(close_position.calls) == 1
 
     # The first close was rejected by the venue -- FAILED, per S1.
@@ -514,7 +554,13 @@ async def test_a_replay_that_collides_does_not_close_an_allocation_with_no_live_
     # always does on a fresh handle() call.
     with caplog.at_level("ERROR"):
         await close_orphans_replay.close(
-            signal_id, POOL, strategy_id, "ETHUSDT", [holding], next_poll=0
+            signal_id,
+            POOL,
+            strategy_id,
+            "ETHUSDT",
+            [holding],
+            next_poll=0,
+            reference_price=ALERT_PRICE,
         )
 
     assert len(close_position.calls) == 1  # unchanged -- no second close placed
@@ -552,7 +598,13 @@ async def test_a_new_signal_still_retries_the_close_after_an_old_failed_one() ->
 
     new_signal_id = uuid4()
     await close_orphans.close(
-        new_signal_id, POOL, strategy_id, "STXUSDT_PERP", [holding], next_poll=0
+        new_signal_id,
+        POOL,
+        strategy_id,
+        "STXUSDT_PERP",
+        [holding],
+        next_poll=0,
+        reference_price=ALERT_PRICE,
     )
 
     assert len(close_position.calls) == 1
@@ -582,6 +634,73 @@ async def test_a_covered_allocation_is_still_safely_skipped_on_collision() -> No
 
     await seeder.seed(signal_id, [allocation_id], poll=0)  # collision set up
 
-    await close_orphans.close(signal_id, POOL, strategy_id, "ETHUSDT.P", [holding], next_poll=0)
+    await close_orphans.close(
+        signal_id,
+        POOL,
+        strategy_id,
+        "ETHUSDT.P",
+        [holding],
+        next_poll=0,
+        reference_price=ALERT_PRICE,
+    )
 
     assert close_position.calls == []
+
+
+def _orphan_close_stack(
+    close_position: SpyClosePosition,
+) -> CloseOrphans:
+    return CloseOrphans(
+        close_position=close_position,  # type: ignore[arg-type]
+        closing_attempts=FakeClosingAttemptsPort(),
+        open_after_close=SpyContinuationSeeder(),  # type: ignore[arg-type]
+        commit=SpyCommit(),
+    )
+
+
+async def test_the_opening_alerts_price_is_the_reference_price_of_the_orphan_close() -> None:
+    """Decision 45 (design § B, P4): the orphan is closed at the price of the
+    OPENING alert that found it, handed in by the caller."""
+    holding = HeldAllocation(strategy_id=uuid4(), allocation_id=uuid4(), net_base=Decimal("0.5"))
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, holding.strategy_id, "STXUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
+
+    [command] = close_position.calls
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_an_orphan_close_carries_no_signal_id_and_still_carries_the_price() -> None:
+    """``signal_id=None`` is on purpose (a dust orphan must not reject the
+    open waiting behind it); it does not mean the close has no alert."""
+    holding = HeldAllocation(strategy_id=uuid4(), allocation_id=uuid4(), net_base=Decimal("0.5"))
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, holding.strategy_id, "STXUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
+
+    [command] = close_position.calls
+    assert command.signal_id is None
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_every_orphan_of_the_holdings_is_closed_at_the_same_alert_price() -> None:
+    strategy_id = uuid4()
+    holdings = [
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")),
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("-2")),
+    ]
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, strategy_id, "STXUSDT.P", holdings, reference_price=Decimal("0.4633")
+    )
+
+    assert [call.reference_price for call in close_position.calls] == [
+        Decimal("0.4633"),
+        Decimal("0.4633"),
+    ]
+    assert len(close_position.calls) == 2

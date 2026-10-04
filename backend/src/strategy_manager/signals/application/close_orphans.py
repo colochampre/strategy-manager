@@ -158,6 +158,8 @@ class CloseOrphans:
         symbol: str,
         holdings: list[HeldAllocation],
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         """``holdings`` is the strategy's own non-zero allocations on this
         market, exactly as ``HoldingGuard`` reported them via
@@ -228,6 +230,11 @@ class CloseOrphans:
                     # the signal would let a dust orphan REJECT the very open
                     # that is waiting on it, before 5c owns that decision.
                     signal_id=None,
+                    # The price of the OPENING alert that found this orphan, not
+                    # the price of the signal that opened the position. It rides
+                    # separately from ``signal_id``: no signal id does not mean
+                    # no alert.
+                    reference_price=reference_price,
                 )
             )
         if unsafe_allocation_ids:

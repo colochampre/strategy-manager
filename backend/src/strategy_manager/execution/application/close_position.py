@@ -74,7 +74,15 @@ class CloseCommand:
     close can record what became of it (decision 25, rows 13-15). It is
     REQUIRED with no default: a caller that closes on behalf of a signal must
     say so, and one that closes without any (``None``) must say that
-    explicitly too -- then no outcome is written for that close."""
+    explicitly too -- then no outcome is written for that close.
+
+    ``reference_price`` is the stored price of the alert that CAUSED this close
+    (the closing or reversing signal's, or, for an orphan, the opening signal
+    that found it) -- never the price of the signal that opened the position.
+    Required with no default, the rule ``signal_id`` follows: a caller that
+    closes for an alert says so, and one that closes for none says ``None``.
+    It sizes nothing (the size is the ledger's net) and reaches no venue; only
+    the simulated exchange reads it."""
 
     allocation_id: UUID
     strategy_id: UUID
@@ -84,6 +92,7 @@ class CloseCommand:
     symbol: str
     side: OrderSide
     signal_id: UUID | None
+    reference_price: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +171,7 @@ class ClosePosition:
                     symbol=command.symbol,
                     side=command.side,
                     base_size=base_size,
+                    reference_price=command.reference_price,
                 )
             )
         except OrderNotPlaceable as exc:

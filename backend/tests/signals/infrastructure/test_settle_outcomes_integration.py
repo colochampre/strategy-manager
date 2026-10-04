@@ -325,6 +325,7 @@ async def _place_close(
                 symbol=_TRADINGVIEW,
                 side=OrderSide.SELL,
                 signal_id=closing_signal_id,
+                reference_price=Decimal("0.4633"),
             )
         )
     assert result.status == "PLACED"
@@ -347,7 +348,11 @@ async def test_placing_an_open_writes_the_signal_link_on_its_attempt(
 ) -> None:
     _, signal_id, reservation_id = await _seed_open(pg_session_factory)
 
-    await _place_open(pg_session_factory, FakeExchangeAdapter(exchange="bybit"), reservation_id)
+    await _place_open(
+        pg_session_factory,
+        FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0")),
+        reservation_id,
+    )
 
     [attempt] = await _attempts(pg_session_factory)
     assert attempt.signal_id == signal_id
@@ -362,7 +367,7 @@ async def test_placing_a_close_writes_the_closing_signal_link_not_the_opening_on
 
     await _place_close(
         pg_session_factory,
-        FakeExchangeAdapter(exchange="bybit"),
+        FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0")),
         strategy_id,
         allocation_id,
         closing_signal,
@@ -379,7 +384,7 @@ async def test_placing_a_close_writes_the_closing_signal_link_not_the_opening_on
 async def test_a_filled_open_processes_its_signal_in_the_commit_that_records_the_fills(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     _, signal_id, reservation_id = await _seed_open(pg_session_factory)
     await _place_open(pg_session_factory, exchange, reservation_id)
     [attempt] = await _attempts(pg_session_factory)
@@ -404,7 +409,7 @@ async def test_a_filled_open_processes_its_signal_in_the_commit_that_records_the
 async def test_a_failed_settle_commit_loses_the_fills_and_the_processed_status_together(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     _, signal_id, reservation_id = await _seed_open(pg_session_factory)
     await _place_open(pg_session_factory, exchange, reservation_id)
     [attempt] = await _attempts(pg_session_factory)
@@ -424,7 +429,7 @@ async def test_a_legacy_open_attempt_with_no_link_still_resolves_through_its_res
 ) -> None:
     """5c.1: an open resolves its signal through ``reservation.signal_id``,
     so an attempt written before this PR (NULL link) still ends its signal."""
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     _, signal_id, reservation_id = await _seed_open(pg_session_factory)
     await _place_open(pg_session_factory, exchange, reservation_id)
     [attempt] = await _attempts(pg_session_factory)
@@ -452,7 +457,7 @@ async def test_a_filled_plain_close_processes_the_closing_signal_not_the_opening
     identical repeat here, so silently) and left the CLOSING signal
     PROCESSING forever -- so this asserts the closing signal's own row."""
     caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     strategy_id, opening_signal, closing_signal, allocation_id = await _seed_position(
         pg_session_factory, closing_position_size="0"
     )
@@ -475,7 +480,7 @@ async def test_a_filled_plain_close_processes_the_closing_signal_not_the_opening
 async def test_a_failed_close_settle_commit_loses_the_fills_and_the_processed_status_together(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     strategy_id, _, closing_signal, allocation_id = await _seed_position(
         pg_session_factory, closing_position_size="0"
     )
@@ -497,7 +502,7 @@ async def test_a_filled_reverse_close_leaves_the_signal_processing_and_writes_no
 ) -> None:
     """Decision 26: 1 -> -1 is a REVERSE; its open half decides."""
     caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     strategy_id, _, reverse_signal, allocation_id = await _seed_position(
         pg_session_factory, closing_position_size="-1"
     )
@@ -528,7 +533,7 @@ async def test_a_filled_close_of_a_spot_reverse_already_rejected_writes_nothing_
     written here would reach the terminal guard as a DIFFERING write and warn
     on every such trade."""
     caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
-    exchange = FakeExchangeAdapter(exchange="bybit")
+    exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     strategy_id, _, reverse_signal, allocation_id = await _seed_position(
         pg_session_factory, closing_position_size="-1"
     )
@@ -573,7 +578,10 @@ async def test_a_never_placed_open_rejects_its_signal_in_the_commit_that_release
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _settle(session, commit, FakeExchangeAdapter(exchange="bybit")).settle(
+        result = await _settle(session, commit, FakeExchangeAdapter(
+            exchange="bybit",
+            fee_rate=Decimal("0"),
+        )).settle(
             attempt_id
         )
 
@@ -606,9 +614,9 @@ async def test_a_failed_release_commit_loses_the_release_and_the_rejection_toget
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
-            await _settle(session, commit, FakeExchangeAdapter(exchange="bybit")).settle(
-                attempt_id
-            )
+            await _settle(
+                session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
+            ).settle(attempt_id)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
     assert (await _reservation(pg_session_factory, reservation_id)).status == "PENDING"
@@ -634,7 +642,10 @@ async def test_a_never_placed_close_rejects_the_closing_signal_only(
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _settle(session, commit, FakeExchangeAdapter(exchange="bybit")).settle(
+        result = await _settle(session, commit, FakeExchangeAdapter(
+            exchange="bybit",
+            fee_rate=Decimal("0"),
+        )).settle(
             attempt_id
         )
 
@@ -666,7 +677,9 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
 
     async with pg_session_factory() as session:
         result = await _settle(
-            session, _FaultyCommit(session, fail_on=None), FakeExchangeAdapter(exchange="bybit")
+            session,
+            _FaultyCommit(session, fail_on=None),
+            FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0")),
         ).settle(attempt_id)
 
     assert result.status == "NEVER_PLACED"

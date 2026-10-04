@@ -27,7 +27,11 @@ REHEARSAL_ORDER_ID_PREFIX = "fake-order-"
 class Fill:
     """Exchange-reported fill details. ``price`` here is the real fill
     price — never the alert's bar-close reference price used to size the
-    order."""
+    order.
+
+    That holds of a LIVE fill. A rehearsal fill (``fake-fill-`` prefix) is
+    minted by the simulated exchange and, since decision 45, IS priced at the
+    price its alert carried; the prefix, not the price, is what marks it."""
 
     exchange_order_id: str
     exchange_fill_id: str
