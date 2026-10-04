@@ -467,9 +467,17 @@ route's response.
 
 #### Scenario: A rehearsal row's classification is served as stored data implies
 
-- GIVEN a rehearsal operation whose opening fill is priced 1 against an alert that carried 0.4512
+- GIVEN a rehearsal operation whose opening fill is priced 1 against an alert that carried 0.4512, size 12.5, and whose closing fill is priced 1 with no fee
 - WHEN the opted-in trades request is made
 - THEN its row has `rehearsal_fill_price` `"FIXED_ONE"`, `entry_price` `"1.000000000000000000"` and `pnl` `"0.000000000000000000"`
+
+(Revised 2026-10-04, owner decision 45. Previously the GIVEN fixed only the opening fill. `pnl` 0 follows only when the closing fill is also priced 1 with no fee; the next scenario covers a closing fill that is not.)
+
+#### Scenario: A position that straddles decision 45 is FIXED_ONE with a non-zero PnL
+
+- GIVEN a LONG rehearsal operation in pool `(bybit, usdt-m, USDT)` whose opening fill, written before decision 45 took effect, bought 1250 `STXUSDT` at price 1 with no fee against an alert that carried 0.4512, and whose closing fill, written after it, sold 1250 `STXUSDT` at 0.4633 with fee 0.31851875 USDT
+- WHEN the opted-in trades request is made
+- THEN its row has `rehearsal` true, `rehearsal_fill_price` `"FIXED_ONE"`, `entry_price` `"1.000000000000000000"`, `exit_price` `"0.463300000000000000"`, `fees` `"0.318518750000000000"` and `pnl` `"-671.193518750000000000"`
 
 #### Scenario: A strategy that only ran in dry run lists its operations
 

@@ -433,10 +433,17 @@ whether it is a rehearsal row, never absent, false for a real one. A rehearsal
 row MUST carry the same derived figures as any row (derived from its own
 fills), and those figures MUST be that operation's own and MUST NOT enter any
 total (see "Rehearsal Fills Are Excluded From Every Figure"). A rehearsal row's
-figures are what the ledger holds, never blanked or substituted: while the
-simulated exchange fills every order at a price of 1 with no fee, a rehearsal
-row reads entry price 1, exit price 1, fees 0 and PnL 0. How a simulated fill is
-priced is outside this requirement (owner decision 45).
+figures are what the ledger holds, never blanked or substituted. A rehearsal
+operation whose fills were ALL written before owner decision 45 took effect (the
+simulated exchange then filled every order at a price of 1 with no fee) reads
+entry price 1, exit price 1, fees 0 and PnL 0. A rehearsal operation with at
+least one fill written after decision 45 took effect carries that fill's alert
+price and its simulated taker fee, and its figures are derived from them like any
+row's. How a simulated fill is priced and charged is outside this requirement
+(owner decision 45; see the trade-execution spec).
+(Previously: "while the simulated exchange fills every order at a price of 1 with
+no fee, a rehearsal row reads entry price 1, exit price 1, fees 0 and PnL 0",
+which stopped being true of new rows when decision 45 took effect.)
 
 Real and rehearsal operations MUST form one list in one order: the close
 instant descending, ties broken by allocation id descending, and the paging
