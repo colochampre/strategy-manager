@@ -273,11 +273,14 @@ class SpyCloseOrphans:
     branch (design.md § S6) asked it to close, without needing a real
     ``ClosePosition``/``OpenAfterClose`` stack. Records ``next_poll`` too
     (orchestrator review of `ee640d6`): the caller must thread it through,
-    never hardcode it."""
+    never hardcode it. ``reference_prices`` records the alert price handed to
+    each call, in a list of its own so the six-tuples of ``calls`` stay as
+    they are."""
 
     calls: list[tuple[UUID, PoolKey, UUID, str, list[HeldAllocation], int]] = field(
         default_factory=list
     )
+    reference_prices: list[Decimal | None] = field(default_factory=list)
 
     async def close(
         self,
@@ -287,8 +290,11 @@ class SpyCloseOrphans:
         symbol: str,
         holdings: list[HeldAllocation],
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
+        self.reference_prices.append(reference_price)
 
 
 @dataclass

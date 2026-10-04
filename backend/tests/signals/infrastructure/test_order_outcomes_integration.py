@@ -361,6 +361,7 @@ def _close_command(
         symbol=_TRADINGVIEW,
         side=OrderSide.SELL,
         signal_id=signal_id,
+        reference_price=Decimal("0.4633"),
     )
 
 

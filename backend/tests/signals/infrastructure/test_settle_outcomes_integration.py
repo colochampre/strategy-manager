@@ -325,6 +325,7 @@ async def _place_close(
                 symbol=_TRADINGVIEW,
                 side=OrderSide.SELL,
                 signal_id=closing_signal_id,
+                reference_price=Decimal("0.4633"),
             )
         )
     assert result.status == "PLACED"

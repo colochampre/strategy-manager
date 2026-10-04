@@ -51,6 +51,7 @@ SETTLE_DELAY = 2.0
 ALLOCATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
+ALERT_PRICE = Decimal("0.4633")
 
 
 class FrozenClock:
@@ -121,6 +122,7 @@ class SpyExchange:
     ) -> None:
         self.orders: list[PlaceableOrder] = []
         self.built: list[OpenOrderSpec] = []
+        self.built_closes: list[CloseOrderSpec] = []
         self._log = log
         self._raises = raises
         self._build_close_raises = build_close_raises
@@ -139,6 +141,7 @@ class SpyExchange:
         )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        self.built_closes.append(spec)
         if self._build_close_raises is not None:
             raise self._build_close_raises
         if spec.side is not OrderSide.SELL:
@@ -213,6 +216,7 @@ def _command(
         symbol="BTC_USDT",
         side=side,
         signal_id=signal_id,
+        reference_price=ALERT_PRICE,
     )
 
 
@@ -400,6 +404,7 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
         symbol="ETH_BTC",
         side=OrderSide.SELL,
         signal_id=SIGNAL_ID,
+        reference_price=ALERT_PRICE,
     )
 
     with pytest.raises(InvariantViolation, match="cannot fund"):

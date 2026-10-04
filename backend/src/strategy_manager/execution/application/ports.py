@@ -129,12 +129,20 @@ class CloseOrderSpec:
     the honest number, so no venue re-derives it. What differs is what the
     venue does with it: spot sells the base currency, futures sends a
     reduce-only order in the closing direction.
+
+    ``reference_price`` is the price of the ALERT that caused this close. It is
+    read only by the simulated exchange, which fills a rehearsal close at it
+    (decision 45); it sizes nothing and is sent nowhere. A real adapter never
+    reads it, and ``ExchangePort.place`` cannot see it. It defaults to
+    ``None`` so every real adapter, and every test that builds a spec for
+    one, stays exactly as it was.
     """
 
     client_order_id: str
     symbol: str
     side: OrderSide
     base_size: Decimal
+    reference_price: Decimal | None = None
 
 
 class ExchangePort(Protocol):

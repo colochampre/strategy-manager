@@ -253,6 +253,8 @@ class NeverCalledCloseOrphans:
         symbol: str,
         holdings: object,
         next_poll: int = 0,
+        *,
+        reference_price: Decimal | None,
     ) -> None:
         raise AssertionError("there is no orphan here -- the prior holding nets to zero")
 
