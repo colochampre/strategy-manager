@@ -76,7 +76,7 @@ describe("fetchStrategyTrades", () => {
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.pathname).toMatch(new RegExp(`/performance/strategies/${ID}/trades$`));
-    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("limit")).toBe("20");
     expect(url.searchParams.has("before_closed_at")).toBe(false);
     expect(url.searchParams.has("before_allocation_id")).toBe(false);
     expect(page.trades).toEqual([trade()]);
@@ -91,7 +91,7 @@ describe("fetchStrategyTrades", () => {
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.searchParams.get("before_closed_at")).toBe(CURSOR.before_closed_at);
     expect(url.searchParams.get("before_allocation_id")).toBe(CURSOR.before_allocation_id);
-    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("limit")).toBe("20");
   });
 
   it("returns the cursor the server answered for the next page", async () => {

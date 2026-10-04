@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TradesTable } from "@/features/strategies/TradesTable";
@@ -40,7 +41,7 @@ function serve(all: readonly StrategyTrade[], size: number, first?: () => Promis
   let failNext = false;
   stubApi(HEALTH, [], undefined, {}, (url) => {
     const parsed = new URL(url, "http://localhost");
-    if (!parsed.pathname.endsWith(`/performance/strategies/${ID}/trades`)) return undefined;
+    if (!/\/performance\/strategies\/[^/]+\/trades$/.test(parsed.pathname)) return undefined;
     requests.push(parsed);
     const after = parsed.searchParams.get("before_allocation_id");
     if (after === null && first !== undefined) return first();
@@ -77,7 +78,10 @@ const bodyRows = () => {
   const body = screen.getAllByRole("rowgroup")[1] as HTMLElement;
   return within(body).getAllByRole("row");
 };
-const loadMore = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.loadMore") });
+const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
+const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
+const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
+const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[4]?.textContent);
 
 beforeEach(unlock);
 afterEach(async () => {
@@ -87,31 +91,66 @@ afterEach(async () => {
 });
 
 describe("TradesTable", () => {
-  it("test_infinite_query_keyset_cursor_loads_more_on_scroll_or_click", async () => {
+  // Was test_infinite_query_keyset_cursor_loads_more_on_scroll_or_click: the list no longer accumulates.
+  it("test_keyset_paging_shows_one_page_at_a_time_and_next_asks_the_server_with_the_cursor", async () => {
     const all = [1, 2, 3, 4, 5].map((n) => trade(n));
     const server = serve(all, 2);
     renderTable();
 
     await screen.findByRole("table");
-    expect(bodyRows()).toHaveLength(2);
+    expect(pnls()).toEqual(["+1.50", "+2.50"]);
+    expect(screen.getByText(pageLabel(1))).toBeInTheDocument();
     expect(server.requests).toHaveLength(1);
 
-    fireEvent.click(loadMore());
-    await waitFor(() => expect(bodyRows()).toHaveLength(4));
-    fireEvent.click(loadMore());
-    await waitFor(() => expect(bodyRows()).toHaveLength(5));
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+    // One page on screen, never the accumulated list.
+    expect(pnls()).toEqual(["+3.50", "+4.50"]);
 
-    // Every row once, in the order served: a wrong cursor would repeat or skip rows.
-    expect(bodyRows().map((row) => within(row).getAllByRole("cell")[4]?.textContent)).toEqual([
-      "+1.50",
-      "+2.50",
-      "+3.50",
-      "+4.50",
-      "+5.50",
-    ]);
-    // A null cursor ends the list.
-    expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.loadMore") })).toBeNull();
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(3));
+    expect(pnls()).toEqual(["+5.50"]);
     expect(server.requests).toHaveLength(3);
+  });
+
+  it("test_previous_uses_the_pages_already_loaded_and_sends_nothing", async () => {
+    const all = [1, 2, 3, 4, 5].map((n) => trade(n));
+    const server = serve(all, 2);
+    renderTable();
+    await screen.findByRole("table");
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(3));
+    expect(server.requests).toHaveLength(3);
+
+    fireEvent.click(previous());
+    expect(screen.getByText(pageLabel(2))).toBeInTheDocument();
+    expect(pnls()).toEqual(["+3.50", "+4.50"]);
+    fireEvent.click(previous());
+    expect(pnls()).toEqual(["+1.50", "+2.50"]);
+    // Going forward again over loaded pages asks for nothing either.
+    fireEvent.click(next());
+    expect(pnls()).toEqual(["+3.50", "+4.50"]);
+    fireEvent.click(next());
+    expect(pnls()).toEqual(["+5.50"]);
+
+    expect(server.requests).toHaveLength(3);
+  });
+
+  it("disables Previous on the first page and Next on the last, where the cursor is null", async () => {
+    serve([1, 2, 3].map((n) => trade(n)), 2);
+    renderTable();
+    await screen.findByRole("table");
+
+    expect(previous()).toBeDisabled();
+    expect(next()).toBeEnabled();
+
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+
+    expect(next()).toBeDisabled();
+    expect(previous()).toBeEnabled();
   });
 
   it("sends each next request the exact cursor the server answered, and never an offset", async () => {
@@ -120,10 +159,10 @@ describe("TradesTable", () => {
     renderTable();
     await screen.findByRole("table");
 
-    fireEvent.click(loadMore());
-    await waitFor(() => expect(bodyRows()).toHaveLength(4));
-    fireEvent.click(loadMore());
-    await waitFor(() => expect(bodyRows()).toHaveLength(5));
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(3));
 
     const [firstRequest, secondRequest, thirdRequest] = server.requests;
     expect(firstRequest?.searchParams.has("before_closed_at")).toBe(false);
@@ -137,17 +176,39 @@ describe("TradesTable", () => {
     }
   });
 
-  it("shows no load-more button when the first page is the whole list", async () => {
+  it("asks the server for 20 rows a page", async () => {
+    const server = serve([trade(1)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(server.requests[0]?.searchParams.get("limit")).toBe("20");
+  });
+
+  it("shows the page number and no page count, since the server serves no total", async () => {
+    serve([1, 2, 3].map((n) => trade(n)), 2);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(screen.getByText(pageLabel(1)).textContent).toBe("Page 1");
+    expect(screen.queryByText(/\bof\b/i)).toBeNull();
+  });
+
+  // Was "shows no load-more button when the first page is the whole list".
+  it("has both buttons disabled when the first page is the whole list", async () => {
     serve([trade(1), trade(2)], 5);
     renderTable();
 
     await screen.findByRole("table");
 
     expect(bodyRows()).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.loadMore") })).toBeNull();
+    expect(previous()).toBeDisabled();
+    expect(next()).toBeDisabled();
   });
 
-  it("disables the button and says it is loading while the next page is on its way", async () => {
+  // Was "disables the button and says it is loading while the next page is on its way".
+  it("disables Next and says it is loading while the next page is on its way, keeping the page", async () => {
     const all = [1, 2, 3].map((n) => trade(n));
     serve(all, 2);
     renderTable();
@@ -158,28 +219,56 @@ describe("TradesTable", () => {
       String(input).includes("before_allocation_id") ? new Promise<Response>(() => undefined) : (realImplementation?.(input, init) as Promise<Response>),
     );
 
-    fireEvent.click(loadMore());
+    fireEvent.click(next());
 
     const busy = await screen.findByRole("button", { name: i18n.t("strategies.performance.trades.loadingMore") });
     expect(busy).toBeDisabled();
+    expect(screen.getByText(pageLabel(1))).toBeInTheDocument();
     expect(bodyRows()).toHaveLength(2);
   });
 
-  it("keeps the rows already loaded and says the next page failed, then loads it on a second click", async () => {
+  // Was "keeps the rows already loaded and says the next page failed, then loads it on a second click".
+  it("keeps the current page on screen and says the next page failed, then moves on at a second click", async () => {
     const all = [1, 2, 3, 4].map((n) => trade(n));
     const server = serve(all, 2);
     renderTable();
     await screen.findByRole("table");
     server.failNextCursorRequest();
 
-    fireEvent.click(loadMore());
+    fireEvent.click(next());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.trades.nextFailed"));
-    expect(bodyRows()).toHaveLength(2);
+    expect(screen.getByText(pageLabel(1))).toBeInTheDocument();
+    expect(pnls()).toEqual(["+1.50", "+2.50"]);
 
-    fireEvent.click(loadMore());
-    await waitFor(() => expect(bodyRows()).toHaveLength(4));
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+    expect(pnls()).toEqual(["+3.50", "+4.50"]);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("starts again at page 1 when the page is shown for another strategy", async () => {
+    serve([1, 2, 3, 4].map((n) => trade(n)), 2);
+    function Switcher() {
+      const [id, setId] = useState(ID);
+      return (
+        <>
+          <button type="button" onClick={() => setId("22222222-2222-4222-8222-222222222222")}>
+            switch
+          </button>
+          <TradesTable strategyId={id} currency="USDT" />
+        </>
+      );
+    }
+    renderAt(<Switcher />);
+    await screen.findByRole("table");
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+
+    expect(await screen.findByText(pageLabel(1))).toBeInTheDocument();
+    expect(screen.queryByText(pageLabel(2))).toBeNull();
   });
 
   it("says the first page failed and offers to try again, with no table", async () => {
@@ -217,7 +306,7 @@ describe("TradesTable", () => {
 
     expect(await screen.findByText(i18n.t("strategies.performance.trades.empty"))).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.loadMore") })).toBeNull();
+    expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.next") })).toBeNull();
   });
 
   it("shows what the endpoint serves and no entry price, exit price, size or fees column (decision 43, pending)", async () => {
@@ -339,6 +428,9 @@ describe("TradesTable", () => {
       "Rendimiento",
       "Capital del pool al abrir",
     ]);
+    expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
+    expect(screen.getByText("Página 1")).toBeInTheDocument();
     expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("SHORT");
   });
 });

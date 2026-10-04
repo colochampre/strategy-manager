@@ -219,9 +219,12 @@
         "error": "No se pudieron cargar las operaciones cerradas.",
         "retry": "Reintentar",
         "empty": "Todavía no hay operaciones cerradas.",
-        "loadMore": "Cargar más",
+        "pagination": "Páginas de operaciones cerradas",
+        "page": "Página {{page}}",
+        "previous": "Anterior",
+        "next": "Siguiente",
         "loadingMore": "Cargando…",
-        "nextFailed": "No se pudo cargar la página siguiente. Las operaciones de arriba siguen visibles."
+        "nextFailed": "No se pudo cargar la página siguiente. Se sigue mostrando esta página."
       }
     },
     "webhook": {

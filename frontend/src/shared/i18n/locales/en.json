@@ -219,9 +219,12 @@
         "error": "The closed trades could not be loaded.",
         "retry": "Try again",
         "empty": "No closed trades yet.",
-        "loadMore": "Load more",
+        "pagination": "Pages of closed trades",
+        "page": "Page {{page}}",
+        "previous": "Previous",
+        "next": "Next",
         "loadingMore": "Loading…",
-        "nextFailed": "The next page could not be loaded. The trades above are still shown."
+        "nextFailed": "The next page could not be loaded. This page is still shown."
       }
     },
     "webhook": {

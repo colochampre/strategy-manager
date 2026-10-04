@@ -102,7 +102,7 @@ export async function fetchStrategyPerformance(strategyId: string): Promise<Stra
   return body;
 }
 
-export const TRADES_PAGE_SIZE = 50;
+export const TRADES_PAGE_SIZE = 20;
 
 function isTrade(value: unknown): value is StrategyTrade {
   return (

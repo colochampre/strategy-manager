@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
@@ -21,6 +21,8 @@ interface TradeRowProps {
   locale: string;
 }
 
+const PAGER_BUTTON =
+  "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 const CELL = "border-b border-rule-soft py-2.5 pr-3";
 
 /**
@@ -79,20 +81,31 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
 }
 
 /**
- * The strategy's closed trades, newest first, a page at a time. Paging is the
- * server's keyset cursor (`useStrategyTrades`), never an offset: "Load more"
- * asks for the page after the last one served, and the list ends when the
- * server answers no cursor. A failed next page leaves every row already
- * loaded in place and says so; the same button asks again.
+ * The strategy's closed trades, newest first, ONE page of 20 on screen at a
+ * time. Paging is the server's keyset cursor (`useStrategyTrades`), never an
+ * offset: "Next" asks for the page after the last one served, with the exact
+ * cursor, only when that page is not loaded yet; "Previous" reads the pages
+ * already loaded and sends nothing. There is no page count, because the
+ * server serves no total; Next ends where the server answers no cursor. A
+ * failed next page leaves the current page on screen and says so; the same
+ * button asks again.
  *
  * It shows what `GET /performance/strategies/{id}/trades` serves. Entry and
  * exit price, size and fees paid are decision 43 and are not served yet.
  */
-export function TradesTable({ strategyId, currency }: TradesTableProps) {
+export function TradesTable(props: TradesTableProps) {
+  // Keyed by strategy: another strategy's list starts on its first page.
+  return <TradesTableView key={props.strategyId} {...props} />;
+}
+
+function TradesTableView({ strategyId, currency }: TradesTableProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const locale = i18n.resolvedLanguage ?? "en";
   const trades = useStrategyTrades(strategyId);
+  // The page on screen, an index into the pages loaded so far. Previous only moves it; Next moves it too,
+  // and asks the server first when that page is not loaded yet.
+  const [pageIndex, setPageIndex] = useState(0);
 
   let body;
   if (trades.data === undefined && trades.status === "error") {
@@ -117,8 +130,20 @@ export function TradesTable({ strategyId, currency }: TradesTableProps) {
       </p>
     );
   } else {
-    const rows = trades.data.pages.flatMap((page) => page.trades);
-    if (rows.length === 0) {
+    const pages = trades.data.pages;
+    const rows = (pages[pageIndex] ?? pages[0])?.trades ?? [];
+    const loadedAhead = pageIndex + 1 < pages.length;
+    const canGoNext = loadedAhead || trades.hasNextPage;
+    const goNext = async () => {
+      if (loadedAhead) {
+        setPageIndex(pageIndex + 1);
+        return;
+      }
+      const result = await trades.fetchNextPage();
+      // A failed read leaves this page on screen; `isFetchNextPageError` says so and the same button asks again.
+      if (!result.isError) setPageIndex(pageIndex + 1);
+    };
+    if (rows.length === 0 && pageIndex === 0) {
       body = <p className="text-sm text-ink-3">{t("strategies.performance.trades.empty")}</p>;
     } else {
       const header = "border-b border-rule py-2 pr-3 font-medium";
@@ -163,16 +188,27 @@ export function TradesTable({ strategyId, currency }: TradesTableProps) {
               {t("strategies.performance.trades.nextFailed")}
             </p>
           )}
-          {trades.hasNextPage && (
+          <nav aria-label={t("strategies.performance.trades.pagination")} className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled={trades.isFetchingNextPage}
-              onClick={() => void trades.fetchNextPage()}
-              className="min-h-11 self-start rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
+              disabled={pageIndex === 0}
+              onClick={() => setPageIndex(pageIndex - 1)}
+              className={PAGER_BUTTON}
             >
-              {t(trades.isFetchingNextPage ? "strategies.performance.trades.loadingMore" : "strategies.performance.trades.loadMore")}
+              {t("strategies.performance.trades.previous")}
             </button>
-          )}
+            <span className="font-mono text-xs text-ink-2">
+              {t("strategies.performance.trades.page", { page: pageIndex + 1 })}
+            </span>
+            <button
+              type="button"
+              disabled={!canGoNext || trades.isFetchingNextPage}
+              onClick={() => void goNext()}
+              className={PAGER_BUTTON}
+            >
+              {t(trades.isFetchingNextPage ? "strategies.performance.trades.loadingMore" : "strategies.performance.trades.next")}
+            </button>
+          </nav>
         </>
       );
     }
