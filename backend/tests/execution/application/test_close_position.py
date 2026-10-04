@@ -206,7 +206,9 @@ def _build(
 
 
 def _command(
-    side: OrderSide = OrderSide.SELL, signal_id: UUID | None = SIGNAL_ID
+    side: OrderSide = OrderSide.SELL,
+    signal_id: UUID | None = SIGNAL_ID,
+    reference_price: Decimal | None = ALERT_PRICE,
 ) -> CloseCommand:
     return CloseCommand(exchange="pionex", 
         allocation_id=ALLOCATION_ID,
@@ -216,7 +218,7 @@ def _command(
         symbol="BTC_USDT",
         side=side,
         signal_id=signal_id,
-        reference_price=ALERT_PRICE,
+        reference_price=reference_price,
     )
 
 
@@ -234,6 +236,37 @@ async def test_the_close_size_comes_from_the_ledger_not_from_a_price() -> None:
     assert order.base_size == Decimal("0.00199960")
     assert result.base_size == Decimal("0.00199960")
     assert held.asked == [(ALLOCATION_ID, "BTC")]
+
+
+async def test_the_closing_alerts_price_reaches_the_order_spec() -> None:
+    """Decision 45 (design § B, P3): the price of the alert that caused the
+    close travels on the spec, so the simulated exchange can fill at it."""
+    use_case, _, _, exchange, _, _ = _build()
+
+    await use_case.close(_command(reference_price=Decimal("0.4633")))
+
+    assert exchange.built_closes[0].reference_price == Decimal("0.4633")
+
+
+async def test_a_close_with_no_alert_price_builds_a_spec_with_none() -> None:
+    """An absent price stays absent: nothing here substitutes a default."""
+    use_case, _, _, exchange, _, _ = _build()
+
+    await use_case.close(_command(reference_price=None))
+
+    assert exchange.built_closes[0].reference_price is None
+
+
+async def test_the_price_never_sizes_the_close() -> None:
+    """The size of a close is the ledger's net, with a price present too."""
+    use_case, _, _, exchange, _, _ = _build(net_base=Decimal("0.00199960"))
+
+    await use_case.close(_command(reference_price=Decimal("0.4633")))
+
+    order = exchange.orders[0]
+    assert isinstance(order, MarketSell)
+    assert order.base_size == Decimal("0.00199960")
+    assert exchange.built_closes[0].base_size == Decimal("0.00199960")
 
 
 async def test_settlement_is_scheduled_before_the_exchange_is_contacted() -> None:

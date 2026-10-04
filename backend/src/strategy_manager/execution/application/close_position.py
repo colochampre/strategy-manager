@@ -171,6 +171,7 @@ class ClosePosition:
                     symbol=command.symbol,
                     side=command.side,
                     base_size=base_size,
+                    reference_price=command.reference_price,
                 )
             )
         except OrderNotPlaceable as exc:

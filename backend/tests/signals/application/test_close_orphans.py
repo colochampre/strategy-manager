@@ -645,3 +645,62 @@ async def test_a_covered_allocation_is_still_safely_skipped_on_collision() -> No
     )
 
     assert close_position.calls == []
+
+
+def _orphan_close_stack(
+    close_position: SpyClosePosition,
+) -> CloseOrphans:
+    return CloseOrphans(
+        close_position=close_position,  # type: ignore[arg-type]
+        closing_attempts=FakeClosingAttemptsPort(),
+        open_after_close=SpyContinuationSeeder(),  # type: ignore[arg-type]
+        commit=SpyCommit(),
+    )
+
+
+async def test_the_opening_alerts_price_is_the_reference_price_of_the_orphan_close() -> None:
+    """Decision 45 (design § B, P4): the orphan is closed at the price of the
+    OPENING alert that found it, handed in by the caller."""
+    holding = HeldAllocation(strategy_id=uuid4(), allocation_id=uuid4(), net_base=Decimal("0.5"))
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, holding.strategy_id, "STXUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
+
+    [command] = close_position.calls
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_an_orphan_close_carries_no_signal_id_and_still_carries_the_price() -> None:
+    """``signal_id=None`` is on purpose (a dust orphan must not reject the
+    open waiting behind it); it does not mean the close has no alert."""
+    holding = HeldAllocation(strategy_id=uuid4(), allocation_id=uuid4(), net_base=Decimal("0.5"))
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, holding.strategy_id, "STXUSDT.P", [holding], reference_price=ALERT_PRICE
+    )
+
+    [command] = close_position.calls
+    assert command.signal_id is None
+    assert command.reference_price == Decimal("0.4633")
+
+
+async def test_every_orphan_of_the_holdings_is_closed_at_the_same_alert_price() -> None:
+    strategy_id = uuid4()
+    holdings = [
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("0.5")),
+        HeldAllocation(strategy_id=strategy_id, allocation_id=uuid4(), net_base=Decimal("-2")),
+    ]
+    close_position = SpyClosePosition()
+
+    await _orphan_close_stack(close_position).close(
+        uuid4(), POOL, strategy_id, "STXUSDT.P", holdings, reference_price=Decimal("0.4633")
+    )
+
+    assert [call.reference_price for call in close_position.calls] == [
+        Decimal("0.4633"),
+        Decimal("0.4633"),
+    ]
+    assert len(close_position.calls) == 2
