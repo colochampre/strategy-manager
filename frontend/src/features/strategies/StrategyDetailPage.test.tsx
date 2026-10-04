@@ -253,7 +253,7 @@ describe("StrategyDetailPage", () => {
     expect(message.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("test_left_column_runs_performance_by_pair_trades_history_and_ends_with_the_webhook_block", async () => {
+  it("test_left_column_runs_performance_by_pair_trades_and_ends_with_the_webhook_block", async () => {
     renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
     await heading("ETH Breakout");
 
@@ -267,7 +267,6 @@ describe("StrategyDetailPage", () => {
       await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
       await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
       await screen.findByRole("heading", { name: en.strategies.performance.trades.title }),
-      screen.getByRole("heading", { name: en.strategies.detail.history.title }),
       webhook,
     ];
     for (const title of titles) expect(column).toContainElement(title);
@@ -276,6 +275,23 @@ describe("StrategyDetailPage", () => {
       const next = titles[index] as HTMLElement;
       expect(previous.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+
+  it("test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive", async () => {
+    renderPage(strategy(), { events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }] });
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const history = await within(settings).findByRole("heading", { name: en.strategies.detail.history.title });
+    const enableSwitch = within(settings).getByRole("button", { name: en.strategies.detail.enable });
+    const archive = within(settings).getByRole("button", { name: en.strategies.archive.button });
+
+    expect(enableSwitch.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(history.compareDocumentPosition(archive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // It keeps its height cap, its scroll and its keyboard focus.
+    const list = within(settings).getByRole("list", { name: en.strategies.detail.history.title });
+    expect(list).toHaveClass("max-h-18", "overflow-y-auto");
+    expect(list).toHaveAttribute("tabindex", "0");
   });
 
   it("test_a_pair_removed_from_the_allowed_pairs_is_still_listed_with_its_stats_on_the_page", async () => {
