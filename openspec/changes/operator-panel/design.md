@@ -3138,3 +3138,376 @@ Three were asked, and the owner answered the three on 2026-10-04. They are kept 
 - **Q3. Should the simulated exchange fill at the alert's price from now on, so that future dry-run operations show a simulated result?** The design recommended yes, as its own unit.
   - **Answered 2026-10-04: yes, recorded as decision 45.** It is its own unit with its own design and touches `execution`, not this read. It reprices nothing already in the ledger.
   - **It is not designed here.** What this addendum assumes about it, what changes for the list when it lands (nothing in the read), and the order of the two units are in § J and § I.
+
+## Addendum: the simulated exchange fills at the alert's price (decision 45) - 2026-10-04
+
+Proposed unit 9q, one PR (proposed name PR 12g; the tasks phase fixes both names). HEAD `929d1f0`. Decision 45 is binding and is not reopened here: from this unit on a dry-run fill is priced at the price its alert carried, nothing already in the ledger is repriced, rehearsal fills keep the `fake-fill-` prefix and stay out of every total, and the unit is delivered before or beside decision 43's (PR 12e), which does not wait for it. This addendum settles what decision 45 left to its design: where the price comes from for each kind of order, how it reaches the simulated exchange, whether the fill can equal the stored alert price exactly, what an unusable price does, the fee (designed both ways, asked in § N), the transition, and the delivery. It changes the `execution` module and two call sites in `signals`. It adds **no migration**, no route and no frontend change.
+
+**The answer in one paragraph.** An opening order already carries the alert's price: `OpenOrderSpec.price` is `signals.price`, read back from the database, on every opening path. The simulated exchange receives it in `build_open_order` and then loses it, because `place` is handed only the order and no order type carries a price. So the simulated exchange remembers the price between its own `build_*` call and its own `place` call, keyed by the client order id, and mints the fill at exactly that `Decimal`. Nothing outside `FakeExchangeAdapter` changes for an open. A closing order carries no price today, so `CloseOrderSpec` gains one optional field, `reference_price`, filled from the alert that caused the close; the two callers that build a close both have that alert in hand. The real adapters never read the field, and `place` cannot see it, so what they send to a venue is unchanged, and a test pins the request bytes. The simulated exchange never rounds, never quantises to a tick and never simulates slippage, so an opening fill equals `signals.price` exactly and decision 43's list reads `ALERT`. An order with no usable price is refused through the existing "rejected by venue" path. There is no fallback, and in particular none to 1. A simulated profit or loss cannot move a pool's availability, because dry-run balances are read from the real venue and nothing in `allocation` or `accounts` reads a fill's price.
+
+### A. Findings from the code (verified at HEAD `929d1f0`)
+
+**How a simulated fill is priced today, per kind of order.** `place` mints one `Fill` per order with `price=self._fill_price`, `fee=Decimal("0")`, `fee_currency="USDT"` (`execution/infrastructure/fake_exchange.py:143-154`). `_fill_price` is the constructor argument, default `Decimal("1")` (`:67, :88`), and `main.py:853-854` builds every fake without it.
+
+| Order | Built at | Size on the order | Fill quantity | Fill price | Fee |
+| --- | --- | --- | --- | --- | --- |
+| Spot buy that opens (`MarketBuy`) | `fake_exchange.py:112-118`, `domain/order.py:117-120` | `quote_amount = granted` | `quote_amount / fill price`, so `granted` (`fake_exchange.py:197-198`) | 1 | 0 USDT |
+| Spot sell that opens (`MarketSell`) | the same, `order.py:121-125` | `granted / alert price` | the order's base size (`:199-200`) | 1 | 0 USDT |
+| Spot sell that closes | `fake_exchange.py:137-141` | the ledger's net | the order's base size | 1 | 0 USDT |
+| Spot buy that would close a short | refused, as the live spot adapter refuses it (`:128-136`) | — | — | — | — |
+| Futures open (`FuturesMarketOrder`) | `fake_exchange.py:103-111`, `domain/futures_order.py:92-143` | `granted × 1 / alert price`, at `FAKE_LEVERAGE = 1` (`:62`) | the order's base size (`:201-202`) | 1 | 0 USDT |
+| Futures close, reduce-only | `fake_exchange.py:121-127` | the ledger's net | the order's base size | 1 | 0 USDT |
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| P1 | The alert's price reaches every opening order. `signals.price` is read back from the database, then `SignalContext.price`, `PlaceCommand.price`, `OpenOrderSpec.price`. Every opening path (a plain open, the open half of a REVERSE, an open deferred behind an orphan close or in-flight work) goes through `_handle_consumes`, and the continuation reloads the signal first. | `signals/infrastructure/signal_context.py:37, 53`; `signals/application/process_signal.py:436, 637-644`; `execution/application/place_order.py:146-156` | An open needs no new plumbing. The reservation names the same signal (`reservations.signal_id`), which is the one decision 43's classification compares with. |
+| P2 | `ExchangePort.place` receives the ORDER, not the spec, and no order type carries a price. | `execution/application/ports.py:189`; `domain/order.py:43-77`; `domain/futures_order.py:57-83` | The simulated exchange has the price in `build_open_order` and has lost it by `place`, where the fill is minted. § B closes that gap inside the adapter. |
+| P3 | A closing order carries no price anywhere. `CloseCommand` and `CloseOrderSpec` hold the client order id, the symbol, the side and the base size. | `execution/application/close_position.py:67-86, 159-166`; `ports.py:124-137` | A close needs one new field (§ B). |
+| P4 | A close is built in two places only, and both hold an alert. `_handle_releases` closes for the closing or reversing signal. `CloseOrphans` closes for an OPENING signal that found a real orphan; it passes `signal_id=None` on purpose, so that a dust orphan cannot reject the open waiting behind it. | `process_signal.py:764-775`; `signals/application/close_orphans.py:216-232` | "No `signal_id` on the close" does not mean "no alert". The price travels separately from the signal id (§ B). |
+| P5 | No order exists without an alert behind it. `PlaceCommand` and `CloseCommand` are constructed nowhere else in `src`. A reconciliation booking writes venue fills straight to the ledger, never through `ExchangePort`, and is refused or skipped under `DRY_RUN`. No route places or closes an order by hand. A retried `signal.process` job and the continuation both reload the signal from the database. A retried `execution.settle` builds nothing: it reads the fill minted at `place`. | grep of `src`; `reconciliation/application/approve_booking.py:124`; `reconciliation_scan_handler.py:111`; `main.py:1435-1448, 1490`; `process_signal.py:436`; `execution/application/settle_execution.py:101-104` | The "no alert at all" case is unreachable today. § F still says what it does, because a later caller could create it. |
+| P6 | `signals.price` and `ledger_entries.price` are both `NUMERIC(38, 18)`. `signals.price` has `CHECK (price > 0)` in migration 0002. The ORM model declares no such CHECK. | `signals/infrastructure/models.py:42`; `ledger/infrastructure/models.py:54`; `migrations/versions/0002_signals.py:58, 68` | The price is stored once, at ingress, at the same scale as the column the fill is written to. In production a zero or negative price cannot be stored. A test that relies on that must run on a `head` schema. |
+| P7 | The ingress validates only that `price` is a string `Decimal` can parse. A value the CHECK refuses raises `IntegrityError`, which the repository re-raises for every constraint except the strategy foreign key, so the webhook answers 500 and stores nothing. | `signals/domain/alert.py:53, 76-82`; `signals/infrastructure/repository.py:78-87`; `signals/infrastructure/router.py:99-115` | See § F for what each kind of value does. |
+| P8 | For an OPEN, the domain already refuses a non-positive price, in both modes: `market_order` and `futures_position_size` raise `InvariantViolation`. `PlaceOrder` catches only `OrderNotPlaceable` around the build, so it propagates and the job is retried. | `domain/order.py:114-115`; `domain/futures_order.py:108-109`; `place_order.py:147-178` | An open with an unusable price never reaches `place`, live or simulated. This unit does not change that (§ F, § M). |
+| P9 | The simulated exchange's state is in memory, per instance, for the life of the process: the fills it minted, the signed deltas waiting to be shown to the book, and the fetch counters. One instance per exchange is shared by every job. The book holds signed base quantities only, never a price. | `fake_exchange.py:91-93`; `main.py:853-859, 1012-1014`; `execution/infrastructure/fake_venue_book.py:38, 56-61` | The build and the place of one order run on the same instance, inside one use-case call (`place_order.py:146, 218`; `close_position.py:157, 241`). A price kept between them is safe. |
+| P10 | A fill becomes a ledger row unchanged: `price=fill.price`, `notional = fill.quantity * fill.price`, `usd_rate_at_fill` from `FixedUsdRateProvider({USDT: 1})`. | `settle_execution.py:119-124, 220-240`; `main.py:526` | No step between the simulated exchange and the ledger rounds or converts the price. |
+| P11 | **Under `DRY_RUN`, balances are read from the real venue.** `balance.sync` and the on-demand refresh have no `dry_run` branch and sign with the vault credential. Availability is the snapshot minus the active reservations. Nothing under `allocation/` or `accounts/` reads the ledger's `price`, `notional` or a PnL. | `main.py:1047-1131, 1278-1385`; `allocation/application/allocate_capital.py:248`; grep of both modules; `specs/exchange-credentials/spec.md:111` | § H. |
+| P12 | Neither real adapter reads anything from `CloseOrderSpec` beyond `symbol`, `base_size`, `side` and `client_order_id`, and both `place` methods read the order only. | `execution/infrastructure/bybit_futures_exchange.py:149-221`; `binance_futures_exchange.py:152-234` | A new field on the spec is invisible to what they send (§ B). |
+| P13 | `ledger_entries.price` has no reader in `src` today. `notional` has one (the performance aggregate, which drops rehearsal fills in SQL). `fee` has three: the same aggregate, and the two base-fee nettings (the ledger repository and the mode-origin reader), which net a fee only when its currency is the BASE currency. | grep of `LedgerEntryRow.(price\|notional\|fee)` | A realistic price and a USDT fee change no existing read (§ H). |
+| P14 | 33 construction sites of the simulated exchange in 7 test files (32 of `FakeExchangeAdapter`, 1 of its subclass `CountingFakeExchange`). 12 pass an explicit `fill_price` (9 at 100, 3 at 2). 21 take the default. No test asserts a fill priced 1. | grep of `backend/tests` | § K. |
+
+### B. Where the alert's price comes from, and how it reaches the simulated exchange
+
+**The opening order: it already carries it (P1). The change is inside the adapter.**
+
+```
+webhook ─► signals.price ─► SignalContextAdapter.load ─► _handle_consumes ─► PlaceCommand.price
+   PlaceOrder.place
+     ├─ exchange.build_open_order(OpenOrderSpec(price=…))    simulated exchange REMEMBERS spec.price
+     │                                                         under spec.client_order_id
+     ├─ attempt + settle job committed (unchanged)
+     └─ exchange.place(order)                                 simulated exchange TAKES the price back
+                                                               and mints the Fill at it
+   execution.settle ─► fetch_fills ─► FillRecord.price ─► ledger_entries.price     (unchanged)
+```
+
+- `FakeExchangeAdapter` gains `_reference_prices: dict[str, Decimal]`, written by its two `build_*` methods and popped by `place`.
+- `OpenOrderSpec`, `PlaceCommand`, `PlaceOrder`, every order type and `ExchangePort` are not changed for an open.
+
+**The closing order: one optional field.**
+
+```
+closing or reversing alert ─► signals.price ─► SignalContext.price
+   _handle_releases ─► CloseCommand(reference_price=context.price)                    NEW field
+   _handle_consumes ─► CloseOrphans.close(…, reference_price=context.price)           NEW argument
+                          └─► CloseCommand(signal_id=None, reference_price=…)
+   ClosePosition.close
+     ├─ exchange.build_close_order(CloseOrderSpec(reference_price=…))                 NEW field
+     │                                                         simulated exchange remembers it
+     └─ exchange.place(order)                                 mints the Fill at it
+```
+
+```python
+# execution/application/ports.py
+@dataclass(frozen=True, slots=True)
+class CloseOrderSpec:
+    client_order_id: str
+    symbol: str
+    side: OrderSide
+    base_size: Decimal
+    reference_price: Decimal | None = None      # NEW
+
+# execution/application/close_position.py
+@dataclass(frozen=True, slots=True)
+class CloseCommand:
+    ...
+    signal_id: UUID | None
+    reference_price: Decimal | None              # NEW, required, no default
+```
+
+- **`reference_price` is the price of the alert that caused this close.** For a plain close and for a REVERSE it is the closing signal's price. For an orphan close it is the price of the opening signal that found the orphan: the same market, at the moment that alert fired. It is never the price of the signal that opened the position.
+- **It sizes nothing and is sent nowhere.** The size of a close is still the ledger's net (`close_position.py:143-152`). The field's docstring says it is read only by the simulated exchange.
+- **`CloseCommand.reference_price` is required with no default**, the rule `signal_id` already follows (`close_position.py:73-77`): a caller that closes for an alert says so, and one that closes for none says `None` explicitly. `CloseOrphans.close` and `CloseOrphansPort.close` gain it as a required keyword argument, for the same reason.
+- **`CloseOrderSpec.reference_price` has a default.** It is constructed once in `src` (`close_position.py:160`), and 10 times in the real adapters' tests. The default is what leaves those tests unedited, which is itself evidence that the real adapters' inputs did not move.
+
+**What each real adapter does with the change: nothing.**
+
+| Adapter | `OpenOrderSpec` | `CloseOrderSpec.reference_price` | `place` |
+| --- | --- | --- | --- |
+| `BybitFuturesExchangeAdapter` | unchanged type, unchanged use | never read (`build_close_order` reads four fields, P12) | receives the same `FuturesMarketOrder`; cannot see the spec |
+| `BinanceFuturesExchangeAdapter` | the same | never read | the same |
+| `PionexExchangeAdapter`, `PionexFuturesExchangeAdapter` (not registered) | the same | never read | the same |
+
+- No file under `execution/infrastructure/{bybit,binance,pionex}*` or `shared/infrastructure/{bybit,binance,pionex}/` is edited, and none of their test files is.
+- **How a test proves the request bytes are unchanged** (§ K): each real adapter builds and places the same close twice, once with `reference_price=None` and once with a price, and the two runs must produce equal orders and an identical sequence of requests. For the two registered adapters the comparison is made on the wire, through the real trade client over `httpx.MockTransport` with the frozen clock those suites already use, so method, path, query, body bytes and signature are compared byte for byte.
+
+**An order with no alert behind it.** Unreachable today (P5). If a later caller builds one, it passes `reference_price=None`; a real adapter places it as before, and the simulated exchange refuses it (§ F).
+
+**Rejected.**
+- *A price field on `MarketBuy`, `MarketSell` or `FuturesMarketOrder`.* Those are the domain objects the real adapters build and send. A price on them is one edit away from a limit order.
+- *The simulated exchange reads the price from the database by client order id.* It needs a session inside a process-lifetime adapter, makes `execution/infrastructure` read the `signals` table, and finds nothing for an orphan close, whose attempt has no signal id (P4).
+- *A separate price port injected into the simulated exchange.* A second path for a number the spec already carries.
+- *A last-known price per market kept by the simulated exchange.* It prices a close at some earlier alert's price and forgets everything at a restart.
+
+### C. The exact price
+
+- **No step between the alert and the fill rounds, quantises or converts it.** The alert's string becomes a `Decimal` (`alert.py:80`). PostgreSQL stores it in `NUMERIC(38, 18)`; a price with more than 18 decimal places is rounded there, once, at ingress. Every later step reads the STORED value: the order is built from `signals.price` read back from the database (P1), the simulated exchange keeps that `Decimal` object, the fill carries it, and the ledger column has the same scale (P6, P10).
+- **The simulated exchange applies no tick size, no rounding and no slippage.** It has no instrument rules to round with, and this design adds none. That is a rule of the unit, not an accident: decision 43's classification reads `ALERT` only on exact equality.
+- **So the opening fill equals `signals.price` exactly on every opening path** of P1, and the signal it equals is the one the allocation's reservation names. New rows read `ALERT`.
+- **The paths where the comparison is not made or not exact:**
+
+  | Case | What the ledger holds | What decision 43's list shows |
+  | --- | --- | --- |
+  | The alert's price was itself exactly 1 | a fill at 1 | `ALERT`, which is true (decision 43 § C) |
+  | A dry-run position open at the deploy | entry 1, exit at the alert's price | `FIXED_ONE` (§ G) |
+  | A CLOSING fill | the closing alert's price, exactly | not classified; the list tests the opening side only |
+  | The simulated exchange built with an explicit fixed price | that price | `UNDETERMINED`. Tests only; production never passes one (§ J, § K) |
+
+- **A test pins exactness to the last place** with an 18-decimal price and with a 19-decimal one (§ K).
+
+### D. Quantity and size
+
+- **Leverage is 1.** `FAKE_LEVERAGE = Decimal("1")` (`fake_exchange.py:62`): "there is no account to read one from". A futures position is `granted × 1 / alert price` in base units, so its notional equals the capital granted.
+- **There is no step size, minimum quantity or minimum notional.** The simulated exchange has no instrument rules. The quantity is the full `Decimal` quotient, where a live adapter truncates down to the contract's step.
+- **The quantity filled is the quantity the order asked for**, in full, in one fill, for a spot sell and for every futures order (`fake_exchange.py:199-202`).
+- **What changes: only the spot buy.** Its quantity is `quote_amount / fill price` (`:197-198`): `granted` today, `granted / alert price` after this unit, which is the quantity a venue would return. Decision 43's finding T9 ("the SIZE is realistic") held for futures and for a spot sell, not for a spot buy. No spot pool is enabled in production.
+- **What does not change: every futures quantity.** It was already sized with the alert's price. With the fill also at that price, `notional = quantity × price` now equals the capital granted, where today it equals the base quantity.
+- **A close still nets to zero.** It is sized from the ledger's stored net and filled at exactly that quantity. A simulated fee is charged in USDT, never in the base coin, so it does not move the holding (§ E).
+- **The consequence of 1x is a product matter**, asked in § N, Q2: a dry-run operation's PnL is what the reserved capital earns without leverage.
+
+### E. The fee: designed both ways, not chosen here
+
+The owner has not decided this. It is § N, Q1. Both answers are designed far enough that either is a small change.
+
+- **Built either way: one constructor argument.** `FakeExchangeAdapter(..., fee_rate: Decimal = Decimal("0"))`. The fill's fee is `quantity × fill price × fee_rate`, on every fill, opening and closing, in the fee currency the simulated exchange already writes (`"USDT"`, `fake_exchange.py:152`). With the default it is 0, today's behaviour. A rate below 0 or of 1 or more is refused by the constructor.
+- **Answer (a), no fee.** The composition root passes nothing. No other change.
+- **Answer (b), the venue's taker rate on both sides.** A new table `SIMULATED_TAKER_FEE_RATES` (exchange to rate) in `execution/infrastructure/simulated_fee_rates.py`, and `main.py` passes `fee_rate=` from it for each exchange. An exchange that has a simulated adapter and no rate in the table simulates no fee and says so once at startup, at WARNING. This is a few lines and one test; it can ride in this PR if the answer arrives before apply, or follow as its own small PR.
+- **What (b) reproduces.** The real round trip of 2026-08-27 was charged `0.00055` of the notional, in USDT, on both sides, and nothing in the base coin (CLAUDE.md). `quantity × price × 0.00055` per fill is that arithmetic.
+- **What is verified and what is not.** Bybit's `0.00055` is verified by that round trip. Binance has no verified taker rate in this project, so (b) needs a number for Binance from the owner (§ N).
+- **The fee currency stays the literal `"USDT"`.** The simulated exchange is handed a symbol and never the pool, so it cannot know the settlement currency. Every pool the product can enable today is USDT-settled (decision 21). In a pool settled in another currency a non-zero simulated fee would be denominated wrongly; the performance read would then report it under `other_fees` with `fees_complete: false`, visibly, on a rehearsal row. Stated as a limit (§ M).
+- **Neither answer touches decision 43's classification**, which reads prices only. Under (b) the fee arrives in `fees` and in `pnl` of a rehearsal row like any fee (decision 43 § J).
+
+### F. An alert with no usable price
+
+**What `signals.price` can hold, and what the ingress does today (P6, P7).**
+
+| Alert's `price` | Ingress today | Reaches the worker? |
+| --- | --- | --- |
+| Missing, not a string, or not a number (`"abc"`, `""`) | 422 from the parser | no |
+| `"0"` or negative | The row is refused by `ck_signals_price_positive`; the `IntegrityError` is re-raised; the webhook answers 500 and stores nothing | no, in production. Yes on an ORM-schema test database, which has no such CHECK. |
+| `"NaN"` | `Decimal` parses it. PostgreSQL's numeric ordering puts NaN above every number, so `price > 0` does not exclude it. **Not verified against this database**; a test on a `head` schema settles it (§ K). | possibly |
+| `"Infinity"` | `Decimal` parses it. A `NUMERIC(38, 18)` column cannot hold an infinity, so the insert should fail like the CHECK does. Not verified; the same test settles it. | expected no |
+| Positive but absurd (the wrong chart, a mistyped alert) | stored | yes |
+
+**What the simulated exchange does.** A price is **usable** when it is a finite `Decimal` above zero. The test is `price.is_finite() and price > 0`, in that order, because comparing a NaN raises.
+
+| Case | Behaviour | Path |
+| --- | --- | --- |
+| An OPEN whose price is zero, negative or NaN | Unchanged, and the same in both modes: the domain refuses to size the order before the simulated exchange is asked to fill anything (P8) | `build_open_order` raises; no fill |
+| A CLOSE whose `reference_price` is `None`, zero, negative, NaN or infinite | **Refused. No fill is minted.** | `place` raises `ExchangeError`; `ClosePosition` marks the attempt FAILED, records `CLOSE_REJECTED_BY_VENUE` on the signal when there is one, and logs its existing ERROR, which reaches Telegram (`close_position.py:242-266`). The position stays open in the ledger. TradingView believes it flat, so no second closing alert comes; the strategy's next OPENING alert on that market finds the holding, the simulated venue book still shows it, and the existing real-orphan path closes it at that alert's price before opening (`process_signal.py:521-558`). |
+| Any order the simulated exchange did not build itself (no price was remembered for its client order id) | Refused the same way | `place` raises `ExchangeError`; for an open, `PlaceOrder` releases the reservation and records `ORDER_REJECTED_BY_VENUE` (`place_order.py:219-246`) |
+| A positive but absurd price | Filled at it. It is the price the alert carried, which is what decision 45 asks for. | — |
+
+- **There is no fallback: not to 1, not to the entry price, not to the last price seen.** A fallback to 1 would silently write the rows this decision exists to stop writing. Any other fallback would write a price no alert carried, and decision 43's list would call it nothing in particular.
+- **The refusal is raised in `place`, not in `build_close_order`.** A plain exception from the build is retried by the job until its attempts run out, and `OrderNotPlaceable` would be reported as dust with a venue minimum. `ExchangeError` from `place` is the definitive-rejection path both use cases already handle: one ERROR, an outcome on the signal, no retry storm.
+- **No new reason code.** The detail carries the cause ("the simulated exchange cannot price this order: its alert carried no usable price"), under the existing codes.
+- **Where a rehearsal now differs from live.** A live close ignores the alert's price entirely; a simulated close needs it. In production the only stored value that can be unusable is a NaN (if the test of § K shows it can be stored). Stated as a risk (§ M).
+
+### G. The transition
+
+- **What happens.** A dry-run position that is open when this unit is deployed was entered at 1 and will be closed at its closing alert's price. Its quantity is `granted / entry alert price`, so its PnL is `quantity × (exit alert price − 1)` for a long and the negative of that for a short: of the order of the granted amount, with a sign that depends on whether the market trades above or below 1. It is a number with no meaning.
+- **Who reads that PnL.** Decision 43's list, which marks the row "fixed price", draws it in neutral ink and keeps it out of every total (its § C, § K). Nothing else: every performance total drops rehearsal fills, and no other module reads a fill's price (P11, P13).
+- **Nothing is corrupted and nothing needs repair.** The ledger is right about what the simulated exchange did.
+- **Should the owner do anything before the deploy? No.** The alternative is to wait for a moment when no dry-run position is open. Waiting costs alert-priced history that can never be recovered, which is the reason decision 45 exists, and it buys the absence of rows that are already marked and counted nowhere. The owner can still choose the moment: it is a deploy, and the owner runs it.
+- **What the deploy records.** The delivery log notes the commit, the time of the first worker start on it, and the rehearsal allocations open at that moment (a read-only query the tasks phase writes), so the rows that straddle the change are known by id.
+- **An order in flight at the restart** (placed, not yet settled) is lost with the simulated exchange's memory and ends `ORDER_NEVER_REACHED_EXCHANGE`, as at every restart today (P9). Unchanged by this unit.
+
+### H. Impact on `DRY_RUN`, idempotency and capital-pool isolation
+
+| Rule | Impact |
+| --- | --- |
+| `DRY_RUN` (rule 1) | The default stays true. `DRY_RUN` still selects the adapter and nothing else does (`main.py:809-815`). `is_live`, `assert_dry_run_safe`, the mode guard and both rehearsal id prefixes are untouched. No test needs a credential or the network. |
+| `DRY_RUN=false` | Behaves exactly as before. The simulated exchange is not registered. The real adapters receive one field they never read (§ B), and a test pins their requests. |
+| Idempotency (rule 2) | Untouched. The client order id is still minted before any network call; the remembered price is keyed by it. The signal's idempotency key and the unique constraints on reservations and attempts are not involved. |
+| Webhook (rule 3) | Untouched. The ingress is not edited. |
+| Allocation transaction (rule 4), lock order | Untouched. No new lock, no new transaction boundary, no new read inside the advisory lock. |
+| **Capital pools (rule 5)** | **A simulated profit or loss cannot change a pool's availability, a balance snapshot, a reservation or anything the allocation engine reads.** Dry-run balances come from the real venue, read with the stored key, in both modes (P11). Availability is that snapshot minus the active reservations. A rehearsal fill moves no real money, so the snapshot does not move, and nothing in `allocation/` or `accounts/` reads `ledger_entries.price`, `notional` or a PnL. What follows is already true today and stays true: in dry run an open rehearsal position does not reduce availability once its reservation is FILLED, so a dry run rehearses routing and results, not capital contention. |
+| Ledger (rule 6) | Append-only, unchanged. A rehearsal fill is still one row per fill with its `strategy_id` and `allocation_id`. No row is rewritten. |
+| PnL in native currency (rule 7) | The price is in the settlement currency per unit of base, as a live fill's is. `usd_rate_at_fill` is recorded exactly as today. A simulated fee is in USDT (§ E). Nothing is converted or summed across pools. |
+| Credentials (rule 8) | Untouched. The simulated exchange signs nothing. |
+| A rehearsal fill never looks like a real one | The `fake-fill-` and `fake-order-` prefixes are unchanged, and the tests that pin them are not edited (`tests/execution/infrastructure/test_fake_exchange.py:191-256`). One thing does change: a rehearsal row used to be recognisable by its price of 1 as well. After this unit the prefix is the ONLY marker, so every reader must use it. The two that total anything already do (decision 43 § C). |
+| Reconciliation | Skipped under `DRY_RUN` (P5). The simulated venue book is fed signed base quantities, never a price (P9). No discrepancy can come from a simulated price. |
+
+### I. Layering
+
+| Component | Layer | File | Change |
+| --- | --- | --- | --- |
+| `CloseOrderSpec.reference_price` | **application**/execution | `execution/application/ports.py` | One optional field, default `None`. `ExchangePort` itself is not changed. |
+| `CloseCommand.reference_price`; `ClosePosition.close` | **application**/execution | `execution/application/close_position.py` | One required field; passed into the spec. No other line. |
+| `_handle_releases`; the `CloseOrphansPort` protocol; the call in `_handle_consumes` | **application**/signals | `signals/application/process_signal.py` | `context.price` passed to both. |
+| `CloseOrphans.close` | **application**/signals | `signals/application/close_orphans.py` | A required keyword argument, passed into `CloseCommand`. |
+| `FakeExchangeAdapter` | **infrastructure**/execution | `execution/infrastructure/fake_exchange.py` | `fill_price` becomes `Decimal` or `None`, default `None`; the remembered prices; the usable-price refusal; `fee_rate`; a read-only `fixed_fill_price`; one INFO per fill (§ J). |
+| The startup line; under answer (b), `fee_rate=` | **composition root** | `main.py` | § J, § E. |
+| `SIMULATED_TAKER_FEE_RATES` (answer (b) only) | **infrastructure**/execution | `execution/infrastructure/simulated_fee_rates.py` (new) | § E. |
+| `Fill`, `futures_position_size`, `PlaceCommand`, `OpenOrderSpec` | domain and application | their files | Docstrings only. They say a fill's price is never the alert's reference price; that stays true of a live fill and is now false of a rehearsal one. |
+
+- **`domain/` gains no import and no code.** No order type, no domain function and no domain class changes.
+- **No new component in `domain/` or `application/`.** The usable-price test and the fee product are private functions of the adapter that uses them.
+- **The two modes of the simulated exchange.**
+
+  | `fill_price` | Meaning | Who uses it |
+  | --- | --- | --- |
+  | `None` (the default) | Each order fills at the price remembered for it | production, and any test that wants production's behaviour |
+  | a `Decimal` | Every order fills at that price, as today | tests that pin a price explicitly |
+
+### J. What fails here without a log line?
+
+| Failure | What happens | What is logged |
+| --- | --- | --- |
+| **The price did not arrive**: a close built with `reference_price=None`, or an order the simulated exchange did not build | Refused in `place`; no fill; the attempt is FAILED; the signal, when there is one, ends `REJECTED` | The existing ERROR of the caller (`close rejected by venue…` or `order rejected by venue…`), with the cause in its `error=` text. It reaches Telegram. |
+| **A price of zero, negative or NaN on a close** | The same refusal | The same ERROR; the text names the value |
+| **A price of zero, negative or NaN on an open** | The domain raises at build; the job is retried until its attempts run out; the signal then ends `REJECTED` through the exhausted-job recorder | The worker's existing exception line per attempt. Not changed here (§ M). |
+| **A close with no alert, for an orphan** | The same refusal; the attempt is FAILED; the continuation sees the FAILED close and ends the waiting open with its own outcome | The same ERROR. No outcome is written by the close itself, by design (P4). |
+| **Production builds the simulated exchange with a fixed price** (a later edit of `main.py`) | Every fill is priced at it and decision 43's list reads `UNDETERMINED` or `FIXED_ONE` | One line at worker start, per process, taken from each instance's own `fixed_fill_price`: INFO "the simulated exchange prices each fill at its alert's price" when none is fixed, WARNING naming the exchange and the price when one is. And the end-to-end test of § K goes red. |
+| **A later edit rounds the price** | Rows read `UNDETERMINED` | Nothing at write time can know. The exactness tests of § K go red, and decision 43's list logs an INFO count of `UNDETERMINED` rows per page (its § G). |
+| **The moment the change took effect is not visible** | — | The startup INFO above, and one INFO per simulated fill: exchange, symbol, side, quantity, price, fee, client order id. |
+| **Under answer (b), an exchange has no rate in the table** | It simulates no fee | WARNING at worker start, once, naming the exchange |
+| **A remembered price is never used** (the build succeeded and the place never ran) | One `Decimal` stays in memory until the process restarts | Nothing. Bounded by the number of such failures; the fills kept per order already grow the same way (P9). |
+| **A worker restart between place and settle** | The order is forgotten; the existing `ORDER_NEVER_REACHED_EXCHANGE` | The existing WARNING. Unchanged. |
+
+No line of this unit carries a credential, a DSN, a token or a raw payload. They carry ids, the exchange, the symbol, the side, and a quantity, a price and a fee of a simulated fill.
+
+**Threat matrix.** N/A: no routing, shell, subprocess, VCS automation, executable-file classification or process integration. No route is added.
+
+### K. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, infrastructure | The simulated exchange in both modes: the price per kind of order, the refusals, the fee, the quantity of a spot buy | `tests/execution/infrastructure/test_fake_exchange.py`, no database |
+| Unit, application | `ClosePosition` passes the price into the spec; `_handle_releases` and `CloseOrphans` pass the alert's price | The existing stub exchanges and fakes of those suites |
+| Unit and wire, real adapters | The requests are unchanged | A new test file; the adapters' existing doubles, and `httpx.MockTransport` with the frozen clock |
+| Integration, **real PostgreSQL** | From the webhook to the ledger, through the production composition root | `build_worker_runner(session_factory_override=…)` and `run_once`, as `tests/signals/infrastructure/test_exhausted_jobs_wiring.py` does |
+| Integration, **`head` schema** | What `signals.price` can hold | `tests/pg_head_schema.py` |
+
+**The tests.**
+
+1. **An opening fill equals the alert's price to the last decimal place.** A futures open built with `price=Decimal("0.123456789012345678")` and placed: `fill.price == Decimal("0.123456789012345678")`, compared as `Decimal` and as `str`. One case per kind of order of § A.
+2. **From the webhook to the ledger, the stored price is read back.** A POST to `/webhook/tradingview` with `"price": "0.1234567890123456789"` (19 places) and `"symbol": "STXUSDT.P"`; the worker's `signal.process` and `execution.settle` jobs run through `build_worker_runner` with `DRY_RUN` on. Then, read from the database: the opening row's `ledger_entries.price` equals `signals.price` of the signal its reservation names, exactly, and its `exchange_fill_id` starts with `fake-fill-`. A closing alert at another price follows; the closing row's price equals that second signal's price, and the allocation nets to zero. The fixture seeds a balance snapshot young enough for the refresh's fallback, because no credential exists in a test.
+3. **A close is priced at the closing alert, not at the opening one.** Opening alert 0.4512, closing alert 0.4633: the closing fill is 0.4633.
+4. **A REVERSE.** The close of the old allocation and the open of the new one are both priced at the reversing alert's price, and the new allocation's opening fill equals the price of the signal its reservation names.
+5. **An orphan close** is priced at the price of the signal that found the orphan, although its `signal_id` is `None`.
+6. **Two orders built before either is placed, placed in the other order,** each fill at its own price.
+7. **The refusals of § F**, one case each: `None`, 0, a negative, NaN, infinity, and an order the adapter did not build. Each asserts the exception type, that no fill exists for the client order id, and, through `ClosePosition` on real PostgreSQL, that the attempt is FAILED, the signal `REJECTED` `CLOSE_REJECTED_BY_VENUE`, the ledger unchanged and the ERROR line present. Then a second `ClosePosition.close` for the same allocation, with a usable price, is placed and nets it to zero, which is what the orphan path does at the next opening alert.
+8. **The fee.** With `fee_rate=Decimal("0.00055")`: `fill.fee == quantity × price × 0.00055` exactly, in `"USDT"`, on an open and on a close; the base quantity is untouched and the close nets to zero. With the default the fee is 0. A rate below 0 or of 1 is refused.
+9. **A spot buy** fills `granted / alert price` in base units.
+10. **The real adapters are untouched** (§ B). Per real adapter: the same close built from a spec with and without `reference_price` gives equal orders and identical recorded calls. Per registered adapter, on the wire: identical method, path, query, body bytes and signature.
+11. **`head` schema.** `signals.price` refuses 0 and a negative. The same test records what the database does with `NaN` and with `Infinity`; the design holds either way, and the result corrects § F's two unverified rows.
+12. **The startup line** says INFO with no fixed price and WARNING with one.
+
+**Rules that bind the task breakdown.**
+
+- **Strict TDD.** Each RED fails on an ASSERTION. The new default is first a stub that still fills at 1 (`assert Decimal('1') == Decimal('0.123456789012345678')`); `reference_price` is first a field the simulated exchange accepts and ignores; `fee_rate` is first accepted and ignored. A refusal test captures the exception and asserts on its type, so a stub that does not raise fails on an assertion.
+- **The tests that take today's default.** 33 construction sites (P14).
+
+  | Group | Sites | What happens |
+  | --- | --- | --- |
+  | Pass an explicit `fill_price` (100 or 2) | 12 | **Kept as they are.** An explicit price is the fixed mode, which is today's behaviour. |
+  | Take the default and never produce a fill | 4 (`test_fake_exchange.py:48`, `test_dry_run_invariant.py:27, 42, 49`) | Unchanged. |
+  | Take the default and fill orders | 17 (`test_order_outcomes_integration.py`, 4; `test_settle_outcomes_integration.py`, 13) | Their opens go through `PlaceOrder` with `price=Decimal("2")` and now fill at 2 instead of 1. None asserts a price, so none changes for an open. Their closes go through `CloseCommand`, which gains the required field. |
+
+  - **The rule.** No test is deleted. A test whose subject is not the price keeps its assertions. A test found, when the suite runs, to depend on a fill of 1 is given `fill_price=Decimal("1")` explicitly, and its docstring says why. The task records each such test by name.
+  - **Edits that the new required field forces:** the 5 constructions of `CloseCommand` in tests (`test_close_position.py`, 2; the three integration files, 1 each), every call of `CloseOrphans.close` in `tests/signals/application/test_close_orphans.py`, and the doubles of `CloseOrphansPort`. Each gains a price; none loses an assertion.
+  - **Two tests read `main.py` as text** (`tests/test_main_pool_reload.py:260-267`, `tests/test_mode_guard_wiring.py:28`). An edit of the `fakes_by_exchange` block under answer (b) must keep them green.
+- **No lock-hold harness applies.** This unit adds no lock and no transaction boundary. The remembered price is written and popped inside one use-case call on one instance, with distinct keys per order.
+- **Symbol spellings.** The webhook side uses TradingView's `STXUSDT.P`. The strategy's allowed pair is stored as `STXUSDT`. The ledger row is asserted through `market_key(symbol) == "STXUSDT"`, never by comparing the two spellings as text, and the simulated venue book is asserted under the venue's bare `STXUSDT`. The real-adapter test hands the adapter `STXUSDT.P` and asserts the request names `STXUSDT`.
+- **Mutations that prove the tests which pass at once.**
+
+  | Test | Mutation that must turn it red |
+  | --- | --- |
+  | The real adapters' requests are identical with and without `reference_price` (10) | The adapter forwards `spec.reference_price` into its request |
+  | The 12 tests with an explicit `fill_price` still fill at it | The fixed price ignored whenever a price was remembered |
+  | Two orders, each at its own price (6) | One "last price" attribute instead of a map keyed by client order id |
+  | Exactness at 18 places (1) | The price quantised to 2 places in the adapter |
+  | Webhook to ledger (2) | `main.py` builds the simulated exchange with `fill_price=Decimal("1")` |
+  | A close at the closing alert's price (3) | The simulated exchange reuses the price it remembered for the opening order |
+  | A refused close writes no ledger row (7) | A fallback to 1 in place of the refusal |
+  | The fee is on the notional (8) | The fee computed from the quantity alone |
+  | The rehearsal prefix tests (existing, unedited) | Their own, already recorded |
+
+- **Gate after the unit.** `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. No frontend change.
+
+### L. Delivery
+
+**One PR** to `main`, cut from an up-to-date `main`, never stacked. It is not split, and the reason is not size: an exchange that prices opens at the alert and cannot yet price closes has no honest state to be deployed in. Its closes would have to be refused or filled at 1.
+
+| | |
+| --- | --- |
+| Contents | The simulated exchange's two modes, the remembered price, the refusal and `fee_rate`; `CloseOrderSpec.reference_price`; `CloseCommand.reference_price` and its two callers; the startup line; the docstrings; the tests of § K. Under answer (b), the rates table and its wiring. |
+| Risk | **Medium.** It edits a DTO of `ExchangePort` and the two use cases that close a position, in the module that sends real orders when `DRY_RUN` is false. What bounds it: no order type changes, no real adapter file is edited, and the request test. |
+| Migration | None. |
+| Deploy | Pull as `strategy`, restart both services. Only the worker's behaviour changes; the API process places no orders. |
+| From which moment | The first worker start on the new commit. Every fill minted after it carries its alert's price. The startup INFO line marks the moment in the journal. |
+| What the operator sees | In the log: the startup line, then one INFO per simulated fill with its price. In the panel: nothing until decision 43's list is served (PR 12e-2); then operations opened after this deploy read "alert price" and show a simulated result, those opened before it read "fixed price", for good. |
+| Rollback boundary | A revert restores the fixed price of 1 for NEW fills. The fills written meanwhile keep their alert price. A dry-run position open across the revert has an alert-priced entry and an exit of 1, and decision 43's list reads it `ALERT` (its § K names this case). No data is touched in either direction. |
+| Order against PR 12e | Independent (decision 43 § I). No shared file: this unit edits `execution` and `signals`, 12e-1 edits `performance`. Whichever is ready is merged and deployed first, then the next branch is cut from the updated `main`. This one should go first if it is ready, for the owner's reason: each day without it writes fills at 1. |
+
+- **Forecast.** 700 to 1,100 authored lines, tests about four times the production code. `Decision needed before apply: No` (§ N: an unanswered Q1 means a rate of 0, which is today's behaviour) · `Chained PRs recommended: No` · `400-line budget risk: High`.
+- **The spec.** No spec of this change speaks of how a simulated fill is priced, and `openspec/specs/trade-execution/spec.md` § "DRY_RUN Safety" says only which adapter is used. The spec phase must add a trade-execution delta to this change: a simulated fill in pool `(bybit, usdt-m, USDT)` is priced at the stored price of its alert, exactly; a close is priced at the alert that caused it; an order with no usable price is refused and never filled at a default; rehearsal ids keep their prefixes; a real adapter's requests do not depend on the price. The performance and admin-api specs need nothing.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| E1 | The simulated exchange remembers the price between its own build and its own place, keyed by client order id; nothing outside it changes for an open | B |
+| E2 | A close carries the price as `CloseOrderSpec.reference_price`, optional on the spec, required on `CloseCommand` | B |
+| E3 | A close is priced at the alert that caused it; an orphan close at the alert that found the orphan | B |
+| E4 | No order type and no real adapter is edited; a test pins the real adapters' requests | B, K |
+| E5 | No rounding, tick or slippage in the simulated exchange; the fill equals the stored alert price exactly | C |
+| E6 | Leverage stays 1 and no instrument rule is simulated in this unit | D |
+| E7 | The fee is `quantity × price × fee_rate` in USDT; the rate is a constructor argument, 0 unless the owner answers otherwise | E |
+| E8 | An order with no usable price is refused in `place` through the existing rejection path; no fallback | F |
+| E9 | An explicit `fill_price` stays as a fixed mode for tests; the default becomes the alert's price | I, K |
+| E10 | The deploy does not wait for dry-run positions to close | G |
+| E11 | One PR | L |
+
+### M. Risks, and what could be wrong in this design
+
+| Risk | Why it matters | Mitigation or honest limit |
+| --- | --- | --- |
+| The real adapters now receive a field that carries a price | A later edit could send it, turning a market order into something else | They never read it today; the request test and its mutation; the field's name and docstring; no order type carries it, and `place` sees only the order |
+| A rehearsal fill is now plausible | Its price of 1 was an incidental second marker. Any reader that forgets the prefix would take a rehearsal row for a result. | The prefix contract is unchanged and pinned. Both totalling readers use it. Stated in § H so a new reader is written with it. |
+| The simulated result is at 1x, with no step, no spread and no slippage, filled in full at the bar's close | It is what the alert's own prices imply, not what a venue would have filled. A live market order fills after the alert, at the book. At 3x a live PnL is three times the simulated one. | Stated (§ D). The leverage is § N, Q2. The rest is the meaning of "the price the alert carried". |
+| A delayed open is filled at an old price | The open half of a REVERSE and a deferred open are placed after their close settles, up to the continuation's timeout later, at the alert's price | By decision 45 the price is the alert's. Live, the same order would fill at the market of that later moment. |
+| A simulated close can be refused where a live one would not be | A live close never reads the alert's price | Reachable in production only through a stored NaN, if one can be stored (§ F, test 11). The refusal is an ERROR that reaches Telegram, and the strategy's next opening alert closes the position through the orphan path. Until then the rehearsal position stays open, which also keeps decision 28's guard from allowing a switch to live. |
+| One class, two modes | A fixed price wired in production silently restores the old behaviour | The startup line reads each instance's own mode; the end-to-end test runs the production composition root (§ J, § K) |
+| The simulated fee is always in USDT | Wrong in a pool settled in another currency | No such pool can be enabled from the panel today. It would surface as `fees_complete: false` on a rehearsal row, not as a wrong total. |
+| The remembered prices and the minted fills live in memory | A restart between place and settle loses the order | Existing behaviour, with its existing WARNING and outcome (§ G) |
+| A dry-run position open at the deploy shows a large meaningless PnL | Of the order of the granted amount, in either direction | Marked and outside every total by decision 43; recorded by id in the delivery log (§ G) |
+| A revert with a dry-run position open | An alert-priced entry with an exit of 1 reads `ALERT` | Named in decision 43 § K. The fills table shows the exit at 1. |
+| Dry run does not rehearse capital contention | A rehearsal position does not reduce availability, so two strategies never compete in dry run as they would live | Existing, and not changed here (§ H). A result per operation is simulated; the allocation between strategies is not. |
+
+**What could be wrong here.**
+- **Nothing was run.** Every count in P14 and § K comes from a search of the test tree, not from the suite. The task that changes the default must run the suite and record what turned red.
+- **The two unverified rows of § F** (`NaN`, `Infinity`) rest on PostgreSQL's documented behaviour, not on a statement run against this database. Test 11 settles them; the design refuses both either way.
+- **The end-to-end test's fixture** (a balance snapshot that lets the refresh fall back with no credential) was read from `main.py:1047-1131` and `process_signal.py:588-605`, not exercised.
+- **Binance's taker rate** is not established anywhere in this repository.
+
+**Adjacent, flagged and not designed.**
+- **An opening alert with an unusable price is retried, not refused** (P8): the `InvariantViolation` leaves `PlaceOrder` uncaught after the reservation was taken, so the job repeats until its attempts run out and the reservation waits for its TTL. It is the same in both modes and predates this unit. In production the CHECK on `signals.price` makes it nearly unreachable.
+- **The webhook answers 500, not 422, to a price of zero or a negative** (P7). An ingress matter.
+- **The panel's sentence for an alert-priced row** ("opened at the price its alert carried", decision 43 § F) does not say the row is sized without leverage. If Q2 is answered "keep 1x", unit 9p.5 may want to say so. It is copy of that unit, not of this one.
+
+### N. Questions for the owner
+
+No migration is needed, so no question about one is asked. Two product decisions are open. Neither blocks the unit: without an answer it is built with no fee and at 1x, which is today's behaviour in both respects.
+
+- **Q1. What fee does a simulated fill carry?**
+  - *(a)* None, as today.
+  - *(b)* The venue's taker rate on the fill's notional, on both sides, in USDT. For Bybit that is `0.00055`, the rate of the real round trip of 2026-08-27. Binance has no verified rate in this project, so (b) also needs one line for Binance: a rate, or "the same as Bybit".
+  - **Recommendation: (b).** A result with no fee overstates every operation, and a fee, like a price, is written once: a fill recorded with a fee of 0 keeps it. For Binance: the rate the owner reads on Binance's fee page for the account; failing that, `0.00055` for both, because overstating a simulated fee is the safer error.
+  - **Blocks:** only what `main.py` passes as `fee_rate`, and the rates table (§ E). **Does not block:** the price change, its tests or the PR. Answered before apply, it rides in the same PR. Answered later, it is a small PR of its own, and the fills written meanwhile keep a fee of 0.
+- **Q2. At what leverage does a dry run size a position?** Today the simulated exchange sizes at 1x: the position's notional equals the capital granted. A live order is sized at the leverage the venue reports for the symbol (3x on the real round trip). So a dry-run operation's PnL and PnL % are one leverage-th of what the same alert would produce live.
+  - *(a)* Keep 1x.
+  - *(b)* A fixed multiple per exchange, set in configuration.
+  - *(c)* The leverage the venue reports, read with the stored key.
+  - **Recommendation: (a) for this unit.** A result at 1x is exact and a reader can scale it. (b) invents a number the venue may not hold. (c) makes a dry-run open depend on a venue read and on a key being present, and would refuse the open when the read fails, as live does.
+  - **Blocks:** nothing here; (a) is what this unit builds. (b) or (c) would be its own unit with its own design. Positions written at 1x keep their size.
