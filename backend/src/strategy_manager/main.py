@@ -101,6 +101,9 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
+from strategy_manager.execution.infrastructure.simulated_fee_rates import (
+    SIMULATED_TAKER_FEE_RATES,
+)
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
     unserved_pools,
@@ -302,6 +305,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         assert_admin_api_token_configured(settings)
         assert_panel_dist_ready(settings)
         yield
+
+
+def log_simulated_exchange_startup(fakes: Mapping[str, FakeExchangeAdapter]) -> None:
+    """The two startup lines of decision 45 (design § J), taken from each
+    instance's OWN mode and rate: one INFO per process, so the journal shows
+    from which start fills carry their alert's price and which taker rate was
+    charged; and one WARNING per simulated exchange built with a fixed price,
+    which would silently restore the old behaviour (every fill at one price).
+
+    Production never builds a fixed-price exchange; the function takes the
+    instances so a later edit of this module cannot do it quietly."""
+    alert_priced: dict[str, FakeExchangeAdapter] = {}
+    for name, fake in sorted(fakes.items()):
+        if fake.fixed_fill_price is None:
+            alert_priced[name] = fake
+        else:
+            logger.warning(
+                "the simulated exchange '%s' is built with a fixed price of %s: every "
+                "fill is priced at it, not at its alert's price",
+                name,
+                format(fake.fixed_fill_price.normalize(), "f"),
+            )
+    if alert_priced:
+        logger.info(
+            "dry run: the simulated exchange prices each fill at its alert's price "
+            "and charges the venue's taker fee in USDT (%s)",
+            ", ".join(
+                f"{name}={format(fake.fee_rate.normalize(), 'f')}"
+                for name, fake in alert_priced.items()
+            ),
+        )
 
 
 def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:
@@ -850,18 +884,39 @@ def build_worker_runner(
     # has this for free, since ``registered`` above is the fixed
     # ``(BybitFuturesExchangeAdapter, BinanceFuturesExchangeAdapter)`` tuple
     # regardless of ``pools``.
+    #
+    # Decision 45: a simulated exchange exists only for an exchange that has a
+    # simulated taker fee rate, and its rate is read BY KEY from the table --
+    # never with a default, because a default of zero would charge nothing
+    # without anyone deciding to. Bybit and Binance both have one. Under
+    # DRY_RUN=false nothing is built: the real adapters above are the only
+    # ones registered.
     fakes_by_exchange = {
-        # TEMPORARY (unit 9q.3): an explicit zero rate until 9q.23 reads the
-        # simulated taker fee rates table by key. No commit of this unit is
-        # deployed before then.
         exchange: FakeExchangeAdapter(
-            exchange=exchange, book=fake_venue_book, fee_rate=Decimal("0")
+            exchange=exchange,
+            book=fake_venue_book,
+            fee_rate=SIMULATED_TAKER_FEE_RATES[exchange],
         )
         for exchange in {pool.exchange.value for pool in pools} | {
             BYBIT_EXCHANGE,
             BINANCE_EXCHANGE,
         }
+        if settings.dry_run and exchange in SIMULATED_TAKER_FEE_RATES
     }
+    if settings.dry_run:
+        # An exchange with a pool and no rate gets no simulated exchange. It is
+        # reported here, and its signals are refused per signal as untradable
+        # (the unserved-pools warning below covers the pools themselves): a
+        # pool nobody trades is not a reason to stop the pools somebody does.
+        for unrated in sorted(
+            {pool.exchange.value for pool in pools} - set(SIMULATED_TAKER_FEE_RATES)
+        ):
+            logger.warning(
+                "no simulated taker fee rate is defined for '%s': it has no simulated "
+                "exchange in a dry run, so its signals are refused as untradable",
+                unrated,
+            )
+        log_simulated_exchange_startup(fakes_by_exchange)
 
     # ``venue`` reaches the reservation, the attempt and the ledger row without
     # ever selecting an adapter, so a strategy on a venue this adapter does not

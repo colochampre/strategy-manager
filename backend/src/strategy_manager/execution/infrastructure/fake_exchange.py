@@ -263,6 +263,11 @@ class FakeExchangeAdapter:
         return self._fetch_calls.get(client_order_id, 0) > self._fill_latency_polls
 
     @property
+    def fee_rate(self) -> Decimal:
+        """The taker rate every fill of this exchange is charged."""
+        return self._fee_rate
+
+    @property
     def fixed_fill_price(self) -> Decimal | None:
         """The price every order fills at, or ``None`` when each order fills at
         the price of its own alert (the production mode)."""
