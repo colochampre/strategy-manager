@@ -4,20 +4,23 @@ DRY_RUN paragraph: "updates only when ``FakeExchangeAdapter`` reveals a
 fill").
 """
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import pytest
 
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
+    ExchangeError,
     OpenOrderSpec,
     OrderNotFound,
 )
 from strategy_manager.execution.domain.fill import Fill
+from strategy_manager.execution.domain.futures_order import close_futures_order
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 
 class FakeLedgerReader:
@@ -570,3 +573,165 @@ async def test_an_explicit_fill_price_is_the_fixed_mode_and_every_order_fills_at
     assert adapter.fixed_fill_price == Decimal("100")
     assert opened.price == Decimal("100")
     assert closed.price == Decimal("100")
+
+
+# ---- an order with no usable price is refused, never defaulted (design § F) ----
+#
+# A price is usable when it is finite and above zero. ``place`` refuses a close
+# whose reference price is not, and an order this adapter did not build.
+# Nothing is ever substituted: not 1, not the entry price, not the last price.
+
+UNUSABLE_CLOSE_PRICES = [
+    pytest.param(None, id="absent"),
+    pytest.param(Decimal("0"), id="zero"),
+    pytest.param(Decimal("-0.4633"), id="negative"),
+    pytest.param(Decimal("NaN"), id="nan"),
+    pytest.param(Decimal("Infinity"), id="infinite"),
+    pytest.param(Decimal("-Infinity"), id="negative-infinite"),
+]
+
+
+async def _place_capturing(
+    adapter: FakeExchangeAdapter, order: PlaceableOrder
+) -> BaseException | None:
+    """The exception ``place`` raised, or ``None``: the test asserts on its TYPE,
+    so an adapter that does not refuse fails on an assertion, not on an
+    unrelated error."""
+    try:
+        await adapter.place(order)
+    except Exception as exc:  # noqa: BLE001 - the type is exactly what is asserted
+        return exc
+    return None
+
+
+async def _unpriceable_close(
+    adapter: FakeExchangeAdapter, reference_price: Decimal | None, client_order_id: str = "close-1"
+) -> PlaceableOrder:
+    return await adapter.build_close_order(
+        CloseOrderSpec(
+            side=OrderSide.SELL,
+            client_order_id=client_order_id,
+            symbol=STX_PERP,
+            base_size=Decimal("1250"),
+            reference_price=reference_price,
+        )
+    )
+
+
+@pytest.mark.parametrize("reference_price", UNUSABLE_CLOSE_PRICES)
+async def test_a_close_whose_reference_price_is_unusable_is_refused_in_place_and_no_fill_exists(
+    reference_price: Decimal | None,
+) -> None:
+    book = FakeVenueBook(FakeLedgerReader())
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", book=book, fee_rate=Decimal("0"), fill_latency_polls=0
+    )
+    order = await _unpriceable_close(adapter, reference_price)
+
+    raised = await _place_capturing(adapter, order)
+
+    assert type(raised) is ExchangeError
+    with pytest.raises(OrderNotFound):
+        await adapter.fetch_fills("close-1", STX_PERP)
+    assert await book.open_positions(("bybit", "usdt-m", "USDT")) == []
+
+
+@pytest.mark.parametrize(
+    ("reference_price", "named"),
+    [
+        pytest.param(None, "None", id="absent"),
+        pytest.param(Decimal("0"), "0", id="zero"),
+        pytest.param(Decimal("-0.4633"), "-0.4633", id="negative"),
+        pytest.param(Decimal("NaN"), "NaN", id="nan"),
+        pytest.param(Decimal("Infinity"), "Infinity", id="infinite"),
+        pytest.param(Decimal("-Infinity"), "-Infinity", id="negative-infinite"),
+    ],
+)
+async def test_the_message_names_the_value_and_says_the_alert_carried_no_usable_price(
+    reference_price: Decimal | None, named: str
+) -> None:
+    adapter = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
+    order = await _unpriceable_close(adapter, reference_price)
+
+    raised = await _place_capturing(adapter, order)
+
+    assert type(raised) is ExchangeError
+    message = str(raised)
+    assert "the simulated exchange cannot price this order" in message
+    assert "its alert carried no usable price" in message
+    assert f"reference price: {named}" in message
+
+
+async def test_an_order_the_exchange_did_not_build_is_refused() -> None:
+    """A futures order made by hand: no price was ever remembered for its
+    client order id, so there is nothing to fill it at."""
+    adapter = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
+    made_by_hand = close_futures_order(
+        side=OrderSide.SELL,
+        client_order_id="by-hand",
+        symbol=STX_PERP,
+        base_size=Decimal("1250"),
+    )
+
+    raised = await _place_capturing(adapter, made_by_hand)
+
+    assert type(raised) is ExchangeError
+    assert "the simulated exchange cannot price this order" in str(raised)
+    with pytest.raises(OrderNotFound):
+        await adapter.fetch_fills("by-hand", STX_PERP)
+
+
+async def test_a_positive_absurd_price_is_filled_at() -> None:
+    """A price no market trades near is still the price the alert carried,
+    which is what decision 45 asks the fill to be."""
+    adapter = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
+    order = await _unpriceable_close(adapter, Decimal("9999999.5"))
+
+    await adapter.place(order)
+    [fill] = await adapter.fetch_fills("close-1", STX_PERP)
+
+    assert fill.price == Decimal("9999999.5")
+
+
+@pytest.mark.parametrize("fixed_fill_price", [None, Decimal("5")], ids=["alert-mode", "fixed-mode"])
+@pytest.mark.parametrize("symbol", [STX_PERP, STX_SPOT], ids=["futures", "spot"])
+@pytest.mark.parametrize(
+    ("price", "refusal"),
+    [
+        pytest.param(Decimal("0"), InvariantViolation, id="zero"),
+        pytest.param(Decimal("-1"), InvariantViolation, id="negative"),
+        # Observed 2026-10-04 (9q.11): a NaN price does not reach the domain's own
+        # check -- the ``decimal`` module raises its comparison error first.
+        pytest.param(Decimal("NaN"), InvalidOperation, id="nan"),
+    ],
+)
+async def test_an_opening_order_with_a_non_positive_price_never_reaches_a_fill_in_either_mode(
+    fixed_fill_price: Decimal | None,
+    symbol: str,
+    price: Decimal,
+    refusal: type[Exception],
+) -> None:
+    """Today's behaviour, unchanged (design P8): the domain refuses to size the
+    order at BUILD, before any fill can exist, and no price is substituted. The
+    open is retried by its job until the attempts run out; that is carried, not
+    decided, here."""
+    adapter = FakeExchangeAdapter(
+        exchange="bybit", fill_price=fixed_fill_price, fee_rate=Decimal("0")
+    )
+    raised: BaseException | None = None
+    try:
+        await adapter.build_open_order(
+            OpenOrderSpec(
+                side=OrderSide.BUY,
+                client_order_id="open-1",
+                symbol=symbol,
+                granted=Decimal("564"),
+                price=price,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - the type is exactly what is asserted
+        raised = exc
+
+    assert type(raised) is refusal
+    with pytest.raises(OrderNotFound):
+        await adapter.fetch_fills("open-1", symbol)

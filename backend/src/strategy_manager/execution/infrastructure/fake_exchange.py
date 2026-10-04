@@ -6,10 +6,12 @@ Safety). ``is_live = False`` so the startup invariant never allows
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TypeGuard
 from uuid import uuid4
 
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
+    ExchangeError,
     OpenOrderSpec,
     OrderNotFound,
     PlacedOrder,
@@ -34,6 +36,12 @@ from strategy_manager.execution.domain.order import (
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.shared.domain.money import Exchange, Venue
+
+
+def _is_usable(price: Decimal | None) -> TypeGuard[Decimal]:
+    """A price is usable when it is a finite ``Decimal`` above zero. The order
+    of the tests matters: comparing a NaN raises."""
+    return price is not None and price.is_finite() and price > 0
 
 
 class FakeExchangeAdapter:
@@ -223,14 +231,19 @@ class FakeExchangeAdapter:
         """The price this order fills at. An explicit fixed price (tests only)
         wins; otherwise the price remembered for the order's client order id.
 
-        INTERIM (9q.10, replaced by the definitive refusal in 9q.12): an order
-        with nothing remembered raises the dict's own ``KeyError`` -- a crash,
-        never a fallback."""
+        An order with no usable price is REFUSED, here and not at build (design
+        § F): a plain exception from the build is retried by the job, and
+        ``OrderNotPlaceable`` would be reported as dust. ``ExchangeError`` is
+        the definitive-rejection path both use cases already handle. There is
+        no fallback: not 1, not the entry price, not the last price seen."""
         remembered = self._reference_prices.pop(order.client_order_id, None)
         if self._fixed_fill_price is not None:
             return self._fixed_fill_price
-        if remembered is None:
-            raise KeyError(order.client_order_id)
+        if not _is_usable(remembered):
+            raise ExchangeError(
+                "the simulated exchange cannot price this order: its alert "
+                f"carried no usable price (reference price: {remembered})"
+            )
         return remembered
 
     def _base_quantity(self, order: PlaceableOrder, price: Decimal) -> Decimal:
