@@ -16,7 +16,12 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.performance.domain.closed_trade import Direction, FillGroup
-from strategy_manager.performance.domain.operation import OperationFigures, operation_figures
+from strategy_manager.performance.domain.derive_trade import derive_trade
+from strategy_manager.performance.domain.operation import (
+    OperationFigures,
+    operation_fees,
+    operation_figures,
+)
 
 OPENED = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 CLOSED = datetime(2026, 9, 2, 11, 30, tzinfo=UTC)
@@ -129,6 +134,53 @@ def test_size_is_the_opening_quantity_when_a_base_currency_fee_makes_the_sides_d
     assert figures.size == Decimal("1000")
     assert figures.entry_price == Decimal("0.5")
     assert figures.exit_price == Decimal("0.5")
+
+
+@pytest.mark.parametrize(
+    ("open_side", "close_side", "open_notional", "close_notional", "direction"),
+    [
+        ("BUY", "SELL", "1000", "1030", Direction.LONG),
+        ("SELL", "BUY", "1000", "970", Direction.SHORT),
+    ],
+)
+def test_pnl_equals_exit_minus_entry_times_size_times_sign_minus_fees(
+    open_side: str,
+    close_side: str,
+    open_notional: str,
+    close_notional: str,
+    direction: Direction,
+) -> None:
+    a = uuid4()
+    groups = [
+        _group(
+            a,
+            side=open_side,
+            quantity="10",
+            notional=open_notional,
+            symbol="SOLUSDT.P",
+            fee="0.5",
+            at=OPENED,
+        ),
+        _group(
+            a,
+            side=close_side,
+            quantity="10",
+            notional=close_notional,
+            symbol="SOLUSDT",
+            fee="0.6",
+            at=CLOSED,
+        ),
+    ]
+    trade = derive_trade(groups)
+    assert trade is not None
+    assert trade.direction is direction
+
+    figures = operation_figures(groups, trade.direction)
+    fees = operation_fees(groups)
+
+    assert figures is not None
+    sign = Decimal(1) if direction is Direction.LONG else Decimal(-1)
+    assert (figures.exit_price - figures.entry_price) * figures.size * sign - fees.fees == trade.pnl
 
 
 def test_a_quotient_is_computed_in_a_sixty_digit_context() -> None:

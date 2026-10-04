@@ -58,7 +58,36 @@ class OperationFigures:
 
 
 def operation_fees(groups: Sequence[FillGroup]) -> OperationFees:
-    return OperationFees(fees=Decimal(0), other_fees=())
+    """The fees of ONE allocation: plain sums, nothing converted.
+
+    ``fees`` is every fee charged in the pool's settlement currency, on both
+    sides: exactly the amount ``derive_trade`` subtracts from the PnL.
+    ``other_fees`` is one entry per other fee currency whose sum is above zero,
+    sorted by currency. Currencies are compared and reported upper-cased, as
+    ``derive_trade`` compares them.
+
+    It does not decide ``fees_complete``: a fee in the base currency is listed
+    here and leaves the flag true (it is already inside the PnL), a fee in a
+    third currency is listed and makes the flag false, both as ``derive_trade``
+    already decides.
+    """
+    settlement = groups[0].settlement_currency.upper()
+    settlement_fees = _ZERO
+    other: dict[str, Decimal] = {}
+    for group in groups:
+        currency = group.fee_currency.upper()
+        if currency == settlement:
+            settlement_fees += group.fee
+        else:
+            other[currency] = other.get(currency, _ZERO) + group.fee
+    return OperationFees(
+        fees=settlement_fees,
+        other_fees=tuple(
+            FeeAmount(currency=currency, amount=amount)
+            for currency, amount in sorted(other.items())
+            if amount > _ZERO
+        ),
+    )
 
 
 def _opening_side(direction: Direction) -> str:
