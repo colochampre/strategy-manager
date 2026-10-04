@@ -10,7 +10,6 @@ import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { TradesTable } from "@/features/strategies/TradesTable";
-import { WebhookMessage } from "@/features/strategies/WebhookMessage";
 import { ApiError } from "@/shared/api/client";
 import { useStrategy } from "@/shared/api/strategies";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
@@ -18,8 +17,8 @@ import { useExchangeScope } from "@/shared/scope/exchange-store";
 /**
  * One strategy. The left column is its header and uptime, its performance (the
  * Overview's ledger line, chart and month grid for this strategy, then the By
- * pair table), its closed trades and, last, the webhook block, as in
- * Strategy.dc.html. The settings column holds the allowed-pairs editor, the
+ * pair table) and its closed trades. The webhook block is a disclosure
+ * opened from the header (decision: 12f.8 superseded). The settings column holds the allowed-pairs editor, the
  * enable switch, that switch's history and, last, the archive control. The delete control has its
  * own block at the very bottom, below archive (design addendum 9x § H): a
  * different act, never beside the switch.
@@ -70,7 +69,6 @@ export function StrategyDetailPage() {
           <StrategyHeader strategy={subject} />
           <StrategyPerformance key={subject.id} strategyId={subject.id} />
           <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
-          <WebhookMessage strategyId={subject.id} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}

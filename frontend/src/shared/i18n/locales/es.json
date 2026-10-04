@@ -228,6 +228,7 @@
       }
     },
     "webhook": {
+      "open": "Conectar una alerta de TradingView",
       "title": "Conectar una alerta de TradingView",
       "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje.",
       "urlLabel": "URL del webhook",

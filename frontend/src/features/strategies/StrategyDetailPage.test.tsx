@@ -242,9 +242,10 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
   });
 
-  it("shows the webhook message of the loaded strategy, with its id as signal_type, above the delete control", async () => {
+  it("shows the webhook message of the loaded strategy, with its id as signal_type, once it is opened from the header, above the delete control", async () => {
     renderPage();
     await heading("ETH Breakout");
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.webhook.open }));
 
     const message = screen.getByRole("group", { name: en.strategies.webhook.messageLabel });
     expect(JSON.parse(message.textContent ?? "")).toMatchObject({ signal_type: ID });
@@ -253,28 +254,28 @@ describe("StrategyDetailPage", () => {
     expect(message.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("test_left_column_runs_performance_by_pair_trades_and_ends_with_the_webhook_block", async () => {
+  // Was test_left_column_runs_performance_by_pair_trades_and_ends_with_the_webhook_block: the webhook block
+  // left the column's end for a disclosure in the header (it supersedes the placement of 12f.8).
+  it("test_left_column_runs_performance_by_pair_and_trades_and_holds_no_webhook_block_until_it_is_opened", async () => {
     renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
     await heading("ETH Breakout");
-
-    const webhook = await screen.findByRole("heading", { name: en.strategies.webhook.title });
-    const column = (webhook.closest("section") as HTMLElement).parentElement as HTMLElement;
-    // Last in the left column (Strategy.dc.html), after the By pair table, and never in the settings column.
-    expect(column.lastElementChild).toBe(webhook.closest("section"));
-    expect(screen.getByRole("complementary", { name: en.strategies.detail.settings })).not.toContainElement(webhook);
 
     const titles = [
       await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
       await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
       await screen.findByRole("heading", { name: en.strategies.performance.trades.title }),
-      webhook,
     ];
+    const column = (titles[2] as HTMLElement).closest("section")?.parentElement as HTMLElement;
     for (const title of titles) expect(column).toContainElement(title);
     for (let index = 1; index < titles.length; index += 1) {
       const previous = titles[index - 1] as HTMLElement;
       const next = titles[index] as HTMLElement;
       expect(previous.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+    // The closed trades are now the last block of the column, and the webhook block is closed.
+    expect(column.lastElementChild).toContainElement(titles[2] as HTMLElement);
+    expect(screen.queryByRole("heading", { name: en.strategies.webhook.title })).toBeNull();
+    expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive", async () => {
@@ -338,7 +339,7 @@ describe("StrategyDetailPage", () => {
 
     expect(await screen.findByText(en.strategies.performance.error)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
-    expect(screen.getByRole("heading", { name: en.strategies.webhook.title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toBeEnabled();
   });
 
   it("renders in Spanish and has the same keys in both locales", async () => {

@@ -138,9 +138,12 @@ describe("WebhookMessage", () => {
       `/strategies/${ID}`,
     );
     await screen.findByRole("heading", { level: 1, name: "ETH Breakout" });
+    fireEvent.click(screen.getByRole("button", { name: "Connect a TradingView alert" }));
     const secretRequests = () => requests.filter((request) => request.includes("webhook-secret"));
 
-    const others = screen.getAllByRole("button").filter((button) => button.textContent !== "Show secret");
+    const others = screen
+      .getAllByRole("button")
+      .filter((button) => !["Show secret", "Connect a TradingView alert"].includes(button.textContent ?? ""));
     expect(others.length).toBeGreaterThan(3);
     for (const button of others) {
       fireEvent.click(button);
