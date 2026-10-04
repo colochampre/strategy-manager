@@ -136,4 +136,19 @@ def operation_figures(groups: Sequence[FillGroup], direction: Direction) -> Oper
 
 
 def sides_overlap(groups: Sequence[FillGroup], direction: Direction) -> bool:
-    return False
+    """Whether the opening side's last fill is NOT strictly earlier than the
+    closing side's first fill.
+
+    An allocation is closed whole, after it is open, so the system cannot
+    produce an overlap; the check exists so that a ledger that did produce one
+    is noticed. A tie counts: ``derive_trade`` breaks it in favour of BUY, so
+    which side opened would rest on that tie-break alone.
+    """
+    opening_side = _opening_side(direction)
+    opening = [group for group in groups if group.side == opening_side]
+    closing = [group for group in groups if group.side != opening_side]
+    if not opening or not closing:
+        return False
+    opening_last = max(group.last_filled_at for group in opening)
+    closing_first = min(group.first_filled_at for group in closing)
+    return not opening_last < closing_first
