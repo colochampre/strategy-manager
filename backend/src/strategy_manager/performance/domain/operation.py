@@ -16,6 +16,7 @@ direction, entry and exit together.
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
+from enum import StrEnum
 
 from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
 from strategy_manager.performance.domain.closed_trade import Direction, FillGroup
@@ -23,6 +24,7 @@ from strategy_manager.performance.domain.closed_trade import Direction, FillGrou
 BUY = "BUY"
 SELL = "SELL"
 _ZERO = Decimal(0)
+_ONE = Decimal(1)
 
 # A quotient is taken in a wider context than the default 28 digits, so that
 # rounding to the wire's 18 places happens once, at the edge, and never twice.
@@ -55,6 +57,64 @@ class OperationFigures:
     entry_price: Decimal
     exit_price: Decimal
     size: Decimal
+
+
+class RehearsalPricing(StrEnum):
+    """How a rehearsal operation's opening fills were priced, told from stored
+    data alone (design.md, addendum "a strategy's operations", section C).
+
+    ``FIXED_ONE``      every opening fill is priced exactly 1 and the alert's
+                       price is not 1.
+    ``ALERT``          every opening fill is priced exactly at the alert's price
+                       (which includes an alert of exactly 1).
+    ``UNDETERMINED``   anything else: no claim about the price is made.
+    """
+
+    FIXED_ONE = "FIXED_ONE"
+    ALERT = "ALERT"
+    UNDETERMINED = "UNDETERMINED"
+
+
+@dataclass(frozen=True, slots=True)
+class SidePrices:
+    """The lowest and highest ``price`` among the fills of one side."""
+
+    lowest: Decimal
+    highest: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PricingFacts:
+    """What the ledger and the signal say about one rehearsal operation's
+    prices: the price its alert carried and the price range of each side's
+    fills, or ``None`` for a side with no fill."""
+
+    alert_price: Decimal
+    buy: SidePrices | None
+    sell: SidePrices | None
+
+
+def classify_rehearsal_pricing(direction: Direction, facts: PricingFacts) -> RehearsalPricing:
+    """How the OPENING fills of a rehearsal operation were priced.
+
+    Compares the fills' own ``price`` with the alert's price by exact
+    ``Decimal`` equality, never a derived average. Only the opening side is
+    read: a closing fill has no guaranteed path to its alert, and a position
+    opened at 1 and closed at the alert's price is still not a result.
+
+    An alert priced exactly 1 reads ``ALERT``: a fixed-price fill and an
+    alert-priced one are then the same row in every column, and 1 IS the
+    alert's price. Opening fills at more than one price, a price that is
+    neither, or a side with no fill read ``UNDETERMINED``, never a guess.
+    """
+    opening = facts.buy if direction is Direction.LONG else facts.sell
+    if opening is None or opening.lowest != opening.highest:
+        return RehearsalPricing.UNDETERMINED
+    if opening.lowest == facts.alert_price:
+        return RehearsalPricing.ALERT
+    if opening.lowest == _ONE:
+        return RehearsalPricing.FIXED_ONE
+    return RehearsalPricing.UNDETERMINED
 
 
 def operation_fees(groups: Sequence[FillGroup]) -> OperationFees:
