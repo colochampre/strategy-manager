@@ -18,16 +18,21 @@ class FakeFillsSource:
         groups: list[FillGroup],
         rehearsal_fill_count: int = 0,
         rehearsal_by_strategy: dict[UUID, int] | None = None,
+        rehearsal_groups: list[FillGroup] | None = None,
     ) -> None:
         self._groups = groups
         self._rehearsal_fill_count = rehearsal_fill_count
         self._rehearsal_by_strategy = tuple((rehearsal_by_strategy or {}).items())
+        self._rehearsal_groups = tuple(rehearsal_groups or ())
         self.asked: list[PoolKey] = []
 
     async def pool_fills(self, pool: PoolKey) -> PoolFills:
         self.asked.append(pool)
         return PoolFills(
-            tuple(self._groups), self._rehearsal_fill_count, self._rehearsal_by_strategy
+            tuple(self._groups),
+            self._rehearsal_fill_count,
+            self._rehearsal_by_strategy,
+            self._rehearsal_groups,
         )
 
 

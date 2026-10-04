@@ -220,3 +220,25 @@ async def test_an_empty_ledger_returns_the_empty_result_not_an_error() -> None:
     assert report.curve == ()
     assert report.closed_trade_count == 0
     assert report.total_pnl == Decimal("0")
+
+
+async def test_the_pool_report_is_identical_with_and_without_rehearsal_groups() -> None:
+    """Rehearsal groups reach no total (design addendum, section C): the whole
+    report, so the curve, the monthly grid, the ranges and the exclusions, is
+    the same value for a ledger that also holds a closed and an open dry-run
+    operation."""
+    live = _closed_trade("20") + _closed_trade("-4", capital="1010")
+    closed_dry = [replace(g, rehearsal=True) for g in _closed_trade("500")]
+    open_dry = [replace(_group(uuid4(), "BUY", "100"), rehearsal=True)]
+
+    without = await ReadPoolPerformance(
+        FakeFillsSource(live, rehearsal_fill_count=3), FixedClock(NOW)
+    ).read(POOL)
+    with_rehearsal = await ReadPoolPerformance(
+        FakeFillsSource(live, rehearsal_fill_count=3, rehearsal_groups=closed_dry + open_dry),
+        FixedClock(NOW),
+    ).read(POOL)
+
+    assert without.closed_trade_count == 2
+    assert without.total_pnl == Decimal("16")
+    assert with_rehearsal == without

@@ -14,7 +14,7 @@ opened as ``SOLUSDT.P`` and closed as ``SOLUSDT``.
 """
 
 import logging
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -27,6 +27,7 @@ from strategy_manager.performance.application.read_strategy_performance import (
     ReadStrategyPerformance,
 )
 from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.curve import Exclusions
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.performance.fakes import FakeFillsSource, FixedClock
@@ -290,3 +291,61 @@ async def test_missing_capital_is_info_and_a_clean_strategy_logs_nothing(
         await _read(FakeFillsSource(_closed(S1, "7", capital=None)))
     assert [r.levelno for r in caplog.records] == [logging.INFO]
     assert "no capital at open" in caplog.records[0].getMessage()
+
+
+async def test_the_strategy_report_is_identical_with_and_without_rehearsal_groups() -> None:
+    """Rehearsal groups reach no total (design addendum, section C): the whole
+    strategy report, so the curve, the ranges and by-pair included, is the same
+    value for a ledger that also holds a closed and an open dry-run operation of
+    the strategy."""
+    live = _closed(S1, "20") + _closed(S1, "-4", at=DAY2, capital="1010", pair="STXUSDT")
+    closed_dry = [replace(g, rehearsal=True) for g in _closed(S1, "500", pair="STXUSDT")]
+    open_dry = [replace(_group(S1, uuid4(), "BUY", "100"), rehearsal=True)]
+
+    without = await _read(FakeFillsSource(live, rehearsal_by_strategy={S1: 3}))
+    with_rehearsal = await _read(
+        FakeFillsSource(
+            live, rehearsal_by_strategy={S1: 3}, rehearsal_groups=closed_dry + open_dry
+        )
+    )
+
+    assert without.performance.closed_trade_count == 2
+    assert without.performance.total_pnl == Decimal("16")
+    assert [p.pair for p in without.by_pair] == ["SOLUSDT", "STXUSDT"]
+    assert with_rehearsal == without
+
+
+async def test_excluded_rehearsal_fill_count_still_counts_every_rehearsal_fill_of_the_scope() -> (
+    None
+):
+    """4 fills of a closed rehearsal allocation, 1 of an open one and 2 inside a
+    mixed one are 7 rehearsal fills; the count is the source's, the rehearsal
+    groups change no other figure, and ``excluded`` gains no key."""
+    mixed = uuid4()
+    live_leg_of_the_mixed_allocation = _group(S1, mixed, "BUY", "100")
+    rehearsal_leg_of_the_mixed_allocation = replace(
+        _group(S1, mixed, "SELL", "100", symbol="SOLUSDT"), rehearsal=True
+    )
+    closed_dry = [replace(g, rehearsal=True) for g in _closed(S1, "500")]
+    open_dry = replace(_group(S1, uuid4(), "BUY", "100"), rehearsal=True)
+
+    report = await _read(
+        FakeFillsSource(
+            [live_leg_of_the_mixed_allocation],
+            rehearsal_by_strategy={S1: 7},
+            rehearsal_groups=[*closed_dry, open_dry, rehearsal_leg_of_the_mixed_allocation],
+        )
+    )
+
+    exclusions = report.performance.exclusions
+    assert exclusions.rehearsal_fill_count == 7
+    assert exclusions.open_trade_count == 1
+    assert report.performance.closed_trade_count == 0
+    assert report.performance.total_pnl == Decimal("0")
+    assert [f.name for f in fields(Exclusions)] == [
+        "open_trade_count",
+        "rehearsal_fill_count",
+        "no_capital_at_open",
+        "unconverted_fee",
+        "unresolved_allocation_count",
+    ]
