@@ -17,13 +17,14 @@ it.
 
 import logging
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.application.close_position import CloseCommand
+from strategy_manager.execution.application.place_order import PlaceCommand
 from strategy_manager.execution.application.ports import OpenOrderSpec
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
@@ -32,6 +33,11 @@ from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from tests.signals.infrastructure import test_order_outcomes_integration as order_h
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
+from tests.signals.infrastructure.conftest import (
+    seed_reservation,
+    seed_signal_row,
+    seed_strategy,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -257,3 +263,62 @@ async def test_an_order_the_exchange_did_not_build_is_refused_and_an_opening_res
     assert record.name == _PLACE_LOGGER
     assert "order rejected by venue" in record.getMessage()
     assert "the simulated exchange cannot price this order" in record.getMessage()
+
+
+async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_reservation_and_rejects_the_signal(  # noqa: E501
+    pg_session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
+) -> None:
+    """``ETHBTC`` for pool ``(binance, usdt-m, USDT)``, ``PlaceOrder`` driven
+    directly as ``test_order_outcomes_integration`` does. Nothing before
+    ``place`` refuses the market, so the simulated exchange's own check is what
+    this reaches."""
+    caplog.set_level(logging.WARNING)
+    strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
+    async with pg_session_factory() as session:
+        # The ORM test database seeds Bybit's pool only.
+        await session.execute(
+            text(
+                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size)"
+                " VALUES ('binance', 'usdt-m', 'USDT', 1) ON CONFLICT DO NOTHING"
+            )
+        )
+        await session.commit()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id, exchange="binance")
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"open-{signal_id}",
+        symbol="ETHBTC",
+    )
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        exchange="binance",
+        status="PENDING",
+        expires_at=order_h._NOW + order_h.timedelta(hours=1),
+    )
+    exchange = FakeExchangeAdapter(exchange="binance", fee_rate=Decimal("0.0005"))
+
+    async with pg_session_factory() as session:
+        commit = order_h._FaultyCommit(session, fail_on=None)
+        await order_h._place_order(session, commit, exchange).place(
+            PlaceCommand(
+                reservation_id=reservation_id,
+                symbol="ETHBTC",
+                side=OrderSide.BUY,
+                price=Decimal("0.05"),
+            )
+        )
+
+    signal = await order_h._signal(pg_session_factory, signal_id)
+    assert (signal.status, signal.outcome_reason) == ("REJECTED", "ORDER_REJECTED_BY_VENUE")
+    assert (await order_h._reservation(pg_session_factory, reservation_id)).status == "RELEASED"
+    assert await _ledger_rows(pg_session_factory) == 0
+    [record] = _errors(caplog)
+    assert record.name == _PLACE_LOGGER
+    assert "order rejected by venue" in record.getMessage()
+    assert "charges its fee in USDT" in record.getMessage()
+    assert "not quoted in it" in record.getMessage()
