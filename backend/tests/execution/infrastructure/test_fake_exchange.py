@@ -909,3 +909,66 @@ async def test_a_zero_rate_charges_nothing() -> None:
     assert opened.fee == Decimal("0")
     assert closed.fee == Decimal("0")
     assert opened.fee_currency == closed.fee_currency == "USDT"
+
+
+# ---- a market not quoted in USDT is refused, not charged (design § E) ----------
+#
+# The fee is charged in USDT and only the two USDT-M rates are verified (rule 7:
+# a fee is never converted). The adapter is handed a symbol and never the pool,
+# so what it can check is the market.
+
+
+@pytest.mark.parametrize("symbol", ["ETHBTC", "BTCUSD"])
+async def test_a_market_not_quoted_in_usdt_is_refused_in_place(symbol: str) -> None:
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+    order = await adapter.build_open_order(
+        OpenOrderSpec(
+            side=OrderSide.BUY,
+            client_order_id="open-1",
+            symbol=symbol,
+            granted=Decimal("564"),
+            price=Decimal("0.4512"),
+        )
+    )
+
+    raised = await _place_capturing(adapter, order)
+
+    assert type(raised) is ExchangeError
+    message = str(raised)
+    assert "charges its fee in USDT" in message
+    assert "not quoted in it" in message
+    assert symbol in message
+    with pytest.raises(OrderNotFound):
+        await adapter.fetch_fills("open-1", symbol)
+
+
+@pytest.mark.parametrize("symbol", ["STXUSDT", "STXUSDT.P", "STX_USDT", "STX_USDT_PERP"])
+async def test_each_usdt_spelling_is_filled_and_charged(symbol: str) -> None:
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+
+    fill = await _open_and_fill(
+        adapter, symbol=symbol, side=OrderSide.BUY, price=Decimal("0.4512")
+    )
+
+    assert fill.price == Decimal("0.4512")
+    assert fill.fee == (fill.quantity * Decimal("0.4512") * BYBIT_RATE).quantize(Decimal("1e-18"))
+    assert fill.fee > 0
+    assert fill.fee_currency == "USDT"
+
+
+async def test_a_refused_order_leaves_nothing_remembered() -> None:
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+    order = await adapter.build_open_order(
+        OpenOrderSpec(
+            side=OrderSide.BUY,
+            client_order_id="open-1",
+            symbol="ETHBTC",
+            granted=Decimal("564"),
+            price=Decimal("0.4512"),
+        )
+    )
+
+    raised = await _place_capturing(adapter, order)
+
+    assert type(raised) is ExchangeError
+    assert adapter._reference_prices == {}

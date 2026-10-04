@@ -26,7 +26,7 @@ from strategy_manager.execution.domain.futures_order import (
     close_futures_order,
     open_futures_order,
 )
-from strategy_manager.execution.domain.market_symbol import is_perpetual
+from strategy_manager.execution.domain.market_symbol import base_currency_of, is_perpetual
 from strategy_manager.execution.domain.order import (
     MarketBuy,
     MarketSell,
@@ -187,7 +187,10 @@ class FakeExchangeAdapter:
 
     async def place(self, order: PlaceableOrder) -> PlacedOrder:
         exchange_order_id = f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}"
+        # The price is taken (and so forgotten) first: whichever refusal follows,
+        # a refused order leaves nothing remembered.
         price = self._price_for(order)
+        self._require_a_usdt_market(order)
         base_quantity = self._base_quantity(order, price)
         self._placed[order.client_order_id] = Fill(
             exchange_order_id=exchange_order_id,
@@ -239,6 +242,21 @@ class FakeExchangeAdapter:
         """The price every order fills at, or ``None`` when each order fills at
         the price of its own alert (the production mode)."""
         return self._fixed_fill_price
+
+    @staticmethod
+    def _require_a_usdt_market(order: PlaceableOrder) -> None:
+        """The fee is charged in USDT, and no rate is verified for any other
+        currency (rule 7: a fee is never converted). The adapter is handed a
+        symbol and never the pool, so what it can check is the market: it must
+        be quoted in USDT, in any of the spellings ``STXUSDT``, ``STXUSDT.P``,
+        ``STX_USDT`` and ``STX_USDT_PERP``."""
+        try:
+            base_currency_of(order.symbol, SIMULATED_FEE_CURRENCY)
+        except InvariantViolation as exc:
+            raise ExchangeError(
+                f"the simulated exchange charges its fee in {SIMULATED_FEE_CURRENCY} and "
+                f"the market {order.symbol!r} is not quoted in it: {exc}"
+            ) from exc
 
     def _fee_of(self, quantity: Decimal, price: Decimal) -> Decimal:
         """``quantity x price x rate``, in the fee currency, charged on the
