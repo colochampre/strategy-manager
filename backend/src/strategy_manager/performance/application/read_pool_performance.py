@@ -34,6 +34,7 @@ from strategy_manager.performance.application.ports import AllocationFillsSource
 from strategy_manager.performance.application.scope import (
     log_exclusions,
     pool_label,
+    require_live_only,
     require_single_pool,
 )
 from strategy_manager.performance.domain.curve import PoolPerformance, build_pool_performance
@@ -51,6 +52,7 @@ class ReadPoolPerformance:
     async def read(self, pool: PoolKey) -> PoolPerformance:
         pool_fills = await self._fills.pool_fills(pool)
         require_single_pool(pool, pool_fills.groups)
+        require_live_only(pool_fills.groups)
 
         derived = derive_trades(pool_fills.groups)
         report = build_pool_performance(

@@ -14,6 +14,7 @@ opened as ``SOLUSDT.P`` and closed as ``SOLUSDT``.
 """
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -133,6 +134,21 @@ async def test_strategy_stats_scoped_to_its_own_pool_settlement_currency() -> No
     assert report.performance.pool.settlement_currency is Currency.USDT
     assert report.performance.total_pnl == Decimal("20")
     assert report.performance.closed_trade_count == 1
+
+
+async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_refused() -> None:
+    """The second wall (design addendum, section C): a rehearsal group in the
+    live set never reaches a figure, even when it would close a trade."""
+    groups = _closed(S1, "20")
+    groups[0] = replace(groups[0], rehearsal=True)
+
+    raised: BaseException | None = None
+    try:
+        await _read(FakeFillsSource(groups))
+    except Exception as error:
+        raised = error
+
+    assert type(raised) is InvariantViolation
 
 
 @pytest.mark.parametrize(

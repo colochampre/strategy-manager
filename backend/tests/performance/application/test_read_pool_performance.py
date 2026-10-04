@@ -10,6 +10,7 @@ opened as ``SOLUSDT.P`` and closed as ``SOLUSDT`` (a booked close).
 """
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -115,6 +116,22 @@ async def test_a_source_that_returns_another_pools_rows_is_refused() -> None:
 
     with pytest.raises(InvariantViolation):
         await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+
+
+async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_refused() -> None:
+    """The second wall (design addendum, section C): a rehearsal group in the
+    live set never reaches a figure, even when it would close a trade."""
+    groups = _closed_trade("20")
+    groups[0] = replace(groups[0], rehearsal=True)
+    source = FakeFillsSource(groups)
+
+    raised: BaseException | None = None
+    try:
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+    except Exception as error:
+        raised = error
+
+    assert type(raised) is InvariantViolation
 
 
 async def test_a_stray_row_is_refused_even_when_it_would_only_count_as_open() -> None:
