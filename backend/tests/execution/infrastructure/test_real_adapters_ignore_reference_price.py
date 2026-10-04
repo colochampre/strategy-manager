@@ -15,7 +15,7 @@ venue's bare ``STXUSDT`` must come out.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from decimal import Decimal
 from typing import Any
 
@@ -23,12 +23,17 @@ import httpx
 import pytest
 
 from strategy_manager.execution.application.ports import CloseOrderSpec
-from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
+from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderSide
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     BinanceFuturesExchangeAdapter,
 )
 from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
+)
+from strategy_manager.execution.infrastructure.pionex_exchange import PionexExchangeAdapter
+from strategy_manager.execution.infrastructure.pionex_futures_exchange import (
+    PionexFuturesExchangeAdapter,
 )
 from strategy_manager.shared.infrastructure.binance.read_client import EXCHANGE_INFO_PATH
 from strategy_manager.shared.infrastructure.binance.trade_client import (
@@ -47,6 +52,18 @@ from strategy_manager.shared.infrastructure.bybit.trade_client import (
     CREATE_ORDER_PATH as BYBIT_ORDER_PATH,
 )
 from strategy_manager.shared.infrastructure.bybit.trade_client import BybitTradeClient
+from tests.execution.infrastructure.test_binance_futures_exchange import (
+    FakeTradeClient as BinanceFakeTradeClient,
+)
+from tests.execution.infrastructure.test_bybit_futures_exchange import (
+    FakeTradeClient as BybitFakeTradeClient,
+)
+from tests.execution.infrastructure.test_pionex_exchange import (
+    FakeTradeClient as PionexFakeTradeClient,
+)
+from tests.execution.infrastructure.test_pionex_futures_exchange import (
+    FakeFuturesClient as PionexFakeFuturesClient,
+)
 from tests.shared.infrastructure.binance.test_futures_rules import AAVE
 from tests.shared.infrastructure.binance.test_trade_client import _signer as binance_signer
 from tests.shared.infrastructure.bybit.conftest import (
@@ -239,3 +256,91 @@ async def test_the_price_itself_appears_in_no_request() -> None:
     for request in [*bybit, *binance]:
         assert b"9999999.5" not in request.body
         assert "9999999.5" not in request.url
+
+
+# ---- built orders and recorded client calls, for the four adapters that exist ----
+#
+# Each goes through the fake trade client its OWN suite defines, which records
+# every call the adapter makes. The unregistered Pionex pair is covered here
+# only (it has no wire test: nothing registers it), with its own spelling.
+
+
+@pytest.mark.parametrize("price", PRICES)
+async def test_bybit_builds_equal_orders_and_records_identical_calls_with_and_without_a_reference_price(  # noqa: E501
+    price: Decimal,
+) -> None:
+    runs = []
+    for reference_price in (None, price):
+        client = BybitFakeTradeClient()
+        adapter = BybitFuturesExchangeAdapter(client)  # type: ignore[arg-type]
+        order = await adapter.build_close_order(_close_spec(reference_price))
+        await adapter.place(order)
+        runs.append((order, client.orders))
+
+    assert runs[1][0] == runs[0][0]
+    assert runs[1][1] == runs[0][1]
+    assert len(runs[0][1]) == 1
+
+
+@pytest.mark.parametrize("price", PRICES)
+async def test_binance_builds_equal_orders_and_records_identical_calls_with_and_without_a_reference_price(  # noqa: E501
+    price: Decimal,
+) -> None:
+    runs = []
+    for reference_price in (None, price):
+        client = BinanceFakeTradeClient()
+        adapter = BinanceFuturesExchangeAdapter(client)  # type: ignore[arg-type]
+        order = await adapter.build_close_order(_close_spec(reference_price))
+        await adapter.place(order)
+        runs.append((order, client.orders, client.leverage_reads, client.lookups))
+
+    assert runs[1] == runs[0]
+    assert len(runs[0][1]) == 1
+
+
+@pytest.mark.parametrize("price", PRICES)
+async def test_pionex_spot_builds_equal_orders_and_records_identical_calls_with_and_without_a_reference_price(  # noqa: E501
+    price: Decimal,
+) -> None:
+    runs = []
+    for reference_price in (None, price):
+        client = PionexFakeTradeClient()
+        adapter = PionexExchangeAdapter(client)  # type: ignore[arg-type]
+        spec = replace(_close_spec(reference_price), symbol="STXUSDT_PERP")
+        order = await adapter.build_close_order(spec)
+        await adapter.place(order)
+        runs.append((order, client.sells, client.buys))
+
+    assert runs[1] == runs[0]
+    assert len(runs[0][1]) == 1
+
+
+@pytest.mark.parametrize("price", PRICES)
+async def test_pionex_futures_builds_equal_orders_and_records_identical_calls_with_and_without_a_reference_price(  # noqa: E501
+    price: Decimal,
+) -> None:
+    runs = []
+    for reference_price in (None, price):
+        client = PionexFakeFuturesClient()
+        adapter = PionexFuturesExchangeAdapter(client)  # type: ignore[arg-type]
+        spec = replace(_close_spec(reference_price), symbol="STXUSDT_PERP")
+        order = await adapter.build_close_order(spec)
+        await adapter.place(order)
+        runs.append((order, client.orders))
+
+    assert runs[1] == runs[0]
+    [recorded] = runs[0][1]
+    # The client's own ``reference_price`` is the venue's minimum-notional
+    # guard, a different thing: a close has none, whatever the spec carried.
+    assert recorded["reference_price"] is None
+
+
+def test_no_order_type_a_real_adapter_sends_carries_a_price() -> None:
+    """The reference price cannot ride on the order, so it cannot be sent: no
+    order type has a place to put it. A price on an order is one edit away
+    from a limit order."""
+    for order_type in (MarketBuy, MarketSell, FuturesMarketOrder):
+        names = {field.name for field in fields(order_type)}
+        assert names, order_type
+        assert "price" not in names
+        assert "reference_price" not in names
