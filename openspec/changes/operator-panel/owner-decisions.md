@@ -252,6 +252,13 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **By pair: a WIN RATE column is built**, which needs the backend to serve it. **The OPEN column of the mockup is dropped.**
     - **Closed trades are paged 20 rows at a time**, on a click. Nothing loads on scroll.
     - **In Spanish the side reads "LONG" and "SHORT"**, as the exchanges show it, not "Largo" and "Corto". The chart's title, "Contribution to the pool, compounded", stays.
+45. **The simulated exchange fills an order at the alert's price** (2026-10-04, owner, answering design addendum "decision 43" § L, Q3).
+    - Today `FakeExchangeAdapter` fills every order at a fixed price of 1 with a fee of 0, and production builds it with that default. A dry-run operation therefore reads entry 1, exit 1, fees 0, PnL 0: it says that the strategy acted, when and on which pair, and nothing about price or result.
+    - From this decision on, a dry-run fill is priced at the price the alert carried, so a dry-run operation shows a simulated result.
+    - Why now: the ledger is append-only, so a fill written at 1 stays at 1. Every day of dry run without this is price history that cannot be recovered, as with the USD rate at fill time (rule 7). Production runs with `DRY_RUN=true`.
+    - It is its own unit, with its own design, before or beside the operations list of decision 43. It touches the `execution` module, not the performance read.
+    - It does not reprice anything already in the ledger: the dry-run fills written before it stay at 1.
+    - Status: decided, NOT designed or implemented yet. To settle in its design: the fee a simulated fill carries, and what fills an order whose alert carries no usable price.
 
 ## Standing constraints
 
