@@ -16,6 +16,7 @@ opened as ``STXUSDT.P`` and closed as ``STXUSDT``.
 """
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -322,3 +323,185 @@ async def test_an_unresolvable_symbol_is_a_warning_and_a_clean_page_is_silent(
     assert _ids(page) == [_id(1)]
     assert [r.levelno for r in caplog.records] == [logging.WARNING]
     assert str(bad) in caplog.records[0].getMessage()
+
+
+# --- rehearsal operations, on request (design addendum "a strategy's operations",
+# sections C and E; tasks 9p.4.15 and 9p.4.16) ---------------------------------
+
+
+def _rehearsal_closed(
+    allocation_id: UUID,
+    closed_at: datetime,
+    *,
+    strategy_id: UUID = S1,
+    pnl: str = "0",
+    capital: str | None = "1000",
+) -> list[FillGroup]:
+    """A closed round trip written by the simulated exchange. Opened as Pionex's
+    ``STXUSDT_PERP`` and closed as TradingView's ``STXUSDT.P``."""
+    opened = closed_at - timedelta(hours=1)
+    return [
+        replace(
+            _group(
+                strategy_id, allocation_id, "BUY", "100",
+                symbol="STXUSDT_PERP", at=opened, capital=capital,
+            ),
+            rehearsal=True,
+        ),
+        replace(
+            _group(
+                strategy_id, allocation_id, "SELL", str(Decimal("100") + Decimal(pnl)),
+                symbol="STXUSDT.P", at=closed_at, capital=capital,
+            ),
+            rehearsal=True,
+        ),
+    ]
+
+
+def _flags(page: TradesPage) -> list[bool]:
+    return [item.rehearsal for item in page.trades]
+
+
+async def test_include_rehearsal_lists_the_closed_rehearsal_operations_marked() -> None:
+    source = FakeFillsSource(
+        _closed(_id(1), T0),
+        rehearsal_groups=_rehearsal_closed(_id(2), T0 + timedelta(minutes=1)),
+    )
+
+    page = await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+
+    assert len(page.trades) == 2
+    assert _ids(page) == [_id(2), _id(1)]
+    assert _flags(page) == [True, False]
+    assert [item.trade.pair for item in page.trades] == ["STXUSDT", "STXUSDT"]
+
+
+async def test_a_rehearsal_only_strategy_lists_its_operations() -> None:
+    source = FakeFillsSource(
+        [],
+        rehearsal_fill_count=4,
+        rehearsal_by_strategy={S1: 4},
+        rehearsal_groups=_rehearsal_closed(_id(1), T0) + _rehearsal_closed(_id(2), T0),
+    )
+
+    page = await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+
+    assert _ids(page) == [_id(2), _id(1)]
+    assert _flags(page) == [True, True]
+
+
+async def test_the_default_request_serves_no_rehearsal_row() -> None:
+    source = FakeFillsSource(
+        _closed(_id(1), T0),
+        rehearsal_groups=_rehearsal_closed(_id(2), T0 + timedelta(minutes=1)),
+    )
+    reader = ReadStrategyTrades(source)
+
+    default = await reader.read(S1, POOL)
+    explicit_off = await reader.read(S1, POOL, include_rehearsal=False)
+
+    assert _ids(default) == [_id(1)]
+    assert _flags(default) == [False]
+    assert default == explicit_off
+
+
+async def test_a_mixed_allocation_is_listed_once_from_its_real_fills_and_one_warning_names_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mixed = _id(5)
+    source = FakeFillsSource(
+        _closed(mixed, T0) + _closed(_id(1), T0 - timedelta(hours=3)),
+        rehearsal_groups=_rehearsal_closed(mixed, T0 + timedelta(hours=2))
+        + _rehearsal_closed(_id(2), T0 - timedelta(hours=2)),
+    )
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        page = await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "bybit/usdt-m/USDT" in message
+    assert str(S1) in message
+    assert str(mixed) in message
+    assert str(_id(2)) not in message
+    assert _ids(page) == [mixed, _id(2), _id(1)]
+    assert _flags(page) == [False, True, False]
+    assert page.trades[0].trade.closed_at == T0
+
+
+async def test_a_real_and_a_rehearsal_operation_closing_at_the_same_instant_straddle_a_page_edge_and_each_is_served_once() -> (  # noqa: E501
+    None
+):
+    """Two operations close at the same instant and the page size is one, so the
+    page edge falls between them: the higher allocation id first, whichever kind
+    it is. Each is served exactly once."""
+    source = FakeFillsSource(
+        _closed(_id(1), T0),
+        rehearsal_groups=_rehearsal_closed(_id(2), T0),
+    )
+    reader = ReadStrategyTrades(source)
+
+    first = await reader.read(S1, POOL, limit=1, include_rehearsal=True)
+    assert first.next_cursor is not None
+    second = await reader.read(
+        S1, POOL, limit=1, before=first.next_cursor, include_rehearsal=True
+    )
+
+    assert (_ids(first), _flags(first)) == ([_id(2)], [True])
+    assert (_ids(second), _flags(second)) == ([_id(1)], [False])
+    assert second.next_cursor is None
+
+
+async def test_a_cursor_minted_without_rehearsal_rows_resumes_correctly_with_them() -> None:
+    """The cursor is a position in one total order, so a cursor minted by a
+    request that did not ask for rehearsal rows resumes the list that does: the
+    rehearsal operation newer than it is not repeated, the older one is served."""
+    real = _closed(_id(1), T0 + timedelta(hours=2)) + _closed(_id(2), T0)
+    rehearsal = _rehearsal_closed(_id(3), T0 + timedelta(hours=5)) + _rehearsal_closed(
+        _id(4), T0 + timedelta(hours=1)
+    )
+    reader = ReadStrategyTrades(FakeFillsSource(real, rehearsal_groups=rehearsal))
+
+    minted = await reader.read(S1, POOL, limit=1)
+    assert minted.next_cursor is not None
+    resumed = await reader.read(S1, POOL, before=minted.next_cursor, include_rehearsal=True)
+
+    assert _ids(minted) == [_id(1)]
+    assert _ids(resumed) == [_id(4), _id(2)]
+    assert _flags(resumed) == [True, False]
+
+
+async def test_a_rehearsal_operation_still_open_is_not_listed() -> None:
+    open_rehearsal = [
+        replace(
+            _group(S1, _id(7), "BUY", "100", symbol="STXUSDT_PERP", at=T0),
+            rehearsal=True,
+        )
+    ]
+    source = FakeFillsSource(
+        [],
+        rehearsal_groups=open_rehearsal + _rehearsal_closed(_id(8), T0 - timedelta(hours=1)),
+    )
+
+    page = await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+
+    assert _ids(page) == [_id(8)]
+
+
+async def test_a_rehearsal_row_with_a_non_positive_pool_capital_is_refused_like_a_real_one() -> (
+    None
+):
+    real = FakeFillsSource(_closed(_id(1), T0, capital="0"))
+    rehearsal = FakeFillsSource(
+        [], rehearsal_groups=_rehearsal_closed(_id(1), T0, capital="0")
+    )
+    caught: list[type[BaseException] | None] = []
+    for source in (real, rehearsal):
+        try:
+            await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+            caught.append(None)
+        except InvariantViolation:
+            caught.append(InvariantViolation)
+
+    assert caught == [InvariantViolation, InvariantViolation]

@@ -48,10 +48,14 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import AllocationFillsSourcePort
-from strategy_manager.performance.application.scope import pool_label, strategy_groups
-from strategy_manager.performance.domain.closed_trade import ClosedTrade
+from strategy_manager.performance.application.scope import (
+    pool_label,
+    require_live_only,
+    strategy_groups,
+)
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, FillGroup
 from strategy_manager.performance.domain.curve import trade_return
-from strategy_manager.performance.domain.derive_trade import derive_trades
+from strategy_manager.performance.domain.derive_trade import DerivedTrades, derive_trades
 from strategy_manager.shared.domain.errors import DomainError
 
 logger = logging.getLogger(__name__)
@@ -87,6 +91,7 @@ class TradeItem:
 
     trade: ClosedTrade
     value: Decimal | None
+    rehearsal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,36 +117,75 @@ class ReadStrategyTrades:
         *,
         limit: int = DEFAULT_PAGE_SIZE,
         before: TradeCursor | None = None,
+        include_rehearsal: bool = False,
     ) -> TradesPage:
         if not 1 <= limit <= MAX_PAGE_SIZE:
             raise InvalidPageRequest(f"limit must be 1..{MAX_PAGE_SIZE}, got {limit}")
 
         pool_fills = await self._fills.pool_fills(pool)
-        groups = strategy_groups(pool, strategy_id, pool_fills.groups)
-        derived = derive_trades(groups)
-        if derived.unresolved_allocation_ids:
+        live_groups = strategy_groups(pool, strategy_id, pool_fills.groups)
+        require_live_only(live_groups)
+        derived = derive_trades(live_groups)
+        unresolved = list(derived.unresolved_allocation_ids)
+        operations: list[tuple[ClosedTrade, bool]] = [(t, False) for t in derived.closed]
+
+        if include_rehearsal:
+            rehearsal_derived = self._rehearsal_operations(
+                pool, strategy_id, live_groups, pool_fills.rehearsal_groups
+            )
+            unresolved += rehearsal_derived.unresolved_allocation_ids
+            operations += [(t, True) for t in rehearsal_derived.closed]
+
+        if unresolved:
             logger.warning(
                 "performance %s strategy %s: %d allocation(s) skipped because the symbol "
                 "has no base currency in the pool's settlement currency, so they are "
                 "missing from the trade list: %s",
                 pool_label(pool),
                 strategy_id,
-                len(derived.unresolved_allocation_ids),
-                ", ".join(str(a) for a in derived.unresolved_allocation_ids),
+                len(unresolved),
+                ", ".join(str(a) for a in unresolved),
             )
 
-        ordered = sorted(derived.closed, key=_key, reverse=True)
+        ordered = sorted(operations, key=lambda op: _key(op[0]), reverse=True)
         if before is not None:
             after = (before.closed_at, before.allocation_id.int)
-            ordered = [t for t in ordered if _key(t) < after]
+            ordered = [op for op in ordered if _key(op[0]) < after]
 
         page = ordered[:limit]
         next_cursor = (
-            TradeCursor(page[-1].closed_at, page[-1].allocation_id)
+            TradeCursor(page[-1][0].closed_at, page[-1][0].allocation_id)
             if len(ordered) > limit
             else None
         )
         return TradesPage(
-            trades=tuple(TradeItem(trade, trade_return(trade)) for trade in page),
+            trades=tuple(
+                TradeItem(trade, trade_return(trade), rehearsal=rehearsal)
+                for trade, rehearsal in page
+            ),
             next_cursor=next_cursor,
         )
+
+    @staticmethod
+    def _rehearsal_operations(
+        pool: PoolKey,
+        strategy_id: UUID,
+        live_groups: tuple[FillGroup, ...],
+        rehearsal_groups: tuple[FillGroup, ...],
+    ) -> DerivedTrades:
+        """The closed rehearsal operations of the strategy, minus every allocation
+        that also has a live group: a mixed allocation is listed once, from its
+        real fills, and one WARNING names it (design section C)."""
+        scoped = strategy_groups(pool, strategy_id, rehearsal_groups)
+        live_ids = {group.allocation_id for group in live_groups}
+        mixed = sorted({g.allocation_id for g in scoped if g.allocation_id in live_ids}, key=str)
+        if mixed:
+            logger.warning(
+                "performance %s strategy %s: %d allocation(s) hold both live and rehearsal "
+                "fills; each is listed once, from its live fills: %s",
+                pool_label(pool),
+                strategy_id,
+                len(mixed),
+                ", ".join(str(a) for a in mixed),
+            )
+        return derive_trades(tuple(g for g in scoped if g.allocation_id not in live_ids))
