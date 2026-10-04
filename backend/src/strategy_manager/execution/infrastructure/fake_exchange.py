@@ -64,7 +64,7 @@ class FakeExchangeAdapter:
     def __init__(
         self,
         exchange: str = Exchange.BYBIT.value,
-        fill_price: Decimal = Decimal("1"),
+        fill_price: Decimal | None = None,
         book: FakeVenueBook | None = None,
         fill_latency_polls: int = 0,
         *,
@@ -87,10 +87,14 @@ class FakeExchangeAdapter:
         caller that predates it: ``fetch_fills`` reveals immediately, exactly
         as before."""
         self.exchange = exchange
-        self._fill_price = fill_price
+        self._fixed_fill_price = fill_price
         self._book = book
         self._fill_latency_polls = fill_latency_polls
         self._fee_rate = fee_rate
+        # The price each order was built with, keyed by client order id: ``place``
+        # is handed only the order, and no order type carries a price (design
+        # § B). Written by the two ``build_*`` methods, popped by ``place``.
+        self._reference_prices: dict[str, Decimal] = {}
         self._placed: dict[str, Fill] = {}
         self._signed_deltas: dict[str, Decimal] = {}
         self._fetch_calls: dict[str, int] = {}
@@ -103,8 +107,9 @@ class FakeExchangeAdapter:
         a code path that never runs live for a futures strategy, and the
         first real exercise of the futures shape would be with real money.
         """
+        order: PlaceableOrder
         if is_perpetual(spec.symbol):
-            return open_futures_order(
+            order = open_futures_order(
                 side=spec.side,
                 client_order_id=spec.client_order_id,
                 symbol=spec.symbol,
@@ -112,22 +117,30 @@ class FakeExchangeAdapter:
                 leverage=self.FAKE_LEVERAGE,
                 price=spec.price,
             )
-        return market_order(
-            side=spec.side,
-            client_order_id=spec.client_order_id,
-            symbol=spec.symbol,
-            granted=spec.granted,
-            price=spec.price,
-        )
+        else:
+            order = market_order(
+                side=spec.side,
+                client_order_id=spec.client_order_id,
+                symbol=spec.symbol,
+                granted=spec.granted,
+                price=spec.price,
+            )
+        # Remembered only once the domain accepted the order, so a refused
+        # build leaves nothing behind.
+        self._reference_prices[spec.client_order_id] = spec.price
+        return order
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        order: PlaceableOrder
         if is_perpetual(spec.symbol):
-            return close_futures_order(
+            order = close_futures_order(
                 side=spec.side,
                 client_order_id=spec.client_order_id,
                 symbol=spec.symbol,
                 base_size=spec.base_size,
             )
+            self._remember_close_price(spec)
+            return order
         if spec.side is not OrderSide.SELL:
             # Mirrors the live spot adapter: a spot market buy cannot be sized
             # in the base currency, so a dry run must refuse what production
@@ -137,20 +150,29 @@ class FakeExchangeAdapter:
                 "closing a short is not supported on spot; that position "
                 "belongs on the futures venue"
             )
-        return MarketSell(
+        order = MarketSell(
             client_order_id=spec.client_order_id,
             symbol=spec.symbol,
             base_size=spec.base_size,
         )
+        self._remember_close_price(spec)
+        return order
+
+    def _remember_close_price(self, spec: CloseOrderSpec) -> None:
+        # A close with no price remembers nothing: absent stays absent here,
+        # and ``place`` is where that is answered.
+        if spec.reference_price is not None:
+            self._reference_prices[spec.client_order_id] = spec.reference_price
 
     async def place(self, order: PlaceableOrder) -> PlacedOrder:
         exchange_order_id = f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}"
-        base_quantity = self._base_quantity(order)
+        price = self._price_for(order)
+        base_quantity = self._base_quantity(order, price)
         self._placed[order.client_order_id] = Fill(
             exchange_order_id=exchange_order_id,
             exchange_fill_id=f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}",
             quantity=base_quantity,
-            price=self._fill_price,
+            price=price,
             fee=Decimal("0"),
             fee_currency="USDT",
             filled_at=datetime.now(UTC),
@@ -191,14 +213,34 @@ class FakeExchangeAdapter:
         test picks by hand."""
         return self._fetch_calls.get(client_order_id, 0) > self._fill_latency_polls
 
-    def _base_quantity(self, order: PlaceableOrder) -> Decimal:
+    @property
+    def fixed_fill_price(self) -> Decimal | None:
+        """The price every order fills at, or ``None`` when each order fills at
+        the price of its own alert (the production mode)."""
+        return self._fixed_fill_price
+
+    def _price_for(self, order: PlaceableOrder) -> Decimal:
+        """The price this order fills at. An explicit fixed price (tests only)
+        wins; otherwise the price remembered for the order's client order id.
+
+        INTERIM (9q.10, replaced by the definitive refusal in 9q.12): an order
+        with nothing remembered raises the dict's own ``KeyError`` -- a crash,
+        never a fallback."""
+        remembered = self._reference_prices.pop(order.client_order_id, None)
+        if self._fixed_fill_price is not None:
+            return self._fixed_fill_price
+        if remembered is None:
+            raise KeyError(order.client_order_id)
+        return remembered
+
+    def _base_quantity(self, order: PlaceableOrder, price: Decimal) -> Decimal:
         """A fill is always reported in the base currency, whichever way the
         order was denominated — so a buy's quote amount is converted here at
         the fake's own fill price, exactly as a real venue would convert it at
         the real one."""
         match order:
             case MarketBuy():
-                return order.quote_amount / self._fill_price
+                return order.quote_amount / price
             case MarketSell():
                 return order.base_size
             case FuturesMarketOrder():
