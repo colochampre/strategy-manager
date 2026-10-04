@@ -4,6 +4,7 @@ Safety). ``is_live = False`` so the startup invariant never allows
 ``dry_run=false`` against it (CLAUDE.md rule 1).
 """
 
+import logging
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import TypeGuard
@@ -39,12 +40,20 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import SIMULA
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
 
+logger = logging.getLogger(__name__)
+
 # The scale of ``ledger_entries.fee`` (NUMERIC(38, 18)): a fill carries exactly
 # the value the column stores, so PostgreSQL rounds nothing.
 _FEE_SCALE = Decimal("1e-18")
 # Wide enough that no product of a quantity, a price and a rate is rounded
 # before the single quantisation to ``_FEE_SCALE``.
 _FEE_PRECISION = 60
+
+
+def _plain(value: Decimal) -> str:
+    """A decimal as plain digits for the journal: never ``1.25E+3``, never a
+    tail of 18-place zeros."""
+    return format(value.normalize(), "f")
 
 
 def _is_usable(price: Decimal | None) -> TypeGuard[Decimal]:
@@ -207,6 +216,22 @@ class FakeExchangeAdapter:
         # DRY_RUN paragraph).
         sign = Decimal("1") if order.side is OrderSide.BUY else Decimal("-1")
         self._signed_deltas[order.client_order_id] = sign * base_quantity
+        # One line per simulated fill, after it exists and never before a
+        # refusal, so the journal shows what was priced and charged from which
+        # start. Exactly these seven values: no order object, credential or
+        # payload can ride along.
+        fill = self._placed[order.client_order_id]
+        logger.info(
+            "simulated fill: exchange=%s symbol=%s side=%s quantity=%s price=%s fee=%s "
+            "client_order_id=%s",
+            self.exchange,
+            order.symbol,
+            order.side.value,
+            _plain(fill.quantity),
+            _plain(fill.price),
+            _plain(fill.fee),
+            order.client_order_id,
+        )
         return PlacedOrder(
             exchange_order_id=exchange_order_id,
             client_order_id=order.client_order_id,

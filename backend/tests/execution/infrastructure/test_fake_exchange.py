@@ -4,6 +4,7 @@ DRY_RUN paragraph: "updates only when ``FakeExchangeAdapter`` reveals a
 fill").
 """
 
+import logging
 from decimal import Decimal, InvalidOperation
 
 import pytest
@@ -972,3 +973,81 @@ async def test_a_refused_order_leaves_nothing_remembered() -> None:
 
     assert type(raised) is ExchangeError
     assert adapter._reference_prices == {}
+
+
+# ---- one INFO line per simulated fill (design § J) -----------------------------
+
+FAKE_EXCHANGE_LOGGER = "strategy_manager.execution.infrastructure.fake_exchange"
+
+
+def _fill_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if record.name == FAKE_EXCHANGE_LOGGER and record.levelno == logging.INFO
+    ]
+
+
+async def test_each_simulated_fill_logs_one_info_line_with_exchange_symbol_side_quantity_price_fee_and_client_order_id(  # noqa: E501
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=FAKE_EXCHANGE_LOGGER)
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+
+    await _open_and_fill(
+        adapter,
+        symbol=STX_SPOT,
+        side=OrderSide.BUY,
+        price=Decimal("0.4512"),
+        granted=Decimal("564"),
+        client_order_id="c-log-1",
+    )
+
+    lines = _fill_lines(caplog)
+    assert len(lines) == 1
+    text = lines[0].getMessage()
+    for expected in ("bybit", "STXUSDT", "BUY", "1250", "0.4512", "0.3102", "c-log-1"):
+        assert expected in text
+
+
+async def test_the_line_carries_those_seven_values_and_nothing_else(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The record's arguments are exactly the seven values, so no order object,
+    credential or payload can ride along."""
+    caplog.set_level(logging.INFO, logger=FAKE_EXCHANGE_LOGGER)
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+
+    await _open_and_fill(
+        adapter,
+        symbol=STX_SPOT,
+        side=OrderSide.BUY,
+        price=Decimal("0.4512"),
+        granted=Decimal("564"),
+        client_order_id="c-log-1",
+    )
+
+    lines = _fill_lines(caplog)
+    assert len(lines) == 1
+    assert lines[0].args == (
+        "bybit",
+        "STXUSDT",
+        "BUY",
+        "1250",
+        "0.4512",
+        "0.3102",
+        "c-log-1",
+    )
+
+
+async def test_a_refused_order_logs_no_fill_line(caplog: pytest.LogCaptureFixture) -> None:
+    """The caller logs the ERROR for a refusal; the adapter logs nothing, so a
+    line never claims a fill that did not happen."""
+    caplog.set_level(logging.INFO, logger=FAKE_EXCHANGE_LOGGER)
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+    order = await _unpriceable_close(adapter, None)
+
+    raised = await _place_capturing(adapter, order)
+
+    assert type(raised) is ExchangeError
+    assert _fill_lines(caplog) == []
