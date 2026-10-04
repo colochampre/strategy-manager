@@ -5,7 +5,7 @@ Safety). ``is_live = False`` so the startup invariant never allows
 """
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import TypeGuard
 from uuid import uuid4
 
@@ -35,7 +35,16 @@ from strategy_manager.execution.domain.order import (
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
+from strategy_manager.execution.infrastructure.simulated_fee_rates import SIMULATED_FEE_CURRENCY
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
+
+# The scale of ``ledger_entries.fee`` (NUMERIC(38, 18)): a fill carries exactly
+# the value the column stores, so PostgreSQL rounds nothing.
+_FEE_SCALE = Decimal("1e-18")
+# Wide enough that no product of a quantity, a price and a rate is rounded
+# before the single quantisation to ``_FEE_SCALE``.
+_FEE_PRECISION = 60
 
 
 def _is_usable(price: Decimal | None) -> TypeGuard[Decimal]:
@@ -98,6 +107,10 @@ class FakeExchangeAdapter:
         self._fixed_fill_price = fill_price
         self._book = book
         self._fill_latency_polls = fill_latency_polls
+        if fee_rate < 0 or fee_rate >= 1:
+            raise InvariantViolation(
+                f"the simulated fee rate must be at least 0 and below 1, got {fee_rate}"
+            )
         self._fee_rate = fee_rate
         # The price each order was built with, keyed by client order id: ``place``
         # is handed only the order, and no order type carries a price (design
@@ -181,8 +194,8 @@ class FakeExchangeAdapter:
             exchange_fill_id=f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}",
             quantity=base_quantity,
             price=price,
-            fee=Decimal("0"),
-            fee_currency="USDT",
+            fee=self._fee_of(base_quantity, price),
+            fee_currency=SIMULATED_FEE_CURRENCY,
             filled_at=datetime.now(UTC),
         )
         # Recorded here, revealed in ``fetch_fills`` -- ``record_fill`` is the
@@ -226,6 +239,18 @@ class FakeExchangeAdapter:
         """The price every order fills at, or ``None`` when each order fills at
         the price of its own alert (the production mode)."""
         return self._fixed_fill_price
+
+    def _fee_of(self, quantity: Decimal, price: Decimal) -> Decimal:
+        """``quantity x price x rate``, in the fee currency, charged on the
+        NOTIONAL and never taken from the base quantity (the holding is
+        untouched, so a close sized from the ledger equals its open). The
+        product is exact in a wide local context and rounded ONCE, half-even,
+        to 18 places."""
+        with localcontext() as context:
+            context.prec = _FEE_PRECISION
+            return (quantity * price * self._fee_rate).quantize(
+                _FEE_SCALE, rounding=ROUND_HALF_EVEN
+            )
 
     def _price_for(self, order: PlaceableOrder) -> Decimal:
         """The price this order fills at. An explicit fixed price (tests only)

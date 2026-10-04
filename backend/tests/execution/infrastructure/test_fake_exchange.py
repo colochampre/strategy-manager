@@ -735,3 +735,177 @@ async def test_an_opening_order_with_a_non_positive_price_never_reaches_a_fill_i
     assert type(raised) is refusal
     with pytest.raises(OrderNotFound):
         await adapter.fetch_fills("open-1", symbol)
+
+
+# ---- the fee: the venue's taker rate on the notional, in USDT (design § E) -----
+#
+# fee = quantity x price x rate, taken inside a 60-digit context and quantised
+# to 18 places half-even (the scale of ``ledger_entries.fee``), on both sides.
+
+BYBIT_RATE = Decimal("0.00055")
+BINANCE_RATE = Decimal("0.0005")
+
+
+async def _round_trip(
+    adapter: FakeExchangeAdapter,
+    *,
+    open_price: Decimal = Decimal("0.4512"),
+    close_price: Decimal = Decimal("0.4633"),
+) -> tuple[Fill, Fill]:
+    opened = await _open_and_fill(
+        adapter,
+        symbol=STX_PERP,
+        side=OrderSide.BUY,
+        price=open_price,
+        granted=Decimal("564"),
+    )
+    closed = await _close_and_fill(
+        adapter,
+        symbol=STX_PERP,
+        side=OrderSide.SELL,
+        base_size=opened.quantity,
+        reference_price=close_price,
+    )
+    return opened, closed
+
+
+async def _fee_of_a_close(
+    rate: Decimal, *, quantity: Decimal, price: Decimal, symbol: str = STX_PERP
+) -> Fill:
+    return await _close_and_fill(
+        _stx_adapter(fee_rate=rate),
+        symbol=symbol,
+        side=OrderSide.SELL,
+        base_size=quantity,
+        reference_price=price,
+    )
+
+
+async def test_a_bybit_round_trip_is_charged_0_00055_on_both_sides_in_usdt() -> None:
+    opened, closed = await _round_trip(_stx_adapter(fee_rate=BYBIT_RATE))
+
+    assert opened.quantity == Decimal("1250")
+    assert opened.quantity * opened.price == Decimal("564")
+    assert opened.fee == Decimal("0.3102")
+    assert closed.quantity * closed.price == Decimal("579.125")
+    assert closed.fee == Decimal("0.31851875")
+    assert opened.fee_currency == "USDT"
+    assert closed.fee_currency == "USDT"
+    # The fee is in USDT, never in the base coin: the holding is untouched and
+    # the close, sized from the ledger, nets the open to zero.
+    assert closed.quantity == opened.quantity == Decimal("1250")
+
+
+async def test_a_binance_round_trip_is_charged_0_0005_on_both_sides() -> None:
+    opened, closed = await _round_trip(_stx_adapter(exchange="binance", fee_rate=BINANCE_RATE))
+
+    assert opened.fee == Decimal("0.282")
+    assert closed.fee == Decimal("0.2895625")
+    assert opened.fee_currency == closed.fee_currency == "USDT"
+    assert closed.quantity == opened.quantity
+
+
+async def test_the_fee_is_on_the_notional_and_not_on_the_quantity() -> None:
+    fill = await _fee_of_a_close(BYBIT_RATE, quantity=Decimal("1250"), price=Decimal("0.4512"))
+
+    assert fill.fee == Decimal("0.3102")
+    assert fill.fee != fill.quantity * BYBIT_RATE  # 0.6875, the quantity alone
+
+
+async def test_the_fee_is_quantised_to_18_places_half_even() -> None:
+    """The unrounded product of 10 x 0.123456789012345678 x 0.00055 is
+    0.000679012339567901229."""
+    fill = await _fee_of_a_close(
+        BYBIT_RATE, quantity=Decimal("10"), price=Decimal("0.123456789012345678")
+    )
+
+    assert fill.fee == Decimal("0.000679012339567901")
+    assert fill.fee.as_tuple().exponent == -18
+
+
+@pytest.mark.parametrize(
+    ("quantity", "expected"),
+    [
+        # 1.5e-18: the tie rounds to the EVEN neighbour, 2e-18.
+        (Decimal("0.000000000000003"), Decimal("0.000000000000000002")),
+        # 2.5e-18: the tie rounds to the EVEN neighbour, 2e-18 (not 3e-18).
+        (Decimal("0.000000000000005"), Decimal("0.000000000000000002")),
+    ],
+)
+async def test_a_tie_rounds_to_the_even_digit(quantity: Decimal, expected: Decimal) -> None:
+    fill = await _fee_of_a_close(BINANCE_RATE, quantity=quantity, price=Decimal("1"))
+
+    # 3e-15 x 1 x 0.0005 = 1.5e-18 and 5e-15 x 1 x 0.0005 = 2.5e-18: the products
+    # ARE the ties.
+    assert fill.fee == expected
+
+
+async def test_a_product_of_more_than_28_significant_digits_is_rounded_once_and_not_twice() -> None:
+    """Chosen so that the two orders of rounding disagree. Rate 0.5, quantity 1,
+    price 2.99999999999999999999999999998e-18: the exact product is
+    1.49999999999999999999999999999e-18 (30 significant digits).
+
+    Rounded ONCE to 18 places it is 1e-18. Rounded first to 28 significant
+    digits it becomes 1.5e-18, and the tie then goes to the even 2e-18."""
+    fill = await _fee_of_a_close(
+        Decimal("0.5"),
+        quantity=Decimal("1"),
+        price=Decimal("2.99999999999999999999999999998e-18"),
+    )
+
+    assert fill.fee == Decimal("0.000000000000000001")
+
+
+async def test_a_fee_below_half_the_last_place_quantises_to_zero() -> None:
+    fill = await _fee_of_a_close(
+        BYBIT_RATE, quantity=Decimal("1"), price=Decimal("0.0000000000000004")
+    )
+
+    # 1 x 4e-16 x 0.00055 = 2.2e-19, below 0.5e-18.
+    assert fill.fee == Decimal("0")
+    assert fill.fee_currency == "USDT"
+
+
+async def test_a_spot_shaped_buy_is_charged_the_same_rate() -> None:
+    """No spot pool exists on either exchange; a symbol with no contract marker
+    builds a spot order here and is charged the same taker rate (design § M)."""
+    adapter = _stx_adapter(fee_rate=BYBIT_RATE)
+
+    fill = await _open_and_fill(
+        adapter,
+        symbol=STX_SPOT,
+        side=OrderSide.BUY,
+        price=Decimal("0.4"),
+        granted=Decimal("100"),
+    )
+
+    assert fill.quantity == Decimal("250")
+    assert fill.fee == Decimal("0.055")
+
+
+@pytest.mark.parametrize("rate", [Decimal("-0.00055"), Decimal("1"), Decimal("1.5")])
+def test_a_rate_below_zero_or_of_one_or_more_is_refused_at_construction(rate: Decimal) -> None:
+    """The design says "refused" and names no exception type; the project's own
+    precondition error is chosen (recorded for review)."""
+    raised: BaseException | None = None
+    try:
+        FakeExchangeAdapter(exchange="bybit", fee_rate=rate)
+    except Exception as exc:  # noqa: BLE001 - the type is exactly what is asserted
+        raised = exc
+
+    assert type(raised) is InvariantViolation
+
+
+@pytest.mark.parametrize("rate", [Decimal("0"), Decimal("0.9999999")])
+def test_a_rate_of_zero_and_one_just_below_one_are_accepted(rate: Decimal) -> None:
+    adapter = FakeExchangeAdapter(exchange="bybit", fee_rate=rate)
+
+    assert adapter.exchange == "bybit"
+
+
+async def test_a_zero_rate_charges_nothing() -> None:
+    opened, closed = await _round_trip(_stx_adapter(fee_rate=Decimal("0")))
+
+    assert opened.fee == Decimal("0")
+    assert closed.fee == Decimal("0")
+    assert opened.fee_currency == closed.fee_currency == "USDT"
