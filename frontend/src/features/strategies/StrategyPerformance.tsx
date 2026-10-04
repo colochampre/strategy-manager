@@ -82,9 +82,18 @@ export function StrategyPerformance({ strategyId }: StrategyPerformanceProps) {
   }
   if (performance.status === "error") {
     return (
-      <p role="alert" className="rounded-md border border-loss bg-panel p-4 text-sm text-ink-2">
-        {t("strategies.performance.error")}
-      </p>
+      <div className="flex flex-wrap items-center gap-3 rounded-md border border-loss bg-panel p-4">
+        <p role="alert" className="text-sm text-ink-2">
+          {t("strategies.performance.error")}
+        </p>
+        <button
+          type="button"
+          onClick={() => void performance.refetch()}
+          className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+        >
+          {t("strategies.performance.retry")}
+        </button>
+      </div>
     );
   }
   if (performance.data === null) {

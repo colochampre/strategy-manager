@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
@@ -153,6 +153,34 @@ describe("StrategyPerformance", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.error"));
     expect(screen.queryByTestId("ledger-line")).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("offers Try again when the report fails, and shows the report once the second read succeeds", async () => {
+    let failing = true;
+    const requests = serve(() =>
+      Promise.resolve(failing ? jsonResponse({ detail: "boom" }, 500) : jsonResponse(report())),
+    );
+    renderAt(<StrategyPerformance strategyId={ID} />);
+    await screen.findByText(i18n.t("strategies.performance.error"));
+
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.performance.retry") }));
+
+    expect(await screen.findByTestId("ledger-line")).toBeInTheDocument();
+    expect(requests).toHaveLength(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps Try again visible and the error shown when the second read fails too", async () => {
+    const requests = serve(() => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
+    renderAt(<StrategyPerformance strategyId={ID} />);
+    await screen.findByText(i18n.t("strategies.performance.error"));
+
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.performance.retry") }));
+
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(await screen.findByRole("button", { name: i18n.t("strategies.performance.retry") })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.error"));
   });
 
   it("says the report could not be loaded for a body that has no by_pair, never a half report", async () => {
