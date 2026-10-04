@@ -41,21 +41,32 @@ to every page of a list.
 """
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
+from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.performance.application.ports import AllocationFillsSourcePort
 from strategy_manager.performance.application.scope import (
     pool_label,
     require_live_only,
     strategy_groups,
 )
-from strategy_manager.performance.domain.closed_trade import ClosedTrade, FillGroup
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
 from strategy_manager.performance.domain.curve import trade_return
 from strategy_manager.performance.domain.derive_trade import DerivedTrades, derive_trades
+from strategy_manager.performance.domain.operation import (
+    BUY,
+    SELL,
+    OperationFees,
+    OperationFigures,
+    operation_fees,
+    operation_figures,
+    sides_overlap,
+)
 from strategy_manager.shared.domain.errors import DomainError
 
 logger = logging.getLogger(__name__)
@@ -87,11 +98,14 @@ class TradeCursor:
 @dataclass(frozen=True, slots=True)
 class TradeItem:
     """A closed trade and its return on the pool's capital at open (``None``
-    when the trade has no capital at open)."""
+    when the trade has no capital at open), whether it is a rehearsal operation,
+    its fees and its figures (``None`` when they cannot be derived: never zero)."""
 
     trade: ClosedTrade
     value: Decimal | None
-    rehearsal: bool = False
+    rehearsal: bool
+    fees: OperationFees
+    figures: OperationFigures | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +118,44 @@ class TradesPage:
 
 def _key(trade: ClosedTrade) -> tuple[datetime, int]:
     return (trade.closed_at, trade.allocation_id.int)
+
+
+def _log_underivable(
+    pool: PoolKey, strategy_id: UUID, trade: ClosedTrade, groups: list[FillGroup]
+) -> None:
+    """Why an operation's entry price, exit price and size are null. The domain
+    answers only ``None``, so the causes are told apart here, one line each
+    (design section G). Ids, the pool label, sides and market keys only: no
+    price, quantity or fee is ever logged."""
+    markets = sorted({market_key(group.symbol) for group in groups})
+    if len(markets) > 1:
+        logger.warning(
+            "performance %s strategy %s allocation %s: entry price, exit price and size "
+            "not derived, the fills name more than one market: %s",
+            pool_label(pool),
+            strategy_id,
+            trade.allocation_id,
+            ", ".join(markets),
+        )
+        return
+    opening_side = BUY if trade.direction is Direction.LONG else SELL
+    unreadable: list[str] = []
+    for name, on_side in (
+        ("opening", [g for g in groups if g.side == opening_side]),
+        ("closing", [g for g in groups if g.side != opening_side]),
+    ):
+        quantity = sum((g.quantity for g in on_side), Decimal(0))
+        notional = sum((g.notional for g in on_side), Decimal(0))
+        if quantity <= 0 or notional <= 0:
+            unreadable.append(name)
+    logger.warning(
+        "performance %s strategy %s allocation %s: entry price, exit price and size not "
+        "derived, the %s side has no quantity or notional above zero",
+        pool_label(pool),
+        strategy_id,
+        trade.allocation_id,
+        " and ".join(unreadable),
+    )
 
 
 class ReadStrategyTrades:
@@ -128,13 +180,15 @@ class ReadStrategyTrades:
         derived = derive_trades(live_groups)
         unresolved = list(derived.unresolved_allocation_ids)
         operations: list[tuple[ClosedTrade, bool]] = [(t, False) for t in derived.closed]
+        listed_groups = live_groups
 
         if include_rehearsal:
-            rehearsal_derived = self._rehearsal_operations(
+            rehearsal_groups, rehearsal_derived = self._rehearsal_operations(
                 pool, strategy_id, live_groups, pool_fills.rehearsal_groups
             )
             unresolved += rehearsal_derived.unresolved_allocation_ids
             operations += [(t, True) for t in rehearsal_derived.closed]
+            listed_groups = live_groups + rehearsal_groups
 
         if unresolved:
             logger.warning(
@@ -158,12 +212,49 @@ class ReadStrategyTrades:
             if len(ordered) > limit
             else None
         )
+
+        # Only the rows of the page are measured: the figures are a display
+        # derivation, so their cost follows ``limit`` and not the pool.
+        page_ids = {trade.allocation_id for trade, _ in page}
+        page_groups: dict[UUID, list[FillGroup]] = defaultdict(list)
+        for group in listed_groups:
+            if group.allocation_id in page_ids:
+                page_groups[group.allocation_id].append(group)
+
         return TradesPage(
             trades=tuple(
-                TradeItem(trade, trade_return(trade), rehearsal=rehearsal)
+                self._item(pool, strategy_id, trade, rehearsal, page_groups[trade.allocation_id])
                 for trade, rehearsal in page
             ),
             next_cursor=next_cursor,
+        )
+
+    @staticmethod
+    def _item(
+        pool: PoolKey,
+        strategy_id: UUID,
+        trade: ClosedTrade,
+        rehearsal: bool,
+        groups: list[FillGroup],
+    ) -> TradeItem:
+        figures = operation_figures(groups, trade.direction)
+        if figures is None:
+            _log_underivable(pool, strategy_id, trade, groups)
+        if sides_overlap(groups, trade.direction):
+            logger.warning(
+                "performance %s strategy %s allocation %s: the opening side's last fill is "
+                "not before the closing side's first fill, so which side opened rests on "
+                "the tie-break alone",
+                pool_label(pool),
+                strategy_id,
+                trade.allocation_id,
+            )
+        return TradeItem(
+            trade,
+            trade_return(trade),
+            rehearsal=rehearsal,
+            fees=operation_fees(groups),
+            figures=figures,
         )
 
     @staticmethod
@@ -172,10 +263,11 @@ class ReadStrategyTrades:
         strategy_id: UUID,
         live_groups: tuple[FillGroup, ...],
         rehearsal_groups: tuple[FillGroup, ...],
-    ) -> DerivedTrades:
-        """The closed rehearsal operations of the strategy, minus every allocation
-        that also has a live group: a mixed allocation is listed once, from its
-        real fills, and one WARNING names it (design section C)."""
+    ) -> tuple[tuple[FillGroup, ...], DerivedTrades]:
+        """The rehearsal groups of the strategy, minus every allocation that also
+        has a live group, and the closed operations derived from them: a mixed
+        allocation is listed once, from its real fills, and one WARNING names it
+        (design section C)."""
         scoped = strategy_groups(pool, strategy_id, rehearsal_groups)
         live_ids = {group.allocation_id for group in live_groups}
         mixed = sorted({g.allocation_id for g in scoped if g.allocation_id in live_ids}, key=str)
@@ -188,4 +280,5 @@ class ReadStrategyTrades:
                 len(mixed),
                 ", ".join(str(a) for a in mixed),
             )
-        return derive_trades(tuple(g for g in scoped if g.allocation_id not in live_ids))
+        kept = tuple(g for g in scoped if g.allocation_id not in live_ids)
+        return kept, derive_trades(kept)

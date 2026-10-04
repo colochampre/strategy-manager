@@ -16,6 +16,8 @@ opened as ``STXUSDT.P`` and closed as ``STXUSDT``.
 """
 
 import logging
+import re
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -24,6 +26,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
+from strategy_manager.performance.application import read_strategy_trades
 from strategy_manager.performance.application.read_strategy_trades import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -32,7 +35,12 @@ from strategy_manager.performance.application.read_strategy_trades import (
     TradeCursor,
     TradesPage,
 )
-from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.closed_trade import Direction, FillGroup
+from strategy_manager.performance.domain.operation import (
+    FeeAmount,
+    OperationFees,
+    OperationFigures,
+)
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.performance.fakes import FakeFillsSource
@@ -505,3 +513,241 @@ async def test_a_rehearsal_row_with_a_non_positive_pool_capital_is_refused_like_
             caught.append(InvariantViolation)
 
     assert caught == [InvariantViolation, InvariantViolation]
+
+
+# --- the figures and fees of a row (tasks 9p.4.17 and 9p.4.18) ----------------
+
+
+def _fills(
+    allocation_id: UUID,
+    closed_at: datetime,
+    *,
+    open_symbol: str = "STXUSDT.P",
+    close_symbol: str = "STXUSDT",
+    open_side: tuple[str, str, str] = ("1250", "0.4512", "0.31"),
+    close_side: tuple[str, str, str] = ("1250", "0.4631", "0.32"),
+    open_fee_currency: str = "USDT",
+    close_fee_currency: str = "USDT",
+) -> list[FillGroup]:
+    """One BUY group and one SELL group with a real quantity, price and fee. Each
+    side is ``(quantity, price, fee)``."""
+    opened = closed_at - timedelta(hours=1)
+    groups: list[FillGroup] = []
+    for side, (quantity, price, fee), symbol, currency, at in (
+        ("BUY", open_side, open_symbol, open_fee_currency, opened),
+        ("SELL", close_side, close_symbol, close_fee_currency, closed_at),
+    ):
+        base = _group(S1, allocation_id, side, "1", symbol=symbol, at=at)
+        groups.append(
+            replace(
+                base,
+                quantity=Decimal(quantity),
+                notional=Decimal(quantity) * Decimal(price),
+                fee=Decimal(fee),
+                fee_currency=currency,
+            )
+        )
+    return groups
+
+
+async def test_a_row_carries_its_figures_and_fees_derived_from_its_own_fills() -> None:
+    source = FakeFillsSource(_fills(_id(1), T0))
+
+    page = await ReadStrategyTrades(source).read(S1, POOL)
+
+    item = page.trades[0]
+    assert item.fees == OperationFees(fees=Decimal("0.63"), other_fees=())
+    assert item.figures == OperationFigures(
+        base_currency="STX",
+        entry_price=Decimal("0.4512"),
+        exit_price=Decimal("0.4631"),
+        size=Decimal("1250"),
+    )
+
+
+async def test_a_rehearsal_row_carries_the_figures_of_its_own_fills() -> None:
+    rehearsal = [
+        replace(group, rehearsal=True)
+        for group in _fills(_id(2), T0, open_symbol="STXUSDT_PERP", close_symbol="STXUSDT.P")
+    ]
+    source = FakeFillsSource([], rehearsal_groups=rehearsal)
+
+    page = await ReadStrategyTrades(source).read(S1, POOL, include_rehearsal=True)
+
+    assert page.trades[0].rehearsal is True
+    assert page.trades[0].fees.fees == Decimal("0.63")
+    assert page.trades[0].figures == OperationFigures(
+        base_currency="STX",
+        entry_price=Decimal("0.4512"),
+        exit_price=Decimal("0.4631"),
+        size=Decimal("1250"),
+    )
+
+
+async def test_the_figures_are_derived_for_the_rows_of_the_page_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    real = read_strategy_trades.operation_figures
+
+    def counting(groups: Sequence[FillGroup], direction: Direction) -> OperationFigures | None:
+        calls.append(len(groups))
+        return real(groups, direction)
+
+    monkeypatch.setattr(read_strategy_trades, "operation_figures", counting)
+    groups: list[FillGroup] = []
+    for n in range(1, 6):
+        groups += _closed(_id(n), T0 + timedelta(minutes=n))
+
+    page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL, limit=2)
+
+    assert len(page.trades) == 2
+    assert len(calls) == 2
+
+
+async def test_a_third_currency_fee_is_listed_and_fees_complete_is_false() -> None:
+    groups = _fills(
+        _id(1),
+        T0,
+        open_side=("1000", "0.5", "0.1"),
+        close_side=("1000", "0.6", "0.00012"),
+        close_fee_currency="BNB",
+    )
+
+    page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    item = page.trades[0]
+    assert item.fees == OperationFees(
+        fees=Decimal("0.1"), other_fees=(FeeAmount("BNB", Decimal("0.00012")),)
+    )
+    assert item.trade.fees_complete is False
+
+
+async def test_a_base_currency_fee_is_listed_and_fees_complete_stays_true() -> None:
+    """Pionex spot charges a BUY's fee in the base coin: 0.5 STX of the 1000
+    bought never arrived, so 999.5 are sold and the position still nets to zero."""
+    groups = _fills(
+        _id(1),
+        T0,
+        open_side=("1000", "0.5", "0.5"),
+        close_side=("999.5", "0.6", "0.3"),
+        open_fee_currency="STX",
+    )
+
+    page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    item = page.trades[0]
+    assert item.fees == OperationFees(
+        fees=Decimal("0.3"), other_fees=(FeeAmount("STX", Decimal("0.5")),)
+    )
+    assert item.trade.fees_complete is True
+    assert item.figures is not None
+    assert item.figures.size == Decimal("1000")
+
+
+async def test_a_figure_that_cannot_be_derived_logs_one_warning_naming_pool_strategy_allocation_and_both_markets_and_the_row_stays_listed(  # noqa: E501
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    groups = [
+        _group(S1, _id(1), "BUY", "100", symbol="STXUSDT.P", at=T0 - timedelta(hours=1)),
+        _group(S1, _id(1), "SELL", "110", symbol="SOLUSDT", at=T0),
+    ]
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelno == logging.WARNING
+    message = record.getMessage()
+    for expected in ("bybit/usdt-m/USDT", str(S1), str(_id(1)), "STXUSDT", "SOLUSDT"):
+        assert expected in message
+    assert _ids(page) == [_id(1)]
+    assert page.trades[0].figures is None
+    assert page.trades[0].trade.pnl == Decimal("10")
+
+
+async def test_two_spellings_of_one_market_log_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    groups = _closed(_id(1), T0) + _fills(
+        _id(2), T0 - timedelta(hours=3), open_symbol="STXUSDT_PERP", close_symbol="stxusdt"
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    assert caplog.records == []
+    assert [item.figures is not None for item in page.trades] == [True, True]
+    assert [item.figures.base_currency for item in page.trades if item.figures] == ["STX", "STX"]
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing", "named", "unnamed"),
+    [
+        ("0", "110", "opening", "closing"),
+        ("100", "0", "closing", "opening"),
+    ],
+)
+async def test_a_side_with_no_notional_logs_one_warning_and_the_row_stays_listed(
+    caplog: pytest.LogCaptureFixture, opening: str, closing: str, named: str, unnamed: str
+) -> None:
+    groups = [
+        _group(S1, _id(1), "BUY", opening, symbol="STXUSDT.P", at=T0 - timedelta(hours=1)),
+        _group(S1, _id(1), "SELL", closing, symbol="STXUSDT", at=T0),
+    ]
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.WARNING
+    message = caplog.records[0].getMessage()
+    for expected in ("bybit/usdt-m/USDT", str(S1), str(_id(1)), named):
+        assert expected in message
+    assert unnamed not in message
+    assert _ids(page) == [_id(1)]
+    assert page.trades[0].figures is None
+
+
+async def test_an_overlap_of_the_two_sides_logs_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Both sides at the same instant: ``_direction`` breaks the tie in favour of
+    BUY, so which side opened rests on the tie-break alone."""
+    groups = [
+        _group(S1, _id(1), "BUY", "100", symbol="STXUSDT.P", at=T0),
+        _group(S1, _id(1), "SELL", "110", symbol="STXUSDT", at=T0),
+    ]
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        page = await ReadStrategyTrades(FakeFillsSource(groups)).read(S1, POOL)
+
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.WARNING
+    message = caplog.records[0].getMessage()
+    for expected in ("bybit/usdt-m/USDT", str(S1), str(_id(1))):
+        assert expected in message
+    assert page.trades[0].figures is not None
+
+
+async def test_no_line_carries_a_price_a_payload_or_a_credential(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    disagreeing = _fills(_id(1), T0, close_symbol="SOLUSDT")
+    overlapping = [
+        replace(group, first_filled_at=T0, last_filled_at=T0)
+        for group in _fills(_id(2), T0 - timedelta(hours=1))
+    ]
+    source = FakeFillsSource(disagreeing + overlapping)
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await ReadStrategyTrades(source).read(S1, POOL)
+
+    assert len(caplog.records) == 2
+    # Ids are hex, so a digit run can occur in one by chance; a decimal point cannot.
+    forbidden = ("0.4512", "0.4631", "564.0", "578.8", "0.31", "0.32", "Decimal", "FillGroup")
+    for record in caplog.records:
+        message = record.getMessage()
+        assert [word for word in forbidden if word in message] == []
+        assert re.search(r"\d\.\d", message) is None
