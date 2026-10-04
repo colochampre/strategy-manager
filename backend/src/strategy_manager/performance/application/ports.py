@@ -2,12 +2,14 @@
 infrastructure adapter implements it (same direction as ``FillRecorderPort``).
 """
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.operation import PricingFacts
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,3 +45,18 @@ class AllocationFillsSourcePort(Protocol):
     """
 
     async def pool_fills(self, pool: PoolKey) -> PoolFills: ...
+
+
+class RehearsalPricingSourcePort(Protocol):
+    """What the ledger and the signals say about how rehearsal operations were
+    priced: for the allocations asked, in ONE call, the price each one's alert
+    carried and the price range of each side's fills.
+
+    An allocation the source holds no facts for is simply absent from the answer;
+    the caller decides what that means. Takes the strategy as well as the ids, so
+    another strategy's allocation is never answered through this strategy's read.
+    """
+
+    async def pricing_facts(
+        self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, PricingFacts]: ...

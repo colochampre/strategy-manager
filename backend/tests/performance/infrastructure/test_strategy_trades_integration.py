@@ -28,6 +28,9 @@ from strategy_manager.performance.application.read_strategy_trades import (
 from strategy_manager.performance.infrastructure.allocation_fills_source import (
     SqlAlchemyAllocationFillsSource,
 )
+from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
+    SqlAlchemyRehearsalPricingSource,
+)
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
     _fill,
@@ -85,7 +88,9 @@ async def _page(
     before: TradeCursor | None = None,
 ) -> TradesPage:
     async with factory() as session:
-        reader = ReadStrategyTrades(SqlAlchemyAllocationFillsSource(session))
+        reader = ReadStrategyTrades(
+            SqlAlchemyAllocationFillsSource(session), SqlAlchemyRehearsalPricingSource(session)
+        )
         return await reader.read(strategy_id, BYBIT, limit=limit, before=before)
 
 

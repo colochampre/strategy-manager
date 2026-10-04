@@ -49,7 +49,10 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.execution.domain.market_symbol import market_key
-from strategy_manager.performance.application.ports import AllocationFillsSourcePort
+from strategy_manager.performance.application.ports import (
+    AllocationFillsSourcePort,
+    RehearsalPricingSourcePort,
+)
 from strategy_manager.performance.application.scope import (
     pool_label,
     require_live_only,
@@ -63,6 +66,8 @@ from strategy_manager.performance.domain.operation import (
     SELL,
     OperationFees,
     OperationFigures,
+    RehearsalPricing,
+    classify_rehearsal_pricing,
     operation_fees,
     operation_figures,
     sides_overlap,
@@ -106,6 +111,7 @@ class TradeItem:
     rehearsal: bool
     fees: OperationFees
     figures: OperationFigures | None
+    pricing: RehearsalPricing | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,8 +165,11 @@ def _log_underivable(
 
 
 class ReadStrategyTrades:
-    def __init__(self, fills: AllocationFillsSourcePort) -> None:
+    def __init__(
+        self, fills: AllocationFillsSourcePort, pricing: RehearsalPricingSourcePort
+    ) -> None:
         self._fills = fills
+        self._pricing = pricing
 
     async def read(
         self,
@@ -221,13 +230,68 @@ class ReadStrategyTrades:
             if group.allocation_id in page_ids:
                 page_groups[group.allocation_id].append(group)
 
+        pricing = await self._classify(
+            pool, strategy_id, [trade for trade, rehearsal in page if rehearsal]
+        )
         return TradesPage(
             trades=tuple(
-                self._item(pool, strategy_id, trade, rehearsal, page_groups[trade.allocation_id])
+                self._item(
+                    pool,
+                    strategy_id,
+                    trade,
+                    rehearsal,
+                    page_groups[trade.allocation_id],
+                    pricing.get(trade.allocation_id),
+                )
                 for trade, rehearsal in page
             ),
             next_cursor=next_cursor,
         )
+
+    async def _classify(
+        self, pool: PoolKey, strategy_id: UUID, rehearsal_trades: list[ClosedTrade]
+    ) -> dict[UUID, RehearsalPricing]:
+        """How each rehearsal row of the page was priced, from ONE call to the
+        pricing source with the ids of those rows only, and none at all when the
+        page holds no rehearsal row (design section E, step 6).
+
+        A row the source has no facts for reads ``UNDETERMINED`` and one WARNING
+        names it. The rows that read ``UNDETERMINED`` are counted in one INFO line
+        per page: a steady state if the simulated exchange prices a fill at
+        anything but the stored alert price, so a line per row would be noise."""
+        if not rehearsal_trades:
+            return {}
+        facts = await self._pricing.pricing_facts(
+            pool, strategy_id, [trade.allocation_id for trade in rehearsal_trades]
+        )
+        pricing: dict[UUID, RehearsalPricing] = {}
+        missing: list[UUID] = []
+        for trade in rehearsal_trades:
+            known = facts.get(trade.allocation_id)
+            if known is None:
+                missing.append(trade.allocation_id)
+                pricing[trade.allocation_id] = RehearsalPricing.UNDETERMINED
+            else:
+                pricing[trade.allocation_id] = classify_rehearsal_pricing(trade.direction, known)
+        if missing:
+            logger.warning(
+                "performance %s strategy %s: no pricing facts for %d rehearsal "
+                "operation(s), read as undetermined: %s",
+                pool_label(pool),
+                strategy_id,
+                len(missing),
+                ", ".join(str(a) for a in missing),
+            )
+        undetermined = sum(1 for kind in pricing.values() if kind is RehearsalPricing.UNDETERMINED)
+        if undetermined:
+            logger.info(
+                "performance %s strategy %s: %d rehearsal operation(s) on this page have "
+                "an undetermined fill price",
+                pool_label(pool),
+                strategy_id,
+                undetermined,
+            )
+        return pricing
 
     @staticmethod
     def _item(
@@ -236,6 +300,7 @@ class ReadStrategyTrades:
         trade: ClosedTrade,
         rehearsal: bool,
         groups: list[FillGroup],
+        pricing: RehearsalPricing | None,
     ) -> TradeItem:
         figures = operation_figures(groups, trade.direction)
         if figures is None:
@@ -255,6 +320,7 @@ class ReadStrategyTrades:
             rehearsal=rehearsal,
             fees=operation_fees(groups),
             figures=figures,
+            pricing=pricing,
         )
 
     @staticmethod

@@ -70,6 +70,9 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
     SqlAlchemyAllocationFillsSource,
 )
 from strategy_manager.performance.infrastructure.pool_lookup import SqlAlchemyPoolLookup
+from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
+    SqlAlchemyRehearsalPricingSource,
+)
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -352,7 +355,9 @@ async def strategy_trades(
             else TradeCursor(before_closed_at, before_allocation_id)
         )
         page = await _guarded(
-            ReadStrategyTrades(fills).read(strategy_id, pool, limit=limit, before=before)
+            ReadStrategyTrades(fills, SqlAlchemyRehearsalPricingSource(session)).read(
+                strategy_id, pool, limit=limit, before=before
+            )
         )
     except InvalidPageRequest as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
