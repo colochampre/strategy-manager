@@ -14,14 +14,18 @@ from strategy_manager.performance.domain.closed_trade import FillGroup
 class PoolFills:
     """Everything the ledger says about ONE pool.
 
-    ``groups`` are the non-rehearsal aggregates. ``rehearsal_fill_count`` is
-    how many DRY_RUN fills the source left out, so a figure that ignores them
-    can still say how many it ignored.
+    ``groups`` are the non-rehearsal aggregates: the only set any total reads.
+    ``rehearsal_groups`` are the DRY_RUN aggregates, kept apart so that no
+    figure can include them by accident; the trades list is their one reader,
+    and only when it is asked for them. ``rehearsal_fill_count`` is how many
+    DRY_RUN fills the scope holds, so a figure that ignores them can still say
+    how many it ignored.
     """
 
     groups: tuple[FillGroup, ...]
     rehearsal_fill_count: int
     rehearsal_by_strategy: tuple[tuple[UUID, int], ...] = ()
+    rehearsal_groups: tuple[FillGroup, ...] = ()
 
     def rehearsal_for(self, strategy_id: UUID) -> int:
         """How many rehearsal fills of ONE strategy the source left out. A

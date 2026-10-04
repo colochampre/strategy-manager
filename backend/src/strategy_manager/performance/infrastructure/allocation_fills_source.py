@@ -3,13 +3,18 @@ performance read (design.md section 11; tasks.md 3b.7).
 
 Joins ``ledger_entries`` to ``reservations`` (an allocation IS its
 reservation) to bring ``pool_total_at_open`` along, and folds fills into
-``(allocation_id, strategy_id, side, fee_currency)`` groups. The domain does
-the rest (``derive_trades``); this class only reads.
+``(allocation_id, strategy_id, side, fee_currency, symbol, origin)`` groups.
+The domain does the rest (``derive_trades``); this class only reads.
 
-**Rehearsal fills are excluded here**, by the prefix constant that the fake
-exchange mints with. ``startswith(..., autoescape=True)`` renders
-``NOT LIKE :prefix || '%' ESCAPE '/'`` so the LIKE wildcards ``%`` and ``_``
-in a prefix could never widen the match.
+**Rehearsal fills are returned in a set of their own**, told by the prefix
+constant that the fake exchange mints with. ``startswith(..., autoescape=True)``
+renders ``LIKE :prefix || '%' ESCAPE '/'`` so the LIKE wildcards ``%`` and ``_``
+in a prefix could never widen the match. The origin is a grouped column, so a
+group never mixes the two: ``PoolFills.groups`` holds the live groups, exactly
+what it always held, and ``PoolFills.rehearsal_groups`` the rest. Only the
+trades list reads the second set. The symbol is grouped too, so a fill written
+under another spelling of the market is a group of its own and the domain can
+tell two spellings of one market from two markets.
 
 **One pool per call.** The WHERE is the pool's full identity, so the read
 rides ``ix_ledger_pool_symbol`` (leading columns exchange, venue,
@@ -53,6 +58,10 @@ class SqlAlchemyAllocationFillsSource:
         is_rehearsal = LedgerEntryRow.exchange_fill_id.startswith(
             REHEARSAL_FILL_ID_PREFIX, autoescape=True
         )
+        # Labelled so that the SELECT list and the GROUP BY name the SAME
+        # expression: two renderings of the LIKE would carry two bind
+        # parameters, and PostgreSQL then refuses the select list.
+        origin = is_rehearsal.label("is_rehearsal")
 
         grouped = await self._session.execute(
             select(
@@ -60,7 +69,8 @@ class SqlAlchemyAllocationFillsSource:
                 LedgerEntryRow.strategy_id,
                 LedgerEntryRow.side,
                 LedgerEntryRow.fee_currency,
-                func.min(LedgerEntryRow.symbol),
+                LedgerEntryRow.symbol,
+                origin,
                 func.sum(LedgerEntryRow.quantity),
                 func.sum(LedgerEntryRow.notional),
                 func.sum(LedgerEntryRow.fee),
@@ -69,22 +79,41 @@ class SqlAlchemyAllocationFillsSource:
                 ReservationRow.pool_total_at_open,
             )
             .join(ReservationRow, ReservationRow.id == LedgerEntryRow.allocation_id)
-            .where(*in_pool, ~is_rehearsal)
+            .where(*in_pool)
             .group_by(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.strategy_id,
                 LedgerEntryRow.side,
                 LedgerEntryRow.fee_currency,
+                LedgerEntryRow.symbol,
+                origin,
                 ReservationRow.pool_total_at_open,
             )
             .order_by(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.side,
                 LedgerEntryRow.fee_currency,
+                LedgerEntryRow.symbol,
+                origin,
             )
         )
-        groups = tuple(
-            FillGroup(
+        live: list[FillGroup] = []
+        dry: list[FillGroup] = []
+        for (
+            allocation_id,
+            strategy_id,
+            side,
+            fee_currency,
+            symbol,
+            rehearsal_group,
+            quantity,
+            notional,
+            fee,
+            first_filled_at,
+            last_filled_at,
+            pool_total_at_open,
+        ) in grouped.all():
+            group = FillGroup(
                 allocation_id=allocation_id,
                 strategy_id=strategy_id,
                 exchange=exchange,
@@ -101,22 +130,11 @@ class SqlAlchemyAllocationFillsSource:
                 pool_total_at_open=(
                     None if pool_total_at_open is None else Decimal(pool_total_at_open)
                 ),
-                rehearsal=False,
+                rehearsal=bool(rehearsal_group),
             )
-            for (
-                allocation_id,
-                strategy_id,
-                side,
-                fee_currency,
-                symbol,
-                quantity,
-                notional,
-                fee,
-                first_filled_at,
-                last_filled_at,
-                pool_total_at_open,
-            ) in grouped.all()
-        )
+            (dry if group.rehearsal else live).append(group)
+        groups = tuple(live)
+        rehearsal_groups = tuple(dry)
 
         rehearsal = await self._session.execute(
             select(LedgerEntryRow.strategy_id, func.count())
@@ -128,4 +146,5 @@ class SqlAlchemyAllocationFillsSource:
             groups=groups,
             rehearsal_fill_count=sum(count for _, count in by_strategy),
             rehearsal_by_strategy=by_strategy,
+            rehearsal_groups=rehearsal_groups,
         )
