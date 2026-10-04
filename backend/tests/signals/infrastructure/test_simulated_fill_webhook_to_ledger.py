@@ -416,11 +416,21 @@ async def test_a_reverse_prices_the_close_and_the_new_open_at_the_reversing_aler
     assert new_open.price == await _signal_price(stack.factory, reversing)
 
 
-async def _seed_orphan(stack: Stack, pool: PoolConfig = BYBIT_POOL) -> UUID:
-    """A REAL orphan on ``STXUSDT``: the strategy believes it is flat (its last
-    signal says position 0) while the ledger holds 1250 bought at 0.4512,
-    written through the ledger's own write path. The simulated venue book is
-    seeded from that same ledger, so the guard classifies it REAL. Returns its
+async def _seed_orphan(
+    stack: Stack,
+    pool: PoolConfig = BYBIT_POOL,
+    *,
+    entry_price: Decimal = Decimal("0.4512"),
+    prior_position_size: str = "0",
+) -> UUID:
+    """A rehearsal holding on ``STXUSDT``: 1250 bought at ``entry_price``,
+    written through the ledger's own write path under a FILLED reservation.
+
+    With the default ``prior_position_size`` of 0 the strategy believes it is
+    flat (its last signal says so) while the ledger holds the position, and the
+    simulated venue book, seeded from that same ledger, agrees with the ledger:
+    the guard classifies a REAL orphan. With ``"10"`` the strategy knows it is
+    long: a plain position a closing alert will release. Returns the
     allocation id."""
     strategy_id = stack.strategies[pool.exchange.value]
     prior_signal, allocation_id, attempt_id = uuid4(), uuid4(), uuid4()
@@ -430,7 +440,7 @@ async def _seed_orphan(stack: Stack, pool: PoolConfig = BYBIT_POOL) -> UUID:
         strategy_id=strategy_id,
         idempotency_key=f"orphan-origin-{prior_signal}",
         symbol="STXUSDT.P",
-        position_size=Decimal("0"),
+        position_size=Decimal(prior_position_size),
         received_at=datetime.now(UTC) - timedelta(hours=2),
     )
     await settle_h._set_outcome(stack.factory, prior_signal, SignalOutcome.processed())
@@ -463,10 +473,10 @@ async def _seed_orphan(stack: Stack, pool: PoolConfig = BYBIT_POOL) -> UUID:
                 symbol="STXUSDT",
                 side="BUY",
                 quantity=Decimal("1250"),
-                price=Decimal("0.4512"),
+                price=entry_price,
                 fee=Decimal("0"),
                 fee_currency="USDT",
-                notional=Decimal("564"),
+                notional=Decimal("1250") * entry_price,
                 exchange_order_id=f"fake-order-{attempt_id}",
                 exchange_fill_id=f"fake-fill-{attempt_id}",
                 filled_at=datetime.now(UTC) - timedelta(hours=1),
@@ -564,3 +574,73 @@ async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_
         (False, "BUY", Decimal(CLOSE_PRICE)),
     ]
     assert await _signal_of_allocation(stack.factory, rows[2].allocation_id) == finder
+
+
+# ---- nothing already in the ledger is repriced (9q.26; Requirement 8) -----------
+
+
+async def _row_by_allocation(factory: Factory, allocation_id: UUID) -> list[LedgerEntryRow]:
+    async with factory() as session:
+        return list(
+            (
+                await session.execute(
+                    select(LedgerEntryRow)
+                    .where(LedgerEntryRow.allocation_id == allocation_id)
+                    .order_by(LedgerEntryRow.filled_at)
+                )
+            ).scalars()
+        )
+
+
+async def test_a_row_written_before_the_change_keeps_price_one_and_fee_zero(
+    stack: Stack, pg_session_factory: Factory
+) -> None:
+    """An opening rehearsal row of 1250 ``STXUSDT`` at 1 with fee 0, written
+    before the change. The worker is rebuilt and other fills are written; the
+    row still reads 1 and 0."""
+    legacy = await _seed_orphan(stack, entry_price=Decimal("1"), prior_position_size="10")
+    [before] = await _row_by_allocation(pg_session_factory, legacy)
+
+    rebuilt = Stack(
+        stack.client,
+        stack.factory,
+        main.build_worker_runner(
+            [BYBIT_POOL, BINANCE_POOL], session_factory_override=pg_session_factory
+        ),
+        stack.strategies,
+        stack.sequence,
+    )
+    await _round_trip(rebuilt, BINANCE_POOL)  # other fills, on the new code
+
+    [after] = await _row_by_allocation(pg_session_factory, legacy)
+    assert (after.price, after.fee, after.fee_currency) == (Decimal("1"), Decimal("0"), "USDT")
+    assert after.quantity == Decimal("1250")
+    assert (after.id, after.price, after.fee, after.notional) == (
+        before.id,
+        before.price,
+        before.fee,
+        before.notional,
+    )
+    assert after.exchange_fill_id.startswith("fake-fill-")
+
+
+async def test_a_position_that_straddles_the_change_closes_at_the_alert_price_with_a_fee(
+    stack: Stack,
+) -> None:
+    strategy_id = stack.strategies["bybit"]
+    legacy = await _seed_orphan(stack, entry_price=Decimal("1"), prior_position_size="10")
+
+    closing = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price=CLOSE_PRICE)
+    await stack.drain()
+
+    opened, closed = await _row_by_allocation(stack.factory, legacy)
+    assert (opened.price, opened.fee) == (Decimal("1"), Decimal("0"))  # unchanged
+    assert closed.side == "SELL"
+    assert closed.quantity == Decimal("1250")
+    assert closed.price == await _signal_price(stack.factory, closing) == Decimal(CLOSE_PRICE)
+    assert closed.fee == Decimal("0.31851875")  # 1250 x 0.4633 x 0.00055
+    assert closed.fee_currency == "USDT"
+    async with stack.factory() as session:
+        net = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(legacy, "STX")
+    assert net == Decimal("0")
+    assert len(await _rows(stack.factory, strategy_id)) == 2
