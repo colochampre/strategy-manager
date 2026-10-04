@@ -17,8 +17,9 @@ text.
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -31,10 +32,12 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.db_balance_source import DbBalanceSource
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.infrastructure.models import ReservationRow
+from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
+from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.performance.domain.closed_trade import FillGroup
@@ -46,7 +49,14 @@ from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.infrastructure.models import SignalRow
+from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
+from tests.signals.infrastructure.conftest import (
+    seed_execution_attempt,
+    seed_reservation,
+    seed_signal_row,
+)
 from tests.signals.infrastructure.test_no_fee_rate_pool_refused import (
     BINANCE_POOL,
     BYBIT_POOL,
@@ -121,6 +131,9 @@ async def stack(
     monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "webhook_secret", SECRET)
     monkeypatch.setattr(settings, "execution_settle_delay_seconds", 0.0)
+    # The S5 continuation (a REVERSE's open half, an open behind an orphan close)
+    # re-polls the database on this interval; zero makes it due at once.
+    monkeypatch.setattr(settings, "open_after_close_poll_interval_seconds", 0.0)
     monkeypatch.setattr(main, "engine", pg_engine)
 
     strategies: dict[str, UUID] = {}
@@ -371,3 +384,183 @@ async def test_no_performance_total_counts_the_rehearsal_operation(stack: Stack)
     assert fills.groups == ()
     assert fills.rehearsal_fill_count == 2
     assert fills.rehearsal_by_strategy == ((stack.strategies["bybit"], 2),)
+
+
+# ---- the two paths that need a position first (9q.25) ---------------------------
+
+
+async def test_a_reverse_prices_the_close_and_the_new_open_at_the_reversing_alert(
+    stack: Stack,
+) -> None:
+    """A LONG opened at 0.4512 and a reversing alert at 0.4633: the close fill and
+    the new allocation's opening fill both read 0.4633."""
+    strategy_id = stack.strategies["bybit"]
+    opening = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
+    await stack.drain()
+    reversing = await stack.alert(
+        BYBIT_POOL, action="sell", position_size="-10", price=CLOSE_PRICE
+    )
+    await stack.drain()
+
+    rows = await _rows(stack.factory, strategy_id)
+    assert [(row.side, row.price) for row in rows] == [
+        ("BUY", Decimal(OPEN_PRICE)),
+        ("SELL", Decimal(CLOSE_PRICE)),  # the close half of the reverse
+        ("SELL", Decimal(CLOSE_PRICE)),  # the open half: a new short
+    ]
+    first, close_fill, new_open = rows
+    assert close_fill.allocation_id == first.allocation_id
+    assert new_open.allocation_id != first.allocation_id
+    assert await _signal_of_allocation(stack.factory, first.allocation_id) == opening
+    assert await _signal_of_allocation(stack.factory, new_open.allocation_id) == reversing
+    assert new_open.price == await _signal_price(stack.factory, reversing)
+
+
+async def _seed_orphan(stack: Stack, pool: PoolConfig = BYBIT_POOL) -> UUID:
+    """A REAL orphan on ``STXUSDT``: the strategy believes it is flat (its last
+    signal says position 0) while the ledger holds 1250 bought at 0.4512,
+    written through the ledger's own write path. The simulated venue book is
+    seeded from that same ledger, so the guard classifies it REAL. Returns its
+    allocation id."""
+    strategy_id = stack.strategies[pool.exchange.value]
+    prior_signal, allocation_id, attempt_id = uuid4(), uuid4(), uuid4()
+    await seed_signal_row(
+        stack.factory,
+        signal_id=prior_signal,
+        strategy_id=strategy_id,
+        idempotency_key=f"orphan-origin-{prior_signal}",
+        symbol="STXUSDT.P",
+        position_size=Decimal("0"),
+        received_at=datetime.now(UTC) - timedelta(hours=2),
+    )
+    await settle_h._set_outcome(stack.factory, prior_signal, SignalOutcome.processed())
+    await seed_reservation(
+        stack.factory,
+        reservation_id=allocation_id,
+        strategy_id=strategy_id,
+        signal_id=prior_signal,
+        exchange=pool.exchange.value,
+        status="FILLED",
+        amount=Decimal("564"),
+    )
+    await seed_execution_attempt(
+        stack.factory,
+        attempt_id=attempt_id,
+        reservation_id=allocation_id,
+        exchange=pool.exchange.value,
+        symbol="STXUSDT",
+        status="FILLED",
+    )
+    async with stack.factory() as session:
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            FillRecord(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                execution_attempt_id=attempt_id,
+                exchange=pool.exchange.value,
+                venue="usdt-m",
+                settlement_currency="USDT",
+                symbol="STXUSDT",
+                side="BUY",
+                quantity=Decimal("1250"),
+                price=Decimal("0.4512"),
+                fee=Decimal("0"),
+                fee_currency="USDT",
+                notional=Decimal("564"),
+                exchange_order_id=f"fake-order-{attempt_id}",
+                exchange_fill_id=f"fake-fill-{attempt_id}",
+                filled_at=datetime.now(UTC) - timedelta(hours=1),
+                usd_rate_at_fill=Decimal("1"),
+            )
+        )
+        await session.commit()
+    return allocation_id
+
+
+async def test_an_orphan_is_closed_at_the_price_of_the_alert_that_found_it_and_the_open_follows(
+    stack: Stack,
+) -> None:
+    strategy_id = stack.strategies["bybit"]
+    orphan = await _seed_orphan(stack)
+    finder = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=CLOSE_PRICE)
+    await stack.drain()
+
+    rows = await _rows(stack.factory, strategy_id)
+    assert [(row.allocation_id == orphan, row.side, row.price) for row in rows] == [
+        (True, "BUY", Decimal("0.4512")),  # the seeded orphan, untouched
+        (True, "SELL", Decimal(CLOSE_PRICE)),  # its close, priced at the finding alert
+        (False, "BUY", Decimal(CLOSE_PRICE)),  # then the open's own fill
+    ]
+    async with stack.factory() as session:
+        closing_attempt = (
+            await session.execute(
+                select(ExecutionAttemptRow).where(
+                    ExecutionAttemptRow.closes_allocation_id == orphan
+                )
+            )
+        ).scalar_one()
+    assert closing_attempt.signal_id is None  # the close carries no signal id
+    assert rows[2].price == await _signal_price(stack.factory, finder)
+    assert await _signal_of_allocation(stack.factory, rows[2].allocation_id) == finder
+
+
+async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_closes_the_orphan_at_its_own_price(  # noqa: E501
+    stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Requirement 2's third scenario at stack level. ``NaN`` CAN be stored in
+    ``signals.price`` (task 9q.14, observed on the ``head`` schema), so a closing
+    alert can carry one. Its close is refused, the position stays open, and the
+    strategy's next OPENING alert, at a usable price, finds the holding as an
+    orphan, closes it at that alert's price and then opens."""
+    caplog.set_level(logging.WARNING)
+    strategy_id = stack.strategies["bybit"]
+    await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
+    await stack.drain()
+
+    nan_close = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price="NaN")
+    await stack.drain()
+
+    assert (await _signal_price(stack.factory, nan_close)).is_nan()
+    async with stack.factory() as session:
+        refused = (
+            await session.execute(select(SignalRow).where(SignalRow.id == nan_close))
+        ).scalar_one()
+        [opening_attempt] = (
+            await session.execute(
+                select(ExecutionAttemptRow).where(ExecutionAttemptRow.reservation_id.is_not(None))
+            )
+        ).scalars()
+        close_attempts = list(
+            (
+                await session.execute(
+                    select(ExecutionAttemptRow).where(
+                        ExecutionAttemptRow.closes_allocation_id.is_not(None)
+                    )
+                )
+            ).scalars()
+        )
+    assert (refused.status, refused.outcome_reason) == ("REJECTED", "CLOSE_REJECTED_BY_VENUE")
+    [attempt] = close_attempts
+    assert attempt.status == "FAILED"
+    errors = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR and "close rejected" in r.getMessage()
+    ]
+    assert len(errors) == 1
+    assert "no usable price" in errors[0].getMessage()
+    rows = await _rows(stack.factory, strategy_id)
+    assert [(row.side, row.price) for row in rows] == [("BUY", Decimal(OPEN_PRICE))]  # still open
+    orphan = rows[0].allocation_id
+    assert opening_attempt.status == "FILLED"
+
+    finder = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=CLOSE_PRICE)
+    await stack.drain()
+
+    rows = await _rows(stack.factory, strategy_id)
+    assert [(row.allocation_id == orphan, row.side, row.price) for row in rows] == [
+        (True, "BUY", Decimal(OPEN_PRICE)),
+        (True, "SELL", Decimal(CLOSE_PRICE)),
+        (False, "BUY", Decimal(CLOSE_PRICE)),
+    ]
+    assert await _signal_of_allocation(stack.factory, rows[2].allocation_id) == finder
