@@ -577,6 +577,12 @@ fills until the dialog is opened, MUST make that request when it opens, and MUST
 NOT prefetch the fills of any row. The table MUST be a real table inside the
 dialog's own scrolling body.
 
+An operation whose figures cannot be derived has no base currency. Its dialog
+MUST still open, and the two headings that carry the base currency MUST then
+read without the parenthesis: "Size" / "Tamaño" in the figures and "Quantity" /
+"Cantidad" in the fills table. No currency is guessed from the pair (owner's
+answer of 2026-10-05).
+
 The table MUST be in one of these states:
 
 - loading: "Loading the fills…" / "Cargando las ejecuciones…";

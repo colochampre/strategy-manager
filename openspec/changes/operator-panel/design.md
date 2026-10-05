@@ -2917,6 +2917,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `detail.entryPrice` | Entry price | Precio de entrada |
 | `detail.exitPrice` | Exit price | Precio de salida |
 | `detail.size` | Size ({{base}}) | Tamaño ({{base}}) |
+| `detail.sizeNoBase` | Size | Tamaño |
 | `detail.fees` | Fees paid ({{currency}}) | Comisiones pagadas ({{currency}}) |
 | `detail.otherFees` | Fees in other currencies | Comisiones en otras monedas |
 | `detail.pnl` | PnL ({{currency}}) | PnL ({{currency}}) |
@@ -2934,6 +2935,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `detail.fills.sides.BUY` / `.SELL` | Buy / Sell | Compra / Venta |
 | `detail.fills.price` | Price | Precio |
 | `detail.fills.quantity` | Quantity ({{base}}) | Cantidad ({{base}}) |
+| `detail.fills.quantityNoBase` | Quantity | Cantidad |
 | `detail.fills.fee` | Fee | Comisión |
 | `detail.fills.loading` | Loading the fills… | Cargando las ejecuciones… |
 | `detail.fills.error` | The fills could not be loaded. | No se pudieron cargar las ejecuciones. |
