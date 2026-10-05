@@ -428,3 +428,137 @@ async def test_source_counts_rehearsal_fills_per_strategy(
     assert result.rehearsal_for(s1) == 2
     assert result.rehearsal_for(s2) == 1
     assert result.rehearsal_for(uuid4()) == 0
+
+
+def _rehearsal_fill_id() -> str:
+    return f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}"
+
+
+async def test_rehearsal_groups_are_returned_in_their_own_set_marked_rehearsal(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A rehearsal round trip leaves the live set empty and fills the other one,
+    every group of it marked ``rehearsal``. The groups still carry the pool
+    capital the reservation recorded."""
+    strategy_id, alloc, attempt = await _seed_allocation(pg_session_factory)
+    common = {"strategy_id": strategy_id, "allocation_id": alloc, "attempt_id": attempt}
+    await _record(
+        pg_session_factory,
+        _fill(**common, side="BUY", quantity="2", price="1", fill_id=_rehearsal_fill_id()),
+        _fill(
+            **common,
+            side="SELL",
+            quantity="2",
+            price="1",
+            symbol="SOLUSDT",
+            filled_at=T0 + timedelta(hours=1),
+            fill_id=_rehearsal_fill_id(),
+        ),
+    )
+
+    result = await _read(pg_session_factory)
+
+    assert [(g.allocation_id, g.side, g.rehearsal) for g in result.rehearsal_groups] == [
+        (alloc, "BUY", True),
+        (alloc, "SELL", True),
+    ]
+    assert {g.pool_total_at_open for g in result.rehearsal_groups} == {Decimal("1000")}
+    assert result.groups == ()
+
+
+async def test_groups_holds_the_non_rehearsal_groups_exactly_as_before(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """With a live and a rehearsal allocation in one pool, ``groups`` holds the
+    live one alone, its figures unchanged, and none of its groups is marked."""
+    live_strategy, live_alloc, live_attempt = await _seed_allocation(pg_session_factory)
+    dry_strategy, dry_alloc, dry_attempt = await _seed_allocation(pg_session_factory)
+    await _record(
+        pg_session_factory,
+        _fill(
+            strategy_id=live_strategy,
+            allocation_id=live_alloc,
+            attempt_id=live_attempt,
+            side="BUY",
+            quantity="3",
+            price="101",
+            fee="0.5",
+        ),
+        _fill(
+            strategy_id=dry_strategy,
+            allocation_id=dry_alloc,
+            attempt_id=dry_attempt,
+            side="BUY",
+            quantity="1",
+            price="1",
+            fill_id=_rehearsal_fill_id(),
+        ),
+    )
+
+    result = await _read(pg_session_factory)
+
+    assert len(result.groups) == 1
+    live = result.groups[0]
+    assert (live.allocation_id, live.quantity, live.notional, live.fee, live.rehearsal) == (
+        live_alloc,
+        Decimal("3"),
+        Decimal("303"),
+        Decimal("0.5"),
+        False,
+    )
+    assert [g.allocation_id for g in result.rehearsal_groups] == [dry_alloc]
+    assert result.rehearsal_fill_count == 1
+
+
+async def test_an_allocation_written_under_two_spellings_on_one_side_yields_one_group_per_spelling(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The symbol joins the GROUP BY (design section E): two BUYs of one
+    allocation, written as ``SOLUSDT.P`` and as ``SOLUSDT_PERP``, are two groups,
+    so the domain can tell two spellings of one market from two markets."""
+    strategy_id, alloc, attempt = await _seed_allocation(pg_session_factory)
+    common = {"strategy_id": strategy_id, "allocation_id": alloc, "attempt_id": attempt}
+    await _record(
+        pg_session_factory,
+        _fill(**common, side="BUY", quantity="1", symbol="SOLUSDT.P"),
+        _fill(
+            **common,
+            side="BUY",
+            quantity="2",
+            symbol="SOLUSDT_PERP",
+            filled_at=T0 + timedelta(minutes=1),
+        ),
+    )
+
+    result = await _read(pg_session_factory)
+
+    assert sorted((g.symbol, g.quantity) for g in result.groups) == [
+        ("SOLUSDT.P", Decimal("1")),
+        ("SOLUSDT_PERP", Decimal("2")),
+    ]
+
+
+async def test_an_allocation_with_fills_of_both_origins_yields_groups_in_both_sets(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A mixed allocation (a data fault the guard of decision 28 names) keeps its
+    live BUY in ``groups`` and its rehearsal SELL in ``rehearsal_groups``: the
+    two never share a group because the origin is a grouped column."""
+    strategy_id, alloc, attempt = await _seed_allocation(pg_session_factory)
+    common = {"strategy_id": strategy_id, "allocation_id": alloc, "attempt_id": attempt}
+    await _record(
+        pg_session_factory,
+        _fill(**common, side="BUY", quantity="1"),
+        _fill(
+            **common,
+            side="SELL",
+            quantity="1",
+            filled_at=T0 + timedelta(hours=1),
+            fill_id=_rehearsal_fill_id(),
+        ),
+    )
+
+    result = await _read(pg_session_factory)
+
+    assert [(g.side, g.rehearsal) for g in result.groups] == [("BUY", False)]
+    assert [(g.side, g.rehearsal) for g in result.rehearsal_groups] == [("SELL", True)]

@@ -54,6 +54,7 @@ def _group(
         first_filled_at=filled_at,
         last_filled_at=filled_at,
         pool_total_at_open=None if pool_total_at_open is None else Decimal(pool_total_at_open),
+        rehearsal=False,
     )
 
 

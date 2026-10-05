@@ -10,6 +10,7 @@ opened as ``SOLUSDT.P`` and closed as ``SOLUSDT`` (a booked close).
 """
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -57,6 +58,7 @@ def _group(
         first_filled_at=at,
         last_filled_at=at,
         pool_total_at_open=None if capital is None else Decimal(capital),
+        rehearsal=False,
     )
 
 
@@ -114,6 +116,22 @@ async def test_a_source_that_returns_another_pools_rows_is_refused() -> None:
 
     with pytest.raises(InvariantViolation):
         await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+
+
+async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_refused() -> None:
+    """The second wall (design addendum, section C): a rehearsal group in the
+    live set never reaches a figure, even when it would close a trade."""
+    groups = _closed_trade("20")
+    groups[0] = replace(groups[0], rehearsal=True)
+    source = FakeFillsSource(groups)
+
+    raised: BaseException | None = None
+    try:
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+    except Exception as error:
+        raised = error
+
+    assert type(raised) is InvariantViolation
 
 
 async def test_a_stray_row_is_refused_even_when_it_would_only_count_as_open() -> None:
@@ -202,3 +220,25 @@ async def test_an_empty_ledger_returns_the_empty_result_not_an_error() -> None:
     assert report.curve == ()
     assert report.closed_trade_count == 0
     assert report.total_pnl == Decimal("0")
+
+
+async def test_the_pool_report_is_identical_with_and_without_rehearsal_groups() -> None:
+    """Rehearsal groups reach no total (design addendum, section C): the whole
+    report, so the curve, the monthly grid, the ranges and the exclusions, is
+    the same value for a ledger that also holds a closed and an open dry-run
+    operation."""
+    live = _closed_trade("20") + _closed_trade("-4", capital="1010")
+    closed_dry = [replace(g, rehearsal=True) for g in _closed_trade("500")]
+    open_dry = [replace(_group(uuid4(), "BUY", "100"), rehearsal=True)]
+
+    without = await ReadPoolPerformance(
+        FakeFillsSource(live, rehearsal_fill_count=3), FixedClock(NOW)
+    ).read(POOL)
+    with_rehearsal = await ReadPoolPerformance(
+        FakeFillsSource(live, rehearsal_fill_count=3, rehearsal_groups=closed_dry + open_dry),
+        FixedClock(NOW),
+    ).read(POOL)
+
+    assert without.closed_trade_count == 2
+    assert without.total_pnl == Decimal("16")
+    assert with_rehearsal == without

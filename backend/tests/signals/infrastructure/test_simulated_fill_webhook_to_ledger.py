@@ -297,6 +297,7 @@ def _group(row: LedgerEntryRow, pool: PoolConfig) -> FillGroup:
         first_filled_at=row.filled_at,
         last_filled_at=row.filled_at,
         pool_total_at_open=POOL_BALANCE,
+        rehearsal=False,
     )
 
 

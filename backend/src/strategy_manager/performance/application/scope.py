@@ -52,6 +52,22 @@ def require_single_pool(pool: PoolKey, groups: tuple[FillGroup, ...]) -> None:
             )
 
 
+def require_live_only(groups: tuple[FillGroup, ...]) -> None:
+    """The second wall that keeps a rehearsal group out of every total.
+
+    The first is by construction (the totals read ``PoolFills.groups`` and
+    nothing else); this one is by refusal. A group marked rehearsal in the live
+    set means the source put it in the wrong set, and any figure derived from it
+    would silently mix dry-run money into real PnL, so it raises instead.
+    """
+    rehearsal = sorted({str(group.allocation_id) for group in groups if group.rehearsal})
+    if rehearsal:
+        raise InvariantViolation(
+            "the fills source put rehearsal groups in the live set, for allocation(s) "
+            f"{', '.join(rehearsal)}; a rehearsal fill is never part of a total"
+        )
+
+
 def strategy_groups(
     pool: PoolKey, strategy_id: UUID, groups: tuple[FillGroup, ...]
 ) -> tuple[FillGroup, ...]:

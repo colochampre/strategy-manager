@@ -41,6 +41,7 @@ def _group(
         first_filled_at=at,
         last_filled_at=at,
         pool_total_at_open=Decimal("1000"),
+        rehearsal=False,
     )
 
 

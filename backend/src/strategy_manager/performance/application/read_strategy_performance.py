@@ -32,6 +32,7 @@ from strategy_manager.performance.application.ports import AllocationFillsSource
 from strategy_manager.performance.application.scope import (
     log_exclusions,
     pool_label,
+    require_live_only,
     strategy_groups,
 )
 from strategy_manager.performance.domain.by_pair import PairStats, by_pair
@@ -60,6 +61,7 @@ class ReadStrategyPerformance:
     async def read(self, strategy_id: UUID, pool: PoolKey) -> StrategyPerformance:
         pool_fills = await self._fills.pool_fills(pool)
         groups = strategy_groups(pool, strategy_id, pool_fills.groups)
+        require_live_only(pool_fills.groups)
 
         derived = derive_trades(groups)
         report = build_pool_performance(

@@ -605,6 +605,14 @@ async def test_get_strategy_trades_item_shape_and_direction(
         "direction": "SHORT",
         "opened_at": "2026-09-22T11:00:00Z",
         "closed_at": "2026-09-22T12:00:00Z",
+        "rehearsal": False,
+        "rehearsal_fill_price": None,
+        "base_currency": "STX",
+        "entry_price": "100.000000000000000000",
+        "exit_price": "94.000000000000000000",
+        "size": "1.000000000000000000",
+        "fees": "0.000000000000000000",
+        "other_fees": [],
         "pnl": short["pnl"],
         "capital_at_open": short["capital_at_open"],
         "return": "0.0060000000",
@@ -863,6 +871,7 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
         first_filled_at=DAY1,
         last_filled_at=DAY1,
         pool_total_at_open=Decimal("1000"),
+        rehearsal=False,
     )
     app = _app(pg_session_factory)
     app.dependency_overrides[get_fills_source] = lambda: FakeFillsSource([stray])
