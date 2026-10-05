@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type {
+  OperationFill,
   OperationFills,
   PoolPerformance,
   StrategyPerformance,
@@ -183,19 +184,55 @@ export async function fetchStrategyTrades(
   return body;
 }
 
-/**
- * STUB (task 9p.5.4, red): answers an empty list without a request. Task 9p.5.5 reads
- * `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills` and validates the body.
- */
-export async function fetchOperationFills(_strategyId: string, allocationId: string): Promise<OperationFills> {
-  return { allocation_id: allocationId, fills: [], truncated: false };
+function isOperationFill(value: unknown): value is OperationFill {
+  return (
+    isRecord(value) &&
+    typeof value.filled_at === "string" &&
+    (value.side === "BUY" || value.side === "SELL") &&
+    typeof value.price === "string" &&
+    typeof value.quantity === "string" &&
+    typeof value.fee === "string" &&
+    typeof value.fee_currency === "string" &&
+    typeof value.rehearsal === "boolean"
+  );
 }
 
-/** STUB (task 9p.5.4, red): a query under a wrong key. Task 9p.5.5 gives it the key of design § F. */
+/**
+ * The fills of one operation, from
+ * `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills`. The body must name the
+ * allocation that was asked for and hold a non-empty list of readable fills: anything else is an
+ * error, never a partial table. A 404 ("no such operation") throws too: the dialog that asks is
+ * opened from a row of the list, so a missing operation is a failure.
+ */
+export async function fetchOperationFills(strategyId: string, allocationId: string): Promise<OperationFills> {
+  const body = await apiFetch<unknown>(
+    `/performance/strategies/${encodeURIComponent(strategyId)}/trades/${encodeURIComponent(allocationId)}/fills`,
+  );
+  if (
+    !isRecord(body) ||
+    body.allocation_id !== allocationId ||
+    !Array.isArray(body.fills) ||
+    body.fills.length === 0 ||
+    !body.fills.every(isOperationFill) ||
+    typeof body.truncated !== "boolean"
+  ) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /performance/strategies/{id}/trades/{allocation_id}/fills: expected the fills of the operation asked for",
+    });
+  }
+  return { allocation_id: body.allocation_id, fills: body.fills, truncated: body.truncated };
+}
+
+/**
+ * `['performance','strategy',id,'trade-fills',allocationId]` (design § F). Mounting it is what
+ * asks for the fills; without both ids it asks for nothing.
+ */
 export function useOperationFills(strategyId: string, allocationId: string) {
   return useQuery({
-    queryKey: ["performance", "strategy", strategyId, "trade-fills"],
+    queryKey: ["performance", "strategy", strategyId, "trade-fills", allocationId],
     queryFn: () => fetchOperationFills(strategyId, allocationId),
+    enabled: strategyId !== "" && allocationId !== "",
+    staleTime: PERFORMANCE_STALE_MS,
   });
 }
 
