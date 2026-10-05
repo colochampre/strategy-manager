@@ -53,7 +53,7 @@ function serveFills(answer: Answer) {
 
 const answerWith = (answer: unknown, status = 200): Answer => () => Promise.resolve(jsonResponse(answer, status));
 
-function renderFills(operationRehearsal = false, baseCurrency = "STX") {
+function renderFills(operationRehearsal = false, baseCurrency: string | null = "STX") {
   renderAt(
     <OperationFillsTable
       strategyId={STRATEGY}
@@ -186,6 +186,28 @@ describe("OperationFillsTable", () => {
     await shows(() => screen.queryByRole("table", { name: "Fills" }));
 
     expect(screen.queryByText(text("rehearsal"))).toBeNull();
+  });
+
+  // Follow-up of the owner answer of 2026-10-05: an operation whose figures cannot be derived has no
+  // base currency, and its Quantity heading reads without the parenthesis; no currency is guessed.
+  it("reads the Quantity heading without a parenthesis when the base currency is null", async () => {
+    serveFills(answerWith(body()));
+    renderFills(false, null);
+
+    await shows(() => screen.queryByRole("table", { name: "Fills" }));
+
+    const headings = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    expect(headings).toEqual(["Time (UTC)", "Side", "Price", "Quantity", "Fee"]);
+  });
+
+  it("reads Cantidad without a parenthesis in Spanish when the base currency is null", async () => {
+    await i18n.changeLanguage("es");
+    serveFills(answerWith(body()));
+    renderFills(false, null);
+
+    await shows(() => screen.queryByRole("table", { name: "Ejecuciones" }));
+
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toContain("Cantidad");
   });
 
   it("is a real table with a caption titled Fills", async () => {

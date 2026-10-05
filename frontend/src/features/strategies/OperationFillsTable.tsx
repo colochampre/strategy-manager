@@ -14,7 +14,7 @@ interface OperationFillsTableProps {
   strategyId: string;
   allocationId: string;
   /** The operation's base currency, written in the Quantity heading. */
-  baseCurrency: string;
+  baseCurrency: string | null;
   /** The operation's own rehearsal mark; a fill whose flag differs carries the Dry run tag. */
   operationRehearsal: boolean;
 }
