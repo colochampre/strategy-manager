@@ -1,11 +1,14 @@
 """``/performance``: what the ledger says about one pool and one strategy
 (design.md sections 11 and 14).
 
-Three read-only routes:
+Four read-only routes:
 
 - ``GET /performance/pools/{exchange}/{venue}/{ccy}``: one pool's report.
 - ``GET /performance/strategies/{id}``: one strategy's report inside its pool,
   plus ``by_pair``.
+- ``GET /performance/strategies/{id}/trades/{allocation_id}/fills``: the individual
+  fills of one operation, oldest first, capped at 200. An unknown id, another
+  strategy's operation and an allocation with no fill are one 404.
 - ``GET /performance/strategies/{id}/trades``: its closed operations, newest
   first, in keyset pages. Each row carries its prices, size and fees; rehearsal
   (dry-run) operations are listed only for ``include_rehearsal=true`` and each row
@@ -47,7 +50,7 @@ import logging
 from collections.abc import Awaitable
 from datetime import date as calendar_date
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -57,7 +60,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import (
     AllocationFillsSourcePort,
+    OperationFillsSourcePort,
     RehearsalPricingSourcePort,
+)
+from strategy_manager.performance.application.read_operation_fills import (
+    ReadOperationFills,
+    UnknownOperation,
 )
 from strategy_manager.performance.application.read_pool_performance import ReadPoolPerformance
 from strategy_manager.performance.application.read_strategy_performance import (
@@ -77,6 +85,9 @@ from strategy_manager.performance.domain.by_pair import PairStats
 from strategy_manager.performance.domain.curve import PoolPerformance
 from strategy_manager.performance.infrastructure.allocation_fills_source import (
     SqlAlchemyAllocationFillsSource,
+)
+from strategy_manager.performance.infrastructure.operation_fills_source import (
+    SqlAlchemyOperationFillsSource,
 )
 from strategy_manager.performance.infrastructure.pool_lookup import SqlAlchemyPoolLookup
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
@@ -115,9 +126,14 @@ def get_pricing_source(session: SessionDep) -> RehearsalPricingSourcePort:
     return SqlAlchemyRehearsalPricingSource(session)
 
 
+def get_operation_fills_source(session: SessionDep) -> OperationFillsSourcePort:
+    return SqlAlchemyOperationFillsSource(session)
+
+
 ClockDep = Annotated[ClockPort, Depends(get_clock)]
 FillsDep = Annotated[AllocationFillsSourcePort, Depends(get_fills_source)]
 PricingDep = Annotated[RehearsalPricingSourcePort, Depends(get_pricing_source)]
+OperationFillsDep = Annotated[OperationFillsSourcePort, Depends(get_operation_fills_source)]
 
 async def _guarded[T](read: Awaitable[T]) -> T:
     """Runs a read, turning a refused one into a logged 500 (module docstring).
@@ -336,6 +352,27 @@ class TradesBody(BaseModel):
         )
 
 
+class FillBody(BaseModel):
+    """One fill, as stored: nothing averaged, rounded or converted. ``fee`` is in
+    ``fee_currency``, which travels with it."""
+
+    filled_at: Instant
+    side: Literal["BUY", "SELL"]
+    price: Money
+    quantity: Money
+    fee: Money
+    fee_currency: str
+    rehearsal: bool
+
+
+class OperationFillsBody(BaseModel):
+    """``allocation_id`` is the id asked for; ``fills`` is never empty."""
+
+    allocation_id: UUID
+    fills: list[FillBody]
+    truncated: bool
+
+
 # --- routes ----------------------------------------------------------------------------
 
 
@@ -405,3 +442,33 @@ async def strategy_trades(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return TradesBody.of(page)
 
+
+@router.get(
+    "/strategies/{strategy_id}/trades/{allocation_id}/fills", response_model=OperationFillsBody
+)
+async def operation_fills(
+    strategy_id: UUID, allocation_id: UUID, session: SessionDep, source: OperationFillsDep
+) -> OperationFillsBody:
+    pool = await _strategy_pool(session, strategy_id)
+    try:
+        result = await _guarded(ReadOperationFills(source).read(strategy_id, pool, allocation_id))
+    except UnknownOperation as exc:
+        # One answer for an id that does not exist, another strategy's operation and
+        # an allocation that never had a fill: it must not say which one it was.
+        raise HTTPException(status_code=404, detail="no such operation") from exc
+    return OperationFillsBody(
+        allocation_id=result.allocation_id,
+        fills=[
+            FillBody(
+                filled_at=fill.filled_at,
+                side=cast(Literal["BUY", "SELL"], fill.side),  # pydantic refuses any other value
+                price=fill.price,
+                quantity=fill.quantity,
+                fee=fill.fee,
+                fee_currency=fill.fee_currency,
+                rehearsal=fill.rehearsal,
+            )
+            for fill in result.fills
+        ],
+        truncated=result.truncated,
+    )

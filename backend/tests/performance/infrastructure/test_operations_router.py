@@ -26,11 +26,15 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.performance.domain.closed_trade import FillGroup
-from strategy_manager.performance.infrastructure.performance_router import get_fills_source
-from tests.performance.fakes import FakeFillsSource
+from strategy_manager.performance.domain.operation import OperationFill
+from strategy_manager.performance.infrastructure.performance_router import (
+    get_fills_source,
+    get_operation_fills_source,
+)
+from tests.performance.fakes import FakeFillsSource, FakeOperationFillsSource
 from tests.performance.infrastructure.conftest import (
     OPERATIONS_T0,
     OperationsLedger,
@@ -40,6 +44,9 @@ from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
     _record,
     _seed_allocation,
+)
+from tests.performance.infrastructure.test_operations_statement_counts import (
+    _captured_sql,
 )
 from tests.performance.infrastructure.test_performance_router import (  # noqa: F401
     _app,
@@ -451,3 +458,297 @@ async def test_a_rehearsal_row_with_a_non_positive_capital_is_the_existing_500(
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "non-positive pool capital" in errors[0].getMessage()
+
+
+# --- the fills route -------------------------------------------------------------------
+
+
+def _fills_url(strategy_id: UUID, allocation_id: UUID) -> str:
+    return f"{_trades_url(strategy_id)}/{allocation_id}/fills"
+
+
+async def _fills(
+    client: AsyncClient, strategy_id: UUID, allocation_id: UUID
+) -> dict[str, Any]:
+    response = await client.get(_fills_url(strategy_id, allocation_id), headers=_auth())
+    assert response.status_code == 200, response.text
+    return dict(_json(response))
+
+
+def _fill_row(
+    at: datetime, side: str, quantity: str, price: str, fee: str, *, rehearsal: bool = False
+) -> dict[str, Any]:
+    return {
+        "filled_at": _iso(at),
+        "side": side,
+        "price": price,
+        "quantity": quantity,
+        "fee": fee,
+        "fee_currency": "USDT",
+        "rehearsal": rehearsal,
+    }
+
+
+async def test_the_fills_of_a_closed_operation_are_served_in_order(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    ledger = operations_ledger
+
+    body = await _fills(client, ledger.strategy_id, ledger.real_long)
+
+    assert body == {
+        "allocation_id": str(ledger.real_long),
+        "fills": [
+            _fill_row(_hours(0), "BUY", "100.000000000000000000", "0.400000000000000000",
+                      "0.100000000000000000"),
+            _fill_row(_hours(0, 1), "BUY", "300.000000000000000000", "0.440000000000000000",
+                      "0.100000000000000000"),
+            _fill_row(_hours(0, 2), "BUY", "600.000000000000000000", "0.460000000000000000",
+                      "0.100000000000000000"),
+            _fill_row(_hours(1), "SELL", "1000.000000000000000000", "0.500000000000000000",
+                      "0.100000000000000000"),
+        ],
+        "truncated": False,
+    }
+
+
+async def test_a_rehearsal_operations_fills_are_served_without_an_opt_in_each_flagged_true(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    ledger = operations_ledger
+
+    body = await _fills(client, ledger.strategy_id, ledger.fixed_one)
+
+    assert [(fill["side"], fill["rehearsal"]) for fill in body["fills"]] == [
+        ("BUY", True),
+        ("SELL", True),
+    ]
+    assert body["allocation_id"] == str(ledger.fixed_one)
+
+
+async def test_a_mixed_allocation_answers_every_fill_with_its_own_flag(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    ledger = operations_ledger
+
+    body = await _fills(client, ledger.strategy_id, ledger.mixed)
+
+    assert [(fill["side"], fill["rehearsal"]) for fill in body["fills"]] == [
+        ("BUY", False),
+        ("SELL", False),
+        ("BUY", True),
+        ("SELL", True),
+    ]
+
+
+async def test_the_fills_of_both_spellings_of_the_symbol_are_in_the_answer(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    """The real operation opened as ``STXUSDT.P`` and closed as ``STXUSDT``; the
+    rehearsal one opened as ``STXUSDT_PERP`` and closed as ``STXUSDT.P``. The route
+    keys on the allocation, so every fill is there, and none carries a symbol."""
+    ledger = operations_ledger
+
+    real = await _fills(client, ledger.strategy_id, ledger.real_long)
+    rehearsal = await _fills(client, ledger.strategy_id, ledger.fixed_one)
+
+    assert [fill["side"] for fill in real["fills"]] == ["BUY", "BUY", "BUY", "SELL"]
+    assert [fill["side"] for fill in rehearsal["fills"]] == ["BUY", "SELL"]
+    assert not any("symbol" in fill for fill in real["fills"] + rehearsal["fills"])
+
+
+async def test_more_than_200_fills_are_cut_and_flagged_and_exactly_200_are_not(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    allocations: dict[int, UUID] = {}
+    for count in (200, 201):
+        _, allocation_id, attempt_id = await _seed_allocation(
+            pg_session_factory, strategy_id=strategy_id
+        )
+        allocations[count] = allocation_id
+        await _record(
+            pg_session_factory,
+            *(
+                _fill(strategy_id=strategy_id, allocation_id=allocation_id,
+                      attempt_id=attempt_id, side="BUY", quantity="1",
+                      filled_at=_hours(0) + timedelta(seconds=n))
+                for n in range(count)
+            ),
+        )
+
+    with caplog.at_level(logging.DEBUG, logger="strategy_manager.performance"):
+        exactly = await _fills(client, strategy_id, allocations[200])
+        silent = list(caplog.records)
+        over = await _fills(client, strategy_id, allocations[201])
+
+    assert (len(exactly["fills"]), exactly["truncated"]) == (200, False)
+    assert (len(over["fills"]), over["truncated"]) == (200, True)
+    assert over["fills"][0]["filled_at"] == _iso(_hours(0))
+    assert over["fills"][-1]["filled_at"] == _iso(_hours(0) + timedelta(seconds=199))
+    assert silent == []
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert str(strategy_id) in message
+    assert str(allocations[201]) in message
+    assert "200" in message
+
+
+async def test_an_unknown_id_another_strategys_operation_and_an_empty_one_answer_the_same_404_and_the_same_body(  # noqa: E501
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    operations_ledger: OperationsLedger,
+) -> None:
+    ledger = operations_ledger
+    _, no_fill, _ = await _seed_allocation(pg_session_factory, strategy_id=ledger.strategy_id)
+    asked = {
+        "unknown": uuid4(),
+        "another strategy": ledger.other,
+        "without a fill": no_fill,
+    }
+
+    answers = {
+        name: await client.get(_fills_url(ledger.strategy_id, allocation_id), headers=_auth())
+        for name, allocation_id in asked.items()
+    }
+
+    assert {name: (r.status_code, r.json()) for name, r in answers.items()} == {
+        name: (404, {"detail": "no such operation"}) for name in asked
+    }
+    # S2's own read of that same allocation does answer, so the 404 above is the
+    # strategy predicate at work and not an empty ledger.
+    assert len((await _fills(client, ledger.other_strategy_id, ledger.other))["fills"]) == 2
+
+
+async def test_an_unknown_strategy_is_a_different_404(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    response = await client.get(
+        _fills_url(uuid4(), operations_ledger.real_long), headers=_auth()
+    )
+
+    assert (response.status_code, response.json()) == (404, {"detail": "no such strategy"})
+
+
+async def test_an_allocation_id_that_is_not_a_uuid_is_422(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    response = await client.get(
+        f"{_trades_url(operations_ledger.strategy_id)}/not-a-uuid/fills", headers=_auth()
+    )
+
+    assert response.status_code == 422
+
+
+async def test_a_fill_in_another_pool_is_500_with_the_integrity_detail_and_no_fill_and_one_error(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    allocation_id = uuid4()
+    stray = OperationFill(
+        filled_at=_hours(0),
+        side="BUY",
+        price=Decimal("0.4512"),
+        quantity=Decimal("1250"),
+        fee=Decimal("0.31"),
+        fee_currency="USDT",
+        rehearsal=False,
+        exchange="pionex",
+        venue="spot",
+        settlement_currency="USDT",
+    )
+    app = _app(pg_session_factory)
+    app.dependency_overrides[get_operation_fills_source] = lambda: FakeOperationFillsSource(
+        {(strategy_id, allocation_id): [stray]}
+    )
+
+    with caplog.at_level(logging.ERROR):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
+            response = await api.get(_fills_url(strategy_id, allocation_id), headers=_auth())
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "performance data failed an integrity check"}
+    assert "0.4512" not in response.text
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "pools are never blended" in errors[0].getMessage()
+
+
+async def test_an_open_allocations_fills_are_served(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    ledger = operations_ledger
+
+    real = await _fills(client, ledger.strategy_id, ledger.open_real)
+    rehearsal = await _fills(client, ledger.strategy_id, ledger.open_rehearsal)
+
+    assert [(f["side"], f["rehearsal"]) for f in real["fills"]] == [("BUY", False)]
+    assert [(f["side"], f["rehearsal"]) for f in rehearsal["fills"]] == [("BUY", True)]
+
+
+async def test_the_body_carries_exactly_the_documented_keys(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    """No USD rate, venue order id, fill id, notional or symbol."""
+    ledger = operations_ledger
+
+    body = await _fills(client, ledger.strategy_id, ledger.real_short)
+
+    assert set(body) == {"allocation_id", "fills", "truncated"}
+    assert len(body["fills"]) == 2
+    for fill in body["fills"]:
+        assert set(fill) == {
+            "filled_at", "side", "price", "quantity", "fee", "fee_currency", "rehearsal"
+        }
+
+
+async def test_the_404s_log_one_warning_naming_strategy_and_allocation(
+    client: AsyncClient,
+    operations_ledger: OperationsLedger,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = operations_ledger
+    unknown = uuid4()
+
+    with caplog.at_level(logging.DEBUG):
+        response = await client.get(_fills_url(ledger.strategy_id, unknown), headers=_auth())
+
+    assert response.status_code == 404
+    performance = [r for r in caplog.records if r.name.startswith("strategy_manager.performance")]
+    assert [r.levelno for r in performance] == [logging.WARNING]
+    message = performance[0].getMessage()
+    assert str(ledger.strategy_id) in message
+    assert str(unknown) in message
+
+
+async def test_the_route_issues_the_same_number_of_statements_for_one_fill_and_for_fifty(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    pg_engine: AsyncEngine,
+) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    counts: list[int] = []
+    for n in (1, 50):
+        _, allocation_id, attempt_id = await _seed_allocation(
+            pg_session_factory, strategy_id=strategy_id
+        )
+        await _record(
+            pg_session_factory,
+            *(
+                _fill(strategy_id=strategy_id, allocation_id=allocation_id,
+                      attempt_id=attempt_id, side="BUY", quantity="1",
+                      filled_at=_hours(0) + timedelta(seconds=i))
+                for i in range(n)
+            ),
+        )
+        with _captured_sql(pg_engine) as statements:
+            body = await _fills(client, strategy_id, allocation_id)
+        assert len(body["fills"]) == n
+        counts.append(len(statements))
+
+    # The strategy row, and the one SELECT of the fills.
+    assert counts == [2, 2]
