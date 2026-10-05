@@ -79,7 +79,7 @@ export function OperationFillsTable({
                 {t(`${KEY}.detail.fills.price`)}
               </th>
               <th scope="col" className={HEADER}>
-                {t(`${KEY}.detail.fills.quantity`, { base: baseCurrency })}
+                {baseCurrency === null ? t(`${KEY}.detail.fills.quantityNoBase`) : t(`${KEY}.detail.fills.quantity`, { base: baseCurrency })}
               </th>
               <th scope="col" className={HEADER}>
                 {t(`${KEY}.detail.fills.fee`)}

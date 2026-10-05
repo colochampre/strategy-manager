@@ -234,6 +234,7 @@
             "sides": { "BUY": "Buy", "SELL": "Sell" },
             "price": "Price",
             "quantity": "Quantity ({{base}})",
+            "quantityNoBase": "Quantity",
             "fee": "Fee",
             "loading": "Loading the fills…",
             "error": "The fills could not be loaded.",

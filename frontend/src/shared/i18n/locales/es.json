@@ -234,6 +234,7 @@
             "sides": { "BUY": "Compra", "SELL": "Venta" },
             "price": "Precio",
             "quantity": "Cantidad ({{base}})",
+            "quantityNoBase": "Cantidad",
             "fee": "Comisión",
             "loading": "Cargando las ejecuciones…",
             "error": "No se pudieron cargar las ejecuciones.",
