@@ -787,18 +787,36 @@ async def test_the_trades_and_fills_routes_require_the_bearer_token(
 
 
 async def test_no_trades_or_fills_response_contains_a_json_float_or_an_exponent(
-    client: AsyncClient, operations_ledger: OperationsLedger
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    operations_ledger: OperationsLedger,
 ) -> None:
     """Every response of both routes over the one ledger is walked: the list as
     the older panel asks for it, with rehearsal rows, paged, and the fills of every
     operation. Money, quantities, prices and ratios are JSON strings in plain
     notation, never a number and never an exponent: the prices are quotients, so
-    the rounding and the notation of ``Price`` are what is being proven here."""
+    the rounding and the notation of ``Price`` are what is being proven here.
+
+    One operation of the walk trades at a micro price (5E-7): a quotient that a
+    bare ``str(Decimal)`` writes with an exponent, which no other price of the one
+    ledger does."""
     ledger = operations_ledger
+    _, micro, micro_attempt = await _seed_allocation(
+        pg_session_factory, strategy_id=ledger.strategy_id
+    )
+    await _record(
+        pg_session_factory,
+        _fill(strategy_id=ledger.strategy_id, allocation_id=micro, attempt_id=micro_attempt,
+              side="BUY", quantity="1000000", price="0.0000005", symbol="STXUSDT.P",
+              filled_at=_hours(12)),
+        _fill(strategy_id=ledger.strategy_id, allocation_id=micro, attempt_id=micro_attempt,
+              side="SELL", quantity="1000000", price="0.0000006", symbol="STXUSDT",
+              filled_at=_hours(13)),
+    )
     allocations = (
         ledger.real_long, ledger.real_short, ledger.open_real, ledger.mixed,
         ledger.open_rehearsal, ledger.fixed_one, ledger.alert_small, ledger.alert_of_one,
-        ledger.opened_at_one_closed_at_alert,
+        ledger.opened_at_one_closed_at_alert, micro,
     )
     requests: list[tuple[str, dict[str, Any]]] = [
         (_trades_url(ledger.strategy_id), {}),
@@ -813,6 +831,13 @@ async def test_no_trades_or_fills_response_contains_a_json_float_or_an_exponent(
         assert response.status_code == 200, (url, params)
         leaves += [(f"{url} {params} {path}", value) for path, value in _walk(response.json())]
 
+    micro_row = _row(
+        dict(_json(await client.get(_trades_url(ledger.strategy_id), headers=_auth()))), micro
+    )
+    assert (micro_row["entry_price"], micro_row["exit_price"]) == (
+        "0.000000500000000000",
+        "0.000000600000000000",
+    )
     assert len(leaves) > 300
     assert [(p, v) for p, v in leaves if isinstance(v, float)] == []
     numbers = 0
