@@ -498,6 +498,7 @@ describe("TradesTable", () => {
     expect(cells[8]?.textContent ?? "").toContain("+1.50");
   });
 
+  // Edited for owner decision 46: the instants are the compact two-line form; the rest of the row is as before.
   it("writes the instants in UTC, the venue's pair spelling, the side and the signed figures", async () => {
     serve(
       [
@@ -517,12 +518,13 @@ describe("TradesTable", () => {
 
     await screen.findByRole("table");
 
+    // Opened and Closed are two lines each (owner decision 46): the numeric date, then the 24-hour time.
     const cells = within(bodyRows()[0] as HTMLElement)
       .getAllByRole("cell")
-      .map((cell) => cell.textContent);
+      .map((cell, index) => (index < 2 ? Array.from(cell.children).map((line) => line.textContent).join(" ") : cell.textContent));
     expect(cells).toEqual([
-      "Sep 29, 2026, 23:30",
-      "Sep 30, 2026, 00:15",
+      "9/29/2026 23:30",
+      "9/30/2026 00:15",
       "STXUSDT",
       "SHORT",
       "0.4512",
@@ -1222,5 +1224,40 @@ describe("TradesTable incomplete-fees note", () => {
     await screen.findByRole("table");
 
     expect(noteShown(NOTE_ES)).toBe(true);
+  });
+});
+
+// Opened and Closed are compact (task 9p.5.29, owner decision 46): the numeric date in the panel's
+// language on the first line and the 24-hour time below in ink-3, both in UTC.
+describe("TradesTable compact instants", () => {
+  const lines = (cell: HTMLElement | undefined) => Array.from(cell?.children ?? []).map((line) => line.textContent);
+
+  it.each([
+    ["en", ["10/5/2026", "01:30"], ["10/6/2026", "23:45"]],
+    ["es", ["5/10/2026", "01:30"], ["6/10/2026", "23:45"]],
+  ])("writes the date and the time of Opened and Closed on two lines in %s, in UTC", async (language, opened, closed) => {
+    await i18n.changeLanguage(language);
+    serve([trade(1, { opened_at: "2026-10-05T01:30:00Z", closed_at: "2026-10-06T23:45:00.000001Z" })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect(lines(cells[0])).toEqual(opened);
+    expect(lines(cells[1])).toEqual(closed);
+  });
+
+  it("draws the time on its own line below the date, in ink-3", async () => {
+    serve([trade(1, { opened_at: "2026-10-05T01:30:00Z" })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[0] as HTMLElement;
+    const time = within(cell).queryByText("01:30");
+    expect(time).toBeInTheDocument();
+    expect(time?.classList.contains("block")).toBe(true);
+    expect(time?.classList.contains("text-ink-3")).toBe(true);
+    expect(within(cell).queryByText("10/5/2026")?.classList.contains("text-ink-3")).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { figureText } from "@/features/strategies/format";
+import { clockText, compactDateText, figureText } from "@/features/strategies/format";
 
 // `figureText` writes a price, a size or a fee from the server's own string. It is a text
 // operation, not arithmetic: money is never computed in the browser (design § F, § 15).
@@ -38,4 +38,39 @@ describe("figureText", () => {
       expect(figureText(stored)).toBeNull();
     },
   );
+});
+
+// The compact Opened and Closed cells of the trades table (owner decision 46): the numeric date in the
+// panel's language and the 24-hour time, both read in UTC from the instant by Intl, never parsed from a
+// formatted string.
+describe("compactDateText", () => {
+  it.each([
+    ["2026-10-05T09:07:00Z", "en", "10/5/2026"],
+    ["2026-10-05T09:07:00Z", "es", "5/10/2026"],
+    // 01:30 UTC is still the 4th in any zone behind UTC: the date is the UTC one.
+    ["2026-10-05T01:30:00Z", "en", "10/5/2026"],
+    ["2026-10-05T01:30:00Z", "es", "5/10/2026"],
+    ["2026-09-30T00:15:00.000001Z", "en", "9/30/2026"],
+  ])("writes %s in %s as %s", (instant, locale, expected) => {
+    expect(compactDateText(instant, locale)).toBe(expected);
+  });
+
+  it("returns an instant it cannot read as the server wrote it", () => {
+    expect(compactDateText("not a date", "en")).toBe("not a date");
+  });
+});
+
+describe("clockText", () => {
+  it.each([
+    ["2026-10-05T09:07:00Z", "09:07"],
+    ["2026-10-05T00:05:00Z", "00:05"],
+    ["2026-10-05T01:30:00Z", "01:30"],
+    ["2026-09-30T23:59:59.999999Z", "23:59"],
+  ])("writes %s as the 24-hour UTC time %s", (instant, expected) => {
+    expect(clockText(instant)).toBe(expected);
+  });
+
+  it("gives null for an instant it cannot read", () => {
+    expect(clockText("not a date")).toBeNull();
+  });
 });

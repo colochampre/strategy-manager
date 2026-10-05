@@ -51,6 +51,19 @@ export function figureText(value: string): string | null {
   return text === "0" ? text : `${sign}${text}`;
 }
 
+/**
+ * STUB (task 9p.5.29, red): returns the instant as it came. Task 9p.5.29 green writes the numeric UTC date
+ * in the panel's language, for the first line of an Opened or Closed cell.
+ */
+export function compactDateText(iso: string, _locale: string): string {
+  return iso;
+}
+
+/** STUB (task 9p.5.29, red): returns the instant as it came. Green writes the 24-hour UTC time, or null for an instant that cannot be read. */
+export function clockText(iso: string): string | null {
+  return iso;
+}
+
 /** A timestamp as a calendar day in UTC, the day boundary the whole panel uses (`day_boundary: "UTC"`). */
 export function dayText(iso: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(iso));
