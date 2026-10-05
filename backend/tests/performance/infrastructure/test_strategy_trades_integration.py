@@ -31,6 +31,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
     SqlAlchemyRehearsalPricingSource,
 )
+from tests.performance.infrastructure.conftest import OPERATIONS_T0, OperationsLedger
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
     _fill,
@@ -185,3 +186,70 @@ async def test_another_strategys_trades_in_the_same_pool_are_not_listed(
     page = await _page(pg_session_factory, mine, limit=10)
 
     assert _ids(page) == [own]
+
+
+async def test_a_trade_closing_between_two_page_reads_neither_repeats_nor_hides_any_with_rehearsal_rows_in_the_fixture(  # noqa: E501
+    pg_session_factory: async_sessionmaker[AsyncSession], operations_ledger: OperationsLedger
+) -> None:
+    """The property of the test above, kept green on the one ledger and with
+    rehearsal rows asked for: page 1 holds the two newest rehearsal rows, THEN a
+    real trade closes later than all of them, then page 2 is read from the cursor.
+    Page 2 is unchanged and the new trade tops the next read from the start."""
+    ledger = operations_ledger
+
+    async def read(
+        limit: int, before: TradeCursor | None = None
+    ) -> TradesPage:
+        async with pg_session_factory() as session:
+            reader = ReadStrategyTrades(
+                SqlAlchemyAllocationFillsSource(session),
+                SqlAlchemyRehearsalPricingSource(session),
+            )
+            return await reader.read(
+                ledger.strategy_id, BYBIT, limit=limit, before=before, include_rehearsal=True
+            )
+
+    first = await read(2)
+    assert _ids(first) == [
+        ledger.opened_at_one_closed_at_alert,
+        ledger.alert_of_one,
+    ]
+
+    _, fresh, attempt = await _seed_allocation(pg_session_factory, strategy_id=ledger.strategy_id)
+    closed_at = OPERATIONS_T0 + timedelta(days=2)
+    await _record(
+        pg_session_factory,
+        _fill(
+            strategy_id=ledger.strategy_id,
+            allocation_id=fresh,
+            attempt_id=attempt,
+            side="BUY",
+            quantity="1",
+            symbol="STXUSDT.P",
+            filled_at=closed_at - timedelta(hours=1),
+        ),
+        _fill(
+            strategy_id=ledger.strategy_id,
+            allocation_id=fresh,
+            attempt_id=attempt,
+            side="SELL",
+            quantity="1",
+            price="110",
+            symbol="STXUSDT",
+            filled_at=closed_at,
+        ),
+    )
+    second = await read(10, first.next_cursor)
+    from_top = await read(10)
+
+    assert _ids(second) == [
+        ledger.alert_small,
+        ledger.fixed_one,
+        *ledger.real_closed,
+    ]
+    assert _ids(from_top) == [
+        fresh,
+        ledger.opened_at_one_closed_at_alert,
+        ledger.alert_of_one,
+        *_ids(second),
+    ]
