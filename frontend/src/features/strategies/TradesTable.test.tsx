@@ -317,7 +317,8 @@ describe("TradesTable", () => {
     expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.next") })).toBeNull();
   });
 
-  it("shows what the endpoint serves and no entry price, exit price, size or fees column (decision 43, pending)", async () => {
+  // Replaces "shows what the endpoint serves and no entry price, exit price, size or fees column (decision 43, pending)".
+  it("shows twelve columns in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool capital at open, Details", async () => {
     serve([trade(1)], 5);
     renderTable();
 
@@ -328,10 +329,160 @@ describe("TradesTable", () => {
       "Closed (UTC)",
       "Pair",
       "Side",
+      "Entry",
+      "Exit",
+      "Size",
+      "Fees USDT",
       "PnL USDT",
-      "Return",
+      "PnL %",
       "Pool capital at open",
+      "Details",
     ]);
+  });
+
+  it("gives each column its width tier, on the th and on the td", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    // Tailwind viewport variants: jsdom has no layout, so the tier is read from the classes.
+    const tier = (element: Element | undefined) => {
+      const classes = [...(element?.classList ?? [])];
+      if (!classes.includes("hidden")) return "always";
+      return classes.find((name) => name.endsWith(":table-cell")) ?? "hidden";
+    };
+    const expected = [
+      "min-[90rem]:table-cell",
+      "always",
+      "always",
+      "always",
+      "md:table-cell",
+      "md:table-cell",
+      "xl:table-cell",
+      "xl:table-cell",
+      "always",
+      "always",
+      "xl:table-cell",
+      "always",
+    ];
+
+    const headers = screen.getAllByRole("columnheader");
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect(headers.map(tier)).toEqual(expected);
+    expect(cells.map(tier)).toEqual(expected);
+  });
+
+  it("sits in a wrapper that scrolls sideways", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+
+    const table = await screen.findByRole("table");
+
+    expect(table.parentElement?.classList.contains("overflow-x-auto")).toBe(true);
+  });
+
+  it.each([
+    ["en", "PnL %"],
+    ["es", "PnL %"],
+  ])("reads the heading Return as PnL %% in %s", async (language, heading) => {
+    await i18n.changeLanguage(language);
+    serve([trade(1)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    expect(headers).toContain(heading);
+    expect(headers).not.toContain("Return");
+    expect(headers).not.toContain("Rendimiento");
+  });
+
+  it("shows the stored figures of a row: entry, exit, size, fees and PnL", async () => {
+    serve(
+      [
+        trade(1, {
+          entry_price: "0.451200000000000000",
+          exit_price: "0.463100000000000000",
+          size: "1250.000000000000000000",
+          fees: "0.63",
+          pnl: "14.25",
+        }),
+      ],
+      5,
+    );
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect(cells.slice(4, 9).map((cell) => cell.textContent)).toEqual(["0.4512", "0.4631", "1250", "0.63", "+14.25"]);
+  });
+
+  it("shows an em dash with its reason for a null entry, exit and size, and no cell shows 0", async () => {
+    serve([trade(1, { base_currency: null, entry_price: null, exit_price: null, size: null })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    const reason = i18n.t("strategies.performance.trades.notDerivable");
+    for (const cell of cells.slice(4, 7)) {
+      expect(cell.textContent ?? "").toContain("—");
+      expect(within(cell).queryByText(reason)).toBeInTheDocument();
+      expect(cell.textContent ?? "").not.toMatch(/\d/);
+    }
+  });
+
+  it("writes a fee in another currency after the fees, as + 0.00012 BNB", async () => {
+    serve([trade(1, { other_fees: [{ currency: "BNB", amount: "0.000120000000000000" }] }), trade(2)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const [withOther, plain] = bodyRows() as [HTMLElement, HTMLElement];
+    const feesWith = within(withOther).getAllByRole("cell")[7];
+    expect(feesWith?.textContent ?? "").toContain("0.63");
+    expect(feesWith ? within(feesWith).queryByText("+ 0.00012 BNB") : null).toBeInTheDocument();
+    expect(within(plain).queryByText(/BNB/)).toBeNull();
+  });
+
+  it("keeps the incomplete-fees mark on the PnL cell", async () => {
+    serve([trade(1, { fees_complete: false })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect(cells[8]?.textContent ?? "").toContain(i18n.t("strategies.performance.trades.feesIncomplete"));
+  });
+
+  it("says a figure that is not a number is unreadable instead of drawing it", async () => {
+    serve([trade(1, { entry_price: "1e3", exit_price: "x", size: "NaN", fees: "" })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    const unreadable = i18n.t("strategies.performance.trades.cellUnreadable");
+    expect([cells[4], cells[5], cells[6], cells[7]].map((cell) => cell?.textContent)).toEqual([
+      unreadable,
+      unreadable,
+      unreadable,
+      unreadable,
+    ]);
+  });
+
+  it("shows PnL % and Pool capital at open empty for a row with no recorded capital", async () => {
+    serve([trade(1, { capital_at_open: null, return: null })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect(cells[9]?.textContent ?? "").toContain("—");
+    expect(cells[10]?.textContent ?? "").toContain("—");
+    expect(cells[9]?.textContent ?? "").not.toContain("0.0%");
+    expect(cells[8]?.textContent ?? "").toContain("+1.50");
   });
 
   it("writes the instants in UTC, the venue's pair spelling, the side and the signed figures", async () => {
