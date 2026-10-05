@@ -15,9 +15,10 @@ import { useStrategy } from "@/shared/api/strategies";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
 /**
- * One strategy. The left column is its header and uptime, its performance (the
+ * One strategy. The left column is its header and uptime and its performance (the
  * Overview's ledger line, chart and month grid for this strategy, then the By
- * pair table) and its closed trades. The webhook block is a disclosure
+ * pair table). Its closed trades are the widest thing on the page, so they are a
+ * full-width section under the two-column grid (decision 43, design § F). The webhook block is a disclosure
  * opened from the header (decision: 12f.8 superseded). The settings column holds the allowed-pairs editor, the
  * enable switch, that switch's history and, last, the archive control. The delete control has its
  * own block at the very bottom, below archive (design addendum 9x § H): a
@@ -68,7 +69,6 @@ export function StrategyDetailPage() {
         <div className="flex min-w-0 flex-col gap-6">
           <StrategyHeader strategy={subject} />
           <StrategyPerformance key={subject.id} strategyId={subject.id} />
-          <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
@@ -83,6 +83,7 @@ export function StrategyDetailPage() {
           </div>
         </aside>
       </div>
+      <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
       <DeleteStrategyControl strategy={subject} />
     </div>
   );
