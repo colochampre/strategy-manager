@@ -32,6 +32,16 @@ const FROM_XL = "hidden xl:table-cell";
 const FROM_WIDE = "hidden min-[90rem]:table-cell";
 
 /**
+ * The tag of a rehearsal row by its `rehearsal_fill_price`. `UNDETERMINED`, and a value this panel
+ * does not know, read as the plain tag: nothing is claimed about a price stored data cannot support.
+ */
+function rehearsalTagKey(fillPrice: string | null): string {
+  if (fillPrice === "FIXED_ONE") return "strategies.performance.trades.rehearsalFixed";
+  if (fillPrice === "ALERT") return "strategies.performance.trades.rehearsalAlert";
+  return "strategies.performance.trades.rehearsal";
+}
+
+/**
  * A figure that is absent (null) is an em dash with its reason for a screen
  * reader; one that is present but cannot be read says so. Neither is a zero.
  */
@@ -63,7 +73,14 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
     <tr>
       <td className={cn(CELL, "text-left", FROM_WIDE)}>{dateTimeText(trade.opened_at, locale)}</td>
       <td className={cn(CELL, "text-left")}>{dateTimeText(trade.closed_at, locale)}</td>
-      <td className={cn(CELL, "text-left text-ink")}>{trade.pair}</td>
+      <td className={cn(CELL, "text-left text-ink")}>
+        {trade.pair}
+        {trade.rehearsal && (
+          <span className="block font-sans text-[11px] text-decision">
+            {t(rehearsalTagKey(trade.rehearsal_fill_price))}
+          </span>
+        )}
+      </td>
       <td className={cn(CELL, "text-left")}>{side}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
@@ -79,7 +96,7 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
           </span>
         ))}
       </td>
-      <td className={cn(CELL, pnl !== null && toneClass(pnl))}>
+      <td className={cn(CELL, pnl !== null && !trade.rehearsal && toneClass(pnl))}>
         {pnl === null ? unreadable : amountText(pnl, currency, locale, true)}
         {!trade.fees_complete && (
           <span
@@ -90,7 +107,7 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
           </span>
         )}
       </td>
-      <td className={cn(CELL, ret !== null && toneClass(ret))}>
+      <td className={cn(CELL, ret !== null && !trade.rehearsal && toneClass(ret))}>
         {trade.return === null ? <Absent reason={noValue} /> : ret === null ? unreadable : percentText(ret, locale)}
       </td>
       <td className={cn(CELL, FROM_XL)}>
