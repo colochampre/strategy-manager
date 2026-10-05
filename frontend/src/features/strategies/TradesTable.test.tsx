@@ -694,7 +694,8 @@ describe("TradesTable rehearsal rows", () => {
     expect(within(bodyRows()[0] as HTMLElement).queryByText(/Dry run/)).toBeNull();
   });
 
-  it("prints entry 1, exit 1 and fees 0 on a fixed-price row, and no cell is blank", async () => {
+  // Fees are written like the PnL beside them (owner decision 46): a fee of 0 reads 0.00 in a USDT pool.
+  it("prints entry 1, exit 1 and fees 0.00 on a fixed-price row, and no cell is blank", async () => {
     serve(
       [
         rehearsal(1, "FIXED_ONE", {
@@ -710,7 +711,7 @@ describe("TradesTable rehearsal rows", () => {
     await screen.findByRole("table");
 
     const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
-    expect([cells[4], cells[5], cells[7]].map((cell) => cell?.textContent)).toEqual(["1", "1", "0"]);
+    expect([cells[4], cells[5], cells[7]].map((cell) => cell?.textContent)).toEqual(["1", "1", "0.00"]);
     expect(cells.map((cell) => (cell.textContent ?? "").trim() === "")).not.toContain(true);
   });
 
@@ -1259,5 +1260,44 @@ describe("TradesTable compact instants", () => {
     expect(time?.classList.contains("block")).toBe(true);
     expect(time?.classList.contains("text-ink-3")).toBe(true);
     expect(within(cell).queryByText("10/5/2026")?.classList.contains("text-ink-3")).toBe(false);
+  });
+});
+
+// The shorter figures of the table (task 9p.5.30, owner decision 46): Entry, Exit and Size by tableFigureText,
+// Fees like the PnL beside them, a fee in another currency by figureText.
+describe("TradesTable shorter figures", () => {
+  const figureCells = async (row: StrategyTrade, currency = "USDT") => {
+    serve([row], 5);
+    renderTable(currency);
+    await screen.findByRole("table");
+    return within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+  };
+
+  it("writes Entry, Exit and Size with at most five decimals and a four-digit floor", async () => {
+    const cells = await figureCells(
+      trade(1, { entry_price: "0.705295610000000000", exit_price: "2515.952800000000000000", size: "0.000005120000000000" }),
+    );
+
+    expect([cells[4], cells[5], cells[6]].map((cell) => cell?.textContent)).toEqual(["0.7053", "2515.9528", "0.00000512"]);
+  });
+
+  it("writes Fees with the pool currency's decimals and no sign, like the PnL", async () => {
+    const cells = await figureCells(trade(1, { fees: "0.630000000000000000" }));
+
+    expect(cells[7]?.textContent).toBe("0.63");
+  });
+
+  it("writes a fee of 0 as 0.00 in a USDT pool", async () => {
+    expect((await figureCells(trade(1, { fees: "0" })))[7]?.textContent).toBe("0.00");
+  });
+
+  it("writes the fees of a coin-margined pool with eight decimals", async () => {
+    expect((await figureCells(trade(1, { fees: "0.00012" }), "BTC"))[7]?.textContent).toBe("0.00012000");
+  });
+
+  it("keeps a fee in another currency as written by figureText, never as zero", async () => {
+    const cells = await figureCells(trade(1, { other_fees: [{ currency: "BNB", amount: "0.000120000000000000" }] }));
+
+    expect(cells[7] ? within(cells[7]).queryByText("+ 0.00012 BNB") : null).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clockText, compactDateText, figureText } from "@/features/strategies/format";
+import { clockText, compactDateText, figureText, tableFigureText } from "@/features/strategies/format";
 
 // `figureText` writes a price, a size or a fee from the server's own string. It is a text
 // operation, not arithmetic: money is never computed in the browser (design § F, § 15).
@@ -72,5 +72,45 @@ describe("clockText", () => {
 
   it("gives null for an instant it cannot read", () => {
     expect(clockText("not a date")).toBeNull();
+  });
+});
+
+// The table's own, shorter figure (owner decision 46): at most five decimals and no trailing zeros, and four
+// significant digits when five decimals would leave fewer, so a small price never reads 0. A text
+// operation over the server's string with the rounding of figureText; figureText itself is unchanged.
+describe("tableFigureText", () => {
+  it.each([
+    ["0.705295610000000000", "0.7053"],
+    ["2515.952800000000000000", "2515.9528"],
+    ["0.429090380000000000", "0.42909"],
+    ["61250.123456000000000000", "61250.12346"],
+    ["1.000000000000000000", "1"],
+    ["0", "0"],
+    ["0.000000000000000000", "0"],
+    ["0.012345600000000000", "0.01235"],
+    ["0.001234560000000000", "0.001235"],
+    ["0.000005120000000000", "0.00000512"],
+  ])("writes %s as %s", (stored, shown) => {
+    expect(tableFigureText(stored)).toBe(shown);
+  });
+
+  it.each([
+    ["0.999999", "1"],
+    ["-3.250000", "-3.25"],
+    ["0.000000000000000012", "0.000000000000000012"],
+    ["123456789012345678901", "123456789012345678901"],
+  ])("rounds, keeps the sign and never writes an exponent: %s", (stored, shown) => {
+    const text = tableFigureText(stored);
+
+    expect(text).toBe(shown);
+    expect(text).not.toMatch(/e/i);
+  });
+
+  it.each(["", "x", "NaN", "Infinity", "1e3", "1.2.3", " 1", "1,5"])("gives null for a string that is not a number: %j", (stored) => {
+    expect(tableFigureText(stored)).toBeNull();
+  });
+
+  it("leaves figureText as it was", () => {
+    expect(figureText("0.123456789")).toBe("0.12345679");
   });
 });

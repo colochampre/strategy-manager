@@ -52,6 +52,14 @@ export function figureText(value: string): string | null {
 }
 
 /**
+ * STUB (task 9p.5.30, red): returns its argument. Green writes a stored price or size for the table: at
+ * most five decimals, with a four-significant-digit floor for a small one.
+ */
+export function tableFigureText(value: string): string | null {
+  return value;
+}
+
+/**
  * An instant as a numeric calendar date in UTC, in the panel's language (`10/5/2026` in English,
  * `5/10/2026` in Spanish, for 2026-10-05): the first line of an Opened or Closed cell. Read from the
  * instant by `Intl`, never parsed from a formatted string. An instant that cannot be read is returned
