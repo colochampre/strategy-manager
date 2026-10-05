@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
 import { dateTimeText, figureText } from "@/features/strategies/format";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
@@ -19,6 +20,8 @@ interface TradeRowProps {
   trade: StrategyTrade;
   currency: string;
   locale: string;
+  /** Opens this operation; the button is handed over so focus can return to it on close. */
+  onOpen: (trade: StrategyTrade, opener: HTMLButtonElement) => void;
 }
 
 const PAGER_BUTTON =
@@ -54,7 +57,7 @@ function Absent({ reason }: { reason: string }) {
   );
 }
 
-function TradeRow({ trade, currency, locale }: TradeRowProps) {
+function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const { t } = useTranslation();
   const pnl = parseDecimal(trade.pnl);
   const ret = trade.return === null ? null : parseDecimal(trade.return);
@@ -120,9 +123,9 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
         )}
       </td>
       <td className="border-b border-rule-soft py-2.5">
-        {/* No behaviour yet: task 9p.5.19 pins opening the operation, 9p.5.20 builds it. */}
         <button
           type="button"
+          onClick={(event) => onOpen(trade, event.currentTarget)}
           aria-label={t("strategies.performance.trades.detailsOf", {
             pair: trade.pair,
             side,
@@ -164,6 +167,18 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   // The page on screen, an index into the pages loaded so far. Previous only moves it; Next moves it too,
   // and asks the server first when that page is not loaded yet.
   const [pageIndex, setPageIndex] = useState(0);
+  // The one operation opened, if any, and the button that opened it: the figures come from the row,
+  // the fills are asked for by the dialog being mounted. Opening another replaces it.
+  const [open, setOpen] = useState<StrategyTrade | null>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const openOperation = (trade: StrategyTrade, button: HTMLButtonElement) => {
+    opener.current = button;
+    setOpen(trade);
+  };
+  // Once the dialog is gone, focus goes back to the Details button that opened it.
+  useEffect(() => {
+    if (open === null) opener.current?.focus();
+  }, [open]);
 
   let body;
   if (trades.data === undefined && trades.status === "error") {
@@ -263,7 +278,13 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               </thead>
               <tbody className="text-right text-ink-2">
                 {rows.map((trade) => (
-                  <TradeRow key={trade.allocation_id} trade={trade} currency={currency} locale={locale} />
+                  <TradeRow
+                    key={trade.allocation_id}
+                    trade={trade}
+                    currency={currency}
+                    locale={locale}
+                    onOpen={openOperation}
+                  />
                 ))}
               </tbody>
             </table>
@@ -305,6 +326,16 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
         {t("strategies.performance.trades.title")}
       </h2>
       {body}
+      {open !== null && (
+        <TradeDetailDialog
+          key={open.allocation_id}
+          strategyId={strategyId}
+          trade={open}
+          currency={currency}
+          locale={locale}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </section>
   );
 }

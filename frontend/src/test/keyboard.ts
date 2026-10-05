@@ -27,7 +27,7 @@ export function pressEnter(): void {
   const target = document.activeElement as HTMLElement | null;
   if (target === null) return;
   const proceeded = fireEvent.keyDown(target, { key: "Enter" });
-  if (proceeded && target.tagName === "BUTTON") target.click();
+  if (proceeded && target.tagName === "BUTTON") fireEvent.click(target);
 }
 
 /** Presses Space on the focused element: a button fires its click on keyup. */
@@ -36,5 +36,5 @@ export function pressSpace(): void {
   if (target === null) return;
   const proceeded = fireEvent.keyDown(target, { key: " " });
   fireEvent.keyUp(target, { key: " " });
-  if (proceeded && target.tagName === "BUTTON") target.click();
+  if (proceeded && target.tagName === "BUTTON") fireEvent.click(target);
 }
