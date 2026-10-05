@@ -256,26 +256,79 @@ describe("StrategyDetailPage", () => {
 
   // Was test_left_column_runs_performance_by_pair_trades_and_ends_with_the_webhook_block: the webhook block
   // left the column's end for a disclosure in the header (it supersedes the placement of 12f.8).
-  it("test_left_column_runs_performance_by_pair_and_trades_and_holds_no_webhook_block_until_it_is_opened", async () => {
+  // Renamed from test_left_column_runs_performance_by_pair_and_trades_and_holds_no_webhook_block_until_it_is_opened:
+  // decision 43 moves the closed trades out of the column (task 9p.5.21), so its trades assertions moved to
+  // the full-width section test below and the webhook assertion stayed.
+  it("test_left_column_runs_performance_and_by_pair_and_holds_no_webhook_block_until_it_is_opened", async () => {
     renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
     await heading("ETH Breakout");
 
     const titles = [
       await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
       await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
-      await screen.findByRole("heading", { name: en.strategies.performance.trades.title }),
     ];
-    const column = (titles[2] as HTMLElement).closest("section")?.parentElement as HTMLElement;
+    const grid = screen.getByRole("complementary", { name: en.strategies.detail.settings }).parentElement as HTMLElement;
+    const column = grid.firstElementChild as HTMLElement;
     for (const title of titles) expect(column).toContainElement(title);
     for (let index = 1; index < titles.length; index += 1) {
       const previous = titles[index - 1] as HTMLElement;
       const next = titles[index] as HTMLElement;
       expect(previous.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    // The closed trades are now the last block of the column, and the webhook block is closed.
-    expect(column.lastElementChild).toContainElement(titles[2] as HTMLElement);
+    // The webhook block is closed.
     expect(screen.queryByRole("heading", { name: en.strategies.webhook.title })).toBeNull();
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {
+    renderPage(strategy());
+    await heading("ETH Breakout");
+
+    const tradesTitle = await screen.findByRole("heading", { name: en.strategies.performance.trades.title });
+    const section = tradesTitle.closest("section") as HTMLElement;
+    const aside = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const grid = aside.parentElement as HTMLElement;
+    const column = grid.firstElementChild as HTMLElement;
+    const deleteButton = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
+
+    expect(grid).not.toContainElement(section);
+    expect(column).not.toContainElement(section);
+    // A sibling of the grid, after it and before the delete control.
+    expect(section.parentElement).toBe(grid.parentElement);
+    expect(grid.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the operations and sentence 1 of a strategy that only ran in dry run, under a report of zero trades", async () => {
+    const rehearsal: StrategyTrade = {
+      allocation_id: "00000000-0000-4000-8000-000000000009",
+      pair: "ETHUSDT",
+      direction: "LONG",
+      opened_at: "2026-09-29T10:00:00Z",
+      closed_at: "2026-09-30T10:00:00Z",
+      rehearsal: true,
+      rehearsal_fill_price: "UNDETERMINED",
+      base_currency: "ETH",
+      entry_price: "1.000000000000000000",
+      exit_price: "1.000000000000000000",
+      size: "2.000000000000000000",
+      fees: "0",
+      other_fees: [],
+      pnl: "0",
+      capital_at_open: null,
+      return: null,
+      fees_complete: true,
+    };
+    // The report is the default empty one: trade_count 0 and an empty ledger.
+    renderPage(strategy(), { trades: [rehearsal] });
+    await heading("ETH Breakout");
+
+    const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
+
+    expect(within(table).queryByText(en.strategies.performance.trades.rehearsal)).toBeInTheDocument();
+    expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeInTheDocument();
+    expect(screen.queryByText(en.strategies.performance.trades.empty)).toBeNull();
+    expect(screen.queryByText(en.strategies.performance.trades.rehearsalFixedNote)).toBeNull();
   });
 
   it("test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive", async () => {
