@@ -528,7 +528,15 @@ async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_
     await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
     await stack.drain()
 
-    nan_close = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price="NaN")
+    # The webhook refuses a NaN price since task 9qf.1, so the row is stored with a
+    # finite price and rewritten before the worker runs: the state a signal stored
+    # before that fix would be in.
+    nan_close = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price="1")
+    async with stack.factory() as session:
+        await session.execute(
+            text("UPDATE signals SET price = 'NaN' WHERE id = :id"), {"id": nan_close}
+        )
+        await session.commit()
     await stack.drain()
 
     assert (await _signal_price(stack.factory, nan_close)).is_nan()

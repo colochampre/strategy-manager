@@ -15,6 +15,7 @@ candidates and lets ``resolve_source_ip`` decide — it must never be decided
 here by whichever value happens to be present.
 """
 
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -33,6 +34,7 @@ from strategy_manager.signals.application.ingest_signal import (
 from strategy_manager.signals.application.ports import UnknownSignalStrategy
 from strategy_manager.signals.domain.alert import (
     AlertParsingError,
+    NonFiniteNumberError,
     TradingViewAlert,
     derive_idempotency_key,
 )
@@ -42,6 +44,8 @@ from strategy_manager.signals.infrastructure.auth import (
     resolve_source_ip,
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -71,6 +75,11 @@ async def receive_tradingview_webhook(
     body = await request.json()
     try:
         alert = TradingViewAlert.from_payload(body)
+    except NonFiniteNumberError as exc:
+        # TradingView shows nobody the response, so the refusal must leave a
+        # trace here. Only the field name is logged: no payload, price or secret.
+        logger.warning("webhook alert refused: %s is not a finite number", exc.field)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except AlertParsingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

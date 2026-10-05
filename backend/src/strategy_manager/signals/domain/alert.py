@@ -27,6 +27,14 @@ class AlertParsingError(DomainError):
     """Raised when a webhook payload does not match the expected alert shape."""
 
 
+class NonFiniteNumberError(AlertParsingError):
+    """A numeric field is NaN or infinite. Carries the field name, never the value."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__(f"{field} is not a finite number")
+        self.field = field
+
+
 @dataclass(frozen=True, slots=True)
 class TradingViewAlert:
     """A parsed TradingView alert. ``contracts`` is diagnostic only — see
@@ -77,9 +85,14 @@ def _to_decimal(value: Any, field: str) -> Decimal:
     if not isinstance(value, str):
         raise AlertParsingError(f"{field} must be a string, got {type(value).__name__}")
     try:
-        return Decimal(value)
+        number = Decimal(value)
     except InvalidOperation as exc:
         raise AlertParsingError(f"{field} is not a valid decimal string: {value!r}") from exc
+    if not number.is_finite():
+        # ``Decimal`` accepts NaN, sNaN and every spelling of infinity without
+        # raising. The raw value is deliberately not echoed back.
+        raise NonFiniteNumberError(field)
+    return number
 
 
 def _require_non_empty_str(value: Any, field: str) -> None:
