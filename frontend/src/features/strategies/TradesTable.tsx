@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
-import { clockText, compactDateText, dateTimeText, figureText } from "@/features/strategies/format";
+import { clockText, compactDateText, dateTimeText, figureText, tableFigureText } from "@/features/strategies/format";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
@@ -76,6 +76,8 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const { t } = useTranslation();
   const pnl = parseDecimal(trade.pnl);
   const ret = trade.return === null ? null : parseDecimal(trade.return);
+  // Fees are written like the PnL beside them: the pool currency's decimals, no sign (owner decision 46).
+  const fees = parseDecimal(trade.fees);
   const capital = trade.capital_at_open === null ? null : parseDecimal(trade.capital_at_open);
   const unreadable = t("strategies.performance.trades.cellUnreadable");
   const noValue = t("strategies.performance.trades.noValue");
@@ -85,7 +87,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   // A null entry, exit or size is "not derivable from the fills", never a zero; a string that is
   // not a number is unreadable, never drawn as typed.
   const figure = (value: string | null) =>
-    value === null ? <Absent reason={notDerivable} /> : (figureText(value) ?? unreadable);
+    value === null ? <Absent reason={notDerivable} /> : (tableFigureText(value) ?? unreadable);
 
   return (
     <tr>
@@ -106,7 +108,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
       <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
       <td className={cn(CELL, FROM_XL)}>{figure(trade.size)}</td>
       <td className={cn(CELL, FROM_XL)}>
-        {figureText(trade.fees) ?? unreadable}
+        {fees === null ? unreadable : amountText(fees, currency, locale)}
         {trade.other_fees.map((fee) => (
           <span key={fee.currency} className="ml-2 font-sans text-[11px] text-ink-3">
             {t("strategies.performance.trades.otherFee", {

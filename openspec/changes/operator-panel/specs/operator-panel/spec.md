@@ -210,10 +210,8 @@ The strategy detail view MUST show a section titled "Closed trades" /
 "Operaciones cerradas", full width below the page's two-column area and above
 the delete control, with one row per closed operation of the strategy, each in
 the strategy's own pool and in that pool's native settlement currency (for
-example USDT for `(bybit, usdt-m, USDT)`). Every cell MUST show the number the
-server served, formatted with up to eight significant digits and no trailing
-zeros, and the panel MUST NOT compute any money figure from them. A missing
-figure MUST NEVER be shown as zero.
+example USDT for `(bybit, usdt-m, USDT)`). Every cell MUST show the number the server served, and the panel MUST NOT compute any money figure from them. A missing
+figure MUST NEVER be shown as zero. In the table, Entry, Exit and Size are written with at most five decimals and no trailing zeros, or with four significant digits when five decimals would leave fewer (so a small price never reads 0), and Fees like the PnL beside them, with the pool currency's decimals and no sign; the detail dialog keeps up to eight significant digits (owner decision 46, 2026-10-05).
 
 The columns, in this order on a wide screen, are: Opened (UTC), Closed (UTC),
 Pair (with the rehearsal tag when it applies), Side, Entry, Exit, Size, Fees

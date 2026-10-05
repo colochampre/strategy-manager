@@ -1,4 +1,7 @@
 const SIGNIFICANT_DIGITS = 8;
+/** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */
+const TABLE_DECIMALS = 5;
+const TABLE_SIGNIFICANT_FLOOR = 4;
 const DECIMAL_TEXT = /^(-?)(\d+)(?:\.(\d+))?$/;
 
 /** Adds one unit in the last place of a string of digits, carrying; "999" becomes "1000". */
@@ -15,28 +18,24 @@ function incrementDigits(digits: string): string {
   return `1${out.join("")}`;
 }
 
+/** How many decimals a figure keeps, given its integer digits (without leading zeros) and its fraction. */
+type DecimalsRule = (integer: string, fraction: string, leadingZeros: number) => number;
+
 /**
- * A stored price, size or fee as the table writes it: the server's own decimal string with up to
- * eight significant digits and no trailing zeros, never an exponent. Integer digits are never
- * dropped, so a large figure keeps its magnitude. A string that is not a plain decimal gives
- * `null`. This is a text operation over the digits, not arithmetic: money is never computed in
- * the browser (design § F, § 15).
+ * The text operation both figure writers share: the server's own decimal string rounded half up on its
+ * digits, with the carry, to the number of decimals `rule` allows; trailing zeros go, no exponent is
+ * ever written, integer digits are never dropped, and a string that is not a plain decimal gives
+ * `null`. It is not arithmetic: money is never computed in the browser (design § F, § 15).
  */
-export function figureText(value: string): string | null {
+function roundedFigure(value: string, rule: DecimalsRule): string | null {
   const match = DECIMAL_TEXT.exec(value);
   if (match === null) return null;
   const sign = match[1] ?? "";
-  const integer = (match[2] ?? "").replace(/^0+(?=\d)/, "");
+  const integer = (match[2] ?? "").replace(/^0+(?=d)/, "");
   const fraction = match[3] ?? "";
-
-  let allowed: number;
-  if (integer !== "0") {
-    allowed = Math.max(0, SIGNIFICANT_DIGITS - integer.length);
-  } else {
-    const leadingZeros = fraction.length - fraction.replace(/^0+/, "").length;
-    if (leadingZeros === fraction.length) return "0";
-    allowed = leadingZeros + SIGNIFICANT_DIGITS;
-  }
+  const leadingZeros = fraction.length - fraction.replace(/^0+/, "").length;
+  if (integer === "0" && leadingZeros === fraction.length) return "0";
+  const allowed = rule(integer, fraction, leadingZeros);
 
   const kept = fraction.slice(0, allowed);
   let digits = integer + kept;
@@ -52,11 +51,27 @@ export function figureText(value: string): string | null {
 }
 
 /**
- * STUB (task 9p.5.30, red): returns its argument. Green writes a stored price or size for the table: at
- * most five decimals, with a four-significant-digit floor for a small one.
+ * A stored price, size or fee as the dialog and the fills table write it: up to eight significant
+ * digits and no trailing zeros, never an exponent. Integer digits are never dropped, so a large figure
+ * keeps its magnitude. A string that is not a plain decimal gives `null`.
+ */
+export function figureText(value: string): string | null {
+  return roundedFigure(value, (integer, _fraction, leadingZeros) =>
+    integer !== "0" ? Math.max(0, SIGNIFICANT_DIGITS - integer.length) : leadingZeros + SIGNIFICANT_DIGITS,
+  );
+}
+
+/**
+ * A stored price or size as the trades table writes it, shorter than `figureText` (owner decision 46):
+ * at most five decimals and no trailing zeros, and four significant digits instead when five decimals
+ * would leave fewer than four, so a small price never reads 0. Never an exponent; a string that is not
+ * a number gives `null`. The same text operation as `figureText`, with its rounding.
  */
 export function tableFigureText(value: string): string | null {
-  return value;
+  return roundedFigure(value, (integer, _fraction, leadingZeros) => {
+    if (integer !== "0") return TABLE_DECIMALS;
+    return TABLE_DECIMALS - leadingZeros < TABLE_SIGNIFICANT_FLOOR ? leadingZeros + TABLE_SIGNIFICANT_FLOOR : TABLE_DECIMALS;
+  });
 }
 
 /**
