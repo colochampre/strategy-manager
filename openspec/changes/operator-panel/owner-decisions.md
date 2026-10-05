@@ -274,6 +274,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **A price too small for 5 decimals is not rounded to zero.** When 5 decimal places would leave fewer than 4 significant digits, 4 significant digits are shown instead (`0.00000512` stays `0.00000512`). Why: a zero in a price column reads as missing data or an error.
     - A fee charged in another currency keeps its full figure (`+ 0.00012 BNB`): two decimals would print it as zero.
     - The exact figures stay available: the detail dialog and its fills table keep full precision.
+    - **Answered 2026-10-05 (the owner's second look, after the four changes above were built and approved): the table's notes sit below the table, not under its title.** The three dry-run sentences and the incomplete-fee note are information to consult when wanted, not something to read past on every visit. They go after the table and after the Previous and Next controls, so those controls do not move when a page has no note. Which notes show, and their texts, do not change. Task 9p.5.32.
 
 ## Standing constraints
 
