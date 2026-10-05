@@ -2873,7 +2873,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 - **The sentences under the title** appear by what the page on screen holds, so each one is true of a row the reader can see:
   1. At least one rehearsal row: those operations were filled by the simulated exchange, not at the venue, and are not counted in any figure of the page. This is what explains a list with rows under a report that says zero trades.
   2. At least one `FIXED_ONE` row: a row marked "fixed price" was opened at a fixed price of 1 whatever the market price was, so its prices and its PnL are not a result.
-  3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried.
+  3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried, was sized at 1x and carries a fee simulated at the taker rate, so its PnL is not what it would have made live (the owner's wording of 2026-10-05, follow-up 9qf.3; the exact texts are in the i18n table below).
 - An `UNDETERMINED` row gets sentence 1 only. Nothing is claimed about its price, because stored data supports no claim (§ C).
 - The request always carries `include_rehearsal=true`.
 
@@ -2910,7 +2910,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `rehearsalAlert` | Dry run · alert price | Simulación · precio de la alerta |
 | `rehearsalNote` | Operations marked "Dry run" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page. | Las operaciones marcadas "Simulación" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página. |
 | `rehearsalFixedNote` | A row marked "fixed price" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. | Una fila marcada "precio fijo" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. |
-| `rehearsalAlertNote` | A row marked "alert price" was opened at the price its alert carried. | Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. |
+| `rehearsalAlertNote` | A row marked "alert price" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. | Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. |
 | `details` | Details | Detalle |
 | `detailsOf` | Details of {{pair}} {{side}}, closed {{closed}} | Detalle de {{pair}} {{side}}, cierre {{closed}} |
 | `detail.title` | {{pair}} · {{side}} | {{pair}} · {{side}} |
@@ -2925,7 +2925,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `detail.capital` | Pool capital at open ({{currency}}) | Capital del pool al abrir ({{currency}}) |
 | `detail.rehearsalHint` | Dry run: filled by the simulated exchange, not at the venue. It is not counted in any total. | Simulación: ejecutada por el exchange simulado, no en el exchange real. No se cuenta en ningún total. |
 | `detail.rehearsalFixedHint` | Dry run at a fixed price: it was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. It is not counted in any total. | Simulación a precio fijo: se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. No se cuenta en ningún total. |
-| `detail.rehearsalAlertHint` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total. |
+| `detail.rehearsalAlertHint` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total. |
 | `detail.operationId` | Operation id | Id de la operación |
 | `detail.close` | Close | Cerrar |
 | `detail.fills.title` | Fills | Ejecuciones |

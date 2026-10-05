@@ -424,8 +424,12 @@ sentence whose condition is false:
    1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un
    resultado.";
 3. at least one `ALERT` row: "A row marked "alert price" was opened at the price
-   its alert carried." / "Una fila marcada "precio de la alerta" se abrió al
-   precio que traía su alerta.".
+   its alert carried. It was sized at 1x and its fee is simulated at the taker
+   rate, so its PnL is not what it would have made live." / "Una fila marcada
+   "precio de la alerta" se abrió al precio que traía su alerta. Se dimensionó a
+   1x y su comisión es simulada a la tasa taker, así que su PnL no es el que
+   habría dado en real." (the second sentence is the owner's wording of
+   2026-10-05, follow-up 9qf.3).
 
 An `UNDETERMINED` row, or one with a value the panel does not know, MUST get
 sentence 1 only and no claim about its price. A strategy that only ran in dry
@@ -509,7 +513,7 @@ in no total:
 | `rehearsal_fill_price` | English | Spanish |
 | --- | --- | --- |
 | `FIXED_ONE` | Dry run at a fixed price: it was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. It is not counted in any total. | Simulación a precio fijo: se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. No se cuenta en ningún total. |
-| `ALERT` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total. |
+| `ALERT` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total. |
 | `UNDETERMINED`, or unknown | Dry run: filled by the simulated exchange, not at the venue. It is not counted in any total. | Simulación: ejecutada por el exchange simulado, no en el exchange real. No se cuenta en ningún total. |
 
 The PnL % sentence reads "PnL over the pool's capital when the operation opened,
@@ -547,7 +551,7 @@ that opened it.
 
 - GIVEN an `ALERT` rehearsal row and the locale Spanish
 - WHEN its dialog opens
-- THEN it shows "Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total."
+- THEN it shows "Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total."
 
 #### Scenario: Closing returns focus to the button
 
