@@ -15,6 +15,7 @@ direction, entry and exit together.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, localcontext
 from enum import StrEnum
 
@@ -148,6 +149,28 @@ def operation_fees(groups: Sequence[FillGroup]) -> OperationFees:
             if amount > _ZERO
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class OperationFill:
+    """One fill as the detail view shows it: the stored values of a ledger row,
+    nothing averaged, rounded or converted.
+
+    ``exchange``, ``venue`` and ``settlement_currency`` are the fill's pool
+    identity. They are not served; the read compares them with the strategy's
+    pool and refuses a fill of another (CLAUDE.md rule 7).
+    """
+
+    filled_at: datetime
+    side: str
+    price: Decimal
+    quantity: Decimal
+    fee: Decimal
+    fee_currency: str
+    rehearsal: bool
+    exchange: str
+    venue: str
+    settlement_currency: str
 
 
 def _opening_side(direction: Direction) -> str:

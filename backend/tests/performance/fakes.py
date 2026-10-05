@@ -7,7 +7,7 @@ from uuid import UUID
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import PoolFills
 from strategy_manager.performance.domain.closed_trade import FillGroup
-from strategy_manager.performance.domain.operation import PricingFacts
+from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
 
 class FakeFillsSource:
@@ -66,6 +66,25 @@ class FakePricingSource:
             elif self._default is not None:
                 answer[allocation_id] = self._default
         return answer
+
+
+class FakeOperationFillsSource:
+    """Holds the fills of the operations it was given, keyed by
+    ``(strategy_id, allocation_id)``, and answers at most ``limit`` of them.
+
+    An operation it does not hold answers nothing, exactly as a source whose
+    statement carries both predicates would. Every call is recorded, so a test
+    can see the limit asked for and that both ids travelled together."""
+
+    def __init__(self, held: Mapping[tuple[UUID, UUID], Sequence[OperationFill]]) -> None:
+        self._held = {key: list(fills) for key, fills in held.items()}
+        self.calls: list[tuple[UUID, UUID, int]] = []
+
+    async def operation_fills(
+        self, strategy_id: UUID, allocation_id: UUID, limit: int
+    ) -> Sequence[OperationFill]:
+        self.calls.append((strategy_id, allocation_id, limit))
+        return self._held.get((strategy_id, allocation_id), [])[:limit]
 
 
 class FixedClock:

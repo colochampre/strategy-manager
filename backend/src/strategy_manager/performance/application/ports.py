@@ -9,7 +9,7 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.domain.closed_trade import FillGroup
-from strategy_manager.performance.domain.operation import PricingFacts
+from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +45,21 @@ class AllocationFillsSourcePort(Protocol):
     """
 
     async def pool_fills(self, pool: PoolKey) -> PoolFills: ...
+
+
+class OperationFillsSourcePort(Protocol):
+    """The individual fills of ONE operation (one allocation), oldest first.
+
+    Takes the strategy AND the allocation, never the allocation alone, so a read
+    without the strategy predicate cannot be requested through this port: an
+    allocation of another strategy answers nothing. It answers at most ``limit``
+    fills and applies no pool predicate on purpose; the caller refuses a fill of
+    another pool after the read instead of silently losing it in a WHERE.
+    """
+
+    async def operation_fills(
+        self, strategy_id: UUID, allocation_id: UUID, limit: int
+    ) -> Sequence[OperationFill]: ...
 
 
 class RehearsalPricingSourcePort(Protocol):
