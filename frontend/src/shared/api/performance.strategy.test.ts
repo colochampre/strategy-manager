@@ -77,7 +77,7 @@ describe("fetchStrategyPerformance by_pair", () => {
 });
 
 describe("fetchStrategyTrades", () => {
-  it("asks for the first page with the limit alone and no cursor", async () => {
+  it("asks for the first page with the limit and include_rehearsal and no cursor", async () => {
     const fetchMock = respond(200, { trades: [trade()], next_cursor: null });
 
     const page = await fetchStrategyTrades(ID, null);
@@ -85,6 +85,7 @@ describe("fetchStrategyTrades", () => {
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.pathname).toMatch(new RegExp(`/performance/strategies/${ID}/trades$`));
     expect(url.searchParams.get("limit")).toBe("20");
+    expect(url.searchParams.get("include_rehearsal")).toBe("true");
     expect(url.searchParams.has("before_closed_at")).toBe(false);
     expect(url.searchParams.has("before_allocation_id")).toBe(false);
     expect(page.trades).toEqual([trade()]);
