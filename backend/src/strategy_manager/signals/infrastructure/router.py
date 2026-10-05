@@ -84,13 +84,13 @@ async def receive_tradingview_webhook(
         # TradingView shows nobody the response, so the refusal must leave a
         # trace here. Only a field name and a fixed reason are logged, never the
         # payload, a value or the secret.
-        if exc.log_text is not None:
-            logger.warning("webhook alert refused: %s", exc.log_text)
+        logger.warning("webhook alert refused: %s", exc.log_text)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         strategy_id = UUID(alert.signal_type)
     except ValueError as exc:
+        logger.warning("webhook alert refused: signal_type is not a valid UUID")
         raise HTTPException(status_code=422, detail="signal_type is not a valid UUID") from exc
 
     command = IngestCommand(
@@ -113,6 +113,7 @@ async def receive_tradingview_webhook(
     try:
         result = await use_case.ingest(command)
     except MissingIdempotencyKeyError as exc:
+        logger.warning("webhook alert refused: idempotency key is missing")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except UnknownSignalStrategy as exc:
         # The failed INSERT left the transaction aborted; nothing was stored.

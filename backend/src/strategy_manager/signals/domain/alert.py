@@ -39,24 +39,20 @@ _STORED_CONTEXT = Context(prec=60, rounding=ROUND_HALF_UP)
 class AlertParsingError(DomainError):
     """Raised when a webhook payload does not match the expected alert shape.
 
-    ``field`` and ``reason`` are a safe account of the refusal for a log line:
-    fixed text and a field name from this module, never a value the sender
-    supplied. ``log_text`` is ``None`` for a refusal that has not been given
-    one.
+    The message is the 422 detail and some of them repeat the value the sender
+    supplied, so it must never reach a log. ``field`` and ``reason`` are the safe
+    account of the same refusal: a field name and a fixed phrase from this
+    module, never a value. ``log_text`` is built from those two alone.
     """
 
-    def __init__(
-        self, message: str, *, field: str | None = None, reason: str | None = None
-    ) -> None:
+    def __init__(self, message: str, *, field: str, reason: str) -> None:
         super().__init__(message)
         self.field = field
         self.reason = reason
 
     @property
-    def log_text(self) -> str | None:
-        if self.reason is None:
-            return None
-        return self.reason if self.field is None else f"{self.field} {self.reason}"
+    def log_text(self) -> str:
+        return f"{self.field} {self.reason}"
 
 
 class NonFiniteNumberError(AlertParsingError):
@@ -91,18 +87,21 @@ class TradingViewAlert:
             )
         data = payload.get("data")
         if not isinstance(data, dict):
-            raise AlertParsingError("payload is missing a 'data' object")
+            raise AlertParsingError(
+                "payload is missing a 'data' object",
+                field="data",
+                reason="is missing or not an object",
+            )
 
-        try:
-            action = data["action"]
-            contracts = _to_decimal(data["contracts"], "data.contracts")
-            position_size = _to_decimal(data["position_size"], "data.position_size")
-            price = _to_decimal(payload["price"], "price", positive=True)
-            symbol = payload["symbol"]
-            signal_type = payload["signal_type"]
-            time = payload["time"]
-        except KeyError as exc:
-            raise AlertParsingError(f"payload is missing required field {exc}") from exc
+        action = _required(data, "action", "data.action")
+        contracts = _to_decimal(_required(data, "contracts", "data.contracts"), "data.contracts")
+        position_size = _to_decimal(
+            _required(data, "position_size", "data.position_size"), "data.position_size"
+        )
+        price = _to_decimal(_required(payload, "price", "price"), "price", positive=True)
+        symbol = _required(payload, "symbol", "symbol")
+        signal_type = _required(payload, "signal_type", "signal_type")
+        time = _required(payload, "time", "time")
 
         _require_non_empty_str(action, "data.action")
         _require_non_empty_str(symbol, "symbol")
@@ -130,11 +129,20 @@ def _to_decimal(value: Any, field: str, *, positive: bool = False) -> Decimal:
     """
 
     if not isinstance(value, str):
-        raise AlertParsingError(f"{field} must be a string, got {type(value).__name__}")
+        raise AlertParsingError(
+            f"{field} must be a string, got {type(value).__name__}",
+            field=field,
+            reason="is not a string",
+        )
     try:
         number = Decimal(value)
     except InvalidOperation as exc:
-        raise AlertParsingError(f"{field} is not a valid decimal string: {value!r}") from exc
+        # The detail echoes the value, as it always did; the log text does not.
+        raise AlertParsingError(
+            f"{field} is not a valid decimal string: {value!r}",
+            field=field,
+            reason="is not a valid decimal string",
+        ) from exc
     if not number.is_finite():
         # ``Decimal`` accepts NaN, sNaN and every spelling of infinity without
         # raising. The raw value is deliberately not echoed back.
@@ -175,9 +183,20 @@ def _out_of_range(field: str) -> AlertParsingError:
     )
 
 
+def _required(mapping: dict[str, Any], key: str, field: str) -> Any:
+    try:
+        return mapping[key]
+    except KeyError as exc:
+        raise AlertParsingError(
+            f"payload is missing required field '{key}'", field=field, reason="is missing"
+        ) from exc
+
+
 def _require_non_empty_str(value: Any, field: str) -> None:
     if not isinstance(value, str) or not value:
-        raise AlertParsingError(f"{field} must be a non-empty string")
+        raise AlertParsingError(
+            f"{field} must be a non-empty string", field=field, reason="is empty or not a string"
+        )
 
 
 def derive_idempotency_key(alert: TradingViewAlert) -> str:

@@ -1,7 +1,7 @@
 # Delta for Signal Ingress
 
-> **Added 2026-10-05 (follow-ups 9qf.1 and 9qf.5 of PR 12g; no owner decision was
-> needed).**
+> **Added 2026-10-05 (follow-ups 9qf.1, 9qf.5 and 9qf.6 of PR 12g; no owner
+> decision was needed).**
 >
 > This delta extends `openspec/specs/signal-ingress/spec.md`. This change touches
 > that spec because building decision 45 showed that the webhook accepted an
@@ -25,9 +25,14 @@
 > it), a number with more integer digits than `NUMERIC(38, 18)` holds, and a
 > request body that is not valid JSON or not a JSON object.
 >
-> **This delta holds** the requirement of 9qf.1 (a number that is not finite) and
+> Before 9qf.6 only the non-finite refusal and an unknown strategy wrote a log
+> line; every other refusal of a malformed alert answered 422 and left no trace,
+> and TradingView shows the response of a webhook to nobody.
+>
+> **This delta holds** the requirement of 9qf.1 (a number that is not finite),
 > the two of 9qf.5 (a number the database would refuse, and a body that is not
-> an alert object).
+> an alert object) and the one of 9qf.6 (every refusal of a malformed alert
+> leaves exactly one warning that carries no value the sender supplied).
 >
 > **No requirement of the main spec is revised.** The requirements below are
 > ADDED. They apply to every pool: each refusal happens before the alert is
@@ -160,3 +165,57 @@ body. Before this requirement each answered an unhandled 500.
 - GIVEN an authenticated request whose body is `[]`, `"alert"`, `5` or `null`
 - WHEN the webhook is received
 - THEN the response is a 422, nothing is stored, and one warning says the body is not a JSON object without repeating any of it
+
+### Requirement: Every Refusal Of A Malformed Alert Leaves Exactly One Warning
+
+The system MUST write exactly one warning for each authenticated alert it
+refuses as malformed, because TradingView shows the response of a webhook to
+nobody. The warning MUST name the reason and, where there is one, the field. It
+covers: a body that is not valid JSON or not an object; a missing `data` object;
+a missing required field; a number that is not a string; a string that is not a
+decimal; a number that is not finite, not above zero where it must be, or out of
+range for the column; an empty or non-string `action`, `symbol`, `signal_type` or
+`time`; a `signal_type` that is not a UUID; and a missing idempotency key. An
+alert for an unknown strategy keeps the one warning it already had; no refusal
+is logged twice.
+
+The warning MUST NOT carry the payload, a price, a quantity, the secret or any
+value the sender supplied. In particular the detail of the 422 for a string that
+is not a decimal repeats the value received and MUST NOT reach the log: the log
+text is the field and a fixed reason, and the detail of the response is
+unchanged.
+
+The system MUST NOT write a line for a request that fails authentication, and
+MUST NOT write a warning for an accepted alert or a duplicate one: the endpoint
+faces the internet and a line per unauthenticated request would be written for
+every scan.
+
+#### Scenario: A refused alert leaves one warning naming the field and the reason
+
+- GIVEN an authenticated alert that is valid except that `price` is `"abc"`
+- WHEN the webhook is received
+- THEN the response is a 422 and exactly one warning reads `webhook alert refused: price is not a valid decimal string`
+
+#### Scenario: A missing field leaves one warning
+
+- GIVEN an authenticated alert with no `symbol`
+- WHEN the webhook is received
+- THEN exactly one warning reads `webhook alert refused: symbol is missing`
+
+#### Scenario: The warning never carries what the sender supplied
+
+- GIVEN an authenticated alert whose `price` is a distinctive marker string that is not a decimal
+- WHEN the webhook is received
+- THEN the 422 detail may repeat the marker, and no log record contains it
+
+#### Scenario: An accepted alert and a duplicate write no warning
+
+- GIVEN an authenticated valid alert, received twice
+- WHEN the webhook is received each time
+- THEN the first is accepted and the second is a duplicate, and neither writes a warning
+
+#### Scenario: An unauthenticated request writes no line
+
+- GIVEN a request with a wrong secret
+- WHEN the webhook is received
+- THEN the response is a 401 and the webhook writes no log line at all
