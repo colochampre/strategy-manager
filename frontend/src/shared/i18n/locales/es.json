@@ -262,6 +262,7 @@
         "capital": "Capital del pool al abrir",
         "feesIncomplete": "comisiones incompletas",
         "feesIncompleteHint": "Una comisión pagada en una tercera moneda no está en este PnL.",
+        "feesIncompleteNote": "* Una comisión pagada en una tercera moneda no está en este PnL.",
         "noValue": "No hay capital registrado al abrir esta operación, por lo que no tiene rendimiento.",
         "cellUnreadable": "ilegible",
         "loading": "Cargando las operaciones cerradas…",

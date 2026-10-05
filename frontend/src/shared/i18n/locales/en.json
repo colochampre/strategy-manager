@@ -262,6 +262,7 @@
         "capital": "Pool capital at open",
         "feesIncomplete": "fees incomplete",
         "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
+        "feesIncompleteNote": "* A fee paid in a third currency is not in this PnL.",
         "noValue": "No capital at open is recorded for this trade, so it has no return.",
         "cellUnreadable": "unreadable",
         "loading": "Loading the closed trades…",

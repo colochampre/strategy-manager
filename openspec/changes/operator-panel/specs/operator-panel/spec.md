@@ -236,7 +236,7 @@ A null Entry, Exit or Size MUST show the existing em dash with a reason for a
 screen reader ("This figure cannot be derived from the operation's fills." /
 "Esta cifra no se puede derivar de las ejecuciones de la operación."). A fee in
 another currency MUST show after the fees as "+ 0.00012 BNB". An operation whose
-fees are incomplete keeps its existing mark on the PnL cell. A figure served as
+fees are incomplete shows an asterisk right after its PnL figure, explained by one note under the table's title that appears only when a row of the page on screen has incomplete fees (owner decision 46, 2026-10-05); the words stay in the detail dialog. A figure served as
 a string that is not a number MUST read as "unreadable", as the PnL cell does
 today. An operation with no recorded pool capital MUST show PnL % and Pool
 capital at open empty, never an invented number. A strategy with no closed

@@ -102,11 +102,9 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
       <td className={cn(CELL, pnl !== null && !trade.rehearsal && toneClass(pnl))}>
         {pnl === null ? unreadable : amountText(pnl, currency, locale, true)}
         {!trade.fees_complete && (
-          <span
-            title={t("strategies.performance.trades.feesIncompleteHint")}
-            className="ml-2 font-sans text-[11px] text-ink-3"
-          >
-            {t("strategies.performance.trades.feesIncomplete")}
+          <span title={t("strategies.performance.trades.feesIncompleteHint")} className="font-sans text-[11px] text-ink-3">
+            <span aria-hidden="true">*</span>
+            <span className="sr-only">{t("strategies.performance.trades.feesIncompleteHint")}</span>
           </span>
         )}
       </td>
@@ -226,6 +224,8 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
         rows.some((row) => row.rehearsal) && "rehearsalNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "FIXED_ONE") && "rehearsalFixedNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "ALERT") && "rehearsalAlertNote",
+        // The asterisk of an incomplete-fee row is explained here, under the dry-run sentences, for the page on screen.
+        rows.some((row) => !row.fees_complete) && "feesIncompleteNote",
       ].filter((key): key is string => key !== false);
       body = (
         <>

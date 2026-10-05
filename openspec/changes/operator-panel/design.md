@@ -2857,7 +2857,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 - Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool capital at open, Details.
 - The header "Return" becomes **"PnL %"** in both languages, decision 43's own words. The section title stays "Closed trades" / "Operaciones cerradas".
 - Prices and sizes are formatted for display from the server's string, with up to eight significant digits and no trailing zeros. Nothing is computed from them (§ 15, "Money is never computed in the browser").
-- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` keeps its existing mark on the PnL cell.
+- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` puts an asterisk after the PnL figure, explained by one note under the title for the page on screen (owner decision 46, 2026-10-05; the dialog keeps the words).
 
 **How a rehearsal row is marked** (decision 43, answered 2026-10-04: the stored numbers are shown as they are, beside the mark and a sentence that says how the row was filled).
 - A text tag in the Pair cell, on its own line under the pair, in the words of the mode badge (`DryRunBadge`, "Modo simulación") and in the same amber `decision` token. It is text, so it does not rest on colour. Its wording follows `rehearsal_fill_price`, and that is what tells the rows apart:
