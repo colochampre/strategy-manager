@@ -243,16 +243,11 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
         rows.some((row) => row.rehearsal) && "rehearsalNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "FIXED_ONE") && "rehearsalFixedNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "ALERT") && "rehearsalAlertNote",
-        // The asterisk of an incomplete-fee row is explained here, under the dry-run sentences, for the page on screen.
+        // The asterisk of an incomplete-fee row is explained here, after the dry-run sentences, for the page on screen.
         rows.some((row) => !row.fees_complete) && "feesIncompleteNote",
       ].filter((key): key is string => key !== false);
       body = (
         <>
-          {notes.map((key) => (
-            <p key={key} className="text-sm text-ink-2">
-              {t(`strategies.performance.trades.${key}`)}
-            </p>
-          ))}
           <div className="overflow-x-auto">
             <table aria-labelledby={headingId} className="w-full border-collapse font-mono text-[13px] tabular-nums">
               <thead>
@@ -334,6 +329,12 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               {t(trades.isFetchingNextPage ? "strategies.performance.trades.loadingMore" : "strategies.performance.trades.next")}
             </button>
           </nav>
+          {/* The notes sit below the table and its paging controls (owner decision 46), so the controls do not move when a page has none. */}
+          {notes.map((key) => (
+            <p key={key} className="text-sm text-ink-2">
+              {t(`strategies.performance.trades.${key}`)}
+            </p>
+          ))}
         </>
       );
     }

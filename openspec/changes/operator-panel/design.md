@@ -2857,7 +2857,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 - Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool at open, Details.
 - The header "Return" becomes **"PnL %"** in both languages, decision 43's own words. The section title stays "Closed trades" / "Operaciones cerradas".
 - Prices and sizes are formatted for display from the server's string: in the table at most five decimals and no trailing zeros, or four significant digits when five would leave fewer, and fees like the PnL beside them with the pool currency's decimals; in the dialog up to eight significant digits and no trailing zeros (owner decision 46, 2026-10-05). Nothing is computed from them (§ 15, "Money is never computed in the browser").
-- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` puts an asterisk after the PnL figure, explained by one note under the title for the page on screen (owner decision 46, 2026-10-05; the dialog keeps the words).
+- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` puts an asterisk after the PnL figure, explained by one note below the table and its paging controls for the page on screen (owner decision 46, 2026-10-05; the dialog keeps the words).
 
 **How a rehearsal row is marked** (decision 43, answered 2026-10-04: the stored numbers are shown as they are, beside the mark and a sentence that says how the row was filled).
 - A text tag in the Pair cell, on its own line under the pair, in the words of the mode badge (`DryRunBadge`, "Modo simulación") and in the same amber `decision` token. It is text, so it does not rest on colour. Its wording follows `rehearsal_fill_price`, and that is what tells the rows apart:
@@ -2870,7 +2870,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 
 - **Every cell of a rehearsal row shows the stored number.** Entry 1 and exit 1 are printed as 1. No cell of a rehearsal row is blanked or special-cased.
 - Its PnL and PnL % are drawn in neutral ink, never in the gain or loss colour. Green and red stay reserved for money that was made or lost.
-- **The sentences under the title** appear by what the page on screen holds, so each one is true of a row the reader can see:
+- **The sentences below the table and its paging controls (owner decision 46, 2026-10-05; under the title before)** appear by what the page on screen holds, so each one is true of a row the reader can see:
   1. At least one rehearsal row: those operations were filled by the simulated exchange, not at the venue, and are not counted in any figure of the page. This is what explains a list with rows under a report that says zero trades.
   2. At least one `FIXED_ONE` row: a row marked "fixed price" was opened at a fixed price of 1 whatever the market price was, so its prices and its PnL are not a result.
   3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried, was sized at 1x and carries a fee simulated at the taker rate, so its PnL is not what it would have made live (the owner's wording of 2026-10-05, follow-up 9qf.3; the exact texts are in the i18n table below).
