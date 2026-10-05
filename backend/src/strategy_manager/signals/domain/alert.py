@@ -17,22 +17,55 @@ that coerces it to ``Decimal``. No framework imports, per the layering rule.
 
 import hashlib
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 from typing import Any
 
 from strategy_manager.shared.domain.errors import DomainError
 
+# What the ``signals`` table can hold in each numeric column: migration 0002
+# declares price, contracts and position_size as NUMERIC(38, 18). A value the
+# column refuses is refused here, as a bad request, instead of at the insert,
+# where nothing catches it and the webhook answers an unhandled 500.
+_STORED_SCALE = 18
+_STORED_INTEGER_DIGITS = 20
+_STORED_LIMIT = Decimal(10) ** _STORED_INTEGER_DIGITS
+_STORED_QUANTUM = Decimal(1).scaleb(-_STORED_SCALE)
+_MAX_EXPONENT = 16383
+# Wide enough to round any value that passes the exponent check below, and
+# rounding half away from zero like PostgreSQL does when it stores the number.
+_STORED_CONTEXT = Context(prec=60, rounding=ROUND_HALF_UP)
+
 
 class AlertParsingError(DomainError):
-    """Raised when a webhook payload does not match the expected alert shape."""
+    """Raised when a webhook payload does not match the expected alert shape.
+
+    ``field`` and ``reason`` are a safe account of the refusal for a log line:
+    fixed text and a field name from this module, never a value the sender
+    supplied. ``log_text`` is ``None`` for a refusal that has not been given
+    one.
+    """
+
+    def __init__(
+        self, message: str, *, field: str | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.field = field
+        self.reason = reason
+
+    @property
+    def log_text(self) -> str | None:
+        if self.reason is None:
+            return None
+        return self.reason if self.field is None else f"{self.field} {self.reason}"
 
 
 class NonFiniteNumberError(AlertParsingError):
     """A numeric field is NaN or infinite. Carries the field name, never the value."""
 
     def __init__(self, field: str) -> None:
-        super().__init__(f"{field} is not a finite number")
-        self.field = field
+        super().__init__(
+            f"{field} is not a finite number", field=field, reason="is not a finite number"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +82,13 @@ class TradingViewAlert:
     time: str
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "TradingViewAlert":
+    def from_payload(cls, payload: Any) -> "TradingViewAlert":
+        if not isinstance(payload, dict):
+            # Valid JSON is not necessarily an object: a list, a string, a
+            # number and ``null`` all parse. Nothing of it is echoed back.
+            raise AlertParsingError(
+                "payload is not a JSON object", field="body", reason="is not a JSON object"
+            )
         data = payload.get("data")
         if not isinstance(data, dict):
             raise AlertParsingError("payload is missing a 'data' object")
@@ -58,7 +97,7 @@ class TradingViewAlert:
             action = data["action"]
             contracts = _to_decimal(data["contracts"], "data.contracts")
             position_size = _to_decimal(data["position_size"], "data.position_size")
-            price = _to_decimal(payload["price"], "price")
+            price = _to_decimal(payload["price"], "price", positive=True)
             symbol = payload["symbol"]
             signal_type = payload["signal_type"]
             time = payload["time"]
@@ -81,7 +120,15 @@ class TradingViewAlert:
         )
 
 
-def _to_decimal(value: Any, field: str) -> Decimal:
+def _to_decimal(value: Any, field: str, *, positive: bool = False) -> Decimal:
+    """Coerce one numeric string, refusing what the ``signals`` table would.
+
+    ``positive`` is the CHECK ``price > 0`` of migration 0002, and the only sign
+    rule the database has: a closing alert carries a ``position_size`` of zero
+    and a short position may carry a negative one, so ``contracts`` and
+    ``position_size`` accept any finite number that fits the column.
+    """
+
     if not isinstance(value, str):
         raise AlertParsingError(f"{field} must be a string, got {type(value).__name__}")
     try:
@@ -92,7 +139,40 @@ def _to_decimal(value: Any, field: str) -> Decimal:
         # ``Decimal`` accepts NaN, sNaN and every spelling of infinity without
         # raising. The raw value is deliberately not echoed back.
         raise NonFiniteNumberError(field)
+    if positive and number <= 0:
+        raise _not_above_zero(field)
+    # Checked on the exponent first, so a value like ``1E+999999`` is refused
+    # without ever being expanded into its digits. The exponent bound is
+    # PostgreSQL's: NUMERIC cannot receive a display scale above 16383, so
+    # ``1E-20000`` and ``0E+999999`` are refused at the insert although they are
+    # finite, and a zero is no exception.
+    exponent = number.as_tuple().exponent
+    if not isinstance(exponent, int) or abs(exponent) > _MAX_EXPONENT:
+        raise _out_of_range(field)
+    if number and number.adjusted() >= _STORED_INTEGER_DIGITS:
+        raise _out_of_range(field)
+    stored = number.quantize(_STORED_QUANTUM, context=_STORED_CONTEXT)
+    if abs(stored) >= _STORED_LIMIT:
+        # Rounding to 18 decimals carried it past the column's last integer digit.
+        raise _out_of_range(field)
+    if positive and stored <= 0:
+        # Above zero as sent, zero as stored: the CHECK would refuse it.
+        raise _not_above_zero(field)
     return number
+
+
+def _not_above_zero(field: str) -> AlertParsingError:
+    return AlertParsingError(
+        f"{field} must be above zero", field=field, reason="is not above zero"
+    )
+
+
+def _out_of_range(field: str) -> AlertParsingError:
+    return AlertParsingError(
+        f"{field} is out of range for the stored precision",
+        field=field,
+        reason="is out of range for the stored precision",
+    )
 
 
 def _require_non_empty_str(value: Any, field: str) -> None:

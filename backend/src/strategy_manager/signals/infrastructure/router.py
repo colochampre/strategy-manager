@@ -34,7 +34,6 @@ from strategy_manager.signals.application.ingest_signal import (
 from strategy_manager.signals.application.ports import UnknownSignalStrategy
 from strategy_manager.signals.domain.alert import (
     AlertParsingError,
-    NonFiniteNumberError,
     TradingViewAlert,
     derive_idempotency_key,
 )
@@ -72,15 +71,21 @@ async def receive_tradingview_webhook(
     if not auth.authenticate(source_ip, secret):
         raise HTTPException(status_code=401, detail="unauthorized")
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        # Not JSON at all (an undecodable body included). Nothing of the body
+        # is logged or echoed.
+        logger.warning("webhook alert refused: body is not valid JSON")
+        raise HTTPException(status_code=422, detail="request body is not valid JSON") from exc
     try:
         alert = TradingViewAlert.from_payload(body)
-    except NonFiniteNumberError as exc:
-        # TradingView shows nobody the response, so the refusal must leave a
-        # trace here. Only the field name is logged: no payload, price or secret.
-        logger.warning("webhook alert refused: %s is not a finite number", exc.field)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except AlertParsingError as exc:
+        # TradingView shows nobody the response, so the refusal must leave a
+        # trace here. Only a field name and a fixed reason are logged, never the
+        # payload, a value or the secret.
+        if exc.log_text is not None:
+            logger.warning("webhook alert refused: %s", exc.log_text)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:

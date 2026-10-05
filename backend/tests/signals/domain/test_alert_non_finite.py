@@ -64,4 +64,5 @@ def test_the_refusal_never_echoes_the_raw_value(field: str, value: str) -> None:
 
 @pytest.mark.parametrize("field", FIELDS)
 def test_a_finite_number_is_still_accepted_for_every_field(field: str) -> None:
-    assert _refusal(_with(field, "-3.25")) is None
+    # Positive: a negative price is refused since 9qf.5 (the CHECK price > 0).
+    assert _refusal(_with(field, "3.25")) is None
