@@ -38,12 +38,6 @@ The system MUST require an explicit idempotency field in the alert payload. The 
 - WHEN the webhook is received
 - THEN the system MUST reject the request with a 4xx response and MUST NOT persist it or enqueue a job
 
-#### Scenario: Numeric field that is not a finite number
-
-- GIVEN an authenticated request whose `price`, `data.contracts` or `data.position_size` is not a finite number (`NaN`, `sNaN` or an infinity, in any spelling)
-- WHEN the webhook is received
-- THEN the system MUST reject the request with a 422 response that names the field, MUST NOT persist it or enqueue a job, and MUST log one warning naming the field without the payload
-
 #### Scenario: First delivery of a signal
 
 - GIVEN an authenticated request with a valid, previously-unseen idempotency key
