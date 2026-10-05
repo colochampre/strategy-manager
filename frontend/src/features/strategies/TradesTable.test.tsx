@@ -737,6 +737,79 @@ describe("TradesTable rehearsal rows", () => {
   });
 });
 
+// The sentences under the table's title (task 9p.5.12): each is true of a row of the page on
+// screen, never of a page visited before. The texts are the spec's, with the owner's wording of
+// 2026-10-05 in the ALERT one.
+const NOTE = {
+  en: [
+    'Operations marked "Dry run" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page.',
+    'A row marked "fixed price" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result.',
+    'A row marked "alert price" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live.',
+  ],
+  es: [
+    'Las operaciones marcadas "Simulación" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página.',
+    'Una fila marcada "precio fijo" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado.',
+    'Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real.',
+  ],
+} as const;
+
+describe("TradesTable sentences under the title", () => {
+  const rehearsal = (n: number, fillPrice: string) =>
+    trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice });
+  const shown = (language: "en" | "es" = "en") => NOTE[language].map((sentence) => screen.queryByText(sentence) !== null);
+
+  it.each([
+    ["no rehearsal row", [trade(1)], [false, false, false]],
+    ["a FIXED_ONE row", [rehearsal(1, "FIXED_ONE")], [true, true, false]],
+    ["an ALERT row", [rehearsal(1, "ALERT")], [true, false, true]],
+    ["an UNDETERMINED row", [rehearsal(1, "UNDETERMINED")], [true, false, false]],
+    ["a value the panel does not know", [rehearsal(1, "SLIPPED")], [true, false, false]],
+    ["a real row beside a FIXED_ONE and an ALERT row", [trade(1), rehearsal(2, "FIXED_ONE"), rehearsal(3, "ALERT")], [true, true, true]],
+  ])("shows each sentence only when a row of the page makes it true: %s", async (_name, rows, expected) => {
+    serve(rows, 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(shown()).toEqual(expected);
+  });
+
+  it("follows the page on screen and never the pages visited before", async () => {
+    serve([rehearsal(1, "FIXED_ONE"), trade(2), trade(3)], 1);
+    renderTable();
+    await screen.findByRole("table");
+    expect(shown()).toEqual([true, true, false]);
+
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+
+    expect(shown()).toEqual([false, false, false]);
+
+    fireEvent.click(previous());
+
+    expect(shown()).toEqual([true, true, false]);
+  });
+
+  it("writes the sentences in Spanish, with the exact texts of the spec", async () => {
+    await i18n.changeLanguage("es");
+    serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(shown("es")).toEqual([true, true, true]);
+  });
+
+  it("keeps the section title Closed trades", async () => {
+    serve([rehearsal(1, "ALERT")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(screen.queryByRole("heading", { name: "Closed trades" })).toBeInTheDocument();
+  });
+});
+
 // What decision 43 changes in the paging and the failure paths (task 9p.5.14): the request always
 // opts in to rehearsal rows, and a page that lacks the new fields is refused whole.
 describe("TradesTable under decision 43", () => {
