@@ -2849,15 +2849,15 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | --- | --- | --- |
 | every width | Closed (UTC), Pair (with the rehearsal tag), Side, PnL {currency}, PnL %, Details | about 530 px |
 | `md` (768 px) | Entry, Exit | about 690 px |
-| `xl` (1280 px) | Size, Fees {currency}, Pool capital at open | about 930 px |
+| `xl` (1280 px) | Size, Fees {currency}, Pool at open | about 930 px |
 | `min-[90rem]` (1440 px) | Opened (UTC) | about 1,090 px |
 
 - **At 1440 px and above** every column shows: the section is about 1,160 px wide there.
 - **Under 1024 px** the page is one column with no side rail. From 768 px the table shows eight columns; below it, six. Below about 560 px the six columns scroll sideways inside the `overflow-x-auto` wrapper the table already has. Every figure a tier hides is in the detail view, which is the reason the Details control is in the first tier.
-- Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool capital at open, Details.
+- Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool at open, Details.
 - The header "Return" becomes **"PnL %"** in both languages, decision 43's own words. The section title stays "Closed trades" / "Operaciones cerradas".
-- Prices and sizes are formatted for display from the server's string, with up to eight significant digits and no trailing zeros. Nothing is computed from them (§ 15, "Money is never computed in the browser").
-- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` keeps its existing mark on the PnL cell.
+- Prices and sizes are formatted for display from the server's string: in the table at most five decimals and no trailing zeros, or four significant digits when five would leave fewer, and fees like the PnL beside them with the pool currency's decimals; in the dialog up to eight significant digits and no trailing zeros (owner decision 46, 2026-10-05). Nothing is computed from them (§ 15, "Money is never computed in the browser").
+- A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` puts an asterisk after the PnL figure, explained by one note below the table and its paging controls for the page on screen (owner decision 46, 2026-10-05; the dialog keeps the words).
 
 **How a rehearsal row is marked** (decision 43, answered 2026-10-04: the stored numbers are shown as they are, beside the mark and a sentence that says how the row was filled).
 - A text tag in the Pair cell, on its own line under the pair, in the words of the mode badge (`DryRunBadge`, "Modo simulación") and in the same amber `decision` token. It is text, so it does not rest on colour. Its wording follows `rehearsal_fill_price`, and that is what tells the rows apart:
@@ -2870,10 +2870,10 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 
 - **Every cell of a rehearsal row shows the stored number.** Entry 1 and exit 1 are printed as 1. No cell of a rehearsal row is blanked or special-cased.
 - Its PnL and PnL % are drawn in neutral ink, never in the gain or loss colour. Green and red stay reserved for money that was made or lost.
-- **The sentences under the title** appear by what the page on screen holds, so each one is true of a row the reader can see:
+- **The sentences below the table and its paging controls (owner decision 46, 2026-10-05; under the title before)** appear by what the page on screen holds, so each one is true of a row the reader can see:
   1. At least one rehearsal row: those operations were filled by the simulated exchange, not at the venue, and are not counted in any figure of the page. This is what explains a list with rows under a report that says zero trades.
   2. At least one `FIXED_ONE` row: a row marked "fixed price" was opened at a fixed price of 1 whatever the market price was, so its prices and its PnL are not a result.
-  3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried.
+  3. At least one `ALERT` row: a row marked "alert price" was opened at the price its alert carried, was sized at 1x and carries a fee simulated at the taker rate, so its PnL is not what it would have made live (the owner's wording of 2026-10-05, follow-up 9qf.3; the exact texts are in the i18n table below).
 - An `UNDETERMINED` row gets sentence 1 only. Nothing is claimed about its price, because stored data supports no claim (§ C).
 - The request always carries `include_rehearsal=true`.
 
@@ -2910,13 +2910,14 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `rehearsalAlert` | Dry run · alert price | Simulación · precio de la alerta |
 | `rehearsalNote` | Operations marked "Dry run" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page. | Las operaciones marcadas "Simulación" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página. |
 | `rehearsalFixedNote` | A row marked "fixed price" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. | Una fila marcada "precio fijo" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. |
-| `rehearsalAlertNote` | A row marked "alert price" was opened at the price its alert carried. | Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. |
+| `rehearsalAlertNote` | A row marked "alert price" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. | Una fila marcada "precio de la alerta" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. |
 | `details` | Details | Detalle |
 | `detailsOf` | Details of {{pair}} {{side}}, closed {{closed}} | Detalle de {{pair}} {{side}}, cierre {{closed}} |
 | `detail.title` | {{pair}} · {{side}} | {{pair}} · {{side}} |
 | `detail.entryPrice` | Entry price | Precio de entrada |
 | `detail.exitPrice` | Exit price | Precio de salida |
 | `detail.size` | Size ({{base}}) | Tamaño ({{base}}) |
+| `detail.sizeNoBase` | Size | Tamaño |
 | `detail.fees` | Fees paid ({{currency}}) | Comisiones pagadas ({{currency}}) |
 | `detail.otherFees` | Fees in other currencies | Comisiones en otras monedas |
 | `detail.pnl` | PnL ({{currency}}) | PnL ({{currency}}) |
@@ -2925,7 +2926,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `detail.capital` | Pool capital at open ({{currency}}) | Capital del pool al abrir ({{currency}}) |
 | `detail.rehearsalHint` | Dry run: filled by the simulated exchange, not at the venue. It is not counted in any total. | Simulación: ejecutada por el exchange simulado, no en el exchange real. No se cuenta en ningún total. |
 | `detail.rehearsalFixedHint` | Dry run at a fixed price: it was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. It is not counted in any total. | Simulación a precio fijo: se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. No se cuenta en ningún total. |
-| `detail.rehearsalAlertHint` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total. |
+| `detail.rehearsalAlertHint` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total. |
 | `detail.operationId` | Operation id | Id de la operación |
 | `detail.close` | Close | Cerrar |
 | `detail.fills.title` | Fills | Ejecuciones |
@@ -2934,6 +2935,7 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | `detail.fills.sides.BUY` / `.SELL` | Buy / Sell | Compra / Venta |
 | `detail.fills.price` | Price | Precio |
 | `detail.fills.quantity` | Quantity ({{base}}) | Cantidad ({{base}}) |
+| `detail.fills.quantityNoBase` | Quantity | Cantidad |
 | `detail.fills.fee` | Fee | Comisión |
 | `detail.fills.loading` | Loading the fills… | Cargando las ejecuciones… |
 | `detail.fills.error` | The fills could not be loaded. | No se pudieron cargar las ejecuciones. |

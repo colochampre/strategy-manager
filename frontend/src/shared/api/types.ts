@@ -218,6 +218,13 @@ export interface PairStat {
  * pool's total was recorded (decision 43): never a zero. `return` is `pnl` over
  * `capital_at_open`, the POOL's capital, never the position's margin.
  * `fees_complete` is false when a fee in a third currency was left out of `pnl`.
+ *
+ * Decision 43 adds the operation's figures. `rehearsal` is never null;
+ * `rehearsal_fill_price` is null exactly when `rehearsal` is false and, on a
+ * rehearsal row, `FIXED_ONE`, `ALERT`, `UNDETERMINED` or a value this panel
+ * does not know. `base_currency`, `entry_price`, `exit_price` and `size` are
+ * null TOGETHER, meaning "not derivable from the fills", never zero. `fees` is
+ * a string and can be a bare "0"; `other_fees` lists fees in other currencies.
  */
 export interface StrategyTrade {
   allocation_id: string;
@@ -225,10 +232,45 @@ export interface StrategyTrade {
   direction: string;
   opened_at: string;
   closed_at: string;
+  rehearsal: boolean;
+  rehearsal_fill_price: string | null;
+  base_currency: string | null;
+  entry_price: string | null;
+  exit_price: string | null;
+  size: string | null;
+  fees: string;
+  other_fees: OtherFee[];
   pnl: string;
   capital_at_open: string | null;
   return: string | null;
   fees_complete: boolean;
+}
+
+/** A fee paid in a currency other than the pool's; the amount is above zero and is never converted. */
+export interface OtherFee {
+  currency: string;
+  amount: string;
+}
+
+/**
+ * One fill of an operation, from `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills`.
+ * No field is nullable; `price`, `quantity` and `fee` are the stored values as strings.
+ */
+export interface OperationFill {
+  filled_at: string;
+  side: "BUY" | "SELL";
+  price: string;
+  quantity: string;
+  fee: string;
+  fee_currency: string;
+  rehearsal: boolean;
+}
+
+/** The fills of one operation: never empty; `truncated` is true when only the first 200 are served. */
+export interface OperationFills {
+  allocation_id: string;
+  fills: OperationFill[];
+  truncated: boolean;
 }
 
 /** `next_cursor` of the trades list: exactly the two query parameters that ask for the page after it. */

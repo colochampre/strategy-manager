@@ -26,6 +26,14 @@ function trade(overrides: Partial<StrategyTrade> = {}): StrategyTrade {
     direction: "LONG",
     opened_at: "2026-09-30T10:00:00Z",
     closed_at: "2026-09-30T12:00:00Z",
+    rehearsal: false,
+    rehearsal_fill_price: null,
+    base_currency: "SOL",
+    entry_price: "0.451200000000000000",
+    exit_price: "0.463100000000000000",
+    size: "1250.000000000000000000",
+    fees: "0.63",
+    other_fees: [],
     pnl: "4.20",
     capital_at_open: "1000.00",
     return: "0.0042000000",
@@ -69,7 +77,7 @@ describe("fetchStrategyPerformance by_pair", () => {
 });
 
 describe("fetchStrategyTrades", () => {
-  it("asks for the first page with the limit alone and no cursor", async () => {
+  it("asks for the first page with the limit and include_rehearsal and no cursor", async () => {
     const fetchMock = respond(200, { trades: [trade()], next_cursor: null });
 
     const page = await fetchStrategyTrades(ID, null);
@@ -77,6 +85,7 @@ describe("fetchStrategyTrades", () => {
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
     expect(url.pathname).toMatch(new RegExp(`/performance/strategies/${ID}/trades$`));
     expect(url.searchParams.get("limit")).toBe("20");
+    expect(url.searchParams.get("include_rehearsal")).toBe("true");
     expect(url.searchParams.has("before_closed_at")).toBe(false);
     expect(url.searchParams.has("before_allocation_id")).toBe(false);
     expect(page.trades).toEqual([trade()]);

@@ -2,6 +2,8 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type {
+  OperationFill,
+  OperationFills,
   PoolPerformance,
   StrategyPerformance,
   StrategyTrade,
@@ -104,6 +106,18 @@ export async function fetchStrategyPerformance(strategyId: string): Promise<Stra
 
 export const TRADES_PAGE_SIZE = 20;
 
+function isOtherFee(value: unknown): boolean {
+  return isRecord(value) && typeof value.currency === "string" && typeof value.amount === "string";
+}
+
+/**
+ * `rehearsal_fill_price` is null exactly when the row is not a rehearsal row. On a rehearsal
+ * row any string is kept, so a value a later API invents is read as the plain tag, not refused.
+ */
+function isRehearsalMark(rehearsal: boolean, price: unknown): boolean {
+  return rehearsal ? typeof price === "string" : price === null;
+}
+
 function isTrade(value: unknown): value is StrategyTrade {
   return (
     isRecord(value) &&
@@ -112,6 +126,15 @@ function isTrade(value: unknown): value is StrategyTrade {
     typeof value.direction === "string" &&
     typeof value.opened_at === "string" &&
     typeof value.closed_at === "string" &&
+    typeof value.rehearsal === "boolean" &&
+    isRehearsalMark(value.rehearsal, value.rehearsal_fill_price) &&
+    isNullableString(value.base_currency) &&
+    isNullableString(value.entry_price) &&
+    isNullableString(value.exit_price) &&
+    isNullableString(value.size) &&
+    typeof value.fees === "string" &&
+    Array.isArray(value.other_fees) &&
+    value.other_fees.every(isOtherFee) &&
     typeof value.pnl === "string" &&
     isNullableString(value.capital_at_open) &&
     isNullableString(value.return) &&
@@ -146,7 +169,8 @@ export async function fetchStrategyTrades(
   cursor: TradeCursor | null,
   limit = TRADES_PAGE_SIZE,
 ): Promise<StrategyTradesPage> {
-  const query = new URLSearchParams({ limit: String(limit) });
+  // Rehearsal rows are always asked for: the table marks them rather than hide them (decision 43).
+  const query = new URLSearchParams({ limit: String(limit), include_rehearsal: "true" });
   if (cursor !== null) {
     query.set("before_closed_at", cursor.before_closed_at);
     query.set("before_allocation_id", cursor.before_allocation_id);
@@ -158,6 +182,58 @@ export async function fetchStrategyTrades(
     });
   }
   return body;
+}
+
+function isOperationFill(value: unknown): value is OperationFill {
+  return (
+    isRecord(value) &&
+    typeof value.filled_at === "string" &&
+    (value.side === "BUY" || value.side === "SELL") &&
+    typeof value.price === "string" &&
+    typeof value.quantity === "string" &&
+    typeof value.fee === "string" &&
+    typeof value.fee_currency === "string" &&
+    typeof value.rehearsal === "boolean"
+  );
+}
+
+/**
+ * The fills of one operation, from
+ * `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills`. The body must name the
+ * allocation that was asked for and hold a non-empty list of readable fills: anything else is an
+ * error, never a partial table. A 404 ("no such operation") throws too: the dialog that asks is
+ * opened from a row of the list, so a missing operation is a failure.
+ */
+export async function fetchOperationFills(strategyId: string, allocationId: string): Promise<OperationFills> {
+  const body = await apiFetch<unknown>(
+    `/performance/strategies/${encodeURIComponent(strategyId)}/trades/${encodeURIComponent(allocationId)}/fills`,
+  );
+  if (
+    !isRecord(body) ||
+    body.allocation_id !== allocationId ||
+    !Array.isArray(body.fills) ||
+    body.fills.length === 0 ||
+    !body.fills.every(isOperationFill) ||
+    typeof body.truncated !== "boolean"
+  ) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /performance/strategies/{id}/trades/{allocation_id}/fills: expected the fills of the operation asked for",
+    });
+  }
+  return { allocation_id: body.allocation_id, fills: body.fills, truncated: body.truncated };
+}
+
+/**
+ * `['performance','strategy',id,'trade-fills',allocationId]` (design § F). Mounting it is what
+ * asks for the fills; without both ids it asks for nothing.
+ */
+export function useOperationFills(strategyId: string, allocationId: string) {
+  return useQuery({
+    queryKey: ["performance", "strategy", strategyId, "trade-fills", allocationId],
+    queryFn: () => fetchOperationFills(strategyId, allocationId),
+    enabled: strategyId !== "" && allocationId !== "",
+    staleTime: PERFORMANCE_STALE_MS,
+  });
 }
 
 /** Query key `['performance','strategy',id]` (design.md § 15). */

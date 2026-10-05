@@ -52,9 +52,18 @@ function sourceFiles(dir: string): string[] {
 /**
  * The design allows amber in four places: the mode badge, the pending-bookings
  * count, a read-only key and a keyless exchange. Two of them exist so far; the
- * other two join this list with Settings and the exchange tabs (PR 13).
+ * other two join this list with Settings and the exchange tabs (PR 13). Decision 43
+ * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
+ * the words and the amber of the mode badge, and the same tag on a fill of the fills table
+ * whose flag differs from its operation's, and the tag in the title of the detail dialog.
  */
-const AMBER_ALLOWED = ["features/overview/DecisionRail.tsx", "shared/layout/DryRunBadge.tsx"];
+const AMBER_ALLOWED = [
+  "features/overview/DecisionRail.tsx",
+  "features/strategies/OperationFillsTable.tsx",
+  "features/strategies/TradeDetailDialog.tsx",
+  "features/strategies/TradesTable.tsx",
+  "shared/layout/DryRunBadge.tsx",
+];
 
 describe("the amber decision colour", () => {
   it("is used only by the components the design allows", () => {

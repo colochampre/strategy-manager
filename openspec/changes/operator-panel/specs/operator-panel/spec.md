@@ -210,19 +210,17 @@ The strategy detail view MUST show a section titled "Closed trades" /
 "Operaciones cerradas", full width below the page's two-column area and above
 the delete control, with one row per closed operation of the strategy, each in
 the strategy's own pool and in that pool's native settlement currency (for
-example USDT for `(bybit, usdt-m, USDT)`). Every cell MUST show the number the
-server served, formatted with up to eight significant digits and no trailing
-zeros, and the panel MUST NOT compute any money figure from them. A missing
-figure MUST NEVER be shown as zero.
+example USDT for `(bybit, usdt-m, USDT)`). Every cell MUST show the number the server served, and the panel MUST NOT compute any money figure from them. A missing
+figure MUST NEVER be shown as zero. In the table, Entry, Exit and Size are written with at most five decimals and no trailing zeros, or with four significant digits when five decimals would leave fewer (so a small price never reads 0), and Fees like the PnL beside them, with the pool currency's decimals and no sign; the detail dialog keeps up to eight significant digits (owner decision 46, 2026-10-05).
 
 The columns, in this order on a wide screen, are: Opened (UTC), Closed (UTC),
 Pair (with the rehearsal tag when it applies), Side, Entry, Exit, Size, Fees
-{currency}, PnL {currency}, PnL %, Pool capital at open, and a Details control.
+{currency}, PnL {currency}, PnL %, Pool at open (heading shortened, owner decision 46, 2026-10-05), and a Details control.
 They MUST be shown by viewport width:
 
 - at every width: Closed, Pair, Side, PnL, PnL %, Details (six columns);
 - from 768 px: also Entry and Exit (eight columns);
-- from 1280 px: also Size, Fees and Pool capital at open (eleven columns);
+- from 1280 px: also Size, Fees and Pool at open (eleven columns);
 - from 1440 px: also Opened (all twelve).
 
 Below about 560 px the table MUST scroll sideways inside its own wrapper rather
@@ -236,10 +234,10 @@ A null Entry, Exit or Size MUST show the existing em dash with a reason for a
 screen reader ("This figure cannot be derived from the operation's fills." /
 "Esta cifra no se puede derivar de las ejecuciones de la operación."). A fee in
 another currency MUST show after the fees as "+ 0.00012 BNB". An operation whose
-fees are incomplete keeps its existing mark on the PnL cell. A figure served as
+fees are incomplete shows an asterisk right after its PnL figure, explained by one note below the table and its paging controls, after the dry-run sentences, that appears only when a row of the page on screen has incomplete fees (owner decision 46, 2026-10-05); the words stay in the detail dialog. A figure served as
 a string that is not a number MUST read as "unreadable", as the PnL cell does
 today. An operation with no recorded pool capital MUST show PnL % and Pool
-capital at open empty, never an invented number. A strategy with no closed
+at open empty, never an invented number. A strategy with no closed
 operation MUST show the existing defined empty state.
 
 The panel MUST send `include_rehearsal=true` on every request of this table,
@@ -249,7 +247,7 @@ the first page and every later one.
 
 - GIVEN a viewport of 1440 px and a strategy on pool `(bybit, usdt-m, USDT)` with a closed LONG
 - WHEN the section renders
-- THEN twelve columns are shown in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool capital at open, Details
+- THEN twelve columns are shown in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool at open, Details
 
 #### Scenario: A narrow screen keeps six columns
 
@@ -261,7 +259,7 @@ the first page and every later one.
 
 - GIVEN viewports of 768 px, 1280 px and 1440 px
 - WHEN the section renders at each
-- THEN Entry and Exit appear from 768 px, Size, Fees and Pool capital at open from 1280 px, and Opened from 1440 px, and no column appears below its tier
+- THEN Entry and Exit appear from 768 px, Size, Fees and Pool at open from 1280 px, and Opened from 1440 px, and no column appears below its tier
 
 #### Scenario: A row shows the stored figures
 
@@ -297,7 +295,7 @@ the first page and every later one.
 
 - GIVEN a row whose return and capital at open are null
 - WHEN the row renders
-- THEN PnL % and Pool capital at open are empty and PnL is shown
+- THEN PnL % and Pool at open are empty and PnL is shown
 
 #### Scenario: Every request carries include_rehearsal
 
@@ -408,7 +406,7 @@ exit of 1 are printed as 1, and no cell is blanked or special-cased. Its PnL and
 PnL % MUST be drawn in neutral ink, never in the gain or loss colour. A real
 row is unmarked.
 
-Under the table's title the panel MUST show a sentence for each of the
+Below the table and its paging controls (owner decision 46, 2026-10-05; they sat under the table's title before) the panel MUST show a sentence for each of the
 following conditions that is true of the rows of the page on screen (the one page shown, never
 pages previously visited), and no
 sentence whose condition is false:
@@ -424,8 +422,12 @@ sentence whose condition is false:
    1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un
    resultado.";
 3. at least one `ALERT` row: "A row marked "alert price" was opened at the price
-   its alert carried." / "Una fila marcada "precio de la alerta" se abrió al
-   precio que traía su alerta.".
+   its alert carried. It was sized at 1x and its fee is simulated at the taker
+   rate, so its PnL is not what it would have made live." / "Una fila marcada
+   "precio de la alerta" se abrió al precio que traía su alerta. Se dimensionó a
+   1x y su comisión es simulada a la tasa taker, así que su PnL no es el que
+   habría dado en real." (the second sentence is the owner's wording of
+   2026-10-05, follow-up 9qf.3).
 
 An `UNDETERMINED` row, or one with a value the panel does not know, MUST get
 sentence 1 only and no claim about its price. A strategy that only ran in dry
@@ -509,7 +511,7 @@ in no total:
 | `rehearsal_fill_price` | English | Spanish |
 | --- | --- | --- |
 | `FIXED_ONE` | Dry run at a fixed price: it was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result. It is not counted in any total. | Simulación a precio fijo: se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado. No se cuenta en ningún total. |
-| `ALERT` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total. |
+| `ALERT` | Dry run at the alert's price: opened by the simulated exchange at the price its alert carried, not at the venue. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live. It is not counted in any total. | Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total. |
 | `UNDETERMINED`, or unknown | Dry run: filled by the simulated exchange, not at the venue. It is not counted in any total. | Simulación: ejecutada por el exchange simulado, no en el exchange real. No se cuenta en ningún total. |
 
 The PnL % sentence reads "PnL over the pool's capital when the operation opened,
@@ -547,7 +549,7 @@ that opened it.
 
 - GIVEN an `ALERT` rehearsal row and the locale Spanish
 - WHEN its dialog opens
-- THEN it shows "Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. No se cuenta en ningún total."
+- THEN it shows "Simulación al precio de la alerta: abierta por el exchange simulado al precio que traía su alerta, no en el exchange real. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real. No se cuenta en ningún total."
 
 #### Scenario: Closing returns focus to the button
 
@@ -572,6 +574,12 @@ currency, and Fee with its amount and currency. The panel MUST NOT request the
 fills until the dialog is opened, MUST make that request when it opens, and MUST
 NOT prefetch the fills of any row. The table MUST be a real table inside the
 dialog's own scrolling body.
+
+An operation whose figures cannot be derived has no base currency. Its dialog
+MUST still open, and the two headings that carry the base currency MUST then
+read without the parenthesis: "Size" / "Tamaño" in the figures and "Quantity" /
+"Cantidad" in the fills table. No currency is guessed from the pair (owner's
+answer of 2026-10-05).
 
 The table MUST be in one of these states:
 
