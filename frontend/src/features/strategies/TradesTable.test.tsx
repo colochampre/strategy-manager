@@ -611,3 +611,128 @@ describe("TradesTable", () => {
     expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("SHORT");
   });
 });
+
+// The rehearsal mark (decision 43): a dry-run operation keeps its stored numbers, beside a text
+// tag under the pair that says how it was filled, in the amber token of the dry-run badge.
+describe("TradesTable rehearsal rows", () => {
+  const rehearsal = (n: number, fillPrice: string, overrides: Partial<StrategyTrade> = {}) =>
+    trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice, ...overrides });
+  const pairCell = (row: HTMLElement) => within(row).getAllByRole("cell")[2] as HTMLElement;
+
+  it("shows each rehearsal_fill_price value's own tag on its own line under the pair", async () => {
+    serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
+    const fixedTag = within(pairCell(fixed)).queryByText("Dry run · fixed price");
+    const alertTag = within(pairCell(alert)).queryByText("Dry run · alert price");
+    const plainTag = within(pairCell(undetermined)).queryByText("Dry run");
+    expect(fixedTag).toBeInTheDocument();
+    expect(alertTag).toBeInTheDocument();
+    expect(plainTag).toBeInTheDocument();
+    // Each tag is a block of its own inside the Pair cell, below the pair, and no row carries another's.
+    for (const tag of [fixedTag, alertTag, plainTag]) {
+      expect(tag?.classList.contains("block")).toBe(true);
+      expect(tag?.parentElement).toBe(tag === fixedTag ? pairCell(fixed) : tag === alertTag ? pairCell(alert) : pairCell(undetermined));
+    }
+    expect(within(fixed).queryByText("Dry run · alert price")).toBeNull();
+    expect(within(alert).queryByText("Dry run · fixed price")).toBeNull();
+    expect(within(undetermined).queryByText(/·/)).toBeNull();
+  });
+
+  it("writes the tags in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
+    expect(within(pairCell(fixed)).queryByText("Simulación · precio fijo")).toBeInTheDocument();
+    expect(within(pairCell(alert)).queryByText("Simulación · precio de la alerta")).toBeInTheDocument();
+    expect(within(pairCell(undetermined)).queryByText("Simulación")).toBeInTheDocument();
+  });
+
+  it("reads a value the panel does not know as the plain tag", async () => {
+    serve([rehearsal(1, "SLIPPED")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const row = bodyRows()[0] as HTMLElement;
+    expect(within(pairCell(row)).queryByText("Dry run")).toBeInTheDocument();
+    expect(within(row).queryByText(/·/)).toBeNull();
+    expect(within(row).queryByText("SLIPPED")).toBeNull();
+  });
+
+  it("leaves a real row unmarked", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(within(bodyRows()[0] as HTMLElement).queryByText(/Dry run/)).toBeNull();
+  });
+
+  it("prints entry 1, exit 1 and fees 0 on a fixed-price row, and no cell is blank", async () => {
+    serve(
+      [
+        rehearsal(1, "FIXED_ONE", {
+          entry_price: "1.000000000000000000",
+          exit_price: "1.000000000000000000",
+          fees: "0",
+        }),
+      ],
+      5,
+    );
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
+    expect([cells[4], cells[5], cells[7]].map((cell) => cell?.textContent)).toEqual(["1", "1", "0"]);
+    expect(cells.map((cell) => (cell.textContent ?? "").trim() === "")).not.toContain(true);
+  });
+
+  it("draws a rehearsal row's PnL and PnL % in neutral ink and a real row's in the gain and loss colours", async () => {
+    serve(
+      [
+        rehearsal(1, "FIXED_ONE", { pnl: "4.00", return: "0.0040000000" }),
+        rehearsal(2, "ALERT", { pnl: "-3.25", return: "-0.0032500000" }),
+        trade(3, { pnl: "4.00", return: "0.0040000000" }),
+        trade(4, { pnl: "-3.25", return: "-0.0032500000" }),
+      ],
+      5,
+    );
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const inks = bodyRows().map((row) => {
+      const cells = within(row).getAllByRole("cell");
+      return [cells[8], cells[9]].map((cell) =>
+        cell?.classList.contains("text-gain") ? "gain" : cell?.classList.contains("text-loss") ? "loss" : "neutral",
+      );
+    });
+    expect(inks).toEqual([
+      ["neutral", "neutral"],
+      ["neutral", "neutral"],
+      ["gain", "gain"],
+      ["loss", "loss"],
+    ]);
+  });
+
+  it("writes the tag as text in the amber token of the dry-run badge, so it does not rest on colour alone", async () => {
+    serve([rehearsal(1, "FIXED_ONE")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const tag = within(pairCell(bodyRows()[0] as HTMLElement)).queryByText("Dry run · fixed price");
+    expect(tag).toBeInTheDocument();
+    expect(tag?.classList.contains("text-decision")).toBe(true);
+    expect((tag?.textContent ?? "").length).toBeGreaterThan(0);
+  });
+});
