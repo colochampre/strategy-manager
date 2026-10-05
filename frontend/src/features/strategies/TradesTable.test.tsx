@@ -449,14 +449,23 @@ describe("TradesTable", () => {
     expect(within(plain).queryByText(/BNB/)).toBeNull();
   });
 
-  it("keeps the incomplete-fees mark on the PnL cell", async () => {
+  // Was "keeps the incomplete-fees mark on the PnL cell": the mark is now an asterisk (owner decision 46),
+  // so the words leave the cell and the hint text becomes its title and its screen-reader text.
+  it("shows an asterisk right after the PnL figure of an incomplete-fee row, in ink-3, with the hint as title and screen-reader text, and not the words", async () => {
     serve([trade(1, { fees_complete: false })], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
-    expect(cells[8]?.textContent ?? "").toContain(i18n.t("strategies.performance.trades.feesIncomplete"));
+    const hint = i18n.t("strategies.performance.trades.feesIncompleteHint");
+    const pnlCell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[8] as HTMLElement;
+    const mark = within(pnlCell).queryByTitle(hint);
+    expect(mark).toBeInTheDocument();
+    expect(mark?.classList.contains("text-ink-3")).toBe(true);
+    expect(mark?.textContent ?? "").toContain("*");
+    expect(within(pnlCell).queryByText(hint)).toBeInTheDocument();
+    expect(pnlCell.textContent ?? "").toMatch(/^\+1\.50\*/);
+    expect(pnlCell.textContent ?? "").not.toContain(i18n.t("strategies.performance.trades.feesIncomplete"));
   });
 
   it("says a figure that is not a number is unreadable instead of drawing it", async () => {
@@ -552,15 +561,18 @@ describe("TradesTable", () => {
     expect(cells[8]).toHaveTextContent("+1.50");
   });
 
-  it("marks a trade whose fees are incomplete and no other", async () => {
+  // Was "marks a trade whose fees are incomplete and no other", which looked for the words: the mark is an
+  // asterisk now (owner decision 46), found by its title.
+  it("marks a trade whose fees are incomplete with an asterisk and no other", async () => {
     serve([trade(1, { fees_complete: false }), trade(2)], 5);
     renderTable();
 
     await screen.findByRole("table");
 
+    const hint = i18n.t("strategies.performance.trades.feesIncompleteHint");
     const [flagged, clean] = bodyRows() as [HTMLElement, HTMLElement];
-    expect(within(flagged).getByText(i18n.t("strategies.performance.trades.feesIncomplete"))).toBeInTheDocument();
-    expect(within(clean).queryByText(i18n.t("strategies.performance.trades.feesIncomplete"))).toBeNull();
+    expect(within(flagged).queryByTitle(hint)).toBeInTheDocument();
+    expect(within(clean).queryByTitle(hint)).toBeNull();
   });
 
   it("says a cell cannot be read, instead of drawing a number, and keeps the other rows", async () => {
@@ -1150,5 +1162,64 @@ describe("TradesTable localization", () => {
     expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
     expect(texts).not.toContain("Sell");
     expect(texts).not.toContain("Buy");
+  });
+});
+
+// The incomplete-fees note (task 9p.5.27, owner decision 46): one sentence under the dry-run sentences,
+// true of a row of the page on screen, never of a page visited before.
+describe("TradesTable incomplete-fees note", () => {
+  const NOTE_EN = "* A fee paid in a third currency is not in this PnL.";
+  const NOTE_ES = "* Una comisión pagada en una tercera moneda no está en este PnL.";
+  const noteShown = (text = NOTE_EN) => screen.queryByText(text) !== null;
+
+  it.each([
+    ["no row with incomplete fees", [trade(1), trade(2)], false],
+    ["a row with incomplete fees", [trade(1), trade(2, { fees_complete: false })], true],
+  ])("shows the note only when a row of the page makes it true: %s", async (_name, rows, expected) => {
+    serve(rows, 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(noteShown()).toBe(expected);
+  });
+
+  it("follows the page on screen and never the pages visited before", async () => {
+    serve([trade(1, { fees_complete: false }), trade(2), trade(3)], 1);
+    renderTable();
+    await screen.findByRole("table");
+    expect(noteShown()).toBe(true);
+
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+
+    expect(noteShown()).toBe(false);
+
+    fireEvent.click(previous());
+
+    expect(noteShown()).toBe(true);
+  });
+
+  it("sits after the dry-run sentences", async () => {
+    serve([trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", fees_complete: false })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    const dryRun = screen.queryByText(NOTE.en[2]);
+    const note = screen.queryByText(NOTE_EN);
+    expect(dryRun).toBeInTheDocument();
+    expect(note).toBeInTheDocument();
+    expect((dryRun as HTMLElement).compareDocumentPosition(note as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("writes the note in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    serve([trade(1, { fees_complete: false })], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(noteShown(NOTE_ES)).toBe(true);
   });
 });
