@@ -1136,7 +1136,17 @@ describe("TradesTable localization", () => {
     const texts = visibleTexts();
 
     expect(texts.filter((text) => onlyEnglish.has(text))).toEqual([]);
-    expect(texts).toEqual(expect.arrayContaining(["Compra", "Venta", "Ejecuciones", "Simulación · precio de la alerta", "Cerrar"]));
+    expect(texts).toEqual(expect.arrayContaining([
+        "Compra",
+        "Venta",
+        "Ejecuciones",
+        "Hora (UTC)",
+        "Lado",
+        "Precio",
+        "Comisión",
+        "Simulación · precio de la alerta",
+        "Cerrar",
+      ]));
     expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
     expect(texts).not.toContain("Sell");
     expect(texts).not.toContain("Buy");
