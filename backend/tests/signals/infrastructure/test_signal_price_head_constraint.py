@@ -11,9 +11,9 @@ The two values the design left unverified are PINNED here as observed on
 2026-10-04 (task 9q.14), by a statement run first and then asserted:
 
 * ``NaN`` IS stored and read back as ``NaN``: PostgreSQL's numeric ordering
-  puts NaN above every number, so ``price > 0`` does not exclude it. An alert
-  carrying ``"NaN"`` therefore reaches the worker, where the simulated
-  exchange refuses a close priced at it.
+  puts NaN above every number, so ``price > 0`` does not exclude it. Since
+  task 9qf.1 the webhook refuses an alert carrying ``"NaN"`` before anything is
+  stored, so this pins what the database would do if anything else wrote one.
 * ``Infinity`` and ``-Infinity`` are refused: a ``NUMERIC(38, 18)`` column
   cannot hold them (numeric value out of range).
 """
