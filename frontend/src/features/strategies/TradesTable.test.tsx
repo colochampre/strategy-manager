@@ -6,6 +6,7 @@ import { TradesTable } from "@/features/strategies/TradesTable";
 import type { StrategyTrade, StrategyTradesPage } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import { jsonResponse, lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { pressEnter, pressSpace, pressTab } from "@/test/keyboard";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
@@ -896,5 +897,167 @@ describe("TradesTable under decision 43", () => {
     renderTable();
 
     await refused();
+  });
+});
+
+// Opening an operation (task 9p.5.19): the Details control of a row opens the detail dialog for that
+// operation alone; the fills are asked for only by the dialog being mounted.
+describe("TradesTable opening an operation", () => {
+  interface OperationsServer {
+    fillsRequests: string[];
+  }
+
+  const fillsBody = (allocation: string) => ({
+    allocation_id: allocation,
+    fills: [
+      { filled_at: "2026-09-30T10:00:00Z", side: "BUY", price: "0.451200000000000000", quantity: "1250.000000000000000000", fee: "0.310000000000000000", fee_currency: "USDT", rehearsal: false },
+    ],
+    truncated: false,
+  });
+
+  /** Serves one page with every row and the fills route; `fills` answers a fills request. */
+  function serveOperations(
+    rows: readonly StrategyTrade[],
+    fills: (allocation: string) => Promise<Response> = (allocation) => Promise.resolve(jsonResponse(fillsBody(allocation))),
+  ): OperationsServer {
+    const fillsRequests: string[] = [];
+    stubApi(HEALTH, [], undefined, {}, (url) => {
+      const parsed = new URL(url, "http://localhost");
+      const asked = /\/performance\/strategies\/[^/]+\/trades\/([^/]+)\/fills$/.exec(parsed.pathname);
+      if (asked !== null) {
+        fillsRequests.push(asked[1] as string);
+        return fills(asked[1] as string);
+      }
+      if (/\/performance\/strategies\/[^/]+\/trades$/.test(parsed.pathname)) {
+        return Promise.resolve(jsonResponse({ trades: [...rows], next_cursor: null }));
+      }
+      return undefined;
+    });
+    return { fillsRequests };
+  }
+
+  const detailsButtons = () => screen.queryAllByRole("button", { name: /^Details of/ });
+  const dialogs = () => screen.queryAllByRole("dialog");
+  const waitFor = (check: () => void) => vi.waitFor(check);
+  /** A text inside the open dialog, or null when no dialog is open: a query that never throws. */
+  const inDialog = (text: string) => {
+    const dialog = screen.queryByRole("dialog");
+    return dialog === null ? null : within(dialog).queryByText(text);
+  };
+
+  it("makes no fills request until an operation is opened, and one when it is", async () => {
+    const server = serveOperations([trade(1), trade(2)]);
+    renderTable();
+    await screen.findByRole("table");
+
+    expect(server.fillsRequests).toEqual([]);
+
+    fireEvent.click(detailsButtons()[0] as HTMLElement);
+
+    expect(screen.queryByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(server.fillsRequests).toEqual([trade(1).allocation_id]));
+  });
+
+  it("shows the loading line and then the fills", async () => {
+    let release: (response: Response) => void = () => undefined;
+    serveOperations([trade(1)], () => new Promise<Response>((resolve) => (release = resolve)));
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.click(detailsButtons()[0] as HTMLElement);
+
+    expect(screen.queryByText("Loading the fills…")).toBeInTheDocument();
+    release(jsonResponse(fillsBody(trade(1).allocation_id)));
+    await waitFor(() => expect(screen.queryByRole("table", { name: "Fills" })).toBeInTheDocument());
+    expect(screen.queryByText("Loading the fills…")).toBeNull();
+  });
+
+  it("keeps the figures on screen when the fills read fails", async () => {
+    serveOperations([trade(1)], () => Promise.resolve(jsonResponse({ detail: "no such operation" }, 404)));
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.click(detailsButtons()[0] as HTMLElement);
+
+    await waitFor(() => expect(screen.queryByText("The fills could not be loaded.")).toBeInTheDocument());
+    const dialog = screen.queryByRole("dialog") as HTMLElement;
+    expect(within(dialog).queryByText("Entry price")).toBeInTheDocument();
+    expect(within(dialog).queryByText("SOLUSDT · LONG")).toBeInTheDocument();
+  });
+
+  it("puts the fills table inside the dialog's own scrolling body", async () => {
+    serveOperations([trade(1)]);
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.click(detailsButtons()[0] as HTMLElement);
+
+    await waitFor(() => expect(screen.queryByRole("table", { name: "Fills" })).toBeInTheDocument());
+    const dialog = screen.queryByRole("dialog") as HTMLElement;
+    const fills = screen.getByRole("table", { name: "Fills" });
+    const scroller = fills.closest(".overflow-y-auto");
+    expect(scroller).toBeInTheDocument();
+    expect(dialog).toContainElement(scroller as HTMLElement);
+  });
+
+  it("has only one dialog open at a time", async () => {
+    serveOperations([trade(1, { pair: "SOLUSDT" }), trade(2, { pair: "ETHUSDT" })]);
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.click(detailsButtons()[0] as HTMLElement);
+    expect(inDialog("SOLUSDT · LONG")).toBeInTheDocument();
+    fireEvent.click(detailsButtons()[1] as HTMLElement);
+
+    expect(dialogs()).toHaveLength(1);
+    expect(inDialog("ETHUSDT · LONG")).toBeInTheDocument();
+    expect(screen.queryByText("SOLUSDT · LONG")).toBeNull();
+  });
+
+  it.each([
+    ["Escape", () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })],
+    ["Close", () => fireEvent.click(screen.getByRole("button", { name: "Close" }))],
+  ])("returns focus to the Details button on %s", async (_name, close) => {
+    serveOperations([trade(1), trade(2)]);
+    renderTable();
+    await screen.findByRole("table");
+    const opener = detailsButtons()[1] as HTMLElement;
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.queryByRole("dialog")).toBeInTheDocument();
+
+    close();
+
+    expect(dialogs()).toHaveLength(0);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it.each([
+    ["Enter", pressEnter],
+    ["Space", pressSpace],
+  ])("reaches the Details controls with Tab and opens one with %s", async (_name, press) => {
+    serveOperations([trade(1), trade(2)]);
+    renderTable();
+    await screen.findByRole("table");
+
+    const first = pressTab();
+    const second = pressTab();
+
+    expect(first).toBe(detailsButtons()[0]);
+    expect(second).toBe(detailsButtons()[1]);
+    press();
+    expect(inDialog("SOLUSDT · LONG")).toBeInTheDocument();
+  });
+
+  it("gives twenty Details controls twenty distinct accessible names", async () => {
+    serveOperations(Array.from({ length: 20 }, (_, index) => trade(index + 1)));
+    renderTable();
+    await screen.findByRole("table");
+
+    const names = detailsButtons().map((button) => button.getAttribute("aria-label"));
+
+    expect(names).toHaveLength(20);
+    expect(new Set(names).size).toBe(20);
+    expect(names[0]).toBe("Details of SOLUSDT LONG, closed Sep 29, 2026, 12:30");
   });
 });
