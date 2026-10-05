@@ -34,10 +34,32 @@ rule (``base_currency_of``) SQL does not have. A SQL keyset would have to
 replicate that rule and could disagree with the pool figures. See design.md
 section 11, "As built (PR 6c)", for what bounds the work.
 
+**Rehearsal operations, on request.** A rehearsal operation is an allocation
+every one of whose fills is a rehearsal (DRY_RUN) fill. They are listed only for
+``include_rehearsal=True``, merged with the real ones into the one total order,
+and each row says whether it is one. An allocation holding fills of both origins
+is listed once, from its real fills, and one WARNING names it. A rehearsal row is
+never part of any total: the totals read ``PoolFills.groups`` and nothing else.
+
+**Figures, for the page only.** ``operation_fees``, ``operation_figures`` and
+``sides_overlap`` run over the rows of the page, so their cost follows ``limit``
+and not the pool. A figure that cannot be derived is ``None`` with one WARNING
+and the row stays listed: it is in the totals, so it is never dropped and never
+shown as zero.
+
+**How a rehearsal row was priced.** For the rehearsal rows of a page, ONE call to
+the pricing source (none when the page holds no such row) gives the alert's price
+and the fills' price range per side, and ``classify_rehearsal_pricing`` says
+whether the opening fills were at a fixed price of 1, at the alert's price, or
+neither. A row the source has no facts for reads ``UNDETERMINED`` with one
+WARNING; the count of ``UNDETERMINED`` rows is one INFO line per page.
+
 Logging: ``WARNING`` with the ids for an allocation whose closure cannot be
-tested (it is otherwise missing from the list with no trace); silent
-otherwise. The steady-state exclusions belong to the performance report, not
-to every page of a list.
+tested (it is otherwise missing from the list with no trace), for a mixed
+allocation, for figures that cannot be derived, for an overlap of the two sides
+and for missing pricing facts; ``INFO`` for the count of undetermined prices;
+silent otherwise. No price, quantity or fee is ever logged. The steady-state
+exclusions belong to the performance report, not to every page of a list.
 """
 
 import logging

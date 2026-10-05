@@ -6,8 +6,10 @@ Three read-only routes:
 - ``GET /performance/pools/{exchange}/{venue}/{ccy}``: one pool's report.
 - ``GET /performance/strategies/{id}``: one strategy's report inside its pool,
   plus ``by_pair``.
-- ``GET /performance/strategies/{id}/trades``: its closed trades, newest first,
-  in keyset pages.
+- ``GET /performance/strategies/{id}/trades``: its closed operations, newest
+  first, in keyset pages. Each row carries its prices, size and fees; rehearsal
+  (dry-run) operations are listed only for ``include_rehearsal=true`` and each row
+  says whether it is one.
 
 **Rule 7 (no cross-pool total) and decision 1 (one strategy per pool).** Every
 body is one pool in its own settlement currency. There is no route, field or
@@ -21,8 +23,12 @@ the router's job and cannot be left to the reads: a read given the wrong pool
 returns an empty result, not an error, because the ledger cannot tell "no
 trades" from "not this pool's strategy".
 
-**The wire** (``shared.infrastructure.wire``): money and ratios are JSON strings
-in plain notation, ratios to 10 places; instants are UTC. The one field that is
+**The wire** (``shared.infrastructure.wire``): money, quantities, prices and
+ratios are JSON strings in plain notation, prices to 18 places and ratios to 10;
+instants are UTC. A row's four figures (``base_currency``, ``entry_price``,
+``exit_price``, ``size``) are null together when they cannot be derived, never
+zero, and ``other_fees`` lists each fee that is not in the settlement currency in
+its own currency, never converted. The one field that is
 a Python keyword on the wire, ``return``, is a serialization alias.
 
 **What a refused read looks like.** A read that finds its data inconsistent (a
@@ -49,7 +55,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.performance.application.ports import AllocationFillsSourcePort
+from strategy_manager.performance.application.ports import (
+    AllocationFillsSourcePort,
+    RehearsalPricingSourcePort,
+)
 from strategy_manager.performance.application.read_pool_performance import ReadPoolPerformance
 from strategy_manager.performance.application.read_strategy_performance import (
     ReadStrategyPerformance,
@@ -78,7 +87,7 @@ from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.wire import Instant, Money, Ratio
+from strategy_manager.shared.infrastructure.wire import Instant, Money, Price, Ratio
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 
 logger = logging.getLogger(__name__)
@@ -102,8 +111,13 @@ def get_fills_source(session: SessionDep) -> AllocationFillsSourcePort:
     return SqlAlchemyAllocationFillsSource(session)
 
 
+def get_pricing_source(session: SessionDep) -> RehearsalPricingSourcePort:
+    return SqlAlchemyRehearsalPricingSource(session)
+
+
 ClockDep = Annotated[ClockPort, Depends(get_clock)]
 FillsDep = Annotated[AllocationFillsSourcePort, Depends(get_fills_source)]
+PricingDep = Annotated[RehearsalPricingSourcePort, Depends(get_pricing_source)]
 
 async def _guarded[T](read: Awaitable[T]) -> T:
     """Runs a read, turning a refused one into a logged 500 (module docstring).
@@ -241,12 +255,27 @@ class StrategyPerformanceBody(PerformanceBody):
         )
 
 
+class FeeBody(BaseModel):
+    """A fee in the currency it was charged in. Never converted."""
+
+    currency: str
+    amount: Money
+
+
 class TradeBody(BaseModel):
     allocation_id: UUID
     pair: str
     direction: Literal["LONG", "SHORT"]
     opened_at: Instant
     closed_at: Instant
+    rehearsal: bool
+    rehearsal_fill_price: Literal["FIXED_ONE", "ALERT", "UNDETERMINED"] | None
+    base_currency: str | None
+    entry_price: Price | None
+    exit_price: Price | None
+    size: Money | None
+    fees: Money
+    other_fees: list[FeeBody]
     pnl: Money
     capital_at_open: Money | None
     value: Ratio | None = Field(serialization_alias="return")
@@ -255,12 +284,23 @@ class TradeBody(BaseModel):
     @classmethod
     def of(cls, item: TradeItem) -> "TradeBody":
         trade = item.trade
+        figures = item.figures
         return cls(
             allocation_id=trade.allocation_id,
             pair=trade.pair,
             direction=trade.direction.value,
             opened_at=trade.opened_at,
             closed_at=trade.closed_at,
+            rehearsal=item.rehearsal,
+            rehearsal_fill_price=None if item.pricing is None else item.pricing.value,
+            base_currency=None if figures is None else figures.base_currency,
+            entry_price=None if figures is None else figures.entry_price,
+            exit_price=None if figures is None else figures.exit_price,
+            size=None if figures is None else figures.size,
+            fees=item.fees.fees,
+            other_fees=[
+                FeeBody(currency=fee.currency, amount=fee.amount) for fee in item.fees.other_fees
+            ],
             pnl=trade.pnl,
             capital_at_open=trade.pool_total_at_open,
             value=item.value,
@@ -334,9 +374,11 @@ async def strategy_trades(
     strategy_id: UUID,
     session: SessionDep,
     fills: FillsDep,
+    pricing: PricingDep,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     before_closed_at: datetime | None = None,
     before_allocation_id: UUID | None = None,
+    include_rehearsal: bool = False,
 ) -> TradesBody:
     if (before_closed_at is None) != (before_allocation_id is None):
         missing = "before_allocation_id" if before_allocation_id is None else "before_closed_at"
@@ -355,8 +397,8 @@ async def strategy_trades(
             else TradeCursor(before_closed_at, before_allocation_id)
         )
         page = await _guarded(
-            ReadStrategyTrades(fills, SqlAlchemyRehearsalPricingSource(session)).read(
-                strategy_id, pool, limit=limit, before=before
+            ReadStrategyTrades(fills, pricing).read(
+                strategy_id, pool, limit=limit, before=before, include_rehearsal=include_rehearsal
             )
         )
     except InvalidPageRequest as exc:
