@@ -221,6 +221,9 @@
         "rehearsal": "Simulación",
         "rehearsalFixed": "Simulación · precio fijo",
         "rehearsalAlert": "Simulación · precio de la alerta",
+        "rehearsalNote": "Las operaciones marcadas \"Simulación\" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página.",
+        "rehearsalFixedNote": "Una fila marcada \"precio fijo\" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado.",
+        "rehearsalAlertNote": "Una fila marcada \"precio de la alerta\" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real.",
         "details": "Detalle",
         "detailsOf": "Detalle de {{pair}} {{side}}, cierre {{closed}}",
         "detail": {

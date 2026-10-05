@@ -205,8 +205,20 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
       body = <p className="text-sm text-ink-3">{t("strategies.performance.trades.empty")}</p>;
     } else {
       const header = "border-b border-rule py-2 pr-3 font-medium";
+      // Each sentence is true of a row of the page on screen: `rows` is that one page, never the
+      // pages visited before, so a sentence goes when the page that made it true is left.
+      const notes = [
+        rows.some((row) => row.rehearsal) && "rehearsalNote",
+        rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "FIXED_ONE") && "rehearsalFixedNote",
+        rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "ALERT") && "rehearsalAlertNote",
+      ].filter((key): key is string => key !== false);
       body = (
         <>
+          {notes.map((key) => (
+            <p key={key} className="text-sm text-ink-2">
+              {t(`strategies.performance.trades.${key}`)}
+            </p>
+          ))}
           <div className="overflow-x-auto">
             <table aria-labelledby={headingId} className="w-full border-collapse font-mono text-[13px] tabular-nums">
               <thead>

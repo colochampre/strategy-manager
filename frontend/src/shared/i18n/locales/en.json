@@ -221,6 +221,9 @@
         "rehearsal": "Dry run",
         "rehearsalFixed": "Dry run · fixed price",
         "rehearsalAlert": "Dry run · alert price",
+        "rehearsalNote": "Operations marked \"Dry run\" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page.",
+        "rehearsalFixedNote": "A row marked \"fixed price\" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result.",
+        "rehearsalAlertNote": "A row marked \"alert price\" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live.",
         "details": "Details",
         "detailsOf": "Details of {{pair}} {{side}}, closed {{closed}}",
         "detail": {
