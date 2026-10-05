@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type {
+  OperationFills,
   PoolPerformance,
   StrategyPerformance,
   StrategyTrade,
@@ -180,6 +181,22 @@ export async function fetchStrategyTrades(
     });
   }
   return body;
+}
+
+/**
+ * STUB (task 9p.5.4, red): answers an empty list without a request. Task 9p.5.5 reads
+ * `GET /api/performance/strategies/{id}/trades/{allocation_id}/fills` and validates the body.
+ */
+export async function fetchOperationFills(_strategyId: string, allocationId: string): Promise<OperationFills> {
+  return { allocation_id: allocationId, fills: [], truncated: false };
+}
+
+/** STUB (task 9p.5.4, red): a query under a wrong key. Task 9p.5.5 gives it the key of design § F. */
+export function useOperationFills(strategyId: string, allocationId: string) {
+  return useQuery({
+    queryKey: ["performance", "strategy", strategyId, "trade-fills"],
+    queryFn: () => fetchOperationFills(strategyId, allocationId),
+  });
 }
 
 /** Query key `['performance','strategy',id]` (design.md § 15). */
