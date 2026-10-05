@@ -114,3 +114,28 @@ describe("tableFigureText", () => {
     expect(figureText("0.123456789")).toBe("0.12345679");
   });
 });
+
+// Leading zeros of the integer part are text noise, not part of the number: both writers drop them
+// (a regression found in review: the expression that does it lost its backslash in a refactor).
+describe.each([
+  ["figureText", figureText],
+  ["tableFigureText", tableFigureText],
+])("%s and the leading zeros of the integer part", (_name, write) => {
+  it.each([
+    ["007.500000000000000000", "7.5"],
+    ["00.500000000000000000", "0.5"],
+    ["000", "0"],
+    ["000.000", "0"],
+    ["0012345.678901234", "12345.678901234"],
+  ])("writes %s as %s", (stored, expected) => {
+    // The last case is compared with the text of the same figure without zeros, per function, since
+    // each function rounds a long fraction its own way.
+    const reference = stored === "0012345.678901234" ? write("12345.678901234") : expected;
+    expect(write(stored)).toBe(reference);
+  });
+
+  it("gives the same text with and without leading zeros", () => {
+    expect(write("0012345.678901234")).toBe(write("12345.678901234"));
+    expect(write("007.5")).toBe(write("7.5"));
+  });
+});
