@@ -756,7 +756,8 @@ describe("TradesTable rehearsal rows", () => {
   });
 });
 
-// The sentences under the table's title (task 9p.5.12): each is true of a row of the page on
+// The sentences below the table (task 9p.5.12; they sat under its title until owner decision 46,
+// task 9p.5.32, moved them): each is true of a row of the page on
 // screen, never of a page visited before. The texts are the spec's, with the owner's wording of
 // 2026-10-05 in the ALERT one.
 const NOTE = {
@@ -772,7 +773,7 @@ const NOTE = {
   ],
 } as const;
 
-describe("TradesTable sentences under the title", () => {
+describe("TradesTable sentences below the table", () => {
   const rehearsal = (n: number, fillPrice: string) =>
     trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice });
   const shown = (language: "en" | "es" = "en") => NOTE[language].map((sentence) => screen.queryByText(sentence) !== null);
@@ -1166,6 +1167,48 @@ describe("TradesTable localization", () => {
     expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
     expect(texts).not.toContain("Sell");
     expect(texts).not.toContain("Buy");
+  });
+});
+
+// Where the notes sit (task 9p.5.32, owner decision 46): after the table and after its paging
+// controls, so those controls do not move when a page has no note; nothing but the table follows the
+// section's title. Which notes show is pinned by the two describes around this one.
+describe("TradesTable notes sit below the table", () => {
+  const rows = [trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", fees_complete: false }), trade(2)];
+
+  it("renders the notes after the table and after the paging controls, in their order", async () => {
+    serve(rows, 1);
+    renderTable();
+    await screen.findByRole("table");
+
+    const table = screen.getByRole("table");
+    const pager = screen.queryByRole("navigation", { name: "Pages of closed trades" });
+    const notes = [NOTE.en[0], NOTE.en[2], "* A fee paid in a third currency is not in this PnL."].map((text) =>
+      screen.queryByText(text),
+    );
+    const follows = (earlier: Element | null, later: Element | null) =>
+      earlier !== null && later !== null && (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    expect(pager).toBeInTheDocument();
+    expect(notes.map((note) => note !== null)).toEqual([true, true, true]);
+    // The first note comes after the table and after the paging controls, and the notes keep their order.
+    expect(follows(table, notes[0] ?? null)).toBe(true);
+    expect(follows(pager, notes[0] ?? null)).toBe(true);
+    expect(follows(notes[0] ?? null, notes[1] ?? null)).toBe(true);
+    expect(follows(notes[1] ?? null, notes[2] ?? null)).toBe(true);
+  });
+
+  it("leaves nothing but the table between the title and the table", async () => {
+    serve(rows, 1);
+    renderTable();
+    await screen.findByRole("table");
+
+    const section = screen.getByRole("heading", { name: "Closed trades" }).closest("section") as HTMLElement;
+    const afterTitle = Array.from(section.children).slice(1);
+
+    expect(afterTitle[0]?.contains(screen.getByRole("table"))).toBe(true);
+    expect(afterTitle.filter((child) => child.tagName === "P").length).toBeGreaterThan(0);
+    expect(afterTitle.findIndex((child) => child.tagName === "P")).toBeGreaterThan(0);
   });
 });
 
