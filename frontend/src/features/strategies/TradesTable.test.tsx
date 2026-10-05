@@ -321,7 +321,8 @@ describe("TradesTable", () => {
   });
 
   // Replaces "shows what the endpoint serves and no entry price, exit price, size or fees column (decision 43, pending)".
-  it("shows twelve columns in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool capital at open, Details", async () => {
+  // Heading of the capital column shortened to "Pool at open" (owner decision 46); the list below is the replaced expectation.
+  it("shows twelve columns in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool at open, Details", async () => {
     serve([trade(1)], 5);
     renderTable();
 
@@ -338,7 +339,7 @@ describe("TradesTable", () => {
       "Fees USDT",
       "PnL USDT",
       "PnL %",
-      "Pool capital at open",
+      "Pool at open",
       "Details",
     ]);
   });
@@ -617,7 +618,7 @@ describe("TradesTable", () => {
       "Comisiones USDT",
       "PnL USDT",
       "PnL %",
-      "Capital del pool al abrir",
+      "Pool al abrir",
       "Detalle",
     ]);
     expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
