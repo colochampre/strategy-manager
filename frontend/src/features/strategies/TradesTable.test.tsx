@@ -736,3 +736,92 @@ describe("TradesTable rehearsal rows", () => {
     expect((tag?.textContent ?? "").length).toBeGreaterThan(0);
   });
 });
+
+// What decision 43 changes in the paging and the failure paths (task 9p.5.14): the request always
+// opts in to rehearsal rows, and a page that lacks the new fields is refused whole.
+describe("TradesTable under decision 43", () => {
+  const withoutField = (row: StrategyTrade, field: keyof StrategyTrade) => {
+    const copy: Record<string, unknown> = { ...row };
+    delete copy[field];
+    return copy;
+  };
+  const oldNineFields = (n: number) => {
+    const row = trade(n);
+    return {
+      allocation_id: row.allocation_id,
+      pair: row.pair,
+      direction: row.direction,
+      opened_at: row.opened_at,
+      closed_at: row.closed_at,
+      pnl: row.pnl,
+      capital_at_open: row.capital_at_open,
+      return: row.return,
+      fees_complete: row.fees_complete,
+    };
+  };
+  const refused = async () => {
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.trades.error"));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryAllByRole("row")).toHaveLength(0);
+  };
+
+  it("carries include_rehearsal=true on every request, the first page and the page after Next", async () => {
+    const server = serve([1, 2, 3].map((n) => trade(n)), 2);
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.click(next());
+    await screen.findByText(pageLabel(2));
+
+    expect(server.requests).toHaveLength(2);
+    expect(server.requests.map((request) => request.searchParams.get("include_rehearsal"))).toEqual(["true", "true"]);
+  });
+
+  it("refuses a page whose row lacks fees, whole, with the error state and Try again and no row", async () => {
+    serve([], 5, () =>
+      Promise.resolve(jsonResponse({ trades: [trade(1), withoutField(trade(2), "fees")], next_cursor: null })),
+    );
+    renderTable();
+
+    await refused();
+    expect(screen.queryByRole("button", { name: i18n.t("strategies.performance.trades.retry") })).toBeInTheDocument();
+  });
+
+  it("shows the error state and no invented figure for the nine-field rows of an older API", async () => {
+    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [oldNineFields(1)], next_cursor: null })));
+    renderTable();
+
+    await refused();
+    expect(screen.queryByText("+1.50")).toBeNull();
+    expect(screen.queryByText("0")).toBeNull();
+  });
+
+  it("loads the page on Try again once the API serves the new fields", async () => {
+    let upgraded = false;
+    serve([], 5, () =>
+      Promise.resolve(
+        jsonResponse({ trades: upgraded ? [trade(1)] : [oldNineFields(1)], next_cursor: null }),
+      ),
+    );
+    renderTable();
+    await refused();
+
+    upgraded = true;
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.performance.trades.retry") }));
+
+    await screen.findByRole("table");
+    expect(bodyRows()).toHaveLength(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("refuses the page of a rehearsal row whose rehearsal_fill_price is null", async () => {
+    serve([], 5, () =>
+      Promise.resolve(
+        jsonResponse({ trades: [trade(1, { rehearsal: true, rehearsal_fill_price: null })], next_cursor: null }),
+      ),
+    );
+    renderTable();
+
+    await refused();
+  });
+});
