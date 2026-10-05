@@ -217,12 +217,12 @@ figure MUST NEVER be shown as zero.
 
 The columns, in this order on a wide screen, are: Opened (UTC), Closed (UTC),
 Pair (with the rehearsal tag when it applies), Side, Entry, Exit, Size, Fees
-{currency}, PnL {currency}, PnL %, Pool capital at open, and a Details control.
+{currency}, PnL {currency}, PnL %, Pool at open (heading shortened, owner decision 46, 2026-10-05), and a Details control.
 They MUST be shown by viewport width:
 
 - at every width: Closed, Pair, Side, PnL, PnL %, Details (six columns);
 - from 768 px: also Entry and Exit (eight columns);
-- from 1280 px: also Size, Fees and Pool capital at open (eleven columns);
+- from 1280 px: also Size, Fees and Pool at open (eleven columns);
 - from 1440 px: also Opened (all twelve).
 
 Below about 560 px the table MUST scroll sideways inside its own wrapper rather
@@ -239,7 +239,7 @@ another currency MUST show after the fees as "+ 0.00012 BNB". An operation whose
 fees are incomplete shows an asterisk right after its PnL figure, explained by one note under the table's title that appears only when a row of the page on screen has incomplete fees (owner decision 46, 2026-10-05); the words stay in the detail dialog. A figure served as
 a string that is not a number MUST read as "unreadable", as the PnL cell does
 today. An operation with no recorded pool capital MUST show PnL % and Pool
-capital at open empty, never an invented number. A strategy with no closed
+at open empty, never an invented number. A strategy with no closed
 operation MUST show the existing defined empty state.
 
 The panel MUST send `include_rehearsal=true` on every request of this table,
@@ -249,7 +249,7 @@ the first page and every later one.
 
 - GIVEN a viewport of 1440 px and a strategy on pool `(bybit, usdt-m, USDT)` with a closed LONG
 - WHEN the section renders
-- THEN twelve columns are shown in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool capital at open, Details
+- THEN twelve columns are shown in the order Opened, Closed, Pair, Side, Entry, Exit, Size, Fees USDT, PnL USDT, PnL %, Pool at open, Details
 
 #### Scenario: A narrow screen keeps six columns
 
@@ -261,7 +261,7 @@ the first page and every later one.
 
 - GIVEN viewports of 768 px, 1280 px and 1440 px
 - WHEN the section renders at each
-- THEN Entry and Exit appear from 768 px, Size, Fees and Pool capital at open from 1280 px, and Opened from 1440 px, and no column appears below its tier
+- THEN Entry and Exit appear from 768 px, Size, Fees and Pool at open from 1280 px, and Opened from 1440 px, and no column appears below its tier
 
 #### Scenario: A row shows the stored figures
 
@@ -297,7 +297,7 @@ the first page and every later one.
 
 - GIVEN a row whose return and capital at open are null
 - WHEN the row renders
-- THEN PnL % and Pool capital at open are empty and PnL is shown
+- THEN PnL % and Pool at open are empty and PnL is shown
 
 #### Scenario: Every request carries include_rehearsal
 

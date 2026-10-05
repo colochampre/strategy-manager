@@ -2849,12 +2849,12 @@ The order is therefore backend, then panel, and the reverse order degrades one s
 | --- | --- | --- |
 | every width | Closed (UTC), Pair (with the rehearsal tag), Side, PnL {currency}, PnL %, Details | about 530 px |
 | `md` (768 px) | Entry, Exit | about 690 px |
-| `xl` (1280 px) | Size, Fees {currency}, Pool capital at open | about 930 px |
+| `xl` (1280 px) | Size, Fees {currency}, Pool at open | about 930 px |
 | `min-[90rem]` (1440 px) | Opened (UTC) | about 1,090 px |
 
 - **At 1440 px and above** every column shows: the section is about 1,160 px wide there.
 - **Under 1024 px** the page is one column with no side rail. From 768 px the table shows eight columns; below it, six. Below about 560 px the six columns scroll sideways inside the `overflow-x-auto` wrapper the table already has. Every figure a tier hides is in the detail view, which is the reason the Details control is in the first tier.
-- Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool capital at open, Details.
+- Column order on a wide screen: Opened, Closed, Pair, Side, Entry, Exit, Size, Fees, PnL, PnL %, Pool at open, Details.
 - The header "Return" becomes **"PnL %"** in both languages, decision 43's own words. The section title stays "Closed trades" / "Operaciones cerradas".
 - Prices and sizes are formatted for display from the server's string, with up to eight significant digits and no trailing zeros. Nothing is computed from them (§ 15, "Money is never computed in the browser").
 - A null `entry_price`, `exit_price` or `size` renders the existing `Absent` em dash with its reason for a screen reader. A fee in another currency renders after the fee as "+ 0.00012 BNB". `fees_complete: false` puts an asterisk after the PnL figure, explained by one note under the title for the page on screen (owner decision 46, 2026-10-05; the dialog keeps the words).

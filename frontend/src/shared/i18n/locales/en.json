@@ -259,7 +259,7 @@
           }
         },
         "return": "PnL %",
-        "capital": "Pool capital at open",
+        "capital": "Pool at open",
         "feesIncomplete": "fees incomplete",
         "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
         "feesIncompleteNote": "* A fee paid in a third currency is not in this PnL.",
