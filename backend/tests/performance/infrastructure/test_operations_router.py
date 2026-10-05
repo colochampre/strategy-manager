@@ -34,6 +34,7 @@ from strategy_manager.performance.infrastructure.performance_router import (
     get_fills_source,
     get_operation_fills_source,
 )
+from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from tests.performance.fakes import FakeFillsSource, FakeOperationFillsSource
 from tests.performance.infrastructure.conftest import (
     OPERATIONS_T0,
@@ -54,6 +55,7 @@ from tests.performance.infrastructure.test_performance_router import (  # noqa: 
     _configure_admin_token,
     _json,
     _strategy,
+    _walk,
 )
 
 pytestmark = pytest.mark.integration
@@ -752,3 +754,78 @@ async def test_the_route_issues_the_same_number_of_statements_for_one_fill_and_f
 
     # The strategy row, and the one SELECT of the fills.
     assert counts == [2, 2]
+
+
+# --- authentication and the wire, over both routes -------------------------------------
+
+
+async def test_the_trades_and_fills_routes_require_the_bearer_token(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    """Both routes refuse a missing or a wrong token with the one 401, and neither
+    exists outside ``/api``. The hand-written URL list of the pool route's own
+    test is not touched: the new routes are discovered here, not assumed."""
+    ledger = operations_ledger
+    urls = [
+        _trades_url(ledger.strategy_id),
+        f"{_trades_url(ledger.strategy_id)}?include_rehearsal=true",
+        _fills_url(ledger.strategy_id, ledger.real_long),
+    ]
+    for url in urls:
+        missing = await client.get(url)
+        wrong = await client.get(url, headers={"Authorization": "Bearer not-the-token"})
+        admitted = await client.get(url, headers=_auth())
+        pre_move = await client.get(url.removeprefix("/api"), headers=_auth())
+
+        assert missing.status_code == 401, url
+        assert wrong.status_code == 401, url
+        assert missing.json()["detail"] == UNAUTHORIZED_DETAIL, url
+        assert admitted.status_code == 200, url
+        assert pre_move.status_code == 404, url
+        # A refused request answers the one 401 body and nothing of the operation.
+        assert "fills" not in missing.text and "entry_price" not in missing.text
+
+
+async def test_no_trades_or_fills_response_contains_a_json_float_or_an_exponent(
+    client: AsyncClient, operations_ledger: OperationsLedger
+) -> None:
+    """Every response of both routes over the one ledger is walked: the list as
+    the older panel asks for it, with rehearsal rows, paged, and the fills of every
+    operation. Money, quantities, prices and ratios are JSON strings in plain
+    notation, never a number and never an exponent: the prices are quotients, so
+    the rounding and the notation of ``Price`` are what is being proven here."""
+    ledger = operations_ledger
+    allocations = (
+        ledger.real_long, ledger.real_short, ledger.open_real, ledger.mixed,
+        ledger.open_rehearsal, ledger.fixed_one, ledger.alert_small, ledger.alert_of_one,
+        ledger.opened_at_one_closed_at_alert,
+    )
+    requests: list[tuple[str, dict[str, Any]]] = [
+        (_trades_url(ledger.strategy_id), {}),
+        (_trades_url(ledger.strategy_id), {"include_rehearsal": "true"}),
+        (_trades_url(ledger.strategy_id), {"include_rehearsal": "true", "limit": 2}),
+        *((_fills_url(ledger.strategy_id, allocation), {}) for allocation in allocations),
+    ]
+
+    leaves: list[tuple[str, Any]] = []
+    for url, params in requests:
+        response = await client.get(url, headers=_auth(), params=params)
+        assert response.status_code == 200, (url, params)
+        leaves += [(f"{url} {params} {path}", value) for path, value in _walk(response.json())]
+
+    assert len(leaves) > 300
+    assert [(p, v) for p, v in leaves if isinstance(v, float)] == []
+    numbers = 0
+    for path, value in leaves:
+        if isinstance(value, str):
+            try:
+                number = Decimal(value)
+            except ArithmeticError:
+                continue
+            numbers += 1
+            assert number.is_finite(), path
+            assert "e" not in value.lower(), f"{path} is written in scientific notation: {value}"
+        if path.endswith(("opened_at", "closed_at", "filled_at")) and value is not None:
+            assert datetime.fromisoformat(value).utcoffset() == timedelta(0), path
+            assert value.endswith("Z"), path
+    assert numbers > 100

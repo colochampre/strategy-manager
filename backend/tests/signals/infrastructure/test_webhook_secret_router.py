@@ -198,6 +198,10 @@ def test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover() -> None:
     assert ("GET", "/api/strategies") in OTHER_API_ROUTES
     assert ("GET", "/api/pools") in OTHER_API_ROUTES
     assert ("GET", "/api/performance/strategies/{strategy_id}") in OTHER_API_ROUTES
+    assert (
+        "GET",
+        "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
+    ) in OTHER_API_ROUTES
     assert ("POST", "/api/reconciliation/bookings/{proposal_id}/approve") in OTHER_API_ROUTES
     assert ("GET", SECRET_PATH) not in OTHER_API_ROUTES
     # The walk agrees with the schema the application publishes for itself.
@@ -210,11 +214,15 @@ def test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover() -> None:
     assert published <= set(OTHER_API_ROUTES)
 
 
-def _concrete_path(template: str, strategy_id: UUID) -> str:
+def _concrete_path(template: str, strategy_id: UUID, allocation_id: UUID) -> str:
     path = template
     for name in [part[1:-1] for part in template.split("/") if part.startswith("{")]:
         if name == "strategy_id":
             value = str(strategy_id)
+        elif name == "allocation_id":
+            # The allocation of the trade the sweep seeds, so the fills route finds
+            # the data it needs (a random id would be its 404).
+            value = str(allocation_id)
         else:
             # An unknown parameter still gets a request: a route added later is
             # exercised (with a value that resolves to a 404 at worst) rather
@@ -238,7 +246,7 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     await seed_strategy(factory, strategy_id=strategy_id)
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
-    await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    allocation_id = await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
     cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
     async with factory() as session:
         # An active key, so ``GET /api/credentials`` answers a STORED entry and
@@ -312,7 +320,7 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         assert toggled.status_code == 200
         response = await api.request(
             method,
-            _concrete_path(template, strategy_id),
+            _concrete_path(template, strategy_id, allocation_id),
             headers=_auth(),
             json=body,
         )
