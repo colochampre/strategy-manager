@@ -223,6 +223,21 @@
         "rehearsalAlert": "Dry run · alert price",
         "details": "Details",
         "detailsOf": "Details of {{pair}} {{side}}, closed {{closed}}",
+        "detail": {
+          "fills": {
+            "title": "Fills",
+            "time": "Time (UTC)",
+            "side": "Side",
+            "sides": { "BUY": "Buy", "SELL": "Sell" },
+            "price": "Price",
+            "quantity": "Quantity ({{base}})",
+            "fee": "Fee",
+            "loading": "Loading the fills…",
+            "error": "The fills could not be loaded.",
+            "retry": "Try again",
+            "truncated": "Only the first {{count}} fills are shown."
+          }
+        },
         "return": "PnL %",
         "capital": "Pool capital at open",
         "feesIncomplete": "fees incomplete",

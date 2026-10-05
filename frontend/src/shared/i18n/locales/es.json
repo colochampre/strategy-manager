@@ -223,6 +223,21 @@
         "rehearsalAlert": "Simulación · precio de la alerta",
         "details": "Detalle",
         "detailsOf": "Detalle de {{pair}} {{side}}, cierre {{closed}}",
+        "detail": {
+          "fills": {
+            "title": "Ejecuciones",
+            "time": "Hora (UTC)",
+            "side": "Lado",
+            "sides": { "BUY": "Compra", "SELL": "Venta" },
+            "price": "Precio",
+            "quantity": "Cantidad ({{base}})",
+            "fee": "Comisión",
+            "loading": "Cargando las ejecuciones…",
+            "error": "No se pudieron cargar las ejecuciones.",
+            "retry": "Reintentar",
+            "truncated": "Solo se muestran las primeras {{count}} ejecuciones."
+          }
+        },
         "return": "PnL %",
         "capital": "Capital del pool al abrir",
         "feesIncomplete": "comisiones incompletas",

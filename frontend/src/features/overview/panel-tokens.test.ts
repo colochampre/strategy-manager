@@ -54,10 +54,12 @@ function sourceFiles(dir: string): string[] {
  * count, a read-only key and a keyless exchange. Two of them exist so far; the
  * other two join this list with Settings and the exchange tabs (PR 13). Decision 43
  * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
- * the words and the amber of the mode badge.
+ * the words and the amber of the mode badge, and the same tag on a fill of the fills table
+ * whose flag differs from its operation's.
  */
 const AMBER_ALLOWED = [
   "features/overview/DecisionRail.tsx",
+  "features/strategies/OperationFillsTable.tsx",
   "features/strategies/TradesTable.tsx",
   "shared/layout/DryRunBadge.tsx",
 ];
