@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
-import { dateTimeText, figureText } from "@/features/strategies/format";
+import { clockText, compactDateText, dateTimeText, figureText } from "@/features/strategies/format";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
@@ -57,6 +57,21 @@ function Absent({ reason }: { reason: string }) {
   );
 }
 
+/**
+ * An Opened or Closed instant on two lines (owner decision 46): the numeric UTC date in the panel's
+ * language, then the 24-hour UTC time in ink-3. An instant that cannot be read shows as the server
+ * wrote it, with no time line.
+ */
+function Instant({ iso, locale }: { iso: string; locale: string }) {
+  const time = clockText(iso);
+  return (
+    <>
+      <span className="block">{compactDateText(iso, locale)}</span>
+      {time !== null && <span className="block text-ink-3">{time}</span>}
+    </>
+  );
+}
+
 function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const { t } = useTranslation();
   const pnl = parseDecimal(trade.pnl);
@@ -74,8 +89,10 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
 
   return (
     <tr>
-      <td className={cn(CELL, "text-left", FROM_WIDE)}>{dateTimeText(trade.opened_at, locale)}</td>
-      <td className={cn(CELL, "text-left")}>{dateTimeText(trade.closed_at, locale)}</td>
+      <td className={cn(CELL, "text-left", FROM_WIDE)}><Instant iso={trade.opened_at} locale={locale} /></td>
+      <td className={cn(CELL, "text-left")}>
+        <Instant iso={trade.closed_at} locale={locale} />
+      </td>
       <td className={cn(CELL, "text-left text-ink")}>
         {trade.pair}
         {trade.rehearsal && (

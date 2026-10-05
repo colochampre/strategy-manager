@@ -52,16 +52,26 @@ export function figureText(value: string): string | null {
 }
 
 /**
- * STUB (task 9p.5.29, red): returns the instant as it came. Task 9p.5.29 green writes the numeric UTC date
- * in the panel's language, for the first line of an Opened or Closed cell.
+ * An instant as a numeric calendar date in UTC, in the panel's language (`10/5/2026` in English,
+ * `5/10/2026` in Spanish, for 2026-10-05): the first line of an Opened or Closed cell. Read from the
+ * instant by `Intl`, never parsed from a formatted string. An instant that cannot be read is returned
+ * as the server wrote it, like `dateTimeText`.
  */
-export function compactDateText(iso: string, _locale: string): string {
-  return iso;
+export function compactDateText(iso: string, locale: string): string {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return iso;
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "numeric", day: "numeric", timeZone: "UTC" }).format(instant);
 }
 
-/** STUB (task 9p.5.29, red): returns the instant as it came. Green writes the 24-hour UTC time, or null for an instant that cannot be read. */
+/**
+ * An instant as a 24-hour `HH:mm` time in UTC, for the line below the date of an Opened or Closed
+ * cell; `null` for an instant that cannot be read, so no time line is drawn for it. The language does
+ * not change it, so it is written with a fixed 24-hour locale.
+ */
 export function clockText(iso: string): string | null {
-  return iso;
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(instant);
 }
 
 /** A timestamp as a calendar day in UTC, the day boundary the whole panel uses (`day_boundary: "UTC"`). */
