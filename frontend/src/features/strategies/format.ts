@@ -1,3 +1,11 @@
+/**
+ * STUB (task 9p.5.6, red): returns its argument. Task 9p.5.7 writes a stored price, size or fee
+ * with up to eight significant digits and no trailing zeros.
+ */
+export function figureText(value: string): string | null {
+  return value;
+}
+
 /** A timestamp as a calendar day in UTC, the day boundary the whole panel uses (`day_boundary: "UTC"`). */
 export function dayText(iso: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(iso));
