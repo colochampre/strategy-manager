@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
-import { dateTimeText } from "@/features/strategies/format";
+import { dateTimeText, figureText } from "@/features/strategies/format";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
@@ -25,6 +25,12 @@ const PAGER_BUTTON =
   "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 const CELL = "border-b border-rule-soft py-2.5 pr-3";
 
+// The width tiers of design § F. Each is a Tailwind viewport variant on the th AND the td, and
+// the same literal strings so the compiler sees them: a column a tier hides is in the detail view.
+const FROM_MD = "hidden md:table-cell";
+const FROM_XL = "hidden xl:table-cell";
+const FROM_WIDE = "hidden min-[90rem]:table-cell";
+
 /**
  * A figure that is absent (null) is an em dash with its reason for a screen
  * reader; one that is present but cannot be read says so. Neither is a zero.
@@ -45,14 +51,34 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
   const capital = trade.capital_at_open === null ? null : parseDecimal(trade.capital_at_open);
   const unreadable = t("strategies.performance.trades.cellUnreadable");
   const noValue = t("strategies.performance.trades.noValue");
+  const notDerivable = t("strategies.performance.trades.notDerivable");
   const directionKey = `strategies.performance.trades.direction.${trade.direction}`;
+  const side = trade.direction === "LONG" || trade.direction === "SHORT" ? t(directionKey) : trade.direction;
+  // A null entry, exit or size is "not derivable from the fills", never a zero; a string that is
+  // not a number is unreadable, never drawn as typed.
+  const figure = (value: string | null) =>
+    value === null ? <Absent reason={notDerivable} /> : (figureText(value) ?? unreadable);
 
   return (
     <tr>
-      <td className={cn(CELL, "text-left")}>{dateTimeText(trade.opened_at, locale)}</td>
+      <td className={cn(CELL, "text-left", FROM_WIDE)}>{dateTimeText(trade.opened_at, locale)}</td>
       <td className={cn(CELL, "text-left")}>{dateTimeText(trade.closed_at, locale)}</td>
       <td className={cn(CELL, "text-left text-ink")}>{trade.pair}</td>
-      <td className={cn(CELL, "text-left")}>{trade.direction === "LONG" || trade.direction === "SHORT" ? t(directionKey) : trade.direction}</td>
+      <td className={cn(CELL, "text-left")}>{side}</td>
+      <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
+      <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
+      <td className={cn(CELL, FROM_XL)}>{figure(trade.size)}</td>
+      <td className={cn(CELL, FROM_XL)}>
+        {figureText(trade.fees) ?? unreadable}
+        {trade.other_fees.map((fee) => (
+          <span key={fee.currency} className="ml-2 font-sans text-[11px] text-ink-3">
+            {t("strategies.performance.trades.otherFee", {
+              amount: figureText(fee.amount) ?? unreadable,
+              currency: fee.currency,
+            })}
+          </span>
+        ))}
+      </td>
       <td className={cn(CELL, pnl !== null && toneClass(pnl))}>
         {pnl === null ? unreadable : amountText(pnl, currency, locale, true)}
         {!trade.fees_complete && (
@@ -67,7 +93,7 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
       <td className={cn(CELL, ret !== null && toneClass(ret))}>
         {trade.return === null ? <Absent reason={noValue} /> : ret === null ? unreadable : percentText(ret, locale)}
       </td>
-      <td className="border-b border-rule-soft py-2.5">
+      <td className={cn(CELL, FROM_XL)}>
         {trade.capital_at_open === null ? (
           <Absent reason={noValue} />
         ) : capital === null ? (
@@ -75,6 +101,20 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
         ) : (
           amountText(capital, currency, locale)
         )}
+      </td>
+      <td className="border-b border-rule-soft py-2.5">
+        {/* No behaviour yet: task 9p.5.19 pins opening the operation, 9p.5.20 builds it. */}
+        <button
+          type="button"
+          aria-label={t("strategies.performance.trades.detailsOf", {
+            pair: trade.pair,
+            side,
+            closed: dateTimeText(trade.closed_at, locale),
+          })}
+          className="min-h-11 rounded-md border border-rule px-3 font-sans text-xs text-ink hover:bg-panel-2"
+        >
+          {t("strategies.performance.trades.details")}
+        </button>
       </td>
     </tr>
   );
@@ -90,8 +130,9 @@ function TradeRow({ trade, currency, locale }: TradeRowProps) {
  * failed next page leaves the current page on screen and says so; the same
  * button asks again.
  *
- * It shows what `GET /performance/strategies/{id}/trades` serves. Entry and
- * exit price, size and fees paid are decision 43 and are not served yet.
+ * It shows what `GET /performance/strategies/{id}/trades` serves: twelve columns,
+ * of which the narrower viewports show the first tiers of design § F and leave
+ * the rest to the detail view (decision 43).
  */
 export function TradesTable(props: TradesTableProps) {
   // Keyed by strategy: another strategy's list starts on its first page.
@@ -153,7 +194,7 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
             <table aria-labelledby={headingId} className="w-full border-collapse font-mono text-[13px] tabular-nums">
               <thead>
                 <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
-                  <th scope="col" className={cn(header, "text-left")}>
+                  <th scope="col" className={cn(header, "text-left", FROM_WIDE)}>
                     {t("strategies.performance.trades.opened")}
                   </th>
                   <th scope="col" className={cn(header, "text-left")}>
@@ -165,14 +206,29 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
                   <th scope="col" className={cn(header, "text-left")}>
                     {t("strategies.performance.trades.side")}
                   </th>
+                  <th scope="col" className={cn(header, FROM_MD)}>
+                    {t("strategies.performance.trades.entry")}
+                  </th>
+                  <th scope="col" className={cn(header, FROM_MD)}>
+                    {t("strategies.performance.trades.exit")}
+                  </th>
+                  <th scope="col" className={cn(header, FROM_XL)}>
+                    {t("strategies.performance.trades.size")}
+                  </th>
+                  <th scope="col" className={cn(header, FROM_XL)}>
+                    {t("strategies.performance.trades.fees", { currency })}
+                  </th>
                   <th scope="col" className={header}>
                     {t("strategies.performance.trades.pnl", { currency })}
                   </th>
                   <th scope="col" className={header}>
                     {t("strategies.performance.trades.return")}
                   </th>
-                  <th scope="col" className="border-b border-rule py-2 font-medium">
+                  <th scope="col" className={cn(header, FROM_XL)}>
                     {t("strategies.performance.trades.capital")}
+                  </th>
+                  <th scope="col" className="border-b border-rule py-2 font-medium">
+                    {t("strategies.performance.trades.details")}
                   </th>
                 </tr>
               </thead>

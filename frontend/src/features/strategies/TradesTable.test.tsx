@@ -89,7 +89,7 @@ const bodyRows = () => {
 const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
 const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
 const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
-const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[4]?.textContent);
+const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[8]?.textContent);
 
 beforeEach(unlock);
 afterEach(async () => {
@@ -507,7 +507,20 @@ describe("TradesTable", () => {
     const cells = within(bodyRows()[0] as HTMLElement)
       .getAllByRole("cell")
       .map((cell) => cell.textContent);
-    expect(cells).toEqual(["Sep 29, 2026, 23:30", "Sep 30, 2026, 00:15", "STXUSDT", "SHORT", "-3.25", "-0.3%", "1,000.00"]);
+    expect(cells).toEqual([
+      "Sep 29, 2026, 23:30",
+      "Sep 30, 2026, 00:15",
+      "STXUSDT",
+      "SHORT",
+      "0.4512",
+      "0.4631",
+      "1250",
+      "0.63",
+      "-3.25",
+      "-0.3%",
+      "1,000.00",
+      "Details",
+    ]);
   });
 
   it("writes a coin-margined pool's figures in its own currency with eight decimals", async () => {
@@ -518,8 +531,8 @@ describe("TradesTable", () => {
 
     expect(screen.getByRole("columnheader", { name: "PnL BTC" })).toBeInTheDocument();
     const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
-    expect(cells[4]).toHaveTextContent("+0.00120000");
-    expect(cells[6]).toHaveTextContent("0.05000000");
+    expect(cells[8]).toHaveTextContent("+0.00120000");
+    expect(cells[10]).toHaveTextContent("0.05000000");
   });
 
   it("shows an em dash, never a zero, for a trade with no capital at open and no return", async () => {
@@ -529,11 +542,11 @@ describe("TradesTable", () => {
     await screen.findByRole("table");
 
     const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
-    expect(cells[5]).toHaveTextContent("—");
-    expect(cells[6]).toHaveTextContent("—");
-    expect(cells[5]).not.toHaveTextContent("0.0%");
-    expect(cells[6]).not.toHaveTextContent("0.00");
-    expect(cells[4]).toHaveTextContent("+1.50");
+    expect(cells[9]).toHaveTextContent("—");
+    expect(cells[10]).toHaveTextContent("—");
+    expect(cells[9]).not.toHaveTextContent("0.0%");
+    expect(cells[10]).not.toHaveTextContent("0.00");
+    expect(cells[8]).toHaveTextContent("+1.50");
   });
 
   it("marks a trade whose fees are incomplete and no other", async () => {
@@ -555,10 +568,10 @@ describe("TradesTable", () => {
 
     const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("cell");
     const unreadable = i18n.t("strategies.performance.trades.cellUnreadable");
-    expect(cells[4]).toHaveTextContent(unreadable);
-    expect(cells[5]).toHaveTextContent(unreadable);
-    expect(cells[6]).toHaveTextContent(unreadable);
-    expect(within(bodyRows()[1] as HTMLElement).getAllByRole("cell")[4]).toHaveTextContent("+2.50");
+    expect(cells[8]).toHaveTextContent(unreadable);
+    expect(cells[9]).toHaveTextContent(unreadable);
+    expect(cells[10]).toHaveTextContent(unreadable);
+    expect(within(bodyRows()[1] as HTMLElement).getAllByRole("cell")[8]).toHaveTextContent("+2.50");
   });
 
   it("keeps a raw instant it cannot read rather than throw", async () => {
@@ -583,9 +596,14 @@ describe("TradesTable", () => {
       "Cierre (UTC)",
       "Par",
       "Sentido",
+      "Entrada",
+      "Salida",
+      "Tamaño",
+      "Comisiones USDT",
       "PnL USDT",
-      "Rendimiento",
+      "PnL %",
       "Capital del pool al abrir",
+      "Detalle",
     ]);
     expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
