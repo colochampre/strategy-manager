@@ -55,11 +55,12 @@ function sourceFiles(dir: string): string[] {
  * other two join this list with Settings and the exchange tabs (PR 13). Decision 43
  * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
  * the words and the amber of the mode badge, and the same tag on a fill of the fills table
- * whose flag differs from its operation's.
+ * whose flag differs from its operation's, and the tag in the title of the detail dialog.
  */
 const AMBER_ALLOWED = [
   "features/overview/DecisionRail.tsx",
   "features/strategies/OperationFillsTable.tsx",
+  "features/strategies/TradeDetailDialog.tsx",
   "features/strategies/TradesTable.tsx",
   "shared/layout/DryRunBadge.tsx",
 ];

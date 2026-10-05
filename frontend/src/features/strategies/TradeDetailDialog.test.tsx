@@ -194,17 +194,24 @@ describe("TradeDetailDialog", () => {
 
   it("is modal: showModal is called and focus moves into it", async () => {
     serve(null);
+    // jsdom may not implement showModal: define it on the prototype of a real dialog element, then restore.
+    const proto = Object.getPrototypeOf(document.createElement("dialog")) as { showModal?: () => void };
+    const original = Object.getOwnPropertyDescriptor(proto, "showModal");
     const showModal = vi.fn(function (this: HTMLDialogElement) {
       this.setAttribute("open", "");
     });
-    vi.stubGlobal("HTMLDialogElement", class extends HTMLElement {});
-    HTMLDialogElement.prototype.showModal = showModal;
-    renderDialog(trade());
+    Object.defineProperty(proto, "showModal", { value: showModal, configurable: true, writable: true });
+    try {
+      renderDialog(trade());
 
-    expect(showModal).toHaveBeenCalledTimes(1);
-    const dialog = document.querySelector("dialog") as HTMLDialogElement;
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    expect(document.activeElement).not.toBe(document.body);
+      expect(showModal).toHaveBeenCalledTimes(1);
+      const dialog = document.querySelector("dialog") as HTMLDialogElement;
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).not.toBe(document.body);
+    } finally {
+      if (original === undefined) delete proto.showModal;
+      else Object.defineProperty(proto, "showModal", original);
+    }
   });
 
   it("opens an operation with no base currency: Size with an em dash and its reason, and Quantity in the fills table", async () => {
