@@ -31,7 +31,7 @@ function roundedFigure(value: string, rule: DecimalsRule): string | null {
   const match = DECIMAL_TEXT.exec(value);
   if (match === null) return null;
   const sign = match[1] ?? "";
-  const integer = (match[2] ?? "").replace(/^0+(?=d)/, "");
+  const integer = (match[2] ?? "").replace(/^0+(?=\d)/, "");
   const fraction = match[3] ?? "";
   const leadingZeros = fraction.length - fraction.replace(/^0+/, "").length;
   if (integer === "0" && leadingZeros === fraction.length) return "0";
