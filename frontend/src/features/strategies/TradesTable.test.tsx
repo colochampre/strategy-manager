@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TradesTable } from "@/features/strategies/TradesTable";
 import type { StrategyTrade, StrategyTradesPage } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
+import en from "@/shared/i18n/locales/en.json";
+import es from "@/shared/i18n/locales/es.json";
 import { jsonResponse, lock, renderAt, stubApi, unlock } from "@/test/harness";
 import { pressEnter, pressSpace, pressTab } from "@/test/keyboard";
 
@@ -1059,5 +1061,84 @@ describe("TradesTable opening an operation", () => {
     expect(names).toHaveLength(20);
     expect(new Set(names).size).toBe(20);
     expect(names[0]).toBe("Details of SOLUSDT LONG, closed Sep 29, 2026, 12:30");
+  });
+});
+
+// Every panel string is localized (task 9p.5.23): the table, a rehearsal row's dialog and its fills
+// table read Spanish from i18n, the side of an operation stays LONG and SHORT, and no key of
+// strategies.performance.trades exists in one language only.
+describe("TradesTable localization", () => {
+  /** Every leaf of a locale object as `path -> string`. */
+  const flatten = (node: unknown, prefix = ""): Record<string, string> =>
+    typeof node === "string"
+      ? { [prefix]: node }
+      : Object.entries(node as Record<string, unknown>).reduce<Record<string, string>>(
+          (all, [key, child]) => ({ ...all, ...flatten(child, prefix === "" ? key : `${prefix}.${key}`) }),
+          {},
+        );
+
+  const visibleTexts = (): string[] => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const texts: string[] = [];
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const value = (node.textContent ?? "").trim();
+      if (value !== "") texts.push(value);
+    }
+    return texts;
+  };
+
+  it("has every strategies.performance.trades key in both languages", () => {
+    const english = Object.keys(flatten(en.strategies.performance.trades)).sort();
+    const spanish = Object.keys(flatten(es.strategies.performance.trades)).sort();
+
+    expect(spanish).toEqual(english);
+  });
+
+  it("reads Spanish from i18n in the table, a rehearsal row's dialog and its fills table, with LONG and SHORT unchanged", async () => {
+    await i18n.changeLanguage("es");
+    const row = trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", direction: "SHORT", other_fees: [{ currency: "BNB", amount: "0.00012" }] });
+    stubApi(HEALTH, [], undefined, {}, (url) => {
+      const path = new URL(url, "http://localhost").pathname;
+      if (/\/trades\/[^/]+\/fills$/.test(path)) {
+        const fill = {
+          filled_at: "2026-09-30T10:00:00Z",
+          side: "BUY",
+          price: "1.000000000000000000",
+          quantity: "2.000000000000000000",
+          fee: "0",
+          fee_currency: "USDT",
+          rehearsal: true,
+        };
+        return Promise.resolve(
+          jsonResponse({
+            allocation_id: row.allocation_id,
+            fills: [fill, { ...fill, side: "SELL", rehearsal: false }],
+            truncated: true,
+          }),
+        );
+      }
+      if (/\/trades$/.test(path)) return Promise.resolve(jsonResponse({ trades: [row], next_cursor: null }));
+      return undefined;
+    });
+    renderTable();
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /^Detalle de/ }));
+    await vi.waitFor(() => expect(screen.queryByRole("table", { name: "Ejecuciones" })).toBeInTheDocument());
+
+    // Every English text of this section's keys that differs in Spanish, and has no placeholder.
+    const english = flatten(en.strategies.performance.trades);
+    const spanish = flatten(es.strategies.performance.trades);
+    const onlyEnglish = new Set(
+      Object.entries(english)
+        .filter(([key, value]) => spanish[key] !== value && !value.includes("{{"))
+        .map(([, value]) => value),
+    );
+    const texts = visibleTexts();
+
+    expect(texts.filter((text) => onlyEnglish.has(text))).toEqual([]);
+    expect(texts).toEqual(expect.arrayContaining(["Compra", "Venta", "Ejecuciones", "Simulación · precio de la alerta", "Cerrar"]));
+    expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
+    expect(texts).not.toContain("Sell");
+    expect(texts).not.toContain("Buy");
   });
 });
