@@ -19,7 +19,7 @@ from datetime import timedelta
 from uuid import UUID
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.performance.domain.operation import OperationFill
@@ -91,10 +91,13 @@ async def test_the_fills_come_in_filled_at_then_id_order(
     ]
 
 
-async def test_a_tie_on_filled_at_is_broken_by_a_stable_order(
+async def test_fills_tied_on_filled_at_come_back_in_ascending_row_id_order(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Two fills at one instant answer in the same order on every read."""
+    """Five fills at one instant answer in ascending ``ledger_entries.id`` order:
+    the ``id`` half of ``ORDER BY filled_at, id``. The ids are random, so the
+    expected order is read from the table itself and sorted by the UUID's integer
+    value, which is the byte order PostgreSQL uses for ``uuid``."""
     strategy_id, allocation_id, attempt_id = await _seed_allocation(pg_session_factory)
     await _record(
         pg_session_factory,
@@ -107,9 +110,19 @@ async def test_a_tie_on_filled_at_is_broken_by_a_stable_order(
         ),
     )
 
+    async with pg_session_factory() as session:
+        stored = (
+            await session.execute(
+                text("SELECT id, quantity FROM ledger_entries WHERE allocation_id = :a"),
+                {"a": allocation_id},
+            )
+        ).all()
+    expected = [quantity for _, quantity in sorted(stored, key=lambda row: row[0].int)]
+
     first = await _read(pg_session_factory, strategy_id, allocation_id)
     second = await _read(pg_session_factory, strategy_id, allocation_id)
 
+    assert [fill.quantity for fill in first] == expected
     assert [fill.quantity for fill in first] == [fill.quantity for fill in second]
     assert len(first) == 5
 
