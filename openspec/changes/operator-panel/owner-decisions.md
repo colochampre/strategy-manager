@@ -255,6 +255,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **12f.7 A revealed secret stays revealed** until the owner hides it or leaves the view. No timer and no warning text.
     - **By pair: a WIN RATE column is built**, which needs the backend to serve it. **The OPEN column of the mockup is dropped.**
       - **Answered 2026-10-06: an operation with a PnL of exactly zero is not a win.** A win is a closed operation with a PnL above zero. The win rate of a pair is its wins over its closed operations, so a zero counts in the total and not among the wins: 3 wins, 1 at zero and 1 loss read 60%. Dry-run operations stay out, as in every total. An operation with incomplete fees is counted by the PnL it has, as it already is in the pair's PnL, although near zero that sign can be wrong.
+      - **Answered 2026-10-06 (design addendum "unit 12f" § N, Q4): the win rate is written with one decimal**, "58.3%", not whole as in the mockup. A whole percentage rounds 199 wins of 200 to "100%", which reads as a perfect record; one decimal writes it "99.5%". It costs no width, since the column's heading is wider than the figure.
     - **Closed trades are paged 20 rows at a time**, on a click. Nothing loads on scroll.
     - **In Spanish the side reads "LONG" and "SHORT"**, as the exchanges show it, not "Largo" and "Corto". The chart's title, "Contribution to the pool, compounded", stays.
 45. **The simulated exchange fills an order at the alert's price** (2026-10-04, owner, answering design addendum "decision 43" § L, Q3).
@@ -295,6 +296,13 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - **After a copy** (the webhook URL, and the alert message): "Copied" / "Copiado", beside the button that was activated. It stays until something else is copied or the block is closed.
       - When the browser does not allow the copy, a text says it could not be copied instead of "Copied", so the owner never believes the clipboard holds something it does not.
       - The URL's button copies what is on screen, as decision 44 (12f.5) says: the placeholder while the secret is hidden, the real URL once it is revealed.
+    - **Answered 2026-10-06 (design addendum "unit 12f" § N, Q1): "Copied" beside the URL is shown only while the URL on screen is the one that was copied.** Showing or hiding the secret removes it. This narrows the rule above for the URL's button, because the two things the owner asked for met in one case: copy the URL with the placeholder, then show the secret, and "Copied" would sit beside the real URL while the clipboard still held the placeholder; pasted into TradingView, every alert would fail authentication. The alert message never changes, so its "Copied" keeps the rule above. The panel remembers only whether the secret was shown when the copy was made, never the copied text.
+    - **Answered 2026-10-06 (§ N, Q2), and it adds a requirement: the share must be enough to trade the strategy's pairs.** The field accepts a share that meets the minimum needed to operate on the pairs the strategy allows. A share whose allocation would be below that minimum is not allowed. **If that cannot be resolved in this unit, it is a warning instead, and values below 1% are allowed.** The design decides which of the two it can honestly deliver and says why; it does not pick the refusal if the refusal cannot be made true.
+    - **Answered 2026-10-06, after handling the prototype (`visual/project/PoolShareSlider.html`), with the Binance order form as the reference, which reached the session this time:**
+      - **The field goes above the track**, as on Binance: the percentage of the pool on top, then the track.
+      - **Under the track, the amount that percentage of the pool means**, in the pool's own currency, as Binance shows the amounts under its track.
+      - **The stops may read as a legend rather than as buttons**; that is fine. They sit closer to the track than in the first prototype.
+    - **Answered 2026-10-06 (§ N, Q3): the share is shown in the settings column only.** The mockup also printed it in the page's header line ("Bybit USDT pool · 30% per trade · active 41 days…"); the header as built does not, and it stays that way.
 
 ## Standing constraints
 
