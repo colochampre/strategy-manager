@@ -254,6 +254,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **12f.6 The panel shows the full webhook URL, with the host.** The host is served by the backend from a setting, never compiled into the bundle.
     - **12f.7 A revealed secret stays revealed** until the owner hides it or leaves the view. No timer and no warning text.
     - **By pair: a WIN RATE column is built**, which needs the backend to serve it. **The OPEN column of the mockup is dropped.**
+      - **Answered 2026-10-06: an operation with a PnL of exactly zero is not a win.** A win is a closed operation with a PnL above zero. The win rate of a pair is its wins over its closed operations, so a zero counts in the total and not among the wins: 3 wins, 1 at zero and 1 loss read 60%. Dry-run operations stay out, as in every total. An operation with incomplete fees is counted by the PnL it has, as it already is in the pair's PnL, although near zero that sign can be wrong.
     - **Closed trades are paged 20 rows at a time**, on a click. Nothing loads on scroll.
     - **In Spanish the side reads "LONG" and "SHORT"**, as the exchanges show it, not "Largo" and "Corto". The chart's title, "Contribution to the pool, compounded", stays.
 45. **The simulated exchange fills an order at the alert's price** (2026-10-04, owner, answering design addendum "decision 43" § L, Q3).
@@ -281,6 +282,19 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **It is enforced in the application, not at the edge**, so it does not depend on how the tunnel is configured.
     - A body past the limit answers 413, stores nothing and writes one WARNING. The body is never read whole and then measured: a declared length past the limit is refused before reading, and a body with no declared length stops being read once it passes the limit.
     - Why it matters although the sender must be authenticated: the raw body is kept for good in `signals.raw_payload` and is read back by every query that selects it. Authentication happens before the body is read, so an unauthenticated request was never able to make the application read one.
+48. **The share of the pool per trade is edited with a slider, as exchanges do** (2026-10-06, owner, opening the design of unit 12f; it refines decision 44's "an editable field in the settings column").
+    - The mockup showed a plain number input. The owner wants the control modelled on the sliders Binance, Pionex and exchanges in general use to size an order: a track with marked stops and a handle. The reference image the owner named did not reach the session, so the design works from the pattern, not from that capture.
+    - **Answered 2026-10-06, the shape of the control:**
+      - The track runs from 1 to 100, in whole steps of 1. It cannot start at 0 as an exchange's does: the domain, the API and the database all require a share above zero.
+      - Stops are marked at 25, 50, 75 and 100, and each can be activated to jump straight to it.
+      - A number field sits beside the track, as on an exchange, to type an exact value, decimals included. The track and the field always show the same value.
+      - A stored value with decimals is shown as it is. The handle rounds to a whole number only when the owner moves it.
+    - **Answered 2026-10-06, how it saves: through an explicit Save button**, as the allowed pairs do, not on releasing the handle as the enable switch does. Moving the handle or activating a stop changes nothing yet: the new value shows, the button enables, and leaving the page without saving keeps the stored value. Why: the number sizes the next operation, and saving at once would let a slip of the handle or a stray touch on a stop change how much capital the strategy asks for, unconfirmed. After a save the short "saved" text of decision 44 (12f.4) appears beside the button.
+    - **Answered 2026-10-06, the two short confirmation texts of unit 12f:**
+      - **After a save** (the share of the pool, and the allowed pairs): "Saved" / "Guardado", beside the button. It stays until the owner changes something in that control again. No timer hides it.
+      - **After a copy** (the webhook URL, and the alert message): "Copied" / "Copiado", beside the button that was activated. It stays until something else is copied or the block is closed.
+      - When the browser does not allow the copy, a text says it could not be copied instead of "Copied", so the owner never believes the clipboard holds something it does not.
+      - The URL's button copies what is on screen, as decision 44 (12f.5) says: the placeholder while the secret is hidden, the real URL once it is revealed.
 
 ## Standing constraints
 
