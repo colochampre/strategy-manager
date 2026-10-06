@@ -20,6 +20,12 @@ without deleting its history.
 > Reversed", and three requirements are added after it: the delete, its
 > serialization against a concurrent signal, and the refusal of an alert whose
 > strategy is not registered. Archive itself is unchanged.
+>
+> **Revised 2026-10-06 (owner decision 48, design addendum "unit 12f" § J).**
+> One requirement is added at the end: "A Change Of A Strategy's Share Of The
+> Pool Is Logged". It sits here, beside the enable/disable audit trail, because
+> it is the trace of an owner's change to a strategy; no existing requirement of
+> this file is changed.
 
 ## Requirements
 
@@ -683,3 +689,32 @@ strategy's detail view MUST still load by id.
 - GIVEN strategy S1 is archived
 - WHEN S1's detail is requested directly by id
 - THEN S1's full detail, including `archived_at`, is returned
+
+### Requirement: A Change Of A Strategy's Share Of The Pool Is Logged
+
+> **Added 2026-10-06 (owner decision 48; design addendum "unit 12f" § A U2 and § J).**
+
+Every actual change of a strategy's share of the pool per trade MUST log exactly
+one INFO line carrying the strategy id, the old value and the new value. An update
+that leaves the share as it was (including the same value written differently,
+such as `33.50` for `33.5`) MUST log no such line. A refused update (an archived
+strategy, a share out of range, an unknown strategy) MUST log no such line. The
+line MUST carry no credential and no webhook secret.
+
+#### Scenario: A change logs one INFO line
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a stored share of `30`
+- WHEN its share is changed to `33.5`
+- THEN exactly one INFO line is logged naming S1's id, the old value `30` and the new value `33.5`
+
+#### Scenario: A no-op update logs nothing
+
+- GIVEN strategy S1 with a stored share of `33.5`
+- WHEN an update sets the share to `33.5`, and then to `33.50`
+- THEN no line about a change of share is logged, because "changed" is decided on the decimal value and `33.50` over a stored `33.5` is not a change
+
+#### Scenario: A refused update logs nothing
+
+- GIVEN strategy S1 is archived with a stored share of `30`
+- WHEN an update of its share is refused
+- THEN no line about a change of share is logged

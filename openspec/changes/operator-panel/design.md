@@ -4461,3 +4461,17 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
   - What stands is the finding, as a known limit of this unit and not as later work: the exchange's minimum for each pair is not checked by the panel, the worker refuses an order that would be too small and opens nothing, and under dry run nothing refuses it (§ C3, § M).
   - The same day the owner moved the explanations behind information buttons, so the sentence that says this is no longer always on screen: it is the second paragraph behind the amount's button (§ B2).
 
+### O. Points the specification raised, and how each is settled (2026-10-06)
+
+Writing the delta specs showed nine things neither a decision nor the sections above stated. None is a product question; each is settled here so that the tasks do not have to guess.
+
+- **The win rate is cut to one decimal, never rounded up.** The owner chose one decimal so that an imperfect record cannot read as a perfect one (decision 44). Rounding would undo that one step later: 1,999 wins of 2,000 is 99.95%, which rounds to "100.0%". So the figure is truncated toward zero at one decimal of the percentage: 99.95% reads "99.9%", and only a pair whose every closed operation is a win reads "100.0%". It is a text operation on the ratio the server serves, not arithmetic on money. The mirror case, a pair with one win in several thousand reading "0.0%", is accepted: it misleads nobody about a loss.
+- **The amount is written with the pool currency's decimals**, as the PnL and the fees of the trades table are: two for USDT. It is cut, not rounded up, so the figure never shows more than the server computed.
+- **The time of the balance's read** is written as hours and minutes in UTC, `HH:MM UTC`, the form the panel's dates already use for a time of day.
+- **The server answers the wins and the trades as well as the ratio**, so the panel can refuse a row whose three figures disagree, and the ratio is the wire's `Ratio` type at its existing scale and rounding.
+- **`PATCH /api/strategies/{id}` on an unknown strategy** keeps the 404 it answers today, with its existing body; this unit does not change it and the tests pin what is there.
+- **The share-preview route echoes the exact share in canonical plain notation**: no exponent, no trailing fractional zeros, so `33.50` is answered `33.5`.
+- **A share saved as the same value written differently logs nothing.** "Changed" is decided on the decimal value, so `33.50` over a stored `33.5` is not a change and writes no INFO line.
+- **A typed decimal waits 300 ms** after the last keystroke before the amount is asked for. The number is this design's (§ C2) and is now a requirement.
+- **The worker's refusal of an order too small for the exchange is stated by no requirement of this change or of the main specs.** It is real and was read in the code (U25: `OrderNotPlaceable`, the reservation released, `REJECTED` `ORDER_NOT_PLACEABLE`, nothing sent). The panel's sentence "a signal whose order would be too small is refused and nothing is opened" therefore rests on the code and on this design, not on a requirement. No requirement about the worker is written by this unit, which changes nothing in the worker; the gap is recorded here so that whoever next specifies order placement closes it.
+
