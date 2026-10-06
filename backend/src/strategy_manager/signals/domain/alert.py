@@ -16,6 +16,7 @@ that coerces it to ``Decimal``. No framework imports, per the layering rule.
 """
 
 import hashlib
+import math
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 from typing import Any
@@ -34,6 +35,17 @@ _MAX_EXPONENT = 16383
 # Wide enough to round any value that passes the exponent check below, and
 # rounding half away from zero like PostgreSQL does when it stores the number.
 _STORED_CONTEXT = Context(prec=60, rounding=ROUND_HALF_UP)
+
+# The deepest body the webhook accepts, counting containers: the body is level 1
+# and its ``data`` object level 2, which is all the alert's contract needs.
+# 64 leaves generous room above that and sits far below every depth at which a
+# layer was observed to fail on the route (2026-10-06, Python 3.12, database at
+# head): the JSON parser overflows its recursion between 2,000 and 3,000 levels
+# (about 14,000 and 17,000 outside the request), serialising for the insert
+# overflows at about 9,300 levels of objects and 15,500 of arrays, and the
+# alert parser itself, being non-recursive, never fails. A body of any depth up
+# to 2,000 was stored before this bound, so nothing real depends on depth.
+MAX_BODY_DEPTH = 64
 
 
 class AlertParsingError(DomainError):
@@ -62,6 +74,68 @@ class NonFiniteNumberError(AlertParsingError):
         super().__init__(
             f"{field} is not a finite number", field=field, reason="is not a finite number"
         )
+
+
+def body_nested_too_deeply() -> AlertParsingError:
+    """The refusal for a body nested past ``MAX_BODY_DEPTH``.
+
+    Also raised by the route when the JSON parser itself overflows its recursion
+    on a body this deep, so the two answer and log identically.
+    """
+
+    return AlertParsingError(
+        "body is nested too deeply", field="body", reason="is nested too deeply"
+    )
+
+
+def _unstorable_body(reason: str) -> AlertParsingError:
+    return AlertParsingError(f"body {reason}", field="body", reason=reason)
+
+
+def _is_storable_text(value: str) -> bool:
+    """PostgreSQL ``text`` and ``jsonb`` cannot hold a NUL, and a lone surrogate
+    (a JSON escape such as ``\\ud800``) has no UTF-8 encoding."""
+
+    if "\x00" in value:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def refuse_unstorable_body(payload: Any) -> None:
+    """Refuse a parsed body the ``signals`` table could not store.
+
+    The whole body is persisted verbatim in ``raw_payload`` (``jsonb``), so every
+    string and every object key in it must be storable text, every number must be
+    one JSON can hold (``NaN``, the infinities and a float that overflowed, such as
+    ``1e999``, are not), and the nesting must stay within ``MAX_BODY_DEPTH``.
+
+    One ITERATIVE pass with an explicit stack: a recursive walk of a body nested
+    100,000 levels deep would raise the very ``RecursionError`` this removes. No
+    key and no value is ever put in the refusal.
+    """
+
+    stack: list[tuple[Any, int]] = [(payload, 1)]
+    while stack:
+        container, depth = stack.pop()
+        if depth > MAX_BODY_DEPTH:
+            raise body_nested_too_deeply()
+        children = container.values() if isinstance(container, dict) else container
+        if isinstance(container, dict):
+            for key in container:
+                if not _is_storable_text(key):
+                    raise _unstorable_body("contains a character that cannot be stored")
+        for child in children:
+            if isinstance(child, (dict, list)):
+                stack.append((child, depth + 1))
+            elif isinstance(child, str):
+                if not _is_storable_text(child):
+                    raise _unstorable_body("contains a character that cannot be stored")
+            elif isinstance(child, float) and not math.isfinite(child):
+                raise _unstorable_body("contains a number that is not finite")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +181,10 @@ class TradingViewAlert:
         _require_non_empty_str(symbol, "symbol")
         _require_non_empty_str(signal_type, "signal_type")
         _require_non_empty_str(time, "time")
+
+        # Last, so every refusal above keeps the reason it always had. This is the
+        # only added work on the path of an accepted alert.
+        refuse_unstorable_body(payload)
 
         return cls(
             action=action,

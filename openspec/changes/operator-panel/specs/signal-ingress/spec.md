@@ -29,10 +29,19 @@
 > line; every other refusal of a malformed alert answered 422 and left no trace,
 > and TradingView shows the response of a webhook to nobody.
 >
+> The last known 500 on the path, found by 9qf.5 and closed by 9qf.7
+> (2026-10-06), is a body the alert parser accepts and the database cannot
+> STORE: a NUL character or a lone surrogate in any string or object key of the
+> body, a number JSON cannot hold (`NaN`, an infinity, or `1e999`) in a part of
+> the body the alert parser does not read, and a body nested so deeply that the
+> JSON parser's recursion overflows (between 2,000 and 3,000 levels on the
+> route). Each answered an unhandled 500.
+>
 > **This delta holds** the requirement of 9qf.1 (a number that is not finite),
 > the two of 9qf.5 (a number the database would refuse, and a body that is not
-> an alert object) and the one of 9qf.6 (every refusal of a malformed alert
-> leaves exactly one warning that carries no value the sender supplied).
+> an alert object), the one of 9qf.6 (every refusal of a malformed alert
+> leaves exactly one warning that carries no value the sender supplied) and the
+> one of 9qf.7 (a body that cannot be stored).
 >
 > **No requirement of the main spec is revised.** The requirements below are
 > ADDED. They apply to every pool: each refusal happens before the alert is
@@ -166,6 +175,80 @@ body. Before this requirement each answered an unhandled 500.
 - WHEN the webhook is received
 - THEN the response is a 422, nothing is stored, and one warning says the body is not a JSON object without repeating any of it
 
+### Requirement: A Body The Database Cannot Store Is Refused At The Webhook
+
+The system MUST refuse an authenticated alert whose body cannot be stored as
+received, whatever its shape. The whole body is persisted verbatim in
+`signals.raw_payload` (`jsonb`), and `symbol`, `action` and `signal_type` are
+`text`. A body MUST be refused when it carries: a NUL character, or a lone
+surrogate, in any string of the body or in any object key, at any depth; a
+number that is not finite, `NaN`, an infinity or a float that overflowed such as
+`1e999`, anywhere in the body; or a nesting of more than 64 levels, counting the
+body as level 1 and its `data` object as level 2. The depth bound leaves generous
+room above the alert's contract and sits far below every depth at which a layer
+was observed to fail. A body nested at the bound MUST be accepted and one level
+past it MUST be refused.
+
+Each refusal MUST be a 422 that names `body`, MUST NOT repeat any key or value
+the sender supplied, MUST NOT persist the signal and MUST NOT enqueue a job, and
+MUST write exactly one warning, `webhook alert refused: body <reason>`, that
+carries no key and no value. A body nested so deeply that the JSON parser itself
+overflows its recursion MUST be refused the same way: the route catches that one
+exception type where it parses the body.
+
+The check MUST be one iterative pass over the parsed body, covering object keys
+as well as values, because a recursive walk would raise the very `RecursionError`
+it removes. It MUST live in the domain beside the other refusals, so nothing can
+store a body that skipped it. The refusals that already existed keep their
+reasons; this check runs after them.
+
+A valid alert MUST be unaffected: one that carries `signal_param` as the string
+`"{}"`, non-ASCII text, an extra unknown key, a literal backslash followed by
+`u0000` (text, not a NUL), or a finite number of any magnitude is accepted,
+stored unchanged and enqueued, and its idempotency key does not change. The
+accepted path gains no query and no lock.
+
+Before this requirement each refusal was made by PostgreSQL at the insert, or by
+the encoding of the idempotency key, nothing caught it and the webhook answered
+an unhandled 500. This requirement does not bound the size of the body.
+
+#### Scenario: A NUL character anywhere in the body is refused
+
+- GIVEN an authenticated alert that is valid except that a NUL character (`\u0000`) is in `data.action`, `symbol`, `time`, `signal_param`, an extra key, a value nested in an object or an array, or an object key
+- WHEN the webhook is received
+- THEN the response is a 422 that names `body` and does not contain the character, no signal row and no job exist afterwards, and one warning reads `webhook alert refused: body contains a character that cannot be stored`
+
+#### Scenario: A lone surrogate is refused like a NUL
+
+- GIVEN an authenticated alert that is valid except that a lone surrogate (`\ud800`) is in one of the same places
+- WHEN the webhook is received
+- THEN it is refused exactly like a NUL character
+
+#### Scenario: A number JSON cannot hold is refused
+
+- GIVEN an authenticated alert that is valid except that an extra key holds `NaN`, `Infinity`, `-Infinity` or `1e999`, alone, in an array or in a nested object
+- WHEN the webhook is received
+- THEN the response is a 422 that names `body`, nothing is stored, and one warning reads `webhook alert refused: body contains a number that is not finite`
+
+#### Scenario: A body at the depth bound is accepted and one level past it is refused
+
+- GIVEN an authenticated alert with an extra key nested so that the body is 64 levels deep, as arrays or as objects
+- WHEN the webhook is received
+- THEN it is accepted, stored and enqueued
+- AND GIVEN the same alert nested one level deeper, the response is a 422, nothing is stored, and one warning reads `webhook alert refused: body is nested too deeply`
+
+#### Scenario: A body deeper than the JSON parser can read is refused
+
+- GIVEN an authenticated request whose body is a valid alert with an extra key nested 100,000 levels deep
+- WHEN the webhook is received
+- THEN the response is a 422, never a 500, nothing is stored, and one warning reads `webhook alert refused: body is nested too deeply`
+
+#### Scenario: A valid alert is accepted unchanged
+
+- GIVEN an authenticated alert with `signal_param` `"{}"`, non-ASCII text and an extra unknown key
+- WHEN the webhook is received
+- THEN it is accepted, stored with the body exactly as received, enqueued, and keeps the idempotency key it always had
+
 ### Requirement: Every Refusal Of A Malformed Alert Leaves Exactly One Warning
 
 The system MUST write exactly one warning for each authenticated alert it
@@ -174,7 +257,7 @@ nobody. The warning MUST name the reason and, where there is one, the field. It
 covers: a body that is not valid JSON or not an object; a missing `data` object;
 a missing required field; a number that is not a string; a string that is not a
 decimal; a number that is not finite, not above zero where it must be, or out of
-range for the column; an empty or non-string `action`, `symbol`, `signal_type` or
+range for the column; a body the database cannot store (9qf.7); an empty or non-string `action`, `symbol`, `signal_type` or
 `time`; a `signal_type` that is not a UUID; and a missing idempotency key. An
 alert for an unknown strategy keeps the one warning it already had; no refusal
 is logged twice.
