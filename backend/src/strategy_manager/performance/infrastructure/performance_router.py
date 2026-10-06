@@ -245,16 +245,29 @@ class PerformanceBody(BaseModel):
 
 
 class PairBody(BaseModel):
-    """``return`` is null when none of the pair's trades has a capital at open."""
+    """``wins`` is the number of the pair's closed operations whose PnL is above
+    zero (``0 <= wins <= trades``) and ``win_rate`` is ``wins / trades`` as the
+    wire's ``Ratio``: never null, because a pair has a row only when it has at
+    least one closed operation. ``return`` is null when none of the pair's
+    trades has a capital at open."""
 
     pair: str
     trades: int
+    wins: int
+    win_rate: Ratio
     pnl: Money
     value: Ratio | None = Field(serialization_alias="return")
 
     @classmethod
     def of(cls, stats: PairStats) -> "PairBody":
-        return cls(pair=stats.pair, trades=stats.trade_count, pnl=stats.pnl, value=stats.value)
+        return cls(
+            pair=stats.pair,
+            trades=stats.trade_count,
+            wins=stats.win_count,
+            win_rate=stats.win_rate,
+            pnl=stats.pnl,
+            value=stats.value,
+        )
 
 
 class StrategyPerformanceBody(PerformanceBody):
