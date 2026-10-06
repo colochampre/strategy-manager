@@ -15,6 +15,7 @@ candidates and lets ``resolve_source_ip`` decide — it must never be decided
 here by whichever value happens to be present.
 """
 
+import json
 import logging
 from typing import Annotated
 from uuid import UUID
@@ -49,6 +50,61 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# The largest webhook body, in bytes (owner decision 47, task 9qf.8). A real alert is
+# about 300 bytes, so this leaves a margin of more than 200 times. It exists because
+# the whole body is kept for good in ``signals.raw_payload`` and is read back by every
+# query that selects that column; nothing about the alert's contract needs more. It
+# is a property of the transport, so it lives here and not in the domain, and it is
+# enforced in the application so that it does not depend on how a tunnel or proxy in
+# front of it is configured. A body of exactly this many bytes is within the limit.
+MAX_BODY_BYTES = 65_536
+
+# Fixed texts: the limit is ours, so it may be named; nothing the sender wrote may be
+# (the declared ``Content-Length`` included).
+BODY_TOO_LARGE_REASON = f"body is larger than {MAX_BODY_BYTES} bytes"
+BODY_TOO_LARGE_DETAIL = f"request {BODY_TOO_LARGE_REASON}"
+
+
+class BodyTooLargeError(Exception):
+    """The body is, or declares itself to be, larger than ``MAX_BODY_BYTES``."""
+
+
+def _declares_a_body_past_the_limit(request: Request) -> bool:
+    """Whether the ``Content-Length`` header alone puts the body past the limit.
+
+    Only a shortcut to refuse EARLY, before any of the body is read. The count of
+    bytes that actually arrive is the authority, so a header that is absent, is not
+    a number or understates the body means "no early answer" and never raises.
+    """
+
+    declared = request.headers.get("content-length")
+    if declared is None:
+        return False
+    try:
+        return int(declared) > MAX_BODY_BYTES
+    except ValueError:
+        return False
+
+
+async def _read_bounded_body(request: Request) -> bytes:
+    """Read the body from the stream, stopping at the first chunk past the limit.
+
+    The body is never read whole and then measured: the running count of bytes
+    received is checked as each chunk arrives, so an oversized body is abandoned
+    after at most one chunk beyond the limit.
+    """
+
+    if _declares_a_body_past_the_limit(request):
+        raise BodyTooLargeError
+    received = 0
+    chunks: list[bytes] = []
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > MAX_BODY_BYTES:
+            raise BodyTooLargeError
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 class WebhookResponse(BaseModel):
     signal_id: UUID
@@ -73,7 +129,16 @@ async def receive_tradingview_webhook(
         raise HTTPException(status_code=401, detail="unauthorized")
 
     try:
-        body = await request.json()
+        raw_body = await _read_bounded_body(request)
+    except BodyTooLargeError as exc:
+        # Refused after authentication and before any parsing; nothing of the body,
+        # and no length the sender declared, is logged or echoed.
+        logger.warning("webhook alert refused: %s", BODY_TOO_LARGE_REASON)
+        raise HTTPException(status_code=413, detail=BODY_TOO_LARGE_DETAIL) from exc
+
+    try:
+        # Parsed exactly as ``request.json()`` parses the bytes it reads.
+        body = json.loads(raw_body)
     except ValueError as exc:
         # Not JSON at all (an undecodable body included). Nothing of the body
         # is logged or echoed.
