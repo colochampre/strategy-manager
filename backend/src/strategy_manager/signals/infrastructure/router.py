@@ -35,6 +35,7 @@ from strategy_manager.signals.application.ports import UnknownSignalStrategy
 from strategy_manager.signals.domain.alert import (
     AlertParsingError,
     TradingViewAlert,
+    body_nested_too_deeply,
     derive_idempotency_key,
 )
 from strategy_manager.signals.infrastructure.auth import (
@@ -78,6 +79,13 @@ async def receive_tradingview_webhook(
         # is logged or echoed.
         logger.warning("webhook alert refused: body is not valid JSON")
         raise HTTPException(status_code=422, detail="request body is not valid JSON") from exc
+    except RecursionError as exc:
+        # The JSON parser itself overflowed its recursion on a body nested far
+        # past ``MAX_BODY_DEPTH``. Only this type is caught: any other exception
+        # here is a genuine fault and must stay one.
+        refusal = body_nested_too_deeply()
+        logger.warning("webhook alert refused: %s", refusal.log_text)
+        raise HTTPException(status_code=422, detail=str(refusal)) from exc
     try:
         alert = TradingViewAlert.from_payload(body)
     except AlertParsingError as exc:
