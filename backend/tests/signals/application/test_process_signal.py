@@ -592,9 +592,14 @@ async def test_a_close_never_goes_through_the_opening_path() -> None:
 
 
 async def test_a_close_carries_no_price_because_nothing_derives_a_size_from_one() -> None:
-    """CloseCommand structurally has no price field. The close size comes from
-    the ledger — what the opening allocation actually acquired — and a price
-    that could reintroduce ``granted / price`` sizing is simply absent."""
+    """CloseCommand has no field named ``price``. The close size comes from the
+    ledger — what the opening allocation actually acquired — so nothing a
+    ``granted / price`` sizing could read is there under that name.
+
+    A close does carry a price since PR 12g: ``reference_price``, the stored
+    price of the alert that caused it. Only the simulated exchange reads it, to
+    fill a rehearsal close; it sizes nothing and no real adapter sends it. This
+    test pins the absence of a sizing price, not the absence of any price."""
     lock = SpyAdvisoryLock()
     close_position = SpyClosePosition()
     context = SignalContext(

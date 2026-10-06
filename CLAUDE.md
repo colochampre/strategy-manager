@@ -179,14 +179,40 @@ UUID4 is exactly 36, and 40 DATED futures (`BTCUSDT-25DEC26`) sit beside 800
 perpetuals under the one `linear` category — so `contractType` is checked
 before every order, because a dated contract settles underneath a position.
 
-## Credentials: two keys, and they are not interchangeable
+## Credentials: one key per exchange, in the vault
 
-`.env` holds the **read-only** key (`***Swka`). The encrypted vault holds the
-**trade** key (`***nedr`), and that is the one the worker signs with. A write
-refused because the wrong key was used answers `AUTH_UNAVAILABLE` — exactly
-what a venue that forbids the write answers — so any probe that writes must
-load from the vault (`scripts/probe_credentials.py`) and print which key it is
-running as. That confusion already produced one wrong conclusion.
+Each exchange has ONE key, envelope-encrypted in the vault, and it signs
+everything: balance reads, reconciliation reads and orders alike (owner
+decision 18). `.env` holds no Bybit or Binance key: `Settings` has no field for
+one, `tests/shared/test_no_dotenv_credentials.py` pins that, and a leftover
+`BYBIT_*` or `BINANCE_*` line in `.env` is ignored without a word.
+
+This replaced an earlier split, a read-only key in `.env` beside a trade key in
+the vault. Anything that still describes two keys is stale.
+
+- **Saving a key supersedes the active one.** There is one active row per
+  exchange (`ux_exchange_credentials_one_active_per_exchange`); the previous
+  row is deactivated and kept. Sealing a read-only key therefore replaces the
+  trading key.
+- **A read-only key is accepted, with a warning** (`READ_ONLY_KEY`), and
+  recorded as not trade-capable. With `DRY_RUN=false` an opening signal on that
+  exchange is refused up front, before any capital is reserved
+  (`EXCHANGE_KEY_READ_ONLY`, or `EXCHANGE_HAS_NO_KEY` when there is none). A
+  key with withdraw permission is refused outright.
+- **How capability is known differs by exchange.** Bybit's is read from the
+  venue when the key is saved. Binance's cannot be read from the VPS, so the
+  owner confirms it (decisions 24 and 30).
+- **Only the worker decrypts.** The API seals a key on save and never opens
+  one: its write port has no `load`. The worker opens every active key at
+  startup and refuses to start if one does not open.
+- **Every probe that signs loads from the vault** through
+  `backend/scripts/probe_credentials.py` and prints which key it runs as
+  (`Signing as ***last4`). Keep it that way: a probe once signed a write with a
+  read-only key, the venue answered `AUTH_UNAVAILABLE`, exactly what a venue
+  that forbids the write answers, and that produced one wrong conclusion.
+- **Pionex is the one exception, and only for probes.** `PIONEX_API_KEY` and
+  `PIONEX_API_SECRET` are still settings, read-only, read by scripts under
+  `backend/scripts/` and by nothing in the application.
 
 ## The first real futures round trip (2026-08-27)
 
