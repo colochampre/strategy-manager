@@ -37,11 +37,19 @@
 > JSON parser's recursion overflows (between 2,000 and 3,000 levels on the
 > route). Each answered an unhandled 500.
 >
+> One more member was left open by 9qf.7 and decided by the owner on
+> 2026-10-06 (decision 47, task 9qf.8): nothing in the application bounded the
+> size of a body. `request.json()` read it whole and a body with an 8 MB string
+> was stored with a 200. The whole body is kept for good in
+> `signals.raw_payload` and is read back by every query that selects it, so the
+> webhook now refuses a body larger than 65,536 bytes with a 413.
+>
 > **This delta holds** the requirement of 9qf.1 (a number that is not finite),
 > the two of 9qf.5 (a number the database would refuse, and a body that is not
 > an alert object), the one of 9qf.6 (every refusal of a malformed alert
-> leaves exactly one warning that carries no value the sender supplied) and the
-> one of 9qf.7 (a body that cannot be stored).
+> leaves exactly one warning that carries no value the sender supplied), the
+> one of 9qf.7 (a body that cannot be stored) and the one of 9qf.8 (a body larger
+> than 64 KiB).
 >
 > **No requirement of the main spec is revised.** The requirements below are
 > ADDED. They apply to every pool: each refusal happens before the alert is
@@ -210,7 +218,8 @@ accepted path gains no query and no lock.
 
 Before this requirement each refusal was made by PostgreSQL at the insert, or by
 the encoding of the idempotency key, nothing caught it and the webhook answered
-an unhandled 500. This requirement does not bound the size of the body.
+an unhandled 500. This requirement does not bound the size of the body; the
+requirement "A Body Larger Than 64 KiB Is Refused At The Webhook" does.
 
 #### Scenario: A NUL character anywhere in the body is refused
 
@@ -239,7 +248,7 @@ an unhandled 500. This requirement does not bound the size of the body.
 
 #### Scenario: A body deeper than the JSON parser can read is refused
 
-- GIVEN an authenticated request whose body is a valid alert with an extra key nested 100,000 levels deep
+- GIVEN an authenticated request whose body is a valid alert with an extra key nested 10,000 levels deep (a body nested 100,000 levels is over 64 KiB and is refused as too large, below, before it is parsed)
 - WHEN the webhook is received
 - THEN the response is a 422, never a 500, nothing is stored, and one warning reads `webhook alert refused: body is nested too deeply`
 
@@ -249,6 +258,80 @@ an unhandled 500. This requirement does not bound the size of the body.
 - WHEN the webhook is received
 - THEN it is accepted, stored with the body exactly as received, enqueued, and keeps the idempotency key it always had
 
+### Requirement: A Body Larger Than 64 KiB Is Refused At The Webhook
+
+The system MUST refuse an authenticated request whose body is larger than 65,536
+bytes. A body of exactly 65,536 bytes is within the limit. The refusal MUST be a
+413 whose detail is a fixed text and echoes nothing the sender supplied, MUST NOT
+persist a signal or enqueue a job, and MUST write exactly one warning,
+`webhook alert refused: body is larger than 65536 bytes`, that carries no part of
+the body and no value the sender wrote, the declared `Content-Length` included. A
+real alert is about 300 bytes; the limit bounds what is kept for good in
+`signals.raw_payload`. It is enforced in the application, not at the edge, so it
+does not depend on how a tunnel or proxy in front of it is configured. It applies
+to this endpoint only.
+
+The body MUST NOT be read whole and then measured. A declared `Content-Length`
+past the limit MUST be refused before any of the body is read. A body with no
+declared length MUST stop being read at the first chunk that takes the count of
+bytes received past the limit. The count of bytes actually received is the
+authority: a `Content-Length` that is absent, is not a number or is smaller than
+what arrives MUST NOT let a larger body through and MUST NOT raise, and a body
+within the limit MUST be accepted whatever the header says.
+
+Authentication MUST stay first: a request that fails it MUST be answered 401
+without any of its body being read, whatever length it declares or sends, and
+writes no line. A body within the limit MUST be parsed exactly as before, so a
+body that is not valid JSON, is not an object, or is nested so deeply that the
+JSON parser overflows its recursion answers the 422 it always answered. An
+accepted alert MUST be unaffected: the same response, the same stored row and
+the same idempotency key, with no added query and no lock.
+
+Before this requirement a body of any size was read whole and stored with a 200.
+
+#### Scenario: A body one byte past the limit is refused and nothing is stored
+
+- GIVEN an authenticated, otherwise valid alert of 65,537 bytes with its `Content-Length`
+- WHEN the webhook is received
+- THEN the response is a 413 with the fixed detail, no signal row and no job exist afterwards, and one warning reads `webhook alert refused: body is larger than 65536 bytes`
+
+#### Scenario: A body of exactly the limit is accepted
+
+- GIVEN an authenticated, valid alert of exactly 65,536 bytes
+- WHEN the webhook is received
+- THEN it is accepted, stored with the body exactly as received and enqueued, and writes no warning
+
+#### Scenario: A declared length past the limit is refused before the body is read
+
+- GIVEN an authenticated request that declares a `Content-Length` past the limit
+- WHEN the webhook is received
+- THEN the response is a 413 and none of the body was read
+
+#### Scenario: A body with no declared length stops being read at the limit
+
+- GIVEN an authenticated request sent in chunks with no `Content-Length`, whose body is far larger than the limit
+- WHEN the webhook is received
+- THEN the response is a 413, nothing is stored, and reading stopped at the first chunk that took the count past the limit, not at the end of the body
+
+#### Scenario: A header that does not tell the truth lets nothing through
+
+- GIVEN an authenticated request whose body is past the limit and whose `Content-Length` is smaller than the body, zero, negative, empty or not a number
+- WHEN the webhook is received
+- THEN the response is a 413, never a 500, and nothing is stored
+- AND GIVEN the same header on a body within the limit, it is accepted
+
+#### Scenario: The refusal repeats nothing the sender wrote
+
+- GIVEN an authenticated request whose oversized body carries a distinctive marker and whose `Content-Length` is a distinctive number
+- WHEN the webhook is received
+- THEN neither the marker nor the number appears in the response or in any log record
+
+#### Scenario: An unauthenticated request is never read
+
+- GIVEN a request with a wrong or missing secret whose body is past the limit, with or without a declared length
+- WHEN the webhook is received
+- THEN the response is a 401, none of the body was read, and the webhook writes no log line
+
 ### Requirement: Every Refusal Of A Malformed Alert Leaves Exactly One Warning
 
 The system MUST write exactly one warning for each authenticated alert it
@@ -257,7 +340,8 @@ nobody. The warning MUST name the reason and, where there is one, the field. It
 covers: a body that is not valid JSON or not an object; a missing `data` object;
 a missing required field; a number that is not a string; a string that is not a
 decimal; a number that is not finite, not above zero where it must be, or out of
-range for the column; a body the database cannot store (9qf.7); an empty or non-string `action`, `symbol`, `signal_type` or
+range for the column; a body the database cannot store (9qf.7); a body larger
+than 64 KiB (9qf.8); an empty or non-string `action`, `symbol`, `signal_type` or
 `time`; a `signal_type` that is not a UUID; and a missing idempotency key. An
 alert for an unknown strategy keeps the one warning it already had; no refusal
 is logged twice.

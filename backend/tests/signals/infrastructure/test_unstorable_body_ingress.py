@@ -267,7 +267,10 @@ async def test_a_number_that_is_not_finite_in_the_stored_body_is_422_and_persist
 
 
 @pytest.mark.parametrize("objects", [False, True], ids=["arrays", "objects"])
-@pytest.mark.parametrize("levels", [BOUND, 1_000, 2_000, 10_000, 100_000])
+# 9,000 was 100,000 before task 9qf.8: a body that deep is over 64 KiB and is now refused
+# as too large before it is parsed. 9,000 levels of either kind still fit under the limit
+# (objects need 6 bytes a level) and still overflow the JSON parser's recursion.
+@pytest.mark.parametrize("levels", [BOUND, 1_000, 2_000, 9_000, 10_000])
 async def test_a_body_nested_past_the_bound_is_422_and_persists_nothing(
     client: AsyncClient,
     engine: AsyncEngine,
@@ -292,7 +295,10 @@ async def test_a_body_nested_past_the_bound_is_422_and_persists_nothing(
 async def test_a_body_nested_beyond_the_json_parser_names_the_body_and_echoes_nothing(
     client: AsyncClient, strategy_id: UUID
 ) -> None:
-    body = _body(strategy_id, extra=',"x":' + _nested(100_000, objects=False))
+    # 30,000 arrays is 60 KB: past the parser's recursion, under the 64 KiB body limit
+    # (100,000 levels, the size this test used before task 9qf.8, is now a 413).
+    body = _body(strategy_id, extra=',"x":' + _nested(30_000, objects=False))
+    assert len(body) < 65_536
 
     response = await _post(client, body)
 
