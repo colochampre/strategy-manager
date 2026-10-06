@@ -3593,3 +3593,504 @@ Two were asked, and the owner answered both on 2026-10-04. They are kept here wi
 - **Q2. At what leverage does a dry run size a position?** The simulated exchange sizes at 1x: the position's notional equals the capital granted. The choice was between *(a)* keeping 1x, *(b)* a fixed multiple per exchange set in configuration, and *(c)* the leverage the venue reports, read with the stored key. The design recommended (a) for this unit.
   - **Answered 2026-10-04: (a).** A dry run keeps sizing a position at 1x. A dry-run operation's PnL and PnL % are one leverage-th of what the same alert would produce live at the venue's leverage (3x on the real round trip). A result at 1x is exact, depends on no venue read, and can be scaled by eye.
   - **Nothing is built for it** (§ D). Sizing at the leverage the venue reports would be its own unit with its own design, and positions already written at 1x would keep their size.
+
+## Addendum: the detail page's follow-ups (unit 12f, decisions 44 and 48) - 2026-10-06
+
+Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that decision 44 moved out of unit 9p. HEAD `cacea20`. Decisions 44 and 48 are binding and are not reopened here. This addendum settles what they left to the design: which element the slider is and how it is drawn under the panel's CSP, the exact value it holds, the two confirmation texts, how a copy is made and how it fails, where the webhook's host comes from, and how a win is counted and served. 12f.2, 12f.3 and 12f.7 stay as built and are not designed. It adds one read-only endpoint and two fields to an existing one, changes no other response, and needs **no migration**.
+
+**The answer in one paragraph.** The share is edited with the browser's own `<input type="range">`, restyled, over an inline SVG that draws the track, the filled part and the four stops with geometry ATTRIBUTES. No `style` prop is written anywhere, so the question of what `style-src 'self'` allows at runtime never arises for this control; it rests on the same mechanism as the return chart. The value is one decimal string: the field shows it exactly, the handle sits at its nearest whole step, and only Save sends it, as `{"allocation_percent": "33.5"}` to the PATCH that already exists. "Saved" and "Copied" are one small live text, mounted before it has anything to say. A copy writes the exact string the page is showing and never asks for the secret. The webhook's host is a new setting served by a new authenticated route, because the webhook does not live on the panel's origin (decision 5), and a malformed value is never served and never stops the API. A win is counted in `by_pair` and served as a count and a ratio; the panel formats the ratio and computes nothing. Two sequential PRs, backend then panel, split by deploy order. One question for the owner blocks one task (§ N, Q1).
+
+### A. Findings from the code (verified at HEAD `cacea20`)
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| U1 | The share is a `Decimal` with `0 < value <= 100` in three places: the value object, both request bodies (`gt=0, le=100`) and a CHECK on an unscaled `Numeric` column. Decimals are unbounded. | `strategies/domain/strategy.py:27-44`; `strategies/infrastructure/router.py:201, 214`; `migrations/versions/0007_allocation_percent.py:25-41` | Zero cannot be stored, so the track cannot start at 0 (decision 48). A stored value may have any number of decimals and may be below 1. |
+| U2 | `PATCH /api/strategies/{id}` already takes `allocation_percent`. It locks the strategy row (`FOR UPDATE`), takes no advisory lock, refuses an archived strategy with 409 `STRATEGY_ARCHIVED`, accepts a disabled one, and answers the strategy view. **It logs nothing.** | `strategies/infrastructure/router.py:428-461`; `strategies/application/update_strategy.py:100-141` | No new write endpoint. A change of how much capital a strategy asks for leaves no trace today (§ J). |
+| U3 | The share is read through `policy_for` when a signal is processed, and again when a deferred opening resumes. `requested` is computed from it BEFORE `AllocateCapital`, and `AllocateCommand` carries the amount, never the percent. | `signals/application/process_signal.py:354, 447, 617-635` | "Applies to the next allocation only" is already how the code behaves. Nothing after `requested` can re-read the share, so a reservation already made cannot be recomputed. |
+| U4 | `StrategyView.allocation_percent` is a bare `Decimal`, not one of the wire types. The PATCH answers from the in-memory object, the GET from the stored row. | `strategies/infrastructure/router.py:156, 461`; `shared/infrastructure/wire.py:8-12` | Its text is whatever `str(Decimal)` gives, which `wire.py` documents as unstable. The panel must refuse a text it cannot read, and the backend should stop being able to write one (§ C). |
+| U5 | The panel types and checks the field as a string and shows it nowhere. Its only PATCH sends `enabled`. A new strategy is registered with `"100"`. | `frontend/src/shared/api/types.ts:187`; `shared/api/strategies.ts:28, 71-77`; `features/strategies/NewStrategyDialog.tsx:15` | The control, its API function and its hook are all new. |
+| U6 | The settings column holds the heading, `AllowedPairsEditor`, then a group with `EnableToggle`, `EnablementHistory` and `ArchiveControl`. The mockup puts the share FIRST, above the allowed pairs, and also prints it in the header line ("30% per trade"). | `features/strategies/StrategyDetailPage.tsx:73-84`; `visual/project/Strategy.dc.html:42, 77-80` | § C places the control. The header line is not one of this unit's pieces (§ N, Q3). |
+| U7 | `AllowedPairsEditor` keeps a draft together with the stored list it was made on and drops it when the stored list moves. It has an error line and no success state. Its hook's `onSettled` returns the invalidation's promise. | `features/strategies/AllowedPairsEditor.tsx:15-19, 61-81, 100-112`; `shared/api/strategies.ts:181-203` | The share control copies the stale-draft rule. "Saved" is new state in both (§ D). |
+| U8 | **No `style` prop exists in `frontend/src`.** A search for `style=`, `.style.`, `setProperty`, `cssText`, `type="range"`, `role="slider"` and `clipboard` finds nothing outside tests. The only value-dependent geometry is SVG attributes in the return chart, and its test asserts that no element carries a `style` attribute. A position that depends on state is a fixed class per state. | `features/overview/ReturnChart.tsx:190-273`; `features/overview/ReturnChart.test.tsx:95-110`; `features/strategies/StrategyRow.tsx:136-141` | The panel has one proven way to draw something whose position depends on a value: attributes on SVG elements. § B uses it. |
+| U9 | The CSP is `style-src 'self'` with no `'unsafe-inline'`, sent on `index.html` only, with no `Permissions-Policy`. The comment beside it says React sets styles through the CSSOM, which the policy does not block. Nothing in the code relies on that (U8). `vite.config.ts` sets no response header. | `shared/infrastructure/spa.py:58-63, 128-134`; § 13; `frontend/vite.config.ts` | **No browser has ever loaded this panel under its policy**: production does not serve it (`PANEL_DIST_DIR` is unset) and the dev server sends no CSP. A control that needed a runtime style would be the first, and its failure would show only on the day the panel is served. |
+| U10 | The webhook block shows the PATH only. The secret is read from the query result while rendering and is never copied into component state; it is evicted on hide and on unmount, and the block is unmounted while closed. | `features/strategies/WebhookMessage.tsx:8, 45-66, 83`; `features/strategies/StrategyHeader.tsx:67-69` | A copy must take the string already rendered, not build one from a stored value. |
+| U11 | **The webhook is not on the panel's origin.** The panel and the admin API are on `strategymanager.trade` through a Cloudflare Tunnel; the webhook stays on a DuckDNS host whose proxy forwards only `/webhook/tradingview`. | owner-decisions.md, decision 5; design.md "Technical approach" diagram | `window.location.origin` is the wrong host. This is why the host must be told to the panel, and why it cannot be compiled in. |
+| U12 | `Settings` has no field for a public host. `/health` is unauthenticated, answers `status` and `dry_run`, and is read by the mode badge with a strict shape check. Every startup invariant runs inside `operator_alerts` and REFUSES the start. | `shared/config.py` (whole class); `main.py:299-307, 1839-1841`; `frontend/src/shared/api/health.ts:16-27` | § F adds the setting and chooses where it is served, and does not make it an invariant. |
+| U13 | `by_pair` groups one strategy's closed trades by `market_key` and has each pair's `ClosedTrade` list in hand. `PairStats` carries pair, count, PnL and return. It is fed `derived.closed`, the live set, after `require_live_only`. | `performance/domain/by_pair.py:45-75`; `performance/application/read_strategy_performance.py:62-76`; `performance/infrastructure/performance_router.py:247-257` | Wins are counted where the trades already are. Dry-run operations cannot reach the count (decision 43 addendum § C). |
+| U14 | The panel checks every `by_pair` entry inside the check of the whole strategy report: one bad entry refuses the report. That report is read by the detail page AND by every row of the Strategies list. | `frontend/src/shared/api/performance.ts:66-84`; `features/strategies/StrategyPerformance.tsx:74`; `features/strategies/StrategyRow.tsx:41` | A panel that requires the new fields refuses more than the By pair table against an older API (§ G). |
+| U15 | `PairStatsTable` has four columns, no width tier, and writes every percentage with a sign. | `features/strategies/PairStatsTable.tsx:60-98`; `features/overview/format.ts:40-51` | A win rate needs its own unsigned format. |
+| U16 | The keyboard helper presses Tab, Enter and Space on buttons. jsdom lays nothing out and performs no default action of a range input. One existing test clicks every other button of the page to prove that none asks for the secret. | `frontend/src/test/keyboard.ts`; `features/strategies/WebhookMessage.test.tsx:126-151` | § K says what a test can prove about the slider and what is left to the eye. That existing test will click the new Copy, stop and Save buttons. |
+| U17 | Production runs with `DRY_RUN=true` and does not serve the panel. | tasks.md delivery log | The By pair table is empty there, so the new column is first seen on the owner's local fixture. The compatibility rules of § G still bind `main`. |
+
+### B. The slider: the element, and how it is drawn (12f.1)
+
+**The element.**
+
+| Option | For | Against |
+| --- | --- | --- |
+| **The native `<input type="range">`, restyled, over an SVG drawing (chosen)** | Pointer, touch and keyboard behaviour are the browser's, with no code: dragging, a press on the track, arrows, Home and End. The role is `slider` and the value is exposed without an ARIA attribute to keep in step. The handle is positioned by the browser, so it needs no style from this code. | The track and handle are styled through vendor pseudo-elements, which differ by engine and cannot be seen in jsdom. The filled part is not drawn by WebKit or Blink once the default appearance is removed. |
+| The native control left as the browser draws it, with `accent-gain` and a `<datalist>` for the stops | The least code. The filled part and the tick marks are the browser's. | The marks cannot be styled or made activatable, the look differs by browser, and nothing of the panel's visual direction (decision 19) reaches it. Kept as the fallback if the chosen drawing fails the owner's review. |
+| A custom element with `role="slider"` | Full control of the look | Every key, the drag arithmetic, touch and focus are written by hand. The drag needs `getBoundingClientRect`, which jsdom answers with zeros, so the behaviour could not be tested at all. The handle would need a value-dependent position, which is the one thing the CSP question is about. |
+
+- **The handle** is the native thumb, given a fixed size and the `gain` colour through Tailwind 4 arbitrary variants on the input (`[&::-webkit-slider-thumb]:…` and `[&::-moz-range-thumb]:…`), with `appearance-none` and a transparent native track. These compile into the stylesheet the panel already serves from its own origin. The class list is one constant, so a test can assert it.
+- **The track, the filled part and the four stop marks** are one `aria-hidden` inline `<svg>` under the input: a line for the track, a line whose `x2` attribute is the handle's position as a percentage, and four circles whose `cx` are the four fixed positions. Percentages in SVG coordinate attributes are measured against the SVG's own box, so nothing is measured and no `ResizeObserver` is needed. A stop at or below the handle takes the `gain` class, the others `rule-strong`.
+- **Alignment.** A native thumb's centre travels from half its width to the full width minus half its width. The SVG is inset by exactly half the thumb on each side (thumb `size-5`, inset `2.5`), so a position of `p` percent in the SVG is under the thumb's centre at that value. This holds only because the thumb's size is set explicitly, in both engines.
+- **The position of a value** on a track from 1 to 100 is `(v − 1) / 99`: 25 is 24.2424%, 50 is 49.4949%, 75 is 74.7475%, 100 is 100%. One pure function gives it; it is a control position, not money.
+- **The stops are real buttons**, in a row under the track, each placed with one fixed class (`left-[24.2424%]` and so on, `-translate-x-1/2`) inside the same inset box. They are the four fixed positions, so they need no runtime value at all.
+
+**The CSP.** The question was whether a value-dependent position can be set at runtime under `style-src 'self'`. The design does not need the answer, and that is deliberate.
+
+| What a browser checks against `style-src` | Does this control use it? |
+| --- | --- |
+| A `<style>` block, and a `style` ATTRIBUTE, whether parsed from markup or set with `setAttribute` | No. No `style` prop is written. |
+| A property set through the CSSOM (`element.style.x = …`), which is how React applies a `style` prop on a tree it rendered in the browser. By the policy's definition this is not blocked, and § 13 says so. | No. The claim is believed and is not relied on. |
+| Geometry and presentation attributes of SVG elements (`x2`, `cx`, `stroke-width`) | Yes. They are attributes, not styles, and no directive governs them. |
+| Rules in a stylesheet served from the panel's origin, vendor pseudo-elements included | Yes. That is `'self'`. |
+
+- **Verified in the code:** no `style` prop exists anywhere (U8); the return chart draws every value-dependent coordinate with SVG attributes and its test forbids a `style` attribute; the policy string and the fact that only `index.html` carries it (U9).
+- **Not verified, and said plainly:** no browser has loaded the panel under this policy (U9). So the statements in the table are read from how the policy is defined, not observed here. What the choice buys is that the slider stands on exactly the ground the return chart stands on: if SVG attributes were refused, the panel's main instrument would fail first and visibly.
+- **A guard so that it stays true.** `frontend/src/shared/theme.test.ts` gains one test: no non-test source file contains a `style=` prop. It passes at once today; the mutation is one `style={{}}` on any element. With it, the day somebody reaches for a runtime style is a red test, not a broken page in production.
+- **To check in a real browser, before this is called done** (§ K): the built bundle served by FastAPI with `PANEL_DIST_DIR` set, so the header is really sent; the strategy page opened with the console showing no policy violation; the slider dragged and driven by keys. This can be done locally and does not wait for production.
+
+**Layout.** Label, then one wrapping row: the track with its stops, and beside it the number field with a `%` sign. Under it the helper sentence, the validation or refusal text, and a row with the Save button and "Saved". The track has a minimum width so that four 44 px stop buttons never touch; when the row cannot hold both, the field wraps under the track. The settings column is about 360 px wide on a desktop and about 300 px on a phone; these widths are read from the classes and are confirmed by eye.
+
+### C. The slider: the value, the keyboard, the states, the API (12f.1)
+
+**One value, three views.** The control holds one decimal string. Nothing is added, multiplied or converted; the only arithmetic is the handle's position and its rounding.
+
+| Name | What it is |
+| --- | --- |
+| stored | `strategy.allocation_percent` as the server wrote it, read into canonical form: digits, an optional fraction, no leading zeros, no trailing fractional zeros (`100.000` is `100`, `33.50` is `33.5`). A text that is not a plain decimal (an exponent, a sign, an empty string) is unreadable. |
+| draft | `{ base, text, handle }` or nothing. `base` is the stored value the edit was made on; when the stored value moves, the draft is dropped, the rule `AllowedPairsEditor` already follows (U7). `text` is exactly what the field holds. `handle` is the last whole position the track was given. |
+| handle | A whole number from 1 to 100: the value rounded half up and clamped. It is what the range input and the SVG receive, always a valid step, so no browser has to repair it. |
+
+| Event | Result |
+| --- | --- |
+| The page shows a stored `33.5` | Field `33.5`, handle at 34, `aria-valuetext` "33.5% of the pool". Save disabled. |
+| The page shows a stored `0.5` | Field `0.5`, handle at 1, the end of the track. Save disabled. |
+| The handle is moved, by pointer or by key, to `N` | Field `N`, a whole number. This is the only moment a decimal is rounded (decision 48). From a stored `33.5` the handle is at 34, so one press of the right arrow gives 35 and one of the left gives 33. |
+| A stop is activated | The same, with 25, 50, 75 or 100. |
+| The field is typed in | The text is kept as typed. When it reads as a valid value the handle follows it; when it does not, the handle stays where it was. |
+| `33,5` is typed | Read as `33.5`. One comma is a decimal separator; Spanish keyboards produce it. The value is sent with a dot. |
+| `0`, `0.0` | Not valid: "above 0". Save disabled. |
+| `100.5`, `150` | Not valid: "at most 100". Save disabled. |
+| An empty field, `abc`, `1e1`, `-5`, `25%`, `1.000,5`, `33.` | Not a number. Save disabled. Nothing is guessed and nothing is trimmed into a value. |
+| `0.5` | Valid. The API accepts it (U1); the handle sits at 1 (§ N, Q2). |
+| The stored value is typed back | Valid and unchanged. Save disabled. |
+
+- **Save is enabled** when the strategy is not archived, no save is in flight, the text reads as a value above 0 and at most 100, and its canonical form differs from the stored one.
+- **The field** is `type="text"` with `inputMode="decimal"`, not `type="number"`: a number input answers an empty string for anything it dislikes (so "empty" and "not a number" cannot be told apart), treats a comma differently by browser, and changes its value on a stray wheel turn. `maxLength` is 12 characters, a bound on the text, not a rule about the number.
+- **The field shows a dot in both languages**, and accepts a comma. An input echoes what is typed; rewriting the separator on load but not while typing would change the field under the owner's hands. Reviewed by eye.
+- **The value goes to the API as a string**: `{"allocation_percent": "33.5"}`, and nothing else in the body. The other fields are omitted, which the PATCH reads as unchanged.
+
+**Keyboard and accessibility.**
+- Tab order: the track, the four stops in order, the field, Save.
+- On the track the browser's own keys apply: an arrow moves one step, Home goes to 1, End to 100. Page Up and Page Down move by a larger step in the browsers that implement them; the size is the browser's and is not specified here.
+- The track and the field are both named by the visible label. The track carries `min` 1, `max` 100, `step` 1 and an `aria-valuetext` with the exact value, so a screen reader hears "33.5% of the pool" while the handle sits at 34.
+- Each stop is a `<button>` showing "25%" with a name that says what it does ("Set the share to 25%"), and `aria-pressed` when the value is exactly that stop.
+- The validation text is tied to the field with `aria-describedby` and `aria-invalid`. It is not an alert: it would otherwise be announced on every keystroke of an unfinished number.
+- The track is 44 px tall, each stop at least 44 by 44 px, the field and Save `min-h-11`, as every control of the panel.
+
+**States.**
+
+| State | What shows |
+| --- | --- |
+| Unchanged | The stored value. Save disabled. |
+| Changed, not saved | The new value. Save enabled. Leaving the page discards it; nothing was sent. |
+| Saving | Save reads "Saving…" and the track, the stops and the field are disabled, so the value cannot move under a request in flight. |
+| Saved | "Saved" beside Save (§ D). The field shows the value the server answered. |
+| Refused, 422 | "The share must be above 0 and at most 100." The panel validates first, so this means the two disagree. |
+| Refused, 409 `STRATEGY_ARCHIVED` | "This strategy is archived and can no longer be changed." The page then reads the strategy again and the control turns read-only. |
+| Refused, 404 | "This strategy no longer exists." The page then shows its not-found state. |
+| A network failure, a 5xx, or a 200 whose body is not a strategy | "The share was not saved. Try again." The draft is kept. |
+| An archived strategy | The value is shown; the track, the stops, the field and Save are disabled, as the rest of the column. |
+| A stored value that cannot be read | "The stored share could not be read, so it cannot be edited here." No track, no field, no Save. Never a guess. |
+
+Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clears the token and the token gate takes over, as on every call.
+
+**Where it sits.** First in the settings column, under the heading and above the allowed pairs, as the mockup has it (U6). Its label is "Share of the pool per trade", the mockup's words. One helper sentence says what the number means and when a change counts (§ I). The number is a share of the pool's TOTAL balance, not of what is free (`strategies/domain/strategy.py:28-34`), and the sentence says so.
+
+**What "the next operation" means.** The share is read when an opening is sized (U3). An alert already received whose opening was deferred, because it waits for a close to settle, is sized with the share stored when it finally opens. An operation already open is not resized, and a reservation already made is not touched: nothing after `requested` reads the share.
+
+**Out of scope, and said so.**
+- **The Strategies list does not show the share.** § 15 lists what a row shows (name, pool, switch, uptime, trades, all-time PnL and return) and the share is not among them.
+- **`NewStrategyDialog` is not touched.** It keeps registering with `"100"`. A new strategy is always disabled, so the owner sets the share on its page before enabling it.
+
+**The API layer.**
+- `setStrategyAllocationPercent(strategyId, value)` in `shared/api/strategies.ts`: the PATCH above. It checks the answer with the existing `isStrategy` and throws on a body that is not a strategy.
+- `useSetAllocationPercent(strategyId)`: on success it writes the checked answer into `['strategy', id]`, so the stored value is the confirmed one even if the refetch that follows fails; on settle it invalidates `['strategies']` and `['strategy', id]`, as the other two hooks do, and returns that promise.
+- **Backend, two small changes in the strategies module.** `StrategyView.allocation_percent` is written with the wire's plain notation (the `Money` annotation of `wire.py`), so the answer can never be an exponent (U4). `UpdateStrategy` logs one INFO line when the share actually changes, with the strategy id, the old value and the new one (§ J).
+
+```
+ owner              PoolShareEditor                PATCH /api/strategies/{id}            worker, next opening
+   | move, stop or type  |                                   |                                   |
+   |-------------------->| draft only, nothing sent          |                                   |
+   | Save                |                                   |                                   |
+   |-------------------->| {"allocation_percent": "25"} ---->| lock the strategy row              |
+   |                     |                                   | 0 < value <= 100, not archived     |
+   |                     |                                   | UPDATE, INFO old -> new, COMMIT    |
+   |                     |<--------- 200, strategy view -----|                                   |
+   |                     | cache <- the answer, then refetch |                                   |
+   |<------ "Saved" -----|                                   |                                   |
+   |                     |                                   |      policy_for(strategy) -> 25   |
+   |                     |                                   |      requested = total * 25 / 100 |
+   |                     |                                   |      AllocateCapital (pool lock)  |
+```
+
+### D. "Saved" after a save (12f.4)
+
+- **One shared piece, local state.** `InlineStatus` is a presentational component in `features/strategies/`: a `<span role="status" aria-live="polite">` that takes a message or nothing, and a tone. It is ALWAYS mounted, empty until it has something to say: a live region that appears together with its text is not reliably announced. Each control keeps its own boolean; there is no shared store, because the two saves have nothing else in common.
+- **The same piece carries "Copied"** and its failure text (§ E), so there is one pattern for a short confirmation in the panel.
+
+| Control | "Saved" appears | "Saved" disappears |
+| --- | --- | --- |
+| The share | When the PATCH answers 200 with a strategy | On the next movement of the handle, activation of a stop or keystroke in the field; and when the page is left |
+| The allowed pairs | When the PUT answers 200 | On the next pair added or removed; and when the page is left. Typing in the search box changes no pair and leaves it. |
+
+- **No timer.** It stays until the owner changes something in that control (decision 48). A test advances the clock by ten minutes and still finds it.
+- A failed save shows the refusal and never "Saved". The two are never on screen together: a new save clears the flag before it is sent.
+- It is neutral ink (`ink-2`), not the gain colour: teal is for money made and for the primary action.
+- **The allowed pairs' hook is not changed.** It still waits for its refetch. If that refetch fails after a 200, the list on screen is the old one, so "Saved" is not shown although the save happened. That errs on the safe side and is a limit of the existing hook, not something this unit widens (§ M).
+
+### E. Two Copy buttons (12f.5)
+
+- **Where.** "Copy URL" beside "Show secret", on the URL's row; "Copy message" under the alert message. Each has its own `InlineStatus` beside it.
+- **How.** `copyText(text)` in `frontend/src/shared/lib/clipboard.ts` calls `navigator.clipboard.writeText` and answers true or false. It answers false when `navigator.clipboard` or `writeText` does not exist, and when the promise rejects. It never throws and never logs: the text may be the secret.
+- **The secure context.** The clipboard API exists only on HTTPS and on `localhost`. Production is HTTPS and local development is `localhost`, so it is available on both. The panel opened over plain HTTP on another address has no `navigator.clipboard`, and the button then says it could not copy. No `Permissions-Policy` is sent (U9), and without one a page may write to the clipboard from a click; the CSP has no directive for it.
+- **No fallback to `document.execCommand("copy")`.** It is deprecated, and it works by putting the text into a temporary field in the document, which for the revealed URL means a second place the secret is written. One mechanism, one failure text; the text stays selectable by hand, as it is today.
+- **What is copied is what is on screen, by construction.** The URL is built once per render into one constant; the `<code>` element prints it and the button's handler is given the same constant. There is no second assembly that could differ.
+- **Copying never asks for the secret.** The handler touches neither the "requested" flag nor the query. With the secret hidden it copies the URL with the placeholder.
+- **The secret is not put in component state to enable a copy.** State holds only which button was used and whether it worked: a tag, never the text.
+- **With the secret revealed the clipboard holds the real URL**, secret included, percent-encoded as shown. This is the owner's decision (44, 12f.5, and 48). The panel cannot take it back: "Hide secret" and leaving the view do not clear the clipboard, and a clipboard history kept by the operating system may hold it longer (§ M).
+- **The URL is text, never a link.** It is not rendered in an anchor and is never passed to `fetch`: a click on a link would send a GET to the webhook with the secret in the address.
+
+| Result | Text beside the button | Until |
+| --- | --- | --- |
+| The copy worked | "Copied" | Something else is copied, or the block is closed (decision 48). Closing unmounts the block, so reopening shows nothing. |
+| The browser refused, or has no clipboard | "Could not copy. Select the text and copy it by hand.", in the `loss` colour | The same |
+
+- A second copy with the other button moves the text to that button. Only one of the two is ever shown.
+- **One case the rule does not settle** (§ N, Q1): "Copied" beside the URL button after the URL on screen has changed, because the secret was shown or hidden after the copy. The task that builds the disappearance of "Copied" waits for that answer; nothing else does.
+
+### F. The full webhook URL (12f.6)
+
+**The setting.** `Settings.webhook_public_origin`, read from `WEBHOOK_PUBLIC_ORIGIN`. Default: empty, which means unset. Its value is the origin TradingView posts to, for example `https://example.duckdns.org`. It is the webhook's host, which is not the panel's (U11).
+
+**Its form: an origin and nothing more.** A pure function, `parse_webhook_origin`, reads it:
+
+| Input | Result |
+| --- | --- |
+| Empty | Unset. Not an error. |
+| `https://example.org`, `http://localhost:8000` | Accepted as written. |
+| `HTTPS://Example.ORG`, `https://example.org/`, `https://example.org:443` | Accepted and normalised to `https://example.org`: scheme and host in lower case, one trailing slash dropped, the scheme's default port dropped. |
+| No scheme, a scheme other than `http` or `https`, an empty host | Refused |
+| Anything after the authority: a path, a query, a fragment | Refused. The path is the panel's to add. |
+| A user or a password (`https://user:pass@host`) | Refused. It would put a credential on screen and in the clipboard. |
+| A space, a control character, a backslash, a host with characters outside ASCII, a port that is not a number in range | Refused |
+
+- **`http` is accepted** because TradingView posts to ports 80 and 443 and a local rehearsal uses `http://localhost`. The setting describes where the webhook is; it does not make it safer or less safe.
+- **A refused value is never served and never stops the API.** It is treated as unset, and one ERROR is logged at startup (§ J). It is deliberately NOT a startup invariant: the process that would refuse to start is the one that receives the alerts (rule 3), and a typo in a display setting must not cost a signal.
+- **The raw value is never logged.** A refused value may be refused exactly because it holds a credential. The line names the setting and the reason.
+
+**Which route serves it.**
+
+| Option | Verdict |
+| --- | --- |
+| **A new route, `GET /api/webhook-origin`, behind the bearer token (chosen)** | One fact, one place, structural auth like every other `/api` router. Body: `{"origin": "https://example.org"}` or `{"origin": null}`. |
+| A field on `/health` | Refused. `/health` is unauthenticated and is a liveness answer with a strict shape (U12). The host is not a secret, but nothing is gained by telling an anonymous caller which webhook belongs to this panel. |
+| A field on `GET /api/webhook-secret` | Refused. The host must be on screen before any click, and that route is called only on "Show secret". |
+| A field on every strategy | Refused. It is a fact about the deployment, not about a strategy. |
+
+- **It needs the admin token** for two reasons: the admin API's own rule is that every `/api` route does, enforced on the router so that no route can forget it; and the page that shows it already holds the token.
+- `null` means "no usable value": unset and refused read the same to the panel. Only the startup log tells them apart, which is why that line is an ERROR.
+- The body never contains the secret. The existing sweep that reads the application's own route table covers the new route without being told (`tests/signals/infrastructure/test_webhook_secret_router.py`).
+
+**In the panel.**
+- `useWebhookOrigin()`, query key `['webhook-origin']`, read when the block is opened. The answer is checked again: the value is used only if `new URL(value).origin === value`, the browser's own definition of a serialised origin. That one comparison rejects a path, a query, a fragment, a user, a trailing slash and upper case. Anything else is treated as no host.
+- **The URL** is `origin + "/webhook/tradingview?secret=" + value`, plain concatenation of a checked origin, a constant path and the placeholder or the percent-encoded secret. With no origin it is the path alone, exactly as today.
+- **While the host is loading**, the path alone is shown, and that is what a copy would take.
+- **When there is no host**, one sentence under the URL says why: none is configured, or it could not be loaded (§ I). An older API answers 404 for the route, which reads as "could not be loaded".
+- **`connect-src 'self'` stays as it is.** The origin is displayed and copied. It is never requested, never a link, never a form target. The only request this adds goes to the panel's own `/api`.
+
+### G. WIN RATE in "By pair"
+
+**The domain.** `by_pair` counts wins where it already holds each pair's trades (U13).
+
+- `PairStats` gains `win_count: int`, the trades of the pair whose `pnl` is above zero, and `win_rate: Decimal`, `win_count / trade_count`.
+- **A PnL of exactly zero is not a win and counts in the total** (decision 44, answered 2026-10-06): 3 wins, 1 at zero and 1 loss are 3 of 5, `0.6`.
+- **Every closed trade of the pair counts**, as it does in `trade_count` and `pnl`: one with no capital at open (its PnL is real), and one with incomplete fees, by the PnL it has.
+- **Dry-run operations stay out**, with no new code: `by_pair` receives the live set only (U13).
+- **A pair with no closed operation has no row.** The rows are built from the trades, so `trade_count` is at least 1 and the division is always defined. Nothing is served as null and no zero is invented. A strategy with no closed trade keeps the table's existing empty state.
+
+**The wire.** `GET /api/performance/strategies/{id}`, the existing route; two new fields on each `by_pair` entry, nothing removed or renamed.
+
+```
+"by_pair": [
+  {
+    "pair":     "SOLUSDT",          string     unchanged
+    "trades":   5,                  integer    unchanged
+    "wins":     3,                  integer    NEW, 0 <= wins <= trades
+    "win_rate": "0.6000000000",     string     NEW, never null, the Ratio type: 10 places
+    "pnl":      "41.200000…",       string     unchanged
+    "return":   "0.0312000000"      string or null, unchanged
+  }
+]
+```
+
+- **Both are served.** The ratio is what the panel shows, in the wire type every other percentage of the panel uses, so the browser divides nothing. The count makes the figure checkable by hand ("3 of 5") and lets the panel refuse a body whose two fields contradict each other.
+- **The strategy report and the pool report are NOT given a win rate.** The existing design asked for one nowhere but in the mockup's By pair table, and decision 44 names that table only.
+
+**The panel.**
+- **Column order:** Pair, Trades, Win rate, PnL, Return. It follows the mockup, which puts it after Trades.
+- **Format:** an unsigned percentage with one decimal ("60.0%", "58.3%"), through a new `rateText`, because `percentText` signs every figure (U15). One decimal and not a whole number: a whole number rounds 199 wins of 200 to "100%", which must mean every trade won (§ N, Q4).
+- **Neutral ink.** A rate is not money made or lost.
+- **Width.** The values are narrower than the heading, so the heading sets the column's width. No column is hidden. Estimated from the classes, the five columns need about 316 px in English and about 387 px in Spanish, where the existing headings "Operaciones" and "Rendimiento" are already the widest cells; the left column is about 308 px at a 1024 px viewport and about 343 px on a phone. So in Spanish, and for a narrow band in English, the table scrolls sideways inside the `overflow-x-auto` wrapper it already has. Following decision 46's preference, the Spanish heading proposed is short (§ I). Confirmed by eye.
+- **The shape check** (`isPairStat`) requires `wins` to be an integer from 0 to `trades` and `win_rate` to be a string. `PairStatsTable` then reads the ratio, requires it between 0 and 1, and requires the two fields to agree at the ends: `wins` is 0 exactly when the rate is 0, and equals `trades` exactly when the rate is 1. A body that fails shows the table's existing "could not be read" state. No comparison computes a rate.
+
+**Backward compatibility, and the order of deploy.**
+
+| Order | What a reader sees | Why |
+| --- | --- | --- |
+| Backend first, panel later (the order of § L) | The older panel shows exactly what it shows today | Its check ignores keys it does not know. |
+| Panel first, backend later | The strategy's performance block shows its error with "Try again", AND each row of the Strategies list shows its figures as unreadable. The rest of both pages works. | The new check refuses a `by_pair` entry without the fields, and that check is part of the whole report's (U14). A refusal, not a crash, and it ends when the API restarts. |
+
+The second row is wider than decision 43's, which lost one section. It is accepted because the alternative is a table that prints a rate it was not given. It cannot happen in production under the order of § L, and not at all today (U17).
+
+### H. Layering, and the non-negotiable rules
+
+| Component | Layer | File | Change |
+| --- | --- | --- | --- |
+| `PairStats.win_count`, `PairStats.win_rate` | **domain**/performance | `performance/domain/by_pair.py` | Two fields, no default. Pure `Decimal`, no new import. |
+| `PairBody.wins`, `PairBody.win_rate` | **infrastructure**/performance | `performance/infrastructure/performance_router.py` | § G. `win_rate` is the existing `Ratio`. |
+| `parse_webhook_origin(raw)`, `InvalidWebhookOrigin` | **domain**/signals | `signals/domain/webhook_origin.py` (new) | Pure: a string in, a normalised origin, "unset" or a refusal with its reason out. Imports `urllib.parse` from the standard library and nothing else. |
+| `Settings.webhook_public_origin` | shared configuration | `shared/config.py` | One field, default empty. No validator on the class: a validator would fail at import, with a traceback and no alert. |
+| `webhook_origin_router`, `WebhookOriginBody` | **infrastructure**/signals | `signals/infrastructure/webhook_origin_router.py` (new) | `GET /webhook-origin`, the bearer dependency on the router. Included under `/api` in `main.py`. |
+| `log_webhook_origin(settings)` | **infrastructure**/signals | `signals/infrastructure/webhook_origin_check.py` (new) | Called in `lifespan` inside `operator_alerts`, after `assert_panel_dist_ready`. Logs; never raises. |
+| The INFO line of a changed share | **application**/strategies | `strategies/application/update_strategy.py` | § J. No new port. |
+| `StrategyView.allocation_percent` in plain notation | **infrastructure**/strategies | `strategies/infrastructure/router.py` | The `Money` annotation of `shared/infrastructure/wire.py`. |
+
+- **No use case and no port for the origin.** The route reads a setting through a pure function, as `webhook_secret_router` reads its setting directly. A class between them would hold nothing.
+- **`domain/` gains no framework import.** The win count is arithmetic over dataclasses; the origin parser is the standard library.
+- **Frontend**, container and presentational: `PoolShareEditor` (container: the draft, the save, the states) over `ShareSlider` (presentational: the track, the stops, the field); `share-value.ts` (pure: read, parse, round, position); `InlineStatus`; `shared/lib/clipboard.ts`; `shared/api/webhook-origin.ts`; `webhook-url.ts` (pure: the assembly). Modified: `shared/api/strategies.ts`, `shared/api/types.ts`, `shared/api/performance.ts`, `StrategyDetailPage.tsx`, `AllowedPairsEditor.tsx`, `WebhookMessage.tsx`, `PairStatsTable.tsx`, `features/overview/format.ts`, both locale files, `test/keyboard.ts`, `shared/theme.test.ts`.
+
+| Rule | Impact |
+| --- | --- |
+| `DRY_RUN` (rule 1) | Nothing here differs by mode and nothing needs a credential. No test needs one. |
+| Idempotency (rule 2), webhook (rule 3) | Untouched. The webhook's route, its authentication and its 3-second budget do not change; the new setting is display only and cannot stop the process that serves it. |
+| Allocation transaction (rule 4) | Untouched. The PATCH takes the strategy's row lock and no advisory lock, as today, so no lock order changes. The share is read before the pool lock and only an amount enters it (U3). |
+| Pools (rule 5), PnL in native currency (rule 7) | A win is the sign of a PnL in its pool's own currency. A win rate is a ratio of counts within one strategy, which is one pool; nothing is summed across pools or converted. |
+| Ledger (rule 6) | Read only. |
+| Credentials (rule 8) | Untouched. The webhook secret is not a vault credential; § E and § F keep it out of every log, state and request. |
+
+### I. Texts (proposed, for the owner's review)
+
+Two are the owner's own words (decision 48): "Saved" / "Guardado" and "Copied" / "Copiado". Every other line is a proposal.
+
+| Key | EN | ES |
+| --- | --- | --- |
+| `strategies.detail.share.label` | Share of the pool per trade | Porcentaje del pool por operación |
+| `…share.hint` | Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size. | Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño. |
+| `…share.valueText` | {{value}}% of the pool | {{value}} % del pool |
+| `…share.stop` | Set the share to {{value}}% | Fijar el porcentaje en {{value}} % |
+| `…share.notNumber` | Enter a number, for example 25 or 33.5. | Escriba un número, por ejemplo 25 o 33,5. |
+| `…share.outOfRange` | The share must be above 0 and at most 100. | El porcentaje debe ser mayor que 0 y como máximo 100. |
+| `…share.save` | Save share | Guardar porcentaje |
+| `…share.saving` | Saving… | Guardando… |
+| `…share.saveFailed` | The share was not saved. Try again. | El porcentaje no se guardó. Inténtelo de nuevo. |
+| `…share.archived` | This strategy is archived and can no longer be changed. | Esta estrategia está archivada y ya no se puede modificar. |
+| `…share.gone` | This strategy no longer exists. | Esta estrategia ya no existe. |
+| `…share.unreadable` | The stored share could not be read, so it cannot be edited here. | No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí. |
+| `strategies.detail.saved` | Saved | Guardado |
+| `strategies.webhook.copyUrl` | Copy URL | Copiar URL |
+| `strategies.webhook.copyMessage` | Copy message | Copiar mensaje |
+| `strategies.webhook.copied` | Copied | Copiado |
+| `strategies.webhook.copyFailed` | Could not copy. Select the text and copy it by hand. | No se pudo copiar. Seleccione el texto y cópielo a mano. |
+| `strategies.webhook.hostUnset` | No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it. | No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook. |
+| `strategies.webhook.hostError` | The webhook's host could not be loaded, so only the path is shown. | No se pudo cargar el host del webhook, por lo que solo se muestra la ruta. |
+| `strategies.performance.byPair.winRate` | Win rate | % acierto |
+
+The existing keys are reused unchanged. Palette tokens only: `gain` for the handle, the filled track and the reached stops, `rule` and `rule-strong` for the rest of the track, `ink`, `ink-2`, `ink-3`, `loss`, `panel`, `ground`; no hex and no `var()` in a `className`. None of the new components uses the amber `decision` colour, so the allow-list of `panel-tokens.test.ts` does not change.
+
+### J. What fails here without a log line?
+
+Backend lines carry ids, counts and reasons. None carries the webhook secret, a credential, a DSN or the raw text of a refused setting. The browser has no log, so a panel failure must be visible on screen or pinned by a test.
+
+| Failure | What the owner sees | The line, or why none |
+| --- | --- | --- |
+| **The share is changed and nobody can tell when or from what** | The new value | INFO in `UpdateStrategy`, only when the value actually changed: strategy id, old value, new value. Today the PATCH logs nothing (U2). |
+| The PATCH refuses: archived, unknown id, out of range | The refusal's text (§ C) | None, as for every other refusal of this router today. The 4xx is in the access log, and the owner is looking at the reason. |
+| The panel sends a wrong value (a field other than the share, a number instead of a string, a value the owner did not see) | A wrong position size at the next opening | Nothing can log it: the server sees a valid request. Pinned by a test of the exact request body, and by the field and the handle being views of the one value that is sent. |
+| The handle is moved by a slip and never saved | Nothing changes | None needed. This is why the control has a Save button (decision 48). A test pins that no request is made before Save. |
+| "Saved" shows although nothing was saved | A false confirmation | Cannot be logged. The flag is set only from a 200 whose body passed the strategy check; one test per refusal asserts its absence. |
+| The stored share is not a plain decimal | "The stored share could not be read", no control | The browser has no log. The backend change of § C removes the one known way to produce it. |
+| A refetch after a successful save fails | The share shows the confirmed value, because the answer was written to the cache. The allowed pairs show the old list and no "Saved" (§ D). | None. The query's own error state covers the page. |
+| **The clipboard holds something other than what the owner believes** | "Copied" beside a URL that has since changed | Cannot be logged. This is § N, Q1. |
+| The browser refuses the copy, or has no clipboard | "Could not copy…" instead of "Copied" | The browser has no log, and the text must never be written to a console. The failure text is the trace. |
+| A copy triggers a request for the secret | The secret would be fetched without "Show secret" | Cannot be logged. The existing test that clicks every other button (U16) now clicks both Copy buttons, and a dedicated test counts the requests. |
+| `WEBHOOK_PUBLIC_ORIGIN` is unset | The path alone, and the sentence that says no host is configured | INFO at startup, once: the setting is not set and the panel shows the path only. |
+| `WEBHOOK_PUBLIC_ORIGIN` is malformed | The same as unset | **ERROR at startup, once**, naming the setting and the reason, never the value. ERROR so that it reaches the alert channel: on screen it cannot be told from unset. The API starts. |
+| `WEBHOOK_PUBLIC_ORIGIN` is well formed and wrong (another host, a typo that is still a host) | A full URL that TradingView will post to the wrong place | Nothing can know. INFO at startup prints the normalised origin, so the journal shows what is being served. The sentence a failed alert leaves is TradingView's, not ours. Stated as a limit (§ M). |
+| The origin's route fails, or does not exist on an older API | The path alone, and "could not be loaded" | None in the browser. A 404 is in the API's access log. |
+| The panel is given an origin it does not accept | The path alone, and "could not be loaded" | None. The backend's normalisation is tested to produce only values the panel's check accepts, with one shared list of cases. |
+| A win is miscounted (zero counted as a win, a dry-run operation counted) | A wrong percentage that looks right | Cannot be logged: no data is at fault. Pinned by tests with their mutations (§ K). |
+| `wins` and `win_rate` disagree, or a row lacks one | "The figures by pair could not be read", or the report's error | The browser has no log. A wrong figure is never drawn. |
+| A rehearsal trade reaches `by_pair` | The existing 500 | The existing ERROR of `require_live_only`. |
+| A `style` prop is added later and the CSP silently drops it on the day the panel is served | A control drawn in the wrong place, in production only | Cannot be logged. The source guard of § B turns it into a red test. |
+| The slider is drawn wrongly in one browser (a misplaced handle, no filled part) | A control that works and looks broken | Cannot be logged or tested in jsdom. It is on the list of the owner's review by eye (§ K). The value in the field is always the truth. |
+
+**Threat matrix.** The skill's matrix stays N/A: no shell, subprocess, VCS automation or process integration. Three project rows:
+
+| Threat | Safe behaviour | RED test |
+| --- | --- | --- |
+| The new `/api` route ships without auth | The bearer dependency is on the router | 401 without the token and with a wrong one, in the pattern of the webhook-secret router's test. |
+| The origin's value carries a credential, or the route's body carries the webhook secret | A value with a user or a password is refused and its text is never logged; the body is the origin or null | The parser's refusal case, a log capture that searches every record for the raw value, and the existing secret sweep over the route table. |
+| The origin becomes something the browser requests | It is rendered as text and written to the clipboard only | No request made by the page starts with the origin, and the URL is not inside an anchor. |
+
+### K. Testing strategy
+
+| Layer | What | How |
+| --- | --- | --- |
+| Unit, domain | The win count and rate in `by_pair`; `parse_webhook_origin` | Pure. Hand-built `ClosedTrade`s; a table of origin cases. |
+| Unit, application | The INFO line of `UpdateStrategy`: written on a real change, absent when the share is unchanged or another field is patched | The existing fakes, `caplog` |
+| Router | `PairBody`'s two fields; the origin route (set, unset, malformed, 401); the startup line of each case, and that a malformed value does not raise; the PATCH's plain notation | `httpx.AsyncClient` over ASGI |
+| Integration, real PostgreSQL | The strategy report end to end with wins; a PATCH of the share leaves every existing reservation row unchanged | The existing fixtures of `tests/performance/infrastructure` and of the strategies router |
+| Frontend, pure | `share-value.ts` (read, parse, round, position); `webhook-url.ts`; `rateText` | Vitest, tables of cases |
+| Frontend, components | `ShareSlider`, `PoolShareEditor`, `InlineStatus`, the two Copy buttons, the URL with its host, the Win rate column | Vitest, `vi.stubGlobal("fetch")`, a stubbed `navigator.clipboard` |
+
+**Rules that bind the task breakdown.**
+
+- **Strict TDD.** Each RED fails on an ASSERTION. New fields and functions are first added as stubs that compile and answer WRONGLY: `win_count` 0 and `win_rate` 0; a parser that returns its input; a route that always answers null; a slider whose field never follows the handle; a copy that reports success without writing.
+- **No lock-hold harness applies.** This unit takes no new lock and has no second actor that must wait. The PATCH's row lock and its serialisation against a concurrent toggle are already tested.
+- **Symbol spellings.** The win count crosses a module boundary on a symbol, so the fills are written as `STXUSDT.P` (TradingView's) on the opening side and `STXUSDT` (the venue's) on the closing side, a second strategy's as `STXUSDT_PERP` (Pionex's), and the report is asserted under the pair `STXUSDT`. No assertion compares two spellings as text.
+- **One shared list of origin cases.** The backend's accepted cases, normalised, are the panel's accepted cases; the same list of strings is asserted on both sides, so the two checks cannot drift apart silently.
+- **A new test helper is needed.** `frontend/src/test/keyboard.ts` gains `pressRangeKey(key)`, which stands for the browser's default action on a focused range input, as `pressEnter` stands for a button's: an arrow adds or removes one `step`, Home sets `min`, End sets `max`, the result is clamped, and nothing happens when the keydown was prevented or the input is disabled. It then fires the input and change events. What a test proves with it is the markup's side: a real, enabled range input with the right `min`, `max` and `step`, and no handler that swallows the key. Page Up and Page Down are not modelled: their step is the browser's.
+- **The existing test that clicks every other button** (U16) will now click the stops, Save and both Copy buttons, so it can send a PATCH. Its fetch double must answer one; the assertion, that no request for the secret was made, does not change.
+- **Mutations that prove the tests which pass at once.**
+
+  | Test | Mutation that must turn it red |
+  | --- | --- |
+  | A PnL of exactly zero is not a win (3 wins, 1 zero, 1 loss read 3 and `0.6`) | `>` becomes `>=` |
+  | A zero still counts in the total | The zero trade dropped from the denominator |
+  | A trade with incomplete fees and one with no capital at open are counted | Either filtered out of the count |
+  | The report's wins are the same with and without rehearsal groups in the ledger | The read concatenates the two sets (decision 43's own mutation) |
+  | A malformed origin does not stop the start | The check raises |
+  | The ERROR of a malformed origin does not contain its text | The value interpolated into the message |
+  | An unset origin logs INFO, not ERROR | Unset treated as malformed |
+  | No request is made until Save, whatever is moved, activated or typed | A save on the change event |
+  | Leaving the page after a change sends nothing | A save on unmount |
+  | The request body is exactly `{"allocation_percent": "33.5"}` | `enabled` added to the body; and, separately, the value sent as a number |
+  | A stored `33.5` shows `33.5` in the field with the handle at 34 | The field given the handle's value |
+  | Moving the handle from a stored `33.5` writes a whole number | The decimal kept on a move |
+  | `33,5` is sent as `33.5` | The comma rule removed |
+  | `0`, `100.5`, an empty field and `abc` each leave Save disabled | That case's check removed (one case each) |
+  | A stale draft is dropped when the stored value moves | The `base` comparison removed |
+  | "Saved" is still there ten minutes later | A timer that clears it |
+  | "Saved" goes at the next change of that control, and only of that control | The reset removed; and, separately, one flag shared by both controls |
+  | No "Saved" after each refusal (one per status) | The flag set on settle instead of on success |
+  | The live region exists before the save | The region rendered only with its text |
+  | An archived strategy's track, stops, field and Save are disabled | The `disabled` removed from one of them |
+  | The copied text equals the text of the `<code>` element, hidden and revealed | A second assembly of the URL in the handler |
+  | A copy makes no request | The handler calling the secret's refetch |
+  | A missing clipboard and a rejected write both show the failure text | The `false` branch reporting success |
+  | "Copied" moves to the other button and goes when the block is closed | Two independent flags; and, separately, the block hidden with CSS instead of unmounted |
+  | An origin with a path, a query, a user or a trailing slash is not used by the panel | The `new URL(value).origin === value` check removed |
+  | With no origin the URL is the path alone, as today | An empty origin rendered as `null` or `undefined` text |
+  | The URL is not inside an anchor and no request starts with the origin | The `<code>` turned into a link |
+  | A `by_pair` row without `wins` or `win_rate` refuses the report (one case per field) | That field's check removed |
+  | `wins` 0 with a rate above 0, and `wins` equal to `trades` with a rate below 1, read as unreadable | The agreement check removed |
+  | The win rate has no sign and is in neutral ink | `percentText` and `toneClass` applied to it |
+  | No source file has a `style=` prop | One `style={{}}` added anywhere |
+  | The slider's rendered tree has no `style` attribute | The same, inside the slider |
+
+- **What jsdom cannot prove, left to the owner's review by eye and to a real browser.**
+  1. The look of the slider in Chrome, Firefox and Safari: the handle, the filled part, the stops under the handle's centre.
+  2. Dragging by pointer and by touch; the arrow, Home, End and Page keys; the focus ring.
+  3. The field beside the track and its wrap on a narrow screen; that the four stops never touch.
+  4. **The CSP**: the built bundle served by FastAPI with `PANEL_DIST_DIR` set, the strategy page open, no policy violation in the console (§ B).
+  5. The clipboard in a real secure context, and its failure text over plain HTTP on another address.
+  6. The By pair table's width in English and Spanish.
+  7. Every text of § I, in both languages.
+- **The owner's local fixture** (`vite.fixture.config.ts`, unstaged) must serve `wins` and `win_rate` on each `by_pair` entry, the `webhook-origin` route, and a PATCH that answers the share it was sent. Without the first, the new panel refuses the report on that fixture (§ G), which would look like a defect and is the check working.
+- **Gate after every unit.** Backend: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Frontend: `npm run lint` and `npm test`.
+
+### L. Delivery
+
+Two sequential PRs to `main`, never stacked, split by deploy order and not by size.
+
+```
+ 12f-1 backend: wins in by_pair, the webhook origin    ─►   12f-2 panel: the slider and its save, "Saved",
+       setting and route, the share's log line and            the two Copy buttons, the full URL,
+       plain notation                                          the Win rate column
+```
+
+| PR | Contents | What changes for a user at deploy | Deploy | Risk | Rollback boundary |
+| --- | --- | --- | --- | --- | --- |
+| **12f-1** | `PairStats` and `PairBody` with wins; `parse_webhook_origin`, the setting, the route and the startup line; the INFO line of a changed share; the share written in plain notation | Nothing visible. Two more fields on each `by_pair` entry, one new GET, one more startup line. | Pull as `strategy`, restart both services. Setting `WEBHOOK_PUBLIC_ORIGIN` in the environment is the owner's step, at any time; until then the route answers null. | **Low.** Additive fields, a read-only route, a setting that cannot stop the start. | A revert removes the two fields and the route (its path then answers 404). No data is touched. |
+| **12f-2** | Everything of §§ B to G on the panel side, the texts, the keyboard helper, the source guard | Locally, and in production once the panel is served: the share can be changed, a save and a copy are confirmed, the URL carries its host, By pair shows the win rate. | Pull as `strategy`, no restart (the panel is not served while `PANEL_DIST_DIR` is unset). | **Medium.** It is the first control of the panel that changes how much capital a strategy asks for. The value is a string, sent only on Save, checked at three layers on the server, and its request body is pinned by a test. | A revert restores the page as it is today, which works against the new API. |
+
+- **Why two.** The panel refuses a `by_pair` entry without the new fields and reads a route that must exist, so the API is merged and running before the panel that asks (§ G). The panel PR is also the one the owner reviews by eye, and that review should not hold a finished backend change.
+- **Why not three.** The slider, "Saved" and Copy need nothing from 12f-1 and could ship before it. Putting them in a PR of their own would be a split by size, which the owner does not want; and the win rate column and the URL would then be a third PR for one page.
+- **One PR for everything is possible**, because the panel is not served in production and the order hazard exists only on a developer machine today. The recommendation stays two, for the review-by-eye reason.
+- **No migration.** The share's column exists since migration 0007. A win is derived at read time. The host is a setting. So no rehearsal on a restored backup is needed for this unit.
+- **Forecast, as information only.** 12f-1: 600 to 900 authored lines. 12f-2: 2,000 to 3,000. Both assume tests at about twice the production code, the ratio the last panel units ran at. `Decision needed before apply: Yes` (Q1 of § N, for one task of 12f-2 only; 12f-1 and the rest of 12f-2 can start) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+
+**Design decisions made here** (not owner decisions; each has its reason above):
+
+| # | Decision | Section |
+| --- | --- | --- |
+| F1 | The slider is the native range input, restyled; the track, the filled part and the stops are an SVG drawn with attributes | B |
+| F2 | No `style` prop is written anywhere in the panel, and a source test keeps it so | B |
+| F3 | The stops are real buttons placed with one fixed class each | B, C |
+| F4 | One decimal string is the value; the handle is its rounding, clamped to the track; a stale draft is dropped | C |
+| F5 | The field is text with a decimal keypad, accepts one comma, and shows a dot in both languages | C |
+| F6 | The save sends the share alone, as a string, and writes the checked answer into the cache | C |
+| F7 | `UpdateStrategy` logs a changed share; the strategy view writes the share in plain notation | C, J |
+| F8 | The Strategies list and the new-strategy dialog are not touched | C |
+| F9 | One shared live text, always mounted, for "Saved", "Copied" and the copy failure; each control keeps its own flag | D, E |
+| F10 | A copy takes the string already rendered; no `execCommand` fallback; the URL is never a link | E |
+| F11 | The host is `WEBHOOK_PUBLIC_ORIGIN`, an origin and nothing more, parsed by a pure domain function | F |
+| F12 | A malformed host is an ERROR at startup and is served as null; it is not a startup invariant | F, J |
+| F13 | The host has its own authenticated route; `/health` is not widened | F |
+| F14 | The panel accepts only a value equal to its own `URL.origin` and concatenates | F |
+| F15 | Wins are counted in `by_pair`; the wire carries the count and the ratio; no report but By pair gains one | G |
+| F16 | The win rate is unsigned, one decimal, neutral ink; no column is hidden | G |
+| F17 | A `by_pair` entry without the fields refuses the report, at the cost of the list's figures against an older API | G |
+| F18 | Two PRs, backend then panel | L |
+
+### M. Risks, and what could be wrong in this design
+
+| Risk | Why it matters | Mitigation or honest limit |
+| --- | --- | --- |
+| The panel has never been loaded under its CSP | A wrong belief about the policy would show only on the day the panel is served | The slider needs no runtime style (§ B). The check in a real browser is a task of 12f-2 and can be made locally. It also covers the fonts and the chart, which § 13 already asked to rehearse. |
+| The restyled native control differs by browser | Vendor pseudo-elements are the least portable part of CSS; the filled part depends on the SVG lining up with a thumb whose size each engine must honour | The handle is the browser's and is always where the value is; a misalignment is cosmetic and at most a few pixels. The fallback is the unstyled native control with `accent-gain` (§ B). Reviewed by eye in three browsers. |
+| The owner's reference image did not reach the session | The drawing follows the pattern, not the capture | Decision 48 says so. The look is the owner's review; the structure does not depend on it. |
+| A value below 1 sits at the end of the track | The handle shows 1 for a share of 0.5 | The field and the screen-reader text show the exact value. § N, Q2. |
+| The clipboard keeps the secret after it is hidden | "Hide secret" and leaving the view clear the screen and the cache, not the clipboard; a clipboard history may keep it longer | The owner's decision. The panel has no way to take a copy back. Stated in § E. |
+| A well-formed, wrong host is shown with full confidence | The owner pastes it into TradingView and every alert goes elsewhere | The startup INFO prints what is served. No check can know the right host. A full URL is still less error-prone than a path the owner completes by hand. |
+| The webhook host is now told to whoever holds the admin token | It links the panel to the webhook's address | The token already arms strategies and reveals the webhook secret. The host is public DNS. |
+| The win rate near zero PnL | An operation with incomplete fees may be counted on the wrong side | Decision 44 accepts it and says so. The count follows the PnL the ledger gives. |
+| One decimal can still round a loss away | At 2,000 closed operations of one pair, 1,999 wins read "100.0%" | `wins` is served, so the exact count is always available. Far beyond this system's volume per pair. |
+| The new check refuses the list's figures against an older API | Wider than decision 43's degradation | Deploy order (§ L). Not reachable in production today. |
+| A changed share has a log line and no history on screen | The owner reads the panel, not the journal | The enable switch has an event log; the share does not, and a table for it would be a migration and its own unit. Flagged, not designed. |
+| The allowed pairs' "Saved" is not shown when the refetch after a successful save fails | A true save is not confirmed | It errs on the safe side. Fixing it means changing the existing hook, which is outside this unit. |
+| The Spanish By pair table scrolls sideways | Five columns under long Spanish headings | The table already could. The lever is the existing headings, which decision 46's precedent would shorten; not done here. |
+
+### N. Open questions for the owner
+
+Four questions. Only Q1 holds a task back; the other three have a default the design builds unless the owner says otherwise.
+
+- **Q1. When the URL on screen changes after it was copied, does "Copied" stay beside the Copy URL button?** Decision 48 says "Copied" stays until something else is copied or the block is closed. It also says the owner must never believe the clipboard holds something it does not. The two meet in one case: the owner copies the URL with the placeholder, sees "Copied", then presses "Show secret". The URL on screen is now the real one, "Copied" is still beside it, and the clipboard still holds the placeholder. Pasted into TradingView, that URL makes every alert fail authentication. The reverse case, copy the real URL and then hide the secret, leaves "Copied" beside a placeholder while the clipboard holds the secret.
+  - *(a)* As written: "Copied" stays until another copy or until the block is closed.
+  - *(b)* "Copied" beside the URL button is shown only while the URL on screen is the one that was copied; showing or hiding the secret removes it. The alert message never changes, so its "Copied" follows (a) either way.
+  - The design recommends (b). It is built without keeping the copied text: the panel remembers only whether the secret was shown at the moment of the copy.
+  - The design does not choose between a rule the owner wrote and the reason the owner gave for it. The one task that builds when "Copied" disappears waits for this answer.
+- **Q2. May the number field hold a share below 1%?** The track runs from 1 to 100 (decision 48). The domain, the API and the database accept any value above 0, so `0.5` can be stored, and a value stored that way must in any case be displayed.
+  - Default built: the field accepts what the API accepts, above 0 and at most 100. A value below 1 leaves the handle at the start of the track.
+  - Alternative: the field refuses a value below 1. A share stored below 1 by another client would still be shown, and could then only be raised.
+- **Q3. Should the header line of the page show the share?** The mockup prints it there ("Bybit USDT pool · 30% per trade · active 41 days…"). The page built in PR 12b does not, and it is not one of this unit's five pieces.
+  - Default built: no. The share is shown and edited in the settings column only.
+  - If wanted, it is one figure in the header, read from the same strategy and updated by the same save.
+- **Q4. Win rate with one decimal, or whole as in the mockup?** The mockup shows "58%". The design proposes "58.3%".
+  - Reason: a whole percentage rounds 199 wins of 200 to "100%", which reads as a perfect record. One decimal costs no width, because the heading is wider than the figure.
+  - Default built: one decimal. Changing it is one argument of one function.
+
