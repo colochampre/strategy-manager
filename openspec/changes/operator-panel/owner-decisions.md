@@ -302,6 +302,11 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - **The field goes above the track**, as on Binance: the percentage of the pool on top, then the track.
       - **Under the track, the amount that percentage of the pool means**, in the pool's own currency, as Binance shows the amounts under its track.
       - **The stops may read as a legend rather than as buttons**; that is fine. They sit closer to the track than in the first prototype.
+    - **Answered 2026-10-06, after handling the second prototype (the field above the track, the amount under it):**
+      - **The explanatory paragraphs do not stay on screen.** Three paragraphs under the amount buried the control. Each explanation goes behind an information button, the usual "i" inside a circle, placed where the detail it explains is; activating the button shows the text.
+      - **The number and the `%` sign sit together at the left of the field**, as on Binance, not the number at the left edge and the sign at the right.
+      - **The distance of the stops' labels from the track is right** as the second prototype has it.
+    - **Answered 2026-10-06 (§ N, Q5): the warning on the pool's minimum order is enough for now.** No unit is recorded for a warning per pair. The design's finding stands as a known limit, and is said where the owner can read it: the exchange's minimum for each pair is not checked by the panel, the worker refuses an order that would be too small and opens nothing, and under dry run nothing refuses it.
     - **Answered 2026-10-06 (§ N, Q3): the share is shown in the settings column only.** The mockup also printed it in the page's header line ("Bybit USDT pool · 30% per trade · active 41 days…"); the header as built does not, and it stays that way.
 
 ## Standing constraints

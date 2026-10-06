@@ -3600,7 +3600,9 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 
 > **Revised 2026-10-06.** The owner answered Q1 and Q2 of § N the same day and handled the prototype (`visual/project/PoolShareSlider.html`) with the Binance order form as the reference (decision 48's lines of 2026-10-06). Folded in: "Copied" beside the URL follows the URL on screen (§ E); the field sits above the track, the stops read as a legend, and the amount the share means sits under the track (§ B, § C, § C2); a share below 1% is allowed; and the owner's new requirement, that a share be enough to trade the strategy's pairs, is answered in § C3 with the branch the design can deliver honestly, the warning. §§ H to N are revised to match. The findings of § A are extended with U18 to U27, verified at HEAD `7751a9a`.
 
-**The answer in one paragraph.** The share is edited with the browser's own `<input type="range">`, restyled, over an inline SVG that draws the track, the filled part and the four stops with geometry ATTRIBUTES. No `style` prop is written anywhere, so the question of what `style-src 'self'` allows at runtime never arises for this control; it rests on the same mechanism as the return chart. The value is one decimal string: the field, above the track, shows it exactly, the handle sits at its nearest whole step, and only Save sends it, as `{"allocation_percent": "33.5"}` to the PATCH that already exists. Under the track the panel shows the amount that share asks for, which the SERVER computes with the function allocation itself uses, served once as a table of the hundred whole steps so that dragging makes no request; the browser still computes no money. The same answer says whether that amount is below the pool's own minimum order, the one figure about "enough to trade" that the API process knows exactly; that is a warning and never blocks a save. The exchange's minimum per pair needs a price and a leverage the API process does not have, so it is not checked in this unit, the panel says so in one sentence, and it is proposed as its own unit (§ C3, § N, Q5). "Saved" and "Copied" are one small live text, mounted before it has anything to say. A copy writes the exact string the page is showing and never asks for the secret. The webhook's host is a new setting served by a new authenticated route, because the webhook does not live on the panel's origin (decision 5), and a malformed value is never served and never stops the API. A win is counted in `by_pair` and served as a count and a ratio; the panel formats the ratio and computes nothing. Two sequential PRs, backend then panel, split by deploy order. No question holds a task back.
+> **Revised again 2026-10-06 (HEAD `d58ea85`).** The owner handled the second prototype and answered Q5 (decision 48's last lines). Folded in: the explanatory sentences leave the screen and go behind two information buttons, a disclosure in place (§ B2); the number and the `%` sign sit together at the left of the field (§ B); the legend's distance from the track is approved and § B's legend is unchanged; and the warning on the pool's minimum order is enough, so no unit is recorded for a warning per pair. What is not checked stays in this addendum as a known limit of the unit (§ C3, § M), not as later work. No question is open.
+
+**The answer in one paragraph.** The share is edited with the browser's own `<input type="range">`, restyled, over an inline SVG that draws the track, the filled part and the four stops with geometry ATTRIBUTES. No `style` prop is written anywhere, so the question of what `style-src 'self'` allows at runtime never arises for this control; it rests on the same mechanism as the return chart. The value is one decimal string: the field, above the track, shows it exactly, the handle sits at its nearest whole step, and only Save sends it, as `{"allocation_percent": "33.5"}` to the PATCH that already exists. Under the track the panel shows the amount that share asks for, which the SERVER computes with the function allocation itself uses, served once as a table of the hundred whole steps so that dragging makes no request; the browser still computes no money. The same answer says whether that amount is below the pool's own minimum order, the one figure about "enough to trade" that the API process knows exactly; that is a warning and never blocks a save. The exchange's minimum per pair needs a price and a leverage the API process does not have, so it is not checked, and that is a known limit of this unit (§ C3). The explanations of the control are not on screen: two information buttons, each a disclosure in place beside the thing it explains, show them when activated (§ B2). "Saved" and "Copied" are one small live text, mounted before it has anything to say. A copy writes the exact string the page is showing and never asks for the secret. The webhook's host is a new setting served by a new authenticated route, because the webhook does not live on the panel's origin (decision 5), and a malformed value is never served and never stops the API. A win is counted in `by_pair` and served as a count and a ratio; the panel formats the ratio and computes nothing. Two sequential PRs, backend then panel, split by deploy order. No question holds a task back.
 
 ### A. Findings from the code (verified at HEAD `cacea20`)
 
@@ -3675,18 +3677,90 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 
 **Layout** (revised 2026-10-06, decision 48, with the Binance order form as the reference). Top to bottom, each on the full width of the column:
 
-1. The label.
-2. **The field**, wide, with the `%` sign inside its box at the right. It is above the track, not beside it.
+1. The label, with its information button right after it (§ B2).
+2. **The field**, as wide as the column, with the number and the `%` sign together at its left (below). It is above the track, not beside it.
 3. **The track**, 44 px tall, with the handle.
-4. **The legend of the four stops**, close under the track.
-5. **The amount** that share asks for, in the pool's own currency (§ C2), and under it the warning when the amount is below the pool's minimum (§ C3).
-6. The helper sentences, then the validation or refusal text.
+4. **The legend of the four stops**, close under the track. Its distance from the track is approved as the second prototype has it (decision 48) and is not changed.
+5. **The amount** that share asks for, in the pool's own currency (§ C2), with its information button right after it, and under it the warning when the amount is below the pool's minimum (§ C3).
+6. The validation or refusal text. No helper sentence is on screen (revised 2026-10-06, § B2).
 7. The Save button with "Saved" beside it.
 
 - With the field on its own row, the track always has the whole column: about 360 px on a desktop and about 300 px on a phone, so the four 44 px targets are about 86 px and about 70 px apart and never touch. Nothing wraps, and the minimum-width rule of the first layout is gone.
 - The rightmost target is centred on the end of the track and runs 12 px past the inset box, inside the column's own padding.
 - These widths are read from the classes and are confirmed by eye.
-- `visual/project/PoolShareSlider.html` is the prototype of the FIRST layout (the field beside the track, the stops as chips a row below). It is kept as it is; where it and this section differ, this section is the design.
+- `visual/project/PoolShareSlider.html` now holds the SECOND prototype (the field above the track, the legend, the amount, and three paragraphs under it). The owner approved its legend and changed two things, which this section and § B2 design and the prototype does not show: the paragraphs go behind information buttons, and the sign moves beside the number. Where the file and this addendum differ, the addendum is the design.
+
+**The field's inside: the number and the `%` sign together at the left** (revised 2026-10-06, decision 48). The sign must follow the last character typed, so the input has to be as wide as its text, and this panel sets no width through a `style` prop (F2).
+
+| Option | For | Against |
+| --- | --- | --- |
+| **An `<input>` sized by its `size` ATTRIBUTE to the length of its text, in a wrapper drawn as the field, with the sign as the next sibling (chosen)** | An attribute, not a style, so the CSP and the source guard are not in play. One number per render. The value model of § C is untouched: the text never contains the sign. A test can assert the attribute. | It relies on the field's font being monospaced, and on each engine sizing `size` in character widths. Neither can be seen in jsdom. |
+| The sign as part of the field's own text (`33.5%`) | One element; a screen reader hears the unit | The value is rewritten on every keystroke, which moves the caret unless it is set by hand each time; that misbehaves with mobile keyboards and with composition. A selection of everything includes the sign, a deletion can remove it, a paste carries its own. The sign would count against `maxLength` and every reader of the text would have to strip it. It turns a text field into a mask. |
+| `field-sizing: content` | It is the CSS property made for this, and Tailwind 4 has a utility for it | To this design's knowledge it is not in every current browser, and that was not verified today. Where it is missing the input keeps its default width and the sign sits far to the right, which is exactly what the owner sent back. |
+| A hidden span mirroring the text, sharing a grid cell with the input | Independent of the font | The text is in the document twice, and the cell's width rests on how an input with a percentage width contributes to an automatic track. Kept as the FALLBACK if any engine leaves a gap with the chosen option. |
+
+- **The markup.** A wrapper `<div>` carries everything that made the field look like a field: the full width, `min-h-11`, the border, the `ground` fill, the horizontal padding. Inside it, at the left: the `<input>`, with no border, no fill, no horizontal padding of its own except 2 px at the right for the caret, then a `<span aria-hidden="true">%</span>` in the same font and the same ink. The rest of the wrapper is empty.
+- **`size` is the number of characters in the field, and at least 1.** `size="0"` is not valid, so an empty field is one character wide and the sign stands one character from the left edge, which shows where to type.
+- **Does one character equal one unit of `size`?** The field is in `font-mono`, whose stack is IBM Plex Mono and then `ui-monospace`, Menlo, Consolas and `monospace` (`frontend/src/index.css`, `@theme`): every font in it is monospaced, so a fallback does not break the rule. A digit, a dot and a comma are each one character wide. A pasted wide character (a CJK digit, an emoji) is wider than one unit; the text is then not a number, the validation says so, and the input scrolls inside itself.
+- **A long text.** `maxLength` is 12, so the input is at most 12 characters wide, about 100 px in a 300 px column. It cannot push the sign out of the field. A paste is cut to 12 by the browser, and `size` follows the value on the next render.
+- **The focus ring is the wrapper's**, with `focus-within`, and the input's own outline is removed. A text input always shows focus, by mouse or by key, so `focus-within` here is the same moments as `focus-visible`. An invalid value turns the wrapper's border `loss`; a disabled control dims the wrapper.
+- **A press anywhere in the wrapper puts the caret in the input.** The wrapper has `cursor-text` and one handler that focuses the input when the press was not on the input itself. It is not a second `<label>` around the input: that would join the field's accessible name, which the visible label already gives.
+- **What § C says about the value does not change:** `type="text"`, `inputMode="decimal"`, one comma accepted, the validation, `maxLength` 12, the dot shown in both languages. Typing a `%` is still "not a number": the sign is already there. The field's name and the track's `aria-valuetext` are unchanged.
+- **To check by eye in three browsers** (§ K): that the sign touches the number at one digit, at `33.5`, at `100` and at twelve characters, and that the caret at the end of the text is not clipped.
+
+### B2. The information buttons (decision 48, added 2026-10-06)
+
+The owner's ruling: the explanations do not stay on screen. Three paragraphs under the amount were taller than the control and pushed the card past one screen at 300 px. At most an information button, the usual "i" in a circle, where each detail belongs; activating it shows the information.
+
+**The mechanism.**
+
+| Option | CSP and the no-`style` rule | Keyboard and screen reader | Touch | jsdom | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| **A disclosure in place: a `<button>` with `aria-expanded` and `aria-controls` that reveals the text in the flow, under its line (chosen)** | Nothing is positioned, so nothing is computed | A real button: Enter and Space. The state is announced, and the text is the next thing in reading order. | A tap | Fully testable: the click, the attribute, the text in the document | The panel already has two (`features/overview/MonthlyGrid.tsx:196-204`, `features/strategies/StrategyHeader.tsx:53-61`), so it is the pattern, not a new one. |
+| The native `popover` attribute | A popover is drawn in the top layer. Without an anchor it appears in the middle of the viewport, away from the detail it explains. Anchoring it needs either CSS anchor positioning, which this design did not verify in every current browser, or a position computed in script and written as a style, which F2 forbids. | Good: Escape and light dismiss come free | A tap | To this design's knowledge jsdom does not implement the popover API, so opening and closing could not be tested | Refused |
+| A `<details>` element | No positioning | Good | A tap | Partly | Refused. The text is a child of the same element as its summary, so a button that sits INSIDE a row cannot reveal a block UNDER that row without layout tricks; and its state lives in the DOM, not in the component. |
+| A `title` tooltip | None | Not reachable by keyboard in most browsers; read unevenly | **Hover does not exist on a phone** | Only the attribute | Refused. It does not meet "activating it shows the information". The panel has two `title` hints today, on the incomplete-fee mark (`TradesTable.tsx:124`, `TradeDetailDialog.tsx:161`); they are not the model. |
+
+**How many, and where.** Two.
+
+| Button | Sits | Reveals, under its row | Its text (§ I) |
+| --- | --- | --- | --- |
+| 1 | Right after the label | What the share is, and that a change applies from the next operation | `…share.hint` |
+| 2 | Right after the amount | First: that the amount is an estimate, that it is margin, and when the balance was read. Second: that the exchange's minimum per pair is not checked. | `…share.amountHint`, then `…share.pairMinimumNote` |
+
+- **The per-pair limit shares the amount's button; it does not get a third.** It is a statement about the amount: whether that much is enough. It has no line of its own to sit beside, since the sentence WAS the line. And a second glyph on the amount's row would differ from the first only in a name that sighted users do not see. One button, two paragraphs: whoever asks what the figure means is told, in the same place, what it does not guarantee.
+- **The amount's row is always there, so its button is always there.** With no valid value in the field the figure is an em dash, the panel's existing mark for an absent figure; with no balance or a failed read it is that state's line (§ C2). The button never appears and disappears with the figure.
+
+**What is always visible, and what is behind a button.**
+
+| Line | Where |
+| --- | --- |
+| The label, the field with its sign, the track, the legend | Always visible |
+| The amount, or its loading mark, or the em dash | Always visible |
+| "The pool's balance was last read at … and may be out of date." | **Always visible.** It changes what the figure means. |
+| "The pool's balance has not been read yet…" and "The amount could not be loaded." | **Always visible.** Each stands where the figure would be. |
+| **The warning that the share asks for less than the pool's minimum order** | **Always visible.** It is the one thing this control checks. |
+| The validation text (not a number; out of range) | Always visible |
+| A refused save; the unreadable stored value | Always visible |
+| "Saved" | Always visible |
+| What the share is; a change applies from the next operation | Behind button 1 |
+| The amount is an estimate, is margin, and was read at a given time | Behind button 2 |
+| The exchange's minimum per pair is not checked; too small an order is refused and nothing opens | Behind button 2 |
+
+- **What is lost, said plainly.** In the last revision the sentence about the per-pair minimum was always on screen, so that the absence of a warning could not be read as "enough for every pair". It is now one activation away. Without a click, nothing on the control says that a minimum exists which the panel does not check. This is the owner's choice (decision 48), made after seeing the alternative bury the control.
+- **What still shows without a click:** the word "about" in the amount; the warning on the pool's minimum whenever it applies; the stale-balance line. And the protection itself does not depend on any text: the worker refuses an order that would be too small and opens nothing (U25).
+- The time of the balance's read also moves behind button 2, except when the balance is stale, where the always-visible line carries it.
+
+**Behaviour.**
+- **Each button opens and closes its own text. Both may be open at once.** They are independent: closing one because the other opened would move the page under the reader.
+- **What closes one:** the same button; and Escape, while focus is on the button or inside its text, which leaves focus on the button. Focus LEAVING does not close it, and neither does a press elsewhere: the text is part of the page, not a floating layer, and the owner must be able to read it while moving the handle.
+- **Closed by default, on every visit.** The state is local to the component. It survives a save and a change of language, because neither remounts the control; the open text is then simply in the other language. It is reset when another strategy's page is shown. Nothing is stored.
+- **They are never disabled.** On an archived strategy and during a save, reading is still allowed.
+- **Names.** Each says what it explains, not "info", and does not change with the state, which `aria-expanded` carries: "About the share of the pool" and "About this amount and what is not checked" (§ I).
+- **The text's container** is always in the document, empty while closed, so `aria-controls` always points at something. The paragraphs are rendered only while open, so a closed explanation is neither read nor found.
+- **The target.** The button's box is 44 by 44 px, transparent, centred on a 16 px glyph. It adds no height to its row: the box extends 12 px above and below a line of text, and the rows around it are 12 px apart, so it touches its neighbours and overlaps none. Confirmed by eye.
+- **The glyph** is an inline `<svg aria-hidden="true">`: a circle, a dot and a stem, drawn with attributes and coloured through `currentColor` from a text class, as the rest of this control. `ink-3` at rest, `ink-2` on hover, `ink` while open. No icon font, no external file, and no text character: the circled "i" of Unicode is drawn differently by each system's fallback font.
+- **One small shared piece.** `InfoDisclosure.tsx` in `features/strategies/`, beside `InlineStatus` (§ D): a hook that owns the open state and the two ids, and two presentational parts, the button and the container, because the two sit in different places of the layout. It is the first control of its kind in the panel. It lives with the feature that uses it, as `InlineStatus` does; no shared folder is created for one feature, and moving both is a rename on the day a second feature needs one. The two pieces are not merged: one is a live status, the other a disclosure.
 
 ### C. The slider: the value, the keyboard, the states, the API (12f.1)
 
@@ -3718,12 +3792,13 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 - **The value goes to the API as a string**: `{"allocation_percent": "33.5"}`, and nothing else in the body. The other fields are omitted, which the PATCH reads as unchanged.
 
 **Keyboard and accessibility.**
-- Tab order, which is the order on screen: the field, the track, the four stops in order, Save. The amount and the warning are text and take no stop.
+- Tab order, which is the order on screen (revised 2026-10-06 for the information buttons): the label's information button, the field, the track, the four stops in order, the amount's information button, Save. Nine stops. The amount, the warning and an opened explanation are text and take no stop.
 - On the track the browser's own keys apply: an arrow moves one step, Home goes to 1, End to 100. Page Up and Page Down move by a larger step in the browsers that implement them; the size is the browser's and is not specified here.
 - The track and the field are both named by the visible label. The track carries `min` 1, `max` 100, `step` 1 and an `aria-valuetext` with the exact value, so a screen reader hears "33.5% of the pool" while the handle sits at 34.
 - Each stop is a `<button>` showing "25%" with a name that says what it does ("Set the share to 25%"), and `aria-pressed` when the value is exactly that stop. It reads as a legend and behaves as a button (§ B): Tab reaches it, Enter or Space activates it.
 - The validation text is tied to the field with `aria-describedby` and `aria-invalid`. It is not an alert: it would otherwise be announced on every keystroke of an unfinished number.
-- The track is 44 px tall, each stop at least 44 by 44 px, the field and Save `min-h-11`, as every control of the panel.
+- The track is 44 px tall, each stop and each information button at least 44 by 44 px, the field's wrapper and Save `min-h-11`, as every control of the panel.
+- The `%` sign beside the number is `aria-hidden`, as it was at the right edge: the label and the track's value text already say it is a percentage (§ B).
 
 **States.**
 
@@ -3737,12 +3812,13 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 | Refused, 409 `STRATEGY_ARCHIVED` | "This strategy is archived and can no longer be changed." The page then reads the strategy again and the control turns read-only. |
 | Refused, 404 | "This strategy no longer exists." The page then shows its not-found state. |
 | A network failure, a 5xx, or a 200 whose body is not a strategy | "The share was not saved. Try again." The draft is kept. |
-| An archived strategy | The value is shown; the track, the stops, the field and Save are disabled, as the rest of the column. |
+| An archived strategy | The value is shown; the track, the stops, the field and Save are disabled, as the rest of the column. The two information buttons are not: reading is still allowed (§ B2). |
+| An explanation is open | Its text is under its row, in any of the states above. It stays open through a save, a refusal and a change of language, and closes with its button or Escape (§ B2). |
 | A stored value that cannot be read | "The stored share could not be read, so it cannot be edited here." No track, no field, no Save. Never a guess. |
 
 Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clears the token and the token gate takes over, as on every call.
 
-**Where it sits.** First in the settings column, under the heading and above the allowed pairs, as the mockup has it (U6). Its label is "Share of the pool per trade", the mockup's words. The helper sentences say what the amount is and when a change counts (§ I). The number is a share of the pool's TOTAL balance, not of what is free (`strategies/domain/strategy.py:28-34`), and the text says so.
+**Where it sits.** First in the settings column, under the heading and above the allowed pairs, as the mockup has it (U6). Its label is "Share of the pool per trade", the mockup's words. What the number means and when a change counts is said behind the label's information button, not on screen (§ B2, § I). The number is a share of the pool's TOTAL balance, not of what is free (`strategies/domain/strategy.py:28-34`), and that text says so.
 
 **What "the next operation" means.** The share is read when an opening is sized (U3). An alert already received whose opening was deferred, because it waits for a close to settle, is sized with the share stored when it finally opens. An operation already open is not resized, and a reservation already made is not touched: nothing after `requested` reads the share.
 
@@ -3773,7 +3849,7 @@ Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clear
 
 ### C2. The amount under the track (decision 48, added 2026-10-06)
 
-**What the figure is, exactly.** The margin the next operation would ASK the pool for: the pool's total balance, as last read, times the share. Three things it is not, and the text beside it says each (§ I):
+**What the figure is, exactly.** The margin the next operation would ASK the pool for: the pool's total balance, as last read, times the share. Three things it is not. The text that says each is behind the amount's information button, not on screen (revised 2026-10-06, § B2, § I):
 
 - **Not what is free.** The request is sized from the total (U20), so the same share asks for the same amount whether or not other strategies hold positions. What is GRANTED is capped by what is free, and can be less or nothing.
 - **Not the position's size.** It is margin. The position is that margin times the account's leverage for the pair, divided by the price (CLAUDE.md, "Futures execution").
@@ -3837,12 +3913,14 @@ GET /api/strategies/{id}/share-preview
 
 | State of the amount | What shows under the track |
 | --- | --- |
-| Known | The amount and its currency, and when the balance was read |
+| Known | The amount and its currency. When the balance was read is behind the information button (§ B2). |
 | The balance is stale | The same, with a sentence saying the balance may be out of date |
 | The pool has no balance yet | "The pool's balance has not been read yet, so the amount cannot be shown." |
 | Loading: the first read, or a typed decimal's | A loading mark, no figure |
 | The read failed, or its body was refused | "The amount could not be loaded." The slider, the field and Save are NOT disabled: the amount is information, and its failure must not stop a save. |
-| The field holds no valid value | Nothing |
+| The field holds no valid value | An em dash where the figure would be, the panel's existing mark for an absent figure. The row and its information button stay (§ B2). |
+
+In every state the row ends with the amount's information button. The stale line, the two lines that replace the figure, and the warning of § C3 are always visible; only the explanation of what the figure is sits behind the button.
 
 ### C3. The minimum to trade (decision 48, answered 2026-10-06)
 
@@ -3881,21 +3959,20 @@ For a pair with minimum quantity `q`, step `s`, minimum notional `n`, at price `
 - **The pool's minimum.** When `below_pool_minimum` is true for the value in the field, one sentence under the amount says that at this balance the share asks for less than the pool's minimum order, and that openings would be skipped (§ I). It is the comparison `decide()` makes first, with the function the worker sizes with, on the balance shown; a test asserts that the preview and `decide()` agree on both sides of the limit. It is true of the balance on screen and makes no claim about a later one.
 - **It never blocks.** Save stays enabled. A value below 1% is allowed, and so is a value under the minimum: the owner may be setting the share before a deposit.
 - **It shows on the stored value too**, not only on a change. A share that was fine can fall under the minimum because the balance fell, and the page then says so on its next visit.
-- **One standing sentence says what is NOT checked**: each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage; the panel does not check it; a signal whose order would be too small is refused and nothing is opened. It is always shown, in the helper text, so that the absence of a warning is never read as "enough for every pair".
+- **The warning is always visible.** It is not one of the explanations that moved behind a button (§ B2).
 - **The colour** is `loss`, the palette's colour for refusals, because what it announces is a refusal to come. It is not amber: amber is reserved for what needs the owner's decision and its allow-list is not widened. It is a `role="status"` line, not an alert: it changes while the handle moves.
 
-**What is left for a later unit, and what it needs** (§ N, Q5). The per-pair minimum, as a warning, built well:
-1. The public catalogue keeps each pair's minimum quantity, step and minimum notional instead of dropping them (U22). No new venue read; a change to what unit 9v caches, whose fail-closed rule for SAVING pairs must not change.
-2. **A current price per pair, which is a venue read the API process does not make today** (U23). It needs a public ticker read on each venue, parsed and cached, and first a probe from the VPS, as P7 was for the catalogues.
-3. The amount at 1x, the conservative bound: an allocation that is enough at 1x is enough at any leverage. One that is not enough at 1x may still be enough with leverage, which the API process cannot read (U24), so it can be warned about and never refused.
-4. A read that fails OPEN: a venue that cannot be read means "cannot be estimated", shown as such, and never stops a save.
-
-The smallest honest version of the owner's requirement is therefore what this unit builds. The stale alternative, estimating from the last alert's price in `signals`, was weighed and left out: it has no price for a pair that never fired, which is exactly the new strategy whose share is being set for the first time.
+**The known limit of this unit: the exchange's minimum per pair is not checked** (decision 48, answered 2026-10-06: the warning on the pool's minimum is enough for now, and no unit is recorded for a warning per pair).
+- **What is not checked.** Each pair has a minimum order at the exchange, which depends on its price and on the account's leverage. The API process has neither (U23, U24), so the panel does not compare the share with it. A share can show no warning and still be too small for a pair whose smallest order is large.
+- **What happens then.** Live, the worker refuses the order when it builds it, records the refusal on the signal, releases the reservation and opens nothing (U25, guard 3). Under dry run nothing refuses it, because the simulated exchange applies no minimum (U26).
+- **Where the owner can read it.** In the panel, as the second paragraph behind the amount's information button (§ B2, `…share.pairMinimumNote`). It was always on screen in the previous revision; the owner chose to put explanations behind a button, and § B2 says what that costs. And here, and in § M.
+- **Alternatives weighed and not built.** Estimating from the last alert's price in `signals` has no price for a pair that never fired, which is the new strategy whose share is being set for the first time. A current price is a venue read the API process does not make. Neither is in this unit.
 
 ### D. "Saved" after a save (12f.4)
 
 - **One shared piece, local state.** `InlineStatus` is a presentational component in `features/strategies/`: a `<span role="status" aria-live="polite">` that takes a message or nothing, and a tone. It is ALWAYS mounted, empty until it has something to say: a live region that appears together with its text is not reliably announced. Each control keeps its own boolean; there is no shared store, because the two saves have nothing else in common.
 - **The same piece carries "Copied"** and its failure text (§ E), so there is one pattern for a short confirmation in the panel.
+- **It has a neighbour, and they are two pieces** (added 2026-10-06). `InfoDisclosure`, the information button of § B2, lives in the same folder. `InlineStatus` speaks when something happened; `InfoDisclosure` shows a text when asked. Neither renders the other, and "Saved" is never placed behind a button.
 
 | Control | "Saved" appears | "Saved" disappears |
 | --- | --- | --- |
@@ -4037,7 +4114,7 @@ The second row is wider than decision 43's, which lost one section. It is accept
 - **`domain/` gains no framework import.** The win count is arithmetic over dataclasses; the origin parser is the standard library; the share's amount is the existing pure function.
 - **Why the preview does not reuse `PoolBalancePort`.** The worker's adapter REFUSES a stale snapshot, by raising, and reads a pool map the worker keeps (`accounts/application/pool_balance_adapter.py`; `accounts/infrastructure/db_balance_source.py:43-56`). That refusal is right for sizing a trade and wrong for a display, which must show a stale figure and say it is stale. So the preview has its own read-only port. `decide()` and the allocation path are not touched.
 - **The API process still decrypts nothing and signs nothing.** The preview reads two database rows. No venue is called, no vault row is opened, no transport is built. The per-pair minimum, which would need a venue read, is not in this unit (§ C3).
-- **Frontend**, container and presentational: `PoolShareEditor` (container: the draft, the save, the states, the preview) over `ShareSlider` (presentational: the field, the track, the legend) and `ShareAmount` (presentational: the amount, its age, the warning); `share-value.ts` (pure: read, parse, round, position); `InlineStatus`; `shared/lib/clipboard.ts`; `shared/lib/useDebouncedValue.ts`; `shared/api/webhook-origin.ts`; `shared/api/share-preview.ts`; `webhook-url.ts` (pure: the assembly). Modified: `shared/api/strategies.ts`, `shared/api/types.ts`, `shared/api/performance.ts`, `StrategyDetailPage.tsx`, `AllowedPairsEditor.tsx`, `WebhookMessage.tsx`, `PairStatsTable.tsx`, `features/overview/format.ts`, `features/strategies/format.ts`, both locale files, `test/keyboard.ts`, `shared/theme.test.ts`.
+- **Frontend**, container and presentational: `PoolShareEditor` (container: the draft, the save, the states, the preview) over `ShareSlider` (presentational: the field, the track, the legend) and `ShareAmount` (presentational: the amount, its state lines, the warning); `share-value.ts` (pure: read, parse, round, position); `InlineStatus`; `InfoDisclosure` (a hook and two presentational parts, § B2, added 2026-10-06); `shared/lib/clipboard.ts`; `shared/lib/useDebouncedValue.ts`; `shared/api/webhook-origin.ts`; `shared/api/share-preview.ts`; `webhook-url.ts` (pure: the assembly). Modified: `shared/api/strategies.ts`, `shared/api/types.ts`, `shared/api/performance.ts`, `StrategyDetailPage.tsx`, `AllowedPairsEditor.tsx`, `WebhookMessage.tsx`, `PairStatsTable.tsx`, `features/overview/format.ts`, `features/strategies/format.ts`, both locale files, `test/keyboard.ts`, `shared/theme.test.ts`.
 
 | Rule | Impact |
 | --- | --- |
@@ -4055,15 +4132,17 @@ Two are the owner's own words (decision 48): "Saved" / "Guardado" and "Copied" /
 | Key | EN | ES |
 | --- | --- | --- |
 | `strategies.detail.share.label` | Share of the pool per trade | Porcentaje del pool por operación |
-| `…share.hint` | Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size. | Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño. |
+| `…share.info` (added 2026-10-06; the NAME of information button 1) | About the share of the pool | Acerca del porcentaje del pool |
+| `…share.hint` (**behind button 1**) | Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size. | Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño. |
+| `…share.amountInfo` (added 2026-10-06; the NAME of information button 2) | About this amount and what is not checked | Acerca de este importe y de lo que no se comprueba |
 | `…share.amount` (added 2026-10-06) | Asks for about {{amount}} {{currency}} per operation | Pide alrededor de {{amount}} {{currency}} por operación |
-| `…share.amountHint` | An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage. | Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta. |
+| `…share.amountHint` (**behind button 2**, first paragraph) | An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage. | Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta. |
 | `…share.amountStale` | The pool's balance was last read at {{time}} UTC and may be out of date. | El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado. |
 | `…share.amountNoBalance` | The pool's balance has not been read yet, so the amount cannot be shown. | El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe. |
 | `…share.amountLoading` | Calculating the amount… | Calculando el importe… |
 | `…share.amountError` | The amount could not be loaded. | No se pudo cargar el importe. |
 | `…share.belowPoolMinimum` | At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger. | Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores. |
-| `…share.pairMinimumNote` | Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened. | Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada. |
+| `…share.pairMinimumNote` (**behind button 2**, second paragraph) | Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened. | Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada. |
 | `…share.valueText` | {{value}}% of the pool | {{value}} % del pool |
 | `…share.stop` | Set the share to {{value}}% | Fijar el porcentaje en {{value}} % |
 | `…share.notNumber` | Enter a number, for example 25 or 33.5. | Escriba un número, por ejemplo 25 o 33,5. |
@@ -4083,7 +4162,7 @@ Two are the owner's own words (decision 48): "Saved" / "Guardado" and "Copied" /
 | `strategies.webhook.hostError` | The webhook's host could not be loaded, so only the path is shown. | No se pudo cargar el host del webhook, por lo que solo se muestra la ruta. |
 | `strategies.performance.byPair.winRate` | Win rate | % acierto |
 
-The existing keys are reused unchanged. With the amount on screen, `…share.hint` and `…share.amountHint` are the two helper sentences under it, followed by `…share.pairMinimumNote`; whether three sentences are too many for the column is part of the owner's review by eye. Palette tokens only: `gain` for the handle, the filled track and the reached stops, `rule` and `rule-strong` for the rest of the track, `ink`, `ink-2`, `ink-3`, `loss`, `panel`, `ground`; no hex and no `var()` in a `className`. The warning under the amount is `loss` (§ C3). None of the new components uses the amber `decision` colour, so the allow-list of `panel-tokens.test.ts` does not change.
+The existing keys are reused unchanged. **Revised 2026-10-06 (decision 48):** the three explanatory sentences are no longer on screen. Their wording is unchanged; each is now the content of the information button named beside it in the table, and the only new texts are the two buttons' names. Every other line of the table is always visible when its state applies (§ B2). Palette tokens only: `gain` for the handle, the filled track and the reached stops, `rule` and `rule-strong` for the rest of the track, `ink`, `ink-2`, `ink-3`, `loss`, `panel`, `ground`; no hex and no `var()` in a `className`. The warning under the amount is `loss` (§ C3). None of the new components uses the amber `decision` colour, so the allow-list of `panel-tokens.test.ts` does not change.
 
 ### J. What fails here without a log line?
 
@@ -4116,7 +4195,7 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 
 | Failure | What the owner sees | The line, or why none |
 | --- | --- | --- |
-| **The amount on screen is not what the next operation asks for** | A figure that was true of the balance shown | Nothing is at fault and nothing can log it: the balance is read again when a signal is sized (U20). The text says "about", says it is an estimate and says when the balance was read. |
+| **The amount on screen is not what the next operation asks for** | A figure that was true of the balance shown | Nothing is at fault and nothing can log it: the balance is read again when a signal is sized (U20). The amount says "about" on screen; that it is an estimate, and when the balance was read, are behind its information button (§ B2). |
 | The balance behind the amount is stale | The amount, with the sentence that the balance may be out of date | Nothing in this read. A snapshot that stays old is already an ERROR of the watchdog (`watchdog_snapshot_max_age_seconds`), and the worker refuses to size against it. A line per page view would be noise. |
 | The pool has no snapshot at all | "The pool's balance has not been read yet…" and no amount | None here: `balance: null` is a normal answer for a pool nothing has synced. The same watchdog reports it. |
 | The strategy's pool has no row in `capital_pools` | The amount's error line; the slider still works | 500 with one ERROR naming the strategy and the pool. A strategy cannot be registered on a pool that does not exist, so this is a fault in stored data. |
@@ -4124,9 +4203,13 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 | A typed decimal's amount arrives after the value has changed again | The figure of the value now in the field, or the loading mark; never the earlier one | Cannot be logged. The answer is used only when its `exact.share` is the value asked, and a test with its mutation pins it. |
 | The preview and the engine disagree on the minimum | A warning on a share that would be granted, or none on one that would be skipped | Cannot be logged: neither side is wrong alone. A test asserts that `below_pool_minimum` and `decide()`'s first rule agree just under, at and just over the minimum. |
 | **A share is under the pool's minimum** | The warning under the amount, on a change AND on the stored value | Nothing at save time: it is a legitimate state and the save is allowed. When a signal then arrives, the existing WARNING of the skipped allocation (U25). |
-| **A share is too small for one pair at the exchange** | No warning on the panel: it is not checked, and the standing sentence says so | The existing WARNING `ORDER_NOT_PLACEABLE` when a live signal arrives (U25). Under `DRY_RUN` nothing at all (U26). This is the limit of this unit (§ C3, § M). |
+| **A share is too small for one pair at the exchange** | No warning on the panel: it is not checked. The sentence that says so is behind the amount's information button, no longer on screen (§ B2). | The existing WARNING `ORDER_NOT_PLACEABLE` when a live signal arrives (U25). Under `DRY_RUN` nothing at all (U26). This is the known limit of this unit (§ C3, § M). |
+| **The owner never opens the information button** (added 2026-10-06) | Nothing says that a minimum per pair exists and is not checked | Nothing can log what was not read. It is the cost of the owner's choice to take the explanations off the screen (decision 48), stated in § B2. The worker's refusal does not depend on the text. |
+| An information button does nothing, or its text is on screen from the start | A dead glyph, or the three paragraphs back and the control buried again | The browser has no log. Tests pin both: closed at mount with none of the three sentences in the document, and each sentence present after its button is activated (§ K). |
+| The `%` sign drifts from the number in one browser | A field that works and reads "33.5      %" | Cannot be logged or seen in jsdom. A test pins the `size` attribute to the text's length; the look is on the list of the review by eye, with the mirrored span as the fallback (§ B). |
+| A press in the empty part of the field does not reach the input | The owner taps the field and no caret appears | The browser has no log. A test presses the wrapper outside the input and asserts that the input has focus. |
 | A strategy with no allowed pair | Nothing changes: the amount and the pool's minimum do not depend on the pairs | None needed here. Every opening of such a strategy is already refused with its own WARNING, and saving an empty list is refused by the pairs editor. |
-| A venue that cannot be read | Nothing: this unit reads no venue for the share, so the control, the amount and the warning do not depend on one | None. This is the reason the per-pair check is not in this unit. |
+| A venue that cannot be read | Nothing: this unit reads no venue for the share, so the control, the amount and the warning do not depend on one | None. A check per pair would need such a read, which is why this unit has none. |
 | The panel multiplies the balance itself | A second, unreviewed money computation | Cannot be logged. The amount component takes strings from the preview and nothing from `['pools']`; a test renders it with a pool balance that would give another figure and asserts the served one. |
 
 **Threat matrix.** The skill's matrix stays N/A: no shell, subprocess, VCS automation or process integration. Four project rows (the fourth added 2026-10-06):
@@ -4153,16 +4236,18 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 | Integration, real PostgreSQL | `SqlAlchemyPoolSizing` against real `capital_pools` and `pool_balance_snapshots` rows: a synced pool, a pool never synced, a stale snapshot, a pool with no row. The route end to end for two strategies on two pools. | The existing fixtures of `tests/accounts/infrastructure` |
 | Router | The `share-preview` body field by field; `balance` null with `exact` null and `steps` empty; the 404; the 422 of a bad `share`; no JSON float in the body | `httpx.AsyncClient` over ASGI. The existing walk for a JSON float or an exponent is taught the new route. |
 | Frontend | `fetchSharePreview` and its check; the lookup of § C2 row by row; the debounce; the six states of the amount; the warning; `useDebouncedValue` | Vitest with fake timers, `vi.stubGlobal("fetch")` |
+| Frontend (added 2026-10-06, second revision) | `InfoDisclosure`: closed at mount, open on activation, the attribute, Escape, both open at once, the names. The field's wrapper: the `size` attribute, the sign as the input's next sibling, the press that focuses the input. | Vitest, the existing `pressTab`, `pressEnter` and `pressSpace` |
 
 **Rules that bind the task breakdown.**
 
 - **Strict TDD.** Each RED fails on an ASSERTION. New fields and functions are first added as stubs that compile and answer WRONGLY: `win_count` 0 and `win_rate` 0; a parser that returns its input; a route that always answers null; a slider whose field never follows the handle; a copy that reports success without writing; a preview whose every amount is zero and whose `below_pool_minimum` is always false; an amount line that prints the first step's figure for every value.
+- **The stubs of the second revision.** For the disclosure: a button that is rendered with `aria-expanded="false"` and never opens, so "after activation the sentence is in the document" and "`aria-expanded` is true" fail on their assertions. For the field: an input with a fixed `size` of 12 and the sign placed before it, so "`size` equals the length of the text" and "the sign is the input's next sibling" fail on theirs. "Closed at mount" passes at once against that stub and is proven by its mutation in the table below.
 - **No lock-hold harness applies.** This unit takes no new lock and has no second actor that must wait. The PATCH's row lock and its serialisation against a concurrent toggle are already tested (`tests/strategies/infrastructure/test_update_strategy_concurrency.py`). The preview takes no lock at all, and one test asserts exactly that: on real PostgreSQL, a preview completes while another connection still HOLDS the pool's advisory lock. It is the lock-hold harness used the other way round: here the second actor must NOT wait, so a later edit that makes the preview queue behind an allocation turns the test red.
 - **The preview and the engine are tested against each other, not each alone.** For amounts just under, at and just over the pool's minimum, `below_pool_minimum` must equal "`decide()` answers `REQUEST_BELOW_MIN_ORDER_SIZE`" for the same request and rules. And for a table of totals and shares, the preview's amount must equal what `requested_from_percent` returns. Neither function is reimplemented in a test.
 - **Symbol spellings.** The win count crosses a module boundary on a symbol, so the fills are written as `STXUSDT.P` (TradingView's) on the opening side and `STXUSDT` (the venue's) on the closing side, a second strategy's as `STXUSDT_PERP` (Pionex's), and the report is asserted under the pair `STXUSDT`. No assertion compares two spellings as text.
 - **One shared list of origin cases.** The backend's accepted cases, normalised, are the panel's accepted cases; the same list of strings is asserted on both sides, so the two checks cannot drift apart silently.
 - **A new test helper is needed.** `frontend/src/test/keyboard.ts` gains `pressRangeKey(key)`, which stands for the browser's default action on a focused range input, as `pressEnter` stands for a button's: an arrow adds or removes one `step`, Home sets `min`, End sets `max`, the result is clamped, and nothing happens when the keydown was prevented or the input is disabled. It then fires the input and change events. What a test proves with it is the markup's side: a real, enabled range input with the right `min`, `max` and `step`, and no handler that swallows the key. Page Up and Page Down are not modelled: their step is the browser's.
-- **The existing test that clicks every other button** (U16) will now click the stops, Save and both Copy buttons, so it can send a PATCH. Its fetch double must answer one; the assertion, that no request for the secret was made, does not change.
+- **The existing test that clicks every other button** (U16) will now click the stops, the two information buttons, Save and both Copy buttons, so it can send a PATCH. Its fetch double must answer one; the assertion, that no request for the secret was made, does not change.
 - **Mutations that prove the tests which pass at once.**
 
   | Test | Mutation that must turn it red |
@@ -4213,8 +4298,22 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
   | The warning shows for a stored share under the minimum, with no change made | The warning tied to the draft |
   | Save is enabled while the warning shows | Save disabled on `below_pool_minimum` |
   | `0.5` is accepted and can be saved | A lower bound of 1 on the field |
-  | The sentence about the per-pair minimum is always shown | It shown only with the warning |
-  | Tab goes field, track, 25, 50, 75, 100, Save | The field rendered after the track |
+  | At mount none of the three explanatory sentences is in the document, in English and in Spanish | A disclosure open by default; and, separately, a sentence rendered outside its container |
+  | Activating the label's button shows `…share.hint` and only that; activating the amount's shows `…share.amountHint` and then `…share.pairMinimumNote`, in that order | The two contents swapped; and, separately, the per-pair sentence dropped from the second |
+  | The warning on the pool's minimum, the stale line, the validation text and a refused save are in the document with both buttons closed (one case each) | That line moved inside a disclosure's container |
+  | Each button has `aria-expanded`, an `aria-controls` that names an element present while closed, and a name that says what it explains | The container rendered only while open; and, separately, both buttons named "Info" |
+  | Both explanations can be open together; closing one leaves the other | One shared open state |
+  | Escape on a button, or inside its text, closes that one and leaves focus on its button | The key handler removed; and, separately, focus left on the body |
+  | An open explanation is still open after a save, after a refused save and after the language changes, and is closed for another strategy | The open state reset on every render; and, separately, the control not keyed by strategy |
+  | Tabbing away from an open explanation leaves it open | A close on blur |
+  | Both buttons are enabled on an archived strategy and while saving | `disabled` passed to them with the rest of the control |
+  | The amount's button is present with a figure, with the em dash, with no balance and with a failed read | The button rendered with the figure only |
+  | Each information button has the 44 px box classes and an `aria-hidden` SVG glyph with no `style` attribute | The box class removed; and, separately, the glyph replaced by a text character |
+  | The field's `size` is the number of characters typed, for `5`, `33.5`, `100` and twelve characters, and 1 when empty | A constant `size`; and, separately, `size="0"` for the empty field |
+  | The `%` sign is the input's next sibling inside the wrapper, is `aria-hidden`, and is not part of the input's value | The sign appended to the value; and, separately, the sign rendered at the wrapper's far end |
+  | A press on the wrapper outside the input moves focus to the input; on a disabled control it does not | The handler removed; and, separately, the handler ignoring `disabled` |
+  | The request body is still `{"allocation_percent": "33.5"}` with the sign beside the number | The sign read into the value |
+  | Tab goes label's information button, field, track, 25, 50, 75, 100, amount's information button, Save | The field rendered after the track; and, separately, an information button given `tabIndex={-1}` |
   | Each stop is a button with a 44 px box, a name and `aria-pressed`, though it reads as a legend | The stop turned into a `<span>`; and, separately, the box class removed |
   | An origin with a path, a query, a user or a trailing slash is not used by the panel | The `new URL(value).origin === value` check removed |
   | With no origin the URL is the path alone, as today | An empty origin rendered as `null` or `undefined` text |
@@ -4229,7 +4328,10 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
   1. The look of the slider in Chrome, Firefox and Safari: the handle, the filled part, the stops under the handle's centre.
   2. Dragging by pointer and by touch; the arrow, Home, End and Page keys; the focus ring.
   3. The field above the track; the legend close under it; that a press just under the handle at a stop takes the stop and never blocks grabbing the handle; that the four targets never touch at 300 px.
-  3a. The amount under the legend following the handle as it is dragged; the three helper sentences in a 300 px column.
+  3a. The amount under the legend following the handle as it is dragged.
+  3b. **The height of the control with both explanations closed**, which is what the owner sent the second prototype back for: that the card fits one screen at 300 px. No test can measure it.
+  3c. The `%` sign touching the number at one digit, at `33.5`, at `100` and at twelve characters, with the caret at the end not clipped, in Chrome, Firefox and Safari. jsdom knows the `size` attribute and nothing of the width it gives.
+  3d. Each information button's 44 px box touching its neighbours and covering none; the glyph; the page moving down, not sideways, when an explanation opens.
   4. **The CSP**: the built bundle served by FastAPI with `PANEL_DIST_DIR` set, the strategy page open, no policy violation in the console (§ B).
   5. The clipboard in a real secure context, and its failure text over plain HTTP on another address.
   6. The By pair table's width in English and Spanish.
@@ -4258,7 +4360,7 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 - **One PR for everything is possible**, because the panel is not served in production and the order hazard exists only on a developer machine today. The recommendation stays two, for the review-by-eye reason.
 - **No migration.** The share's column exists since migration 0007. A win is derived at read time. The host is a setting. The pool's minimum and its snapshot are existing columns. So no rehearsal on a restored backup is needed for this unit.
 - **No venue read is added, and no probe is needed.** The per-pair minimum, which would need both, is not in this unit (§ C3).
-- **Forecast, as information only** (revised 2026-10-06). 12f-1: 1,000 to 1,500 authored lines, of which the preview is about 400 to 600. 12f-2: 2,600 to 3,800, of which the amount and its warning are about 600 to 800. Both assume tests at about twice the production code, the ratio the last panel units ran at. `Decision needed before apply: No` (Q1 and Q2 are answered; Q3, Q4 and Q5 each have a default the design builds) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+- **Forecast, as information only** (revised 2026-10-06, twice). 12f-1: 1,000 to 1,500 authored lines, of which the preview is about 400 to 600; the second revision changes nothing in the backend. 12f-2: 2,800 to 4,100, of which the amount and its warning are about 600 to 800 and the information buttons and the field's wrapper about 250 to 350, most of it tests. Both assume tests at about twice the production code, the ratio the last panel units ran at. `Decision needed before apply: No` (Q1 to Q5 are all answered) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
 
 **Design decisions made here** (not owner decisions; each has its reason above):
 
@@ -4282,13 +4384,16 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 | F16 | The win rate is unsigned, one decimal, neutral ink; no column is hidden | G |
 | F17 | A `by_pair` entry without the fields refuses the report, at the cost of the list's figures against an older API | G |
 | F18 | Two PRs, backend then panel | L |
-| F19 | (2026-10-06) The field is above the track on its own row; nothing wraps | B |
+| F19 | (2026-10-06) The field is above the track on its own row; nothing wraps. Revised the same day: the number and the `%` sign sit together at its left, the input sized by its `size` attribute inside a wrapper drawn as the field; a mirrored span is the fallback | B |
 | F20 | The amount is computed by the server with `requested_from_percent`; the browser multiplies nothing and the panel's rule is not revisited | C2 |
 | F21 | One route serves the hundred whole steps and one exact value, so a drag sends no request; a typed decimal asks once, 300 ms after the last keystroke, and shows no figure meanwhile | C2 |
 | F22 | The preview has its own read-only port and adapter; it does not reuse the worker's balance reader, which refuses a stale snapshot | C2, H |
 | F23 | The figure is cut down to the currency's decimals as text, the direction the engine rounds | C2 |
 | F24 | The minimum is a WARNING, not a refusal: on the pool's own minimum order, exact for the balance shown, on the stored value too, never blocking a save | C3 |
-| F25 | The exchange's minimum per pair is not checked in this unit; one standing sentence says so; it is proposed as its own unit, which needs a price read the API process does not make | C3, N |
+| F25 | The exchange's minimum per pair is not checked. It is a known limit of this unit, said behind the amount's information button and in §§ C3 and M. No later unit is recorded for it (decision 48) | C3, M |
+| F27 | (2026-10-06, second revision) The explanations are behind two information buttons, each a disclosure in place; the per-pair limit shares the amount's button; warnings, validation, refusals and the lines that change what the figure means stay on screen | B2 |
+| F28 | An explanation closes with its button or Escape, not on blur; both may be open; closed on every visit; never disabled | B2 |
+| F29 | `InfoDisclosure` is one small piece beside `InlineStatus` in `features/strategies/`; its glyph is an inline SVG drawn with attributes | B2, D |
 | F26 | "Copied" beside the URL is cleared by the Show and Hide handlers and guarded by a render check on two recorded booleans; the text is never kept | E |
 
 ### M. Risks, and what could be wrong in this design
@@ -4298,13 +4403,16 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 | The panel has never been loaded under its CSP | A wrong belief about the policy would show only on the day the panel is served | The slider needs no runtime style (§ B). The check in a real browser is a task of 12f-2 and can be made locally. It also covers the fonts and the chart, which § 13 already asked to rehearse. |
 | The restyled native control differs by browser | Vendor pseudo-elements are the least portable part of CSS; the filled part depends on the SVG lining up with a thumb whose size each engine must honour | The handle is the browser's and is always where the value is; a misalignment is cosmetic and at most a few pixels. The fallback is the unstyled native control with `accent-gain` (§ B). Reviewed by eye in three browsers. |
 | The reference image was described to this design in words | Decision 48 records that the Binance order form reached the session on 2026-10-06. This addendum was revised from its description (a wide field on top, a thin track with a handle and four marks, the amounts under it), not from the image itself. | The three changes the owner named are the ones built. Proportions and spacing are the owner's review by eye; the structure does not depend on them. |
-| The layout was revised after the prototype and the prototype was not | `PoolShareSlider.html` shows the field beside the track and the stops a row below; the design now says otherwise | § B says which one is the design. The owner sees the revised layout first in the panel PR's review by eye, not in a prototype. |
+| The design is ahead of the prototype again | `PoolShareSlider.html` is the second prototype: the sign at the field's right edge and three paragraphs on screen. The information buttons and the sign beside the number are designed here and shown nowhere yet. | § B and § B2 say which is the design. The owner sees these two changes first in the panel PR's review by eye, unless a third prototype is made before the tasks. |
+| The `%` sign beside the number rests on a monospaced font and on how each engine reads `size` | In an engine that pads `size`, the sign stands off the number by a few pixels: the thing the owner sent back, smaller | Every font of the stack is monospaced. It is checked by eye in three browsers, and the mirrored span is the named fallback (§ B). |
+| **The explanations are one activation away** | An owner who never opens the amount's button is told nowhere that the exchange's minimum per pair is unchecked, nor that the amount is margin and an estimate | The owner's choice (decision 48), after the alternative buried the control. The warning on the pool's minimum, the stale line and the word "about" stay on screen, and the worker's refusal protects the money whatever was read (§ B2). |
+| A disclosure in place moves the page when it opens | Opening the label's explanation pushes the field and the track down under the pointer | It opens only on the owner's own activation, never by itself, and nothing closes on its own. A floating layer would not move the page, and would need a computed position, which this panel does not write (§ B2). |
 | The legend's targets overlap the lower 12 px of the track's box | A press there at a stop takes the stop instead of the track | It is the same value within a step, the handle itself is never covered, and it is on the list of the review by eye (§ K). If it feels wrong, the legend moves down 12 px and nothing else changes. |
 | A value below 1 sits at the end of the track | The handle shows 1 for a share of 0.5 | Decided: a share below 1% is allowed (decision 48). The field and the screen-reader text show the exact value, and the warning says when its amount is too small. |
-| **The warning covers the pool's minimum, not each pair's** | The owner asked for a share that is enough for the strategy's pairs. A share can pass the pool's minimum and still be too small for a pair with a large minimum quantity, and the panel then shows no warning. | Said on screen, always, by the standing sentence (§ C3). The worker refuses such an order and reserves nothing (U25). The per-pair warning is Q5 of § N. This is the largest gap between what was asked and what this unit delivers. |
-| **Under `DRY_RUN` nothing refuses a share that is too small for a pair** | The simulated exchange applies no minimum (U26), so production today rehearses such a share without a complaint, and the first refusal would come live | Not caused by this unit and not fixed by it. It is one more reason for the per-pair unit, and it is said here so that a quiet dry run is not read as proof. |
+| **The warning covers the pool's minimum, not each pair's** | The owner asked for a share that is enough for the strategy's pairs. A share can pass the pool's minimum and still be too small for a pair with a large minimum quantity, and the panel then shows no warning. | A known limit of this unit, accepted by the owner: the warning on the pool's minimum is enough for now (decision 48, answered 2026-10-06). It is said behind the amount's information button (§ B2) and in § C3. The worker refuses such an order and reserves nothing (U25). |
+| **Under `DRY_RUN` nothing refuses a share that is too small for a pair** | The simulated exchange applies no minimum (U26), so production today rehearses such a share without a complaint, and the first refusal would come live | Not caused by this unit and not fixed by it. It is part of the same known limit, and it is said here so that a quiet dry run is not read as proof. |
 | The three guards that refuse a small allocation are WARNINGs | A strategy that skips every signal looks like one that never fires; nothing reaches the alert channel | Outside this unit. Raising the level, or showing signal outcomes in the panel, would be its own change. Flagged, not designed. |
-| The amount is an estimate and reads like a figure | The balance moves, the grant can be less than the request, and the position is the amount times a leverage the panel cannot show | The text says "about", says it is an estimate, says when the balance was read, and says it is margin (§ I). Three sentences is a lot for a narrow column; the owner's review may shorten them. |
+| The amount is an estimate and reads like a figure | The balance moves, the grant can be less than the request, and the position is the amount times a leverage the panel cannot show | On screen the line says "about". That it is an estimate, when the balance was read and that it is margin are behind its information button (§ B2, § I); a stale balance is always said on screen. |
 | The preview and the real request use different reads of the balance | The worker refreshes the balance on demand before it sizes; the preview shows the last snapshot, up to a minute old | Stated. Both use the same function on the same column, so they differ only by the balance's movement. |
 | The table of a hundred steps is one read of the balance | An amount looked up a minute later is a minute old | It is refetched every 60 s, the cadence the balance itself is written at, and the line shows the time of the read. |
 | The preview is a new place a strategy's pool is read | A wrong pool would show another pool's money | The pool comes from the strategy row the path names; a test with two strategies on two pools pins it (§ J). |
@@ -4320,11 +4428,11 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 
 ### N. Open questions for the owner
 
-One question is open, Q5. It holds no task back: it has a default the design builds unless the owner says otherwise. Q1 to Q4 are answered (owner-decisions.md, decisions 44 and 48).
+**No question is open.** Q1 to Q5 are all answered (owner-decisions.md, decisions 44 and 48), and the second revision of 2026-10-06 raised none: the information buttons, the sign beside the number and the legend's distance are the owner's own rulings, and what was left to the design (the mechanism, how many buttons, how the field is sized) is settled in § B and § B2. The questions are kept below with their answers so that the reasoning stays beside the design.
 
 **Answered 2026-10-06, and removed from the list** (the record is owner-decisions.md, decision 48):
 - **Q1, "Copied" after the URL changes: answered, option (b).** "Copied" beside the URL is shown only while the URL on screen is the one that was copied. Folded into § E.
-- **Q2, a share below 1%: answered, with a new requirement.** A share below 1% is allowed. The share should be enough to trade the strategy's pairs, refused if not, or warned about if a refusal cannot be made in this unit. The design delivers the warning, on the pool's own minimum, and says why a refusal would not be true (§ C3). What it could not deliver is Q5.
+- **Q2, a share below 1%: answered, with a new requirement.** A share below 1% is allowed. The share should be enough to trade the strategy's pairs, refused if not, or warned about if a refusal cannot be made in this unit. The design delivers the warning, on the pool's own minimum, and says why a refusal would not be true (§ C3). What it could not deliver was asked as Q5.
 
 - **Q3. Should the header line of the page show the share?** The mockup prints it there ("Bybit USDT pool · 30% per trade · active 41 days…"). The page built in PR 12b does not, and it is not one of this unit's five pieces.
   - Default built: no. The share is shown and edited in the settings column only.
@@ -4335,7 +4443,7 @@ One question is open, Q5. It holds no task back: it has a default the design bui
   - Default built: one decimal. Changing it is one argument of one function.
   - **Answered 2026-10-06: one decimal.**
 - **Q5 (new, 2026-10-06). The exchange's minimum per pair: its own unit after this one, or is the pool's minimum enough?** The owner asked for a share that is enough to trade the strategy's pairs. This unit warns when the share asks for less than the POOL's minimum order, which the system knows exactly. It does not check each PAIR's minimum at the exchange, because that needs the pair's current price, which the API process does not read today, and the account's leverage, which it cannot read without the key. So a share can pass with no warning and still be too small for a pair whose smallest order is large; the worker then refuses that order and opens nothing, and under dry run nothing refuses it at all.
-  - Default built: the pool's minimum as a warning, and one sentence that is always on screen saying the per-pair minimum is not checked.
-  - Proposed as its own unit: a warning per allowed pair, saying about how much margin that pair needs at 1x and whether this share reaches it. It needs a public price read on each venue, with a probe from the VPS first, and it keeps to a warning: the leverage is unknown to the panel, so a share that is too small at 1x may still be enough.
-  - The question is whether that unit is wanted, and how soon. Nothing in this unit waits for the answer.
+  - **Answered 2026-10-06: the warning on the pool's minimum order is enough for now.** No unit is recorded for a warning per pair.
+  - What stands is the finding, as a known limit of this unit and not as later work: the exchange's minimum for each pair is not checked by the panel, the worker refuses an order that would be too small and opens nothing, and under dry run nothing refuses it (§ C3, § M).
+  - The same day the owner moved the explanations behind information buttons, so the sentence that says this is no longer always on screen: it is the second paragraph behind the amount's button (§ B2).
 
