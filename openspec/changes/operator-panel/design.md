@@ -3596,9 +3596,11 @@ Two were asked, and the owner answered both on 2026-10-04. They are kept here wi
 
 ## Addendum: the detail page's follow-ups (unit 12f, decisions 44 and 48) - 2026-10-06
 
-Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that decision 44 moved out of unit 9p. HEAD `cacea20`. Decisions 44 and 48 are binding and are not reopened here. This addendum settles what they left to the design: which element the slider is and how it is drawn under the panel's CSP, the exact value it holds, the two confirmation texts, how a copy is made and how it fails, where the webhook's host comes from, and how a win is counted and served. 12f.2, 12f.3 and 12f.7 stay as built and are not designed. It adds one read-only endpoint and two fields to an existing one, changes no other response, and needs **no migration**.
+Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that decision 44 moved out of unit 9p. HEAD `cacea20`. Decisions 44 and 48 are binding and are not reopened here. This addendum settles what they left to the design: which element the slider is and how it is drawn under the panel's CSP, the exact value it holds, the two confirmation texts, how a copy is made and how it fails, where the webhook's host comes from, and how a win is counted and served. 12f.2, 12f.3 and 12f.7 stay as built and are not designed. It adds two read-only endpoints and two fields to an existing one, changes no other response, and needs **no migration**.
 
-**The answer in one paragraph.** The share is edited with the browser's own `<input type="range">`, restyled, over an inline SVG that draws the track, the filled part and the four stops with geometry ATTRIBUTES. No `style` prop is written anywhere, so the question of what `style-src 'self'` allows at runtime never arises for this control; it rests on the same mechanism as the return chart. The value is one decimal string: the field shows it exactly, the handle sits at its nearest whole step, and only Save sends it, as `{"allocation_percent": "33.5"}` to the PATCH that already exists. "Saved" and "Copied" are one small live text, mounted before it has anything to say. A copy writes the exact string the page is showing and never asks for the secret. The webhook's host is a new setting served by a new authenticated route, because the webhook does not live on the panel's origin (decision 5), and a malformed value is never served and never stops the API. A win is counted in `by_pair` and served as a count and a ratio; the panel formats the ratio and computes nothing. Two sequential PRs, backend then panel, split by deploy order. One question for the owner blocks one task (§ N, Q1).
+> **Revised 2026-10-06.** The owner answered Q1 and Q2 of § N the same day and handled the prototype (`visual/project/PoolShareSlider.html`) with the Binance order form as the reference (decision 48's lines of 2026-10-06). Folded in: "Copied" beside the URL follows the URL on screen (§ E); the field sits above the track, the stops read as a legend, and the amount the share means sits under the track (§ B, § C, § C2); a share below 1% is allowed; and the owner's new requirement, that a share be enough to trade the strategy's pairs, is answered in § C3 with the branch the design can deliver honestly, the warning. §§ H to N are revised to match. The findings of § A are extended with U18 to U27, verified at HEAD `7751a9a`.
+
+**The answer in one paragraph.** The share is edited with the browser's own `<input type="range">`, restyled, over an inline SVG that draws the track, the filled part and the four stops with geometry ATTRIBUTES. No `style` prop is written anywhere, so the question of what `style-src 'self'` allows at runtime never arises for this control; it rests on the same mechanism as the return chart. The value is one decimal string: the field, above the track, shows it exactly, the handle sits at its nearest whole step, and only Save sends it, as `{"allocation_percent": "33.5"}` to the PATCH that already exists. Under the track the panel shows the amount that share asks for, which the SERVER computes with the function allocation itself uses, served once as a table of the hundred whole steps so that dragging makes no request; the browser still computes no money. The same answer says whether that amount is below the pool's own minimum order, the one figure about "enough to trade" that the API process knows exactly; that is a warning and never blocks a save. The exchange's minimum per pair needs a price and a leverage the API process does not have, so it is not checked in this unit, the panel says so in one sentence, and it is proposed as its own unit (§ C3, § N, Q5). "Saved" and "Copied" are one small live text, mounted before it has anything to say. A copy writes the exact string the page is showing and never asks for the secret. The webhook's host is a new setting served by a new authenticated route, because the webhook does not live on the panel's origin (decision 5), and a malformed value is never served and never stops the API. A win is counted in `by_pair` and served as a count and a ratio; the panel formats the ratio and computes nothing. Two sequential PRs, backend then panel, split by deploy order. No question holds a task back.
 
 ### A. Findings from the code (verified at HEAD `cacea20`)
 
@@ -3622,6 +3624,21 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 | U16 | The keyboard helper presses Tab, Enter and Space on buttons. jsdom lays nothing out and performs no default action of a range input. One existing test clicks every other button of the page to prove that none asks for the secret. | `frontend/src/test/keyboard.ts`; `features/strategies/WebhookMessage.test.tsx:126-151` | § K says what a test can prove about the slider and what is left to the eye. That existing test will click the new Copy, stop and Save buttons. |
 | U17 | Production runs with `DRY_RUN=true` and does not serve the panel. | tasks.md delivery log | The By pair table is empty there, so the new column is first seen on the owner's local fixture. The compatibility rules of § G still bind `main`. |
 
+**Added 2026-10-06, for the amount and for the minimum to trade (verified at HEAD `7751a9a`).**
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| U18 | The pool's total balance is in the database, in `pool_balance_snapshots`, and the API process already serves it: `GET /api/pools` answers each pool's `balance` as `{total, available, observed_at, stale}`, or null for a pool nothing has synced. `stale` uses the allocator's own age limit (90 s by default). The worker's `balance.sync` rewrites the snapshot every 60 s. | `accounts/infrastructure/pools_router.py:38-85`; `accounts/infrastructure/pool_overview.py:48-99`; `shared/config.py` (`balance_sync_interval_seconds`, `balance_snapshot_max_age_seconds`) | The API process can read the total with no venue call and no credential. |
+| U19 | The panel validates that body row by row and refetches it every 60 s under `['pools']`. The strategy page already has it in hand: the exchange scope the page uses is built from the same query. A strategy names its pool with `exchange`, `venue` and `settlement_currency`. | `frontend/src/shared/api/pools.ts:6-57`; `shared/scope/exchange-store.ts:69-79`; `features/strategies/StrategyDetailPage.tsx:35`; `shared/api/types.ts:180-192` | The page could find the pool's total without a request. It still may not multiply it (§ C2). |
+| U20 | The amount a strategy asks for is `total * percent / 100`, quantised DOWN to 18 places, by one pure function. The worker calls it with the total it has just read, after an on-demand refresh of the balance. | `allocation/domain/percent.py:24-31`; `signals/application/process_signal.py:591-620` | A preview that calls the same function cannot disagree with the request on arithmetic. It can still differ on the balance, which is read again when a signal is sized. |
+| U21 | **The pool has its own minimum order**, `capital_pools.min_order_size`, in the settlement currency. It is not the venue's minimum: it is the smallest position that survives a round trip, 5 USDT by default for the Bybit and Binance pools. `decide()` checks it FIRST: a request below it is skipped as `REQUEST_BELOW_MIN_ORDER_SIZE`, whatever the pair, the price or the leverage. `GET /api/pools` does not serve it. | `accounts/domain/pool_config.py:5-16, 39`; `accounts/domain/known_pools.py:44-49`; `allocation/domain/decision.py:44-48`; `allocation/application/allocate_capital.py:250-253` | One minimum is in the database, known to the API process exactly, and decides with certainty at a given balance. § C3 builds on it. |
+| U22 | The venue's rules per pair are parsed by the public catalogue the API process already reads, and then thrown away. Bybit's `PerpContract` holds `qty_step`, `min_order_qty`, `max_order_qty`, `min_notional` (from `minNotionalValue`, optional) and `max_leverage`. Binance's holds `qty_step`, `min_qty`, `market_max_qty` and `min_notional` (optional), and no leverage limit. Both public catalogues return `contract.symbol` only, and `VenuePairCatalog` caches a set of market keys. | `shared/infrastructure/bybit/read_client.py:78-97, 501-523`; `shared/infrastructure/binance/read_client.py:88-112, 258-282`; `shared/infrastructure/bybit/public_catalogue.py:97-103`; `shared/infrastructure/binance/public_catalogue.py:88-94`; `strategies/infrastructure/pair_catalog.py:100, 171-189` | The minimum quantity, the step and the minimum notional are one change of a cache away, with no new venue read. They are quantities and notionals, not amounts of margin. |
+| U23 | **The API process has no price.** No public ticker is read anywhere. `last_price` exists on Bybit's key-bearing read client and nothing in `src` calls it; Binance's client has no ticker read at all. The only prices in the database are the alert's (`signals.price`) and the fills'. | `shared/infrastructure/bybit/read_client.py:367-372` (no caller); `shared/infrastructure/binance/read_client.py`; decision 43 addendum, T15 | A minimum quantity cannot be turned into an amount without a price. A current price would be a venue read the API process does not make today. |
+| U24 | **The API process cannot know the account's leverage.** It is read per symbol with the stored key, in the worker, when the order is built: from the position record on Bybit, from the symbol's configuration on Binance. The API process seals keys and never opens one. The leverage an order was sized at is recorded on its execution attempt. | `execution/infrastructure/bybit_futures_exchange.py:108-110`; `execution/infrastructure/binance_futures_exchange.py:111-113`; `shared/infrastructure/bybit/read_client.py:394-409`; `execution/application/place_order.py:183-199`; CLAUDE.md, "Credentials" | The margin a pair needs is its minimum notional divided by a leverage the API process does not have. What it can have is a bound (1x), and for traded pairs a past value. |
+| U25 | **What the worker does today with an allocation that is too small. Three guards, in this order.** (1) A request that is not positive is refused before the pool lock: outcome `REJECTED`, `NOTHING_TO_ALLOCATE`, one WARNING, nothing reserved. (2) A request below the pool's minimum is skipped inside the lock by `decide()`: `REQUEST_BELOW_MIN_ORDER_SIZE` (or `PARTIAL_BELOW_MIN_ORDER_SIZE` for a partial grant), one WARNING, the outcome recorded on the signal, no reservation written. (3) A grant that the venue's rules make unplaceable is refused when the order is built: the size is `granted * leverage / price` floored to the step, and a size of zero, below the minimum quantity, above the maximum or below the minimum notional raises `OrderNotPlaceable`; `PlaceOrder` then releases the reservation, records `REJECTED` `ORDER_NOT_PLACEABLE` with the numbers, commits both together and logs one WARNING. Nothing is sent to the venue and no attempt row is written. | `signals/application/process_signal.py:621-629, 848-859`; `allocation/domain/decision.py:44-48, 66-70`; `allocation/application/allocate_capital.py:273-286`; `execution/infrastructure/bybit_futures_exchange.py:112-138`; `execution/infrastructure/binance_futures_exchange.py:115-141`; `execution/application/place_order.py:150-182` | The protection is sound for the money: no order, no capital left reserved, no retry. It is weak for the owner's notice: every one of the three is a WARNING, and only ERROR reaches the alert channel, so a strategy whose share is too small skips every signal quietly (§ C3). |
+| U26 | The simulated exchange sizes at 1x and applies no step, no minimum quantity and no minimum notional. | `execution/infrastructure/fake_exchange.py:152-181` | Under `DRY_RUN`, which is production today, guard (3) of U25 never fires. A share too small for a pair rehearses without a complaint and would be refused live. |
+| U27 | The prototype the owner handled keeps each stop as a 44 by 44 px `<button>` whose visible face is a small label, and centres the WebKit thumb with an explicit top margin because the track is given the full 44 px height. | `visual/project/PoolShareSlider.html:133-201` | A mark that reads as a legend and a button with a full target are already the same element there. § B keeps that and moves it closer to the track. |
+
 ### B. The slider: the element, and how it is drawn (12f.1)
 
 **The element.**
@@ -3636,7 +3653,11 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 - **The track, the filled part and the four stop marks** are one `aria-hidden` inline `<svg>` under the input: a line for the track, a line whose `x2` attribute is the handle's position as a percentage, and four circles whose `cx` are the four fixed positions. Percentages in SVG coordinate attributes are measured against the SVG's own box, so nothing is measured and no `ResizeObserver` is needed. A stop at or below the handle takes the `gain` class, the others `rule-strong`.
 - **Alignment.** A native thumb's centre travels from half its width to the full width minus half its width. The SVG is inset by exactly half the thumb on each side (thumb `size-5`, inset `2.5`), so a position of `p` percent in the SVG is under the thumb's centre at that value. This holds only because the thumb's size is set explicitly, in both engines.
 - **The position of a value** on a track from 1 to 100 is `(v − 1) / 99`: 25 is 24.2424%, 50 is 49.4949%, 75 is 74.7475%, 100 is 100%. One pure function gives it; it is a control position, not money.
-- **The stops are real buttons**, in a row under the track, each placed with one fixed class (`left-[24.2424%]` and so on, `-translate-x-1/2`) inside the same inset box. They are the four fixed positions, so they need no runtime value at all.
+- **The stops read as a legend and are still buttons** (decision 48, after the prototype). Each is a `<button>` placed with one fixed class (`left-[24.2424%]` and so on, `-translate-x-1/2`) inside the same inset box; they are the four fixed positions, so they need no runtime value at all. What changes is the face, not the element:
+  - The visible face is a small mono label ("25%") in `ink-3`, with no border and no fill at rest. The stop that equals the value is drawn in `ink`. It looks like the legend of the track.
+  - **The target stays 44 by 44 px.** The button's box is transparent and larger than its label, as in the prototype (U27).
+  - **It sits closer to the track.** The legend row is pulled up by 12 px, so each label is about 4 px under the handle instead of a row away. The track's box is 44 px tall and the handle is the middle 20 px of it, so the 12 px under the handle belong to the track's box and hold nothing to grab. The buttons are stacked above the input and begin exactly at the handle's lower edge: they never cover the handle, and their whole 44 px is reachable. A press in that 12 px band at a stop sets that stop, which is what a press on the track at that point would do within a step.
+  - **The keyboard path is unchanged:** the four are in the tab order after the track, each with a name that says what it does and `aria-pressed`, and each shows the panel's focus ring.
 
 **The CSP.** The question was whether a value-dependent position can be set at runtime under `style-src 'self'`. The design does not need the answer, and that is deliberate.
 
@@ -3652,7 +3673,20 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 - **A guard so that it stays true.** `frontend/src/shared/theme.test.ts` gains one test: no non-test source file contains a `style=` prop. It passes at once today; the mutation is one `style={{}}` on any element. With it, the day somebody reaches for a runtime style is a red test, not a broken page in production.
 - **To check in a real browser, before this is called done** (§ K): the built bundle served by FastAPI with `PANEL_DIST_DIR` set, so the header is really sent; the strategy page opened with the console showing no policy violation; the slider dragged and driven by keys. This can be done locally and does not wait for production.
 
-**Layout.** Label, then one wrapping row: the track with its stops, and beside it the number field with a `%` sign. Under it the helper sentence, the validation or refusal text, and a row with the Save button and "Saved". The track has a minimum width so that four 44 px stop buttons never touch; when the row cannot hold both, the field wraps under the track. The settings column is about 360 px wide on a desktop and about 300 px on a phone; these widths are read from the classes and are confirmed by eye.
+**Layout** (revised 2026-10-06, decision 48, with the Binance order form as the reference). Top to bottom, each on the full width of the column:
+
+1. The label.
+2. **The field**, wide, with the `%` sign inside its box at the right. It is above the track, not beside it.
+3. **The track**, 44 px tall, with the handle.
+4. **The legend of the four stops**, close under the track.
+5. **The amount** that share asks for, in the pool's own currency (§ C2), and under it the warning when the amount is below the pool's minimum (§ C3).
+6. The helper sentences, then the validation or refusal text.
+7. The Save button with "Saved" beside it.
+
+- With the field on its own row, the track always has the whole column: about 360 px on a desktop and about 300 px on a phone, so the four 44 px targets are about 86 px and about 70 px apart and never touch. Nothing wraps, and the minimum-width rule of the first layout is gone.
+- The rightmost target is centred on the end of the track and runs 12 px past the inset box, inside the column's own padding.
+- These widths are read from the classes and are confirmed by eye.
+- `visual/project/PoolShareSlider.html` is the prototype of the FIRST layout (the field beside the track, the stops as chips a row below). It is kept as it is; where it and this section differ, this section is the design.
 
 ### C. The slider: the value, the keyboard, the states, the API (12f.1)
 
@@ -3675,7 +3709,7 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 | `0`, `0.0` | Not valid: "above 0". Save disabled. |
 | `100.5`, `150` | Not valid: "at most 100". Save disabled. |
 | An empty field, `abc`, `1e1`, `-5`, `25%`, `1.000,5`, `33.` | Not a number. Save disabled. Nothing is guessed and nothing is trimmed into a value. |
-| `0.5` | Valid. The API accepts it (U1); the handle sits at 1 (§ N, Q2). |
+| `0.5` | Valid. A share below 1% is allowed (decision 48, answered 2026-10-06); the API accepts it (U1). The track still runs from 1 to 100, so the handle sits at 1. The warning of § C3 says when its amount is too small. |
 | The stored value is typed back | Valid and unchanged. Save disabled. |
 
 - **Save is enabled** when the strategy is not archived, no save is in flight, the text reads as a value above 0 and at most 100, and its canonical form differs from the stored one.
@@ -3684,10 +3718,10 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 - **The value goes to the API as a string**: `{"allocation_percent": "33.5"}`, and nothing else in the body. The other fields are omitted, which the PATCH reads as unchanged.
 
 **Keyboard and accessibility.**
-- Tab order: the track, the four stops in order, the field, Save.
+- Tab order, which is the order on screen: the field, the track, the four stops in order, Save. The amount and the warning are text and take no stop.
 - On the track the browser's own keys apply: an arrow moves one step, Home goes to 1, End to 100. Page Up and Page Down move by a larger step in the browsers that implement them; the size is the browser's and is not specified here.
 - The track and the field are both named by the visible label. The track carries `min` 1, `max` 100, `step` 1 and an `aria-valuetext` with the exact value, so a screen reader hears "33.5% of the pool" while the handle sits at 34.
-- Each stop is a `<button>` showing "25%" with a name that says what it does ("Set the share to 25%"), and `aria-pressed` when the value is exactly that stop.
+- Each stop is a `<button>` showing "25%" with a name that says what it does ("Set the share to 25%"), and `aria-pressed` when the value is exactly that stop. It reads as a legend and behaves as a button (§ B): Tab reaches it, Enter or Space activates it.
 - The validation text is tied to the field with `aria-describedby` and `aria-invalid`. It is not an alert: it would otherwise be announced on every keystroke of an unfinished number.
 - The track is 44 px tall, each stop at least 44 by 44 px, the field and Save `min-h-11`, as every control of the panel.
 
@@ -3708,7 +3742,7 @@ Unit 12f, tasks 12f.1, 12f.4, 12f.5 and 12f.6, and the WIN RATE column that deci
 
 Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clears the token and the token gate takes over, as on every call.
 
-**Where it sits.** First in the settings column, under the heading and above the allowed pairs, as the mockup has it (U6). Its label is "Share of the pool per trade", the mockup's words. One helper sentence says what the number means and when a change counts (§ I). The number is a share of the pool's TOTAL balance, not of what is free (`strategies/domain/strategy.py:28-34`), and the sentence says so.
+**Where it sits.** First in the settings column, under the heading and above the allowed pairs, as the mockup has it (U6). Its label is "Share of the pool per trade", the mockup's words. The helper sentences say what the amount is and when a change counts (§ I). The number is a share of the pool's TOTAL balance, not of what is free (`strategies/domain/strategy.py:28-34`), and the text says so.
 
 **What "the next operation" means.** The share is read when an opening is sized (U3). An alert already received whose opening was deferred, because it waits for a close to settle, is sized with the share stored when it finally opens. An operation already open is not resized, and a reservation already made is not touched: nothing after `requested` reads the share.
 
@@ -3737,6 +3771,127 @@ Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clear
    |                     |                                   |      AllocateCapital (pool lock)  |
 ```
 
+### C2. The amount under the track (decision 48, added 2026-10-06)
+
+**What the figure is, exactly.** The margin the next operation would ASK the pool for: the pool's total balance, as last read, times the share. Three things it is not, and the text beside it says each (§ I):
+
+- **Not what is free.** The request is sized from the total (U20), so the same share asks for the same amount whether or not other strategies hold positions. What is GRANTED is capped by what is free, and can be less or nothing.
+- **Not the position's size.** It is margin. The position is that margin times the account's leverage for the pair, divided by the price (CLAUDE.md, "Futures execution").
+- **Not a promise.** The balance is read again, after an on-demand refresh, when a signal is sized (U20). The figure is an estimate of the next request at the balance on screen.
+
+**Who multiplies.** The panel never computes a money figure (§ 15), and `total * share / 100` is one. The total is already in the page's hands (U19), so the temptation is real; the design does not take it.
+
+| Option | Verdict |
+| --- | --- |
+| **One route that answers a table of the hundred whole steps, plus one exact value (chosen)** | The handle and the stops only ever land on a whole number from 1 to 100, so every position the track can show has its amount already in the browser: dragging makes NO request and the figure follows the handle at once, as on an exchange. A typed decimal is the one case that asks. The server computes every amount with `requested_from_percent`, the function the worker uses, from one read of the balance. |
+| A preview per value, debounced | Every position needs a request. While the handle moves, the panel shows either nothing or the last figure beside a new percentage, which is a wrong number on screen. |
+| The table as fields of the strategy view | A figure that changes every minute with the balance would ride on every strategy payload, the list's included, and the strategies read would depend on the snapshot table. |
+| Multiplying in the browser from `['pools']` | No route at all. It breaks the panel's standing rule and makes a second implementation of the engine's rounding, in another language. Revisiting that rule is the owner's call; the design does not need it revisited, so it is not asked. |
+
+**The route.** `GET /api/strategies/{id}/share-preview`, new, read-only, behind the bearer token on the strategies router.
+
+```
+GET /api/strategies/{id}/share-preview
+      ?share=<decimal>     optional: above 0 and at most 100. Default: the stored share.
+
+200
+{
+  "strategy_id":  "0b6f…",                                          string (uuid)
+  "pool":         { "exchange": "bybit", "venue": "usdt-m", "settlement_currency": "USDT" },
+  "currency":     "USDT",                                           string
+  "pool_minimum": "5.000000000000000000",                           string, never null
+  "balance":      { "total": "1000.00…", "observed_at": "…Z", "stale": false },      or null
+  "exact":        { "share": "33.5", "amount": "335.00…", "below_pool_minimum": false },   or null
+  "steps": [                                                        100 entries, or []
+    { "share": 1, "amount": "10.00…", "below_pool_minimum": false },
+    …
+    { "share": 100, "amount": "1000.00…", "below_pool_minimum": false }
+  ]
+}
+```
+
+- `balance` is the pool's snapshot, with the same `stale` rule as `GET /api/pools` (U18). It is null for a pool nothing has synced, and then `exact` is null and `steps` is empty: with no balance there is no amount, never a zero.
+- `amount` is `requested_from_percent(total, share)`: 18 places, rounded DOWN, written with the wire's `Money`. `share` in `steps` is the whole number of the step, a JSON integer like a count; in `exact` it is the share as a plain decimal string.
+- `below_pool_minimum` is `amount < pool_minimum`, the comparison `decide()` makes first (U21, § C3).
+- A stale balance is still served, marked. The worker would refuse to size against it; the preview shows it and says when it was read.
+- An archived strategy is served: its page still shows what its stored share means.
+- Refusals: 404 `no such strategy`; 422 for a `share` that is not a decimal above 0 and at most 100 (FastAPI's own, with the existing handler that echoes no input).
+- It reads two rows of the database and calls no venue. Nothing is locked and nothing is written.
+
+**The panel.**
+- `useSharePreview(strategyId)`, query key `['strategy', id, 'share-preview']`, read when the control mounts and again every 60 s, the cadence of the balance. It sits under the strategy's own key, so a save, which invalidates that key, refreshes it.
+- **Which amount is shown** for the value in the field:
+
+  | The value | The amount comes from | Request |
+  | --- | --- | --- |
+  | A whole number from 1 to 100 (every handle position, every stop) | `steps`, by its number | none |
+  | The stored share, when it has decimals | `exact` of the first read | none |
+  | Any other valid value: a typed decimal, or a value below 1 | A second read with `?share=`, sent 300 ms after the last keystroke, key `[…, 'share-preview', share]` | one, at rest |
+  | A text that is not a valid value | nothing | none |
+
+- **While that second read is pending the line shows no figure**, only a mark that it is loading. The previous amount is never left beside a new percentage.
+- An answer is used only when its `exact.share` is the share that was asked, compared in canonical form. An answer for another value is refused.
+- **The check of the body:** `balance`, `exact` and `steps` are present together or absent together; `steps` has exactly 100 entries numbered 1 to 100 in order; every amount is a string. A body that fails is an error, never a partial table.
+- **The figure is cut DOWN to the currency's decimals, as text**, then given to `Intl` with those decimals fixed. The engine never rounds a request up, and a figure rounded up could read "5.00" beside a warning that it is under 5. Cutting digits off a string is not arithmetic.
+- **Volume.** One read when the page opens, one a minute, one per typed decimal at rest. A drag from one end of the track to the other is zero requests.
+
+| State of the amount | What shows under the track |
+| --- | --- |
+| Known | The amount and its currency, and when the balance was read |
+| The balance is stale | The same, with a sentence saying the balance may be out of date |
+| The pool has no balance yet | "The pool's balance has not been read yet, so the amount cannot be shown." |
+| Loading: the first read, or a typed decimal's | A loading mark, no figure |
+| The read failed, or its body was refused | "The amount could not be loaded." The slider, the field and Save are NOT disabled: the amount is information, and its failure must not stop a save. |
+| The field holds no valid value | Nothing |
+
+### C3. The minimum to trade (decision 48, answered 2026-10-06)
+
+The owner asked for a share that is enough to trade the strategy's pairs, refused when it is not, or warned about if the refusal cannot be made in this unit. **The design delivers the warning, for the one minimum the API process knows exactly, and says plainly which minimum it does not check.**
+
+**What decides whether an allocation is enough, and who knows it.**
+
+| Input | Where the system has it today | In which process |
+| --- | --- | --- |
+| The pool's own minimum order | `capital_pools.min_order_size` (U21) | Both. The API process can read it. |
+| The pool's total balance | `pool_balance_snapshots` (U18) | Both |
+| The pair's minimum quantity, step and minimum notional | The venue's catalogue. The worker reads it with the key when it builds an order. The API process reads the public one and keeps only the symbols (U22). | Worker: yes. API: parsed, then dropped. |
+| The pair's price | The alert carries it, and the order is sized with it. No current price is read anywhere (U23). | Worker: the alert's. API: none. |
+| The account's leverage for the pair | Read with the key when the order is built (U24) | Worker only. The API process decrypts nothing, so it cannot read it. |
+| The venue's maximum leverage for the pair | Bybit's public catalogue (parsed, then dropped). Binance's public catalogue does not carry it (U22). | API: Bybit only, after a change |
+
+For a pair with minimum quantity `q`, step `s`, minimum notional `n`, at price `p` and leverage `L`, the smallest margin that opens a position is `max(q, n / p rounded UP to s) * p / L`. Two of those five numbers, `p` and `L`, are not in the API process.
+
+**What protects the system today** is U25, and the design rests on it: whatever the panel adds stands in front of those three guards, never in their place.
+- **For the money it is sound.** A request that is too small never reaches the venue. Guard (2) writes no reservation. Guard (3) releases the reservation in the same commit that records the refusal. Nothing is retried, because nothing can change without the grant, the leverage or the price changing.
+- **For the owner's notice it is weak.** Each guard writes one WARNING and an outcome on the signal. Only ERROR is forwarded to the alert channel (`shared/config.py`, "Operator alerting"), and the panel shows signal outcomes nowhere. A strategy whose share is too small therefore looks like a strategy that never fires. That is the gap the owner's requirement points at.
+- **Under `DRY_RUN` guard (3) does not exist** (U26), so production today cannot reveal a share that is too small for a pair.
+
+**The refusal, and why it is not chosen.**
+
+| What a refusal would need | What is true |
+| --- | --- |
+| To be true when it is made | The per-pair minimum needs a price and a leverage the API process does not have. Without them a refusal would be a guess. |
+| To stay true | The minimum moves with the price, and the amount moves with the balance. A share accepted at save time can fall under the minimum later with no save at all; a share refused today can be enough after a deposit. A refusal at save time cannot promise anything about the next operation. |
+| To be available when the owner needs the control | A per-pair refusal reads the venue. Saving pairs does, and fails closed when the venue cannot be read (decision 40): right there, because an unchecked pair is a typo waiting to be traded. For the share it would mean that a venue outage stops the owner from lowering how much capital a strategy asks for, on a control that needs no venue today. |
+| To mean what an accepted save would be taken to mean | A refusal on the pool's minimum alone IS possible: it needs no venue. But a save it accepts would be read as "enough for the pairs", which nothing established. It would also tie the PATCH to the balance: with no snapshot it must either refuse every save, so a dead `balance.sync` freezes the control, or let everything through, which is no guarantee. |
+
+- **A bound that would make a refusal true** exists in principle: a share so small that not even the venue's maximum leverage reaches a pair's smallest order. It needs the same price read, and the maximum leverage, which only Bybit's public catalogue has (U22). And it refuses almost nothing the pool's minimum does not already skip: it would only bite on a pair whose smallest order is worth more than the pool's minimum times that maximum leverage. It is not worth its cost.
+
+**What this unit delivers: a warning that is exact about what it claims.**
+- **The pool's minimum.** When `below_pool_minimum` is true for the value in the field, one sentence under the amount says that at this balance the share asks for less than the pool's minimum order, and that openings would be skipped (§ I). It is the comparison `decide()` makes first, with the function the worker sizes with, on the balance shown; a test asserts that the preview and `decide()` agree on both sides of the limit. It is true of the balance on screen and makes no claim about a later one.
+- **It never blocks.** Save stays enabled. A value below 1% is allowed, and so is a value under the minimum: the owner may be setting the share before a deposit.
+- **It shows on the stored value too**, not only on a change. A share that was fine can fall under the minimum because the balance fell, and the page then says so on its next visit.
+- **One standing sentence says what is NOT checked**: each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage; the panel does not check it; a signal whose order would be too small is refused and nothing is opened. It is always shown, in the helper text, so that the absence of a warning is never read as "enough for every pair".
+- **The colour** is `loss`, the palette's colour for refusals, because what it announces is a refusal to come. It is not amber: amber is reserved for what needs the owner's decision and its allow-list is not widened. It is a `role="status"` line, not an alert: it changes while the handle moves.
+
+**What is left for a later unit, and what it needs** (§ N, Q5). The per-pair minimum, as a warning, built well:
+1. The public catalogue keeps each pair's minimum quantity, step and minimum notional instead of dropping them (U22). No new venue read; a change to what unit 9v caches, whose fail-closed rule for SAVING pairs must not change.
+2. **A current price per pair, which is a venue read the API process does not make today** (U23). It needs a public ticker read on each venue, parsed and cached, and first a probe from the VPS, as P7 was for the catalogues.
+3. The amount at 1x, the conservative bound: an allocation that is enough at 1x is enough at any leverage. One that is not enough at 1x may still be enough with leverage, which the API process cannot read (U24), so it can be warned about and never refused.
+4. A read that fails OPEN: a venue that cannot be read means "cannot be estimated", shown as such, and never stops a save.
+
+The smallest honest version of the owner's requirement is therefore what this unit builds. The stale alternative, estimating from the last alert's price in `signals`, was weighed and left out: it has no price for a pair that never fired, which is exactly the new strategy whose share is being set for the first time.
+
 ### D. "Saved" after a save (12f.4)
 
 - **One shared piece, local state.** `InlineStatus` is a presentational component in `features/strategies/`: a `<span role="status" aria-live="polite">` that takes a message or nothing, and a tone. It is ALWAYS mounted, empty until it has something to say: a live region that appears together with its text is not reliably announced. Each control keeps its own boolean; there is no shared store, because the two saves have nothing else in common.
@@ -3760,17 +3915,21 @@ Save refusals are a `role="alert"` line, as in `AllowedPairsEditor`. A 401 clear
 - **No fallback to `document.execCommand("copy")`.** It is deprecated, and it works by putting the text into a temporary field in the document, which for the revealed URL means a second place the secret is written. One mechanism, one failure text; the text stays selectable by hand, as it is today.
 - **What is copied is what is on screen, by construction.** The URL is built once per render into one constant; the `<code>` element prints it and the button's handler is given the same constant. There is no second assembly that could differ.
 - **Copying never asks for the secret.** The handler touches neither the "requested" flag nor the query. With the secret hidden it copies the URL with the placeholder.
-- **The secret is not put in component state to enable a copy.** State holds only which button was used and whether it worked: a tag, never the text.
+- **The secret is not put in component state to enable a copy.** State holds only which button was used, whether it worked and, for the URL, whether the secret was shown at that moment: two tags and a boolean, never the text.
 - **With the secret revealed the clipboard holds the real URL**, secret included, percent-encoded as shown. This is the owner's decision (44, 12f.5, and 48). The panel cannot take it back: "Hide secret" and leaving the view do not clear the clipboard, and a clipboard history kept by the operating system may hold it longer (§ M).
 - **The URL is text, never a link.** It is not rendered in an anchor and is never passed to `fetch`: a click on a link would send a GET to the webhook with the secret in the address.
 
 | Result | Text beside the button | Until |
 | --- | --- | --- |
-| The copy worked | "Copied" | Something else is copied, or the block is closed (decision 48). Closing unmounts the block, so reopening shows nothing. |
-| The browser refused, or has no clipboard | "Could not copy. Select the text and copy it by hand.", in the `loss` colour | The same |
+| The alert message was copied | "Copied" | Something else is copied, or the block is closed (decision 48). Closing unmounts the block, so reopening shows nothing. The message never changes, so nothing else removes it. |
+| The URL was copied | "Copied" | The same, AND the URL on screen stops being the one that was copied: showing or hiding the secret removes it (decision 48, answered 2026-10-06). |
+| The browser refused, or has no clipboard | "Could not copy. Select the text and copy it by hand.", in the `loss` colour | As the row of the button it belongs to |
 
 - A second copy with the other button moves the text to that button. Only one of the two is ever shown.
-- **One case the rule does not settle** (§ N, Q1): "Copied" beside the URL button after the URL on screen has changed, because the secret was shown or hidden after the copy. The task that builds the disappearance of "Copied" waits for that answer; nothing else does.
+- **"Copied" beside the URL is shown only while the URL on screen is the one that was copied** (decision 48, answered 2026-10-06; it was Q1 of this addendum). The case it closes: the owner copies the URL with the placeholder, then presses "Show secret"; without this rule "Copied" would sit beside the real URL while the clipboard still held the placeholder, and that URL pasted into TradingView fails authentication on every alert. The reverse case is closed the same way.
+  - **How, without keeping the text.** The state of a URL copy records whether the secret was shown when the copy was made, and whether a host was part of the URL. Two things act on it. The "Show secret" and "Hide secret" handlers clear a URL copy's state, so "Copied" is removed for good and does not come back when the secret is shown again. And the render shows "Copied" only while both recorded booleans still equal the present, which covers what no handler sees.
+  - **The host arriving late is the case no handler sees.** If the URL was copied as the path alone and the host then loads (§ F), the URL on screen is no longer the one copied, and the render check removes the text.
+  - The alert message's "Copied" is not touched by either: showing or hiding the secret changes nothing in the message.
 
 ### F. The full webhook URL (12f.6)
 
@@ -3868,19 +4027,26 @@ The second row is wider than decision 43's, which lost one section. It is accept
 | `log_webhook_origin(settings)` | **infrastructure**/signals | `signals/infrastructure/webhook_origin_check.py` (new) | Called in `lifespan` inside `operator_alerts`, after `assert_panel_dist_ready`. Logs; never raises. |
 | The INFO line of a changed share | **application**/strategies | `strategies/application/update_strategy.py` | § J. No new port. |
 | `StrategyView.allocation_percent` in plain notation | **infrastructure**/strategies | `strategies/infrastructure/router.py` | The `Money` annotation of `shared/infrastructure/wire.py`. |
+| `ShareAmount`, `share_amount(total, share, minimum)`, `step_amounts(total, minimum)` (added 2026-10-06) | **domain**/allocation | `allocation/domain/share_preview.py` (new) | Pure. The amount is `requested_from_percent`, imported from `allocation/domain/percent.py`, never rewritten. `below_pool_minimum` is `amount < minimum`. `step_amounts` is the same function for 1 to 100. Imports `decimal` and `dataclasses`. |
+| `PoolSizing`, `PoolSizingPort.read(exchange, venue, settlement_currency)` | **application**/allocation | `allocation/application/ports.py` | Consumer-declared. Answers the pool's minimum order and its snapshot (total, instant read, stale), or no snapshot. Read-only by its shape: it has no write. |
+| `PreviewShare(sizing).preview(pool, share)`, `SharePreview` | **application**/allocation | `allocation/application/preview_share.py` (new) | One read of the port, then the domain functions. No lock, no commit, no clock of its own. |
+| `SqlAlchemyPoolSizing` | **infrastructure**/accounts | `accounts/infrastructure/pool_sizing.py` (new) | One SELECT: the `capital_pools` row outer-joined to its `pool_balance_snapshots` row. `stale` by `balance_snapshot_max_age_seconds`, the rule `SqlAlchemyPoolOverview` applies. The provider owns the adapter, as with `PoolBalancePort`. |
+| The `share-preview` route, `SharePreviewBody` | **infrastructure**/strategies | `strategies/infrastructure/router.py` | § C2. It loads the strategy (the 404), takes its pool and its stored share, and calls `PreviewShare`. The bearer dependency is the router's. |
 
 - **No use case and no port for the origin.** The route reads a setting through a pure function, as `webhook_secret_router` reads its setting directly. A class between them would hold nothing.
-- **`domain/` gains no framework import.** The win count is arithmetic over dataclasses; the origin parser is the standard library.
-- **Frontend**, container and presentational: `PoolShareEditor` (container: the draft, the save, the states) over `ShareSlider` (presentational: the track, the stops, the field); `share-value.ts` (pure: read, parse, round, position); `InlineStatus`; `shared/lib/clipboard.ts`; `shared/api/webhook-origin.ts`; `webhook-url.ts` (pure: the assembly). Modified: `shared/api/strategies.ts`, `shared/api/types.ts`, `shared/api/performance.ts`, `StrategyDetailPage.tsx`, `AllowedPairsEditor.tsx`, `WebhookMessage.tsx`, `PairStatsTable.tsx`, `features/overview/format.ts`, both locale files, `test/keyboard.ts`, `shared/theme.test.ts`.
+- **`domain/` gains no framework import.** The win count is arithmetic over dataclasses; the origin parser is the standard library; the share's amount is the existing pure function.
+- **Why the preview does not reuse `PoolBalancePort`.** The worker's adapter REFUSES a stale snapshot, by raising, and reads a pool map the worker keeps (`accounts/application/pool_balance_adapter.py`; `accounts/infrastructure/db_balance_source.py:43-56`). That refusal is right for sizing a trade and wrong for a display, which must show a stale figure and say it is stale. So the preview has its own read-only port. `decide()` and the allocation path are not touched.
+- **The API process still decrypts nothing and signs nothing.** The preview reads two database rows. No venue is called, no vault row is opened, no transport is built. The per-pair minimum, which would need a venue read, is not in this unit (§ C3).
+- **Frontend**, container and presentational: `PoolShareEditor` (container: the draft, the save, the states, the preview) over `ShareSlider` (presentational: the field, the track, the legend) and `ShareAmount` (presentational: the amount, its age, the warning); `share-value.ts` (pure: read, parse, round, position); `InlineStatus`; `shared/lib/clipboard.ts`; `shared/lib/useDebouncedValue.ts`; `shared/api/webhook-origin.ts`; `shared/api/share-preview.ts`; `webhook-url.ts` (pure: the assembly). Modified: `shared/api/strategies.ts`, `shared/api/types.ts`, `shared/api/performance.ts`, `StrategyDetailPage.tsx`, `AllowedPairsEditor.tsx`, `WebhookMessage.tsx`, `PairStatsTable.tsx`, `features/overview/format.ts`, `features/strategies/format.ts`, both locale files, `test/keyboard.ts`, `shared/theme.test.ts`.
 
 | Rule | Impact |
 | --- | --- |
 | `DRY_RUN` (rule 1) | Nothing here differs by mode and nothing needs a credential. No test needs one. |
 | Idempotency (rule 2), webhook (rule 3) | Untouched. The webhook's route, its authentication and its 3-second budget do not change; the new setting is display only and cannot stop the process that serves it. |
-| Allocation transaction (rule 4) | Untouched. The PATCH takes the strategy's row lock and no advisory lock, as today, so no lock order changes. The share is read before the pool lock and only an amount enters it (U3). |
-| Pools (rule 5), PnL in native currency (rule 7) | A win is the sign of a PnL in its pool's own currency. A win rate is a ratio of counts within one strategy, which is one pool; nothing is summed across pools or converted. |
+| Allocation transaction (rule 4) | Untouched. The PATCH takes the strategy's row lock and no advisory lock, as today, so no lock order changes. The share is read before the pool lock and only an amount enters it (U3). The preview is OUTSIDE that transaction by design: it takes no lock, reserves nothing and decides nothing. It is an estimate, and the read, the decision and the reservation of a real allocation still happen together under the pool's lock. |
+| Pools (rule 5), PnL in native currency (rule 7) | A win is the sign of a PnL in its pool's own currency. A win rate is a ratio of counts within one strategy, which is one pool; nothing is summed across pools or converted. The preview reads ONE pool, the strategy's own, and every amount in it is in that pool's settlement currency. |
 | Ledger (rule 6) | Read only. |
-| Credentials (rule 8) | Untouched. The webhook secret is not a vault credential; § E and § F keep it out of every log, state and request. |
+| Credentials (rule 8) | Untouched. The webhook secret is not a vault credential; § E and § F keep it out of every log, state and request. The preview needs no key (§ C2). |
 
 ### I. Texts (proposed, for the owner's review)
 
@@ -3890,6 +4056,14 @@ Two are the owner's own words (decision 48): "Saved" / "Guardado" and "Copied" /
 | --- | --- | --- |
 | `strategies.detail.share.label` | Share of the pool per trade | Porcentaje del pool por operación |
 | `…share.hint` | Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size. | Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño. |
+| `…share.amount` (added 2026-10-06) | Asks for about {{amount}} {{currency}} per operation | Pide alrededor de {{amount}} {{currency}} por operación |
+| `…share.amountHint` | An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage. | Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta. |
+| `…share.amountStale` | The pool's balance was last read at {{time}} UTC and may be out of date. | El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado. |
+| `…share.amountNoBalance` | The pool's balance has not been read yet, so the amount cannot be shown. | El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe. |
+| `…share.amountLoading` | Calculating the amount… | Calculando el importe… |
+| `…share.amountError` | The amount could not be loaded. | No se pudo cargar el importe. |
+| `…share.belowPoolMinimum` | At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger. | Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores. |
+| `…share.pairMinimumNote` | Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened. | Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada. |
 | `…share.valueText` | {{value}}% of the pool | {{value}} % del pool |
 | `…share.stop` | Set the share to {{value}}% | Fijar el porcentaje en {{value}} % |
 | `…share.notNumber` | Enter a number, for example 25 or 33.5. | Escriba un número, por ejemplo 25 o 33,5. |
@@ -3909,7 +4083,7 @@ Two are the owner's own words (decision 48): "Saved" / "Guardado" and "Copied" /
 | `strategies.webhook.hostError` | The webhook's host could not be loaded, so only the path is shown. | No se pudo cargar el host del webhook, por lo que solo se muestra la ruta. |
 | `strategies.performance.byPair.winRate` | Win rate | % acierto |
 
-The existing keys are reused unchanged. Palette tokens only: `gain` for the handle, the filled track and the reached stops, `rule` and `rule-strong` for the rest of the track, `ink`, `ink-2`, `ink-3`, `loss`, `panel`, `ground`; no hex and no `var()` in a `className`. None of the new components uses the amber `decision` colour, so the allow-list of `panel-tokens.test.ts` does not change.
+The existing keys are reused unchanged. With the amount on screen, `…share.hint` and `…share.amountHint` are the two helper sentences under it, followed by `…share.pairMinimumNote`; whether three sentences are too many for the column is part of the owner's review by eye. Palette tokens only: `gain` for the handle, the filled track and the reached stops, `rule` and `rule-strong` for the rest of the track, `ink`, `ink-2`, `ink-3`, `loss`, `panel`, `ground`; no hex and no `var()` in a `className`. The warning under the amount is `loss` (§ C3). None of the new components uses the amber `decision` colour, so the allow-list of `panel-tokens.test.ts` does not change.
 
 ### J. What fails here without a log line?
 
@@ -3924,7 +4098,7 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 | "Saved" shows although nothing was saved | A false confirmation | Cannot be logged. The flag is set only from a 200 whose body passed the strategy check; one test per refusal asserts its absence. |
 | The stored share is not a plain decimal | "The stored share could not be read", no control | The browser has no log. The backend change of § C removes the one known way to produce it. |
 | A refetch after a successful save fails | The share shows the confirmed value, because the answer was written to the cache. The allowed pairs show the old list and no "Saved" (§ D). | None. The query's own error state covers the page. |
-| **The clipboard holds something other than what the owner believes** | "Copied" beside a URL that has since changed | Cannot be logged. This is § N, Q1. |
+| **The clipboard holds something other than what the owner believes** | Prevented: "Copied" beside the URL goes when the secret is shown or hidden, or when the host arrives (§ E, decision 48) | Cannot be logged. Pinned by tests in both directions, each with its mutation (§ K). |
 | The browser refuses the copy, or has no clipboard | "Could not copy…" instead of "Copied" | The browser has no log, and the text must never be written to a console. The failure text is the trace. |
 | A copy triggers a request for the secret | The secret would be fetched without "Show secret" | Cannot be logged. The existing test that clicks every other button (U16) now clicks both Copy buttons, and a dedicated test counts the requests. |
 | `WEBHOOK_PUBLIC_ORIGIN` is unset | The path alone, and the sentence that says no host is configured | INFO at startup, once: the setting is not set and the panel shows the path only. |
@@ -3938,13 +4112,31 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 | A `style` prop is added later and the CSP silently drops it on the day the panel is served | A control drawn in the wrong place, in production only | Cannot be logged. The source guard of § B turns it into a red test. |
 | The slider is drawn wrongly in one browser (a misplaced handle, no filled part) | A control that works and looks broken | Cannot be logged or tested in jsdom. It is on the list of the owner's review by eye (§ K). The value in the field is always the truth. |
 
-**Threat matrix.** The skill's matrix stays N/A: no shell, subprocess, VCS automation or process integration. Three project rows:
+**Added 2026-10-06, for the amount and the minimum.**
+
+| Failure | What the owner sees | The line, or why none |
+| --- | --- | --- |
+| **The amount on screen is not what the next operation asks for** | A figure that was true of the balance shown | Nothing is at fault and nothing can log it: the balance is read again when a signal is sized (U20). The text says "about", says it is an estimate and says when the balance was read. |
+| The balance behind the amount is stale | The amount, with the sentence that the balance may be out of date | Nothing in this read. A snapshot that stays old is already an ERROR of the watchdog (`watchdog_snapshot_max_age_seconds`), and the worker refuses to size against it. A line per page view would be noise. |
+| The pool has no snapshot at all | "The pool's balance has not been read yet…" and no amount | None here: `balance: null` is a normal answer for a pool nothing has synced. The same watchdog reports it. |
+| The strategy's pool has no row in `capital_pools` | The amount's error line; the slider still works | 500 with one ERROR naming the strategy and the pool. A strategy cannot be registered on a pool that does not exist, so this is a fault in stored data. |
+| The preview fails, or its body is refused, while the owner works | "The amount could not be loaded." The field, the track and Save keep working. | The browser has no log. A 5xx is in the API's log. A drag sends no request, so a drag cannot fail (§ C2). |
+| A typed decimal's amount arrives after the value has changed again | The figure of the value now in the field, or the loading mark; never the earlier one | Cannot be logged. The answer is used only when its `exact.share` is the value asked, and a test with its mutation pins it. |
+| The preview and the engine disagree on the minimum | A warning on a share that would be granted, or none on one that would be skipped | Cannot be logged: neither side is wrong alone. A test asserts that `below_pool_minimum` and `decide()`'s first rule agree just under, at and just over the minimum. |
+| **A share is under the pool's minimum** | The warning under the amount, on a change AND on the stored value | Nothing at save time: it is a legitimate state and the save is allowed. When a signal then arrives, the existing WARNING of the skipped allocation (U25). |
+| **A share is too small for one pair at the exchange** | No warning on the panel: it is not checked, and the standing sentence says so | The existing WARNING `ORDER_NOT_PLACEABLE` when a live signal arrives (U25). Under `DRY_RUN` nothing at all (U26). This is the limit of this unit (§ C3, § M). |
+| A strategy with no allowed pair | Nothing changes: the amount and the pool's minimum do not depend on the pairs | None needed here. Every opening of such a strategy is already refused with its own WARNING, and saving an empty list is refused by the pairs editor. |
+| A venue that cannot be read | Nothing: this unit reads no venue for the share, so the control, the amount and the warning do not depend on one | None. This is the reason the per-pair check is not in this unit. |
+| The panel multiplies the balance itself | A second, unreviewed money computation | Cannot be logged. The amount component takes strings from the preview and nothing from `['pools']`; a test renders it with a pool balance that would give another figure and asserts the served one. |
+
+**Threat matrix.** The skill's matrix stays N/A: no shell, subprocess, VCS automation or process integration. Four project rows (the fourth added 2026-10-06):
 
 | Threat | Safe behaviour | RED test |
 | --- | --- | --- |
 | The new `/api` route ships without auth | The bearer dependency is on the router | 401 without the token and with a wrong one, in the pattern of the webhook-secret router's test. |
 | The origin's value carries a credential, or the route's body carries the webhook secret | A value with a user or a password is refused and its text is never logged; the body is the origin or null | The parser's refusal case, a log capture that searches every record for the raw value, and the existing secret sweep over the route table. |
 | The origin becomes something the browser requests | It is rendered as text and written to the clipboard only | No request made by the page starts with the origin, and the URL is not inside an anchor. |
+| The preview route ships without auth, or serves another strategy's pool | It is a route of the strategies router, whose bearer dependency is structural; the pool is taken from the strategy row the path names, never from the request | `tests/strategies/infrastructure/test_router_auth.py` enumerates that router's routes, so the new one is covered without being listed. Two strategies on two pools: each path answers its own pool's currency and balance. |
 
 ### K. Testing strategy
 
@@ -3956,11 +4148,17 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 | Integration, real PostgreSQL | The strategy report end to end with wins; a PATCH of the share leaves every existing reservation row unchanged | The existing fixtures of `tests/performance/infrastructure` and of the strategies router |
 | Frontend, pure | `share-value.ts` (read, parse, round, position); `webhook-url.ts`; `rateText` | Vitest, tables of cases |
 | Frontend, components | `ShareSlider`, `PoolShareEditor`, `InlineStatus`, the two Copy buttons, the URL with its host, the Win rate column | Vitest, `vi.stubGlobal("fetch")`, a stubbed `navigator.clipboard` |
+| Unit, domain (added 2026-10-06) | `share_amount` and `step_amounts`: the amount equals `requested_from_percent` for the same inputs; the hundred steps; a total of zero; the minimum's edge | Pure. A table of totals, shares and minimums. |
+| Unit, application | `PreviewShare`: a snapshot, a stale one, none; the default share and an asked one | A fake `PoolSizingPort` |
+| Integration, real PostgreSQL | `SqlAlchemyPoolSizing` against real `capital_pools` and `pool_balance_snapshots` rows: a synced pool, a pool never synced, a stale snapshot, a pool with no row. The route end to end for two strategies on two pools. | The existing fixtures of `tests/accounts/infrastructure` |
+| Router | The `share-preview` body field by field; `balance` null with `exact` null and `steps` empty; the 404; the 422 of a bad `share`; no JSON float in the body | `httpx.AsyncClient` over ASGI. The existing walk for a JSON float or an exponent is taught the new route. |
+| Frontend | `fetchSharePreview` and its check; the lookup of § C2 row by row; the debounce; the six states of the amount; the warning; `useDebouncedValue` | Vitest with fake timers, `vi.stubGlobal("fetch")` |
 
 **Rules that bind the task breakdown.**
 
-- **Strict TDD.** Each RED fails on an ASSERTION. New fields and functions are first added as stubs that compile and answer WRONGLY: `win_count` 0 and `win_rate` 0; a parser that returns its input; a route that always answers null; a slider whose field never follows the handle; a copy that reports success without writing.
-- **No lock-hold harness applies.** This unit takes no new lock and has no second actor that must wait. The PATCH's row lock and its serialisation against a concurrent toggle are already tested.
+- **Strict TDD.** Each RED fails on an ASSERTION. New fields and functions are first added as stubs that compile and answer WRONGLY: `win_count` 0 and `win_rate` 0; a parser that returns its input; a route that always answers null; a slider whose field never follows the handle; a copy that reports success without writing; a preview whose every amount is zero and whose `below_pool_minimum` is always false; an amount line that prints the first step's figure for every value.
+- **No lock-hold harness applies.** This unit takes no new lock and has no second actor that must wait. The PATCH's row lock and its serialisation against a concurrent toggle are already tested (`tests/strategies/infrastructure/test_update_strategy_concurrency.py`). The preview takes no lock at all, and one test asserts exactly that: on real PostgreSQL, a preview completes while another connection still HOLDS the pool's advisory lock. It is the lock-hold harness used the other way round: here the second actor must NOT wait, so a later edit that makes the preview queue behind an allocation turns the test red.
+- **The preview and the engine are tested against each other, not each alone.** For amounts just under, at and just over the pool's minimum, `below_pool_minimum` must equal "`decide()` answers `REQUEST_BELOW_MIN_ORDER_SIZE`" for the same request and rules. And for a table of totals and shares, the preview's amount must equal what `requested_from_percent` returns. Neither function is reimplemented in a test.
 - **Symbol spellings.** The win count crosses a module boundary on a symbol, so the fills are written as `STXUSDT.P` (TradingView's) on the opening side and `STXUSDT` (the venue's) on the closing side, a second strategy's as `STXUSDT_PERP` (Pionex's), and the report is asserted under the pair `STXUSDT`. No assertion compares two spellings as text.
 - **One shared list of origin cases.** The backend's accepted cases, normalised, are the panel's accepted cases; the same list of strings is asserted on both sides, so the two checks cannot drift apart silently.
 - **A new test helper is needed.** `frontend/src/test/keyboard.ts` gains `pressRangeKey(key)`, which stands for the browser's default action on a focused range input, as `pressEnter` stands for a button's: an arrow adds or removes one `step`, Home sets `min`, End sets `max`, the result is clamped, and nothing happens when the keydown was prevented or the input is disabled. It then fires the input and change events. What a test proves with it is the markup's side: a real, enabled range input with the right `min`, `max` and `step`, and no handler that swallows the key. Page Up and Page Down are not modelled: their step is the browser's.
@@ -3993,6 +4191,31 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
   | A copy makes no request | The handler calling the secret's refetch |
   | A missing clipboard and a rejected write both show the failure text | The `false` branch reporting success |
   | "Copied" moves to the other button and goes when the block is closed | Two independent flags; and, separately, the block hidden with CSS instead of unmounted |
+  | The URL is copied with the placeholder, then the secret is shown: "Copied" is gone. And the reverse: copied revealed, then hidden. | The clearing removed from the Show handler; and, separately, from the Hide handler |
+  | After that, showing the secret again does not bring "Copied" back | The state kept and only hidden by the render check |
+  | The URL is copied as the path alone, then the host loads: "Copied" is gone | The render check of the recorded booleans removed |
+  | The alert message's "Copied" survives showing and hiding the secret | The handlers clearing every copy state instead of the URL's |
+  | The preview's amount equals `requested_from_percent` for the same total and share | The amount rounded half up; and, separately, computed from `available` instead of `total` |
+  | `below_pool_minimum` agrees with `decide()` at the minimum itself | `<` becomes `<=` |
+  | A pool with no snapshot answers `balance` null, `exact` null and no steps | A zero total substituted for the missing snapshot |
+  | A stale snapshot is served and marked | The stale snapshot refused, as the worker's reader does |
+  | Each strategy's preview is its own pool's | The pool taken from a query parameter, or the first pool read |
+  | The preview is answered while the pool's advisory lock is held elsewhere | An `acquire` of that lock added to the read |
+  | A drag across the track sends no request | The amount asked per value |
+  | Every whole value shows the amount of its own step (asserted for 1, 25, 34 and 100 with four different figures) | An off-by-one in the lookup; and, separately, the first step shown for all |
+  | A typed `33.5` shows no figure until its answer, and then that answer's | The previous amount kept on screen while loading |
+  | Two typed values in quick succession send one request, for the last | The debounce removed |
+  | An answer whose `exact.share` is not the value asked is refused | That comparison removed |
+  | A body with 99 steps, or with a balance and no steps, is an error | The pairing check removed (one case each) |
+  | A failed preview leaves the field, the track and Save usable | The control disabled on the preview's error |
+  | The amount shown is the served string cut down, never the pool's balance multiplied | The component reading `['pools']` and multiplying |
+  | `4.996` reads "4.99", not "5.00" | `Intl` given the unrounded number |
+  | The warning shows for a stored share under the minimum, with no change made | The warning tied to the draft |
+  | Save is enabled while the warning shows | Save disabled on `below_pool_minimum` |
+  | `0.5` is accepted and can be saved | A lower bound of 1 on the field |
+  | The sentence about the per-pair minimum is always shown | It shown only with the warning |
+  | Tab goes field, track, 25, 50, 75, 100, Save | The field rendered after the track |
+  | Each stop is a button with a 44 px box, a name and `aria-pressed`, though it reads as a legend | The stop turned into a `<span>`; and, separately, the box class removed |
   | An origin with a path, a query, a user or a trailing slash is not used by the panel | The `new URL(value).origin === value` check removed |
   | With no origin the URL is the path alone, as today | An empty origin rendered as `null` or `undefined` text |
   | The URL is not inside an anchor and no request starts with the origin | The `<code>` turned into a link |
@@ -4005,12 +4228,13 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 - **What jsdom cannot prove, left to the owner's review by eye and to a real browser.**
   1. The look of the slider in Chrome, Firefox and Safari: the handle, the filled part, the stops under the handle's centre.
   2. Dragging by pointer and by touch; the arrow, Home, End and Page keys; the focus ring.
-  3. The field beside the track and its wrap on a narrow screen; that the four stops never touch.
+  3. The field above the track; the legend close under it; that a press just under the handle at a stop takes the stop and never blocks grabbing the handle; that the four targets never touch at 300 px.
+  3a. The amount under the legend following the handle as it is dragged; the three helper sentences in a 300 px column.
   4. **The CSP**: the built bundle served by FastAPI with `PANEL_DIST_DIR` set, the strategy page open, no policy violation in the console (§ B).
   5. The clipboard in a real secure context, and its failure text over plain HTTP on another address.
   6. The By pair table's width in English and Spanish.
   7. Every text of § I, in both languages.
-- **The owner's local fixture** (`vite.fixture.config.ts`, unstaged) must serve `wins` and `win_rate` on each `by_pair` entry, the `webhook-origin` route, and a PATCH that answers the share it was sent. Without the first, the new panel refuses the report on that fixture (§ G), which would look like a defect and is the check working.
+- **The owner's local fixture** (`vite.fixture.config.ts`, unstaged) must serve `wins` and `win_rate` on each `by_pair` entry, the `webhook-origin` route, a PATCH that answers the share it was sent, and the `share-preview` route with its hundred steps, one case under the pool's minimum and one pool with no balance. Without the first, the new panel refuses the report on that fixture (§ G), which would look like a defect and is the check working.
 - **Gate after every unit.** Backend: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Frontend: `npm run lint` and `npm test`.
 
 ### L. Delivery
@@ -4018,21 +4242,23 @@ Backend lines carry ids, counts and reasons. None carries the webhook secret, a 
 Two sequential PRs to `main`, never stacked, split by deploy order and not by size.
 
 ```
- 12f-1 backend: wins in by_pair, the webhook origin    ─►   12f-2 panel: the slider and its save, "Saved",
-       setting and route, the share's log line and            the two Copy buttons, the full URL,
-       plain notation                                          the Win rate column
+ 12f-1 backend: wins in by_pair, the webhook origin    ─►   12f-2 panel: the slider and its save, the amount
+       setting and route, the share's log line and            and its warning, "Saved", the two Copy
+       plain notation, the share-preview route                buttons, the full URL, the Win rate column
 ```
 
 | PR | Contents | What changes for a user at deploy | Deploy | Risk | Rollback boundary |
 | --- | --- | --- | --- | --- | --- |
-| **12f-1** | `PairStats` and `PairBody` with wins; `parse_webhook_origin`, the setting, the route and the startup line; the INFO line of a changed share; the share written in plain notation | Nothing visible. Two more fields on each `by_pair` entry, one new GET, one more startup line. | Pull as `strategy`, restart both services. Setting `WEBHOOK_PUBLIC_ORIGIN` in the environment is the owner's step, at any time; until then the route answers null. | **Low.** Additive fields, a read-only route, a setting that cannot stop the start. | A revert removes the two fields and the route (its path then answers 404). No data is touched. |
-| **12f-2** | Everything of §§ B to G on the panel side, the texts, the keyboard helper, the source guard | Locally, and in production once the panel is served: the share can be changed, a save and a copy are confirmed, the URL carries its host, By pair shows the win rate. | Pull as `strategy`, no restart (the panel is not served while `PANEL_DIST_DIR` is unset). | **Medium.** It is the first control of the panel that changes how much capital a strategy asks for. The value is a string, sent only on Save, checked at three layers on the server, and its request body is pinned by a test. | A revert restores the page as it is today, which works against the new API. |
+| **12f-1** | `PairStats` and `PairBody` with wins; `parse_webhook_origin`, the setting, the route and the startup line; the INFO line of a changed share; the share written in plain notation; **(added 2026-10-06)** `share_preview.py`, `PoolSizingPort` and its adapter, `PreviewShare` and the `share-preview` route | Nothing visible. Two more fields on each `by_pair` entry, two new GETs, one more startup line. | Pull as `strategy`, restart both services. Setting `WEBHOOK_PUBLIC_ORIGIN` in the environment is the owner's step, at any time; until then the route answers null. | **Low.** Additive fields, two read-only routes, a setting that cannot stop the start. The preview reads two rows, takes no lock and touches no code of the allocation path: `percent.py` is imported, `decide()` is only called from a test. | A revert removes the two fields and both routes (their paths then answer 404). No data is touched. |
+| **12f-2** | Everything of §§ B to G on the panel side, the amount and the warning of §§ C2 and C3, the texts, the keyboard helper, the source guard | Locally, and in production once the panel is served: the share can be changed and shows the amount it asks for, a share under the pool's minimum is warned about, a save and a copy are confirmed, the URL carries its host, By pair shows the win rate. | Pull as `strategy`, no restart (the panel is not served while `PANEL_DIST_DIR` is unset). | **Medium.** It is the first control of the panel that changes how much capital a strategy asks for. The value is a string, sent only on Save, checked at three layers on the server, and its request body is pinned by a test. The amount is display only: its failure cannot block or alter a save. | A revert restores the page as it is today, which works against the new API. |
 
-- **Why two.** The panel refuses a `by_pair` entry without the new fields and reads a route that must exist, so the API is merged and running before the panel that asks (§ G). The panel PR is also the one the owner reviews by eye, and that review should not hold a finished backend change.
-- **Why not three.** The slider, "Saved" and Copy need nothing from 12f-1 and could ship before it. Putting them in a PR of their own would be a split by size, which the owner does not want; and the win rate column and the URL would then be a third PR for one page.
+- **Why two.** The panel refuses a `by_pair` entry without the new fields and reads routes that must exist, so the API is merged and running before the panel that asks (§ G). The panel PR is also the one the owner reviews by eye, and that review should not hold a finished backend change.
+- **The preview against an older API.** The route answers 404 there, so the amount line reads "could not be loaded" and the slider works (§ C2). That is the same degradation as the host's, and narrower than the win rate's.
+- **Why not three.** The slider, "Saved" and Copy need nothing from 12f-1 and could ship before it. Putting them in a PR of their own would be a split by size, which the owner does not want; and the win rate column, the URL and now the amount would then be a third PR for one page.
 - **One PR for everything is possible**, because the panel is not served in production and the order hazard exists only on a developer machine today. The recommendation stays two, for the review-by-eye reason.
-- **No migration.** The share's column exists since migration 0007. A win is derived at read time. The host is a setting. So no rehearsal on a restored backup is needed for this unit.
-- **Forecast, as information only.** 12f-1: 600 to 900 authored lines. 12f-2: 2,000 to 3,000. Both assume tests at about twice the production code, the ratio the last panel units ran at. `Decision needed before apply: Yes` (Q1 of § N, for one task of 12f-2 only; 12f-1 and the rest of 12f-2 can start) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+- **No migration.** The share's column exists since migration 0007. A win is derived at read time. The host is a setting. The pool's minimum and its snapshot are existing columns. So no rehearsal on a restored backup is needed for this unit.
+- **No venue read is added, and no probe is needed.** The per-pair minimum, which would need both, is not in this unit (§ C3).
+- **Forecast, as information only** (revised 2026-10-06). 12f-1: 1,000 to 1,500 authored lines, of which the preview is about 400 to 600. 12f-2: 2,600 to 3,800, of which the amount and its warning are about 600 to 800. Both assume tests at about twice the production code, the ratio the last panel units ran at. `Decision needed before apply: No` (Q1 and Q2 are answered; Q3, Q4 and Q5 each have a default the design builds) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
 
 **Design decisions made here** (not owner decisions; each has its reason above):
 
@@ -4040,7 +4266,7 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 | --- | --- | --- |
 | F1 | The slider is the native range input, restyled; the track, the filled part and the stops are an SVG drawn with attributes | B |
 | F2 | No `style` prop is written anywhere in the panel, and a source test keeps it so | B |
-| F3 | The stops are real buttons placed with one fixed class each | B, C |
+| F3 | The stops are real buttons placed with one fixed class each. Revised 2026-10-06: they read as a legend, keep a 44 px box and their place in the tab order, and sit 12 px closer to the track | B, C |
 | F4 | One decimal string is the value; the handle is its rounding, clamped to the track; a stale draft is dropped | C |
 | F5 | The field is text with a decimal keypad, accepts one comma, and shows a dot in both languages | C |
 | F6 | The save sends the share alone, as a string, and writes the checked answer into the cache | C |
@@ -4056,6 +4282,14 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 | F16 | The win rate is unsigned, one decimal, neutral ink; no column is hidden | G |
 | F17 | A `by_pair` entry without the fields refuses the report, at the cost of the list's figures against an older API | G |
 | F18 | Two PRs, backend then panel | L |
+| F19 | (2026-10-06) The field is above the track on its own row; nothing wraps | B |
+| F20 | The amount is computed by the server with `requested_from_percent`; the browser multiplies nothing and the panel's rule is not revisited | C2 |
+| F21 | One route serves the hundred whole steps and one exact value, so a drag sends no request; a typed decimal asks once, 300 ms after the last keystroke, and shows no figure meanwhile | C2 |
+| F22 | The preview has its own read-only port and adapter; it does not reuse the worker's balance reader, which refuses a stale snapshot | C2, H |
+| F23 | The figure is cut down to the currency's decimals as text, the direction the engine rounds | C2 |
+| F24 | The minimum is a WARNING, not a refusal: on the pool's own minimum order, exact for the balance shown, on the stored value too, never blocking a save | C3 |
+| F25 | The exchange's minimum per pair is not checked in this unit; one standing sentence says so; it is proposed as its own unit, which needs a price read the API process does not make | C3, N |
+| F26 | "Copied" beside the URL is cleared by the Show and Hide handlers and guarded by a render check on two recorded booleans; the text is never kept | E |
 
 ### M. Risks, and what could be wrong in this design
 
@@ -4063,8 +4297,17 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 | --- | --- | --- |
 | The panel has never been loaded under its CSP | A wrong belief about the policy would show only on the day the panel is served | The slider needs no runtime style (§ B). The check in a real browser is a task of 12f-2 and can be made locally. It also covers the fonts and the chart, which § 13 already asked to rehearse. |
 | The restyled native control differs by browser | Vendor pseudo-elements are the least portable part of CSS; the filled part depends on the SVG lining up with a thumb whose size each engine must honour | The handle is the browser's and is always where the value is; a misalignment is cosmetic and at most a few pixels. The fallback is the unstyled native control with `accent-gain` (§ B). Reviewed by eye in three browsers. |
-| The owner's reference image did not reach the session | The drawing follows the pattern, not the capture | Decision 48 says so. The look is the owner's review; the structure does not depend on it. |
-| A value below 1 sits at the end of the track | The handle shows 1 for a share of 0.5 | The field and the screen-reader text show the exact value. § N, Q2. |
+| The reference image was described to this design in words | Decision 48 records that the Binance order form reached the session on 2026-10-06. This addendum was revised from its description (a wide field on top, a thin track with a handle and four marks, the amounts under it), not from the image itself. | The three changes the owner named are the ones built. Proportions and spacing are the owner's review by eye; the structure does not depend on them. |
+| The layout was revised after the prototype and the prototype was not | `PoolShareSlider.html` shows the field beside the track and the stops a row below; the design now says otherwise | § B says which one is the design. The owner sees the revised layout first in the panel PR's review by eye, not in a prototype. |
+| The legend's targets overlap the lower 12 px of the track's box | A press there at a stop takes the stop instead of the track | It is the same value within a step, the handle itself is never covered, and it is on the list of the review by eye (§ K). If it feels wrong, the legend moves down 12 px and nothing else changes. |
+| A value below 1 sits at the end of the track | The handle shows 1 for a share of 0.5 | Decided: a share below 1% is allowed (decision 48). The field and the screen-reader text show the exact value, and the warning says when its amount is too small. |
+| **The warning covers the pool's minimum, not each pair's** | The owner asked for a share that is enough for the strategy's pairs. A share can pass the pool's minimum and still be too small for a pair with a large minimum quantity, and the panel then shows no warning. | Said on screen, always, by the standing sentence (§ C3). The worker refuses such an order and reserves nothing (U25). The per-pair warning is Q5 of § N. This is the largest gap between what was asked and what this unit delivers. |
+| **Under `DRY_RUN` nothing refuses a share that is too small for a pair** | The simulated exchange applies no minimum (U26), so production today rehearses such a share without a complaint, and the first refusal would come live | Not caused by this unit and not fixed by it. It is one more reason for the per-pair unit, and it is said here so that a quiet dry run is not read as proof. |
+| The three guards that refuse a small allocation are WARNINGs | A strategy that skips every signal looks like one that never fires; nothing reaches the alert channel | Outside this unit. Raising the level, or showing signal outcomes in the panel, would be its own change. Flagged, not designed. |
+| The amount is an estimate and reads like a figure | The balance moves, the grant can be less than the request, and the position is the amount times a leverage the panel cannot show | The text says "about", says it is an estimate, says when the balance was read, and says it is margin (§ I). Three sentences is a lot for a narrow column; the owner's review may shorten them. |
+| The preview and the real request use different reads of the balance | The worker refreshes the balance on demand before it sizes; the preview shows the last snapshot, up to a minute old | Stated. Both use the same function on the same column, so they differ only by the balance's movement. |
+| The table of a hundred steps is one read of the balance | An amount looked up a minute later is a minute old | It is refetched every 60 s, the cadence the balance itself is written at, and the line shows the time of the read. |
+| The preview is a new place a strategy's pool is read | A wrong pool would show another pool's money | The pool comes from the strategy row the path names; a test with two strategies on two pools pins it (§ J). |
 | The clipboard keeps the secret after it is hidden | "Hide secret" and leaving the view clear the screen and the cache, not the clipboard; a clipboard history may keep it longer | The owner's decision. The panel has no way to take a copy back. Stated in § E. |
 | A well-formed, wrong host is shown with full confidence | The owner pastes it into TradingView and every alert goes elsewhere | The startup INFO prints what is served. No check can know the right host. A full URL is still less error-prone than a path the owner completes by hand. |
 | The webhook host is now told to whoever holds the admin token | It links the panel to the webhook's address | The token already arms strategies and reveals the webhook secret. The host is public DNS. |
@@ -4077,20 +4320,22 @@ Two sequential PRs to `main`, never stacked, split by deploy order and not by si
 
 ### N. Open questions for the owner
 
-Four questions. Only Q1 holds a task back; the other three have a default the design builds unless the owner says otherwise.
+One question is open, Q5. It holds no task back: it has a default the design builds unless the owner says otherwise. Q1 to Q4 are answered (owner-decisions.md, decisions 44 and 48).
 
-- **Q1. When the URL on screen changes after it was copied, does "Copied" stay beside the Copy URL button?** Decision 48 says "Copied" stays until something else is copied or the block is closed. It also says the owner must never believe the clipboard holds something it does not. The two meet in one case: the owner copies the URL with the placeholder, sees "Copied", then presses "Show secret". The URL on screen is now the real one, "Copied" is still beside it, and the clipboard still holds the placeholder. Pasted into TradingView, that URL makes every alert fail authentication. The reverse case, copy the real URL and then hide the secret, leaves "Copied" beside a placeholder while the clipboard holds the secret.
-  - *(a)* As written: "Copied" stays until another copy or until the block is closed.
-  - *(b)* "Copied" beside the URL button is shown only while the URL on screen is the one that was copied; showing or hiding the secret removes it. The alert message never changes, so its "Copied" follows (a) either way.
-  - The design recommends (b). It is built without keeping the copied text: the panel remembers only whether the secret was shown at the moment of the copy.
-  - The design does not choose between a rule the owner wrote and the reason the owner gave for it. The one task that builds when "Copied" disappears waits for this answer.
-- **Q2. May the number field hold a share below 1%?** The track runs from 1 to 100 (decision 48). The domain, the API and the database accept any value above 0, so `0.5` can be stored, and a value stored that way must in any case be displayed.
-  - Default built: the field accepts what the API accepts, above 0 and at most 100. A value below 1 leaves the handle at the start of the track.
-  - Alternative: the field refuses a value below 1. A share stored below 1 by another client would still be shown, and could then only be raised.
+**Answered 2026-10-06, and removed from the list** (the record is owner-decisions.md, decision 48):
+- **Q1, "Copied" after the URL changes: answered, option (b).** "Copied" beside the URL is shown only while the URL on screen is the one that was copied. Folded into § E.
+- **Q2, a share below 1%: answered, with a new requirement.** A share below 1% is allowed. The share should be enough to trade the strategy's pairs, refused if not, or warned about if a refusal cannot be made in this unit. The design delivers the warning, on the pool's own minimum, and says why a refusal would not be true (§ C3). What it could not deliver is Q5.
+
 - **Q3. Should the header line of the page show the share?** The mockup prints it there ("Bybit USDT pool · 30% per trade · active 41 days…"). The page built in PR 12b does not, and it is not one of this unit's five pieces.
   - Default built: no. The share is shown and edited in the settings column only.
   - If wanted, it is one figure in the header, read from the same strategy and updated by the same save.
+  - **Answered 2026-10-06: no.** The share is shown in the settings column only.
 - **Q4. Win rate with one decimal, or whole as in the mockup?** The mockup shows "58%". The design proposes "58.3%".
   - Reason: a whole percentage rounds 199 wins of 200 to "100%", which reads as a perfect record. One decimal costs no width, because the heading is wider than the figure.
   - Default built: one decimal. Changing it is one argument of one function.
+  - **Answered 2026-10-06: one decimal.**
+- **Q5 (new, 2026-10-06). The exchange's minimum per pair: its own unit after this one, or is the pool's minimum enough?** The owner asked for a share that is enough to trade the strategy's pairs. This unit warns when the share asks for less than the POOL's minimum order, which the system knows exactly. It does not check each PAIR's minimum at the exchange, because that needs the pair's current price, which the API process does not read today, and the account's leverage, which it cannot read without the key. So a share can pass with no warning and still be too small for a pair whose smallest order is large; the worker then refuses that order and opens nothing, and under dry run nothing refuses it at all.
+  - Default built: the pool's minimum as a warning, and one sentence that is always on screen saying the per-pair minimum is not checked.
+  - Proposed as its own unit: a warning per allowed pair, saying about how much margin that pair needs at 1x and whether this share reaches it. It needs a public price read on each venue, with a probe from the VPS first, and it keeps to a warning: the leverage is unknown to the panel, so a share that is too small at 1x may still be enough.
+  - The question is whether that unit is wanted, and how soon. Nothing in this unit waits for the answer.
 
