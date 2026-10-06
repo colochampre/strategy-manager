@@ -275,6 +275,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - A fee charged in another currency keeps its full figure (`+ 0.00012 BNB`): two decimals would print it as zero.
     - The exact figures stay available: the detail dialog and its fills table keep full precision.
     - **Answered 2026-10-05 (the owner's second look, after the four changes above were built and approved): the table's notes sit below the table, not under its title.** The three dry-run sentences and the incomplete-fee note are information to consult when wanted, not something to read past on every visit. They go after the table and after the Previous and Next controls, so those controls do not move when a page has no note. Which notes show, and their texts, do not change. Task 9p.5.32.
+47. **The webhook refuses a body larger than 64 KiB, in the application** (2026-10-06, owner, follow-up 9qf.8).
+    - Found by 9qf.7: nothing bounded the size of a webhook body, and a body with an 8 MB string was stored with a 200.
+    - **The limit is 65,536 bytes.** A real alert is about 300 bytes, so this leaves a margin of more than 200 times and keeps a stored row trivial.
+    - **It is enforced in the application, not at the edge**, so it does not depend on how the tunnel is configured.
+    - A body past the limit answers 413, stores nothing and writes one WARNING. The body is never read whole and then measured: a declared length past the limit is refused before reading, and a body with no declared length stops being read once it passes the limit.
+    - Why it matters although the sender must be authenticated: the raw body is kept for good in `signals.raw_payload` and is read back by every query that selects it. Authentication happens before the body is read, so an unauthenticated request was never able to make the application read one.
 
 ## Standing constraints
 
