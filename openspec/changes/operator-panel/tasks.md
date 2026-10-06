@@ -77,6 +77,17 @@ above do not change: `Decision needed before apply: No` (three owner questions a
 blocks only the tasks marked with it in PR 12x, and none blocks 12x-1 or 12x-2),
 `Chained PRs recommended: Yes`, `400-line budget risk: High`.
 
+**Added 2026-10-06 (unit 12f, decisions 44 and 48).** The detail page's follow-ups (the share of the pool
+as a slider with its amount and warning, "Saved", two Copy buttons, the webhook's full URL, and the
+WIN RATE column of By pair) are two sequential PRs to `main`, never stacked, split by deploy order and
+not by size: **12f-1** backend (unit 12f.9) and **12f-2** panel (unit 12f.10). Information only, as
+the owner holds a standing size exception: bottom-up, **12f-1 is 2,000–3,000** authored lines (the
+design forecasts 1,000–1,500 and says tests run at about twice the production code; this section
+counts the tests it lists, and the bias this change measured on every earlier unit is about 2x) and
+**12f-2 is 4,500–6,500** (design: 2,800–4,100). No migration. The guard lines above do not change:
+`Decision needed before apply: No` (every question of design addendum 12f § N is answered),
+`Chained PRs recommended: Yes`, `400-line budget risk: High`. Nothing is split to fit a budget.
+
 ### Suggested Work Units (PR-level; see per-PR tables below for unit-level detail)
 
 | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
@@ -113,6 +124,8 @@ blocks only the tasks marked with it in PR 12x, and none blocks 12x-1 or 12x-2),
 | 9p.4 | A strategy's operations: figures, rehearsal rows on request, fill-price classification, `GET .../trades/{allocation_id}/fills` (decision 43) | PR 12e-1 | `cd backend && uv run pytest --tb=short backend/tests/performance backend/tests/shared/infrastructure/test_wire_price.py backend/tests/signals/infrastructure/test_webhook_secret_router.py` | Real PostgreSQL on the ORM schema; `head` schema for the CHECK and index tests only; no migration | Two reverts: the figures and rehearsal split restore the nine-field row; the fills read removes one route |
 | 9p.5 | The operations table, dry-run marks, detail dialog and fills table (decision 43) | PR 12e-2 | `cd frontend && npm test -- TradesTable TradeDetailDialog OperationFillsTable format performance` | N/A — frontend-only, `vi.stubGlobal("fetch")`; the owner's review by eye with `vite.fixture.config.ts` | A revert restores the seven-column table, which still works against the new API |
 | 9q | The simulated exchange fills at the alert's price, charges the venue's taker fee, refuses an unusable price and a market not quoted in USDT; an exchange with no rate is not served (decision 45) | PR 12g | `cd backend && uv run pytest --tb=short backend/tests/execution backend/tests/signals backend/tests/test_main_simulated_exchanges.py` | Real PostgreSQL on the ORM schema through the production composition root (`main.build_worker_runner`, `run_once`); `head` schema for one constraint test; `httpx.MockTransport` with the frozen clock for the two registered real adapters; no credential, no network | One revert of the whole PR (a partial revert would leave opens priced and closes refused). It restores the fixed price of 1 and the fee of 0 for NEW fills; fills already written keep their alert price and fee. No migration, no data touched |
+| 12f.9 | The detail page's backend follow-ups: wins and win rate in `by_pair`, the webhook origin (setting, parser, route, startup line), the INFO line of a changed share and the share in plain notation, the share-preview route (decisions 44 and 48) | PR 12f-1 | `cd backend && uv run pytest --tb=short backend/tests/performance backend/tests/signals/infrastructure/test_webhook_origin_router.py backend/tests/signals/infrastructure/test_webhook_origin_check.py backend/tests/strategies backend/tests/allocation/domain/test_share_preview.py backend/tests/accounts/infrastructure/test_pool_sizing.py backend/tests/signals/infrastructure/test_webhook_secret_router.py` | Real PostgreSQL on the ORM schema for the adapter, the routes and the integration tests; no `head` schema is needed (no constraint or index decides an outcome); `httpx.AsyncClient` over ASGI; the lifespan for the startup lines; no credential, no network, no migration | Two independent reverts: the wins (12f.9.1 and 12f.9.2) and everything else; each removes new fields or new routes only, and their paths then answer 404. No data is touched |
+| 12f.10 | The detail page's panel follow-ups: the share slider with its field, amount, warning and two information buttons, "Saved", two Copy buttons, the full webhook URL, the Win rate column (decisions 44 and 48) | PR 12f-2 | `cd frontend && npm test -- share PoolShareEditor ShareSlider ShareAmount InfoDisclosure InlineStatus clipboard webhook-url webhook-origin PairStatsTable WebhookMessage AllowedPairsEditor StrategyDetailPage theme format` | N/A — frontend-only, `vi.stubGlobal("fetch")` and a stubbed `navigator.clipboard`; the owner's review by eye with `vite.fixture.config.ts`, and the built bundle served by FastAPI with `PANEL_DIST_DIR` set for the CSP | A revert restores the page as it is today, which works against the new API |
 
 ## Delivery log
 
@@ -306,6 +319,17 @@ string in a log line, a commit message, or this file.
   - PR 12x-6 needs PR 12x-3 and the owner's answer to Q1 (answered: "enablement events do not
     block"). It may land before or after 12x-4 and 12x-5.
   - PR 12x-1 to 12x-4 ⟂ the rest of PR 12 (units 9d, 9w, 9p) and PR 13: no shared file.
+- Unit 12f (added 2026-10-06, decisions 44 and 48), strictly in this order, each cut from `main` after
+  the previous one merged and deployed:
+  - PR 12f-1 needs nothing unmerged. It reads `by_pair`, `UpdateStrategy`, the strategies router,
+    `allocation/domain/percent.py`, `capital_pools` and `pool_balance_snapshots`, all on `main`.
+  - PR 12f-2 needs PR 12f-1 **merged and deployed**: the panel refuses a `by_pair` entry that lacks
+    `wins` and `win_rate`, and reads two routes (`/api/strategies/{id}/share-preview` and
+    `/api/webhook-origin`) that must exist. Against an older API the amount reads "could not be
+    loaded" and the host "could not be loaded"; the win rate is the one that refuses a whole report.
+  - Unit 12f touches `StrategyDetailPage.tsx`, `WebhookMessage.tsx`, `AllowedPairsEditor.tsx`,
+    `PairStatsTable.tsx` and both locale files. PR 13 touches the locale files too; whichever is cut
+    second starts from the updated `main`.
 
 ### Safe pause points (prefixes)
 
@@ -338,6 +362,11 @@ after **12x-1** (the webhook refuses an unregistered strategy cleanly; nothing c
 yet), after **12x-2** (reads nothing calls), after **12x-3** (a use case nothing routes to),
 after **12x-4** (delete works through the API), after **12x-5** (a control nothing mounts until
 9d.6), after **12x-6** if it is built (a toggled test strategy becomes deletable).
+
+Unit 12f (added 2026-10-06) adds two pause points, each deployable and revertible alone: after
+**12f-1** (two more fields on each `by_pair` entry, two read-only routes and one startup line; the
+older panel shows what it showed), after **12f-2** (end state; the panel is not served in production
+until `PANEL_DIST_DIR` is set).
 
 ---
 
@@ -1532,7 +1561,7 @@ Harness: N/A backend (pure parse test reading a fixture file); `vi.stubGlobal("f
 Rollback boundary: one shared fixture + one component; revert removes "Show secret", the placeholder-only message still renders.
 Forecast: 300–400 lines. Actual: 738 changed lines in four code commits (3fca0ed 87, 2866928 77, bc1db3b 563, 2c956ef 11), of which about 150 are production code and locale keys and the rest tests; the tests are heavy because each way the secret could leak or linger has its own test.
 
-### Unit 12f — follow-ups to PR 12b and PR 12c (not started; each needs the owner's decision)
+### Unit 12f — follow-ups to PR 12b and PR 12c (decided 2026-10-03 and 2026-10-06; 12f.2, 12f.3 and 12f.7 closed with no work; 12f.1, 12f.4, 12f.5 and 12f.6 and the WIN RATE column are broken into tasks 12f.9.1 to 12f.10.32 in "PR 12f")
 
 Recorded 2026-10-03. The design and the spec left these open, so the detail page was built
 without them rather than with an invented answer. None is designed. Each one starts with the
@@ -1547,13 +1576,22 @@ for their design note and tasks. The same decision settles unit 9p's gaps: a WIN
 By pair (needs the backend), no OPEN column, closed trades paged 20 at a time on a click, and
 "LONG" / "SHORT" in Spanish too.
 
-- [ ] 12f.1 **Share of the pool per trade.** `Strategy.dc.html` shows `allocation_percent` as an editable field in the settings column. No task of unit 9d covers it and the detail page does not show it. `PATCH /api/strategies/{id}` already accepts `allocation_percent`. To decide: whether it is editable from the panel, and what a change means for an allocation already reserved.
-- [ ] 12f.2 **How an archived strategy looks on the detail page.** Unspecified. Built as read-only: the pairs editor and the enable switch are disabled, the archive control is hidden, the badge says "Archived", and the delete control is offered. To decide: whether that is the intended look.
-- [ ] 12f.3 **The archive confirmation.** A plain confirm button; the spec asks only for an explicit confirmation. The delete dialog makes the owner type the strategy's name. To decide: whether archiving, which is also permanent, should ask for the same.
-- [ ] 12f.4 **Feedback after saving the allowed pairs.** There is none: the chips persist and the Save button disables. To decide: whether a "saved" confirmation is wanted, and in what form.
-- [ ] 12f.5 **A Copy button beside the webhook URL.** `Strategy.dc.html` shows one; no task or spec scenario defines it, so it is not built and the text is selectable. To decide: what it copies (the URL with the placeholder, the URL with the secret, the alert message), since the second puts the secret on the clipboard.
-- [ ] 12f.6 **The host in the webhook URL.** The mockup shows `https://[WEBHOOK HOST]/webhook/tradingview?...`; design.md says the path alone, and that is what was built, because the frontend does not know the public host. The owner prepends the host by hand when pasting into TradingView. To decide: whether the panel shows the full URL, and where the host comes from (a setting served by the API, never a value compiled into the bundle).
-- [ ] 12f.7 **A revealed secret stays revealed.** There is no warning text beside it and no timer hides it; it goes when the owner hides it or leaves the view. To decide: whether either is wanted.
+**Designed and tasked 2026-10-06 (design addendum "the detail page's follow-ups (unit 12f, decisions 44
+and 48)"; owner-decisions.md, decisions 44 and 48).** The two paragraphs above, written on 2026-10-03,
+no longer hold: every item is decided and designed, and nothing here waits for the owner. The tasks
+are in "PR 12f — The detail page's follow-ups (decisions 44 and 48)", unit 12f.9 (backend, PR 12f-1)
+and unit 12f.10 (panel, PR 12f-2). **The WIN RATE column of By pair** (the line above, from unit 9p's
+gaps) is tasks 12f.9.1 and 12f.9.2 (backend) and 12f.10.2 to 12f.10.4 (panel); unit 9p's own ticked
+task 9p.1 is not edited. The OPEN column stays dropped. 12f.2, 12f.3 and 12f.7 are closed below with no
+work. Nothing is ticked on 12f.1, 12f.4, 12f.5 and 12f.6 until the tasks they point to are.
+
+- [ ] 12f.1 (decisions 44 and 48, designed 2026-10-06; broken into tasks 12f.9.6 to 12f.9.12 backend and 12f.10.5, 12f.10.6, 12f.10.7, 12f.10.9, 12f.10.11 to 12f.10.24 panel; the questions this item raised were answered) **Share of the pool per trade.** `Strategy.dc.html` shows `allocation_percent` as an editable field in the settings column. No task of unit 9d covers it and the detail page does not show it. `PATCH /api/strategies/{id}` already accepts `allocation_percent`. To decide: whether it is editable from the panel, and what a change means for an allocation already reserved.
+- [x] 12f.2 (closed by decision 44, 2026-10-03: stays as built, no work) **How an archived strategy looks on the detail page.** Unspecified. Built as read-only: the pairs editor and the enable switch are disabled, the archive control is hidden, the badge says "Archived", and the delete control is offered. To decide: whether that is the intended look.
+- [x] 12f.3 (closed by decision 44, 2026-10-03: stays a plain confirm button, no work) **The archive confirmation.** A plain confirm button; the spec asks only for an explicit confirmation. The delete dialog makes the owner type the strategy's name. To decide: whether archiving, which is also permanent, should ask for the same.
+- [ ] 12f.4 (decisions 44 and 48, designed 2026-10-06; tasks 12f.10.11, 12f.10.18 and 12f.10.19 panel; no backend) **Feedback after saving the allowed pairs.** There is none: the chips persist and the Save button disables. To decide: whether a "saved" confirmation is wanted, and in what form.
+- [ ] 12f.5 (decisions 44 and 48, designed 2026-10-06; tasks 12f.10.10, 12f.10.11, 12f.10.26 and 12f.10.27 panel; no backend) **A Copy button beside the webhook URL.** `Strategy.dc.html` shows one; no task or spec scenario defines it, so it is not built and the text is selectable. To decide: what it copies (the URL with the placeholder, the URL with the secret, the alert message), since the second puts the secret on the clipboard.
+- [ ] 12f.6 (decisions 44 and 5, designed 2026-10-06; tasks 12f.9.3 to 12f.9.5 backend and 12f.10.8 and 12f.10.25 panel) **The host in the webhook URL.** The mockup shows `https://[WEBHOOK HOST]/webhook/tradingview?...`; design.md says the path alone, and that is what was built, because the frontend does not know the public host. The owner prepends the host by hand when pasting into TradingView. To decide: whether the panel shows the full URL, and where the host comes from (a setting served by the API, never a value compiled into the bundle).
+- [x] 12f.7 (closed by decision 44, 2026-10-03: stays as built, no work) **A revealed secret stays revealed.** There is no warning text beside it and no timer hides it; it goes when the owner hides it or leaves the view. To decide: whether either is wanted.
 - [x] 12f.8 **Placement of the webhook block.** The mockup puts it last in the left column, after the "By pair" table, which belongs to unit 9p and does not exist yet. It sits after the enable history today. No decision needed: unit 9p (PR 12d) places it after the table it adds, and ticks this. Done 2026-10-03, commit 8b6e19e: the left column is now header, performance (ledger line, chart, month grid, By pair), closed trades, enable history, webhook block last. RED `StrategyDetailPage.test.tsx::test_left_column_runs_performance_by_pair_trades_history_and_ends_with_the_webhook_block` on a lookup (`Unable to find role="heading" and name "Contribution to the pool, compounded"`); the order is also pinned by mutation (webhook above the history: red). SUPERSEDED the same day by task 9p.9 (owner review by eye): the webhook block is no longer last in the left column; it is a disclosure opened from a button in the page header, closed by default.
 
 ### Unit 9p-pairs — `PairStatsTable`, `TradesTable`, `StrategyPerformance` (200–250 lines)
@@ -2510,6 +2548,1061 @@ Recorded 2026-10-04. Found while building and deploying unit 9q; none was change
 - [x] 9qf.6 **Every other refusal of a malformed alert is silent.** Found building 9qf.1 (2026-10-05): before it `signals/infrastructure/router.py` had no logger at all. A payload with no `data` object, a number that is not a string, a string that is not a decimal, a missing field and a `signal_type` that is not a UUID each answer 422 and write no line. TradingView shows the response of a webhook to nobody, so such an alert is lost without a trace; only the non-finite refusal (9qf.1) and an unknown strategy (unit 9xa) log today. Fix: one WARNING per refused alert, naming the reason and the field. It must not log the payload, and the existing "not a valid decimal string" message carries the raw value (`{value!r}`) in the 422 detail, which must not reach the log as it is. RED per refusal, asserting the line and its level. Needs no owner decision. **Built on `fix/webhook-refusals-answer-422-and-log`, commit `c811d25`** (after 9qf.5, `7f8fc47`). **How the log gets a safe text:** `AlertParsingError` now takes a REQUIRED `field` and a fixed `reason` next to its message, and `log_text` is `"<field> <reason>"` and nothing else; the message stays the 422 detail. Every raise in `alert.py` supplies both; missing keys go through one helper, `_required`, whose detail is the text it always had (`payload is missing required field 'price'`). The router logs `webhook alert refused: %s` with `exc.log_text`, and two more refusals of its own (a `signal_type` that is not a UUID, a blank idempotency key). **No existing 422 detail text changed**, and a test pins the unsafe one: `price is not a valid decimal string: 'MARKER-DECIMAL'` still answers in the response and never reaches the log. **The 401 path is untouched** (no line, tested). Unknown strategy keeps the one line unit 9xa gave it in `ingest_signal.py`, and the router adds none (tested). **Exact lines**, each ONE WARNING from the router logger unless noted: `webhook alert refused: body is not valid JSON` (router, 9qf.5); `body is not a JSON object`, `data is missing or not an object`, `<f> is missing`, `<f> is not a string`, `<f> is not a valid decimal string`, `<f> is not a finite number`, `<f> is not above zero` (price only), `<f> is out of range for the stored precision`, `<f> is empty or not a string`, `signal_type is not a valid UUID`, `idempotency key is missing`, where `<f>` is `data.action`, `data.contracts`, `data.position_size`, `price`, `symbol`, `signal_type` or `time` as each refusal applies. **Before, on the route:** each of the 24 malformed-alert cases answered 422 with no line. **RED (assertions):** route `assert [] == [('strategy_manager.signals.infrastructure.router', 30)]` for all 24 refusal cases and for the blank idempotency key (25); domain `assert None == '<field> <reason>'` for 31 cases (the log texts; the 2 detail-pin tests passed at once). The marker tests, the unknown-strategy count, the accepted-and-duplicate test, the 401 test and the detail-unchanged tests passed at once and are proven by the mutations below. **Mutations, each applied AFTER the commit, seen red, reverted with `git checkout`:** the raw exception text logged instead of `log_text` made 28 red (24 text tests, the 3 invalid-decimal marker tests and the detail test); a warning added before the 401 made 1 red; a second warning added to the unknown-strategy path made 2 red (this file's count test and `test_unknown_strategy_ingress.py`); a warning added on an accepted alert made 1 red; the decimal detail changed to omit the value made 1 red (the detail pin). Verification of the PR: ruff and mypy clean; `uv run pytest` 3,427 passed and 1 teardown error, the known `DROP DATABASE ... WITH (FORCE)` flake on `tests/migrations/test_0022_execution_attempt_origin.py`, which passed on re-run; collected 3,224 before, 3,427 after (+129 for 9qf.5, +74 for 9qf.6).
 - [x] 9qf.7 **Two more inputs still answer 500 at the webhook.** Found building 9qf.5 (2026-10-05), observed on the route with a throwaway probe and not fixed there: (a) a NUL character (`\u0000`) in `symbol`, or inside the stored payload such as in `signal_param`, is refused by PostgreSQL at the insert (a `text` or `jsonb` value cannot hold it) and nothing catches the refusal; (b) a body nested 100,000 levels deep overflows the JSON parser's recursion before `from_payload` sees it. Both are the defect class of 9qf.5, a bad request answered as a server fault, and both need an authenticated sender, so neither is reachable from the open internet. Nothing is stored in either case. Fix: refuse each at ingress with a 422, persist nothing and write the one WARNING of 9qf.6, with no value in the line. RED first, on the route (`assert 500 == 422`). To settle while building it: whether the NUL is refused in every string field and anywhere in the payload that is stored raw, and whether the nesting is bounded by depth or the body by size. Needs no owner decision. **Built on `fix/webhook-refuses-unstorable-payload`, commit `861a196`.** The defect is a CLASS: a body that is authenticated, valid JSON and alert-shaped, and still cannot be STORED. `signals.raw_payload` is `JSONB` and `symbol`, `action` and `signal_type` are `text`; the idempotency key is hashed from `action` and `time` after parsing. **What was built:** `refuse_unstorable_body` in `signals/domain/alert.py`, called LAST in `TradingViewAlert.from_payload` so every refusal that already existed keeps its reason; one ITERATIVE pass with an explicit stack (a recursive walk would raise the `RecursionError` this removes), over every string, every object KEY and every float of the parsed body; the refusal is an `AlertParsingError` with `field` `body` and a fixed reason (`contains a character that cannot be stored`, `contains a number that is not finite`, `is nested too deeply`), the 422 detail is `body <reason>` and echoes no key and no value; the route catches `RecursionError` (that type only) where it calls `request.json()` and answers the depth refusal through the same `body_nested_too_deeply()` helper. The check is a NUL or a lone surrogate in a string (`"\x00" in s`, or `s.encode("utf-8")` raising), a float that is not `math.isfinite` (JSON `NaN`, the infinities and `1e999`, which Python parses to `inf`), or a container deeper than `MAX_BODY_DEPTH`. **No query, no lock and no migration were added.** The requirement is ADDED to the delta `specs/signal-ingress/spec.md` (the main spec is untouched) and the delta's introductory note was rewritten to say what the file now holds. **Observed BEFORE, on the route, database migrated to `head`, registered strategy, app raising so the exception type shows (status 500 below is that unhandled exception):** NUL (`\u0000`) in `data.action`, `symbol`, `time`, `signal_param`, an extra top-level key, an extra key inside `data`, a value nested in an object and in an array, a top-level object KEY and a nested object KEY: all **500** (`asyncpg UntranslatableCharacterError`, wrapped as SQLAlchemy `DBAPIError`), no row; NUL in `signal_type`: **422** `signal_type is not a valid UUID` (already refused, one line). Lone surrogate (`\ud800`): in `symbol` **500** (`asyncpg DataError`); in `signal_param`, an extra value, a nested value, `data` extra, a top-level key and a nested key **500** (`InvalidTextRepresentationError`, `jsonb` refuses the escape); in `data.action` and in `time` **500** as a `UnicodeEncodeError` raised by `derive_idempotency_key` (`str.encode("utf-8")`), a different layer; in `signal_type` **422** `signal_type is not a valid UUID`. `NaN`, `Infinity`, `-Infinity`, `1e999` and `-1e999` as an extra top-level value or inside an array: all **500** (`InvalidTextRepresentationError`; `json.dumps` emits the bare literal and `jsonb` refuses it). Already fine and still fine: `1e-999` (parses to `0.0`) **200**, `1e308` **200**, `-0.0` **200**, an integer of 4,000 digits **200** and of 5,000 digits **422** `body is not valid JSON` (Python's int-digit limit, a `ValueError`), the literal text `\\u0000` (a backslash and `u0000`, no NUL) **200**, non-ASCII text **200**, and the valid alert **200**. **Nesting, as arrays and as objects, through the route:** 10, 100, 1,000, 1,100, 1,500 and 2,000 levels **200** and stored; 3,000, 5,000, 7,000, 9,000, 9,500, 10,000, 12,000, 14,000 and 100,000 **500** (`RecursionError: maximum recursion depth exceeded while decoding a JSON array/object`). **Where each layer fails:** the JSON parser (`json.loads` inside `request.json()`) between 2,000 and 3,000 levels on the route (the request's own stack is already deep) and at 16,916 levels of arrays and 14,314 of objects outside it; the alert parser never (it is not recursive); the serialisation for the insert (`json.dumps`) at 15,506 levels of arrays and 9,304 of objects outside the request; the database was never reached past 2,000 levels, and accepted every body that reached it, so PostgreSQL's own limit was not found. **The bound chosen: `MAX_BODY_DEPTH = 64`** (the body is level 1, `data` level 2, so the alert's contract needs 2), with the reasoning in a comment next to the constant: 32 times the contract and about 30 times below the shallowest observed failure. An alert at 64 is accepted and one at 65 refused, as arrays and as objects, in the domain and on the route. **Size:** nothing in the application bounds the body. `request.json()` reads it whole, there is no middleware, no `Content-Length` check and no setting; an extra string of 1 MB and of 8 MB were both answered **200** and stored. Anything that bounds it today lives outside this repository (the tunnel or a proxy in front of the app), which was not inspected; observed and reported only, no limit added (see 9qf.8). **Observed AFTER (route, same inputs):** every row above that was a 500 now answers **422** and stores nothing (no signal, no job); the three exact lines, each ONE WARNING from the router logger and no value: `webhook alert refused: body contains a character that cannot be stored`, `webhook alert refused: body contains a number that is not finite`, `webhook alert refused: body is nested too deeply`. Nesting of 64 containers (a body 65 deep) and above, 1,000 and 2,000 included, answers 422 with the third line (those two answered 200 before: a body that deep is no longer accepted, by design); 10,000 and 100,000 are refused by the route's `RecursionError` catch with the same line. **One reason changed:** a NUL or a lone surrogate in `signal_type` still answers 422 with one line, but the line is now the body one rather than `signal_type is not a valid UUID`, because the new check runs inside `from_payload` before the router's UUID check; no assertion of an existing test depended on it. The `5000`-digit integer still answers `body is not valid JSON`. **RED (all assertions, no import, type or constructor error):** domain `assert None is not None` for 16 tests (NUL and surrogate placements 2, log text and detail 2, non-finite 3, one past the bound 2, far past the bound 6, depth refusal 1; the at-bound, valid-alert, wide-body and finite-number tests passed at once); route `assert 500 == 422` for 34 tests (NUL and surrogate in `data.action`, `symbol`, `time`, `signal_param`, extra values, keys and nested placements, the 5 non-finite literals, the 100,000 and 10,000 levels, the echo test and the parser test) and `assert 200 == 422` for 6 (1,000 and 2,000 levels, and 64), plus `AssertionError: 'webhook alert refused: signal_type is not a valid UUID' == 'webhook alert refused: body contains a character that cannot be stored'` for the 2 `signal_type` cases. The suite's collected count was 3,427 before this task and is 3,505 after it (+78: 27 domain, 51 route). **Mutations, each applied AFTER the commit with the Edit tool, seen red, reverted with `git checkout` of a clean tree:** the check removed (the call to `refuse_unstorable_body`): 53 red; the walk skipping object keys: 12 red (every key placement in both files, the log-text, detail and echo tests); the walk skipping nested values (not descending into containers): 37 red; the depth bound raised to 1,000,000: 15 red (1,000 and 2,000 levels, 64 and 65, and the 10,000 and 100,000 domain cases, which then recurse nowhere and are accepted); the raw key added to the log reason: 12 red; the route's `RecursionError` catch replaced by another type: 5 red (10,000 and 100,000 levels, arrays and objects, and the parser-detail test); the bound at 65: 5 red (one past the bound, and the depth refusal); the bound at 63: 5 red (every at-bound-accepted test); a check that refused non-ASCII text, `u0000` text, `{}` and numbers by mistake: every valid-alert, literal-backslash and finite-number test red, which proves those tests, all of which passed at once, are not vacuous. **Test files read back after writing, every escape confirmed:** `test_alert_unstorable_body.py` holds `NUL = "\x00"` and `SURROGATE = "\ud800"` as escapes; `test_unstorable_body_ingress.py` builds every body as explicit ASCII bytes with the escapes `\u0000` and `\ud800` written as raw strings and asserts that the bytes sent contain the six characters and no NUL byte (`b"\x00" not in body`), and the literal-backslash tests assert `b"\\\\u0000"` is in the body. The domain file's non-ASCII sample (`café 中文`) was stored by the Write tool as the characters themselves rather than as the `é` escapes written, which is equivalent for the test and valid UTF-8. **Existing files edited:** `alert.py`, `router.py` and the delta spec only; no existing test was edited. **Not built, recorded for the owner:** whether the route should also turn a database refusal at the insert into a 422 as a last line of defence. It would have to catch `sqlalchemy.exc.DBAPIError` (every case above arrived as that type, wrapping `asyncpg` `UntranslatableCharacterError`, `InvalidTextRepresentationError` or `DataError`, none of them an `IntegrityError`), which is also the base of a lost connection, a timeout and a deadlock, so a broad catch would answer a genuine server fault as a client error and hide it from the alerts a 500 raises. Narrowed to SQLSTATE class 22 (data exception) it would be safer, but it needs the asyncpg cause (`error.orig.__cause__.sqlstate`) and could still mask a bug of ours that builds a bad value. Recommendation: do not add it; every cause found so far is now refused by name in the domain and tested, and an unlisted case answering 500 is the signal that finds the next one. If the owner wants the net anyway: class 22 only, a rollback first, a distinct warning with the SQLSTATE and no value, and a counter so it is not silent. Verification: ruff and mypy clean; `uv run pytest` exit 0, collected 3,505.
 - [x] 9qf.8 **Nothing in the application bounds the size of a webhook body.** Found by 9qf.7 (2026-10-06): `request.json()` reads the whole body, there is no `Content-Length` check, middleware or setting, and an extra string of 8 MB was stored with a 200 (the `raw_payload` column is `jsonb`, whose own limit is far above that). Any limit today is in front of the app (the Cloudflare tunnel or a proxy), which was not inspected. It needs an authenticated sender, and an alert is small, but a stored row of that size is read back by every query that selects `raw_payload`. Not a 500, so not part of 9qf.7. The limit and where it is enforced (the app or the edge) are the owner's to decide. **Decided 2026-10-06 (owner-decisions.md, decision 47): 65,536 bytes, enforced in the application.** **Built on `fix/webhook-bounds-body-size`, commit `c750933`** (the evidence below is the commit after it). **What was built:** `MAX_BODY_BYTES = 65_536` in `signals/infrastructure/router.py`, with its reasoning in a comment (a transport property, so not in the domain; a constant, not a setting, since the code has no setting pattern for a transport limit and the owner asked for none). `_read_bounded_body` reads `request.stream()` chunk by chunk with a running count of bytes received and raises `BodyTooLargeError` at the first chunk that takes the count past the limit; the body is never read whole and then measured. A declared `Content-Length` past the limit is refused before the stream is touched; a header that is absent, not an integer or smaller than what arrives is ignored by that shortcut and never raises (`int()` raising `ValueError` means "no early answer"), so the count is the authority. The bytes are parsed with `json.loads`, as `request.json()` does, so the existing 422s are unchanged. The refusal answers 413 with the fixed detail `request body is larger than 65536 bytes`, writes ONE WARNING from the router logger, `webhook alert refused: body is larger than 65536 bytes` (a fixed reason: no value from the sender, not the declared length), and stores nothing. Authentication is untouched and still first. The limit applies to this route only (no middleware). The requirement is ADDED to the delta `specs/signal-ingress/spec.md` ("A Body Larger Than 64 KiB Is Refused At The Webhook", 7 scenarios), the delta's introductory note and the warning requirement's list of refusals were updated, and the main spec is untouched. **Before, on the route (today's code), each input:** 65,537 bytes with `Content-Length`: **200**, stored; 8 MB: **200**, stored; streamed past the limit with no length: **200**, stored, the whole body pulled (4,096 chunks of 1,024 bytes for 4 MiB); declared 1 MiB with a generator body: **200**, stored, 1,024 chunks pulled; a lying-low or unparsable header on a body past the limit: **200**, stored. A body of exactly 65,536 bytes: **200**, stored (and still is). **After:** 65,537 bytes, 8 MB, streamed past the limit, declared past the limit and each lying or unparsable header on a body past the limit: **413**, no signal, no job, one WARNING; declared past the limit: 0 chunks pulled; streamed: exactly 65 chunks pulled, the 65th being the first to take the count past the limit (64 x 1,024 = 65,536 is within it), 4,031 never pulled; exactly 65,536 bytes, declared or streamed, and a body within the limit under any untrustworthy header: **200**, stored with a `raw_payload` equal to what was sent, no warning; an unauthenticated request (wrong or no secret) declaring or sending 8 MB or 128 KiB: **401**, 0 chunks pulled, no line. Invalid JSON (truncated, undecodable bytes, empty), a body that is not an object (`[]`, `null`) and a body nested 10,000 levels (the parser's `RecursionError`) answer the same 422 and the same one line as before. **What the test transport does with the header** (`httpx.ASGITransport`, read from its source): it feeds the application's `receive` from the request's stream, one chunk per call, and checks nothing about `Content-Length`, so a header passed by a test is delivered as written whatever the body is (a lying-low, empty, negative, `1e9`, `12 34` or 5,000-digit header all reach the route); a body built from an async generator carries NO `Content-Length` and `Transfer-Encoding: chunked`, which is how the streamed path is driven (`CountingBody` counts the chunks pulled, and the tests assert the header is absent and `transfer-encoding` is `chunked`). **What a real server does, observed with a throwaway probe (uvicorn 127.0.0.1, httptools parser, the production reader as the app, raw sockets; no file committed):** a `Content-Length` of `abc`, empty, `-5`, `1e9`, two conflicting `Content-Length` headers, or `Content-Length` together with `Transfer-Encoding: chunked`: **400 Bad Request** from the server, the application never runs; a header of 100 with 70,000 bytes sent: **400** (the 69,900 bytes after the 100 are parsed as a second request and refused, the application never sees an oversized body); a declared 70,000 with 100 bytes sent, or 8,000,000 with 100 sent: **413** at once, without waiting for the body; chunked with no length and 102,400 bytes: **413**. So the lying and unparsable header tests cannot happen against a real server and are pinned at the application's level only, as a defence that does not rely on the server; the streamed and declared paths do happen. **RED (all assertions, none an import, type or constructor error), 24 of 45 new tests:** `assert 200 == 413` (14: one byte past, 8 MB, a single first chunk past the limit, the 8 lying or unparsable header cases on a body past the limit, the echo test and the two one-warning tests), `assert 9 x 4096 == (65536 // 1024) + 1` (the streamed body pulled to its end: the plain streamed test, the 8 streamed-with-untrustworthy-header cases) and `assert 1024 == 0` (declared 1 MiB, the whole body pulled before any answer). Two more of the first draft failed on the draft's own wrong expectation of the existing detail text (`payload is not a JSON object`), fixed in the test before the GREEN. The other 21 passed at once and are proven by the mutations: exact limit (declared and streamed), the ordinary alert and its duplicate, a body within the limit under each of the 8 untrustworthy headers, the 4 unauthenticated cases and the 6 existing refusals. **Mutations, each applied AFTER the GREEN commit with the Edit tool, seen red, reverted with `git checkout` (never committed):** both checks removed: 24 red; `>` changed to `>=` in both: 19 red (exact-limit declared and streamed, the pulled-count of the streamed cases, the 8 within-limit cases); limit lowered by one (65,535): at least 30 red (every exact-limit test and every past-the-limit test that names the size); the streaming count removed so the early `Content-Length` refusal is the only check: 19 red (streamed, first-chunk, each lying or unparsable header on a past-limit body); whole body read with `request.body()` before measuring: 9 red, each on `assert 4096 == (65536 // 1024) + 1`; the bounded read moved before authentication (a crude mutation that also reads the body twice, so the whole file goes red), where the 4 unauthenticated tests are among the red ones, each on its own assertion (`assert 413 == 401` for the declared pair). **Existing tests edited, with the reason (no assertion relaxed, nothing deleted):** `test_unstorable_body_ingress.py` posted a body nested 100,000 levels deep (about 200 KB), which is now a 413 before it is parsed: the `levels` parameter `100_000` became `9_000` (a body of 9,000 levels of arrays or of objects is 18 KB or 54 KB, under the limit, and still overflows the JSON parser, which fails between 2,000 and 3,000 levels on the route) and the "beyond the JSON parser" detail test now sends 30,000 levels of arrays (60 KB) and asserts it is under the limit; a comment on each says so. The domain test of the same depth (`test_alert_unstorable_body.py`, 100,000 levels) does not go through the route and is unchanged. The delta spec's scenario for 9qf.7 now says 10,000 levels. **Verification:** ruff and mypy clean; `uv run pytest` exit 0 (no failure, no teardown flake this run); collected 3,505 before, 3,550 after (+45, all in `test_webhook_body_limit_ingress.py`). **Not built, recorded:** the accepted path gains no query and no lock; the limit is not a setting, so changing it is a code change. **Found and not fixed:** `request.stream()` is the only reader of the body now, so anything added later that reads `request.json()` or `request.body()` on this route after the stream is consumed would raise `RuntimeError: Stream consumed`; no such code exists and no test pins it. No other defect found.
+
+---
+
+## PR 12f — The detail page's follow-ups (decisions 44 and 48) (2,000–3,000 lines backend; 4,500–6,500 panel)
+
+Two sequential PRs to `main`, never stacked: **12f-1** (unit 12f.9, backend) → **12f-2** (unit 12f.10,
+panel). Each merges and deploys before the next branch is cut. Source of truth: design.md, "Addendum:
+the detail page's follow-ups (unit 12f, decisions 44 and 48) - 2026-10-06" (§§ A to O, with B2, C2 and
+C3; no question is open), owner-decisions.md decisions 44 and 48, and the requirements added on
+2026-10-06 to `specs/operator-panel/spec.md`, `specs/admin-api/spec.md`,
+`specs/performance-reporting/spec.md`, `specs/capital-allocation/spec.md` and
+`specs/strategy-lifecycle/spec.md`. This section turns tasks 12f.1, 12f.4, 12f.5, 12f.6 and the WIN RATE
+column into the tasks below; the stub list of unit 12f points here, and 12f.2, 12f.3 and 12f.7 are closed
+by decision 44 with no work.
+
+**Why two PRs, and not for size** (design § L). (1) The panel refuses a `by_pair` entry that lacks the
+new fields and reads two routes that must exist, so the API has to be merged and running before the
+panel that asks. (2) The panel PR is the one the owner reviews by eye, and that review should not hold a
+finished backend change. The risks differ too: 12f-1 is **low** (additive fields, two read-only routes,
+a setting that cannot stop the start; the preview reads two rows, takes no lock and touches no code of
+the allocation path), 12f-2 is **medium** (the first control of the panel that changes how much capital
+a strategy asks for). Nothing is split to fit a line budget.
+
+**No migration.** The share's column exists since migration 0007; a win is derived at read time; the host
+is a setting; the pool's minimum and its snapshot are existing columns. The "Migration rehearsal" section
+does not change and nothing here is rehearsed on the VPS. **No venue is read and no probe is needed.**
+
+**Out of scope, by design** (§§ C, C3, M): a per-pair minimum order (a known limit of the unit: the
+exchange's minimum for a pair needs a price and a leverage the API process does not have; the sentence
+that says so is behind the amount's information button, and no later unit is recorded for it); the
+share in the page's header line or in a Strategies list row (Q3, answered no); `NewStrategyDialog`,
+which keeps registering with `"100"`; a history of share changes on screen (the INFO line is the only
+trace); the OPEN column of By pair; a win rate on the strategy or pool report; any change to the
+worker, `decide()` or the allocation path.
+
+**Deploy order** is the reason for the order of the PRs: 12f-1 first (the older panel keeps working
+against the new API, design § G), 12f-2 only after 12f-1 is deployed.
+
+Rules that bind every unit here, on top of the cross-cutting rules:
+
+- **RED fails on an ASSERTION.** A new function, field, route, hook or component is first added as a stub
+  that compiles and answers WRONGLY (`win_count` 0 and `win_rate` 0; a parser that returns its input; a
+  route that always answers `null`; a preview whose every amount is zero and whose
+  `below_pool_minimum` is always false; a copy that reports success without writing; an input with a
+  fixed `size` of 12 and the sign before it; a button rendered with `aria-expanded="false"` that never
+  opens; an amount line that prints the first step's figure for every value), in the same commit as
+  the RED test. The first failure is never an `ImportError`, a `TypeError`, a type error or, in the
+  frontend, a `getBy` that throws before an expectation runs: a frontend RED asserts with
+  `expect(screen.queryBy...(...)).toBeInTheDocument()`, `toEqual` or `toHaveAttribute`. Where the wrong
+  behaviour is "no exception is raised", the test captures the exception and asserts on its type.
+  **Each task records the assertion it failed on** (for example `assert 0 == 3`). A RED that cannot be
+  written on a stub is a task that says so and names the mutation instead.
+- **A test that passes at once is proven non-vacuous by the mutation its task names** (design § K's
+  table). The mutation is applied AFTER the GREEN is committed, seen red, and reverted with
+  `git checkout`; it is never committed. The task records what was seen.
+- **Source and test files are changed only with the Edit and Write tools, never through `node -e`,
+  `python -c`, a shell here-string or any script, mutations included.** A script-embedded rewrite dropped
+  a backslash from a regular expression in this change with the gate green. The writer prompt of every
+  delegated task says so.
+- **A refactor of an existing function gets its regular expressions and escapes read in the diff;**
+  "behaviour unchanged" is proven by tests that would notice. New code with a regular expression
+  (`share-value.ts`, the origin parser) gets the same read of its diff.
+- **No `style` prop anywhere in the panel**, and the source guard that pins it (12f.10.29). Every
+  position that depends on a value is an SVG geometry attribute or a fixed class.
+- **No money is computed in the browser.** The amount, the pool's minimum and the amount inside the
+  warning are the strings the server served, cut down as text to the currency's decimals. The only
+  arithmetic the control does is the handle's position and its rounding, which is not money.
+- **Every string goes through i18n in EN and ES, with the exact texts of design § I**; no wording is
+  invented. The two owner's own words are "Saved" / "Guardado" and "Copied" / "Copiado".
+- **Palette tokens only** (`gain`, `rule`, `rule-strong`, `ink`, `ink-2`, `ink-3`, `loss`, `panel`,
+  `ground`; no hex and no `var()` in a `className`). **The amber allow-list of `panel-tokens.test.ts`
+  does not change**: none of the new components uses `decision` (design § I); if one does, the existing
+  guard goes red and the task records why before touching the list.
+- **A new requirement goes in this change's delta specs, never in a main spec.** None is expected: if
+  building one of these tasks finds a behaviour no requirement states, the task adds it to the delta
+  spec it belongs to and records it, as 9qf.5 did.
+- **Existing tests are edited only as a task records;** nothing is deleted and no assertion is
+  relaxed. The recorded edits of the unit are: the two `PairStats(` constructor calls of
+  `test_by_pair.py` (12f.9.1); the `by_pair` builders of the panel tests and the header assertion of the
+  By pair table (12f.10.1, 12f.10.4); the fetch doubles of the page tests, which must answer the two new
+  GETs and a PATCH, and the one existing test that clicks every other button (12f.10.24); and the
+  add-only line of the secret sweep's route walk (12f.9.13). Any other edit is recorded in its task with
+  the reason.
+- **Where the `head` schema is needed: nowhere.** Every integration test here reads rows by their keys or
+  walks a ledger, and no constraint or index that the ORM schema lacks decides an outcome. They use the
+  ORM schema of `tests/performance/infrastructure/conftest.py` (the by-pair end to end) and of
+  `tests/ledger/infrastructure/conftest.py` (`pg_session_factory`, `seed_strategy`; the pool rows,
+  snapshots and strategies of the preview), as `test_pools_router.py` does. If building one finds a
+  constraint that decides the outcome, that test moves to `tests/pg_head_schema.py` and says why in its
+  docstring.
+- **The lock-hold harness applies once, the other way round.** The preview and a share change take no pool
+  lock, so there is no second actor that must wait: the harness of
+  `tests/strategies/infrastructure/test_delete_strategy_concurrency.py` holds the pool's advisory lock on
+  a second connection and the test asserts the request COMPLETES (`task.done()`) while it is held; a later
+  edit that makes either queue behind an allocation turns it red (12f.9.8, 12f.9.12). A barrier with
+  `sleep(0)` is not used.
+- **Symbol spellings across a module boundary.** The wins cross one (a closed operation is derived from
+  fills): the real fills of the integration test are written `STXUSDT.P` on the opening side and
+  `STXUSDT` on the closing side, a second strategy's as `STXUSDT_PERP`, and the report is asserted under
+  the pair `STXUSDT`; no assertion compares two spellings as text (12f.9.2). The pool key
+  `(exchange, venue, settlement_currency)` is the other boundary the preview crosses, and two strategies
+  on two pools are always asserted against each other (12f.9.11, 12f.9.12).
+- **One shared list of origin cases.** The backend's accepted cases, normalised, are the panel's accepted
+  cases: one JSON file, `frontend/src/features/strategies/webhook-origin.cases.json` (the name is this
+  list's; the precedent is `webhook-message.fixture.json`, which a backend test also reads), is asserted
+  by `test_webhook_origin.py` (12f.9.3) and by `webhook-url.test.ts` (12f.10.8), so the two checks cannot
+  drift apart silently.
+- **The failure-mode table of design § J, mapped to the task that tests each line and its level.** No
+  line carries the webhook secret, a credential, a DSN, the raw text of a refused setting, or a value
+  from a sender: ids, counts, the setting's name, the reason and the share's old and new value only.
+
+  | § J failure | Level and line | Test task |
+  |---|---|---|
+  | A share changes and nobody can tell when or from what | INFO from `UpdateStrategy`, only on a real change: strategy id, old value, new value | 12f.9.6 |
+  | The same share written differently, another field patched, or a refused update | no share line | 12f.9.6 |
+  | The PATCH refuses (archived, unknown id, out of range) | no line from the use case; the 4xx is in the access log | 12f.9.7 |
+  | `WEBHOOK_PUBLIC_ORIGIN` unset | INFO at startup, once, saying the panel shows the path only | 12f.9.5 |
+  | `WEBHOOK_PUBLIC_ORIGIN` malformed | **ERROR at startup, once**, naming the setting and the reason, never the value; the API starts; the route serves `null` | 12f.9.4, 12f.9.5 |
+  | `WEBHOOK_PUBLIC_ORIGIN` well formed | INFO at startup with the normalised origin | 12f.9.5 |
+  | The origin carries a credential | refused, the ERROR names no value; no log record contains it | 12f.9.5 |
+  | A rehearsal trade reaches `by_pair` | the existing 500 and ERROR of `require_live_only` | 12f.9.2 (the existing tests run unmodified) |
+  | A win is miscounted (a zero counted, a dry-run operation counted) | cannot be logged; a test with a mutation per case | 12f.9.1, 12f.9.2 |
+  | A strategy's pool has no row in `capital_pools` | 500 and ONE ERROR naming the strategy and the pool | 12f.9.12 |
+  | A stale snapshot, or a pool with no snapshot | nothing logged by this read: no line per page view | 12f.9.12 |
+  | The preview and the engine disagree on the minimum | cannot be logged; an agreement test just under, at and just over the limit | 12f.9.9, 12f.9.12 |
+  | The preview takes a lock, calls a venue or writes | cannot be logged; the lock-hold test and a row-count test | 12f.9.12 |
+  | The new routes ship without auth | 401 before the handler | 12f.9.4, 12f.9.12, 12f.9.13 |
+  | The panel sends a wrong value, "Saved" shows although nothing was saved, the clipboard holds something else, an information button does nothing, a win rate disagrees with its counts, a `style` prop is added | the browser has no log: each is pinned by a test and a mutation | 12f.10.16 to 12f.10.29 (the table in 12f.10.30) |
+
+- **Commits.** One work-unit commit per task, or per RED/GREEN pair where a red commit would break the
+  gate, as 9xd.1 and 9p.4.34 did; the RED is observed and recorded either way. `git commit -F <file>`
+  with a fresh BOM-less message file written with the Write tool and read back before the commit;
+  conventional commits; no AI attribution anywhere.
+- **No size rule.** The owner does not want work split by size. The forecasts below are information only.
+- **What fails here without a log line?** is answered by the table above and by design § J. A figure that
+  cannot be derived is absent with the state that says why, never zero.
+
+### Unit 12f.9 — backend: wins, the webhook's origin, the share's log line and notation, the share preview — PR 12f-1
+
+**Needs**: nothing unmerged. It does NOT need the panel.
+
+**Files**:
+Create `backend/src/strategy_manager/signals/domain/webhook_origin.py`,
+`backend/src/strategy_manager/signals/infrastructure/webhook_origin_router.py`,
+`backend/src/strategy_manager/signals/infrastructure/webhook_origin_check.py`,
+`backend/src/strategy_manager/allocation/domain/share_preview.py`,
+`backend/src/strategy_manager/allocation/application/preview_share.py`,
+`backend/src/strategy_manager/accounts/infrastructure/pool_sizing.py`.
+Modify `backend/src/strategy_manager/performance/domain/by_pair.py` (`PairStats`),
+`backend/src/strategy_manager/performance/infrastructure/performance_router.py` (`PairBody`),
+`backend/src/strategy_manager/strategies/application/update_strategy.py`,
+`backend/src/strategy_manager/strategies/infrastructure/router.py` (`StrategyView`, the `share-preview` route
+and its dependency), `backend/src/strategy_manager/allocation/application/ports.py` (`PoolSizing`,
+`PoolSizingPort`), `backend/src/strategy_manager/shared/config.py` (`webhook_public_origin`),
+`backend/src/strategy_manager/main.py` (the origin router under `/api`, `log_webhook_origin` in `lifespan`),
+`.env.example` (one documented line).
+Create `backend/tests/signals/domain/test_webhook_origin.py`,
+`backend/tests/signals/infrastructure/{test_webhook_origin_router,test_webhook_origin_check}.py`,
+`backend/tests/allocation/domain/test_share_preview.py`,
+`backend/tests/allocation/application/test_preview_share.py`,
+`backend/tests/accounts/infrastructure/test_pool_sizing.py`,
+`backend/tests/strategies/infrastructure/{test_share_preview_router,test_share_change_integration}.py`,
+`backend/tests/performance/infrastructure/test_pair_wins_router.py`,
+`frontend/src/features/strategies/webhook-origin.cases.json`.
+Modify `backend/tests/performance/domain/test_by_pair.py` (new tests, and the two recorded constructor
+edits of 12f.9.1), `backend/tests/strategies/application/test_update_strategy.py` and
+`backend/tests/strategies/infrastructure/test_router.py` (new tests only),
+`backend/tests/signals/application/test_open_after_close.py` (one new test),
+`backend/tests/signals/infrastructure/test_webhook_secret_router.py` (add-only, 12f.9.13).
+
+**Wins** (design § G; spec: performance-reporting "A Pair's Win Rate Counts Closed Operations With A PnL
+Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins And Win Rate")
+
+- [ ] 12f.9.1 `PairStats.win_count` and `PairStats.win_rate` in `performance/domain/by_pair.py`. RED
+  `backend/tests/performance/domain/test_by_pair.py`, new tests, with the stub in the same commit:
+  `PairStats` gains `win_count: int` and `win_rate: Decimal`, no default, appended after `value`, and
+  `by_pair` fills them with `0` and `Decimal(0)`. Tests, hand-built `ClosedTrade`s through the file's own
+  `_trade`: `::test_a_win_is_a_pnl_above_zero_and_the_rate_is_wins_over_trades` (SOLUSDT +4.10, +0.80,
+  +2.00, 0 and -1.25: 5 trades, 3 wins, rate `Decimal("0.6")`), `::test_199_wins_in_200_are_a_rate_below_one`
+  (0.995), `::test_a_pair_with_no_win_has_a_zero_rate_and_a_pair_that_won_every_operation_has_a_rate_of_one`,
+  `::test_a_trade_with_incomplete_fees_and_a_trade_with_no_capital_at_open_are_counted` (`fees_complete=False`
+  and `capital=None`, each by the PnL it has), `::test_two_spellings_of_one_market_are_one_pair_with_its_wins`
+  (through `derive_trades`, opened `SOLUSDT.P`, closed `SOLUSDT`, a second allocation `SOLUSDT_PERP` then
+  `solusdt`), `::test_a_pair_removed_from_the_allowlist_keeps_its_wins`. RED against the stub:
+  `assert 0 == 3`, `assert Decimal('0') == Decimal('0.6')`, `assert Decimal('0') == Decimal('0.995')`.
+  **Passing at once** (the stub's zeros are the right answer): `::test_a_pnl_of_exactly_zero_is_not_a_win_and_counts_in_the_total`
+  (two trades at 0: 2 trades, 0 wins, rate 0) and the zero-win half of the first test; mutations, applied
+  after the GREEN: `>` becomes `>=` (reds the zero test and the 3-of-5 test), the zero trade dropped from
+  the denominator (reds the 3-of-5 test: 3 of 4 is 0.75), and either the incomplete-fees trade or the
+  no-capital trade filtered out of the count (reds the counted test). GREEN: `win_count` is the number of
+  trades with `pnl > 0`, `win_rate` is `Decimal(win_count) / Decimal(trade_count)`, the divisor always at
+  least 1 because a row is built from at least one trade; nothing is rounded here (the wire rounds).
+  **Recorded edit of two existing tests** (the fields have no default, so the constructor needs them):
+  `test_by_pair.py::test_solusdt_dot_p_and_solusdt_merge_into_one_pair` line 83 gains
+  `win_count=2, win_rate=Decimal(1)` (its two allocations close at +5 and +3) and
+  `::test_trades_without_capital_count_in_pnl_but_have_no_return` line 141 gains `1, Decimal(1)` (its one
+  SOLUSDT trade closes at +7); no other line of either test changes, and both pass unmodified apart from
+  that. Run `tests/performance` whole: every other existing suite passes unmodified.
+- [ ] 12f.9.2 `PairBody.wins` and `PairBody.win_rate` on the wire. RED
+  `backend/tests/performance/infrastructure/test_pair_wins_router.py` (Create, real PostgreSQL, the ORM schema of
+  `tests/performance/infrastructure/conftest.py`: the report is a read and no constraint decides it), with
+  the stub in the same commit: `PairBody` gains `wins: int` (the count as an integer) and
+  `win_rate: Ratio`, and `PairBody.of` fills them with `0` and `Decimal(0)`. One ledger fixture writes the
+  real fills with the spellings of the rule above and asserts every entry under the pair `STXUSDT`.
+  Tests: `::test_a_pair_carries_its_wins_and_its_rate` (5 closed operations: 3 above zero, 1 at exactly zero,
+  1 below: `"trades": 5`, `"wins": 3`, `"win_rate": "0.6000000000"`, and `pair`, `pnl`, `return` still
+  present), `::test_a_pair_with_no_win_has_a_zero_rate_not_a_null` (`"wins": 0`, `"0.0000000000"`),
+  `::test_a_pair_that_won_every_operation_has_a_rate_of_one` (`"1.0000000000"`),
+  `::test_a_win_count_never_exceeds_the_trade_count_in_any_entry`,
+  `::test_no_pair_row_is_served_for_a_pair_with_no_closed_operation` (an open operation only),
+  `::test_each_by_pair_entry_carries_exactly_the_documented_keys` (`pair`, `trades`, `wins`, `win_rate`,
+  `pnl`, `return`: no other), `::test_the_strategy_and_pool_reports_gain_no_win_rate` (neither body carries
+  `wins` or `win_rate` outside `by_pair`), `::test_two_strategies_on_two_pools_are_not_blended` (S1 on
+  `bybit/usdt-m/USDT`, S2 on `binance/usdt-m/USDT`, both on `STXUSDT`, each rate from its own operations),
+  `::test_the_wins_are_the_same_with_and_without_rehearsal_groups_in_the_ledger` (3 closed dry-run
+  operations above zero on the same pair change nothing). RED: `assert 0 == 3` on `wins`,
+  `assert '0.0000000000' == '0.6000000000'`. **Passing at once**: the key set, the no-win report test, the
+  open-operation test, the two-pool test (the stub's zeros are right for a pair that never wins, so that
+  test also asserts the winning pool) and the rehearsal test; mutations: a `wins` key renamed (key set), a
+  `win_rate` added to `PerformanceBody` (no-win-rate test), the read concatenating `groups` and
+  `rehearsal_groups` (decision 43's own mutation, the rehearsal test), the pool taken from the first
+  strategy (two-pool test). GREEN: `PairBody.of` serves `stats.win_count` and `stats.win_rate`
+  (`Ratio`: 10 places, half-even, plain). Existing performance router tests (including
+  `test_get_strategy_performance_includes_by_pair` and the JSON-float walk) run unmodified; if one asserts the
+  exact key set of a `by_pair` entry, the task records the edit and the reason.
+
+**The webhook's origin** (design § F; spec: admin-api "The Webhook's Origin Is Served By Its Own Route")
+
+- [ ] 12f.9.3 `parse_webhook_origin` in `signals/domain/webhook_origin.py`. RED
+  `backend/tests/signals/domain/test_webhook_origin.py` (Create), with the stub in the same commit:
+  `InvalidWebhookOrigin(Exception)` and `parse_webhook_origin(raw: str) -> str | None` that returns its
+  input. The same commit creates `frontend/src/features/strategies/webhook-origin.cases.json`: `accepted`
+  (`{"raw", "origin"}` pairs: `https://example.org` and `http://localhost:8000` as written; `HTTPS://Example.ORG`,
+  `https://example.org/` and `https://example.org:443` to `https://example.org`), `unset` (`""`) and
+  `refused` (no scheme `example.org`, `ftp://example.org`, `https://`, a path `https://example.org/hook`,
+  a query `https://example.org?x=1`, a fragment `https://example.org#top`, a user `https://user@example.org`,
+  `https://user:pass@example.org`, a space `https://exa mple.org`, a control character, a backslash
+  `https://example.org\x`, a host outside ASCII `https://exämple.org`, a port out of range
+  `https://example.org:99999`, a port that is not a number `https://example.org:abc`, and the three forms
+  design § O settled: a bracketed IPv6 literal `https://[::1]`, a host that ends in a dot
+  `https://example.org.` and a present-but-empty port `https://example.org:`). Tests, parametrized
+  over the file (the test reads it through the repository root, as `test_webhook_message_fixture.py` does):
+  `::test_an_accepted_origin_is_normalised`, `::test_an_empty_value_is_unset_and_not_an_error` (`None`),
+  `::test_a_refused_value_raises_invalid_webhook_origin` (the test captures the exception and asserts on its
+  type, so the stub's "no exception" is an assertion: `assert None is InvalidWebhookOrigin`),
+  `::test_a_refusal_carries_a_fixed_reason_and_never_the_value` (the message contains none of the raw text,
+  least of all `user:pass`). RED: `assert 'HTTPS://Example.ORG' == 'https://example.org'` and the capture
+  assertion for every refused case. **Passing at once**: the as-written cases and the unset case (the stub
+  returns its input); mutation: the lower-casing removed in one place and the empty value treated as
+  malformed (reds the unset case); the reason test is proven by interpolating the raw value into the
+  message. GREEN with `urllib.parse`: scheme `http` or `https`, a non-empty ASCII host, an optional port in
+  range that is dropped when it is the scheme's default, nothing after the authority, no userinfo, no
+  space, control character or backslash; scheme and host lower-cased; one trailing slash dropped.
+  **Settled in design § O:** a bracketed IPv6 literal (TradingView does not post to IPv6), a host that ends
+  in a dot and a port that is present and empty are each refused as malformed (the startup line is the ERROR
+  of § J and the route serves null); the three are in the shared cases file's `refused` list and each is a
+  case of the refusal tests above.
+- [ ] 12f.9.4 The setting, the route and their wiring. RED
+  `backend/tests/signals/infrastructure/test_webhook_origin_router.py` (Create; `httpx.AsyncClient` over ASGI,
+  the bearer fixture and `get_settings` patched with `monkeypatch.setattr(get_settings(), "webhook_public_origin", ...)`
+  as `test_pools_router.py` patches the admin token), with the stubs in the same commit:
+  `Settings.webhook_public_origin: str = Field(default="")` in `shared/config.py`, and
+  `webhook_origin_router.py` with `GET /webhook-origin`, the router carrying
+  `dependencies=[Depends(require_admin_token)]`, that always answers `{"origin": null}`; included under `/api`
+  in `main.py`; one documented `WEBHOOK_PUBLIC_ORIGIN=` line in `.env.example` (the file exists and lists
+  `WEBHOOK_SECRET`; the line documents the setting). Tests: `::test_a_configured_origin_is_served`
+  (`https://example.duckdns.org`), `::test_every_case_of_the_shared_list_is_served_normalised_or_null`
+  (parametrized over the file of 12f.9.3: accepted give their `origin`, refused give `null`),
+  `::test_a_malformed_value_does_not_stop_the_route_and_is_served_as_null`,
+  `::test_the_body_never_contains_the_webhook_secret` (a known `webhook_secret`, searched in the body),
+  `::test_the_route_requires_the_bearer_token` (401 for a missing and for a wrong token),
+  `::test_the_setting_defaults_to_empty`. RED: `assert {'origin': None} == {'origin': 'https://example.duckdns.org'}`.
+  **Passing at once**: the unset case, the secret test, the auth test and the default test; mutations: the
+  setting's default changed to a host; `webhook_secret` returned as `origin`; the router's dependency
+  dropped (the route declared on a bare `APIRouter`, FastAPI does not re-apply the parent's, as 9p.4.36
+  found); the raw value served instead of the parsed one (reds the normalised cases). GREEN: the route
+  reads `settings.webhook_public_origin`, calls `parse_webhook_origin`, and answers `null` for unset and for
+  an `InvalidWebhookOrigin`; `WebhookOriginBody(origin: str | None)`. `tests/accounts/test_no_decrypt_in_api_path.py`
+  runs unmodified (the route reads a setting only).
+- [ ] 12f.9.5 The startup line. RED `backend/tests/signals/infrastructure/test_webhook_origin_check.py`
+  (Create), with the stub in the same commit: `log_webhook_origin(settings: Settings) -> None` in
+  `signals/infrastructure/webhook_origin_check.py` that logs nothing. Tests (`caplog`, exactly one record from
+  the module's logger each): `::test_an_unset_setting_logs_one_info_saying_the_panel_shows_the_path_only`,
+  `::test_a_well_formed_value_logs_one_info_with_the_normalised_origin` (`HTTPS://Example.ORG` prints
+  `https://example.org`), `::test_a_malformed_value_logs_one_error_naming_the_setting_and_the_reason`
+  (names `WEBHOOK_PUBLIC_ORIGIN` and a reason), `::test_no_record_contains_the_raw_value` (`https://user:pass@example.org`
+  searched in `message`, `args` and the formatted exception of every record), `::test_a_malformed_value_does_not_raise`
+  (the exception captured and asserted `None`), and through the real lifespan, built like
+  `tests/shared/test_startup_invariants.py::test_the_lifespan_passes_with_a_usable_key_and_no_panel` (its
+  environment helper is copied unless it already lives in a conftest, which the task checks):
+  `::test_the_lifespan_starts_with_a_malformed_origin_and_logs_the_one_error`. RED:
+  `assert [] == [(INFO, ...)]` for the first three and the lifespan test. **Passing at once**: the no-raw-value
+  test and the does-not-raise test (the stub logs nothing); mutations from design § K: the check raises
+  (reds does-not-raise and the lifespan test), the value interpolated into the message (reds the raw-value
+  test), an unset value treated as malformed (reds the INFO test: ERROR where INFO is due). GREEN:
+  `log_webhook_origin` parses with `parse_webhook_origin` and logs INFO or ERROR as above, never raising;
+  `main.py`'s `lifespan` calls it inside `operator_alerts` after `assert_panel_dist_ready(settings)`. It is
+  deliberately NOT a startup invariant: the process that would refuse to start is the one that receives the
+  alerts (rule 3).
+
+**The share's log line and notation** (design §§ C, J; spec: strategy-lifecycle "A Change Of A Strategy's
+Share Of The Pool Is Logged", admin-api "The Strategy Update Takes The Share As A Plain Decimal And The
+Strategy View Serves It In Plain Notation")
+
+- [ ] 12f.9.6 The INFO line of a changed share. RED `backend/tests/strategies/application/test_update_strategy.py`,
+  new tests only, built on the file's `_build`, `FakeRepository` and `caplog`, with the stub in the same
+  commit: the logger in `update_strategy.py` (`logging.getLogger(__name__)`) and the call that logs nothing.
+  Tests: `::test_a_changed_share_logs_one_info_line_with_the_id_and_both_values` (30 to 33.5; one INFO naming
+  the strategy id, `30` and `33.5`), `::test_the_same_value_written_differently_logs_nothing` (33.5 over 33.5,
+  and `33.50` over 33.5: "changed" is decided on the decimal value), `::test_patching_another_field_logs_no_share_line`,
+  `::test_a_refused_update_logs_no_share_line` (archived, a share the domain refuses, an unknown id),
+  `::test_a_failed_commit_logs_no_share_line`. RED: `assert [] == [('strategy_manager.strategies.application.update_strategy', 20, ...)]`.
+  **Passing at once** (the stub logs nothing): the other four; mutations: the comparison on the text instead
+  of the value (reds the `33.50` case), the line written before the archived check (reds the refused case),
+  the line written before `commit()` (reds the failed-commit case), the line written for a patch of
+  `enabled`. GREEN: after `commit()` returns, when `updated.policy.allocation_percent.value !=
+  strategy.policy.allocation_percent.value`, one INFO with the strategy id and the two values in plain
+  notation. **Confirmed in design § O:** the line is written after the
+  commit, so a rolled-back change leaves no line that says it happened; the test
+  `::test_a_failed_commit_logs_no_share_line` above is the pin. No credential and no secret is in scope of this function.
+- [ ] 12f.9.7 The share in plain notation, and the PATCH's contract. RED
+  `backend/tests/strategies/infrastructure/test_router.py`, new tests only (the file's `client` fixture and
+  `_register`, real PostgreSQL). No stub is needed: the code as it stands is the wrong answer
+  (`StrategyView.allocation_percent` is a bare `Decimal`, and pydantic writes `Decimal("0.0000001")` as
+  `1E-7`). Tests: `::test_a_very_small_share_is_never_served_with_an_exponent` (stored `0.0000001`, read by
+  GET and answered by a PATCH of the same value: `"0.0000001"`, never `1E-7`),
+  `::test_a_decimal_share_is_saved_and_served_as_it_is` (`33.5`), `::test_the_patch_answer_and_a_later_get_show_the_same_text`
+  (a PATCH of `33.50`), `::test_a_share_below_one_is_accepted` (`0.5`), `::test_a_share_of_exactly_100_is_accepted`,
+  `::test_zero_above_100_and_a_text_that_is_not_a_decimal_are_422_and_the_stored_share_is_unchanged`
+  (`0`, `100.5`, `abc`), `::test_only_the_share_changes` (`enabled` and both allowed pairs unchanged),
+  `::test_a_disabled_strategys_share_is_accepted_and_it_stays_disabled`,
+  `::test_patching_an_unknown_strategy_is_404_with_its_existing_body` (the test pins what is there; the
+  unit changes nothing). The archived 409 is `test_archived_strategy_patch_refused_409_at_http_layer`,
+  which already exists and runs unmodified. RED: `assert '1E-7' == '0.0000001'` (two cases).
+  **Passing at once**: all the others (the validation exists since PR 4); mutations: `ge=1` instead of
+  `gt=0` on the PATCH body (reds `0.5`), `gt=0` to `ge=0` (reds the zero case), `le=100` to `lt=100`
+  (reds the 100 case), an omitted `enabled` read as false (reds only-the-share), `allocation_percent`
+  sent back as a float (reds the notation tests). GREEN: `StrategyView.allocation_percent: Money` from
+  `shared/infrastructure/wire.py`; no other field and no request body changes. Run the router suites
+  whole: any existing assertion on the text of a share is recorded with the reason (a stored `Decimal("100")`
+  still writes `"100"`).
+- [ ] 12f.9.8 A change of the share leaves everything already made untouched (spec: capital-allocation "A
+  Changed Share Of The Pool Applies From The Next Allocation Only"). Tests that pass at once, because the
+  code already behaves so (design § A U3), each with its mutation. Real PostgreSQL, the ORM schema,
+  `backend/tests/strategies/infrastructure/test_share_change_integration.py` (Create):
+  `::test_a_changed_share_leaves_an_existing_reservation_unchanged` (S1 with a share of 10 holds a
+  reservation of 100 USDT with `pool_total_at_open` 1000; the share goes to 25 through the PATCH: the
+  amount, the recorded pool capital, the status and the ledger rows are as they were; mutation: an
+  `UPDATE reservations` added to `UpdateStrategy`), `::test_the_next_opening_is_sized_with_the_new_share`
+  (the stored share read through the real policy adapter and `requested_from_percent(1000, 25)` is 250;
+  mutation: the policy cached across the update), and `::test_a_share_change_completes_while_the_pools_advisory_lock_is_held`
+  (the lock-hold harness used the other way round: the lock is held on a second connection, the PATCH
+  completes with `task.done()` true; mutation: an `acquire` of the pool's lock added to the update).
+  New test in `backend/tests/signals/application/test_open_after_close.py`:
+  `::test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally_opens` (the share changes from 10 to
+  25 while the opening waits for a close; on a total of 1000 the amount requested is 250; mutation: the
+  amount computed when the opening is deferred and carried to the resume); it is built on that file's own
+  fakes, and if its policy fake cannot change between the deferral and the resume the task records the
+  smallest addition. An operation already open is not resized: the first test asserts the ledger rows of the
+  open operation are unchanged.
+
+**The share preview** (design §§ C2, C3, H; spec: admin-api "The Share Preview Route Serves The Amount A
+Share Asks For")
+
+- [ ] 12f.9.9 `share_amount` and `step_amounts` in `allocation/domain/share_preview.py`. RED
+  `backend/tests/allocation/domain/test_share_preview.py` (Create), with the stub in the same commit:
+  `ShareAmount` (`share`, `amount`, `below_pool_minimum`), `share_amount(total, share, minimum) -> ShareAmount`
+  and `step_amounts(total, minimum) -> tuple[ShareAmount, ...]` that answer an amount of `Decimal(0)`,
+  `below_pool_minimum` false, and a hundred such steps. Imports `decimal`, `dataclasses` and
+  `allocation/domain/percent.py` only. Tests: `::test_the_amount_equals_requested_from_percent_for_a_table_of_totals_and_shares`
+  (compared with `requested_from_percent` itself, never reimplemented: 333.33 at 33.5 is
+  111.665550000000000000, 10 at 33.333333333333333333 is 3.333333333333333333),
+  `::test_the_amount_is_rounded_down_never_up`, `::test_the_amount_is_of_the_total_the_function_is_given`,
+  `::test_below_pool_minimum_is_strictly_below` (4.99 true, 5.00 false, 5.01 false),
+  `::test_below_pool_minimum_agrees_with_decide_just_under_at_and_just_over_the_minimum` (a `CapitalPool` and
+  `AllocationRules` through the real `decide()`: it skips `REQUEST_BELOW_MIN_ORDER_SIZE` for exactly the first),
+  `::test_a_total_of_zero_gives_an_amount_of_zero_flagged_below_the_minimum`,
+  `::test_the_hundred_steps_are_numbered_one_to_a_hundred_and_each_equals_share_amount`. RED:
+  `assert Decimal('0') == Decimal('111.665550000000000000')`, `assert False is True` (4.99). **Passing at
+  once** (the stub's hundred steps are numbered and equal to its own `share_amount`): the numbering and
+  equality test; mutation: the steps built from 0 to 99. Mutations for the others, applied after the
+  GREEN: the amount rounded half up (reds the round-down test), `<` become `<=` (reds the at-the-minimum
+  agreement case), the amount computed from a second argument named `available`. GREEN: `share_amount` calls `requested_from_percent` and compares with
+  `<`; `step_amounts` calls `share_amount` for `Decimal(n)`, n from 1 to 100.
+- [ ] 12f.9.10 `PoolSizingPort`, `PoolSizing` and `PreviewShare`. RED
+  `backend/tests/allocation/application/test_preview_share.py` (Create, a fake `PoolSizingPort` in the file),
+  with the stubs in the same commit: `PoolSizing` (the pool's minimum order, and its snapshot: total, the
+  instant it was read, `stale`; or no snapshot) and `PoolSizingPort.read(exchange, venue, settlement_currency)`
+  in `allocation/application/ports.py`, consumer-declared and read-only by its shape (it has no write);
+  `preview_share.py` with `PreviewShare(sizing).preview(pool, share)` answering `SharePreview` with no
+  balance, no exact amount and no steps. Tests: `::test_a_snapshot_gives_the_exact_amount_and_the_hundred_steps`,
+  `::test_the_amount_comes_from_the_total_not_from_what_is_available` (total 1000, available 400, share 10: 100),
+  `::test_a_stale_snapshot_is_served_and_marked`, `::test_no_snapshot_gives_no_balance_no_exact_amount_no_steps_and_never_a_zero`,
+  `::test_the_stored_share_is_the_default_and_an_asked_share_replaces_it`,
+  `::test_the_port_is_read_once`, `::test_a_pool_with_no_row_raises_the_modules_invariant_error` (a fake port
+  that answers nothing for that pool; the test captures the exception and asserts on its type, so the stub's
+  "no exception" is an assertion). RED: `assert None ==
+  ShareAmount(...)`. **Passing at once**: the no-snapshot test (the stub already answers nothing); mutations:
+  a zero total substituted for the missing snapshot (reds it), the amount taken from `available` (reds the
+  total test), a stale snapshot refused as the worker's reader does. GREEN: one read of the port, then
+  `share_amount` and `step_amounts`; no lock, no commit and no clock of its own. **Settled in design § O:** the sizing port answers nothing
+  (`None`) for a pool that has no row, `PreviewShare` raises the allocation module's existing invariant
+  error, and the route answers the existing 500 with one ERROR (12f.9.12), as the performance routes do. The
+  foreign key from strategies to pools makes that state unbuildable in a real database, so it is tested here
+  with a fake port and at the route by overriding the port; no test bends the schema.
+- [ ] 12f.9.11 `SqlAlchemyPoolSizing` in `accounts/infrastructure/pool_sizing.py`. RED
+  `backend/tests/accounts/infrastructure/test_pool_sizing.py` (Create; real PostgreSQL on the ORM schema, the
+  fixtures of `tests/ledger/infrastructure/conftest.py`: the adapter is one SELECT and no constraint decides
+  it), with the stub in the same commit (an adapter that answers the minimum `Decimal(0)` and no snapshot for
+  every pool). Tests: `::test_a_synced_pool_answers_its_minimum_and_its_total` (minimum 5, total 1000,
+  available 400: the total, not the available), `::test_a_pool_never_synced_answers_its_minimum_and_no_snapshot`,
+  `::test_a_snapshot_is_stale_by_the_allocators_own_age_limit` (the rule `SqlAlchemyPoolOverview` applies,
+  `now - observed_at > max_age`, strictly: 91 s is stale and exactly 90 s is not, with the limit a constructor
+  argument as there), `::test_two_pools_are_each_read_for_their_own_key` (`bybit/usdt-m/USDT` and
+  `binance/usdt-m/USDT` with different minimums and totals), `::test_a_pool_with_no_row_answers_nothing`
+  (the port answers `None`, as settled in 12f.9.10), `::test_the_adapter_issues_one_select` (a statement count). RED:
+  `assert Decimal('0') == Decimal('5')`, `assert Decimal('0') == Decimal('1000')`; the two-pool test is RED
+  too, because the stub answers the same wrong minimum for both pools. **Passing at once**: the
+  never-synced snapshot half (the stub already answers no snapshot) and the statement count; mutations: `>` to `>=` (reds the exactly-90-s case),
+  an inner join where the design says outer (reds the never-synced test: the pool vanishes), the pool key
+  taken from the first row (reds the two-pool test), a second query for the snapshot (reds the count).
+  GREEN: the `capital_pools` row outer-joined to its `pool_balance_snapshots` row on the three-part key.
+- [ ] 12f.9.12 `GET /api/strategies/{strategy_id}/share-preview`. RED
+  `backend/tests/strategies/infrastructure/test_share_preview_router.py` (Create; `httpx.AsyncClient` over ASGI,
+  real PostgreSQL on the ORM schema, `get_session` overridden as `test_pools_router.py` does), with the
+  stub route in the same commit (a route that loads the strategy, declares `share` with its bound
+  `Field(gt=0, le=100)` and answers a 200 with `pool_minimum` `"0"`, `balance` null, `exact` null, `steps` `[]`),
+  its `get_preview_share` dependency in `strategies/infrastructure/router.py` building `PreviewShare` over
+  `SqlAlchemyPoolSizing` with `get_settings().balance_snapshot_max_age_seconds`, and `SharePreviewBody`.
+  Tests, field by field from the spec's scenarios: `::test_the_stored_share_is_previewed_against_the_pools_balance`
+  (stored 33.5, minimum 5, total 1000: `currency` `"USDT"`, `pool_minimum` `"5.000000000000000000"`,
+  `balance.total` `"1000.000000000000000000"` not stale, `exact` `{"share": "33.5", "amount":
+  "335.000000000000000000", "below_pool_minimum": false}`, 100 `steps`, the first `{"share": 1, "amount":
+  "10.000000000000000000", ...}`, the last `{"share": 100, ...}`), `::test_a_share_asked_for_is_served_as_exact` (`12.34`),
+  `::test_the_exact_share_is_echoed_in_canonical_plain_notation` (`33.50` answers `33.5`),
+  `::test_the_amount_is_the_allocations_own_rounded_down` (333.33 at 33.5, and 10 at 33.333333333333333333),
+  `::test_the_amount_is_of_the_total_not_of_what_is_free` (1000 total, 400 available, share 10: 100),
+  `::test_the_minimum_flag_agrees_with_the_allocation_on_both_sides_of_the_limit` (snapshots of 499, 500 and
+  501 at share 1: true, false, false, and `decide()` skips a request as below the minimum for exactly the
+  first), `::test_a_stale_balance_is_served_marked`, `::test_a_pool_nothing_has_synced_serves_no_amount`
+  (`balance` null, `exact` null, `steps` `[]`, `pool_minimum` present, no zero anywhere),
+  `::test_an_archived_strategy_is_served`, `::test_each_strategy_answers_its_own_pool` (S1 and S2 on two pools
+  with different totals), `::test_an_unknown_strategy_is_404_no_such_strategy`,
+  `::test_a_share_outside_the_range_is_422_and_no_body_repeats_it` (`0`, `100.5`, `abc`, the body searched for
+  the rejected text), `::test_a_strategy_whose_pool_has_no_row_is_500_with_one_error_naming_both` (the
+  foreign key makes that state unbuildable, so the test overrides the port's dependency with a fake that
+  answers nothing for the pool and says so in its docstring; no test bends the schema), `::test_reading_a_stale_or_empty_pool_logs_nothing`
+  (`caplog` empty at WARNING and above for the 200 cases: no line per page view),
+  `::test_the_preview_completes_while_the_pools_advisory_lock_is_held` (the lock-hold harness the other way
+  round, `task.done()` true), `::test_the_preview_writes_nothing_and_calls_no_exchange` (the row counts of
+  `reservations`, `pool_balance_snapshots` and `capital_pools` before and after; the venue transports and the
+  vault are never constructed), `::test_the_route_issues_the_same_number_of_statements_for_the_stored_share_and_an_asked_one`,
+  `::test_no_share_preview_response_contains_a_json_float_or_an_exponent` (the walk of
+  `test_performance_router.py::_walk`, over a micro share `0.0000001` on a small total; `share` of a step is
+  a JSON integer, and every other number is a string). RED: `assert '0' == '5.000000000000000000'`,
+  `assert None == {'total': '1000.000000000000000000', ...}`, `assert 0 == 100` (the number of steps). **Passing at once**: the
+  404, the 422, the archived, the nothing-written, the logs-nothing and the no-float tests (the stub loads the
+  strategy, bounds the parameter and writes nothing; the no-pool-row test is RED, `assert 200 == 500`); mutations from design § K: the pool taken from a query parameter or the first pool
+  read (reds the two-strategy test), `acquire` of the pool's lock added to the read (reds the lock-hold
+  test), a stale snapshot refused (reds the stale test), a zero total substituted for no snapshot (reds the
+  empty test), the amount rounded half up and, separately, computed from `available` (reds the amount
+  tests), a `str(Decimal)` in place of the wire's `Money` for an amount (reds the walk), a `share` echoed from
+  the raw query text (reds the canonical echo). GREEN: the route loads the strategy (the 404), takes its pool
+  and its stored share from the row the path names (never from the request), parses an optional `share`
+  with `Field(gt=0, le=100)` through the existing handler that echoes no input, calls `PreviewShare`, and
+  serves `SharePreview` with `Money` amounts, `share` an `int` in `steps` and a canonical plain string in
+  `exact`. The router's bearer dependency is structural (spec: "MUST require the bearer token").
+- [ ] 12f.9.13 Auth and the sweeps (design § J threat matrix, four rows). The strategies router's own
+  dependency covers the new route, and `backend/tests/strategies/infrastructure/test_router_auth.py` enumerates
+  that router's routes, so `share-preview` is covered without being listed: run it unmodified and record that
+  it now includes the new route. For the origin route, 12f.9.4's auth test is the pin. **The secret sweep**,
+  `backend/tests/signals/infrastructure/test_webhook_secret_router.py`: the route-table walk finds
+  `GET /api/webhook-origin` and `GET /api/strategies/{strategy_id}/share-preview` by itself, and the sweep
+  already seeds a strategy on `bybit/usdt-m/USDT` with a snapshot, so both answer 200 without being taught.
+  **Recorded edit, add-only:** `::test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover` gains the two
+  routes in its `assert (...) in OTHER_API_ROUTES` list, as 9p.4.36 did for the fills route; no assertion of
+  the sweep changes. If either route answers a 404 or a 500 inside the sweep, `_concrete_path` or the seed is
+  taught the missing datum exactly as 9p.4.36 taught the allocation id, and the task records it. Passing at
+  once, proven by mutation: `::test_no_other_api_response_body_contains_the_configured_secret_value[GET /api/webhook-origin]`
+  (the route answers `settings.webhook_secret`). The existing "no response contains a JSON float" walk is
+  taught the preview in 12f.9.12.
+- [ ] 12f.9.14 The delta-spec check. For each requirement added on 2026-10-06 to
+  `specs/admin-api/spec.md`, `specs/performance-reporting/spec.md`, `specs/capital-allocation/spec.md` and
+  `specs/strategy-lifecycle/spec.md`, name in this task the test that covers each scenario, so none is left
+  without one: the performance-reporting requirement and the admin-api win-rate requirement, 12f.9.1 and
+  12f.9.2; the origin route, 12f.9.3 to 12f.9.5; the share update and its notation, 12f.9.7; the share's log
+  line, 12f.9.6; "A Changed Share Of The Pool Applies From The Next Allocation Only", 12f.9.8; the share
+  preview, 12f.9.9 to 12f.9.12; "Every Admin Route Requires the Bearer Token" for the two new routes,
+  12f.9.4, 12f.9.12 and 12f.9.13. Any scenario with no test is written before the gate, and any behaviour no
+  requirement states is added to the delta spec (never a main spec) and recorded here.
+- [ ] 12f.9.15 Confirm and gate: run `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+  Record: that no existing test was edited beyond the recorded edits (the two constructor calls of
+  `test_by_pair.py`, the add-only line of the sweep, and whatever 12f.9.7 and 12f.9.13 recorded); that the
+  existing performance, strategies, signals and accounts suites pass unmodified; the statement counts
+  observed (the preview's, the adapter's); and the collected count before and after. A backend suite on
+  this machine prints no summary line: confirm by exit code and by summing `uv run pytest --co -q`.
+- [ ] 12f.9.16 Owner step, after the merge: deploy 12f-1. `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`,
+  then `systemctl restart strategy-api strategy-worker`. No migration, so no rehearsal and no `alembic upgrade`.
+  Setting the new origin variable is the owner's step, **at any time**: put `WEBHOOK_PUBLIC_ORIGIN=<the
+  webhook's origin, scheme and host and nothing else>` in the environment the API reads (the `.env` that
+  `Settings` loads from the service's working directory, `backend/`) and restart `strategy-api`; until then
+  the route answers `null`. The origin is the DuckDNS host TradingView posts to, not the panel's host. What
+  to check after: (1) the journal of `strategy-api` holds exactly one startup line about the origin, INFO
+  with the normalised origin when it is set and INFO saying the panel shows the path only when it is not; an
+  ERROR naming `WEBHOOK_PUBLIC_ORIGIN` means the value is malformed (the line names the reason, never the
+  value) and the API started anyway; (2) `GET /api/webhook-origin` answers `{"origin": "..."}` or
+  `{"origin": null}`; (3) `GET /api/strategies/{id}/share-preview` answers a body with 100 `steps` and a
+  `balance` for a pool the worker has synced, and `balance: null` for one it has not; (4) `GET /api/performance/strategies/{id}`
+  carries `wins` and `win_rate` on each `by_pair` entry (the table is empty in production while it runs under
+  `DRY_RUN`, so this is seen first on the owner's fixture); (5) the older panel, if served, shows what it
+  showed. The admin token is never pasted into a chat or a log. Update the delivery log after the merge
+  (the standing working agreement; this list writes no entry).
+
+Gate: `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+Harness: fakes and `caplog` for the application units; real PostgreSQL on the ORM schema for the adapter, both routes' integration tests, the ledger of the wins and the lock-hold tests; the lifespan for the startup lines; `httpx.AsyncClient` over ASGI; no credential, no network, no `head` schema.
+Rollback boundary: two independent revert points. (1) The wins (12f.9.1, 12f.9.2): a revert removes two fields from each `by_pair` entry and the older panel is unaffected. (2) Everything else (12f.9.3 to 12f.9.13): a revert removes the origin route and its startup line, the share's log line and notation, and the preview route, and their paths answer 404. The setting stays in the environment, unread. No data is touched; there is no migration.
+Forecast: 2,000–3,000 changed lines (design § L forecasts 1,000–1,500, of which the preview is 400 to 600). Derived bottom-up: about 600 of production code (`by_pair` 25, `PairBody` 15, the parser 90, the setting, route and startup check 100, `UpdateStrategy` 25, `StrategyView` 5, `share_preview.py` 70, the port and `PreviewShare` 90, `SqlAlchemyPoolSizing` 60, the router's route and body 110, the wiring and `.env.example` 15), and tests at three to four times that: the wins 450, the origin 450 (the shared file and its parametrized cases included), the share's line and notation 350, the reservation and lock tests 250, the preview 900. Information only.
+
+### Unit 12f.10 — panel: the share control, "Saved", the Copy buttons, the full URL and the Win rate column — PR 12f-2
+
+**Needs**: PR 12f-1 merged AND deployed. The panel refuses a `by_pair` entry that lacks `wins` and
+`win_rate` and reads two routes that must exist (design § G). Nothing else is unmerged.
+
+**Files**:
+Create `frontend/src/features/strategies/{PoolShareEditor,ShareSlider,ShareAmount,InfoDisclosure,InlineStatus}.tsx`,
+`frontend/src/features/strategies/{share-value,webhook-url}.ts`,
+`frontend/src/shared/lib/{clipboard,useDebouncedValue}.ts`,
+`frontend/src/shared/api/{share-preview,webhook-origin}.ts`.
+Modify `frontend/src/shared/api/{types,performance,strategies}.ts`,
+`frontend/src/features/strategies/{StrategyDetailPage,AllowedPairsEditor,WebhookMessage,PairStatsTable,format}.ts(x)`,
+`frontend/src/shared/i18n/locales/{en,es}.json` (under `strategies.detail.share`, `strategies.detail.saved`,
+`strategies.webhook` and `strategies.performance.byPair`), `frontend/src/test/keyboard.ts`,
+`frontend/src/shared/theme.test.ts`. Whether `rateText` and the cut-amount helper live in
+`features/strategies/format.ts` or `features/overview/format.ts` is open (12f.10.3, 12f.10.20).
+Create the tests next to each file (`{share-value,webhook-url,clipboard,useDebouncedValue}.test.ts`,
+`{PoolShareEditor,ShareSlider,ShareAmount,InfoDisclosure,InlineStatus}.test.tsx`),
+`frontend/src/shared/api/{share-preview,webhook-origin,strategies.share,performance.pairs}.test.ts`,
+`frontend/src/test/keyboard.test.ts`.
+Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/features/strategies/{PairStatsTable,StrategyPerformance,StrategyDetailPage,WebhookMessage,AllowedPairsEditor,StrategiesPage,format}.test.ts(x)`,
+`frontend/src/test/harness.tsx` (the recorded edits only, and new tests).
+
+**The win rate column** (design § G; spec: operator-panel "By Pair Shows A Win Rate")
+
+- [ ] 12f.10.1 Plumbing, no behaviour change: `types.ts`, `PairStat` gains `wins: number` and `win_rate: string`; new
+  types for the preview body (`SharePreview`, its `balance`, `exact` and `steps` entries) and the origin body.
+  Every fixture that types a `PairStat` gains the two fields with values that agree with its `trades`:
+  `PairStatsTable.test.tsx::stat()`, `StrategyPerformance.test.tsx` (the `satisfies PairStat[]` literal),
+  `StrategyDetailPage.test.tsx` (`byPair`), `performance.strategy.test.ts` (its four `by_pair` literals) and
+  `StrategiesPage.test.tsx` (its one); `harness.tsx` serves `by_pair: []` and needs none. Nothing else in
+  those files changes. No RED: the proof is that `npm run lint` refuses a builder left without the fields
+  (remove one, see `tsc` fail, restore) and the existing suites pass unmodified apart from the builders.
+- [ ] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
+  No stub is needed: the current `isPairStat` ignores keys it does not know, which is the wrong answer.
+  Tests: `::refuses a by_pair entry lacking wins`, `::refuses a by_pair entry lacking win_rate`,
+  `::refuses wins that is not an integer` (`1.5`, `"3"`), `::refuses wins below zero or above trades`,
+  `::refuses a win_rate that is a JSON number`, `::refuses a body of the four old fields, and so the whole
+  report` (a body whose entry is `pair`, `trades`, `pnl`, `return`), `::accepts an entry with the two new
+  fields`, `::one bad entry among good ones refuses the lot`. RED: `promise resolved "{ ... }" instead of
+  rejecting`. **Passing at once**: the accept test; mutation: the `wins` check removed in one case at a time
+  (one case per field). GREEN: `isPairStat` requires `wins` an integer from 0 to `trades` and `win_rate` a
+  string; the strategy report is refused whole as before. The Strategies list row reads the same report, so
+  its figures read as unreadable against an older API (design § G, U14): `StrategiesPage.test.tsx` gets one
+  new test for it, `::a report without the win fields makes the row's figures unreadable`.
+- [ ] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
+  `rateText(ratio: string, locale: string): string | null` returning its argument. Tests, each from a
+  scenario of the spec: `::writes a rate with one decimal and no sign` (`"0.5833333333"` gives `"58.3%"`,
+  `"0.6000000000"` gives `"60.0%"`), `::cuts the rate and never rounds it up` (`"0.9995000000"` gives
+  `"99.9%"`, `"0.9950000000"` gives `"99.5%"`), `::only a rate of exactly one reads 100.0%`
+  (`"1.0000000000"`), `::a rate of exactly zero and one win in five thousand read 0.0%` (`"0.0000000000"`,
+  `"0.0002000000"`), `::never writes an exponent and a string that is not a plain ratio gives null`
+  (`"abc"`, `"1e-3"`, `""`). RED: `expected '0.5833333333' to be '58.3%'`. **Passing at once** is none that the
+  stub satisfies. GREEN: a text operation on the served string (the digits shifted two places, cut at one
+  decimal of the percentage, then given to `Intl.NumberFormat` as a percentage with one fixed decimal), never
+  a division and never `percentText`, which signs every figure. Mutation after the GREEN: the cut replaced by
+  rounding (reds the 99.9 case). **Settled in design § O:** `rateText` lives in
+  `frontend/src/features/strategies/format.ts`, beside `figureText`; it cuts first and formats second, and
+  it writes the decimal separator and the percent sign the way the panel's existing percentage text
+  (`percentText` in `features/overview/format.ts`) does in each language, so the Win rate column and the
+  PnL % column of the page agree on form. What that form is in Spanish is READ from that existing function
+  when the task is built, not chosen: the task records it here (the separator and whether a space precedes
+  the sign) and asserts it with a literal in a Spanish test, `::writes the rate the way the PnL % column
+  does in Spanish`. It is confirmed by eye in 12f.10.31.
+- [ ] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
+  component as it is, the wrong answer for five columns). Tests: `::puts the Win rate column after Trades`
+  (`queryAllByRole("columnheader")` text, `toEqual` Pair, Trades, Win rate, PnL, Return), `::writes the rate
+  unsigned in neutral ink` (no `+`, no `text-gain` or `text-loss`), `::the heading is Win rate in English and
+  % acierto in Spanish`, `::the OPEN column is not built`, `::hides no column and scrolls inside its own
+  wrapper` (the `overflow-x-auto` wrapper), `::shows the could-not-be-read state, and draws no row, for a
+  win_rate above 1 or below 0`, `::wins 0 with a rate above 0 is not drawn`, `::wins equal to trades with a rate
+  below 1 is not drawn`, `::the rate is cut: 1,999 of 2,000 reads 99.9% and 2,000 of 2,000 reads 100.0%`,
+  `::a ratio that does not match wins over trades is not drawn` (the spec's scenario: 5 trades, 3 wins, served
+  `0.7000000000`: no row, the could-not-be-read state; also 3 of 5 as `0.6000000002`, one unit past the
+  tolerance), and `::a ratio within one unit of its last place either way is drawn` (the cases that must be
+  ACCEPTED, so the check is not too strict: 7 of 12 as `0.5833333333`; 1,999 of 2,000 as `0.9995000000`; 1
+  of 3 as `0.3333333333` and as `0.3333333334`, one unit either way; 3 of 5 as `0.6000000001`, the edge).
+  **Recorded edit of one existing test:** `::names the columns and says which currency the PnL is in` asserts
+  the table's headings; its expected list gains Win rate (read it first and record what it held), renamed
+  only if its name says four. RED: `expected [ 'Pair', 'Trades', 'PnL USDT', 'Return' ] to deeply equal ...`.
+  **Passing at once**: the OPEN test, the wrapper test and the within-tolerance cases (the component as it
+  is draws every row); mutations: a column added; `overflow-x-auto` removed, and a `hidden` utility put on
+  the new column. GREEN: the column and its key `strategies.performance.byPair.winRate` ("Win rate" /
+  "% acierto") in both locale files; the component reads the served ratio and shows the existing
+  could-not-be-read state when a check fails. **Settled in design § O (the spec stands):** the end checks
+  stay as the first, cheap test (a rate of 0 exactly when there are no wins, 1 exactly when every operation
+  won, and the ratio between 0 and 1); then the ratio's digits are read as an integer `r` (the ratio times
+  10^10) and the row is accepted only when `|r × trades − wins × 10^10| ≤ trades`, with integers of arbitrary
+  size (`BigInt`). That is one unit of the ratio's last place either way, so it holds whichever way the
+  server rounds; it divides nothing and computes no rate. It supersedes design § G's "the ends only" for this
+  check. **Mutations, applied after the GREEN:** the comparison removed (reds the 3-of-5-at-`0.7000000000` and
+  the `0.6000000002` cases); the tolerance set to zero (reds the one-unit cases: 7 of 12, 1 of 3 as
+  `0.3333333333` and as `0.3333333334`, and the `0.6000000001` edge); a floating-point division used instead
+  (`wins / trades` against `Number(rate)`): an exact float equality reds 7 of 12 and the 1-of-3 cases, and a
+  float multiply-and-compare is expected to disagree once `trades` is above about 10^6, where
+  `r × trades` passes 2^53. **No counts for that last disagreement were computed in this breakdown:** the
+  task finds a case (trades above 10^6, the served ratio the correctly rounded one) by running the mutation
+  and records it, or records that none was found and why; the mutation above is named either way.
+
+**The pure helpers and the API** (design §§ C, C2, E, F)
+
+- [ ] 12f.10.5 The value model, `share-value.ts`. RED `frontend/src/features/strategies/share-value.test.ts`
+  (Create), with the stub module in the same commit: `readStored(text)` returning its input,
+  `parseDraft(text)` answering a valid draft for every text, `roundToHandle(canonical)` returning 0, and
+  `handlePosition(step)` returning `"0%"`. Tests, tables of cases, one per row of design § C:
+  `::reads a stored share into its canonical form` (`33.50` is `33.5`, `100.000` is `100`, `0.5`, `0.50` is
+  `0.5`), `::a stored text that is not a plain decimal is unreadable` (`1E-7`, `+5`, `-5`, the empty string),
+  `::one comma is a decimal separator` (`33,5` is `33.5`), `::zero is above 0 and 100.5 and 150 are at most 100`
+  (`0`, `0.0`), `::not a number is not a value` (empty, `abc`, `1e1`, `-5`, `25%`, `1.000,5`, `33.`, `.5`, a wide
+  digit, whitespace around a number: nothing is guessed and nothing is trimmed into a value; a value needs
+  digits on both sides of its separator, the rule that refuses `33.`), `::leading zeros change no value`
+  (`007` reads as `7`, `0033.50` as `33.5`; the canonical form drops them, as for a stored value),
+  `::0.5 is valid and 100 is valid`, `::the handle is the value rounded half up and clamped from 1 to 100`
+  (`33.5` gives 34, `0.5` gives 1, `0.4` gives 1, `99.5` gives 100, `24.5` gives 25, `100` gives 100),
+  `::the handle's position is (v - 1) / 99` (`1` gives `0%`, `25` gives `24.2424%`, `50` gives `49.4949%`, `75`
+  gives `74.7475%`, `100` gives `100%`), `::a draft is canonical so the stored value typed back is unchanged`.
+  RED: `expected '33.50' to be '33.5'`, `expected 0 to be 34`. **Passing at once**: none the stub satisfies
+  except the empty-text and zero cases; mutation after the GREEN: the comma rule removed, the half-up
+  rounding replaced by truncation. GREEN: a pure module; no money, no arithmetic on a share beyond the
+  position and the rounding. **Settled in design § O:** `.5` is refused and `007` is read as 7 (both are cases above;
+  mutation: the digits-on-both-sides rule removed reds `.5`, the leading-zero drop removed reds `007`). The regular expressions and
+  escapes of the diff are read once the GREEN is written.
+- [ ] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
+  `frontend/src/shared/api/strategies.share.test.ts` (Create, `vi.stubGlobal("fetch")`), with the stubs in
+  `strategies.ts` in the same commit (the function resolves a fixed strategy without a request; the hook
+  with no cache write). Tests: `::sends PATCH /api/strategies/{id} with exactly {"allocation_percent":"33.5"}`
+  (`expected undefined to be '/api/strategies/...'`), `::sends the value as a string and no other field`
+  (mutation: `enabled` added to the body; and, separately, the value sent as a number), `::refuses an answer
+  that is not a strategy` (the existing `isStrategy`), `::a refusal throws an ApiError with its status`
+  (422, 409, 404, 500), `::on success writes the checked answer into ['strategy', id]` (so the stored value is
+  the confirmed one even if the refetch that follows fails), `::on settle invalidates ['strategies'] and
+  ['strategy', id] and returns that promise` (as the two hooks of the file do). GREEN as the tests say.
+  The control's own tests assert the request body again (12f.10.16), at the place the owner's slip would
+  matter.
+- [ ] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
+  `frontend/src/shared/api/share-preview.test.ts` (Create), with stubs that answer a well-formed body whose
+  amounts are all zero. Tests: `::requests GET /strategies/{id}/share-preview with no query for the stored
+  share` and `::with ?share= for an asked one`, `::refuses a body with a balance and no steps`, `::refuses
+  exact without a balance`, `::refuses 99 steps and steps not numbered 1 to 100 in order`, `::refuses an amount
+  that is a JSON number`, `::refuses a pool_minimum that is null`, `::accepts the null, null and empty body of a
+  pool nothing has synced` (**passing at once**; mutation: the pairing check removed in one case at a time),
+  `::the query key is ['strategy', id, 'share-preview'] and, for an asked share, [..., 'share-preview', share]`
+  (sitting under the strategy's own key, so a save that invalidates it refreshes it), `::reads again every
+  60 seconds` (fake timers), `::makes no request until the hook is mounted`. RED: `expected [...] to deeply
+  equal`, `promise resolved ... instead of rejecting`. GREEN: every field checked by type, `steps` exactly
+  100 entries numbered 1 to 100, `balance`, `exact` and `steps` present together or absent together; a
+  failing check is an error, never a partial table.
+- [ ] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
+  `frontend/src/features/strategies/webhook-url.test.ts` (Create), with stubs in `webhook-origin.ts` and
+  `webhook-url.ts`: `fetchWebhookOrigin` and `useWebhookOrigin` (key `['webhook-origin']`) answering `null`,
+  `acceptedOrigin(value)` returning its input and `webhookUrl(origin, value)` returning the path alone.
+  Tests: `::requests GET /webhook-origin`, `::accepts {"origin": null}`, `::refuses a body without origin`,
+  `::refuses an origin that is a number`, `::the panel accepts every normalised case of the shared list`
+  (`webhook-origin.cases.json`, the same file `test_webhook_origin.py` reads: `acceptedOrigin(case.origin)`
+  equals `case.origin`), `::the panel refuses what is not an origin` (a path, a query, a fragment, a user, a
+  trailing slash, upper case, the default port: `new URL(value).origin === value` is the whole check),
+  `::the URL is the origin plus /webhook/tradingview?secret= plus the placeholder or the percent-encoded
+  secret`, `::with no origin the URL is the path alone, as today` (an empty origin never renders as `null` or
+  `undefined`; mutation: the empty origin concatenated). RED: `expected 'https://example.org/hook' to be
+  null`, `expected '/webhook/tradingview?secret=...' to be 'https://example.org/webhook/...'`. GREEN: the check
+  is the one comparison; the URL is plain concatenation of a checked origin, a constant path and the value.
+- [ ] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
+  timers), with a stub that returns its input at once. Tests: `::keeps the old value until the pause has
+  passed` (299 ms), `::takes the new value at 300 ms`, `::two changes in quick succession give one update, for
+  the last`. RED: `expected 'b' to be 'a'`. GREEN: a `setTimeout` cleared on change and on unmount; the delay
+  is a parameter and the control passes 300.
+- [ ] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
+  stub that answers `true` without writing. Tests: `::writes exactly the text to navigator.clipboard.writeText`
+  (`expected "spy" to be called with arguments: [ 'text' ]`), `::answers false when navigator.clipboard is
+  missing` (`expected true to be false`), `::answers false when writeText is missing`, `::answers false when the
+  write rejects` and never throws, `::never logs anything, the text may be the secret` (every console method;
+  **passing at once** against the stub, so mutation: a `console.error` in the catch). GREEN: no
+  `document.execCommand` fallback (design § E: it writes the secret into a second place).
+
+**The small shared pieces** (design §§ B2, D)
+
+- [ ] 12f.10.11 `InlineStatus`. RED `InlineStatus.test.tsx` (Create), with the stub that renders a bare `<span>` with no
+  role. Tests: `::is in the document before it has anything to say, empty`
+  (`expect(screen.queryByRole("status")).toBeInTheDocument()`; mutation: rendered only with its text),
+  `::announces politely` (`aria-live="polite"`), `::shows its message`, `::a failure tone is loss and the
+  default is neutral ink-2, never gain` (the gain colour is for money made and the primary action),
+  `::two instances are independent`. RED: `expected null to be in the document`. GREEN: a presentational
+  component taking a message or nothing and a tone; no store.
+- [ ] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
+  rendered with `aria-expanded="false"` that never opens. The shared piece is a hook that owns the open state
+  and the ids, and two presentational parts, the button and the container. Tests: `::is closed at mount and
+  no explanation is in the document` (**passes at once**; mutation: open by default, and separately a
+  paragraph rendered outside its container), `::activating the button shows the text and aria-expanded is
+  true` (RED: `expected null to be in the document`), `::activating again closes it`, `::Enter and Space toggle
+  it` (`pressEnter`, `pressSpace`), `::Escape on the button or inside the text closes it and leaves focus on
+  the button` (mutation: the handler removed; and, separately, focus left on the body), `::tabbing away
+  from an open explanation leaves it open and so does a press elsewhere` (mutation: a close on blur), `::two
+  disclosures open together and closing one leaves the other` (mutation: one shared state), `::aria-controls
+  names an element present while closed and the paragraphs are rendered only while open` (mutation: the
+  container rendered only while open), `::the button's name does not change with its state` (mutation: both
+  named "Info"), `::the button is never disabled`, `::the box is 44 by 44 px by class and the glyph is an
+  aria-hidden SVG with no style attribute` (mutation: the box class removed; and, separately, the glyph
+  replaced by a text character). GREEN: `InfoDisclosure.tsx` beside `InlineStatus`; the glyph is a circle, a
+  dot and a stem drawn with attributes, `currentColor` from a text class (`ink-3` at rest, `ink-2` on hover,
+  `ink` while open).
+- [ ] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
+  (Create), with the stub in `keyboard.ts` that does nothing. Tests: `::an arrow adds or removes one step`
+  (34 to 35 and to 33), `::Home sets min and End sets max`, `::the result is clamped to min and max`,
+  `::fires the input and change events`, `::does nothing when the keydown was prevented or the input is
+  disabled`. RED: `expected '34' to be '35'`. GREEN: a stand-in for the browser's default action on a focused
+  range input, as `pressEnter` stands for a button's. Page Up and Page Down are not modelled: their step is
+  the browser's. What a test proves with it is the markup's side: a real, enabled range input with the right
+  `min`, `max` and `step`, and no handler that swallows the key.
+
+**The share control, built up in steps a test can see** (design §§ B, C, C2, C3, B2; spec: operator-panel
+requirements 947 to 1700)
+
+- [ ] 12f.10.14 Step 1, the field and its value. RED `ShareSlider.test.tsx` (Create), with the stub design § K names: an
+  input with a fixed `size` of 12 and the `%` sign placed before it. `ShareSlider` is presentational: it takes
+  the text, the handle, the disabled flag and its callbacks. Tests: `::the field is a text input with
+  inputMode decimal and maxLength 12`, `::size is the number of characters typed, and 1 when empty` (`5`, `33.5`,
+  `100`, twelve characters: RED `expected '12' to be '4'`; mutation: a constant `size`, and separately `size="0"`
+  for the empty field), `::the input carries the field-sizing class and the one-character minimum width` (a
+  class assertion, since jsdom cannot see the width; mutation: either class removed; if the pinned Tailwind has
+  no utility for `field-sizing` the rule goes into `index.css` and the test asserts the class that uses it),
+  `::the percent sign is the input's next sibling, aria-hidden, and not part of the value` (RED:
+  `expected input.nextElementSibling to be the sign`; mutation: the sign appended to the value, and separately
+  the sign at the wrapper's far end), `::a press on the wrapper outside the input focuses the input, and on a
+  disabled control does not` (mutation: the handler removed; the handler ignoring `disabled`), `::an invalid
+  value marks the field aria-invalid and tied by aria-describedby to its text, and turns the border loss`,
+  `::the text shows a dot in both languages`, `::typing a % is not a number`, `::no element carries a style
+  attribute` (**passes at once**; mutation: one `style={{}}`). GREEN: the wrapper carries the field look
+  (`min-h-11`, border, `ground` fill, padding, `cursor-text`, `focus-within` ring), the input has no border, no
+  fill and 2 px of right padding, then the sign in the same font and ink.
+- [ ] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
+  type="range">` with no attributes. Tests: `::the track is a range input with min 1, max 100, step 1` and named
+  by the visible label (`queryByRole("slider", { name: "Share of the pool per trade" })`), `::its value text is
+  the exact value while the handle sits at the rounded step` (`33.5% of the pool` at 34), `::the filled part's
+  x2 and the four stops' cx are the positions that `share-value.ts` gives`, `::a stop at or below the handle takes the
+  gain class and the others rule-strong`, `::the four stops are buttons named "Set the share to 25%" and so on,
+  aria-pressed exactly when the value equals the stop`, `::Enter or Space activates a stop`, `::each stop and
+  each box is 44 by 44 px by class and the track is 44 px tall`, `::each stop sits at one fixed class (left-[24.2424%]
+  and so on)` (mutation: the stop turned into a `<span>`; and, separately, the box class removed), `::the
+  vendor thumb classes and appearance-none are one constant` (class assertion), `::an arrow, Home and End move
+  the handle through pressRangeKey` (35, 1, 100), `::the rendered tree has no style attribute`. RED:
+  `expected null to be in the document`, `expected '1' to be '34'`. GREEN: the native range input over an
+  `aria-hidden` inline SVG drawn with attributes, inset by half the thumb on each side, the stops stacked
+  above the input from the handle's lower edge so none covers the handle. The legend is 12 px closer to the
+  track than the first prototype, and that distance is approved (decision 48).
+- [ ] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
+  `vi.stubGlobal("fetch")`), with the stub container that renders `ShareSlider` over the stored value and a
+  Save that never sends. The container holds the draft as `{ base, text, handle }` or nothing. Tests: `::a
+  stored 33.5 shows 33.5 in the field and the handle at 34` (mutation: the field given the handle's value),
+  `::moving the handle writes a whole number into the field` (from 33.5, one arrow gives 35; mutation: the
+  decimal kept on a move), `::a stop jumps to its value`, `::typing keeps the text as typed and the handle
+  follows only a valid value`, `::33,5 is sent as 33.5` (mutation: the comma rule removed), `::0, 100.5, an empty
+  field and abc each leave Save disabled` (one case each; mutation: that case's check removed),
+  `::0.5 is valid and can be saved`, `::the stored value typed back leaves Save disabled`, `::Save is enabled
+  only for a valid value that differs from the stored one on an unarchived strategy`, `::no request is made
+  before Save, whatever is moved, activated or typed` (mutation: a save on the change event), `::leaving the page
+  after a change sends nothing` (mutation: a save on unmount), `::the request body is exactly
+  {"allocation_percent":"33.5"}` (mutation: `enabled` added; the value as a number; the sign read into the
+  value), `::a draft made on a stored value is dropped when the stored value moves` (mutation: the `base`
+  comparison removed), `::the control makes no request but the share preview and the save` (no venue, no
+  pair contract: spec "No Venue Is Read For The Check"). RED: `expected "spy" to be called with arguments`,
+  `expected '30' to be '33.5'`. GREEN: the container over `share-value.ts` and `setStrategyAllocationPercent`.
+- [ ] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
+  saving, Save reads Saving... and the track, the stops and the field are disabled`, `::a 422 shows "The share
+  must be above 0 and at most 100." as an alert`, `::a 409 STRATEGY_ARCHIVED shows the archived text and the
+  page re-reads the strategy, and the control turns read-only`, `::a 404 shows "This strategy no longer exists."
+  and the page shows its not-found state`, `::a network failure, a 5xx and a 200 whose body is not a strategy
+  each show "The share was not saved. Try again." and keep the draft`, `::an archived strategy's track, stops,
+  field and Save are disabled` (mutation: the `disabled` removed from one of them, one case each),
+  `::a stored value that cannot be read shows "The stored share could not be read, so it cannot be edited here."
+  and no track, no field, no Save` (`1E-7`, an empty string), `::each refusal is a role=alert line`. RED: `expected
+  null to be in the document`. **Passing at once** is the 5xx half, if the stub already surfaces any failure;
+  mutation: the failure text dropped. GREEN: the states of design § C.
+
+**"Saved"** (design § D; spec: "A Save Of The Share Or Of The Allowed Pairs Shows 'Saved'")
+
+- [ ] 12f.10.18 "Saved" for the share. RED `PoolShareEditor.test.tsx`, new tests, with the stub that mounts
+  `InlineStatus` beside Save and never fills it. Tests: `::Saved shows when the PATCH answers 200 with a strategy`
+  (RED: `expected null to be in the document`), `::the live region exists before the save, empty` (mutation: the
+  region rendered only with its text), `::Saved is still there ten minutes later` (fake timers, 600,000 ms;
+  mutation: a timer that clears it), `::Saved goes at the next movement of the handle, activation of a stop or
+  keystroke in the field, tried in turn` (mutation: the reset removed), `::no Saved after a 422, a 409, a 404, a
+  5xx or a body that is not a strategy` (one per status; mutation: the flag set on settle instead of on
+  success), `::a refusal and Saved are never on screen together and a new save clears Saved before it is sent`,
+  `::Saved is neutral ink, not gain`, `::Saved is gone when the page is left and the control is shown again`.
+  GREEN: a boolean local to the control; no store; no timer.
+- [ ] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
+  mounts `InlineStatus` and never fills it; the hook is NOT changed. Tests: `::Saved shows when the PUT answers
+  200 and the list on screen is the saved one`, `::Saved goes at the next pair added or removed, and typing in
+  the search box changes no pair and leaves it`, `::no Saved after a 409 or a 422`, `::if the re-read after a 200
+  fails, so the list on screen is the old one, Saved is not shown` (the safe side; a limit of the existing hook,
+  design § D), `::Saved stays ten minutes`, and, in `StrategyDetailPage.test.tsx`, `::the share's Saved and the
+  pairs' Saved are two flags: a pair change leaves the share's, and the reverse` (mutation: one flag shared
+  by both). RED: `expected null to be in the document`. GREEN: a local boolean next to the existing mutation,
+  set from the settled success once the list on screen is the saved one.
+
+**The amount, the warning and the explanations** (design §§ C2, C3, B2)
+
+- [ ] 12f.10.20 The amount under the track. RED `ShareAmount.test.tsx` and `PoolShareEditor.test.tsx`, new tests, with the
+  stub design § K names: an amount line that prints the first step's figure for every value. `ShareAmount` is
+  presentational and takes strings from the preview and nothing from `['pools']`. Tests: `::a known amount reads
+  "Asks for about 335.00 USDT per operation" from the served exact` (RED: `expected '10.00' to be '335.00'`),
+  `::every whole value shows the amount of its own step` (1, 25, 34 and 100 with four different figures;
+  mutation: an off-by-one in the lookup, and separately the first step for all), `::dragging the handle and
+  activating a stop send no request and the figure follows at once` (mutation: the amount asked per value),
+  `::the stored share with decimals shows the first read's exact and sends no second request`, `::the amount is
+  cut down as text to the currency's decimals and never rounded up` (`4.996` reads `4.99`, not `5.00`; mutation:
+  `Intl` given the unrounded number), `::a coin-margined pool uses its own decimals` (BTC, 8, from the existing
+  `AMOUNT_DECIMALS` table), `::a stale balance shows the same line and "The pool's balance was last read at 14:03
+  UTC and may be out of date."` (`HH:MM UTC`), `::no balance shows "The pool's balance has not been read yet, so
+  the amount cannot be shown." and no figure, never a zero`, `::loading shows "Calculating the amount..." and no
+  figure`, `::a failed read or a refused body shows "The amount could not be loaded." and the track, the stops,
+  the field and Save stay usable` (mutation: the control disabled on the error), `::the row, and so its button
+  slot, is present with a figure, with the em dash, with no balance and with a failed read`, `::the figure is the
+  served string, never the pool's balance multiplied` (render with a `['pools']` balance that would give another
+  figure and assert the served one; mutation: the component reading `['pools']` and multiplying), `::two pools
+  are never summed or converted`. GREEN: `ShareAmount.tsx` and the lookup of design § C2. **Settled in design §
+  O:** the figure is cut down as text and then given to `Intl`, by a helper in the same file as `rateText`,
+  `frontend/src/features/strategies/format.ts`, using the decimals the trades table already uses for the
+  pool's currency (the existing `AMOUNT_DECIMALS` in `features/overview/format.ts`, not a second table); the
+  task records the helper's name, chosen in the neighbours' style.
+- [ ] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
+  asks at once for every value. Tests: `::a typed 33.5 shows no figure, only the loading mark, until its
+  answer, and then that answer's` (mutation: the previous amount kept on screen while loading),
+  `::two typed values in quick succession send one request, for the last, 300 ms after the last keystroke`
+  (mutation: the debounce removed; uses `useDebouncedValue`), `::an answer whose exact.share is not the value
+  asked is refused` (compared in canonical form; mutation: the comparison removed), `::a value below 1 asks
+  once at rest`, `::a text that is not a valid value sends no request and shows the em dash`, `::the request
+  for a typed value carries ?share= with the canonical text`. RED: `expected null to be in the document`
+  (the loading mark), `expected 2 to be 1` (the requests). GREEN: the third row of the table in design § C2.
+- [ ] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
+  that asks for less than the pool's minimum order shows the warning with the minimum, cut down as text`
+  (`At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped
+  until the share or the balance is larger.`), `::it is a role=status line in the loss colour, not an alert and
+  never amber` (class assertions), `::it shows for a stored share under the minimum with no change made`
+  (mutation: the warning tied to the draft), `::Save stays enabled while it shows` (mutation: Save disabled on
+  `below_pool_minimum`), `::it shows for a typed 0.5 once its answer arrives and not while loading`, `::it is
+  in the document with both information buttons closed`, `::a share the pool's minimum accepts shows no warning
+  and neither does one too small for a pair: the panel checks no pair` (the spec's "A Share Too Small For A
+  Pair Passes The Panel"). RED: `expected null to be in the document`. GREEN: from `below_pool_minimum` of the
+  step or the exact amount, and `pool_minimum` of the body.
+- [ ] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
+  Tests: `::at mount none of the three explanatory sentences is in the document, in English and in Spanish`
+  (**passes at once**; mutations: open by default; a sentence outside its container), `::the label's button
+  shows the hint and only that, and the amount's shows the first paragraph with the time as HH:MM UTC and then
+  "Each pair also has a minimum order at the exchange..." in that order` (mutation: the contents swapped; the
+  second paragraph dropped), `::the warning, the stale line, the validation text and a refused save are in the
+  document with both buttons closed` (one case each; mutation: that line moved inside a container), `::both can
+  be open together`, `::an open explanation survives a save, a refused save and a change of language, and is
+  closed for another strategy` (mutation: the open state reset on every render; the control not keyed by the
+  strategy), `::both buttons are enabled on an archived strategy and while saving` (mutation: `disabled`
+  passed to them), `::Tab goes: the label's button, the field, the track, 25, 50, 75, 100, the amount's button,
+  Save` (nine stops, with Save enabled by a change; with Save disabled the order ends at the amount's button,
+  as the spec says, so a disabled button is no stop; mutation: the field rendered after the track; an
+  information button given `tabIndex={-1}`), `::the stored 33.5 is read as "33.5% of the pool" with the handle
+  at 34`. RED: `expected null to be in the document`. GREEN: the buttons sit right after the label and right
+  after the amount; the explanation is rendered under its own row, in the flow, never a popover.
+- [ ] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
+  the settings column, under its heading and above the allowed pairs` (RED:
+  `expected null to be in the document`; mutation: the control after the pairs), `::no text of the page's header
+  line contains the share or "per trade"` (**passes at once**; mutation: the share printed in the header),
+  `::the Strategies list shows no row's share` (in `StrategiesPage.test.tsx`; **passes at once**; mutation: the
+  share printed in a row), `::an archived strategy shows the control read-only`. GREEN: `StrategyDetailPage.tsx`
+  mounts `PoolShareEditor` keyed by the strategy's id as the first child of the `<aside>` after its heading.
+  **Recorded edits of existing tests**, each listed with its reason: the fetch doubles of the page tests
+  (`harness.tsx` `stubApi`, `strategyRoute`, and the local doubles of `StrategyDetailPage.test.tsx` and
+  `StrategiesPage.test.tsx`) answer `GET .../share-preview`, `GET /api/webhook-origin` and a `PATCH`, because
+  the page now asks for them; and `WebhookMessage.test.tsx::test_no_other_control_ever_requests_the_secret`
+  clicks every other button of the page, which now includes the stops, the two information buttons, Save and
+  both Copy buttons, so its fetch double must answer a PATCH; its assertion, that no request for the secret
+  was made, does not change. The task reads every existing test that indexes the settings column's children
+  (`test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive`) and records what
+  moved; no assertion is relaxed.
+
+**The webhook block** (design §§ E, F; spec: "The Webhook Block Has Two Copy Buttons", "The Webhook URL Is
+Shown And Copied With Its Host")
+
+- [ ] 12f.10.25 The full URL. RED `WebhookMessage.test.tsx`, new tests, with the stub that keeps showing the path alone.
+  Tests: `::a configured host is shown in front of the path and no sentence about a missing host shows`
+  (RED: `expected '/webhook/tradingview?secret=<your WEBHOOK_SECRET>' to be 'https://example.duckdns.org/webhook/...'`),
+  `::a revealed secret goes after the host, percent-encoded`, `::while the host loads the path alone is
+  shown`, `::{"origin": null} shows the path alone and "No public host is configured for the webhook, so only
+  the path is shown. Put your webhook's host in front of it."`, `::a failed read, a 404 from an older API, or an
+  origin the panel does not accept shows the path alone and "The webhook's host could not be loaded, so only
+  the path is shown."` (mutation: the `new URL(value).origin === value` check removed), `::the URL is text,
+  never inside an anchor, and no request starts with the origin` (mutation: the `<code>` turned into a link),
+  `::the origin is read when the block is opened and not before` (the block is unmounted while closed; mutation:
+  the read at the page's mount). Existing tests that assert the placeholder URL as a bare path
+  (`PLACEHOLDER_URL`) keep passing while the double answers the origin route with a body the panel refuses;
+  the task records any that needs an answer for `/webhook-origin`. GREEN: `useWebhookOrigin` and
+  `webhookUrl` in `WebhookMessage.tsx`; `connect-src 'self'` is untouched (the origin is displayed and copied,
+  never requested).
+- [ ] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
+  the stub that renders both buttons and writes nothing. Tests: `::Copy URL sits beside Show secret and Copy
+  message under the alert message`, `::the copied text equals the text of the <code> element, hidden and
+  revealed` (RED: `expected "spy" to be called with arguments`; mutation: a second assembly of the URL in the
+  handler), `::the message copied is the message shown`, `::a copy makes no request and never asks for the secret`
+  (mutation: the handler calling the secret's refetch), `::with the secret hidden it copies the URL with the
+  placeholder`, `::a missing clipboard and a rejected write both show "Could not copy. Select the text and
+  copy it by hand." in the loss colour` (mutation: the `false` branch reporting success), `::the secret is in
+  no query key, no console call and no request URL` (extends the existing test). GREEN: the URL is built once
+  per render into one constant that the `<code>` prints and the handler is given; component state holds only
+  which button was used, whether it worked and, for the URL, whether the secret was shown and whether a host
+  was part of it, never the text. There is no `execCommand` fallback.
+- [ ] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
+  after any copy and never removes it. Tests: `::Copied shows beside the button that was used and only one
+  Copied is on screen` (a copy with the other button moves it; mutation: two independent flags),
+  `::closing the block removes it` (mutation: the block hidden with CSS instead of unmounted), `::the URL copied
+  with the placeholder, then Show secret: Copied is gone` and the reverse, `::copied revealed, then Hide secret:
+  Copied is gone` (mutations: the clearing removed from the Show handler, and separately from the Hide handler),
+  `::after that, showing or hiding the secret again does not bring Copied back` (mutation: the state kept and
+  only hidden by the render check), `::the URL copied as the path alone, then the host loads: Copied is gone`
+  (mutation: the render check of the recorded booleans removed), `::the message's Copied survives showing and
+  hiding the secret` (mutation: the handlers clearing every copy state instead of the URL's), `::the clipboard
+  never holds something the screen does not show next to "Copied"`. RED: `expected "Copied" to be gone`.
+  GREEN: the Show and Hide handlers clear the URL's copy state, and the render shows "Copied" only while both
+  recorded booleans still equal the present. The panel does not claim to clear the clipboard when the secret is
+  hidden or the view is left (design § E, accepted by the owner).
+
+**Texts, the guard and the gate**
+
+- [ ] 12f.10.28 Localization. Tests that pass at once, in `frontend/src/features/strategies/PoolShareEditor.test.tsx` and
+  `WebhookMessage.test.tsx` (the page-level one in `StrategyDetailPage.test.tsx`): `::every text of design § I
+  reads exactly as written in English and in Spanish, with each state brought on screen` (a table of both
+  columns held in the test, so a reworded locale value is red; the spec's "The Detail Page's Follow-Up Texts
+  Are Exactly These" and the Spanish scenario of "Every Panel String Is Localized"), `::every new key exists
+  in both languages` (the flattened key sets of `strategies.detail.share`, `strategies.detail.saved`, the six
+  new `strategies.webhook` keys and `strategies.performance.byPair.winRate`), `::the owner's own words are
+  unchanged` ("Saved" / "Guardado", "Copied" / "Copiado"). Mutations, each reverted: one Spanish value left
+  in English and, because an untranslated value equals its English twin (the lesson of 9p.5.23), the Spanish
+  texts are required BY NAME, so a value left in English reds the case; one Spanish key deleted.
+- [ ] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
+  `::test_no_non_test_source_file_has_a_style_prop` (a search of every non-test file under `frontend/src` for
+  `style=`; it passes at once today, U8). Mutation: one `style={{}}` on any element, seen red. The test also
+  searches `.style.`, `setProperty`, `cssText` and `setAttribute("style"`, because the spec forbids "a style
+  attribute or a style property" and not only the prop; if a legitimate non-test use of one exists today the
+  test lists it and the task records the exception rather than weakening the guard. The slider's own
+  "no style attribute in the rendered tree" is asserted in 12f.10.14 and 12f.10.15. The amber allow-list of
+  `frontend/src/features/overview/panel-tokens.test.ts` is not edited.
+- [ ] 12f.10.30 Confirm and gate: `cd frontend && npm run lint && npm test`. Record the observed totals before and after, the
+  recorded edits by group (the `by_pair` builders; the By pair header assertion; the fetch doubles and the one
+  every-other-button test; any settings-column order test that moved), and that no other existing test
+  changed (`git diff --name-status` lists exactly the modified test files named in this unit). Then the spec
+  check, each requirement of `specs/operator-panel/spec.md` added on 2026-10-06 to the task that covers it:
+  the share is first and only in the settings column, 12f.10.24; a field above a track with four stops,
+  12f.10.14 and 12f.10.15; the exact value and what it refuses, 12f.10.5 and 12f.10.16; Save only on an
+  explicit press, 12f.10.16 to 12f.10.18; the amount, 12f.10.7, 12f.10.20 and 12f.10.21; the warning,
+  12f.10.22; the per-pair limit not checked and stated, 12f.10.22 and 12f.10.23; the two information buttons,
+  12f.10.12 and 12f.10.23; the keyboard and the names, 12f.10.15 and 12f.10.23; "Saved", 12f.10.11, 12f.10.18
+  and 12f.10.19; the two Copy buttons, 12f.10.10, 12f.10.26 and 12f.10.27; the URL with its host, 12f.10.8
+  and 12f.10.25; By pair's win rate, 12f.10.2 to 12f.10.4 (the integer comparison of design § O); no browser money, no inline style,
+  no relaxed policy, 12f.10.20 and 12f.10.29 and the CSP check of 12f.10.31; the texts, 12f.10.28. **The
+  table of what the browser cannot log, each with its pin:**
+
+  | Failure | Pinned by |
+  |---|---|
+  | A wrong value sent (a field other than the share, a number instead of a string) | the exact-body test, 12f.10.16 |
+  | A slip of the handle saves | no request before Save, and none on unmount, 12f.10.16 |
+  | "Saved" shows although nothing was saved | one test per refusal, 12f.10.18 |
+  | The stored share is not a plain decimal | the unreadable state, 12f.10.17 |
+  | The clipboard holds something other than what the owner believes | both directions and the late host, 12f.10.27 |
+  | A copy requests the secret | the request count and the every-other-button test, 12f.10.24 and 12f.10.26 |
+  | The origin becomes something the browser requests | no request starts with the origin, 12f.10.25 |
+  | A win rate disagrees with its counts | the end checks and the integer comparison of 12f.10.4 |
+  | The amount is not what the next operation asks for, or the panel multiplies | the served-string test, 12f.10.20 |
+  | A typed decimal's answer arrives after the value changed | the `exact.share` comparison, 12f.10.21 |
+  | An information button does nothing, or its text is on screen from the start | closed-at-mount and open-on-activation, 12f.10.12 and 12f.10.23 |
+  | A `style` prop is added | the source guard, 12f.10.29 |
+  | The slider is drawn wrongly in one browser, or the sign stands off the number | not testable in jsdom: the owner's review by eye, 12f.10.31 |
+- [ ] 12f.10.31 Owner step, before the push: the review by eye. **The fixture file `frontend/vite.fixture.config.ts` is the owner's,
+  untracked, and no task edits it.** Today it serves a `by_pair` without `wins` and `win_rate`, so with the new
+  check the performance block would show its error state until the fixture serves them; that is the check
+  working, not a defect. What the owner's fixture must serve for the review: (a) on
+  `GET /api/performance/strategies/{id}`, each `by_pair` entry with `wins` and `win_rate` that agree with
+  `trades`: 3 of 5 `"0.6000000000"`, 7 of 12 `"0.5833333333"`, 199 of 200 `"0.9950000000"`, 1,999 of 2,000
+  `"0.9995000000"`, 4 of 4 `"1.0000000000"`, 0 of 3 `"0.0000000000"`, 1 of 5,000 `"0.0002000000"`; (b)
+  `GET /api/webhook-origin` answering `{"origin": "https://example.duckdns.org"}`, and, by a switch of the
+  fixture's own (a strategy id or a query value), `{"origin": null}`, a 404 (an older API), a 500 and a slow
+  answer for the loading state; (c) `GET /api/strategies/{id}/share-preview` with `steps` numbered 1 to 100
+  whose amounts are the pool's total times the step over 100 to 18 places (the fixture's own stand-in
+  arithmetic, never the panel's), `exact` for the stored share and, honouring `?share=`, for the share asked
+  (canonical in `exact.share`), `pool_minimum` `"5.000000000000000000"`, and these cases: a pool of 300 USDT so
+  the warning shows at 1% and at a typed 0.5, a stale balance (`observed_at` five minutes ago, `stale` true),
+  a pool never read (`balance` null, `exact` null, `steps` `[]`), a failing preview (a 500, and a body with 99
+  steps), a slow preview, and a pool of 1000 USDT as the ordinary case; (d) `PATCH /api/strategies/{id}`
+  answering the strategy view with the `allocation_percent` it was sent, in plain notation, and the failures
+  worth seeing (422, 409 `STRATEGY_ARCHIVED`, 404, a 500, a 200 whose body is not a strategy, a slow answer for
+  "Saving..."); (e) strategies whose stored share is `30`, `33.5` (a stored decimal), `0.5`, `0.0000001` (the
+  plain notation), `1E-7` or `abc` (the unreadable state) and an archived one; (f) the allowed pairs `PUT`
+  answering 200 for "Saved" and a failing one. Run the backend (the 12f-1 code) and `cd frontend; npx vite --config
+  vite.fixture.config.ts`. **What to look at, everything design § K's by-eye list and its third revision say
+  jsdom cannot show.** The owner already reviewed the PROTOTYPE on 2026-10-06 in Firefox and by keyboard
+  (owner-decisions.md, decision 48): in Firefox it works and the percent sign follows the text, Tab goes
+  through the stops, and Enter, Space and Escape behave. So a second browser and the keyboard are items to
+  CONFIRM on the real panel, not items never seen (design § O). **It leads with the three things only the
+  real panel can show, none of which the prototype had:** (L1) the panel's own fonts (Archivo and IBM Plex,
+  not the prototype's system font), including the height of the control (item 3b) and the sign against the
+  number (item 3c); (L2) **the Content-Security-Policy with the built bundle served by FastAPI and the
+  console free of violations** (item 4); (L3) a screen reader on the two information buttons, their names,
+  their expanded state and the opened text (item 3e). Then the rest: (1) confirm the look of the slider in
+  Chromium and in Firefox (Safari if the owner uses it): the handle, the filled part, the stops under the
+  handle's centre; (2) confirm dragging by pointer and by touch, the arrow, Home, End and Page keys, the
+  focus ring; (3) the
+  field above the track and the legend close under it, that a press just under the handle at a stop takes the
+  stop and never blocks grabbing the handle, and that the four targets never touch at 300 px; (3a) the amount
+  under the legend following the handle as it is dragged; (3b) **the height of the control with both
+  explanations closed, in the panel's own fonts** (Archivo and IBM Plex, not the prototype's system font):
+  the third prototype measured 252 px from the label to the Save row at 300 px, against about 450 px with the
+  three paragraphs on screen, and no test can measure it; (3c) **the `%` sign, with the panel's font**: in a Chromium-based browser,
+  touching the number at one digit, at `33.5`, at `100` and at twelve characters, an empty field with the
+  sign one character from the left and the caret at the end not clipped; in Firefox, confirm that it follows
+  the text as it did in the prototype, at those same lengths and with the sign inside the field at twelve
+  characters in a 300 px column (what mechanism Firefox applied to the field's width was not measured). **If
+  the sign stands a character off in a browser without `field-sizing` on the real panel, a task for the
+  design's fallback (§ B: the mirrored span, applied only where the property is missing, measured in that
+  engine before it is trusted) is added.** (3d) each
+  information button's 44 px box touching its neighbours and covering none, the glyph, the page moving DOWN and
+  not sideways when an explanation opens; (3e) **the keyboard alone, confirmed on the real panel** (Tab through the nine stops, Enter, Space and
+  Escape on each information button, the arrow keys on the track), **and a screen reader on the two
+  buttons** (their names, their expanded state and the opened text), which the prototype review did not
+  cover; (4) **the CSP: the built bundle served by FastAPI.** `cd frontend && npm run build`, then the
+  backend with `PANEL_DIST_DIR` set to the absolute path of `frontend/dist` and the usual local settings
+  (this is the real local backend, not the fixture, whose dev server sends no policy); open the strategy page
+  with the browser console visible: no Content-Security-Policy violation, the slider dragged and driven by
+  keys, the return chart and the fonts as § 13 already asked to rehearse; (5) the clipboard in a real secure
+  context (`localhost`) and its failure text over plain HTTP on another address; (6) the By pair table's width
+  in English and in Spanish (the Spanish heading is `% acierto`; the table scrolls sideways inside its wrapper
+  where it does not fit); (7) every text of design § I in both languages, and the Spanish form of the win
+  rate. The owner's observations become tasks here, as 9p.5.27 to 9p.5.33 did; the review is not a gate the
+  tests can pass.
+- [ ] 12f.10.32 Owner step, after the merge: deploy 12f-2. `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`; **no restart**
+  (frontend only, and the panel is not served while `PANEL_DIST_DIR` is unset). 12f-1 must already be deployed.
+  Update the delivery log after the merge (the standing working agreement; this list writes no entry).
+
+Gate: `cd frontend && npm run lint && npm test`.
+Harness: `vi.stubGlobal("fetch")` and a stubbed `navigator.clipboard`; fake timers for the 300 ms and the ten minutes; `renderHook` for the hooks; the owner's review by eye with `vite.fixture.config.ts`, and the built bundle served by FastAPI for the CSP.
+Rollback boundary: a revert restores the page as it is today (no share control, no "Saved", no Copy buttons, the path alone, four columns), which works against the new API: the older panel's check ignores keys it does not know. The two new routes and the setting stay unread.
+Forecast: 4,500–6,500 changed lines (design § L forecasts 2,800–4,100, of which the amount and its warning are 600 to 800 and the information buttons and the field's wrapper 250 to 350). Derived bottom-up: about 1,600 of production code and locale keys (types and API 250, `share-value.ts` 120, `ShareSlider` 250, `PoolShareEditor` 250, `ShareAmount` 120, `InfoDisclosure` 100, `InlineStatus` 30, the clipboard, debounce and URL helpers 90, `WebhookMessage` 120, `AllowedPairsEditor` 30, `PairStatsTable` and `format.ts` 100, both locale files 140), and tests at about two and a half times that, because in this change the test files have roughly doubled every earlier forecast. Information only.
 
 ---
 
