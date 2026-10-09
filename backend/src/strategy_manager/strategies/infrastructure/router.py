@@ -50,6 +50,7 @@ from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.wire import Money
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.archive_strategy import (
     ArchiveStrategy,
@@ -153,7 +154,7 @@ class StrategyView(BaseModel):
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: Decimal
+    allocation_percent: Money
     enabled: bool
     archived_at: datetime | None
     allowed_pairs: list[str]
