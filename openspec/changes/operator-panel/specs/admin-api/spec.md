@@ -606,14 +606,15 @@ the id exists elsewhere.
 > **Added 2026-10-06 (owner decisions 44 (12f.1) and 48; design addendum "unit 12f" § A U1, U2, U4 and § C).**
 
 `PATCH /api/strategies/{id}` MUST accept `allocation_percent` as a string holding
-a decimal above 0 and at most 100, with any number of decimals; a value below 1
+a decimal above 0 and at most 100 with at most 18 decimal places (owner decision
+50, 2026-10-09; "A Share Has At Most 18 Decimal Places" below); a value below 1
 (for example `0.5`) is valid. A body that carries only `allocation_percent` MUST
 leave every other field of the strategy unchanged. It MUST answer:
 
 | Case | Status |
 | --- | --- |
 | A valid share on an unarchived strategy, enabled or disabled | 200 with the strategy view |
-| A share of 0, above 100, or not a decimal | 422 |
+| A share of 0, above 100, not a decimal, or written with more than 18 decimal places | 422 |
 | An archived strategy | 409 `STRATEGY_ARCHIVED` |
 | No strategy under `{id}` | 404 |
 
@@ -700,7 +701,8 @@ other `/api` route.
 > **Added 2026-10-06 (owner decision 48, answered 2026-10-06; design addendum "unit 12f" § C2 and § H).**
 
 `GET /api/strategies/{id}/share-preview`, with an optional query parameter `share`
-(a decimal above 0 and at most 100; default, the strategy's stored share), MUST
+(a decimal above 0 and at most 100 with at most 18 decimal places; default, the
+strategy's stored share), MUST
 answer 200 with:
 
 - `strategy_id` (a UUID string);
@@ -727,7 +729,7 @@ balance MUST still be served, marked. An archived strategy MUST be served.
 
 It MUST answer 404 `{"detail": "no such strategy"}` for an unknown strategy, and
 422, without echoing the rejected input, for a `share` that is not a decimal
-above 0 and at most 100. A strategy whose pool has no row MUST answer 500 and log
+above 0 and at most 100, or that is written with more than 18 decimal places. A strategy whose pool has no row MUST answer 500 and log
 one ERROR naming the strategy and the pool. The route MUST require the bearer
 token like every other `/api` route. The route MUST be read-only: it MUST read the
 database only, MUST call no exchange, MUST open no stored credential and sign
@@ -823,6 +825,66 @@ nothing. It MUST NOT check any pair's minimum order at the exchange.
 - GIVEN no bearer token is supplied
 - WHEN `GET /api/strategies/{S1}/share-preview` is called
 - THEN the request is refused before handler logic executes
+
+### Requirement: A Share Has At Most 18 Decimal Places
+
+> **Added 2026-10-09 (owner decision 50, answering a finding of task 12f.9.12; it replaces "with any number of decimals" in "The Strategy Update Takes The Share As A Plain Decimal And The Strategy View Serves It In Plain Notation").**
+
+Every input of the admin API that takes a share of the pool MUST accept a value with
+at most 18 decimal places, the scale this system uses for every amount, and MUST
+refuse any other with the application's 422 that echoes no input. The inputs are the
+`share` query of `GET /api/strategies/{id}/share-preview`, `allocation_percent` of
+`PATCH /api/strategies/{id}` and `allocation_percent` of `POST /api/strategies`
+(registration, which saves a share too). The places MUST be counted on the value as
+written: trailing zeros count (`1.5000000000000000000` has 19) and an exponent is
+read for what it writes (`1e-18` has 18, `1E+1` has none and is 10). The value MUST
+NOT be normalised for the count, and the refusal MUST come before anything is
+formatted, computed or stored, so that a value such as `1e-999999999` (which passes
+the range of 0 to 100 in 12 characters, and written in plain notation is a text of
+about 1 GB) is refused with a small body. A refused write MUST store nothing: the
+stored share is unchanged (update) and no strategy exists (registration).
+
+#### Scenario: Exactly 18 decimal places are accepted
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update carries `0.123456789012345678`, or `1e-18`, and the preview is asked for the same shares
+- THEN each answers success, the update stores the value, and `1e-18` is served as `0.000000000000000001`
+
+#### Scenario: 19 decimal places are refused on the update
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update carries `1e-19`, or `0.0000000000000000001`, or `1.5000000000000000000`
+- THEN each answers 422, no body repeats the value, and the stored share is still `30`
+
+#### Scenario: 19 decimal places are refused on the preview
+
+- GIVEN strategy S1
+- WHEN the preview is called with `share=1e-19`, or `share=1.5000000000000000000`
+- THEN each answers 422 and no body repeats the value
+
+#### Scenario: 19 decimal places are refused on the registration
+
+- GIVEN no strategy under id X
+- WHEN the registration of X carries `"allocation_percent": "1e-19"`
+- THEN it answers 422, no body repeats the value, and no strategy X exists
+
+#### Scenario: An exponent that is not a decimal place is still the value it writes
+
+- GIVEN strategy S1
+- WHEN the update carries `1E+1`
+- THEN it answers 200 and the share is 10
+
+#### Scenario: A value that would be a gigabyte is refused with a small body
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the preview, the update and the registration each carry `1e-999999999`
+- THEN each answers 422 with a body of a few hundred bytes at most, the stored share is still `30`, and no strategy was registered
+
+#### Scenario: A value past what the database can hold is refused, not a 500
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update or the registration carries `1e-20000`
+- THEN it answers 422 and nothing is stored
 
 ### Requirement: The Webhook's Origin Is Served By Its Own Route
 

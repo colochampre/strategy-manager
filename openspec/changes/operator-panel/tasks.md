@@ -3378,7 +3378,37 @@ Share Asks For")
   strategies, signals and accounts suites pass unmodified as part of the full run. `git diff main -- openspec/specs`
   is empty. Statement counts observed: the preview route issues 2 SELECTs per request (stored share or asked), the
   adapter 1. Deployment (12f.9.16) is the owner's and was not touched.
-- [ ] 12f.9.17 **A share has at most 18 decimal places** (owner decision 50, 2026-10-09; numbered after 12f.9.16 because it was added later, and built BEFORE the deploy). Found by 12f.9.12 and measured afterwards: `share=1e-999999999` passes `gt=0, le=100`, and `_canonical_share` then writes about 1 GB of text. Wherever the API takes a share (the `share` query of the preview, `allocation_percent` of the update and of the registration), a value whose written form has more than 18 decimal places is refused with the application's 422 that echoes no input, before anything is formatted, computed or stored. Judged on the value as written, with no `normalize()` (it rounds to 28 digits): `1e-18` and a value with exactly 18 decimals are accepted, `1e-19` and `1.5000000000000000000` (19 decimals, trailing zeros included) are refused, `1E+1` is still 10. RED first on each of the three inputs (`assert 200 == 422`, and for the two writes that the stored share is unchanged or no row exists), plus a test that the refusal of `1e-999999999` answers a small body. The delta spec `specs/admin-api/spec.md` replaces "with any number of decimals" and gains the scenarios; the main spec is untouched.
+- [x] 12f.9.17 **A share has at most 18 decimal places** (owner decision 50, 2026-10-09; numbered after 12f.9.16 because it was added later, and built BEFORE the deploy). Found by 12f.9.12 and measured afterwards: `share=1e-999999999` passes `gt=0, le=100`, and `_canonical_share` then writes about 1 GB of text. Wherever the API takes a share (the `share` query of the preview, `allocation_percent` of the update and of the registration), a value whose written form has more than 18 decimal places is refused with the application's 422 that echoes no input, before anything is formatted, computed or stored. Judged on the value as written, with no `normalize()` (it rounds to 28 digits): `1e-18` and a value with exactly 18 decimals are accepted, `1e-19` and `1.5000000000000000000` (19 decimals, trailing zeros included) are refused, `1E+1` is still 10. RED first on each of the three inputs (`assert 200 == 422`, and for the two writes that the stored share is unchanged or no row exists), plus a test that the refusal of `1e-999999999` answers a small body. The delta spec `specs/admin-api/spec.md` replaces "with any number of decimals" and gains the scenarios; the main spec is untouched.
+  **Done (RED commit `0b048ef`, GREEN commit `58345bb`).** `strategies/infrastructure/share_input.py` defines one `Share`
+  type (`gt=0, le=100` plus an `AfterValidator` that reads `Decimal.as_tuple().exponent`: nothing is formatted or
+  normalised), used by the preview's `share` query and by `allocation_percent` of `UpdateRequest` and `RegisterRequest`.
+  Pydantic's `decimal_places` was not used and not measured: reading the exponent states the "as written" rule
+  directly. RED, observed, in `tests/strategies/infrastructure/test_share_decimals.py` (12 failed, 15 passed): for each
+  of `1e-19`, `0.0000000000000000001`, `1.5000000000000000000` the preview answered `assert 200 == 422`, the PATCH
+  `assert 200 == 422`, the POST `assert 201 == 422`. **What the routes answered BEFORE the fix to `1e-20000`** (a scale
+  above PostgreSQL's 16383): the preview 200, the PATCH **500** (`assert 500 == 422`) and the POST **500**
+  (`assert 500 == 422`), with the app's `raise_app_exceptions=False`; `1e-999999999` was never sent to an unbounded
+  route. **Passed at once**: the 15 accept cases (`1e-18`, `0.123456789012345678`, `1.500000000000000000`, `1E+1`,
+  `0.5`, on each input). The `1e-999999999` test on all three inputs (small body, share unchanged, no row, and the
+  preview's formatter patched to fail) was written with the GREEN, never run without the bound. Mutations after
+  the GREEN (the `1e-999999999` test deselected, since a mutation that removes the bound would send it to a route
+  that formats or stores it), each seen red and reverted: the bound removed from the preview alone reds only the 4
+  preview refusals; from the update alone only its 4; from the registration alone only its 4; 18 become 19 reds the
+  three 19-decimal cases of each input (9); 18 become 17 reds the three exactly-18 accept cases of each input (9);
+  `normalize()` before reading the exponent reds the `1.5000000000000000000` case on each input (3); a check that
+  also refuses `1E+1` and a single decimal reds the `1E+1` and `0.5` accept cases on each input (6). **Not
+  mutated**: the `1e-999999999` test (by design), and "the check moved after the formatting or the write": the
+  check is a pydantic validation of the request, which cannot be placed after the route's code. **Existing test
+  edited, forced by the decision**: `test_share_preview_router.py::test_the_amount_is_the_allocations_own_rounded_down`,
+  its added case used a share of 19 decimals (`33.3333333333333333335`) and is now refused; it is `2` at
+  `33.333333333333333335` (18 decimals, the product has more), still red against a half-up rounding by
+  construction (`2 * 33.333333333333333335 / 100 = 0.6666666666666666667`). Delta spec `specs/admin-api/spec.md`: the
+  update requirement states the bound, the preview requirement states it, and a new requirement "A Share Has At Most 18
+  Decimal Places" holds the seven scenarios, registration included; the only other "any number of decimals" in the change
+  folder is `design.md` § A U1 (a finding of what the code was), left as written, and one dated paragraph at the end of §
+  O records decision 50. Panel spec and `frontend/` untouched. Gate: `ruff` exit 0, `mypy src` exit 0, `pytest` exit 0
+  (`3764 passed in 383.49s`); collected 3,736 before, 3,764 after (+28, all in `test_share_decimals.py`: 12
+  refusals, 15 accepts and the `1e-999999999` test); `git diff main -- openspec/specs` empty.
 - [ ] 12f.9.16 Owner step, after the merge: deploy 12f-1. `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`,
   then `systemctl restart strategy-api strategy-worker`. No migration, so no rehearsal and no `alembic upgrade`.
   Setting the new origin variable is the owner's step, **at any time**: put `WEBHOOK_PUBLIC_ORIGIN=<the
