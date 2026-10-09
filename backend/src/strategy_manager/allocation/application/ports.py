@@ -59,8 +59,44 @@ class PoolBalance:
     min_order_size: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class SizingSnapshot:
+    """The last balance a pool was synced to, as a DISPLAY needs it: the TOTAL
+    (the base a share is sized from), when the exchange reported it, and whether
+    that is older than the allocator's own limit. There is no ``available`` here,
+    because nothing a preview shows may be computed from it."""
+
+    total: Decimal
+    observed_at: datetime
+    stale: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSizing:
+    """What ``PreviewShare`` needs to know about one pool: its minimum order and,
+    when something has synced it, its snapshot. ``snapshot`` is ``None`` for a pool
+    nothing has synced, which is not a balance of zero."""
+
+    min_order_size: Decimal
+    snapshot: SizingSnapshot | None
+
+
 class StrategyPolicyPort(Protocol):
     async def policy_for(self, strategy_id: UUID) -> StrategyPolicySnapshot: ...
+
+
+class PoolSizingPort(Protocol):
+    """Reads a pool's minimum order and its latest snapshot FOR DISPLAY (the share
+    preview). Read-only by its shape -- it has no write -- and MUST take no lock.
+
+    It is not ``PoolBalancePort``: that one refuses a stale snapshot, which is right
+    for sizing a trade and wrong for a figure that must be shown and marked stale.
+    A pool with no row answers ``None``; a pool with a row and no snapshot answers
+    a ``PoolSizing`` whose ``snapshot`` is ``None``."""
+
+    async def read(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolSizing | None: ...
 
 
 class PoolBalancePort(Protocol):
