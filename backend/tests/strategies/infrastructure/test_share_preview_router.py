@@ -192,11 +192,11 @@ def _captured_sql(engine: AsyncEngine) -> Iterator[list[str]]:
         event.remove(engine.sync_engine, "before_cursor_execute", _record_statement)
 
 
-async def _count(factory: Factory, table: str) -> int:
+async def _rows(factory: Factory, table: str) -> list[tuple[Any, ...]]:
+    """Every row of ``table``, whole: a count would not see an UPDATE."""
     async with factory() as session:
-        value = await session.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
-    assert isinstance(value, int)
-    return value
+        result = await session.execute(text(f"SELECT * FROM {table} ORDER BY 1, 2"))  # noqa: S608
+        return [tuple(row) for row in result.all()]
 
 
 # --- the contract, field by field ------------------------------------------------------
@@ -306,6 +306,9 @@ async def test_the_stored_share_is_echoed_in_canonical_plain_notation_too(
     [
         ("333.33", "33.5", "111.665550000000000000"),
         ("10", "33.333333333333333333", "3.333333333333333333"),
+        # The two cases above are exact or round the same either way; this one
+        # carries a 6 past the eighteenth place, which rounding to nearest would carry.
+        ("2", "33.3333333333333333335", "0.666666666666666666"),
     ],
 )
 async def test_the_amount_is_the_allocations_own_rounded_down(
@@ -578,12 +581,15 @@ async def test_the_preview_writes_nothing_and_calls_no_exchange(
     pg_session_factory: Factory,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Row counts before and after, and the two ways out of the process (a venue
-    transport and the credential vault) observed: neither is ever reached."""
+    """Every row of the tables the route can reach, before and after, and the two
+    ways out of the process (a venue transport and the credential vault) observed:
+    neither is ever reached."""
     strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
     tables = ["reservations", "pool_balance_snapshots", "capital_pools", "strategies"]
-    before = {table: await _count(pg_session_factory, table) for table in tables}
+    before = {table: await _rows(pg_session_factory, table) for table in tables}
+    assert len(before["capital_pools"]) == 4
+    assert len(before["pool_balance_snapshots"]) == 1
 
     reached: list[str] = []
 
@@ -605,7 +611,7 @@ async def test_the_preview_writes_nothing_and_calls_no_exchange(
     assert stored.status_code == 200
     assert asked.status_code == 200
     assert reached == []
-    assert {table: await _count(pg_session_factory, table) for table in tables} == before
+    assert {table: await _rows(pg_session_factory, table) for table in tables} == before
 
 
 async def test_the_route_issues_the_same_number_of_statements_for_the_stored_share_and_an_asked_one(
