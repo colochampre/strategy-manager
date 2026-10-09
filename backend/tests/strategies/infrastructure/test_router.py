@@ -1246,3 +1246,19 @@ async def test_patching_an_unknown_strategy_is_404_with_its_existing_body(
 
     assert response.status_code == 404
     assert response.json() == {"detail": f"no strategy registered under id {unknown}"}
+
+
+async def test_an_archived_strategys_share_is_refused_409_and_the_stored_share_is_unchanged(
+    client: AsyncClient,
+) -> None:
+    """Spec scenario "An archived strategy's share is refused" (12f.9.14: the
+    existing archived test patches the NAME, so the share had no test of its own)."""
+    strategy_id = await _register(client, allocation_percent="30")
+    archived = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    assert archived.status_code == 200
+
+    response = await _patch_share(client, strategy_id, "40")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
+    assert await _share_of(client, strategy_id) == "30"
