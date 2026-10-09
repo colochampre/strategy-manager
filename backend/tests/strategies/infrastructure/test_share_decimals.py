@@ -130,6 +130,43 @@ def _assert_refused_without_echo(response: Any, value: str) -> None:
     assert len(response.text) < 2000
 
 
+# --- the exponent that would be a gigabyte ---------------------------------------------
+
+
+async def test_a_share_of_1e_minus_999999999_is_refused_on_all_three_inputs_with_a_small_body(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Twelve characters that pass ``gt=0, le=100`` and, written in plain notation, are a
+    text of about 1 GB. This test sends the value only to a route that must refuse it; it
+    is NOT a test to run against a route without the bound, and it was written after the
+    bound (the RED of the bound uses ``1e-20000`` instead). The preview's formatting is
+    guarded here, so a lost bound fails on an assertion before a byte is written."""
+    value = "1e-999999999"
+
+    def _never_format(share: Decimal) -> str:
+        raise AssertionError("the preview formatted a share it should have refused")
+
+    monkeypatch.setattr(
+        "strategy_manager.strategies.infrastructure.router._canonical_share", _never_format
+    )
+    existing = await _strategy(pg_session_factory, share="30")
+    await _synced(pg_session_factory)
+    registered = uuid4()
+
+    responses = [
+        await _preview(client, existing, value),
+        await _patch(client, existing, value),
+        await _register(client, registered, value),
+    ]
+
+    for response in responses:
+        _assert_refused_without_echo(response, value)
+    assert await _stored_share(pg_session_factory, existing) == Decimal(30)
+    assert await _stored_share(pg_session_factory, registered) is None
+
+
 # --- the preview's ``share`` -----------------------------------------------------------------
 
 

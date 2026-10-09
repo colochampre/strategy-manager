@@ -109,6 +109,7 @@ from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLoc
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
+from strategy_manager.strategies.infrastructure.share_input import Share
 
 # Authentication is attached to the ROUTER, so it applies to every route
 # declared below AND to every route anyone adds after this line — without the
@@ -210,7 +211,7 @@ class RegisterRequest(BaseModel):
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: Decimal = Field(default=Decimal("100"), gt=0, le=100)
+    allocation_percent: Share = Decimal("100")
     allowed_pairs: list[str] = Field(min_length=1)
 
 
@@ -223,7 +224,7 @@ class UpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1)
     fill_mode: FillMode | None = None
-    allocation_percent: Decimal | None = Field(default=None, gt=0, le=100)
+    allocation_percent: Share | None = None
     enabled: bool | None = None
 
 
@@ -514,7 +515,7 @@ async def preview_share(
     strategy_id: UUID,
     session: SessionDep,
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
-    share: Annotated[Decimal | None, Query(gt=0, le=100)] = None,
+    share: Annotated[Share | None, Query()] = None,
 ) -> SharePreviewBody:
     """What a share of this strategy's pool would ask for (design addendum "unit
     12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's

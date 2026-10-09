@@ -307,8 +307,9 @@ async def test_the_stored_share_is_echoed_in_canonical_plain_notation_too(
         ("333.33", "33.5", "111.665550000000000000"),
         ("10", "33.333333333333333333", "3.333333333333333333"),
         # The two cases above are exact or round the same either way; this one
-        # carries a 6 past the eighteenth place, which rounding to nearest would carry.
-        ("2", "33.3333333333333333335", "0.666666666666666666"),
+        # carries a 7 past the eighteenth place, which rounding to nearest would carry.
+        # The share itself has 18 decimals (decision 50): it is the product that has more.
+        ("2", "33.333333333333333335", "0.666666666666666666"),
     ],
 )
 async def test_the_amount_is_the_allocations_own_rounded_down(
