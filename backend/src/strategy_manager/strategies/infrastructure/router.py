@@ -30,11 +30,14 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.accounts.infrastructure.pool_sizing import SqlAlchemyPoolSizing
+from strategy_manager.allocation.application.ports import PoolSizingPort
+from strategy_manager.allocation.application.preview_share import PreviewShare
 from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
 )
@@ -46,11 +49,12 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
+from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.wire import Money
+from strategy_manager.shared.infrastructure.wire import Instant, Money
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.archive_strategy import (
     ArchiveStrategy,
@@ -216,6 +220,50 @@ class UpdateRequest(BaseModel):
     enabled: bool | None = None
 
 
+class SharePreviewPoolBody(BaseModel):
+    """The strategy's own pool, taken from the strategy row the path names."""
+
+    exchange: Exchange
+    venue: Venue
+    settlement_currency: Currency
+
+
+class SharePreviewBalanceBody(BaseModel):
+    total: Money
+    observed_at: Instant
+    stale: bool
+
+
+class SharePreviewExactBody(BaseModel):
+    """``share`` is a plain decimal STRING in canonical form: it is whatever the
+    caller can type, so it may have decimals."""
+
+    share: str
+    amount: Money
+    below_pool_minimum: bool
+
+
+class SharePreviewStepBody(BaseModel):
+    """``share`` is a JSON integer, like a count: a step is a whole share."""
+
+    share: int
+    amount: Money
+    below_pool_minimum: bool
+
+
+class SharePreviewBody(BaseModel):
+    """``balance``, ``exact`` and ``steps`` are null, null and empty together: a
+    pool nothing has synced has no amount, never a zero."""
+
+    strategy_id: UUID
+    pool: SharePreviewPoolBody
+    currency: Currency
+    pool_minimum: Money
+    balance: SharePreviewBalanceBody | None
+    exact: SharePreviewExactBody | None
+    steps: list[SharePreviewStepBody]
+
+
 class ReplacePairsRequest(BaseModel):
     """``PUT /strategies/{id}/allowed-pairs`` -- the panel sends the
     COMPLETE list it wants; this replaces the whole column, never merges
@@ -289,6 +337,18 @@ def get_replace_allowed_pairs(session: SessionDep, pairs: PairCatalogDep) -> Rep
     return ReplaceAllowedPairs(
         repository=SqlAlchemyStrategyRepository(session), pairs=pairs, commit=session
     )
+
+
+def get_pool_sizing(session: SessionDep) -> PoolSizingPort:
+    """The real read of a pool's minimum and snapshot. A test overrides ONE
+    dependency to put a fake port in its place."""
+    return SqlAlchemyPoolSizing(
+        session, SystemClock(), get_settings().balance_snapshot_max_age_seconds
+    )
+
+
+def get_preview_share(sizing: Annotated[PoolSizingPort, Depends(get_pool_sizing)]) -> PreviewShare:
+    return PreviewShare(sizing)
 
 
 def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
@@ -393,6 +453,33 @@ async def get_strategy_events(
         raise HTTPException(status_code=404, detail="no such strategy")
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return [EnablementEventView.of(event) for event in events]
+
+
+@router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
+async def preview_share(
+    strategy_id: UUID,
+    session: SessionDep,
+    use_case: Annotated[PreviewShare, Depends(get_preview_share)],
+    share: Annotated[Decimal | None, Query(gt=0, le=100)] = None,
+) -> SharePreviewBody:
+    """STUB (12f.9.12, RED commit): loads the strategy and answers no amount."""
+    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="no such strategy")
+    policy = strategy.policy
+    return SharePreviewBody(
+        strategy_id=strategy.id,
+        pool=SharePreviewPoolBody(
+            exchange=policy.exchange,
+            venue=policy.venue,
+            settlement_currency=policy.settlement_currency,
+        ),
+        currency=policy.settlement_currency,
+        pool_minimum=Decimal(0),
+        balance=None,
+        exact=None,
+        steps=[],
+    )
 
 
 @router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)
