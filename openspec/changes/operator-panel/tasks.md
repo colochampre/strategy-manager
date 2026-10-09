@@ -2555,7 +2555,7 @@ Recorded 2026-10-04. Found while building and deploying unit 9q; none was change
 
 ### Unit whn — the webhook's name moves to the owner's domain (decision 49; owner-run, no code, not started)
 
-Every command here is run by the owner. The name `hook.strategymanager.trade` is a proposal: if the owner picks another, replace it in every command below before whn.1.
+Every command here is run by the owner. The name `hook.strategymanager.trade` was confirmed by the owner on 2026-10-09.
 
 **What the VPS looks like (read 2026-10-09 by the owner with a read-only script; values that could identify a secret were masked):**
 
@@ -2569,17 +2569,19 @@ Every command here is run by the owner. The name `hook.strategymanager.trade` is
 **How an alert is authenticated today, and after this unit (unchanged):** Caddy writes the client's address in `X-Forwarded-For`, uvicorn replaces the connection's address with it because the connection comes from `127.0.0.1`, and the allowlist judges that address. That Caddy overwrites a client's own `X-Forwarded-For` is its documented default and was not tested on this VPS.
 
 - [ ] whn.1 **Create the DNS record.** In the Cloudflare dashboard, zone `strategymanager.trade`, DNS, Records: type `A`, name `hook`, IPv4 `159.195.148.136`, proxy status **DNS only** (the grey cloud). No `AAAA` record: TradingView has no IPv6. Check from any machine: `Resolve-DnsName hook.strategymanager.trade -Type A` must answer exactly `159.195.148.136`. An address of Cloudflare's means the record is proxied. Then Caddy would see Cloudflare's address as the client and every alert would be refused with a 401, which writes no line. Correct the record before going on.
-- [ ] whn.2 **Add the name to Caddy, beside the DuckDNS name.** As root on the VPS, one line at a time:
+- [ ] whn.2 **Add the name to Caddy, beside the DuckDNS name, and stop forwarding `/health`** (decision 49). As root on the VPS, one line at a time:
 
   ```bash
   cp -a /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-whn2
   sed -i -E '0,/^([A-Za-z0-9-]+\.duckdns\.org) \{/s//\1, hook.strategymanager.trade {/' /etc/caddy/Caddyfile
   grep -c 'duckdns.org, hook.strategymanager.trade {' /etc/caddy/Caddyfile
+  sed -i -E 's#^([[:space:]]*@public path /webhook/tradingview) /health[[:space:]]*$#\1#' /etc/caddy/Caddyfile
+  grep -c '/health' /etc/caddy/Caddyfile
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
   systemctl reload caddy
   ```
 
-  The `grep` must print `1`. If it prints `0` the site line was not the shape expected and nothing was changed: stop there. Reload only if `caddy validate` ends with `Valid configuration`. A reload keeps the existing site serving, and Caddy gets the new name's certificate by itself, which needs whn.1 to resolve first. To undo: `cp -a /etc/caddy/Caddyfile.before-whn2 /etc/caddy/Caddyfile && systemctl reload caddy`.
+  The first `grep` must print `1` and the second `0`. Any other number means a line was not the shape expected: stop there and restore the copy. Reload only if `caddy validate` ends with `Valid configuration`. `/health` closes on BOTH names at this reload, because they share the site block. A reload keeps the existing site serving, and Caddy gets the new name's certificate by itself, which needs whn.1 to resolve first. To undo: `cp -a /etc/caddy/Caddyfile.before-whn2 /etc/caddy/Caddyfile && systemctl reload caddy`.
 - [ ] whn.3 **Check the new name from the owner's machine.** No secret is involved:
 
   ```powershell
@@ -2588,7 +2590,7 @@ Every command here is run by the owner. The name `hook.strategymanager.trade` is
   curl.exe -sS -o NUL -w "%{http_code}\n" -X POST https://hook.strategymanager.trade/webhook/tradingview
   ```
 
-  Expected, in order: `200`, `404`, `401`. A certificate error instead of a number means Caddy has not obtained the certificate yet: wait a minute and repeat. These prove the name, the certificate and the path filter. They do not prove that an alert is accepted, because the owner's machine is not on the allowlist; only whn.4 proves that.
+  Expected, in order: `404`, `404`, `401`. The first is `/health`, closed by whn.2; the `401` comes from the application, so it also proves Caddy still reaches it. A certificate error instead of a number means Caddy has not obtained the certificate yet: wait a minute and repeat. These prove the name, the certificate and the path filter. They do not prove that an alert is accepted, because the owner's machine is not on the allowlist; only whn.4 proves that.
 - [ ] whn.4 **Move the alerts in TradingView, one strategy at a time** (SFP, AAVE, STX). In each alert's webhook URL replace ONLY the host name; the path and the query string stay as they are. That URL holds the secret: it is never pasted into a chat, a ticket or a log. After each one, when its next signal fires, confirm it arrived, as root on the VPS:
 
   ```bash
@@ -2609,7 +2611,7 @@ Every command here is run by the owner. The name `hook.strategymanager.trade` is
 
   The first `grep` must print `1` and the second `0`. Then watch each strategy's next signal arrive (the command of whn.4), and remove the domain at duckdns.org when convenient. **What fails silently here:** an alert left on the old name is refused at the TLS handshake and nothing on the VPS records it. TradingView's alert manager is the only list of what points where, which is why it is checked first and why this is done under dry run.
 - [ ] whn.6 **Tell the panel the new origin.** With the deploy of PR 12f-1 (task 12f.9.16), set `WEBHOOK_PUBLIC_ORIGIN=https://hook.strategymanager.trade` in `backend/.env` and restart the API. The setting does not exist before that deploy.
-- [ ] whn.7 **Owner's question, open:** whether `/health` stays public. It answers `{"status": "ok", "dry_run": <bool>}` to anyone. If nothing outside the VPS reads it, the fix is to drop `/health` from the `@public` line of the Caddyfile. The panel reads `/health` too, but through the tunnel, not through Caddy.
+- [x] whn.7 **Owner's question: whether `/health` stays public.** It answered `{"status": "ok", "dry_run": <bool>}` to anyone. **Answered 2026-10-09: close it.** The owner recalls no service outside the VPS that reads it. It is done inside whn.2, so the Caddyfile is edited once. The panel reads `/health` too, but through the tunnel, not through Caddy. If an outside monitor does exist and was forgotten, it will report the API down from that reload on; that is the symptom to recognise.
 
 **Kept for the day the tunnel is taken up for the webhook (not planned):**
 
