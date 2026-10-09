@@ -65,7 +65,7 @@ def _terminate_refused() -> asyncpg.exceptions.InsufficientPrivilegeError:
 async def _capture(coro: Any) -> BaseException | None:
     try:
         await coro
-    except BaseException as error:  # noqa: BLE001 - the test inspects the type
+    except Exception as error:  # noqa: BLE001 - the test inspects the type
         return error
     return None
 

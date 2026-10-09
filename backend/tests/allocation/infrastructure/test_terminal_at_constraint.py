@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
+from tests.pg_drop import drop_database_on
 
 pytestmark = pytest.mark.integration
 
@@ -45,7 +46,7 @@ def _maintenance_dsn(dev_url: str) -> str:
 async def _recreate_database(dev_url: str) -> None:
     conn = await asyncpg.connect(_maintenance_dsn(dev_url))
     try:
-        await conn.execute(f'DROP DATABASE IF EXISTS "{_DB_NAME}" WITH (FORCE)')
+        await drop_database_on(conn, _DB_NAME)
         await conn.execute(f'CREATE DATABASE "{_DB_NAME}"')
     finally:
         await conn.close()
@@ -54,7 +55,7 @@ async def _recreate_database(dev_url: str) -> None:
 async def _drop_database(dev_url: str) -> None:
     conn = await asyncpg.connect(_maintenance_dsn(dev_url))
     try:
-        await conn.execute(f'DROP DATABASE IF EXISTS "{_DB_NAME}" WITH (FORCE)')
+        await drop_database_on(conn, _DB_NAME)
     finally:
         await conn.close()
 
