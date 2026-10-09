@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     # allowlist is the whole authentication story for the webhook.
     webhook_secret: str = Field(default="")
 
+    # The origin TradingView posts to, for example ``https://example.duckdns.org``:
+    # the webhook's host, which is NOT the panel's (decision 5). It is DISPLAY
+    # ONLY: the panel shows and copies the full webhook URL from it, and nothing
+    # requests it. Empty means unset. A malformed value is never served and
+    # never stops the process; ``log_webhook_origin`` logs one ERROR at startup
+    # and the route answers null. There is deliberately no validator here: one
+    # would fail at import, with a traceback and no alert, and a typo in a
+    # display setting must not cost a signal (rule 3).
+    webhook_public_origin: str = Field(default="")
+
     # Extra source addresses the webhook will accept, ON TOP of TradingView's
     # four. Empty by default, so a deployment that sets nothing behaves
     # exactly as before.
