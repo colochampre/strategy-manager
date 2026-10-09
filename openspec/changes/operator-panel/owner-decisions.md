@@ -16,6 +16,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
 5. **The domain is `strategymanager.trade`, on Cloudflare.**
    - The panel and the admin API run through a Cloudflare Tunnel.
    - The webhook stays on DuckDNS, and that host's proxy forwards only `/webhook/tradingview`.
+   - **Revised 2026-10-09 by decision 49:** the webhook's name moves to the owner's domain. Everything else in this decision stands.
 
 6. **The dashboard curve is the strategies' return in %, taken from realized ledger PnL.** Deposits and withdrawals do not affect it.
    - It shows the drawdown from the previous peak and a monthly grid with texture, like the pairs report.
@@ -310,6 +311,14 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **Reviewed 2026-10-06, the same prototype, in Firefox and by keyboard.** The owner reports: in Firefox it works well and the percent sign follows the text correctly; Tab goes through the stops, and Enter, Space and Escape behave correctly. This answers, for the prototype, the two things its first approval did not cover: a second browser and the keyboard. What the owner saw in Firefox was not measured here, so it is recorded as the owner's observation, not as a statement about which mechanism Firefox applied. Still not covered, because only the real panel can show it: the panel's own fonts, the Content-Security-Policy with the built bundle served, and a screen reader.
     - **Answered 2026-10-06 (§ N, Q5): the warning on the pool's minimum order is enough for now.** No unit is recorded for a warning per pair. The design's finding stands as a known limit, and is said where the owner can read it: the exchange's minimum for each pair is not checked by the panel, the worker refuses an order that would be too small and opens nothing, and under dry run nothing refuses it.
     - **Answered 2026-10-06 (§ N, Q3): the share is shown in the settings column only.** The mockup also printed it in the page's header line ("Bybit USDT pool · 30% per trade · active 41 days…"); the header as built does not, and it stays that way.
+49. **The webhook's name moves from DuckDNS to the owner's domain, and nothing else moves** (2026-10-09, owner; it revises decision 5's "the webhook stays on DuckDNS"). Tasks: unit whn in tasks.md.
+    - Why: DuckDNS was chosen only because the owner had no domain then. Now there is one.
+    - **What changes is the name.** A DNS-only record in the owner's zone points at the VPS, and Caddy answers for that name exactly as it answers for the DuckDNS name today. The name written in the tasks is `hook.strategymanager.trade`; it was proposed in the session and the owner may pick another before the record is created.
+    - **What does not change:** the webhook does not go through a tunnel, `BEHIND_CLOUDFLARE_TUNNEL` stays `false`, Caddy keeps terminating TLS and forwarding the same paths, ports 80 and 443 stay open, and the address the allowlist judges is read the same way as today. No code changes.
+    - **Still true of decision 5:** the panel and the admin API go through a Cloudflare Tunnel behind Access (decision 4), and the webhook is not on the panel's origin. So the panel still has to be told the webhook's origin (`WEBHOOK_PUBLIC_ORIGIN`, unit 12f), and that setting will hold the new name.
+    - **A domain does not need a tunnel.** The two were mixed up while this was discussed and the owner asked. A domain is a name; a tunnel is one way of reaching the server. The tunnel is in this project because Access can only guard traffic that passes through Cloudflare, which is a need of the panel and never of the webhook.
+    - **Considered and left for later: moving the webhook into the tunnel.** It would close ports 80 and 443, retire Caddy and hide the VPS's address. It would also put Cloudflare's network and the tunnel in the path of every signal (today only the name's DNS is a third party's) and change which header the allowlist trusts. The owner may take it up later as a security improvement. What was learned for that day is kept in unit whn.
+    - **Open, not decided:** `/health` is forwarded to the internet beside the webhook and answers `{"status": "ok", "dry_run": <bool>}`, so anyone can read whether the system trades for real. Decision 5 said the proxy forwards only the webhook. It is not changed by this decision (task whn.7).
 
 ## Standing constraints
 
