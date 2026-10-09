@@ -3056,7 +3056,7 @@ Strategy View Serves It In Plain Notation")
 **The share preview** (design §§ C2, C3, H; spec: admin-api "The Share Preview Route Serves The Amount A
 Share Asks For")
 
-- [ ] 12f.9.9 `share_amount` and `step_amounts` in `allocation/domain/share_preview.py`. RED
+- [x] 12f.9.9 `share_amount` and `step_amounts` in `allocation/domain/share_preview.py`. RED
   `backend/tests/allocation/domain/test_share_preview.py` (Create), with the stub in the same commit:
   `ShareAmount` (`share`, `amount`, `below_pool_minimum`), `share_amount(total, share, minimum) -> ShareAmount`
   and `step_amounts(total, minimum) -> tuple[ShareAmount, ...]` that answer an amount of `Decimal(0)`,
@@ -3076,7 +3076,23 @@ Share Asks For")
   GREEN: the amount rounded half up (reds the round-down test), `<` become `<=` (reds the at-the-minimum
   agreement case), the amount computed from a second argument named `available`. GREEN: `share_amount` calls `requested_from_percent` and compares with
   `<`; `step_amounts` calls `share_amount` for `Decimal(n)`, n from 1 to 100.
-- [ ] 12f.9.10 `PoolSizingPort`, `PoolSizing` and `PreviewShare`. RED
+  **Done (RED commit `60ff1b7`, GREEN commit `fbb5e93`).** RED against the stub, observed (12 failed, 3 passed):
+  `assert Decimal('0') == Decimal('111.665550000000000000')` (and `3.333333333333333333`,
+  `335.000000000000000000`, `0.000001000000000000`, `1E-18` for the other table rows),
+  `assert Decimal('0') == Decimal('0.666666666666666666')` (round-down), `assert Decimal('0') == Decimal('100')`
+  (of the total given), `assert False is True` (4.99 in the strict test, and the zero total),
+  `assert (False, True) == (True, True)` (agreement at 4.99) and `assert (False, True) == (False, False)` (at 5.00
+  and 5.01: the stub's amount of 0 is skipped by the real `decide()` while it flags nothing). **Passed at once**:
+  the hundred-steps test, and the 5.00 and 5.01 cases of the strict test. Mutations, each seen red and reverted
+  with `git checkout`: the steps built from 0 to 99 reds the hundred-steps test only; the amount rounded half up
+  reds the round-down test only (the two totals the task names are exact or round the same either way, so the
+  round-down test uses `2` at `33.3333333333333333335`, whose digits past the eighteenth place are `67`); `<`
+  to `<=` reds the 5.00 case of the strict test and of the `decide()` agreement test; the amount computed from
+  `minimum` instead of `total` reds ten tests (the signature has no `available` to substitute, so `minimum` is the
+  nearest stand-in for "a second argument"). The row of the table that would have used a 27-digit total was
+  dropped: `requested_from_percent` multiplies in the default 28-digit context, which is immaterial at any real
+  pool size and is not this task's to change.
+- [x] 12f.9.10 `PoolSizingPort`, `PoolSizing` and `PreviewShare`. RED
   `backend/tests/allocation/application/test_preview_share.py` (Create, a fake `PoolSizingPort` in the file),
   with the stubs in the same commit: `PoolSizing` (the pool's minimum order, and its snapshot: total, the
   instant it was read, `stale`; or no snapshot) and `PoolSizingPort.read(exchange, venue, settlement_currency)`
@@ -3097,7 +3113,27 @@ Share Asks For")
   error, and the route answers the existing 500 with one ERROR (12f.9.12), as the performance routes do. The
   foreign key from strategies to pools makes that state unbuildable in a real database, so it is tested here
   with a fake port and at the route by overriding the port; no test bends the schema.
-- [ ] 12f.9.11 `SqlAlchemyPoolSizing` in `accounts/infrastructure/pool_sizing.py`. RED
+  **Done (RED commit `9aa8459`, GREEN commit `89520bb`).** The stubs: `SizingSnapshot` (total, observed_at,
+  stale), `PoolSizing` and `PoolSizingPort.read` in `ports.py`, and a `PreviewShare` that reads nothing.
+  RED against the stub, observed (7 failed, 1 passed): `assert Decimal('0') == Decimal('5')` (the minimum),
+  `assert None is not None` (the `exact` and `balance` of the snapshot and stale tests),
+  `assert None == ShareAmount(share=Decimal('33.5'), amount=Decimal('335'), below_pool_minimum=False)`,
+  `assert [] == [('bybit', 'usdt-m', 'USDT')]` (read once), and `assert <class 'NoneType'> is UnknownPoolError`.
+  **Passed at once**: the no-snapshot test. Mutations, each seen red and reverted: a zero total substituted for the
+  missing snapshot reds the no-snapshot test only; a stale snapshot refused reds the stale test only; a port
+  that answers nothing swallowed into an empty preview, together with a second read of the port, reds the
+  no-row test and the read-once test. **The "amount taken from `available`" mutation cannot be built at this
+  layer, by design**: the port's snapshot has no `available` field, so the use case has nothing to take it from.
+  It is applied where the column is selected, at 12f.9.11 and 12f.9.12.
+  **Interpretations to confirm.** (1) `preview(pool, share)` previews the share it is handed; "the stored share is
+  the default and an asked share replaces it" is therefore tested here as "`exact` follows the share given and the
+  steps do not", and the defaulting itself (stored share when no `share` is sent) sits in the route and is
+  pinned by 12f.9.12's two first tests. (2) The "allocation module's existing invariant error" is
+  `UnknownPoolError` (`allocation/application/allocate_capital.py`: "the strategy's pool is missing from
+  `capital_pools`"), not `shared.domain.errors.InvariantViolation`, which the performance routes catch and which
+  this route must not swallow by accident. One test beyond the task:
+  `::test_a_pool_nothing_has_synced_still_carries_its_minimum` (RED: `assert Decimal('0') == Decimal('5')`).
+- [x] 12f.9.11 `SqlAlchemyPoolSizing` in `accounts/infrastructure/pool_sizing.py`. RED
   `backend/tests/accounts/infrastructure/test_pool_sizing.py` (Create; real PostgreSQL on the ORM schema, the
   fixtures of `tests/ledger/infrastructure/conftest.py`: the adapter is one SELECT and no constraint decides
   it), with the stub in the same commit (an adapter that answers the minimum `Decimal(0)` and no snapshot for
@@ -3114,7 +3150,19 @@ Share Asks For")
   an inner join where the design says outer (reds the never-synced test: the pool vanishes), the pool key
   taken from the first row (reds the two-pool test), a second query for the snapshot (reds the count).
   GREEN: the `capital_pools` row outer-joined to its `pool_balance_snapshots` row on the three-part key.
-- [ ] 12f.9.12 `GET /api/strategies/{strategy_id}/share-preview`. RED
+  **Done (RED commit `3e9f7a8`, GREEN commit `2c01cdb`).** The constructor is `(session, clock,
+  snapshot_max_age_seconds)`, as `SqlAlchemyPoolOverview`'s is: the stale rule needs a `now`. RED against the stub,
+  observed (8 failed, none passed, stricter than predicted because the stub also answers the wrong minimum and
+  issues no statement): `assert Decimal('0') == Decimal('5')`, `assert PoolSizing(...) == PoolSizing(...)`
+  (differing `min_order_size`), `assert None is not None` (the snapshot, in all three age cases),
+  `assert (Decimal('0'), None) == (Decimal('5'), Decimal('1000'))`,
+  `assert PoolSizing(min_order_size=Decimal('0'), snapshot=None) is None` and `assert 0 == 1` (the statement
+  count). Mutations, each seen red and reverted: `>` to `>=` reds the exactly-90-s case only; the outer join made
+  an inner one reds the never-synced test only; the pool's key replaced by an `ORDER BY ... LIMIT 1` reds the
+  two-pool test and the no-row test; a second query reds the statement count only; `snapshot.available` in place
+  of `snapshot.total` reds the synced-pool test and the two-pool test. **Statement count observed: 1** (one
+  SELECT).
+- [x] 12f.9.12 `GET /api/strategies/{strategy_id}/share-preview`. RED
   `backend/tests/strategies/infrastructure/test_share_preview_router.py` (Create; `httpx.AsyncClient` over ASGI,
   real PostgreSQL on the ORM schema, `get_session` overridden as `test_pools_router.py` does), with the
   stub route in the same commit (a route that loads the strategy, declares `share` with its bound
@@ -3159,7 +3207,48 @@ Share Asks For")
   with `Field(gt=0, le=100)` through the existing handler that echoes no input, calls `PreviewShare`, and
   serves `SharePreview` with `Money` amounts, `share` an `int` in `steps` and a canonical plain string in
   `exact`. The router's bearer dependency is structural (spec: "MUST require the bearer token").
-- [ ] 12f.9.13 Auth and the sweeps (design § J threat matrix, four rows). The strategies router's own
+  **Done (RED commit `1d05fe6`, GREEN commit `599f034`, test-strengthening commit `4ea629f`).** The test app is
+  `create_app()` (so the `/api` prefix and the application's redacted 422 handler are part of what is proven; the
+  bare `FastAPI()` of `test_router.py` has no such handler and would echo the input), over the ORM schema of
+  `tests/ledger/infrastructure/conftest.py`. RED against the stub, observed (21 failed, 9 passed):
+  `assert '0' == '5.000000000000000000'` (`pool_minimum`), `assert None == {'share': '12.34', 'amount':
+  '123.400000000000000000', 'below_pool_minimum': False}`, `AssertionError: no exact amount was served` /
+  `no balance was served` (the `_exact` and `_balance` helpers assert before they subscript), `assert 200 == 500`
+  (no pool row) and `assert 1 == 2` (statements: the stub reads only the strategy). **Passed at once**: the 404,
+  the six 422 cases (`0`, `100.5`, `abc`, `-1`, `NaN`, `Infinity`: pydantic refuses `NaN` and `Infinity` before the
+  bounds), the logs-nothing test and the writes-nothing test. **Deviations.** (1) The no-float test fails against
+  the stub (it asserts `exact` first) instead of passing at once. (2) The first RED run had 11 tests failing on
+  `TypeError: 'NoneType' object is not subscriptable`, which is not a RED; the tests were changed to assert
+  through `_exact`/`_balance` before the RED commit, and a raw-text exponent regex that matched the hex `0e0` of a
+  UUID was replaced by a check on each figure's own text. (3) After the GREEN, two mutations went unseen and
+  the tests were strengthened in `4ea629f`: the half-up rounding (the task's two totals are exact or round the
+  same either way: a third case, `2` at `33.3333333333333333335`, was added) and an `UPDATE` (a row count does not
+  see it: the writes-nothing test now compares every whole row of `reservations`,
+  `pool_balance_snapshots`, `capital_pools` and `strategies`). **Mutations, each seen red and reverted**: the pool
+  hard-coded to the first one reds the each-strategy test only; an advisory-lock `acquire` of the pool in the
+  route reds the lock-hold test (`task.done()` false after the 5 s ceiling) and the statement count (3 == 2); a
+  stale snapshot answered 503 reds the stale test and the logs-nothing test; a zero total in place of no
+  snapshot (in the adapter) reds the no-amount test; the amount rounded half up (in `share_preview.py`) reds the
+  added `2`/`33.3333333333333333335` case only; `snapshot.available` for `snapshot.total` reds six tests (stored,
+  asked, total-not-free, stale, each-own-pool, lock-hold); `amount: Decimal` in place of `Money` reds the
+  no-float/no-exponent test only; `str(share)` in place of the canonical echo reds the four echo cases, the
+  stored-share echo and the no-float test; an `UPDATE capital_pools` plus commit reds the writes-nothing test,
+  the each-strategy test and the statement count; a `SqlAlchemyCredentialVault` built in the route reds the
+  writes-nothing test (`the preview reached the credential vault`); an `httpx` call to a venue reds it (`the
+  preview reached an exchange`); a WARNING for a stale or empty pool reds the logs-nothing test; the upper
+  bound `le=100` removed reds the `100.5` case. **Not mutated**: the 404, the 500 test (it was RED against the
+  stub and is green after, but no mutation of the ERROR line was run) and the 422 no-echo (the test asserts the
+  body has no `input` key and no rejected text; the handler is the application's, proven in
+  `tests/shared/infrastructure/test_validation_errors.py`). **Statement count observed: 2 per request**, for the
+  stored share and for an asked one (the strategy by primary key, then the pool joined to its snapshot); nothing
+  per step. The 500 is a fixed `{"detail": "share preview data failed an integrity check"}` and the one ERROR is
+  `share preview refused for strategy <uuid>: pool (<exchange>, <venue>, <currency>) has no capital_pools row`.
+  **Found, not fixed**: `share` has no bound on its decimals or exponent. `share=1e-1000000` is a valid decimal
+  above 0 and answers an `exact.share` of 1,000,002 characters (`format(Decimal, "f")` writes every zero), and the
+  PATCH's strategy view has the same exposure through `Money`. The caller is the single authenticated operator,
+  so this is a nuisance and not an attack surface, and a bound on decimals (or a minimum share) is a product
+  choice no requirement makes; it is reported, not decided.
+- [x] 12f.9.13 Auth and the sweeps (design § J threat matrix, four rows). The strategies router's own
   dependency covers the new route, and `backend/tests/strategies/infrastructure/test_router_auth.py` enumerates
   that router's routes, so `share-preview` is covered without being listed: run it unmodified and record that
   it now includes the new route. For the origin route, 12f.9.4's auth test is the pin. **The secret sweep**,
@@ -3173,7 +3262,19 @@ Share Asks For")
   once, proven by mutation: `::test_no_other_api_response_body_contains_the_configured_secret_value[GET /api/webhook-origin]`
   (the route answers `settings.webhook_secret`). The existing "no response contains a JSON float" walk is
   taught the preview in 12f.9.12.
-- [ ] 12f.9.14 The delta-spec check. For each requirement added on 2026-10-06 to
+  **Done (commit `4fe6694`).** `test_router_auth.py` runs unmodified (all of its tests pass); its enumeration
+  now holds 9 routes and includes `GET /strategies/<uuid>/share-preview`, so the new route is refused with the
+  one 401 without being listed. The sweep needed no teaching: both new routes answer 200 inside it with the seed
+  it already has (a bybit strategy with a snapshot), so neither `_concrete_path` nor the seed changed. **The
+  recorded edit is exactly two added lines** in `::test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover`:
+  `assert ("GET", "/api/webhook-origin") in OTHER_API_ROUTES` and `assert ("GET",
+  "/api/strategies/{strategy_id}/share-preview") in OTHER_API_ROUTES`; no assertion of the sweep changed.
+  Passed at once (the added lines are true of the route table as it stands). Mutations, each seen red and
+  reverted: `GET /api/webhook-origin` answering `settings.webhook_secret` as its origin reds `[GET
+  /api/webhook-origin]` (`put the secret in its body`); the share-preview's `exact.share` answering the secret
+  reds `[GET /api/strategies/{strategy_id}/share-preview]`. **Not mutated**: the two added assertions themselves
+  (removing a route from the app would red them; it was not run).
+- [x] 12f.9.14 The delta-spec check. For each requirement added on 2026-10-06 to
   `specs/admin-api/spec.md`, `specs/performance-reporting/spec.md`, `specs/capital-allocation/spec.md` and
   `specs/strategy-lifecycle/spec.md`, name in this task the test that covers each scenario, so none is left
   without one: the performance-reporting requirement and the admin-api win-rate requirement, 12f.9.1 and
@@ -3182,12 +3283,101 @@ Share Asks For")
   preview, 12f.9.9 to 12f.9.12; "Every Admin Route Requires the Bearer Token" for the two new routes,
   12f.9.4, 12f.9.12 and 12f.9.13. Any scenario with no test is written before the gate, and any behaviour no
   requirement states is added to the delta spec (never a main spec) and recorded here.
-- [ ] 12f.9.15 Confirm and gate: run `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
+  **Done.** One scenario had no test and one was written (commit `c25ea78`); no delta spec was edited. The map
+  (paths under `backend/tests/`; `::` names are test functions):
+  - *admin-api, share preview* (`strategies/infrastructure/test_share_preview_router.py`): stored share previewed
+    `::test_the_stored_share_is_previewed_against_the_pools_balance`; asked share
+    `::test_a_share_asked_for_is_served_as_exact`; canonical echo
+    `::test_the_exact_share_is_echoed_in_canonical_plain_notation` and `::test_the_stored_share_is_echoed_in_canonical_plain_notation_too`;
+    the allocation's own rounding `::test_the_amount_is_the_allocations_own_rounded_down` (and
+    `allocation/domain/test_share_preview.py::test_the_amount_is_rounded_down_never_up`); total not free
+    `::test_the_amount_is_of_the_total_not_of_what_is_free`; minimum flag
+    `::test_the_minimum_flag_agrees_with_the_allocation_on_both_sides_of_the_limit` (and
+    `allocation/domain/test_share_preview.py::test_below_pool_minimum_agrees_with_decide_just_under_at_and_just_over_the_minimum`);
+    stale `::test_a_stale_balance_is_served_marked`; not synced `::test_a_pool_nothing_has_synced_serves_no_amount`;
+    archived `::test_an_archived_strategy_is_served`; own pool `::test_each_strategy_answers_its_own_pool`; 404
+    `::test_an_unknown_strategy_is_404_no_such_strategy`; 422 without echo
+    `::test_a_share_outside_the_range_is_422_and_no_body_repeats_it`; pool with no row
+    `::test_a_strategy_whose_pool_has_no_row_is_500_with_one_error_naming_both`; reads the database only
+    `::test_the_preview_writes_nothing_and_calls_no_exchange` and
+    `::test_the_preview_completes_while_the_pools_advisory_lock_is_held`; the requirement's wire and logging
+    clauses `::test_no_share_preview_response_contains_a_json_float_or_an_exponent`,
+    `::test_reading_a_stale_or_empty_pool_logs_nothing` and
+    `::test_the_route_issues_the_same_number_of_statements_for_the_stored_share_and_an_asked_one`.
+  - *admin-api, bearer token for the two new routes*: the preview, `strategies/infrastructure/test_router_auth.py::test_every_registered_route_refuses_a_request_without_a_token`
+    (its enumeration includes the route) and the secret sweep; the origin,
+    `signals/infrastructure/test_webhook_origin_router.py::test_the_route_requires_the_bearer_token`.
+  - *admin-api, webhook origin* (`signals/infrastructure/test_webhook_origin_router.py`, `_check.py`,
+    `signals/domain/test_webhook_origin.py`): configured `::test_a_configured_origin_is_served`; unset
+    `::test_an_unset_origin_is_served_as_null` and `_check.py::test_an_unset_setting_logs_one_info_saying_the_panel_shows_the_path_only`;
+    local origin, normalisation, path/query/fragment, scheme, host, character and port cases
+    `::test_every_accepted_case_of_the_shared_list_is_served_normalised` and
+    `::test_every_refused_case_of_the_shared_list_is_served_as_null` (the shared cases file);
+    credential not served and never logged `signals/domain/test_webhook_origin.py::test_a_credential_is_refused_with_a_reason_that_names_neither_part`
+    and `_check.py::test_no_record_contains_the_raw_value`; the API still starts
+    `_check.py::test_the_lifespan_starts_with_a_malformed_origin_and_logs_the_one_error`; well formed logged
+    normalised `_check.py::test_a_well_formed_value_logs_one_info_with_the_normalised_origin`; no secret
+    `::test_the_body_never_contains_the_webhook_secret`.
+  - *admin-api, wins* (`performance/infrastructure/test_pair_wins_router.py`): all five scenarios, by
+    `::test_a_pair_carries_its_wins_and_its_rate`, `::test_a_pair_with_no_win_has_a_zero_rate_not_a_null`,
+    `::test_a_pair_that_won_every_operation_has_a_rate_of_one`,
+    `::test_no_pair_row_is_served_for_a_pair_with_no_closed_operation` and
+    `::test_the_strategy_and_pool_reports_gain_no_win_rate`.
+  - *performance-reporting* (`performance/domain/test_by_pair.py` and the router file above): three in five
+    `::test_a_win_is_a_pnl_above_zero_and_the_rate_is_wins_over_trades`; all at zero
+    `::test_a_pnl_of_exactly_zero_is_not_a_win_and_counts_in_the_total`; 199 in 200
+    `::test_199_wins_in_200_are_a_rate_below_one`; dry-run
+    `test_pair_wins_router.py::test_the_wins_are_the_same_with_and_without_rehearsal_groups_in_the_ledger`;
+    incomplete fees and no capital `::test_a_trade_with_incomplete_fees_and_a_trade_with_no_capital_at_open_are_counted`;
+    no closed operation `test_pair_wins_router.py::test_no_pair_row_is_served_for_a_pair_with_no_closed_operation`;
+    two spellings `::test_two_spellings_of_one_market_are_one_pair_with_its_wins`; removed from the allowlist
+    `::test_a_pair_removed_from_the_allowlist_keeps_its_wins`; two pools
+    `test_pair_wins_router.py::test_two_strategies_on_two_pools_are_not_blended`.
+  - *admin-api, strategy update* (`strategies/infrastructure/test_router.py`): decimal share
+    `::test_a_decimal_share_is_saved_and_served_as_it_is`; below 1 `::test_a_share_below_one_is_accepted`; exactly 100
+    `::test_a_share_of_exactly_100_is_accepted`; 0, 100.5 and `abc`
+    `::test_zero_above_100_and_a_text_that_is_not_a_decimal_are_422_and_the_stored_share_is_unchanged`; **archived
+    (the gap) `::test_an_archived_strategys_share_is_refused_409_and_the_stored_share_is_unchanged`, written in
+    this task: the existing `test_archived_strategy_patch_refused_409_at_http_layer` patches the NAME, so a
+    share patched on an archived strategy was pinned by nothing. It passed at once; the mutation that skips the
+    archived refusal for a patch that carries a share turned it red (`assert 200 == 409`) and was reverted**;
+    disabled `::test_a_disabled_strategys_share_is_accepted_and_it_stays_disabled`; unknown
+    `::test_patching_an_unknown_strategy_is_404_with_its_existing_body`; only the share
+    `::test_only_the_share_changes`; tiny share `::test_a_very_small_share_is_never_served_with_an_exponent`; bearer
+    `test_router_auth.py::test_every_registered_route_refuses_a_request_without_a_token` (PATCH is in its
+    enumeration).
+  - *strategy-lifecycle, the share's log line* (`strategies/application/test_update_strategy.py`): change
+    `::test_a_changed_share_logs_one_info_line_with_the_id_and_both_values`; no-op
+    `::test_the_same_value_written_differently_logs_nothing`; refused `::test_a_refused_update_logs_no_share_line`.
+  - *capital-allocation* (`strategies/infrastructure/test_share_change_integration.py`, plus
+    `signals/application/test_open_after_close.py`): reservation kept
+    `::test_a_changed_share_leaves_an_existing_reservation_unchanged`; next opening
+    `::test_the_next_opening_is_sized_with_the_new_share`; an open operation not resized, by the ledger rows of the
+    first test; deferred opening `test_open_after_close.py::test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally_opens`;
+    no pool lock and no reservation `::test_a_share_change_completes_while_the_pools_advisory_lock_is_held` (and
+    the first test's untouched `reservations` rows).
+  No behaviour was found that no requirement states, except the one recorded as "found, not fixed" in 12f.9.12
+  (no bound on the decimals or the exponent of `share`), which is a product choice and was left out of the delta
+  spec on purpose.
+- [x] 12f.9.15 Confirm and gate: run `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`.
   Record: that no existing test was edited beyond the recorded edits (the two constructor calls of
   `test_by_pair.py`, the add-only line of the sweep, and whatever 12f.9.7 and 12f.9.13 recorded); that the
   existing performance, strategies, signals and accounts suites pass unmodified; the statement counts
   observed (the preview's, the adapter's); and the collected count before and after. A backend suite on
   this machine prints no summary line: confirm by exit code and by summing `uv run pytest --co -q`.
+  **Done.** From `backend`: `uv run ruff check .` exit 0 ("All checks passed!"); `uv run mypy src` exit 0 ("no
+  issues found in 290 source files"); `uv run pytest --tb=short` exit 0, and this run DID print a summary line:
+  `3736 passed in 368.97s (0:06:08)`. **Collected** (sum of the per-file counts of `uv run pytest --co -q`):
+  3,672 before this batch, 3,736 after (+64: 15 in `test_share_preview.py`, 8 in `test_preview_share.py`, 8 in
+  `test_pool_sizing.py`, 31 in `test_share_preview_router.py`, 1 archived-share test in `test_router.py`, 1 sweep
+  case for the share-preview route). **Existing files edited, and why**: `tests/signals/infrastructure/test_webhook_secret_router.py`
+  (two added assertion lines, 12f.9.13, no existing line changed) and `tests/strategies/infrastructure/test_router.py`
+  (one test appended after the last one, 12f.9.14; no existing test changed). Production: `allocation/application/ports.py`
+  (three declarations added) and `strategies/infrastructure/router.py` (the route, its bodies and two dependencies; the
+  module gained a logger, a constant and imports). No existing test was otherwise edited, and the performance,
+  strategies, signals and accounts suites pass unmodified as part of the full run. `git diff main -- openspec/specs`
+  is empty. Statement counts observed: the preview route issues 2 SELECTs per request (stored share or asked), the
+  adapter 1. Deployment (12f.9.16) is the owner's and was not touched.
 - [ ] 12f.9.16 Owner step, after the merge: deploy 12f-1. `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`,
   then `systemctl restart strategy-api strategy-worker`. No migration, so no rehearsal and no `alembic upgrade`.
   Setting the new origin variable is the owner's step, **at any time**: put `WEBHOOK_PUBLIC_ORIGIN=<the
