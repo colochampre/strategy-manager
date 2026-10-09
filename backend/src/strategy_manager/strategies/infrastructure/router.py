@@ -24,6 +24,7 @@ UUID. The webhook looks a strategy up under exactly that id, so an id chosen
 here rather than copied from the alert would never match anything.
 """
 
+import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -36,8 +37,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.pool_sizing import SqlAlchemyPoolSizing
+from strategy_manager.allocation.application.allocate_capital import UnknownPoolError
 from strategy_manager.allocation.application.ports import PoolSizingPort
-from strategy_manager.allocation.application.preview_share import PreviewShare
+from strategy_manager.allocation.application.preview_share import PreviewShare, SharePreview
+from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
 )
@@ -127,6 +130,10 @@ router = APIRouter(
     tags=["strategies"],
     dependencies=[Depends(require_admin_token)],
 )
+
+logger = logging.getLogger(__name__)
+
+SHARE_PREVIEW_FAULT_DETAIL = "share preview data failed an integrity check"
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -262,6 +269,53 @@ class SharePreviewBody(BaseModel):
     balance: SharePreviewBalanceBody | None
     exact: SharePreviewExactBody | None
     steps: list[SharePreviewStepBody]
+
+    @classmethod
+    def of(cls, strategy_id: UUID, preview: SharePreview) -> "SharePreviewBody":
+        balance = preview.balance
+        exact = preview.exact
+        return cls(
+            strategy_id=strategy_id,
+            pool=SharePreviewPoolBody(
+                exchange=preview.pool.exchange,
+                venue=preview.pool.venue,
+                settlement_currency=preview.pool.settlement_currency,
+            ),
+            currency=preview.pool.settlement_currency,
+            pool_minimum=preview.pool_minimum,
+            balance=(
+                None
+                if balance is None
+                else SharePreviewBalanceBody(
+                    total=balance.total, observed_at=balance.observed_at, stale=balance.stale
+                )
+            ),
+            exact=(
+                None
+                if exact is None
+                else SharePreviewExactBody(
+                    share=_canonical_share(exact.share),
+                    amount=exact.amount,
+                    below_pool_minimum=exact.below_pool_minimum,
+                )
+            ),
+            steps=[
+                SharePreviewStepBody(
+                    share=int(step.share),
+                    amount=step.amount,
+                    below_pool_minimum=step.below_pool_minimum,
+                )
+                for step in preview.steps
+            ],
+        )
+
+
+def _canonical_share(share: Decimal) -> str:
+    """``33.50`` is ``33.5`` and ``1E+1`` is ``10``: positional notation, no
+    exponent and no trailing fractional zero. Done on the text of the exact value,
+    not with ``normalize()``, which rounds to the context's 28 digits."""
+    written = format(share, "f")
+    return written.rstrip("0").rstrip(".") if "." in written else written
 
 
 class ReplacePairsRequest(BaseModel):
@@ -462,24 +516,31 @@ async def preview_share(
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
     share: Annotated[Decimal | None, Query(gt=0, le=100)] = None,
 ) -> SharePreviewBody:
-    """STUB (12f.9.12, RED commit): loads the strategy and answers no amount."""
+    """What a share of this strategy's pool would ask for (design addendum "unit
+    12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's
+    row and snapshot, and takes no lock, writes nothing and calls no exchange. The
+    API process decrypts nothing and this route needs no key.
+
+    The pool and the default share come from the strategy row the PATH names, never
+    from the request: the only input is the optional ``share``, bounded to
+    ``0 < share <= 100`` and refused with the application's 422 that echoes no input.
+
+    A pool with no row is a fault in stored data (a strategy cannot be registered on
+    one): one ERROR naming the strategy and the pool, and a fixed 500. A pool with
+    no snapshot, or a stale one, is a normal answer and logs nothing.
+    """
     strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
-    return SharePreviewBody(
-        strategy_id=strategy.id,
-        pool=SharePreviewPoolBody(
-            exchange=policy.exchange,
-            venue=policy.venue,
-            settlement_currency=policy.settlement_currency,
-        ),
-        currency=policy.settlement_currency,
-        pool_minimum=Decimal(0),
-        balance=None,
-        exact=None,
-        steps=[],
-    )
+    pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
+    previewed = policy.allocation_percent.value if share is None else share
+    try:
+        preview = await use_case.preview(pool, previewed)
+    except UnknownPoolError as exc:
+        logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
+        raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc
+    return SharePreviewBody.of(strategy.id, preview)
 
 
 @router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)
