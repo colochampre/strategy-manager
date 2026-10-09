@@ -2721,7 +2721,7 @@ edits of 12f.9.1), `backend/tests/strategies/application/test_update_strategy.py
 **Wins** (design § G; spec: performance-reporting "A Pair's Win Rate Counts Closed Operations With A PnL
 Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins And Win Rate")
 
-- [ ] 12f.9.1 `PairStats.win_count` and `PairStats.win_rate` in `performance/domain/by_pair.py`. RED
+- [x] 12f.9.1 `PairStats.win_count` and `PairStats.win_rate` in `performance/domain/by_pair.py`. RED
   `backend/tests/performance/domain/test_by_pair.py`, new tests, with the stub in the same commit:
   `PairStats` gains `win_count: int` and `win_rate: Decimal`, no default, appended after `value`, and
   `by_pair` fills them with `0` and `Decimal(0)`. Tests, hand-built `ClosedTrade`s through the file's own
@@ -2746,7 +2746,17 @@ Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins A
   `::test_trades_without_capital_count_in_pnl_but_have_no_return` line 141 gains `1, Decimal(1)` (its one
   SOLUSDT trade closes at +7); no other line of either test changes, and both pass unmodified apart from
   that. Run `tests/performance` whole: every other existing suite passes unmodified.
-- [ ] 12f.9.2 `PairBody.wins` and `PairBody.win_rate` on the wire. RED
+  **Done (commit `c8afc19`).** RED against the stub, observed: `assert 0 == 3` (3-of-5 test, `win_count`),
+  `assert 0 == 199`, `assert 0 == 2`, `assert 0 == 1`, and the two edited constructor tests failed on
+  the PairStats equality. Passed at once, as predicted: the exactly-zero test. Mutations, each seen red
+  and reverted with `git checkout`: `>` to `>=` reds the 3-of-5 test and the zero test; the zero trade dropped
+  from the denominator reds the same two; `and t.fees_complete` on the count reds the counted test; `and
+  t.pool_total_at_open is not None` reds the counted test and
+  `test_trades_without_capital_count_in_pnl_but_have_no_return`. Edit recorded: the first constructor call
+  now spans lines (`win_count=2, win_rate=Decimal(1)` on their own lines) because one line would pass the
+  100-column limit; the second gains `1, Decimal(1)`. One new test name needs `# noqa: E501`. `tests/performance`
+  whole passes.
+- [x] 12f.9.2 `PairBody.wins` and `PairBody.win_rate` on the wire. RED
   `backend/tests/performance/infrastructure/test_pair_wins_router.py` (Create, real PostgreSQL, the ORM schema of
   `tests/performance/infrastructure/conftest.py`: the report is a read and no constraint decides it), with
   the stub in the same commit: `PairBody` gains `wins: int` (the count as an integer) and
@@ -2773,10 +2783,20 @@ Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins A
   (`Ratio`: 10 places, half-even, plain). Existing performance router tests (including
   `test_get_strategy_performance_includes_by_pair` and the JSON-float walk) run unmodified; if one asserts the
   exact key set of a `by_pair` entry, the task records the edit and the reason.
+  **Done (commit `f4fc849`).** RED against the stub, observed: `assert 0 == 3` on `wins`;
+  `assert [(1, 0), (3, 0)] == [(1, 1), (3, 1)]`; the tuple comparisons of the two-pool and rehearsal
+  tests failed on the stub's zeros (`wins` 0 against 1, `win_rate` `0.0000000000` against `0.5000000000`).
+  Deviation: the rehearsal test and the two-pool test assert a winning pair, so they fail on the stub rather
+  than passing at once (stronger, still mutation-proven). The Binance pool is not seeded by the shared
+  fixtures, so the two-pool test inserts its row. No existing performance test was edited. Mutations seen red,
+  each reverted: `wins` renamed `win_count` (key-set test and the others), `groups + rehearsal_groups` in
+  `ReadStrategyPerformance.read` (rehearsal test only), `win_rate` added to `PerformanceBody` (no-win-rate test
+  only), pool forced to Bybit in `_strategy_pool` (two-pool test only; the last two re-run on the clean tree
+  after the interruption).
 
 **The webhook's origin** (design § F; spec: admin-api "The Webhook's Origin Is Served By Its Own Route")
 
-- [ ] 12f.9.3 `parse_webhook_origin` in `signals/domain/webhook_origin.py`. RED
+- [x] 12f.9.3 `parse_webhook_origin` in `signals/domain/webhook_origin.py`. RED
   `backend/tests/signals/domain/test_webhook_origin.py` (Create), with the stub in the same commit:
   `InvalidWebhookOrigin(Exception)` and `parse_webhook_origin(raw: str) -> str | None` that returns its
   input. The same commit creates `frontend/src/features/strategies/webhook-origin.cases.json`: `accepted`
@@ -2805,7 +2825,15 @@ Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins A
   in a dot and a port that is present and empty are each refused as malformed (the startup line is the ERROR
   of § J and the route serves null); the three are in the shared cases file's `refused` list and each is a
   case of the refusal tests above.
-- [ ] 12f.9.4 The setting, the route and their wiring. RED
+  **Done (commit `6f7c1db`).** RED against the stub, observed: `assert 'HTTPS://Example.ORG' == 'https://example.org'`
+  (and `https://example.org/`, `https://example.org:443`), `assert <class 'NoneType'> is InvalidWebhookOrigin`
+  for each of the 17 refused cases (35 failures with the reason test), and `assert '' is None` for the unset case
+  (the stub returns its input, so the empty string is not `None`: that case did NOT pass at once as predicted).
+  Mutations seen red, each reverted: `host.lower()` removed (the `HTTPS://Example.ORG` case); the empty value
+  raising (the unset case); the raw value interpolated into the credential reason (two reason tests and the
+  credential test). No regular expression is used; the parser is `urlsplit` plus character checks. The cases
+  file was created with the Write tool; `\u0007`, `\\x` and `ä` are JSON escapes.
+- [x] 12f.9.4 The setting, the route and their wiring. RED
   `backend/tests/signals/infrastructure/test_webhook_origin_router.py` (Create; `httpx.AsyncClient` over ASGI,
   the bearer fixture and `get_settings` patched with `monkeypatch.setattr(get_settings(), "webhook_public_origin", ...)`
   as `test_pools_router.py` patches the admin token), with the stubs in the same commit:
@@ -2827,7 +2855,15 @@ Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins A
   reads `settings.webhook_public_origin`, calls `parse_webhook_origin`, and answers `null` for unset and for
   an `InvalidWebhookOrigin`; `WebhookOriginBody(origin: str | None)`. `tests/accounts/test_no_decrypt_in_api_path.py`
   runs unmodified (the route reads a setting only).
-- [ ] 12f.9.5 The startup line. RED `backend/tests/signals/infrastructure/test_webhook_origin_check.py`
+  **Done (commit `2bb46f1`).** RED against the stub, observed: `assert {'origin': None} == {'origin': 'https://example.duckdns.org'}`
+  and the same shape for every accepted case; `assert None == 'https://example.duckdns.org'` in the secret test
+  (which also asserts the origin is served, so it failed on the stub instead of passing at once). Mutations seen
+  red, each reverted: the setting's default changed to a host (the default test only); the secret returned as the
+  origin (the secret test); the router's dependency dropped (the auth test); the raw value served instead of the
+  parsed one (21 tests: the normalised cases and the refused ones). `test_no_decrypt_in_api_path.py` and
+  `test_webhook_secret_router.py` pass unmodified (its route walk covers the new route without being told).
+  The `.env.example` line is `WEBHOOK_PUBLIC_ORIGIN=` with a comment.
+- [x] 12f.9.5 The startup line. RED `backend/tests/signals/infrastructure/test_webhook_origin_check.py`
   (Create), with the stub in the same commit: `log_webhook_origin(settings: Settings) -> None` in
   `signals/infrastructure/webhook_origin_check.py` that logs nothing. Tests (`caplog`, exactly one record from
   the module's logger each): `::test_an_unset_setting_logs_one_info_saying_the_panel_shows_the_path_only`,
@@ -2847,12 +2883,24 @@ Above Zero", admin-api "The Strategy Performance Route Serves Each Pair's Wins A
   `main.py`'s `lifespan` calls it inside `operator_alerts` after `assert_panel_dist_ready(settings)`. It is
   deliberately NOT a startup invariant: the process that would refuse to start is the one that receives the
   alerts (rule 3).
+  **Done (commit `cc62251`).** RED against the stub, observed: `assert [] == [(20, 'WEBHOO...k path only')]` (unset),
+  `assert [] == [(20, ...example.org')]` (well formed), `assert [] == [(40, ...)]` (malformed), `assert 0 == 1`
+  (the no-raw-value test asserts one record first, so it failed instead of passing at once) and
+  `assert [] == [('strategy_m...n_check', 40)]` for the lifespan. The does-not-raise test passed at once. The
+  lifespan helpers (`_startup_configured`, `alert_bridge_standin`) are copied into the test file, because they
+  live in `tests/shared/test_startup_invariants.py` and not in a conftest. Mutations seen red, each reverted:
+  the check re-raising (the malformed, no-raw-value, does-not-raise and lifespan tests); the setting's value
+  appended to the logged argument (three tests); the unset value logged as ERROR (the unset test).
+  **Exact lines** (logger `strategy_manager.signals.infrastructure.webhook_origin_check`):
+  INFO `WEBHOOK_PUBLIC_ORIGIN is not set: the panel shows the webhook path only`;
+  INFO `WEBHOOK_PUBLIC_ORIGIN is set: the panel builds the webhook URL on <normalised origin>`;
+  ERROR `WEBHOOK_PUBLIC_ORIGIN is malformed (<fixed reason>): the panel shows the webhook path only`.
 
 **The share's log line and notation** (design §§ C, J; spec: strategy-lifecycle "A Change Of A Strategy's
 Share Of The Pool Is Logged", admin-api "The Strategy Update Takes The Share As A Plain Decimal And The
 Strategy View Serves It In Plain Notation")
 
-- [ ] 12f.9.6 The INFO line of a changed share. RED `backend/tests/strategies/application/test_update_strategy.py`,
+- [x] 12f.9.6 The INFO line of a changed share. RED `backend/tests/strategies/application/test_update_strategy.py`,
   new tests only, built on the file's `_build`, `FakeRepository` and `caplog`, with the stub in the same
   commit: the logger in `update_strategy.py` (`logging.getLogger(__name__)`) and the call that logs nothing.
   Tests: `::test_a_changed_share_logs_one_info_line_with_the_id_and_both_values` (30 to 33.5; one INFO naming
@@ -2868,7 +2916,15 @@ Strategy View Serves It In Plain Notation")
   notation. **Confirmed in design § O:** the line is written after the
   commit, so a rolled-back change leaves no line that says it happened; the test
   `::test_a_failed_commit_logs_no_share_line` above is the pin. No credential and no secret is in scope of this function.
-- [ ] 12f.9.7 The share in plain notation, and the PATCH's contract. RED
+  **Done (commit `4c8d499`).** RED against the stub (logger only, no call), observed:
+  `assert [] == [('strategy_manager.strategies.application.update_strategy', 20, ...)]` for the 30 to 33.5 test
+  and for an added test of a share below 1 (`100` to `0.0000001`, never an exponent). The other four tests
+  passed at once. Mutations seen red, each reverted: the comparison on text (`str(after) != str(before)`: the
+  `33.50` test); the line written in the archived branch (the refused test); a line written before `commit()`
+  (the failed-commit test); a line also written when `enabled` changes (the other-field test).
+  **Exact line** (INFO, logger `strategy_manager.strategies.application.update_strategy`):
+  `strategy <uuid> share of the pool changed from <old> to <new>`, values in plain notation (`format(v, "f")`).
+- [x] 12f.9.7 The share in plain notation, and the PATCH's contract. RED
   `backend/tests/strategies/infrastructure/test_router.py`, new tests only (the file's `client` fixture and
   `_register`, real PostgreSQL). No stub is needed: the code as it stands is the wrong answer
   (`StrategyView.allocation_percent` is a bare `Decimal`, and pydantic writes `Decimal("0.0000001")` as
@@ -2889,7 +2945,13 @@ Strategy View Serves It In Plain Notation")
   `shared/infrastructure/wire.py`; no other field and no request body changes. Run the router suites
   whole: any existing assertion on the text of a share is recorded with the reason (a stored `Decimal("100")`
   still writes `"100"`).
-- [ ] 12f.9.8 A change of the share leaves everything already made untouched (spec: capital-allocation "A
+  **Done (commit `a715231`).** RED observed: `assert '1E-7' == '0.0000001'` (the GET assertion of the first test
+  fails first, so the PATCH half is pinned by the same test after the fix and by the float mutation). The other
+  tests passed at once. No existing assertion on a share's text changed; `tests/strategies`, `tests/performance`
+  and `tests/signals` pass whole. Mutations seen red, each reverted: `ge=1` (the tiny-share and `0.5` tests);
+  `ge=0` (the `0` 422 case); `lt=100` (the `100` test); `enabled=bool(body.enabled)` (only-the-share); the view's
+  field typed `float` (nine tests). The shape of the 404 pinned: `{"detail": "no strategy registered under id <uuid>"}`.
+- [x] 12f.9.8 A change of the share leaves everything already made untouched (spec: capital-allocation "A
   Changed Share Of The Pool Applies From The Next Allocation Only"). Tests that pass at once, because the
   code already behaves so (design § A U3), each with its mutation. Real PostgreSQL, the ORM schema,
   `backend/tests/strategies/infrastructure/test_share_change_integration.py` (Create):
@@ -2908,6 +2970,17 @@ Strategy View Serves It In Plain Notation")
   fakes, and if its policy fake cannot change between the deferral and the resume the task records the
   smallest addition. An operation already open is not resized: the first test asserts the ledger rows of the
   open operation are unchanged.
+  **Done (commit `09e9583`).** All four tests passed at once, as predicted. Mutations seen red, each reverted:
+  an `UPDATE reservations` after the update in the route (the reservation test); the policy cached across the
+  update in `StrategyPolicyAdapter` (the next-opening test); an advisory-lock `acquire` before the update in the
+  route (the lock-hold test, which fails on `task.done()` after the 5 s ceiling); the policy kept from the
+  deferral and reused by `open_now` (the deferred-opening test: `[Decimal('100...')] == [Decimal('250')]`).
+  The lock-hold test also asserts, before the PATCH, that the holder's advisory lock is granted in `pg_locks`.
+  **Deviation recorded.** `test_open_after_close.py` has no policy fake and no sizing (`OpenAfterClose` only
+  calls `open_now`; the share is read in `ProcessSignalHandler`), so the deferred-opening test builds a real
+  `ProcessSignalHandler` from the fakes of `test_process_signal.py` (imported, not edited) with its own
+  `FakeStrategyPolicyPort` and `FakeInFlightWorkPort`, which it changes between `handle()` and `open_now()`.
+  No existing test or helper was edited.
 
 **The share preview** (design §§ C2, C3, H; spec: admin-api "The Share Preview Route Serves The Amount A
 Share Asks For")
