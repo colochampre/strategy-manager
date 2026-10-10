@@ -10,7 +10,9 @@ import { fireEvent } from "@testing-library/react";
 const TABBABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function tabbables(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(TABBABLE)].filter((element) => element.closest("[inert]") === null);
+  return [...document.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+    (element) => element.closest("[inert]") === null && element.getAttribute("tabindex") !== "-1",
+  );
 }
 
 /** Moves focus to the next tabbable element after the focused one (the first when none is focused). */
