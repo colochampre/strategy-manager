@@ -19,6 +19,7 @@ export type PoolsStub =
   | { kind: "network-error" }
   | { kind: "pending" };
 
+export type CredentialsStub = PoolsStub;
 export type PerformanceStub = PoolsStub;
 export type AvailablePairsStub = PoolsStub;
 
@@ -45,6 +46,42 @@ export function pool(
     balance,
     reserved: "0",
     allocatable: balance === null ? null : balance.available,
+  };
+}
+
+/** One `STORED` row of `GET /credentials`, in the API's shape; the overrides replace any of its fields. */
+export function storedKey(exchange: string, _overrides: Record<string, unknown> = {}) {
+  return {
+    exchange,
+    status: "STORED",
+    label: "default",
+    last4: "1234",
+    stored_at: "2026-10-01T10:00:00Z",
+    validated_at: "2026-10-01T10:00:00Z",
+    trade_capable: true,
+    trade_capability_source: "VERIFIED",
+    trade_confirmed_at: null,
+    withdraw_check: "VERIFIED",
+    withdraw_confirmed_at: null,
+    internal_transfer: false,
+  };
+}
+
+/** One `EMPTY` row of `GET /credentials`: the exchange and its status, everything else null. */
+export function emptyKey(exchange: string) {
+  return {
+    exchange,
+    status: "EMPTY",
+    label: null,
+    last4: null,
+    stored_at: null,
+    validated_at: null,
+    trade_capable: null,
+    trade_capability_source: null,
+    trade_confirmed_at: null,
+    withdraw_check: null,
+    withdraw_confirmed_at: null,
+    internal_transfer: null,
   };
 }
 
@@ -153,7 +190,9 @@ export function stubApi(
   performance: Record<string, PerformanceStub> = {},
   extra?: ExtraRoute,
   available: Record<string, AvailablePairsStub> = {},
+  _credentials?: CredentialsStub,
 ) {
+  const unexpected: string[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const owned = extra?.(url, init);
@@ -201,7 +240,7 @@ export function stubApi(
     return Promise.reject(new Error(`unexpected fetch: ${url}`));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
+  return Object.assign(fetchMock, { unexpected });
 }
 
 /**
