@@ -605,10 +605,11 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
   });
 
   it("Saved is still there ten minutes later", async () => {
-    await saveFortyOnAPage();
-
-    vi.useFakeTimers();
+    // The fake clock is installed before the save, so a timer the control starts is a fake one too.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
+      await saveFortyOnAPage();
+
       await act(async () => {
         vi.advanceTimersByTime(600_000);
       });
