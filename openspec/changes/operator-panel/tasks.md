@@ -4157,7 +4157,7 @@ requirements 947 to 1700)
 
 **"Saved"** (design § D; spec: "A Save Of The Share Or Of The Allowed Pairs Shows 'Saved'")
 
-- [ ] 12f.10.18 "Saved" for the share. RED `PoolShareEditor.test.tsx`, new tests, with the stub that mounts
+- [x] 12f.10.18 "Saved" for the share. RED `PoolShareEditor.test.tsx`, new tests, with the stub that mounts
   `InlineStatus` beside Save and never fills it. Tests: `::Saved shows when the PATCH answers 200 with a strategy`
   (RED: `expected null to be in the document`), `::the live region exists before the save, empty` (mutation: the
   region rendered only with its text), `::Saved is still there ten minutes later` (fake timers, 600,000 ms;
@@ -4167,6 +4167,24 @@ requirements 947 to 1700)
   success), `::a refusal and Saved are never on screen together and a new save clears Saved before it is sent`,
   `::Saved is neutral ink, not gain`, `::Saved is gone when the page is left and the control is shown again`.
   GREEN: a boolean local to the control; no store; no timer.
+  **Done (RED `4c49534`, GREEN `da14ed4`, test hardening `9a25f64`).** `PoolShareEditor.tsx` keeps one `saved`
+  boolean: set by the per-call `onSuccess` of the save (so only on a 200 with a strategy, and after the hook has
+  invalidated and the page holds the new state), cleared by any edit (handle, stop, key) and again when Save is
+  pressed, before the request is sent. `InlineStatus` was already always mounted; the editor feeds it
+  `strategies.detail.saved` ("Saved" / "Guardado", the owner's words). RED as observed against the stub (an
+  `InlineStatus` that is never filled): 11 of 65 failed, all on `expect(element).toHaveTextContent()` (the region
+  stayed empty). Passed at once: the six "no Saved after ..." cases and the neutral-ink case's region, the stub
+  having no text to show. Mutations after GREEN, each reverted with `git checkout`: the region rendered only with
+  its text reds 13 tests; the flag set on settle (`onSettled`) reds the six refusal cases and the
+  refusal-and-Saved case; the reset removed from the edit path reds the three "goes when" cases; the reset removed
+  from the Save path reds the "new save clears Saved" and "refusal and Saved" cases; `text-gain` in `InlineStatus`
+  reds the neutral-ink case; a five-second timer that clears the flag reds `Saved is still there ten minutes later`
+  once the fake clock is installed BEFORE the save (the first version of the test installed it after, so a timer
+  started during the save was a real one and the test could not see it: `9a25f64` fixes that). The "refusal and
+  Saved are never together" case and "a new save clears Saved" need the stored value NOT to move, which is why they
+  use the editor over a prop; with the page above it, a changed stored value empties the draft and Save is disabled.
+  Existing files edited: `locales/en.json` and `locales/es.json` (`strategies.detail.saved`); the GREEN commit also
+  carries a one-line fix to the test helper `savedRegion()`, which has to find Save under its second name, "Saving...".
 - [ ] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
   mounts `InlineStatus` and never fills it; the hook is NOT changed. Tests: `::Saved shows when the PUT answers
   200 and the list on screen is the saved one`, `::Saved goes at the next pair added or removed, and typing in
