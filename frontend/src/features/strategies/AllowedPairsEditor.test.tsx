@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
@@ -218,10 +218,12 @@ describe("AllowedPairsEditor", () => {
   });
 });
 
-/** The live region beside Save, found by either of the button's two names. */
+/** The live region beside Save, found by any of the button's three names. */
 function savedRegion(): HTMLElement {
   const button = screen.getByRole("button", {
-    name: new RegExp(`^(${i18n.t("strategies.detail.pairs.save")}|${i18n.t("strategies.detail.pairs.saving")})$`),
+    name: new RegExp(
+      `^(${i18n.t("strategies.detail.pairs.save")}|${i18n.t("strategies.detail.pairs.saving")}|${i18n.t("strategies.detail.saved")})$`,
+    ),
   });
   const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
   if (region === null || region === undefined) throw new Error("no live region beside Save");
@@ -253,7 +255,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     await saveSolana(rerender, puts);
 
     await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
-    expect(saveButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
   });
 
   it("Saved goes at the next pair added or removed", async () => {
@@ -263,6 +265,8 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
 
     remove("SOLUSDT");
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
   });
 
   it("Saved goes when a pair is added", async () => {
@@ -272,6 +276,8 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
 
     await add("BTCUSDT");
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
   });
 
   it("typing in the search box changes no pair and leaves Saved", async () => {
@@ -282,6 +288,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     fireEvent.change(screen.getByLabelText(i18n.t("strategies.pairs.search")), { target: { value: "BTC" } });
 
     expect(savedRegion()).toHaveTextContent("Saved");
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
   });
 
   it.each([
@@ -295,6 +302,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
   it("if the re-read after a 200 fails, so the list on screen is the old one, Saved is not shown", async () => {
@@ -305,6 +313,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
 
     // The page never received the saved list: the stored list is still the old one.
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
   it("a 200 whose body is not a strategy does not show Saved, even when the page then holds the saved list", async () => {
@@ -314,6 +323,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     await settle();
 
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
   it("a refusal and Saved are never on screen together: a new save clears the earlier Saved first", async () => {
@@ -333,6 +343,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
 
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
@@ -348,6 +359,7 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
       });
 
       expect(savedRegion()).toHaveTextContent("Saved");
+      expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
     } finally {
       vi.useRealTimers();
     }
@@ -404,7 +416,9 @@ describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", 
     expect(row.firstElementChild).toBe(text);
   });
 
-  it("the right block is Saved and then Save, keeps its size and is aligned to the top", async () => {
+  // Edited by 12f.10.30d: "Saved" is no longer a text before the button; the button holds it, and the
+  // status region that announces it follows the button.
+  it("the right block is Save and then its status, keeps its size and is aligned to the top", async () => {
     setup(strategy());
     await catalogueReady();
     const row = sharedRow(saveButton(), hintText());
@@ -414,19 +428,19 @@ describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", 
     expect(actions).not.toBe(childHolding(row, hintText()));
     expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
     expect(classesOf(actions)).not.toContain("flex-wrap");
-    expect(precedes(savedRegion(), saveButton())).toBe(true);
+    expect(precedes(saveButton(), savedRegion())).toBe(true);
     expect(actions.contains(savedRegion())).toBe(true);
     expect(saveButton().className).toContain("min-h-11");
   });
 
-  it("the reading order is the selector, the note, Saved, then Save", async () => {
+  it("the reading order is the selector, the note, Save, then its status", async () => {
     setup(strategy());
     await catalogueReady();
 
     const search = screen.getByLabelText(i18n.t("strategies.pairs.search"));
     expect(precedes(search, hintText())).toBe(true);
-    expect(precedes(hintText(), savedRegion())).toBe(true);
-    expect(precedes(savedRegion(), saveButton())).toBe(true);
+    expect(precedes(hintText(), saveButton())).toBe(true);
+    expect(precedes(saveButton(), savedRegion())).toBe(true);
   });
 
   it("the warning about the last pair is outside the row", async () => {
@@ -452,5 +466,96 @@ describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", 
     const alert = await screen.findByRole("alert");
     expect(row.contains(alert)).toBe(false);
     expect(row.parentElement?.contains(alert)).toBe(true);
+  });
+});
+
+// 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
+// is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
+describe.each([
+  { language: "en", save: "Save pairs", saving: "Saving…", saved: "Saved" },
+  { language: "es", save: "Guardar pares", saving: "Guardando…", saved: "Guardado" },
+] as const)("AllowedPairsEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage(T.language));
+  });
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  const button = (name: string) => screen.getByRole("button", { name });
+  const cellOf = (host: HTMLElement, text: string) => within(host).getByText(text);
+  const isShown = (cell: HTMLElement) => !cell.hasAttribute("aria-hidden") && !classesOf(cell).includes("invisible");
+  const isHidden = (cell: HTMLElement) =>
+    cell.getAttribute("aria-hidden") === "true" && classesOf(cell).includes("invisible");
+  /** Every element that holds exactly `text`, outside the button that owns it. */
+  const outside = (host: HTMLElement, text: string) => screen.queryAllByText(text).filter((node) => !host.contains(node));
+  /** Saves SOLUSDT and hands the page the saved list, as a successful re-read does. */
+  const saveSolanaNow = async () => {
+    const { puts, rerender } = setup(strategy());
+    await add("SOLUSDT");
+    fireEvent.click(button(T.save));
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT", "SOLUSDT"] }]));
+    rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+  };
+
+  it("holds all three of its texts and shows only Save while nothing was saved", () => {
+    setup(strategy());
+
+    const host = button(T.save);
+
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("reads Saved after a save, disabled, and shows only that one of its three texts", async () => {
+    await saveSolanaNow();
+
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    expect(host).toBeDisabled();
+    expect(screen.queryByRole("button", { name: T.save })).toBeNull();
+    expect(isShown(cellOf(host, T.saved))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+  });
+
+  it("shows only Saving while a save is in flight", async () => {
+    setup(strategy(), { answer: () => new Promise<Response>(() => undefined) as unknown as Response });
+    await add("SOLUSDT");
+    fireEvent.click(button(T.save));
+
+    const host = await screen.findByRole("button", { name: T.saving });
+
+    expect(host).toBeDisabled();
+    expect(isShown(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("leaves no visible Saved beside the button: the one text outside it is the hidden status", async () => {
+    await saveSolanaNow();
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    const elsewhere = outside(host, T.saved);
+
+    expect(elsewhere).toHaveLength(1);
+    const status = elsewhere[0] as HTMLElement;
+    expect(status).toHaveAttribute("role", "status");
+    expect(classesOf(status)).toContain("sr-only");
+    expect(host.parentElement).toContainElement(status);
+  });
+
+  it("goes back to Save when a pair is removed, and Saved is then in no visible text", async () => {
+    await saveSolanaNow();
+    await screen.findByRole("button", { name: T.saved });
+
+    remove("SOLUSDT");
+
+    const host = button(T.save);
+    expect(host).toBeEnabled();
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+    expect(outside(host, T.saved)).toEqual([]);
   });
 });
