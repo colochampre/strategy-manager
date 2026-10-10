@@ -918,7 +918,10 @@ owner leaves the view. (Unit 12f, 2026-10-06, owner decisions 44 and 48: the
 URL shown carries the webhook's host when one is available, and two Copy
 buttons are offered, as "The Webhook URL Is Shown And Copied With Its Host" and
 "The Webhook Block Has Two Copy Buttons" describe. Neither Copy button is the
-explicit "Show secret" action, and neither requests the secret.)
+explicit "Show secret" action, and neither reveals the secret. Revised
+2026-10-10, owner decision 53: with the secret hidden, "Copy URL" asks the server
+for it at the click, to write the URL that works, and shows nothing of it; the
+secret stays REVEALED only by "Show secret".)
 
 #### Scenario: Webhook message is copy-ready with a placeholder by default
 
@@ -930,7 +933,7 @@ explicit "Show secret" action, and neither requests the secret.)
 
 - GIVEN strategy S1's detail view is open
 - WHEN the owner uses any control in the view other than "Show secret"
-- THEN the shared secret is never displayed and never requested from the server
+- THEN the shared secret is never displayed, and it is never requested from the server except by "Copy URL" while the secret is hidden (decision 53), which displays nothing of it
 
 #### Scenario: The explicit request reveals the secret in place
 
@@ -1801,25 +1804,38 @@ allowed pairs after a 200 fails, so that the list on screen is the old one,
 > **Added 2026-10-06 (owner decisions 44 (12f.5) and 48, answered 2026-10-06; design addendum "unit 12f" § E).** "Copied" / "Copiado" are the owner's own words.
 
 The webhook block MUST offer two buttons: "Copy URL" / "Copiar URL" beside "Show
-secret", and "Copy message" / "Copiar mensaje" under the alert message. Each MUST
-write to the clipboard exactly the text on screen: the URL's, the placeholder
-while the secret is hidden and the real URL, secret included and as shown, once
-it is revealed; the message's, the message shown. Copying MUST NEVER request the
-secret, and MUST NOT turn the hidden placeholder into the revealed secret. The
-panel MUST NOT claim to clear the clipboard when the secret is hidden or the view
-is left. The URL MUST be text, never a link, and MUST NEVER be requested.
+secret", and "Copy message" / "Copiar mensaje" under the alert message. "Copy
+message" MUST write the message shown. "Copy URL" MUST write the URL that works in
+TradingView, with the webhook's host and the real secret, percent-encoded, whether
+the secret is shown or hidden: with the secret shown, the URL on screen, copied as
+it is with no request; with the secret hidden, the URL built from the secret that
+the click asks the server for (`GET /api/webhook-secret`), while the screen keeps
+the placeholder and nothing is revealed. The panel MUST NEVER write the placeholder
+URL to the clipboard. The secret of a hidden copy MUST be a local value of that one
+click: it MUST NOT be kept in component state, in the query cache, in a log, in an
+error text, in an attribute or in a hidden element, and a later "Show secret" MUST
+make its own request. The panel MUST NOT claim to clear the clipboard when the
+secret is hidden or the view is left. The URL MUST be text, never a link, and MUST
+NEVER be requested.
 
 > **Changed 2026-10-10 (owner decision 52, task 12f.10.30d).** "Copied" is the text of the Copy button itself, no longer a text beside it. When it shows and when it goes are unchanged.
+
+> **Changed 2026-10-10 (owner decision 53, task 12f.10.30e).** "Copy URL" copies the URL that works even while the secret is hidden, where it copied the text on screen, the placeholder, which does not work in TradingView. With no host it is disabled. Showing or hiding the secret no longer removes "Copied", because the clipboard holds the same URL either way.
 
 After a copy the panel MUST show:
 
 | Result | Text of the button activated | Until |
 | --- | --- | --- |
 | The alert message was copied | The button reads "Copied" / "Copiado" | Something else is copied, or the block is closed |
-| The URL was copied | The button reads "Copied" / "Copiado" | The same, AND the URL on screen stops being the one that was copied |
-| The browser refused, or has no clipboard | The button keeps its ordinary text, and "Could not copy. Select the text and copy it by hand." / "No se pudo copiar. Seleccione el texto y cópielo a mano." shows beside it in the loss colour | As the row of the button it belongs to |
+| The URL was copied | The button reads "Copied" / "Copiado" | The same, AND the host on screen stops being the one that was copied |
+| The request for the secret failed, or the browser refused, or has no clipboard | The button keeps its ordinary text, nothing is written to the clipboard by a failed request, and "Could not copy. Select the text and copy it by hand." / "No se pudo copiar. Seleccione el texto y cópielo a mano." shows beside it in the loss colour | As the row of the button it belongs to |
 
-A button that reads "Copied" MUST stay enabled and MUST copy again when pressed.
+While the request for the secret of a hidden copy is in flight, "Copy URL" MUST be
+disabled and keep its text, so a second click sends no second request. With no
+host ("No public host is configured", "could not be loaded" or still loading),
+"Copy URL" MUST be disabled and write nothing, because the path alone does not
+work in TradingView; with a host it is enabled. A button that reads "Copied" and
+is not disabled MUST stay enabled and MUST copy again when pressed.
 No visible "Copied" MUST stand beside a button. Each Copy button MUST have ONE
 width for both of its texts, the width of its longest in the current language,
 so the change of text moves nothing: both texts sit in one cell, and the one not
@@ -1829,49 +1845,61 @@ not announced, each Copy button MUST keep a visually hidden polite status region
 in the document from the first render, that says "Copied" / "Copiado" in the same
 states; a refusal is said in the same region, visibly.
 
-"Copied" on the URL's button MUST be shown only while the URL on screen is the
-one copied. Showing or hiding the secret MUST remove it for good, so it does not
-return when the secret is shown or hidden again; and a host that arrives after
-the copy, which changes the URL on screen, MUST remove it too. The message's
-"Copied" MUST NOT be touched by showing or hiding the secret. Only one "Copied"
-MUST be on screen: a copy with the other button moves it. The panel MUST NOT
-keep the copied text; it MAY keep only which button was used, whether it worked
-and the state of the URL it copied.
+"Copied" on the URL's button MUST be shown only while the host on screen is the
+one copied. Showing or hiding the secret MUST NOT remove it, because the clipboard
+holds the same working URL either way; a host read that answers with a different
+host after the copy MUST remove it. It also goes when the other button is used.
+The message's "Copied" MUST NOT be touched by showing or hiding the secret. Only
+one "Copied" MUST be on screen: a copy with the other button moves it. The panel
+MUST NOT keep the copied text; it MAY keep only which button was used, whether it
+worked and the host it was made with.
 
-#### Scenario: Copying the URL with the secret hidden copies the placeholder
+#### Scenario: Copying the URL with the secret hidden copies the URL that works
 
-- GIVEN strategy S1's webhook block is open, the secret is hidden and the webhook's host is `https://example.duckdns.org`
+- GIVEN strategy S1's webhook block is open, the secret is hidden, the webhook's host is `https://example.duckdns.org` and the server's secret is `p&q/r s`
 - WHEN the owner activates "Copy URL"
-- THEN the clipboard holds the URL as shown, `https://example.duckdns.org/webhook/tradingview?secret=` followed by the placeholder, the button reads "Copied", and no request for the secret was made
+- THEN the clipboard holds exactly `https://example.duckdns.org/webhook/tradingview?secret=p%26q%2Fr%20s`, the button reads "Copied", one request for the secret was made, the URL on screen still shows the placeholder, "Show secret" still reads "Show secret", and the secret is in no text, attribute or query-cache entry of the page
 
 #### Scenario: Copying the URL with the secret revealed copies the real URL
 
 - GIVEN the owner pressed "Show secret" and the real URL is on screen
 - WHEN the owner activates "Copy URL"
-- THEN the clipboard holds exactly the URL on screen, and the button reads "Copied"
+- THEN the clipboard holds exactly the URL on screen, the button reads "Copied", and no request for the secret was made by the copy
 
-#### Scenario: Showing the secret removes "Copied" from the URL's button
+#### Scenario: A hidden copy leaves the secret in no cache
 
-- GIVEN the owner copied the URL with the placeholder and the button reads "Copied"
-- WHEN the owner presses "Show secret"
-- THEN the button reads "Copy URL" again, and the clipboard still holds the placeholder URL
+- GIVEN the owner copied the URL with the secret hidden
+- WHEN the query cache is read, and the owner then presses "Show secret"
+- THEN the cache held no secret after the copy, and "Show secret" made its own request
 
-#### Scenario: Showing the secret again does not bring "Copied" back
+#### Scenario: A failed request writes nothing and says so
 
-- GIVEN the owner copied the placeholder URL, pressed "Show secret" and then "Hide secret"
-- WHEN the URL on screen is the placeholder again
-- THEN the button does not read "Copied", because the URL on screen was not copied since
+- GIVEN the secret is hidden and `GET /api/webhook-secret` fails (network, 401, 5xx, or a body that is not a secret)
+- WHEN the owner activates "Copy URL"
+- THEN nothing is written to the clipboard, "Could not copy. Select the text and copy it by hand." shows beside the button, the button keeps reading "Copy URL", and the placeholder URL was not written
 
-#### Scenario: Hiding the secret removes "Copied" from the URL's button
+#### Scenario: A click while the request is in flight sends no second request
 
-- GIVEN the owner revealed the secret, copied the URL and the button reads "Copied"
-- WHEN the owner presses "Hide secret"
-- THEN the button reads "Copy URL" again
+- GIVEN the owner activated "Copy URL" with the secret hidden and the request has not answered
+- WHEN the owner clicks the button again
+- THEN the button is disabled with the same text and no second request is sent
 
-#### Scenario: A host that arrives after the copy removes "Copied"
+#### Scenario: With no host, "Copy URL" is disabled
 
-- GIVEN the webhook's host is still loading, the owner copied the URL as the path alone and the button reads "Copied"
-- WHEN the host arrives and the URL on screen gains it
+- GIVEN the webhook's host is not configured, could not be loaded, or is still loading
+- WHEN the webhook block is open
+- THEN "Copy URL" is disabled and writes nothing, "Copy message" is enabled, and the sentence that says why there is no host is unchanged
+
+#### Scenario: Showing or hiding the secret leaves "Copied" on the URL's button
+
+- GIVEN the owner copied the URL, with the secret hidden or revealed, and the button reads "Copied"
+- WHEN the owner presses "Show secret" and then "Hide secret"
+- THEN the button still reads "Copied"
+
+#### Scenario: A different host after the copy removes "Copied"
+
+- GIVEN the owner copied the URL and the button reads "Copied"
+- WHEN the host read answers with a different host and the URL on screen changes
 - THEN the button reads "Copy URL" again
 
 #### Scenario: The message's "Copied" survives showing and hiding the secret
@@ -1890,7 +1918,7 @@ and the state of the URL it copied.
 
 - GIVEN "Copy URL" reads "Copied"
 - WHEN the owner presses it
-- THEN it copies the text on screen again and still reads "Copied"
+- THEN it copies the working URL again, asking again for the secret if it is hidden, and still reads "Copied"
 
 #### Scenario: A refused copy says so and never reads "Copied"
 
@@ -1904,11 +1932,11 @@ and the state of the URL it copied.
 - WHEN the owner activates "Copy message"
 - THEN "Could not copy. Select the text and copy it by hand." shows
 
-#### Scenario: Neither Copy button requests the secret
+#### Scenario: Only "Show secret" and a hidden "Copy URL" request the secret
 
-- GIVEN the secret is hidden
-- WHEN the owner activates "Copy URL" and "Copy message" and the requests are counted
-- THEN no request to `GET /api/webhook-secret` was made
+- GIVEN the secret is hidden and the webhook's host is set
+- WHEN the owner activates "Copy message" and every other control of the view and the requests are counted
+- THEN no request to `GET /api/webhook-secret` was made; and "Copy URL" then makes exactly one, and "Show secret" one more
 
 #### Scenario: The URL is never a link and never requested
 
@@ -1931,8 +1959,8 @@ slash or upper case); anything else MUST be treated as no host. The origin MUST
 be displayed and copied, MUST NEVER be fetched, and MUST NOT be a link or a form
 target.
 
-- While the host is loading, the path alone MUST be shown, and that is what a
-  copy takes.
+- While the host is loading, the path alone MUST be shown, and "Copy URL" MUST
+  be disabled (decision 53: the path alone does not work in TradingView).
 - When the answer is `{"origin": null}`: the path alone and "No public host is
   configured for the webhook, so only the path is shown. Put your webhook's host
   in front of it." / "No hay un host público configurado para el webhook, por lo
@@ -1976,7 +2004,7 @@ target.
 
 - GIVEN `GET /api/webhook-origin` has not answered
 - WHEN the webhook block is opened
-- THEN the path alone shows, and a copy at that moment takes the path alone
+- THEN the path alone shows, and "Copy URL" is disabled at that moment
 
 #### Scenario: The host is never compiled in
 
