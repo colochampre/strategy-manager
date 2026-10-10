@@ -239,6 +239,15 @@ describe("PairStatsTable win rate column", () => {
     expect(screen.queryByRole("row", { name: /SOLUSDT/ })).toBeNull();
   });
 
+  it("checks a trade count above a million in whole numbers, so the edge of the tolerance is still accepted", () => {
+    // 5,000,000 trades and 7,920 wins: the ratio times the trades is exactly one unit of the last place off,
+    // the edge. Multiplying floats puts it a hair past the edge and would refuse a row that is within it.
+    render(<PairStatsTable currency="USDT" pairs={[stat({ trades: 5_000_000, wins: 7920, win_rate: "0.0015840001" })]} />);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(cellsOf("SOLUSDT")[2]).toHaveTextContent("0.1%");
+  });
+
   it.each([
     ["7 of 12", 12, 7, "0.5833333333", "58.3%"],
     ["1,999 of 2,000", 2000, 1999, "0.9995000000", "99.9%"],
