@@ -3999,7 +3999,7 @@ requirements 947 to 1700)
   Existing files edited: `share-value.ts` and `share-value.test.ts` (the task), and the panel delta spec
   `specs/operator-panel/spec.md` (the refusal class and one scenario). The text for the field is wired in 12f.10.14
   to 12f.10.17.
-- [ ] 12f.10.14 Step 1, the field and its value. RED `ShareSlider.test.tsx` (Create), with the stub design § K names: an
+- [x] 12f.10.14 Step 1, the field and its value. RED `ShareSlider.test.tsx` (Create), with the stub design § K names: an
   input with a fixed `size` of 12 and the `%` sign placed before it. `ShareSlider` is presentational: it takes
   the text, the handle, the disabled flag and its callbacks. Tests: `::the field is a text input with
   inputMode decimal and maxLength 12`, `::size is the number of characters typed, and 1 when empty` (`5`, `33.5`,
@@ -4016,6 +4016,26 @@ requirements 947 to 1700)
   attribute` (**passes at once**; mutation: one `style={{}}`). GREEN: the wrapper carries the field look
   (`min-h-11`, border, `ground` fill, padding, `cursor-text`, `focus-within` ring), the input has no border, no
   fill and 2 px of right padding, then the sign in the same font and ink.
+  **Done (RED `ebef9cf`, GREEN `6cc4cda`, one added assertion `e0c826d`).** `ShareSlider.tsx` is created with its full
+  props (`fieldId`, `labelId`, `text`, `handle`, `value`, `disabled`, `invalid`, `describedBy`, `onText`, `onHandle`,
+  `onStop`); this step draws the field only. `value` is the canonical share the text reads as, or `null`; the track
+  and the stops of the next step use it. RED as observed, against the stub (size 12, sign before the input, no
+  attributes): `expected '12' to be '4'` (and for `5`, `100`, and the empty field), `toHaveAttribute("inputmode",
+  "decimal")`, `toHaveClass("field-sizing-content")`, `expected null not to be null` (the sign as next sibling),
+  `toHaveClass("min-h-11")`, `toHaveFocus()`, `toBeDisabled()`, `toHaveAttribute("aria-invalid", "true")` and
+  `"false"`. Passed at once: the twelve-character size (the stub's constant), the label name, the dot in both languages,
+  `%` passed on as typed, a keystroke reaching only `onText`, and no `style` attribute. `field-sizing-content` is a
+  utility in the pinned Tailwind 4.3.3, so `index.css` is untouched. Mutations after GREEN, each reverted with
+  `git checkout`: a constant `size` reds the four size cases; `text.length` without the minimum reds the empty case;
+  `field-sizing-content` removed and `min-w-[1ch]` removed each red the class test; the sign appended to the value
+  reds the sibling test, both dot tests and the `%` test; a spacer put between input and sign reds the sibling test
+  (this stands for the sign "at the far end"); the press handler removed reds both press tests; the handler
+  ignoring `disabled` passed at first, because jsdom cannot focus a disabled input either way, so `e0c826d` asserts
+  that the press on a disabled control is not default-prevented, and that mutation then reds it; a non-empty
+  `style` on the wrapper reds the style test (`style={{}}` renders no attribute, so it is an equivalent mutant and
+  was not used). Differences from the approved prototype: the focus ring is the panel's `gain` outline, as every
+  other control of the panel has it, where the prototype draws it in `ink`; the wrapper is `rounded-md`. No existing
+  file edited.
 - [ ] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
   type="range">` with no attributes. Tests: `::the track is a range input with min 1, max 100, step 1` and named
   by the visible label (`queryByRole("slider", { name: "Share of the pool per trade" })`), `::its value text is
