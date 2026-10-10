@@ -314,7 +314,9 @@
       "show": "Mostrar el secreto",
       "showing": "Obteniendo el secreto…",
       "hide": "Ocultar el secreto",
-      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador."
+      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador.",
+      "hostUnset": "No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook.",
+      "hostError": "No se pudo cargar el host del webhook, por lo que solo se muestra la ruta."
     },
     "archive": {
       "title": "Archivar estrategia",

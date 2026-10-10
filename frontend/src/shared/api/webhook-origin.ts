@@ -19,20 +19,22 @@ export function acceptedOrigin(value: string): string | null {
 }
 
 /**
- * `GET /api/webhook-origin`: the origin TradingView posts to, or null when none is usable. A body without
- * an `origin` key, or whose `origin` is neither null nor a string, reads as an error; a string that is not
- * a serialised origin reads as no host. The origin is only displayed and copied: it is never requested.
+ * `GET /api/webhook-origin`: the origin TradingView posts to, or null when none is configured. A body
+ * without an `origin` key, whose `origin` is neither null nor a string, or whose string is not a serialised
+ * origin, reads as an error: the panel says the host could not be loaded, which is not what it says for a
+ * served null. The origin is only displayed and copied: it is never requested.
  */
 export async function fetchWebhookOrigin(): Promise<string | null> {
   const body = await apiFetch<unknown>("/webhook-origin");
   const origin = typeof body === "object" && body !== null ? (body as Record<string, unknown>).origin : undefined;
   if (origin === null) return null;
-  if (typeof origin !== "string") {
+  const accepted = typeof origin === "string" ? acceptedOrigin(origin) : null;
+  if (accepted === null) {
     throw new ApiError(200, {
       detail: "Unexpected response shape from GET /webhook-origin: expected an origin or null",
     });
   }
-  return acceptedOrigin(origin);
+  return accepted;
 }
 
 /** Read when the block mounts, which is when it is opened. An older API's 404 reads as an error. */

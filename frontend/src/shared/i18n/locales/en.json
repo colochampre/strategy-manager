@@ -314,7 +314,9 @@
       "show": "Show secret",
       "showing": "Fetching the secret…",
       "hide": "Hide secret",
-      "error": "The secret could not be loaded. The URL still shows the placeholder."
+      "error": "The secret could not be loaded. The URL still shows the placeholder.",
+      "hostUnset": "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.",
+      "hostError": "The webhook's host could not be loaded, so only the path is shown."
     },
     "archive": {
       "title": "Archive strategy",

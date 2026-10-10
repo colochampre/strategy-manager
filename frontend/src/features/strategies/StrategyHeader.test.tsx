@@ -29,6 +29,8 @@ const STRATEGY: Strategy = {
 function setup() {
   const secretCalls: string[] = [];
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    // The block also reads the webhook's host when it opens; it is not a call for the secret.
+    if (String(input).endsWith("/webhook-origin")) return Promise.resolve(jsonResponse({ origin: null }));
     secretCalls.push(String(input));
     return Promise.resolve(jsonResponse({ secret: SECRET }));
   });
@@ -113,12 +115,14 @@ describe("StrategyHeader webhook disclosure", () => {
     fireEvent.click(toggle());
     fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
     expect(await screen.findByText(`/webhook/tradingview?secret=${SECRET}`)).toBeInTheDocument();
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(1);
+    // The secret's entries only: the webhook's host is cached too, and is not what closing the block evicts.
+    const secretEntries = () => queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] });
+    expect(secretEntries()).toHaveLength(1);
     expect(secretCalls).toHaveLength(1);
 
     fireEvent.click(toggle());
 
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
+    expect(secretEntries()).toHaveLength(0);
     expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
     expect(document.body.textContent).not.toContain(SECRET);
 

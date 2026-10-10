@@ -15,6 +15,7 @@ const SECRET = "s3cr3t-Vh4lu3-Zq9";
 const URL_BASE = "/webhook/tradingview?secret=";
 const PLACEHOLDER_URL = `${URL_BASE}<your WEBHOOK_SECRET>`;
 const SECRET_PATH = "/api/webhook-secret";
+const ORIGIN_PATH = "/api/webhook-origin";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug"] as const;
 
 type Answer = () => Promise<Response>;
@@ -28,12 +29,16 @@ interface Call {
   init: RequestInit | undefined;
 }
 
-/** A QueryClient with the app's own defaults (main.tsx builds a bare one), so window-focus refetching is live. */
+/**
+ * A QueryClient with the app's own defaults (main.tsx builds a bare one), so window-focus refetching is live.
+ * The block also reads the webhook's host when it opens; these tests are about the secret, so the host route
+ * answers "no host configured" and `answer` is for every other route.
+ */
 function setup(answer: Answer = answersWith(SECRET), strategyId = ID) {
   const calls: Call[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(input), init });
-    return answer();
+    return String(input).endsWith(ORIGIN_PATH) ? Promise.resolve(jsonResponse({ origin: null })) : answer();
   });
   vi.stubGlobal("fetch", fetchMock);
   const queryClient = new QueryClient();
@@ -50,7 +55,10 @@ function setup(answer: Answer = answersWith(SECRET), strategyId = ID) {
  * A disabled `useQuery` still puts an empty entry in the cache, so "holds no secret" means no
  * entry holds data, and an eviction is proved separately by the entry count after unmounting.
  */
-const cachedData = (queryClient: QueryClient) => queryClient.getQueryCache().findAll().map((query) => query.state.data);
+const cachedData = (queryClient: QueryClient) =>
+  queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] }).map((query) => query.state.data);
+/** The secret's entries only: the webhook's host is cached too, and is not what an eviction removes. */
+const secretEntries = (queryClient: QueryClient) => queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] });
 
 const showButton = () => screen.getByRole("button", { name: "Show secret" });
 const revealedUrl = (secret = SECRET) => screen.findByText(`${URL_BASE}${secret}`);
@@ -190,6 +198,7 @@ describe("WebhookMessage", () => {
   it("test_leaving_the_view_restores_placeholder_and_evicts_query_cache", async () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      if (String(input).endsWith(ORIGIN_PATH)) return Promise.resolve(jsonResponse({ origin: null }));
       calls.push(String(input));
       return Promise.resolve(jsonResponse({ secret: SECRET }));
     });
@@ -214,12 +223,12 @@ describe("WebhookMessage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
     await revealedUrl();
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(1);
+    expect(secretEntries(queryClient)).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("link", { name: "leave" }));
 
     expect(screen.queryByText(`${URL_BASE}${SECRET}`)).not.toBeInTheDocument();
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
+    expect(secretEntries(queryClient)).toHaveLength(0);
     expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
 
     fireEvent.click(screen.getByRole("link", { name: "return" }));
@@ -230,9 +239,9 @@ describe("WebhookMessage", () => {
     // Unmounting the whole tree (a closed tab, a route outside this router) evicts it too.
     fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
     await revealedUrl();
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(1);
+    expect(secretEntries(queryClient)).toHaveLength(1);
     view.unmount();
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
+    expect(secretEntries(queryClient)).toHaveLength(0);
   });
 
   it("hides the secret and evicts it from the cache on Hide, and shows it again only on another click", async () => {
@@ -277,7 +286,7 @@ describe("WebhookMessage", () => {
     let resolveAnswer: (response: Response) => void = () => undefined;
     const { queryClient, unmount } = setup(() => new Promise<Response>((resolve) => (resolveAnswer = resolve)));
     fireEvent.click(showButton());
-    await waitFor(() => expect(queryClient.getQueryCache().findAll()).toHaveLength(1));
+    await waitFor(() => expect(secretEntries(queryClient)).toHaveLength(1));
 
     unmount();
     await act(async () => {
@@ -285,7 +294,7 @@ describe("WebhookMessage", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
-    expect(queryClient.getQueryCache().findAll()).toHaveLength(0);
+    expect(secretEntries(queryClient)).toHaveLength(0);
     expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
   });
 
@@ -352,7 +361,6 @@ describe("WebhookMessage", () => {
 
   describe("the host of the URL", () => {
     const HOST = "https://example.duckdns.org";
-    const ORIGIN_PATH = "/api/webhook-origin";
     const HOST_UNSET =
       "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.";
     const HOST_ERROR = "The webhook's host could not be loaded, so only the path is shown.";
@@ -449,7 +457,7 @@ describe("WebhookMessage", () => {
       const code = screen.getByLabelText("Webhook URL");
       fireEvent.click(code);
       fireEvent.click(showButton());
-      await revealedUrl();
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
       await settle();
 
       expect(code.tagName).toBe("CODE");

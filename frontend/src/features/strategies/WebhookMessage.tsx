@@ -3,9 +3,9 @@ import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { webhookMessage } from "@/features/strategies/webhook-message";
+import { webhookUrl } from "@/features/strategies/webhook-url";
+import { useWebhookOrigin } from "@/shared/api/webhook-origin";
 import { useWebhookSecret, WEBHOOK_SECRET_QUERY_KEY } from "@/shared/api/webhook-secret";
-
-const WEBHOOK_PATH = "/webhook/tradingview";
 
 /** Removes the query outright, rather than leaving it to garbage collection after its observers go. */
 function evictSecret(queryClient: QueryClient): void {
@@ -64,6 +64,12 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
   };
 
   const urlValue = shown === null ? t("strategies.webhook.secretPlaceholder") : encodeURIComponent(shown);
+  // Read when the block opens, which is when this view mounts. Loading and failing both leave the path alone;
+  // only a settled answer says why there is no host.
+  const hostRead = useWebhookOrigin();
+  const origin = hostRead.status === "success" ? hostRead.data : null;
+  const url = webhookUrl(origin, urlValue);
+  const hostNote = hostRead.status === "error" ? "hostError" : hostRead.status === "success" && origin === null ? "hostUnset" : null;
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -80,7 +86,7 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
             aria-labelledby={urlLabelId}
             className="min-w-0 grow break-all rounded-md border border-rule bg-panel px-3.5 py-3 font-mono text-xs text-ink-2"
           >
-            {`${WEBHOOK_PATH}?secret=${urlValue}`}
+            {url}
           </code>
           {shown === null ? (
             <button
@@ -101,6 +107,7 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
             </button>
           )}
         </div>
+        {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         {failed && (
           <p role="alert" className="text-sm text-loss">
             {t("strategies.webhook.error")}
