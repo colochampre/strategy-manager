@@ -45,7 +45,7 @@ export class ApiError extends Error {
     this.outcome = body?.outcome;
     this.detail = text;
     this.fields = structured;
-    this.responseBody = undefined;
+    this.responseBody = isRecord(body) ? body : undefined;
     this.code = typeof structured?.error === "string" ? structured.error : body?.outcome;
   }
 }
