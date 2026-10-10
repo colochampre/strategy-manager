@@ -1851,3 +1851,129 @@ describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I
     await hereLater(T.saved);
   });
 });
+
+/** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
+const classesOf = (element: Element) => element.className.split(/\s+/);
+
+/** The nearest element that holds both nodes: the row they share. */
+function sharedRow(first: Element, second: Element): HTMLElement {
+  let node: HTMLElement | null = first.parentElement;
+  while (node !== null && !node.contains(second)) node = node.parentElement;
+  if (node === null) throw new Error("the two nodes share no row");
+  return node;
+}
+
+/** The direct child of `row` that holds `node`. */
+function childHolding(row: HTMLElement, node: Element): HTMLElement {
+  const child = Array.from(row.children).find((candidate) => candidate.contains(node));
+  if (child === undefined) throw new Error("no child of the row holds the node");
+  return child as HTMLElement;
+}
+
+describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30c)", () => {
+  it("Save and the amount line share one horizontal row, aligned to the top, that does not wrap", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+
+    expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row)).not.toContain("flex-col");
+    expect(classesOf(row)).not.toContain("flex-wrap");
+    // The row is the amount block and the button block, not the whole control.
+    expect(row.contains(field())).toBe(false);
+    expect(row.children).toHaveLength(2);
+  });
+
+  it("the left block is the amount line with its information button, and it takes the room that is left", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+
+    const text = childHolding(row, screen.getByText(amountLine("300.00")));
+
+    expect(text.contains(amountInfo())).toBe(true);
+    expect(text.contains(saveButton())).toBe(false);
+    expect(classesOf(text)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+  });
+
+  it("the right block is Saved and then Save, keeps its size and is aligned to the top", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+
+    const actions = childHolding(row, saveButton());
+    const status = actions.querySelector<HTMLElement>('[role="status"]');
+
+    expect(actions).not.toBe(childHolding(row, screen.getByText(amountLine("300.00"))));
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
+    expect(classesOf(actions)).not.toContain("flex-wrap");
+    expect(status).not.toBeNull();
+    expect(precedes(status as HTMLElement, saveButton())).toBe(true);
+    expect(saveButton().className).toContain("min-h-11");
+  });
+
+  it("the text block comes first in the document: the amount, then Saved, then Save", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+
+    expect(precedes(screen.getByText(amountLine("300.00")), savedRegion())).toBe(true);
+    expect(precedes(amountInfo(), savedRegion())).toBe(true);
+    expect(precedes(savedRegion(), saveButton())).toBe(true);
+    expect(row.firstElementChild).toBe(childHolding(row, screen.getByText(amountLine("300.00"))));
+  });
+
+  it("the explanation that opens under the amount stays in the left block, so Save does not move", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const actionsBefore = childHolding(row, saveButton());
+
+    fireEvent.click(amountInfo());
+
+    const estimate = screen.getByText(ESTIMATE);
+    const text = childHolding(row, screen.getByText(amountLine("300.00")));
+    expect(text.contains(estimate)).toBe(true);
+    expect(text.contains(screen.getByText(PAIR_NOTE))).toBe(true);
+    expect(childHolding(row, saveButton())).toBe(actionsBefore);
+    expect(classesOf(row)).toContain("items-start");
+  });
+
+  it("the warning on the pool's minimum stays in the left block", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served(SMALL_POOL) });
+    await expectText(WARNING);
+    const row = sharedRow(saveButton(), screen.getByText(WARNING));
+
+    const text = childHolding(row, screen.getByText(WARNING));
+
+    expect(text.contains(screen.getByText(amountLine("3.00")))).toBe(true);
+    expect(text.contains(saveButton())).toBe(false);
+    expect(classesOf(row)).not.toContain("flex-col");
+  });
+
+  it("a failed save is an alert outside the row", async () => {
+    setup(strategy(), { preview: served(), patch: refuse(500, "boom") });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    type("40");
+
+    fireEvent.click(saveButton());
+
+    const alert = await alertLine();
+    expect(row.contains(alert)).toBe(false);
+    expect(row.parentElement?.contains(alert)).toBe(true);
+  });
+
+  it("the refusal of a typed value is outside the row, and Saved is still inside it", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+
+    type("abc");
+
+    const refusal = screen.getByText("Enter a number, for example 25 or 33.5.");
+    expect(row.contains(refusal)).toBe(false);
+    expect(row.contains(savedRegion())).toBe(true);
+  });
+});

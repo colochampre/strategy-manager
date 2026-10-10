@@ -353,3 +353,104 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     }
   });
 });
+
+/** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
+const classesOf = (element: Element) => element.className.split(/\s+/);
+
+/** The nearest element that holds both nodes: the row they share. */
+function sharedRow(first: Element, second: Element): HTMLElement {
+  let node: HTMLElement | null = first.parentElement;
+  while (node !== null && !node.contains(second)) node = node.parentElement;
+  if (node === null) throw new Error("the two nodes share no row");
+  return node;
+}
+
+/** The direct child of `row` that holds `node`. */
+function childHolding(row: HTMLElement, node: Element): HTMLElement {
+  const child = Array.from(row.children).find((candidate) => candidate.contains(node));
+  if (child === undefined) throw new Error("no child of the row holds the node");
+  return child as HTMLElement;
+}
+
+const hintText = () => screen.getByText(i18n.t("strategies.detail.pairs.hint"));
+/** Whether `before` comes before `after` in the document, which is the order on screen. */
+const precedes = (before: Element, after: Element) =>
+  (before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", () => {
+  it("Save and the note share one horizontal row, aligned to the top, that does not wrap", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    const row = sharedRow(saveButton(), hintText());
+
+    expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row)).not.toContain("flex-col");
+    expect(classesOf(row)).not.toContain("flex-wrap");
+    // The row is the note and the button block, not the whole control.
+    expect(row.contains(screen.getByLabelText(i18n.t("strategies.pairs.search")))).toBe(false);
+    expect(row.children).toHaveLength(2);
+  });
+
+  it("the left block is the note and takes the room that is left", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    const text = childHolding(row, hintText());
+
+    expect(text.contains(saveButton())).toBe(false);
+    expect(classesOf(text)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(row.firstElementChild).toBe(text);
+  });
+
+  it("the right block is Saved and then Save, keeps its size and is aligned to the top", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    const actions = childHolding(row, saveButton());
+
+    expect(actions).not.toBe(childHolding(row, hintText()));
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
+    expect(classesOf(actions)).not.toContain("flex-wrap");
+    expect(precedes(savedRegion(), saveButton())).toBe(true);
+    expect(actions.contains(savedRegion())).toBe(true);
+    expect(saveButton().className).toContain("min-h-11");
+  });
+
+  it("the reading order is the selector, the note, Saved, then Save", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    const search = screen.getByLabelText(i18n.t("strategies.pairs.search"));
+    expect(precedes(search, hintText())).toBe(true);
+    expect(precedes(hintText(), savedRegion())).toBe(true);
+    expect(precedes(savedRegion(), saveButton())).toBe(true);
+  });
+
+  it("the warning about the last pair is outside the row", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    remove("ETHUSDT");
+
+    const warning = screen.getByText(i18n.t("strategies.detail.pairs.lastPair"));
+    expect(row.contains(warning)).toBe(false);
+    expect(row.parentElement?.contains(warning)).toBe(true);
+  });
+
+  it("a failed save is an alert outside the row", async () => {
+    setup(strategy(), { answer: () => jsonResponse({ detail: "boom" }, 500) });
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+    await add("SOLUSDT");
+
+    fireEvent.click(saveButton());
+
+    const alert = await screen.findByRole("alert");
+    expect(row.contains(alert)).toBe(false);
+    expect(row.parentElement?.contains(alert)).toBe(true);
+  });
+});
