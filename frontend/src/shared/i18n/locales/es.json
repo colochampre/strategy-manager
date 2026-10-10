@@ -186,6 +186,7 @@
         "lastPair": "Una estrategia necesita al menos un par permitido.",
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       },
+      "saved": "Guardado",
       "share": {
         "label": "Porcentaje del pool por operación",
         "valueText": "{{value}} % del pool",

@@ -186,6 +186,7 @@
         "lastPair": "A strategy needs at least one allowed pair.",
         "saveFailed": "The allowed pairs were not saved. Try again."
       },
+      "saved": "Saved",
       "share": {
         "label": "Share of the pool per trade",
         "valueText": "{{value}}% of the pool",

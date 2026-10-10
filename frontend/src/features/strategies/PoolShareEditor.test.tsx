@@ -565,7 +565,9 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
 
 /** The live region beside Save, which is where "Saved" is written. */
 function savedRegion(): HTMLElement {
-  const region = saveButton().parentElement?.querySelector<HTMLElement>('[role="status"]');
+  // The button reads "Saving…" while a save is in flight, so it is found by either name.
+  const button = screen.getByRole("button", { name: /^(Save share|Saving…)$/ });
+  const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
   if (region === null || region === undefined) throw new Error("no live region beside Save");
   return region;
 }

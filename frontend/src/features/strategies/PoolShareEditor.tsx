@@ -50,6 +50,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [saved, setSaved] = useState(false);
   const save = useSetAllocationPercent(strategy.id);
 
   const stored = readStored(strategy.allocation_percent);
@@ -71,7 +72,11 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
 
-  const edit = (next: string, nextHandle: number) => setDraft({ base: stored, text: next, handle: nextHandle });
+  // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
+  const edit = (next: string, nextHandle: number) => {
+    setSaved(false);
+    setDraft({ base: stored, text: next, handle: nextHandle });
+  };
   const handleText = (next: string) => {
     const read = parseDraft(next);
     edit(next, read.valid ? roundToHandle(read.canonical) : handle);
@@ -80,7 +85,10 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
 
   const handleSave = () => {
     if (!reading.valid || !changed || archived || busy) return;
-    save.mutate(reading.canonical);
+    // Cleared before the request is sent, so a refusal and "Saved" are never on screen together; set on
+    // success only, never on settle.
+    setSaved(false);
+    save.mutate(reading.canonical, { onSuccess: () => setSaved(true) });
   };
 
   return (
@@ -120,7 +128,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         >
           {busy ? t("strategies.detail.share.saving") : t("strategies.detail.share.save")}
         </button>
-        <InlineStatus message={null} />
+        <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
       </div>
     </section>
   );
