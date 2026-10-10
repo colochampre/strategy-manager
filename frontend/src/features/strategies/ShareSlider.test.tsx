@@ -122,7 +122,9 @@ describe("ShareSlider, step 1: the field and its value", () => {
   it("on a disabled control a press on the wrapper does not focus the input", () => {
     renderSlider({ disabled: true });
 
-    fireEvent.mouseDown(screen.getByText("%"));
+    // A disabled input cannot take focus in any case, so the observable part is that the press is left alone.
+    const left = fireEvent.mouseDown(screen.getByText("%"));
+    expect(left).toBe(true);
     expect(field()).not.toHaveFocus();
     expect(field()).toBeDisabled();
   });
