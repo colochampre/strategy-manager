@@ -74,9 +74,26 @@ export function tableFigureText(value: string): string | null {
   });
 }
 
-/** STUB (12f.10.3 RED): returns its argument until the GREEN writes the rate. */
-export function rateText(ratio: string, _locale: string): string | null {
-  return ratio;
+const RATE_TEXT = /^(\d+)(?:\.(\d+))?$/;
+/** A rate is cut at one decimal of the percentage: three digits of the ratio, tenths of a percent. */
+const RATE_DIGITS = 3;
+
+/**
+ * A served win rate as an unsigned percentage with one decimal (`0.5833333333` is `58.3%`). The digits
+ * of the served string are cut at the tenth of a percent and never rounded, so only a rate of exactly one
+ * reads 100.0%; the cut count is then given to `Intl` for the language's separator and sign. It is a
+ * text operation, not a division, and not `percentText`, which signs every figure. A string that is not
+ * a plain ratio, an exponent included, gives `null`.
+ */
+export function rateText(ratio: string, locale: string): string | null {
+  const match = RATE_TEXT.exec(ratio);
+  if (match === null) return null;
+  const tenths = Number(`${match[1] ?? ""}${(match[2] ?? "").padEnd(RATE_DIGITS, "0").slice(0, RATE_DIGITS)}`);
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(tenths / 1000);
 }
 
 /**
