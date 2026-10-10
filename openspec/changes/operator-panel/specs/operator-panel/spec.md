@@ -1073,6 +1073,11 @@ sends, and MUST refuse, with Save disabled, each of these classes:
 - **Not a number**: an empty field, `abc`, `1e1`, `-5`, `25%`, `1.000,5`, `33.`.
   Text: "Enter a number, for example 25 or 33.5." / "Escriba un número, por
   ejemplo 25 o 33,5." Nothing MUST be guessed and nothing trimmed into a value.
+- **Too many decimals** (owner decision 50): a value whose canonical form, without
+  trailing zeros, has more than 18 decimal places, such as `33.3333333333333333333`
+  (19). Text: "A share has at most 18 decimal places." / "El porcentaje tiene como
+  máximo 18 decimales." It is judged after the three above. No preview and no save
+  MUST be sent for it.
 
 Typing back the stored value MUST be valid and unchanged, with Save disabled.
 The refusal text MUST be tied to the field and the field MUST be marked invalid;
@@ -1113,6 +1118,13 @@ the text MUST NOT be announced as an alert on every keystroke.
 - GIVEN a stored share of `25`
 - WHEN the owner types `100.5`, and then `150`
 - THEN each time "The share must be above 0 and at most 100." shows and Save is disabled
+
+#### Scenario: A value of more than 18 decimal places is refused
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `33.3333333333333333333` (19 decimals)
+- THEN "A share has at most 18 decimal places." shows, the field is marked invalid, Save is disabled and no preview and no save request is sent
+- AND `0.123456789012345678` (18 decimals) and `1.5000000000000000000` (which is `1.5`) are accepted
 
 #### Scenario: An empty field is refused as not a number
 
