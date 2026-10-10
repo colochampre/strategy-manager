@@ -7,6 +7,7 @@ import { webhookMessage } from "@/features/strategies/webhook-message";
 import { webhookUrl } from "@/features/strategies/webhook-url";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";
 import { useWebhookSecret, WEBHOOK_SECRET_QUERY_KEY } from "@/shared/api/webhook-secret";
+import { copyText } from "@/shared/lib/clipboard";
 
 /** Removes the query outright, rather than leaving it to garbage collection after its observers go. */
 function evictSecret(queryClient: QueryClient): void {
@@ -15,6 +16,25 @@ function evictSecret(queryClient: QueryClient): void {
 
 interface WebhookMessageProps {
   strategyId: string;
+}
+
+type CopyButton = "url" | "message";
+
+/** The last copy: the button that was used and whether the browser took the text. */
+interface Copied {
+  button: CopyButton;
+  ok: boolean;
+}
+
+/** The result beside the button that was used; the other button's status stays empty. */
+function CopyStatus({ copied, button }: { copied: Copied | null; button: CopyButton }) {
+  const { t } = useTranslation();
+  if (copied === null || copied.button !== button) return <InlineStatus message={null} />;
+  return copied.ok ? (
+    <InlineStatus message={t("strategies.webhook.copied")} />
+  ) : (
+    <InlineStatus message={t("strategies.webhook.copyFailed")} tone="failure" />
+  );
 }
 
 /**
@@ -71,6 +91,15 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
   const origin = hostRead.status === "success" ? hostRead.data : null;
   const url = webhookUrl(origin, urlValue);
   const hostNote = hostRead.status === "error" ? "hostError" : hostRead.status === "success" && origin === null ? "hostUnset" : null;
+  // Built once per render: what the element prints is what its button is given, with no second assembly.
+  const message = webhookMessage(strategyId);
+
+  // Which button was used and whether the write worked, never the text. Nothing here touches the secret's
+  // request flag or its query: a copy takes what is on screen and asks for nothing.
+  const [copied, setCopied] = useState<Copied | null>(null);
+  const copy = async (button: CopyButton, text: string) => {
+    setCopied({ button, ok: await copyText(text) });
+  };
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -109,11 +138,12 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
           )}
           <button
             type="button"
+            onClick={() => void copy("url", url)}
             className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
           >
             {t("strategies.webhook.copyUrl")}
           </button>
-          <InlineStatus message={null} />
+          <CopyStatus copied={copied} button="url" />
         </div>
         {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         {failed && (
@@ -132,16 +162,17 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
           tabIndex={0}
           className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-rule bg-panel p-3.5 font-mono text-xs leading-relaxed text-ink-2"
         >
-          {webhookMessage(strategyId)}
+          {message}
         </pre>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             type="button"
+            onClick={() => void copy("message", message)}
             className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
           >
             {t("strategies.webhook.copyMessage")}
           </button>
-          <InlineStatus message={null} />
+          <CopyStatus copied={copied} button="message" />
         </div>
       </div>
     </section>
