@@ -3866,13 +3866,26 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   thousand (so the value never arrives in time) reds `takes the new value at 300 ms`, the two-changes test and
   the delay test. Files created: `useDebouncedValue.ts`, `useDebouncedValue.test.ts`;
   no existing file edited.
-- [ ] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
+- [x] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
   stub that answers `true` without writing. Tests: `::writes exactly the text to navigator.clipboard.writeText`
   (`expected "spy" to be called with arguments: [ 'text' ]`), `::answers false when navigator.clipboard is
   missing` (`expected true to be false`), `::answers false when writeText is missing`, `::answers false when the
   write rejects` and never throws, `::never logs anything, the text may be the secret` (every console method;
   **passing at once** against the stub, so mutation: a `console.error` in the catch). GREEN: no
   `document.execCommand` fallback (design § E: it writes the secret into a second place).
+  **Done (RED commit `c69c48d`, GREEN commit `36f492a`).** The stub answers `true` without writing. RED,
+  observed (6 failed, 3 passed of 9): `expected "spy" to be called 1 times, but got 0 times` and `expected "spy"
+  to be called with arguments` (the write, the encoded URL, and the two failing writes), `expected true to be
+  false` (clipboard missing, `writeText` missing). **Passed at once**: the three never-logs cases, as the task
+  predicted. GREEN: `copyText` reads `navigator.clipboard` as possibly missing, answers `false` when it or
+  `writeText` is missing, awaits `writeText(text)` and answers `true`, and a `catch` with no binding and no
+  call answers `false`; no `execCommand`. Tests beyond the list: a URL with an encoded secret written
+  untouched, and a `writeText` that throws at once instead of rejecting. Mutations after the GREEN, each seen
+  red and reverted: a `console.error(error)` in the catch reds the never-logs case for a rejecting write; the
+  catch answering `true` reds both failing-write tests. **An equivalent mutation, said plainly:** removing the
+  `typeof clipboard.writeText !== "function"` check changes nothing a test can see, because calling a missing
+  `writeText` throws inside the `try` and the catch answers `false`. The check is kept so the code states the
+  case; it is not proven by a test. Files created: `clipboard.ts`, `clipboard.test.ts`; no existing file edited.
 
 **The small shared pieces** (design §§ B2, D)
 
