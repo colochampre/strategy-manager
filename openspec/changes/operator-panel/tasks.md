@@ -4119,7 +4119,7 @@ requirements 947 to 1700)
   tests that pin them are the exact body string here and the sibling test there. Existing files edited:
   `locales/en.json` and `locales/es.json` (label, notNumber, outOfRange, tooManyDecimals, save, saving) and
   `ShareSlider.tsx` (`describedBy?: string | undefined`, because `exactOptionalPropertyTypes` refuses `undefined`).
-- [ ] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
+- [x] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
   saving, Save reads Saving... and the track, the stops and the field are disabled`, `::a 422 shows "The share
   must be above 0 and at most 100." as an alert`, `::a 409 STRATEGY_ARCHIVED shows the archived text and the
   page re-reads the strategy, and the control turns read-only`, `::a 404 shows "This strategy no longer exists."
@@ -4130,6 +4130,30 @@ requirements 947 to 1700)
   and no track, no field, no Save` (`1E-7`, an empty string), `::each refusal is a role=alert line`. RED: `expected
   null to be in the document`. **Passing at once** is the 5xx half, if the stub already surfaces any failure;
   mutation: the failure text dropped. GREEN: the states of design § C.
+  **Done (RED `060a833`, GREEN `1899fa1`).** `PoolShareEditor.tsx` maps a failed save by status: 422 to the
+  out-of-range text, 409 with code `STRATEGY_ARCHIVED` to the archived text, 404 to the gone text, anything else (a
+  network failure, a 5xx, a 200 whose body is not a strategy, which `setStrategyAllocationPercent` throws on) to
+  the failure text; one `role="alert"` line, the draft untouched. A stored value `readStored` cannot read renders the
+  label and the unreadable text and no control. RED as observed: 16 of 48 failed, all on `expect(received)
+  .toBeInTheDocument()` (the alert line, or the unreadable text, absent), except the one-line check that no alert
+  exists before a save, which failed as `Unable to find role="alert"` after the helper's own presence assertion. The
+  alert helper `alertLine()` asserts presence with `queryByRole` so a missing line fails on an assertion. Passed at
+  once: the saving state and the archived state, because 12f.10.16's container already disabled everything on
+  `busy` and `archived`; they are proven by mutation. Mutations after GREEN, each reverted with `git checkout`: the
+  generic failure text turned into another text reds the four failure cases and the Spanish one; the 409 test
+  changed reds the archived cases; the 404 test changed reds the gone case; `role="alert"` removed reds ten tests;
+  `disabled` removed from the field's wrapper props reds the saving test; the saving label dropped reds the same
+  test; the unreadable branch returning nothing reds the six unreadable cases; the draft dropped on error reds the
+  five keep-the-draft cases. One case each for the archived disabling, done in `ShareSlider.tsx` and reverted:
+  `disabled` removed from the track reds three tests, from the four stops reds three, from the field reds five
+  (it is also the only one that reds the Save-on-archived test written in 12f.10.16). The tests use two hosts: the
+  editor over a prop, and the editor under `useStrategy` as the page has it, which is what lets the 409 test see
+  the strategy served archived on the re-read, and the 404 test see the second `GET`. What the editor cannot show
+  by itself is the page's not-found state: with data cached, the page swaps its content for the not-found view
+  when the re-read answers 404, which unmounts the editor, so its alert is on screen only until the re-read lands.
+  That swap is the page's existing behaviour; 12f.10.24 mounts the editor and its test covers the page.
+  Existing files edited: `locales/en.json` and `locales/es.json` (four keys: saveFailed, archived, gone,
+  unreadable).
 
 **"Saved"** (design § D; spec: "A Save Of The Share Or Of The Allowed Pairs Shows 'Saved'")
 
