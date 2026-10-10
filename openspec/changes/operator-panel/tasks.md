@@ -3955,7 +3955,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   disabled`; the box class removed reds the box test; the glyph replaced by the character `ⓘ` reds the box
   test; a `style` attribute on the SVG reds the box test. Files created: `InfoDisclosure.tsx`,
   `InfoDisclosure.test.tsx`; no existing file edited.
-- [ ] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
+- [x] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
   (Create), with the stub in `keyboard.ts` that does nothing. Tests: `::an arrow adds or removes one step`
   (34 to 35 and to 33), `::Home sets min and End sets max`, `::the result is clamped to min and max`,
   `::fires the input and change events`, `::does nothing when the keydown was prevented or the input is
@@ -3963,6 +3963,27 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   range input, as `pressEnter` stands for a button's. Page Up and Page Down are not modelled: their step is
   the browser's. What a test proves with it is the markup's side: a real, enabled range input with the right
   `min`, `max` and `step`, and no handler that swallows the key.
+  **Done (RED commit `8a95c5a`, GREEN commit `b603a0a`).** The signature is `pressRangeKey(key: string):
+  void`, acting on `document.activeElement` as `pressEnter` does; the stub is an empty function in
+  `keyboard.ts`. RED, observed (11 failed, 4 passed of 15): `expected '34' to be '35'` (and `'33'`, `'100'`,
+  `'10' to be '15'`, `'98' to be '100'`, `'99' to be '100'`, `'50' to be '51'`) and `expected [] to deeply equal
+  [ '35' ]` (the React `onChange`). **Passed at once**: the prevented keydown, the disabled input, the key that is
+  not an arrow, Home or End, and the focused text input, as the do-nothing stub satisfies them. GREEN: the
+  helper returns unless the focused element is an enabled `<input type="range">`, fires `keydown` and stops if
+  it was prevented, reads `min`, `max` and `step` (defaults 0, 100 and 1), moves by the key (arrows by one
+  `step`, Home to `min`, End to `max`), clamps, then fires `input` (through the native value setter, so a
+  React `onChange` sees it) and `change`. Page Up and Page Down are not modelled. Tests beyond the list: the
+  declared step, a step that would pass the end, a React `onChange` receiving the value once, a key that is
+  not modelled, a focused text input, and three presses in a row. The disabled input cannot take focus, so
+  that test stubs `document.activeElement` for the one call and removes the stub in a `finally`. Mutations
+  after the GREEN, each seen red and reverted: the `disabled` check removed reds the disabled test; the
+  prevented-keydown check removed reds the prevented test; the step fixed at 1 reds the declared-step and the
+  past-the-end tests; the `change` event removed reds the events test; the `type !== "range"` check removed
+  reds the text-input test. **An equivalent mutation, said plainly:** removing the helper's own clamp changes
+  nothing a test can see, because jsdom sanitises a range input's value to `min` and `max` itself, as a
+  browser does; the clamp is kept so the helper states the rule, and it is not proven by a test. Existing file
+  edited: `frontend/src/test/keyboard.ts` (one export and two private helpers added); created
+  `keyboard.test.ts`.
 
 **The share control, built up in steps a test can see** (design §§ B, C, C2, C3, B2; spec: operator-panel
 requirements 947 to 1700)
