@@ -65,6 +65,8 @@ const track = () => screen.getByRole("slider", { name: label() }) as HTMLInputEl
 const stop = (value: number) => screen.getByRole("button", { name: `Set the share to ${value}%` });
 const saveButton = () => screen.getByRole("button", { name: "Save share" });
 const type = (text: string) => fireEvent.change(field(), { target: { value: text } });
+/** Lets any request a change started reach the fetch double: a mutation calls it a tick after the event. */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
 const moveHandle = (key: string) => {
   track().focus();
   pressRangeKey(key);
@@ -159,13 +161,14 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     ["100.5", "100.5"],
     ["an empty field", ""],
     ["abc", "abc"],
-  ])("%s leaves Save disabled", (_name, text) => {
+  ])("%s leaves Save disabled", async (_name, text) => {
     const { patches } = setup(strategy());
 
     type(text);
 
     expect(saveButton()).toBeDisabled();
     fireEvent.click(saveButton());
+    await settle();
     expect(patches()).toHaveLength(0);
   });
 
@@ -209,22 +212,37 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     expect(field()).toBeDisabled();
   });
 
-  it("no request is made before Save, whatever is moved, activated or typed", () => {
+  it("Save stays disabled when a change was made and the strategy is then archived", () => {
+    const { rerender } = setup(strategy());
+
+    type("40");
+    expect(saveButton()).toBeEnabled();
+    rerender(strategy({ archived_at: "2026-10-01T00:00:00Z" }));
+
+    expect(field().value).toBe("40");
+    expect(saveButton()).toBeDisabled();
+    fireEvent.click(saveButton());
+    expect(field()).toBeDisabled();
+  });
+
+  it("no request is made before Save, whatever is moved, activated or typed", async () => {
     const { requests } = setup(strategy());
 
     moveHandle("End");
     fireEvent.click(stop(25));
     type("12.5");
     type("abc");
+    await settle();
 
     expect(requests).toEqual([]);
   });
 
-  it("leaving the page after a change sends nothing", () => {
+  it("leaving the page after a change sends nothing", async () => {
     const { requests, unmount } = setup(strategy());
 
     type("40");
     unmount();
+    await settle();
 
     expect(requests).toEqual([]);
   });
@@ -301,6 +319,7 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     type("0.1234567890123456789");
     expect(saveButton()).toBeDisabled();
     fireEvent.click(saveButton());
+    await settle();
     expect(requests).toEqual([]);
 
     type("0.123456789012345678");
