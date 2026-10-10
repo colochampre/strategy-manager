@@ -4565,7 +4565,7 @@ Shown And Copied With Its Host")
   Spanish case); `share.save` left in English reds seven (four existing Spanish tests, plus the track-and-Save case,
   the Saving-and-refusals case and Saved of the new group); the Spanish `share.gone` key deleted reds three (the
   refusals case of the new group, the key-set test and the existing "same keys in both locales" test).
-- [ ] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
+- [x] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
   `::test_no_non_test_source_file_has_a_style_prop` (a search of every non-test file under `frontend/src` for
   `style=`; it passes at once today, U8). Mutation: one `style={{}}` on any element, seen red. The test also
   searches `.style.`, `setProperty`, `cssText` and `setAttribute("style"`, because the spec forbids "a style
@@ -4573,7 +4573,16 @@ Shown And Copied With Its Host")
   test lists it and the task records the exception rather than weakening the guard. The slider's own
   "no style attribute in the rendered tree" is asserted in 12f.10.14 and 12f.10.15. The amber allow-list of
   `frontend/src/features/overview/panel-tokens.test.ts` is not edited.
-- [ ] 12f.10.30 Confirm and gate: `cd frontend && npm run lint && npm test`. Record the observed totals before and after, the
+  **Done (commit `619f2ec`, no RED: it passed at once).** `theme.test.ts::test_no_non_test_source_file_has_a_style_prop`
+  searches every non-test file under `frontend/src` (the helpers `harness.tsx` and `keyboard.ts` included) with one
+  pattern, `/\bstyle\s*=|\.style\b|\bsetProperty\b|\bcssText\b|setAttribute\(\s*["']style["']/`, read back after
+  writing and every backslash confirmed. The test first checks that the pattern matches each spelling it must
+  forbid (a JSX `style=`, `.style.width`, `.style.setProperty`, `.style.cssText`, `setAttribute("style"` with
+  either quote) and not a plain `className`, so it cannot pass by matching nothing. No legitimate non-test use of
+  any of the five exists today, so there is no exception to record and the guard was not weakened. Mutation after the
+  commit, reverted with `git checkout`: `style={{}}` on the `<span>` of `InlineStatus.tsx` reds the test and names
+  `features\strategies\InlineStatus.tsx`. `panel-tokens.test.ts` is not edited.
+- [x] 12f.10.30 Confirm and gate: `cd frontend && npm run lint && npm test`. Record the observed totals before and after, the
   recorded edits by group (the `by_pair` builders; the By pair header assertion; the fetch doubles and the one
   every-other-button test; any settings-column order test that moved), and that no other existing test
   changed (`git diff --name-status` lists exactly the modified test files named in this unit). Then the spec
@@ -4603,6 +4612,41 @@ Shown And Copied With Its Host")
   | An information button does nothing, or its text is on screen from the start | closed-at-mount and open-on-activation, 12f.10.12 and 12f.10.23 |
   | A `style` prop is added | the source guard, 12f.10.29 |
   | The slider is drawn wrongly in one browser, or the sign stands off the number | not testable in jsdom: the owner's review by eye, 12f.10.31 |
+
+  **Observed (2026-10-10, the branch at the commit that records 12f.10.29).** `cd frontend; npm run lint` exit 0.
+  `npm test` exit 0: **63 test files and 1,406 tests, all passed**. Before this unit: 49 files and 857 tests, so
+  the unit adds 14 files and 549 tests. `git diff main --stat -- openspec/specs` is empty and
+  `git diff main --stat -- backend` is empty: the unit changed no accepted spec and no backend file.
+  **Recorded edits of existing tests, by group.** (1) The `by_pair` builders and the By pair header assertion:
+  12f.10.1 to 12f.10.4 (`PairStatsTable.test.tsx`, `StrategyPerformance.test.tsx`, `performance.strategy.test.ts`
+  and the `byPair` literals of `StrategyDetailPage.test.tsx`), each with its reason in its own task. (2) The fetch
+  doubles and the one every-other-button test, in this batch: `harness.tsx` (`unsyncedSharePreview`, the share
+  preview in `strategyRoute`, the host route in `stubApi`) and the local double of `StrategyDetailPage.test.tsx`
+  (12f.10.24); `WebhookMessage.test.tsx` and `StrategyHeader.test.tsx`, whose doubles answer the host route and
+  whose four cache-count assertions now count the secret's entries (12f.10.25); and
+  `webhook-origin.test.ts`, whose one assertion about a string that is not an origin changed from "no host" to
+  "an error" (12f.10.25, the spec's own scenarios). `test_no_other_control_ever_requests_the_secret` needed no edit:
+  its double already answered a PATCH, and it now also clicks both Copy buttons. (3) The settings column: no
+  test that indexes its children by number exists, and
+  `test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive` compares positions that did
+  not move; nothing was edited. **Modified existing test files, against `main`:**
+  `AllowedPairsEditor.test.tsx`, `PairStatsTable.test.tsx`, `StrategiesPage.test.tsx`, `StrategyDetailPage.test.tsx`,
+  `StrategyHeader.test.tsx`, `StrategyPerformance.test.tsx`, `WebhookMessage.test.tsx`, `format.test.ts`,
+  `performance.strategy.test.ts`, `theme.test.ts` (`webhook-origin.test.ts` is a new file of this unit, listed
+  there). **One is not in the unit's "Files" list:** `StrategyHeader.test.tsx` (its double and one count, 12f.10.25).
+  No other existing test changed. `git diff main
+  --name-status` also lists `frontend/tsconfig.tsbuildinfo`, which is the build's own file and was never staged.
+  **The spec check**, each requirement added on 2026-10-06 against its covering task, and all of those tasks are
+  ticked above with their evidence: the share first and only in the settings column, 12f.10.24; a field above a
+  track with four stops, 12f.10.14 and 12f.10.15; the exact value and what it refuses, 12f.10.5 and 12f.10.16;
+  Save only on an explicit press, 12f.10.16 to 12f.10.18; the amount, 12f.10.7, 12f.10.20 and 12f.10.21; the
+  warning, 12f.10.22; the per-pair limit not checked and stated, 12f.10.22 and 12f.10.23; the two information
+  buttons, 12f.10.12 and 12f.10.23; the keyboard and the names, 12f.10.15 and 12f.10.23; "Saved", 12f.10.11,
+  12f.10.18 and 12f.10.19; the two Copy buttons, 12f.10.10, 12f.10.26 and 12f.10.27; the URL with its host,
+  12f.10.8 and 12f.10.25; By pair's win rate, 12f.10.2 to 12f.10.4; no browser money, no inline style, no relaxed
+  policy, 12f.10.20, 12f.10.29 and the CSP check of 12f.10.31 (still the owner's); the texts, 12f.10.28. Said
+  plainly: this is a mapping of requirements to tasks and an observation that those tasks are ticked, not a new
+  line-by-line reading of the spec text.
 - [ ] 12f.10.31 Owner step, before the push: the review by eye. **The fixture file `frontend/vite.fixture.config.ts` is the owner's,
   untracked, and no task edits it.** Today it serves a `by_pair` without `wins` and `win_rate`, so with the new
   check the performance block would show its error state until the fixture serves them; that is the check
