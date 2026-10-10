@@ -3549,7 +3549,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `performance.strategy.test.ts` (the valid literal and the four rejection literals, which now carry the fields
   so they still fail for their own flaw once 12f.10.2 lands). `StrategiesPage.test.tsx` needed no edit: its one
   `by_pair` is `[]`, so it holds no `PairStat` to complete.
-- [ ] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
+- [x] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
   No stub is needed: the current `isPairStat` ignores keys it does not know, which is the wrong answer.
   Tests: `::refuses a by_pair entry lacking wins`, `::refuses a by_pair entry lacking win_rate`,
   `::refuses wins that is not an integer` (`1.5`, `"3"`), `::refuses wins below zero or above trades`,
@@ -3561,6 +3561,23 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   string; the strategy report is refused whole as before. The Strategies list row reads the same report, so
   its figures read as unreadable against an older API (design § G, U14): `StrategiesPage.test.tsx` gets one
   new test for it, `::a report without the win fields makes the row's figures unreadable`.
+  **Done (RED commit `16800db`, GREEN commit `eb8d7e3`).** RED, observed (10 failed, 2 passed in
+  `performance.pairs.test.ts`): `AssertionError: promise resolved "{ …(12) }" instead of rejecting` for every
+  refusal case; in `StrategiesPage.test.tsx` the new test failed with `Unable to find an element with the text:
+  This strategy's figures could not be loaded.` (the old report was accepted, so no error line). No stub: the
+  old `isPairStat` ignored the new keys. **Passed at once**: the accept test, and the extra test that accepts
+  `wins` of 0 and of `trades` (the range ends). GREEN: `isPairStat` requires `wins` an integer from 0 to
+  `trades` and `win_rate` a string. The strategies-list test needed its second assertion changed in the GREEN
+  commit (`queryByTestId("strategy-pnl")` is null on an error row, so `.not.toBeInTheDocument()`, not
+  `.not.toHaveTextContent`). Mutations after the GREEN, each seen red and reverted with `git checkout`:
+  `Number.isInteger` become `typeof === "number"` reds the fraction case only; the `>= 0` check removed reds
+  `wins below zero` only; the `<= trades` check removed reds `wins above trades` and `one bad entry among good
+  ones`; the `win_rate` string check removed reds `lacking win_rate` and `win_rate that is a JSON number`; all
+  three `wins` checks removed reds seven tests (lacking wins, the three not-an-integer cases, below zero, above
+  trades, one bad entry among good ones); a validator that refuses every entry (`pair === null` added) reds the
+  two accept tests. Existing file edited:
+  `StrategiesPage.test.tsx` (one new test). Existing file edited in the GREEN: `performance.ts`
+  (`isPairStat`, the reason of the task).
 - [ ] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
   `rateText(ratio: string, locale: string): string | null` returning its argument. Tests, each from a
   scenario of the spec: `::writes a rate with one decimal and no sign` (`"0.5833333333"` gives `"58.3%"`,
