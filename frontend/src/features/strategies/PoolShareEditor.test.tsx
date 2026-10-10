@@ -725,7 +725,11 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
   // A button that reads Saved is disabled, so the same draft cannot be sent twice from it. This replaces
   // "a new save clears Saved before it is sent", which clicked the button while it read Saved.
   it("a button that reads Saved is disabled and sends nothing when pressed", async () => {
-    const { requests } = await saveFortyOnAPage();
+    // Not on a page: the stored value does not move here, so only the Saved text disables the button.
+    const { requests } = setup(strategy());
+    type("40");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
 
     const saved = screen.getByRole("button", { name: "Saved" });
     fireEvent.click(saved);
