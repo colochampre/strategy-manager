@@ -8,7 +8,17 @@ import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
-import { emptyPerformance, jsonResponse, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import {
+  emptyPerformance,
+  jsonResponse,
+  lock,
+  pool,
+  renderAt,
+  resetExchangeScope,
+  stubApi,
+  unlock,
+  unsyncedSharePreview,
+} from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const DAY = 86_400;
@@ -68,6 +78,7 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
       }
       if (!url.includes(`/strategies/${ID}`)) return undefined;
       requests.push({ method, url });
+      if (url.includes("/share-preview")) return Promise.resolve(jsonResponse(unsyncedSharePreview(ID)));
       if (url.endsWith("/events")) return Promise.resolve(jsonResponse(options.events ?? []));
       if (method === "PATCH") return Promise.resolve(options.patch?.(JSON.parse(String(init?.body))) ?? jsonResponse(subject));
       return Promise.resolve(options.strategyAnswer?.() ?? jsonResponse(subject));
@@ -413,7 +424,7 @@ describe("StrategyDetailPage", () => {
     const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
     expect(slider).toBeInTheDocument();
 
-    const [title, first] = Array.from(settings.children) as HTMLElement[];
+    const [title, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
     expect(title).toBe(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
     expect(first).toContainElement(slider);
     expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
