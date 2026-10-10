@@ -74,6 +74,11 @@ export function tableFigureText(value: string): string | null {
   });
 }
 
+/** STUB (12f.10.3 RED): returns its argument until the GREEN writes the rate. */
+export function rateText(ratio: string, _locale: string): string | null {
+  return ratio;
+}
+
 /**
  * An instant as a numeric calendar date in UTC, in the panel's language (`10/5/2026` in English,
  * `5/10/2026` in Spanish, for 2026-10-05): the first line of an Opened or Closed cell. Read from the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clockText, compactDateText, figureText, tableFigureText } from "@/features/strategies/format";
+import { clockText, compactDateText, figureText, rateText, tableFigureText } from "@/features/strategies/format";
 
 // `figureText` writes a price, a size or a fee from the server's own string. It is a text
 // operation, not arithmetic: money is never computed in the browser (design § F, § 15).
@@ -137,5 +137,49 @@ describe.each([
   it("gives the same text with and without leading zeros", () => {
     expect(write("0012345.678901234")).toBe(write("12345.678901234"));
     expect(write("007.5")).toBe(write("7.5"));
+  });
+});
+
+// `rateText` writes the served win rate as an unsigned percentage with one decimal. It cuts first and
+// formats second: a rate is never rounded up, so only a rate of exactly one reads 100.0%.
+
+describe("rateText", () => {
+  it.each([
+    ["0.5833333333", "58.3%"],
+    ["0.6000000000", "60.0%"],
+  ])("writes a rate with one decimal and no sign: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it.each([
+    ["0.9995000000", "99.9%"],
+    ["0.9950000000", "99.5%"],
+  ])("cuts the rate and never rounds it up: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it("only a rate of exactly one reads 100.0%", () => {
+    expect(rateText("1.0000000000", "en")).toBe("100.0%");
+    expect(rateText("0.9999999999", "en")).toBe("99.9%");
+  });
+
+  it.each([
+    ["0.0000000000", "0.0%"],
+    ["0.0002000000", "0.0%"],
+  ])("a rate of exactly zero and one win in five thousand read 0.0%%: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it.each(["abc", "1e-3", "", "-0.5000000000", "0.5.0"])(
+    "never writes an exponent and a string that is not a plain ratio gives null: %j",
+    (served) => {
+      expect(rateText(served, "en")).toBeNull();
+    },
+  );
+
+  it("writes the rate the way the PnL % column does in Spanish", () => {
+    // Spanish writes a decimal comma and a no-break space before the sign (U+00A0), as `percentText` does.
+    expect(rateText("0.5833333333", "es")).toBe("58,3 %");
+    expect(rateText("1.0000000000", "es")).toBe("100,0 %");
   });
 });
