@@ -43,6 +43,7 @@ from pathlib import Path
 import asyncpg
 
 from strategy_manager.shared.config import get_settings
+from tests.pg_drop import drop_database_if_exists
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -54,14 +55,6 @@ def _maintenance_dsn(dev_url: str) -> str:
 
 def _database_url(dev_url: str, name: str) -> str:
     return re.sub(r"/[^/?]+(\?.*)?$", rf"/{name}\1", dev_url)
-
-
-async def _drop_database_if_exists(maintenance_dsn: str, name: str) -> None:
-    conn = await asyncpg.connect(maintenance_dsn)
-    try:
-        await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-    finally:
-        await conn.close()
 
 
 async def _create_database(maintenance_dsn: str, name: str) -> None:
@@ -106,10 +99,10 @@ def migrated_head_database(name: str) -> Iterator[str]:
         raise RuntimeError("the head database must not be the dev database")
     maintenance_dsn = _maintenance_dsn(dev_url)
 
-    asyncio.run(_drop_database_if_exists(maintenance_dsn, name))
+    asyncio.run(drop_database_if_exists(maintenance_dsn, name))
     asyncio.run(_create_database(maintenance_dsn, name))
     try:
         _upgrade_head(url)
         yield url
     finally:
-        asyncio.run(_drop_database_if_exists(maintenance_dsn, name))
+        asyncio.run(drop_database_if_exists(maintenance_dsn, name))

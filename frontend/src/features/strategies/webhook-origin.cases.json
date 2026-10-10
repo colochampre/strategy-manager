@@ -1,0 +1,29 @@
+{
+  "accepted": [
+    { "raw": "https://example.org", "origin": "https://example.org" },
+    { "raw": "http://localhost:8000", "origin": "http://localhost:8000" },
+    { "raw": "HTTPS://Example.ORG", "origin": "https://example.org" },
+    { "raw": "https://example.org/", "origin": "https://example.org" },
+    { "raw": "https://example.org:443", "origin": "https://example.org" }
+  ],
+  "unset": [""],
+  "refused": [
+    "example.org",
+    "ftp://example.org",
+    "https://",
+    "https://example.org/hook",
+    "https://example.org?x=1",
+    "https://example.org#top",
+    "https://user@example.org",
+    "https://user:pass@example.org",
+    "https://exa mple.org",
+    "https://example.org\u0007",
+    "https://example.org\\x",
+    "https://exämple.org",
+    "https://example.org:99999",
+    "https://example.org:abc",
+    "https://[::1]",
+    "https://example.org.",
+    "https://example.org:"
+  ]
+}

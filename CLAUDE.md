@@ -359,6 +359,8 @@ resume work.
   by summing the per-file counts of `uv run pytest --co -q`.
 - `alembic.ini` formats levels as `%(levelname)-5.5s`, so WARNING prints as
   `WARNI`.
-- A live-PostgreSQL test's teardown can intermittently fail with "permission
-  denied to terminate process" on `DROP DATABASE ... WITH (FORCE)`; re-run.
+- A throwaway test database is dropped through `backend/tests/pg_drop.py`,
+  which waits out the autovacuum worker that used to fail the teardown with
+  "permission denied to terminate process". A teardown that still fails there
+  raises `DatabaseDropRefusedError`: read it, do not re-run.
 - The SDD session preflight is asked every session and never cached.

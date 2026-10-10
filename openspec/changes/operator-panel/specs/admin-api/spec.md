@@ -26,6 +26,18 @@ unaffected by it.
 > /api/performance/strategies/{id}/trades/{allocation_id}/fills`, serves one
 > operation's fills. Three requirements are added after the delete requirement;
 > no existing requirement of this file is changed.
+>
+> **Revised 2026-10-06 (owner decisions 44 and 48, design addendum "unit
+> 12f").** The strategy view and `PATCH /api/strategies/{id}` carry the share of
+> the pool per trade in plain notation; a new read, `GET
+> /api/strategies/{id}/share-preview`, serves the amount a share asks for; a
+> new read, `GET /api/webhook-origin`, serves the webhook's host; and each
+> `by_pair` entry of the strategy performance read gains `wins` and `win_rate`.
+> Four requirements are added after "One Operation's Fills Are Served By Their
+> Own Route"; no existing requirement of this file is changed. The two new
+> reads and the new fields are covered by "Every Admin Route Requires the
+> Bearer Token" and "The Webhook Shared Secret Is Returned Only By Its Own
+> Endpoint" as written.
 
 ## Requirements
 
@@ -588,3 +600,433 @@ the id exists elsewhere.
 - GIVEN no bearer token is supplied
 - WHEN `GET /api/performance/strategies/{S1}/trades/{A1}/fills` is called
 - THEN the request is refused before handler logic executes
+
+### Requirement: The Strategy Update Takes The Share As A Plain Decimal And The Strategy View Serves It In Plain Notation
+
+> **Added 2026-10-06 (owner decisions 44 (12f.1) and 48; design addendum "unit 12f" § A U1, U2, U4 and § C).**
+
+`PATCH /api/strategies/{id}` MUST accept `allocation_percent` as a string holding
+a decimal above 0 and at most 100 with at most 18 decimal places (owner decision
+50, 2026-10-09; "A Share Has At Most 18 Decimal Places" below); a value below 1
+(for example `0.5`) is valid. A body that carries only `allocation_percent` MUST
+leave every other field of the strategy unchanged. It MUST answer:
+
+| Case | Status |
+| --- | --- |
+| A valid share on an unarchived strategy, enabled or disabled | 200 with the strategy view |
+| A share of 0, above 100, not a decimal, or written with more than 18 decimal places | 422 |
+| An archived strategy | 409 `STRATEGY_ARCHIVED` |
+| No strategy under `{id}` | 404 |
+
+Every body that serves the strategy view (the PATCH's answer and the GET's) MUST
+write `allocation_percent` in plain decimal notation, as text, and MUST NEVER
+write an exponent (`1E-7`). The PATCH's answer and a later GET MUST show the same
+text for the same value. The route MUST be behind the bearer token like every
+other `/api` route.
+
+#### Scenario: A decimal share is saved and served as it is
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a stored share of `30`
+- WHEN `PATCH /api/strategies/{S1}` is called with `{"allocation_percent": "33.5"}`
+- THEN it answers 200 with a strategy view whose `allocation_percent` is `"33.5"`, and a later `GET /api/strategies/{S1}` serves `"33.5"`
+
+#### Scenario: A share below 1 is accepted
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "0.5"}`
+- THEN it answers 200 and the stored share is `0.5`
+
+#### Scenario: A share of exactly 100 is accepted
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "100"}`
+- THEN it answers 200
+
+#### Scenario: Zero is refused
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "0"}`
+- THEN it answers 422 and the stored share is still `30`
+
+#### Scenario: A share above 100 is refused
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "100.5"}`
+- THEN it answers 422 and the stored share is still `30`
+
+#### Scenario: A text that is not a decimal is refused
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "abc"}`
+- THEN it answers 422 and the stored share is still `30`
+
+#### Scenario: An archived strategy's share is refused
+
+- GIVEN strategy S1 is archived with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "40"}`
+- THEN it answers 409 `STRATEGY_ARCHIVED` and the stored share is still `30`
+
+#### Scenario: A disabled strategy's share is accepted
+
+- GIVEN strategy S1 is disabled with a stored share of `30`
+- WHEN the PATCH carries `{"allocation_percent": "40"}`
+- THEN it answers 200 and S1 is still disabled
+
+#### Scenario: An unknown strategy answers 404
+
+- GIVEN no strategy under id X
+- WHEN `PATCH /api/strategies/{X}` is called with `{"allocation_percent": "40"}`
+- THEN it answers 404
+
+#### Scenario: Only the share changes
+
+- GIVEN strategy S1 with a stored share of `30`, `enabled` true and two allowed pairs
+- WHEN the PATCH carries only `{"allocation_percent": "40"}`
+- THEN `enabled` is still true and the two allowed pairs are unchanged
+
+#### Scenario: A very small share is never served with an exponent
+
+- GIVEN strategy S1 with a stored share of `0.0000001`
+- WHEN S1 is read with `GET /api/strategies/{S1}` and after a PATCH of the same value
+- THEN each body carries `"allocation_percent": "0.0000001"` and neither carries `1E-7`
+
+#### Scenario: The route requires the bearer token
+
+- GIVEN no bearer token is supplied
+- WHEN `PATCH /api/strategies/{S1}` is called
+- THEN the request is refused before handler logic executes
+
+### Requirement: The Share Preview Route Serves The Amount A Share Asks For
+
+> **Added 2026-10-06 (owner decision 48, answered 2026-10-06; design addendum "unit 12f" § C2 and § H).**
+
+`GET /api/strategies/{id}/share-preview`, with an optional query parameter `share`
+(a decimal above 0 and at most 100 with at most 18 decimal places; default, the
+strategy's stored share), MUST
+answer 200 with:
+
+- `strategy_id` (a UUID string);
+- `pool`: `{exchange, venue, settlement_currency}`, the strategy's own pool,
+  taken from the strategy named by the path and never from the request;
+- `currency`: the pool's settlement currency;
+- `pool_minimum`: the pool's own minimum order in that currency, as a string,
+  never null;
+- `balance`: `{total, observed_at, stale}` from the pool's latest balance
+  snapshot, or null when the pool has none; `stale` follows the same rule as
+  `GET /api/pools`;
+- `exact`: `{share, amount, below_pool_minimum}` for the share asked, `share` a
+  plain decimal string echoed in canonical form (no exponent, no trailing
+  fractional zeros), or null when `balance` is null;
+- `steps`: exactly 100 entries `{share, amount, below_pool_minimum}` for the
+  whole shares 1 to 100 (`share` a JSON integer), or `[]` when `balance` is null.
+
+An `amount` MUST be the pool's TOTAL balance (not what is free) times the share
+divided by 100, computed by the function the allocation uses to size a request,
+rounded down to 18 places, written as a string. `below_pool_minimum` MUST be true
+exactly when the amount is below `pool_minimum`, the comparison the allocation
+makes first. With no balance there MUST be no amount and never a zero. A stale
+balance MUST still be served, marked. An archived strategy MUST be served.
+
+It MUST answer 404 `{"detail": "no such strategy"}` for an unknown strategy, and
+422, without echoing the rejected input, for a `share` that is not a decimal
+above 0 and at most 100, or that is written with more than 18 decimal places. A strategy whose pool has no row MUST answer 500 and log
+one ERROR naming the strategy and the pool. The route MUST require the bearer
+token like every other `/api` route. The route MUST be read-only: it MUST read the
+database only, MUST call no exchange, MUST open no stored credential and sign
+nothing, MUST write nothing and MUST take no lock; the API process still decrypts
+nothing. It MUST NOT check any pair's minimum order at the exchange.
+
+#### Scenario: The stored share is previewed against the pool's balance
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a stored share of `33.5`, a pool minimum of 5 USDT and a snapshot total of 1000 USDT not stale
+- WHEN `GET /api/strategies/{S1}/share-preview` is called
+- THEN it answers 200 with `currency` `"USDT"`, `pool_minimum` `"5.000000000000000000"`, `balance.total` `"1000.000000000000000000"` with `stale` false, `exact` `{"share": "33.5", "amount": "335.000000000000000000", "below_pool_minimum": false}`, and 100 `steps`, the first `{"share": 1, "amount": "10.000000000000000000", "below_pool_minimum": false}` and the last `{"share": 100, "amount": "1000.000000000000000000", "below_pool_minimum": false}`
+
+#### Scenario: A share asked for is served as exact
+
+- GIVEN the same strategy and pool
+- WHEN the route is called with `share=12.34`
+- THEN `exact` is `{"share": "12.34", "amount": "123.400000000000000000", "below_pool_minimum": false}` and `steps` is still the 100 steps
+
+#### Scenario: The exact share is echoed in canonical plain notation
+
+- GIVEN the same strategy and pool
+- WHEN the route is called with `share=33.50`
+- THEN `exact.share` is `"33.5"`, with no trailing fractional zero and no exponent
+
+#### Scenario: The amount is the allocation's own, rounded down
+
+- GIVEN a snapshot total of 333.33 USDT and, in a second case, 10 USDT
+- WHEN the route is called with `share=33.5` and with `share=33.333333333333333333` respectively
+- THEN the amounts are `"111.665550000000000000"` and `"3.333333333333333333"`, each equal to what the allocation's sizing function returns for the same total and share
+
+#### Scenario: The amount is of the total, not of what is free
+
+- GIVEN pool `(bybit, usdt-m, USDT)` with a snapshot total of 1000 USDT and 400 USDT available
+- WHEN the route is called with `share=10`
+- THEN `exact.amount` is `"100.000000000000000000"`
+
+#### Scenario: The minimum flag agrees with the allocation on both sides of the limit
+
+- GIVEN pool `(bybit, usdt-m, USDT)` with a minimum of 5 USDT and snapshot totals of 499, 500 and 501 USDT in turn
+- WHEN the route is called with `share=1` each time
+- THEN `below_pool_minimum` is true for the amount 4.99, false for 5.00 and false for 5.01, and the allocation skips a request as below the pool's minimum for exactly the first
+
+#### Scenario: A stale balance is still served, marked
+
+- GIVEN the pool's latest snapshot is older than the staleness limit
+- WHEN the route is called
+- THEN it answers 200 with `balance.stale` true and the amounts
+
+#### Scenario: A pool nothing has synced serves no amount
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has no balance snapshot
+- WHEN the route is called
+- THEN `balance` is null, `exact` is null, `steps` is `[]`, `pool_minimum` is still present, and no amount of zero is served
+
+#### Scenario: An archived strategy is served
+
+- GIVEN strategy S1 is archived with a stored share of `30`
+- WHEN the route is called
+- THEN it answers 200
+
+#### Scenario: Each strategy answers its own pool
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` and strategy S2 on pool `(binance, usdt-m, USDT)`, with different balances
+- WHEN each preview is read
+- THEN each answers its own pool and its own total, and neither carries the other's
+
+#### Scenario: An unknown strategy answers 404
+
+- GIVEN no strategy under id X
+- WHEN `GET /api/strategies/{X}/share-preview` is called
+- THEN it answers 404 `{"detail": "no such strategy"}`
+
+#### Scenario: A share outside the range is refused without echo
+
+- GIVEN a valid bearer token
+- WHEN the route is called with `share=0`, with `share=100.5` and with `share=abc`
+- THEN each answers 422 and no body repeats the rejected value
+
+#### Scenario: A strategy whose pool has no row is an integrity failure
+
+- GIVEN strategy S1 names a pool with no stored row
+- WHEN the route is called
+- THEN it answers 500 and exactly one ERROR is logged naming S1 and the pool
+
+#### Scenario: The route reads the database only
+
+- GIVEN the route is called
+- WHEN the exchange transports, the credential store and the locks are observed
+- THEN no exchange was called, no stored credential was opened, nothing was signed, nothing was written and no lock was taken
+
+#### Scenario: The route requires the bearer token
+
+- GIVEN no bearer token is supplied
+- WHEN `GET /api/strategies/{S1}/share-preview` is called
+- THEN the request is refused before handler logic executes
+
+### Requirement: A Share Has At Most 18 Decimal Places
+
+> **Added 2026-10-09 (owner decision 50, answering a finding of task 12f.9.12; it replaces "with any number of decimals" in "The Strategy Update Takes The Share As A Plain Decimal And The Strategy View Serves It In Plain Notation").**
+
+Every input of the admin API that takes a share of the pool MUST accept a value with
+at most 18 decimal places, the scale this system uses for every amount, and MUST
+refuse any other with the application's 422 that echoes no input. The inputs are the
+`share` query of `GET /api/strategies/{id}/share-preview`, `allocation_percent` of
+`PATCH /api/strategies/{id}` and `allocation_percent` of `POST /api/strategies`
+(registration, which saves a share too). The places MUST be counted on the value as
+written: trailing zeros count (`1.5000000000000000000` has 19) and an exponent is
+read for what it writes (`1e-18` has 18, `1E+1` has none and is 10). The value MUST
+NOT be normalised for the count, and the refusal MUST come before anything is
+formatted, computed or stored, so that a value such as `1e-999999999` (which passes
+the range of 0 to 100 in 12 characters, and written in plain notation is a text of
+about 1 GB) is refused with a small body. A refused write MUST store nothing: the
+stored share is unchanged (update) and no strategy exists (registration).
+
+#### Scenario: Exactly 18 decimal places are accepted
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update carries `0.123456789012345678`, or `1e-18`, and the preview is asked for the same shares
+- THEN each answers success, the update stores the value, and `1e-18` is served as `0.000000000000000001`
+
+#### Scenario: 19 decimal places are refused on the update
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update carries `1e-19`, or `0.0000000000000000001`, or `1.5000000000000000000`
+- THEN each answers 422, no body repeats the value, and the stored share is still `30`
+
+#### Scenario: 19 decimal places are refused on the preview
+
+- GIVEN strategy S1
+- WHEN the preview is called with `share=1e-19`, or `share=1.5000000000000000000`
+- THEN each answers 422 and no body repeats the value
+
+#### Scenario: 19 decimal places are refused on the registration
+
+- GIVEN no strategy under id X
+- WHEN the registration of X carries `"allocation_percent": "1e-19"`
+- THEN it answers 422, no body repeats the value, and no strategy X exists
+
+#### Scenario: An exponent that is not a decimal place is still the value it writes
+
+- GIVEN strategy S1
+- WHEN the update carries `1E+1`
+- THEN it answers 200 and the share is 10
+
+#### Scenario: A value that would be a gigabyte is refused with a small body
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the preview, the update and the registration each carry `1e-999999999`
+- THEN each answers 422 with a body of a few hundred bytes at most, the stored share is still `30`, and no strategy was registered
+
+#### Scenario: A value past what the database can hold is refused, not a 500
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN the update or the registration carries `1e-20000`
+- THEN it answers 422 and nothing is stored
+
+### Requirement: The Webhook's Origin Is Served By Its Own Route
+
+> **Added 2026-10-06 (owner decisions 44 (12f.6) and 5; design addendum "unit 12f" § F).**
+
+`GET /api/webhook-origin` MUST answer 200 `{"origin": "<origin>"}` or
+`{"origin": null}`, requiring the same bearer token as every other `/api` route.
+The origin MUST come from a setting (`WEBHOOK_PUBLIC_ORIGIN`), empty by default,
+and MUST be the origin TradingView posts to, not the panel's. The body MUST NOT
+contain the webhook secret. The setting MUST be read as an origin and nothing
+more:
+
+| Setting | Served |
+| --- | --- |
+| Empty | `null` |
+| `https://example.org`, `http://localhost:8000` | as written |
+| `HTTPS://Example.ORG`, `https://example.org/`, `https://example.org:443` | `https://example.org` (scheme and host in lower case, one trailing slash dropped, the scheme's default port dropped) |
+| No scheme, a scheme other than `http` or `https`, an empty host | `null` |
+| Anything after the authority: a path, a query, a fragment | `null` |
+| A user or a password | `null` |
+| A space, a control character, a backslash, a host with characters outside ASCII, a port that is not a number in range | `null` |
+
+A malformed value MUST be served as `null`, MUST NOT stop the API from starting,
+and MUST log one ERROR at startup naming the setting and the reason, never the
+value. An empty setting MUST log one INFO at startup saying the panel shows the
+path only. A well-formed value MUST log one INFO at startup with the normalised
+origin. The raw value MUST NEVER be logged. The route MUST read a setting only:
+no exchange is called, no credential opened and nothing signed; the API process
+still decrypts nothing. Every value the route serves MUST be a serialised origin
+(the panel accepts it).
+
+#### Scenario: A configured origin is served
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is `https://example.duckdns.org`
+- WHEN `GET /api/webhook-origin` is called with a valid bearer token
+- THEN it answers 200 `{"origin": "https://example.duckdns.org"}`
+
+#### Scenario: An unset setting serves null
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is empty
+- WHEN the route is called
+- THEN it answers 200 `{"origin": null}`, and exactly one INFO was logged at startup saying the panel shows the path only
+
+#### Scenario: A local origin is accepted as written
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is `http://localhost:8000`
+- WHEN the route is called
+- THEN it answers `{"origin": "http://localhost:8000"}`
+
+#### Scenario: Case, a trailing slash and the default port are normalised
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is, in turn, `HTTPS://Example.ORG`, `https://example.org/` and `https://example.org:443`
+- WHEN the route is called each time
+- THEN each answers `{"origin": "https://example.org"}`
+
+#### Scenario: A value with a path, a query or a fragment is not served
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is, in turn, `https://example.org/hook`, `https://example.org?x=1` and `https://example.org#top`
+- WHEN the route is called each time
+- THEN each answers `{"origin": null}`
+
+#### Scenario: A value with no scheme, another scheme or no host is not served
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is, in turn, `example.org`, `ftp://example.org` and `https://`
+- WHEN the route is called each time
+- THEN each answers `{"origin": null}`
+
+#### Scenario: A value with a credential is not served and never logged
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is `https://user:pass@example.org`
+- WHEN the API starts and the route is called
+- THEN the route answers `{"origin": null}`, exactly one ERROR names the setting and the reason, and no log record contains `user:pass` or the raw value
+
+#### Scenario: An unusable character or port is not served
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is, in turn, `https://exa mple.org`, `https://example.org\x`, `https://exämple.org` and `https://example.org:99999`
+- WHEN the route is called each time
+- THEN each answers `{"origin": null}`
+
+#### Scenario: A malformed value does not stop the API
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is malformed
+- WHEN the API starts
+- THEN it starts, the webhook route is served, and the one ERROR is logged
+
+#### Scenario: A well-formed value is logged normalised
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is `HTTPS://Example.ORG`
+- WHEN the API starts
+- THEN one INFO prints `https://example.org`
+
+#### Scenario: The route never carries the secret
+
+- GIVEN the configured webhook secret has a known value
+- WHEN `GET /api/webhook-origin` is answered
+- THEN the body does not contain it
+
+#### Scenario: The route requires the bearer token
+
+- GIVEN no bearer token, and in a second case a wrong one
+- WHEN `GET /api/webhook-origin` is called
+- THEN the request is refused before handler logic executes
+
+### Requirement: The Strategy Performance Route Serves Each Pair's Wins And Win Rate
+
+> **Added 2026-10-06 (owner decision 44, answered 2026-10-06; design addendum "unit 12f" § G).**
+
+Each `by_pair` entry of the body of `GET /api/performance/strategies/{id}` MUST
+carry two new fields, with nothing removed or renamed: `wins`, an integer with
+0 <= `wins` <= `trades`, and `win_rate`, a string in the ratio notation of the
+route's other ratios (10 decimal places), never null. `pair`, `trades`, `pnl` and
+`return` MUST be unchanged. `win_rate` MUST be `wins` over `trades` as defined by
+"A Pair's Win Rate Counts Closed Operations With A PnL Above Zero". The strategy
+report's own figures and the pool report MUST NOT gain a win rate in this unit.
+The route's authentication is unchanged.
+
+#### Scenario: A pair carries its wins and its rate
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` has 5 closed live operations on `SOLUSDT`: 3 with a PnL above zero, 1 at exactly zero and 1 below zero
+- WHEN `GET /api/performance/strategies/{S1}` is called
+- THEN the `by_pair` entry for `SOLUSDT` carries `"trades": 5`, `"wins": 3` and `"win_rate": "0.6000000000"`, and still carries `pair`, `pnl` and `return`
+
+#### Scenario: A pair with no win has a zero rate, not a null
+
+- GIVEN strategy S1 has 3 closed operations on `ETHUSDT`, each with a PnL below zero
+- WHEN the route is called
+- THEN `ETHUSDT` carries `"wins": 0` and `"win_rate": "0.0000000000"`
+
+#### Scenario: A pair that won every operation has a rate of 1
+
+- GIVEN strategy S1 has 4 closed operations on `ETHUSDT`, each with a PnL above zero
+- WHEN the route is called
+- THEN `ETHUSDT` carries `"wins": 4` and `"win_rate": "1.0000000000"`
+
+#### Scenario: No pair row is served for a pair with no closed operation
+
+- GIVEN strategy S1 has no closed operation on `XRPUSDT`
+- WHEN the route is called
+- THEN no `by_pair` entry names `XRPUSDT`
+
+#### Scenario: The strategy and pool reports gain no win rate
+
+- GIVEN the route and the pool performance read are called
+- WHEN their bodies are read outside `by_pair`
+- THEN neither carries `wins` or `win_rate`

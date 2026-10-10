@@ -203,6 +203,8 @@ def test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover() -> None:
         "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
     ) in OTHER_API_ROUTES
     assert ("POST", "/api/reconciliation/bookings/{proposal_id}/approve") in OTHER_API_ROUTES
+    assert ("GET", "/api/webhook-origin") in OTHER_API_ROUTES
+    assert ("GET", "/api/strategies/{strategy_id}/share-preview") in OTHER_API_ROUTES
     assert ("GET", SECRET_PATH) not in OTHER_API_ROUTES
     # The walk agrees with the schema the application publishes for itself.
     published = {

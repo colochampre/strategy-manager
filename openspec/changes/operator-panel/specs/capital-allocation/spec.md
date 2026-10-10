@@ -12,6 +12,12 @@
 > explicitly, not only by cross-reference: with the startup refusal
 > withdrawn (decision 20), this pre-lock check is the only thing that keeps a
 > keyless exchange from reaching the lock at all.
+>
+> **Revised 2026-10-06 (owner decisions 44 (12f.1) and 48, design addendum
+> "unit 12f" § C).** One requirement is added at the end: "A Changed Share Of
+> The Pool Applies From The Next Allocation Only". It states what the
+> allocation already does, so that the panel's share control rests on a pinned
+> behaviour; no existing requirement of this file is changed.
 
 ## ADDED Requirements
 
@@ -115,3 +121,49 @@ no additional read and no additional lock.
 - GIVEN pool `(bybit, usdt-m, USDT)` reads 510 USDT before the lock and 500 USDT inside it when a signal is allocated
 - WHEN the reservation is written inside pool `(bybit, usdt-m, USDT)`'s advisory-locked transaction
 - THEN the reservation's pool-capital-at-open value is 500 USDT, and no read beyond the transaction's existing in-lock `pool_balance.total` read was performed
+
+### Requirement: A Changed Share Of The Pool Applies From The Next Allocation Only
+
+> **Added 2026-10-06 (owner decisions 44 (12f.1) and 48; design addendum "unit 12f" § A U3 and § C).**
+
+The amount a strategy requests for pool `(exchange, venue, settlement_currency)`
+MUST be sized from the strategy's share as stored when the opening is sized, as
+the share times the pool's total balance divided by 100, before the pool's
+advisory lock is taken. A change of the share MUST apply to the next opening only:
+it MUST NOT resize an operation already open, MUST NOT change a reservation
+already made (neither its amount nor its recorded pool capital at open), and MUST
+NOT re-size a request already computed. An opening deferred until a close settles
+MUST be sized with the share stored when it finally opens. A change of the share
+MUST NOT take the pool's advisory lock and MUST NOT write a reservation; it takes
+only the strategy's own row lock, so the lock order (the pool lock first, then row
+locks) is unchanged.
+
+#### Scenario: A reservation already made keeps its amount
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a share of `10` and a pool total of 1000 USDT holds a reservation of 100 USDT
+- WHEN S1's share is changed to `25`
+- THEN the reservation is still 100 USDT with its recorded pool capital at open unchanged
+
+#### Scenario: The next opening is sized with the new share
+
+- GIVEN the same strategy, whose share was changed from `10` to `25`, and a pool total of 1000 USDT
+- WHEN the next opening signal for S1 is sized
+- THEN the amount requested from pool `(bybit, usdt-m, USDT)` is 250 USDT
+
+#### Scenario: An operation already open is not resized
+
+- GIVEN S1 has an open operation sized from a share of `10`
+- WHEN S1's share is changed to `25`
+- THEN the open operation's size is unchanged
+
+#### Scenario: A deferred opening is sized with the share stored when it opens
+
+- GIVEN an opening alert for S1 waits for a close on pool `(bybit, usdt-m, USDT)` to settle, and the share is changed from `10` to `25` while it waits
+- WHEN the deferred opening is finally sized on a pool total of 1000 USDT
+- THEN the amount requested is 250 USDT
+
+#### Scenario: A share change takes no pool lock and writes no reservation
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)`
+- WHEN its share is changed
+- THEN the pool's advisory lock is not taken, no reservation is written, and only S1's own row is locked

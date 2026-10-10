@@ -17,6 +17,13 @@
 > Prices, Size And Fees", "Rehearsal Operations Are Listed Only On Request",
 > "A Rehearsal Operation Says How Its Opening Fills Were Priced" and "One
 > Operation's Fills Are Read By Strategy And Allocation Together".
+>
+> **Revised 2026-10-06 (owner decision 44, answered 2026-10-06; design addendum
+> "unit 12f" § G).** A pair's win rate is derived where each pair's closed
+> operations are already grouped. "Stats By Strategy and By Pair" gains the win
+> count and win rate in its first sentence, and one requirement is added at the
+> end of this file: "A Pair's Win Rate Counts Closed Operations With A PnL Above
+> Zero".
 
 ## Purpose
 
@@ -221,8 +228,10 @@ and ending now: 7 days, 30 days, 90 days, 1 year (365 days), and all time.
 
 ### Requirement: Stats By Strategy and By Pair
 
-The system MUST provide, per strategy and per pool, trade count and realized
-PnL by pair, where each trade is first derived per allocation and then keyed by
+The system MUST provide, per strategy and per pool, trade count, win count and
+win rate (unit 12f, 2026-10-06, owner decision 44; see "A Pair's Win Rate Counts
+Closed Operations With A PnL Above Zero") and realized PnL by pair, where each
+trade is first derived per allocation and then keyed by
 the `market_key()` of that allocation's fills (spelling variants such as
 `SOLUSDT.P` and `SOLUSDT` merged), independent of the strategy's current
 allowed-pairs list, so a pair removed from the allowlist still shows its
@@ -656,3 +665,88 @@ venue order or fill ids, notional or symbol.
 - GIVEN one operation with 1 fill and another with 50
 - WHEN each one's fills are read
 - THEN both reads issue the same number of statements
+
+### Requirement: A Pair's Win Rate Counts Closed Operations With A PnL Above Zero
+
+> **Added 2026-10-06 (owner decision 44, answered 2026-10-06; design addendum "unit 12f" § G).**
+
+For each pair of a strategy, in the strategy's own pool `(exchange, venue,
+settlement_currency)`, the system MUST derive a win count and a win rate. A WIN is
+a closed operation whose realized PnL, in the pool's native settlement currency,
+is above zero. A PnL of exactly zero MUST NOT be a win and MUST count in the
+pair's total. The win rate MUST be the win count divided by the pair's count of
+closed operations, the same count as the pair's trade count, so that a pair's win
+count never exceeds it. The following rules hold:
+
+- Dry-run (rehearsal) operations MUST stay out of the win count and of the total,
+  as of every other figure of this domain.
+- Every closed operation of the pair MUST count in the total, as it does in the
+  pair's trade count and PnL: one with no recorded pool capital at open, and one
+  with incomplete fees, which counts by the PnL it has (as the pair's PnL already
+  does, although near zero that sign can be wrong).
+- A pair with no closed operation MUST have no row; no rate MUST be invented, and
+  none served as null or zero.
+- Pairs are keyed as in "Stats By Strategy and By Pair": spelling variants of one
+  market are one pair, and a pair removed from the allowlist keeps its rate.
+- The win rate of one pair MUST be a ratio of counts within one strategy and so
+  within one pool; nothing is summed or converted across pools.
+
+#### Scenario: Three wins, one zero and one loss read three in five
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` has 5 closed live operations on `SOLUSDT` with PnL +4.10, +0.80, +2.00, 0 and -1.25 USDT
+- WHEN S1's per-pair statistics are read
+- THEN `SOLUSDT` has 5 operations, 3 wins and a win rate of 0.6, because the zero is not a win and counts in the total
+
+#### Scenario: A pair whose every operation is at zero has no win
+
+- GIVEN S1 has 2 closed live operations on `ETHUSDT`, each with a PnL of exactly 0
+- WHEN S1's per-pair statistics are read
+- THEN `ETHUSDT` has 2 operations, 0 wins and a win rate of 0
+
+#### Scenario: 199 wins in 200 are a rate below 1
+
+- GIVEN S1 has 200 closed live operations on `SOLUSDT`, 199 with a PnL above zero and one below
+- WHEN S1's per-pair statistics are read
+- THEN the win rate is 0.995, not 1
+
+#### Scenario: A dry-run operation is not counted
+
+- GIVEN S1 has 2 closed live operations on `SOLUSDT` (one above zero, one below) and 3 closed dry-run operations on `SOLUSDT`, each above zero
+- WHEN S1's per-pair statistics are read
+- THEN `SOLUSDT` has 2 operations, 1 win and a win rate of 0.5
+
+#### Scenario: An operation with incomplete fees counts by the PnL it has
+
+- GIVEN S1 has 2 closed live operations on `SOLUSDT`, one with PnL +3.00 USDT and a fee charged in a third currency that is not in that PnL, and one with PnL -1.00 USDT
+- WHEN S1's per-pair statistics are read
+- THEN `SOLUSDT` has 2 operations, 1 win and a win rate of 0.5
+
+#### Scenario: An operation with no recorded pool capital counts
+
+- GIVEN S1 has a closed live operation on `SOLUSDT` with PnL +1.00 USDT and no recorded pool capital at open
+- WHEN S1's per-pair statistics are read
+- THEN it counts as one operation and one win
+
+#### Scenario: A pair with no closed operation has no row
+
+- GIVEN S1 has only an open operation on `XRPUSDT`
+- WHEN S1's per-pair statistics are read
+- THEN no row names `XRPUSDT`
+
+#### Scenario: Two spellings of one market are one pair
+
+- GIVEN S1's operations opened as `SOLUSDT.P` and closed under `SOLUSDT`, one above zero and one below
+- WHEN S1's per-pair statistics are read
+- THEN there is one pair `SOLUSDT` with 2 operations and 1 win
+
+#### Scenario: A pair removed from the allowlist keeps its win rate
+
+- GIVEN `SOLUSDT` was removed from S1's allowed pairs after 4 closed live operations, 3 above zero
+- WHEN S1's per-pair statistics are read
+- THEN `SOLUSDT` still shows 4 operations, 3 wins and a win rate of 0.75
+
+#### Scenario: Two pools are not blended
+
+- GIVEN strategy S1 in pool `(bybit, usdt-m, USDT)` and S2 in pool `(binance, usdt-m, USDT)` both trade `SOLUSDT`
+- WHEN each strategy's per-pair statistics are read
+- THEN each pair's rate is computed from its own strategy's operations only

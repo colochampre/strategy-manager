@@ -14,13 +14,14 @@ returns) or reschedules (``enqueue_unique``) -- ``poll()`` never raises, so
 ``WorkerRunner`` always acks this job.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
+from strategy_manager.allocation.application.ports import PoolBalance
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
     ExecutionOrigin,
@@ -28,9 +29,34 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
+from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
+from strategy_manager.signals.application.process_signal import ProcessSignalHandler
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
-from tests.signals.fakes import RecordingSignalOutcomes
+from tests.signals.application.test_process_signal import (
+    TRADABLE,
+    FakeBalanceRefreshPort,
+    FakeCommit,
+    FakeInFlightWorkPort,
+    FakePoolBalancePort,
+    FakeReservationRepository,
+    FakeSignalContextPort,
+    FakeStrategyPolicyPort,
+    FakeSymbolHoldingsPort,
+    FakeVenueNetPositionPort,
+    SpyAdvisoryLock,
+    SpyCloseOrphans,
+    SpyClosePosition,
+    SpyContinuationSeeder,
+    SpyPlaceOrder,
+    _allocate_capital,
+    _open_long_context,
+    _snapshot,
+)
+from tests.signals.application.test_process_signal import (
+    FakeClosingAttemptsPort as FakeProcessClosingAttemptsPort,
+)
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
 SETTLE_TIMEOUT_SECONDS = 300.0
@@ -646,3 +672,66 @@ async def test_awaited_closes_filled_but_other_work_in_flight_continues_rather_t
     assert open_now.opened_calls == [signal.id]
     assert len(queue.enqueued) == 1
     assert queue.enqueued[0].payload["poll"] == 1
+
+
+async def test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally_opens() -> None:
+    """Spec: capital-allocation "A Changed Share Of The Pool Applies From The
+    Next Allocation Only". The opening waits for a close (work in flight), the
+    owner changes the share from 10 to 25 meanwhile, and the opening that finally
+    runs asks for 25% of the pool's total (250 of 1000), not for the 100 the
+    share was worth when it was deferred. The deferral carries no amount: the
+    share is read again when the opening resumes.
+
+    The handler is built here, and not through ``_process_signal_handler``, only
+    because that helper creates its own policy port and this test has to change
+    the one the handler reads between the deferral and the resume."""
+    signal_id = uuid4()
+    policy_port = FakeStrategyPolicyPort(_snapshot(allocation_percent=Decimal("10")))
+    in_flight = FakeInFlightWorkPort(result=True)
+    reservations = FakeReservationRepository()
+    seeder = SpyContinuationSeeder()
+    pool_balance = PoolBalance(
+        total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+    )
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(
+            replace(_open_long_context(), received_at=NOW)
+        ),
+        strategy_policy=policy_port,
+        pool_balance=FakePoolBalancePort(pool_balance),
+        holding_guard=HoldingGuard(
+            holdings=FakeSymbolHoldingsPort([]),
+            in_flight_work=in_flight,
+            venue_net_position=FakeVenueNetPositionPort(None),
+            clock=FrozenClock(NOW),
+            delayed_open_max_signal_age_seconds=MAX_SIGNAL_AGE_SECONDS,
+        ),
+        balance_refresh=FakeBalanceRefreshPort(),
+        allocate_capital=_allocate_capital(
+            SpyAdvisoryLock(), pool_balance=pool_balance, reservations=reservations
+        ),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        open_after_close=seeder,
+        commit=FakeCommit(),
+        closing_attempts=FakeProcessClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
+        tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
+    )
+
+    deferred = await handler.handle(signal_id)
+
+    assert deferred.executed is False
+    assert seeder.calls == [(signal_id, [], 0, False)]
+    assert reservations.inserted == []  # deferred: nothing was sized yet
+
+    # The share is changed while the opening waits, and the awaited work settles.
+    policy_port.snapshot = replace(policy_port.snapshot, allocation_percent=Decimal("25"))
+    in_flight.result = False
+
+    resumed = await handler.open_now(signal_id, poll=1)
+
+    assert resumed.executed is True
+    assert [r.amount for r in reservations.inserted] == [Decimal("250")]

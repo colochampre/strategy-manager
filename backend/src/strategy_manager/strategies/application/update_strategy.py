@@ -28,6 +28,7 @@ Everything that does NOT change where the money comes from is editable:
 ``name``, ``fill_mode``, ``allocation_percent``, and ``enabled``.
 """
 
+import logging
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import UUID
@@ -44,6 +45,8 @@ from strategy_manager.strategies.domain.strategy import (
     FillMode,
     Strategy,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class UnknownStrategy(DomainError):
@@ -138,4 +141,19 @@ class UpdateStrategy:
             )
 
         await self._commit.commit()
+
+        # A change of how much capital a strategy asks for leaves a trace, and
+        # only a REAL change does: "changed" is decided on the decimal value
+        # (33.50 over 33.5 is not one). It is written after the commit so that
+        # a rolled-back change never leaves a line saying it happened. Ids and
+        # values only; nothing a sender typed and no secret is in scope here.
+        before = strategy.policy.allocation_percent.value
+        after = updated.policy.allocation_percent.value
+        if after != before:
+            logger.info(
+                "strategy %s share of the pool changed from %s to %s",
+                strategy.id,
+                format(before, "f"),
+                format(after, "f"),
+            )
         return updated

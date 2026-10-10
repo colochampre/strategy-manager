@@ -1,0 +1,1058 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pool share slider - prototype</title>
+<!--
+  Design prototype for unit 12f.1 (design.md, addendum, sections B, C, C2, C3 and I), second layout:
+  the field above the track, the stops as a legend close under it, the amount and the minimum warning.
+  Not product code: it is never imported by the app. One file, no network.
+  The control is built as section B says: a native range input with a transparent
+  track and a restyled thumb, over an aria-hidden inline SVG whose geometry is set
+  with attributes only. The page's own stylesheet does all the presentation.
+-->
+<style>
+  :root {
+    --ground: #0C1116;
+    --panel: #141B22;
+    --panel-2: #1B242C;
+    --rule: #28333C;
+    --rule-soft: #1E272F;
+    --rule-strong: #3D4E5C;
+    --ink: #E7EDF1;
+    --ink-2: #A9B8C3;
+    --ink-3: #7A8C99;
+    --gain: #1FA6B8;
+    --loss: #E0644B;
+    /* Fallbacks only: no web font is requested. Archivo / IBM Plex fall through to the
+       system faces below (Segoe UI and Consolas on Windows). */
+    --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body { margin: 0; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- review bar: NOT part of the product ---------- */
+  .review-bar {
+    border-bottom: 1px dashed var(--rule-strong);
+    background: var(--panel);
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .review-tag {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .review-groups { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; }
+  .review-group { display: flex; flex-direction: column; gap: 6px; }
+  .review-group-label { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .seg button:hover { background: var(--panel-2); }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); border-color: var(--rule-strong); color: var(--ink); }
+  .review-note { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); max-width: 80ch; }
+
+  /* ---------- frames ---------- */
+  .stage { padding: 24px 16px 40px; display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+  .frame-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+  .frame-caption { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; }
+  /* Outer width = content width + 2 x 20px padding, as the real aside (p-5). */
+  .frame-360 { width: 400px; }
+  .frame-300 { width: 340px; }
+
+  .settings {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 100%;
+    padding: 20px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .settings h2 { margin: 0; font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); line-height: 1.5; }
+
+  /* ---------- the control ---------- */
+  .share { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .share-label { font-size: 13px; line-height: 20px; color: var(--ink-2); }
+  .share-body { display: flex; flex-direction: column; gap: 12px; }
+
+  /* information buttons (B2): a 44 x 44 transparent hit box around a 16 px glyph. The negative
+     vertical margins make the box add no height to its row (12px above and below a 20px line). */
+  .row-with-info { display: flex; align-items: flex-start; }
+  .info {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    margin: -12px 0 -12px -8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-3);
+    cursor: pointer;
+  }
+  .info:hover { color: var(--ink-2); }
+  .info[aria-expanded="true"] { color: var(--ink); }
+  .info svg { display: block; width: 16px; height: 16px; }
+  .disclosure { display: flex; flex-direction: column; gap: 6px; }
+  .disclosure:empty { display: none; }
+  .disclosure p { margin: 0; font-size: 12px; color: var(--ink-3); }
+
+  /* 2. the field: a wrapper drawn as the field; number and % sign together at the left */
+  .field-wrap {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: text;
+  }
+  .field-wrap:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .field-wrap[data-invalid="true"] { border-color: var(--loss); }
+  .field-wrap[data-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .field {
+    /* its width comes from the size attribute (one character per unit in a monospaced font) */
+    flex: none;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 2px 0 0;       /* 2px at the right for the caret */
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    outline: none;
+  }
+  /* Progressive enhancement, ADDED BY THIS PROTOTYPE and not in the design: Chromium sizes a text
+     input by `size` as (avg char width x size) plus about one extra character, which leaves a gap
+     before the % sign. Where field-sizing exists the width follows the text exactly; elsewhere the
+     size attribute alone applies. */
+  @supports (field-sizing: content) {
+    .field { field-sizing: content; min-width: 1ch; }
+  }
+  .field:disabled { cursor: not-allowed; }
+  .field-sign { flex: none; color: var(--ink); }
+
+  /* 3. the track */
+  .track { position: relative; height: 44px; }
+  .drawing {
+    position: absolute;
+    top: 0;
+    left: 10px;                 /* half the thumb's width */
+    width: calc(100% - 20px);   /* inset by half the thumb on each side */
+    height: 44px;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .draw-track { stroke: var(--rule); stroke-width: 4; stroke-linecap: round; }
+  .draw-fill { stroke: var(--gain); stroke-width: 4; stroke-linecap: round; }
+  .draw-stop { stroke: var(--panel); stroke-width: 2; }
+  .draw-stop.on { fill: var(--gain); }
+  .draw-stop.off { fill: var(--rule-strong); }
+  .share[data-disabled="true"] .draw-fill { stroke: var(--rule-strong); }
+  .share[data-disabled="true"] .draw-stop.on { fill: var(--rule-strong); }
+
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .range:disabled { cursor: not-allowed; }
+  .range:focus-visible { outline: none; }
+  .range::-webkit-slider-runnable-track { height: 44px; background: transparent; border: 0; }
+  .range::-moz-range-track { height: 44px; background: transparent; border: 0; }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    margin-top: 12px;           /* (44 - 20) / 2: WebKit does not centre the thumb itself */
+    border: 2px solid var(--panel);
+    border-radius: 50%;
+    background: var(--gain);
+  }
+  .range::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--panel);
+    border-radius: 50%;
+    background: var(--gain);
+    box-sizing: border-box;
+  }
+  .range:disabled::-webkit-slider-thumb { background: var(--rule-strong); }
+  .range:disabled::-moz-range-thumb { background: var(--rule-strong); }
+  .range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .range:focus-visible::-moz-range-thumb { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  /* 4. the legend: pulled up 12px so it begins at the handle's lower edge (the thumb is the
+     middle 20px of the 44px track). The row lets presses through; only the buttons take them. */
+  .legend {
+    position: relative;
+    z-index: 2;
+    height: 44px;
+    margin: -12px 10px 0;
+    pointer-events: none;
+  }
+  .stop {
+    position: absolute;
+    top: 0;
+    width: 44px;
+    height: 44px;
+    margin-left: -22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .stop-25 { left: 24.2424%; }
+  .stop-50 { left: 49.4949%; }
+  .stop-75 { left: 74.7475%; }
+  .stop-100 { left: 100%; }
+  .stop-face {
+    display: block;
+    padding: 4px 4px 0;         /* the label sits about 4px under the handle */
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--ink-3);
+  }
+  .stop:hover .stop-face { color: var(--ink-2); }
+  .stop[aria-pressed="true"] .stop-face { color: var(--ink); }
+  .stop:disabled { cursor: not-allowed; opacity: 0.5; }
+  .stop:disabled:hover .stop-face { color: var(--ink-3); }
+
+  /* 5. the amount and its warning */
+  .amount-block { display: flex; flex-direction: column; gap: 6px; }
+  .msg { margin: 0; }
+  .msg:empty { display: none; }
+  .amount { font-size: 14px; line-height: 20px; color: var(--ink); }
+  .amount.quiet { color: var(--ink-2); }
+  .stale { font-size: 12px; color: var(--ink-2); }
+  .warning { font-size: 12px; color: var(--loss); }
+
+  /* 6. helpers and validation */
+  .helpers { display: flex; flex-direction: column; gap: 6px; }
+  .hint { font-size: 12px; color: var(--ink-3); }
+  .validation { font-size: 12px; color: var(--loss); }
+  .refusal { margin: 0; font-size: 14px; color: var(--loss); }
+  .unreadable { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+  /* 7. save */
+  .save-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .btn {
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--gain);
+    color: var(--ground);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .saved { font-size: 14px; color: var(--ink-2); }
+
+  /* ---------- stub of the allowed-pairs block (does nothing) ---------- */
+  .pairs-stub { display: flex; flex-direction: column; gap: 12px; }
+  .pairs-stub .stub-label { font-size: 13px; color: var(--ink-2); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 4px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--panel-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .btn-pairs { align-self: flex-start; }
+</style>
+</head>
+<body>
+
+<header class="review-bar" id="review-bar">
+  <p class="review-tag">Review bar &middot; not part of the product &middot; nothing here is sent anywhere</p>
+  <div class="review-groups">
+    <div class="review-group">
+      <span class="review-group-label">LANGUAGE</span>
+      <div class="seg" data-seg="lang"></div>
+    </div>
+    <div class="review-group">
+      <span class="review-group-label">STORED VALUE TO START FROM</span>
+      <div class="seg" data-seg="stored"></div>
+    </div>
+    <div class="review-group">
+      <span class="review-group-label">POOL TOTAL BALANCE (MINIMUM ORDER FIXED AT 5 USDT)</span>
+      <div class="seg" data-seg="total"></div>
+    </div>
+    <div class="review-group">
+      <span class="review-group-label">AMOUNT PREVIEW</span>
+      <div class="seg" data-seg="preview"></div>
+    </div>
+    <div class="review-group">
+      <span class="review-group-label">SAVE STATE TO PREVIEW</span>
+      <div class="seg" data-seg="mode"></div>
+    </div>
+    <div class="review-group" id="refusal-group" hidden>
+      <span class="review-group-label">REFUSAL AFTER SAVE</span>
+      <div class="seg" data-seg="refusal"></div>
+    </div>
+  </div>
+  <p class="review-note">
+    Two widths of the settings column: 360 px (desktop, 25rem aside minus 2 x 20 px padding) and
+    300 px (phone), each the width of the content inside the card. The frames share one value:
+    what you do in one shows in the other. Save simulates 700 ms of saving. The first read of the
+    amount takes 400 ms; a typed decimal waits 300 ms after the last keystroke. The two information
+    buttons start closed and are not reset by this bar. The heading and the pairs stub are stand-ins
+    in English.
+  </p>
+</header>
+
+<main class="stage" id="stage"></main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- texts: design.md section I, verbatim ---------- */
+  var TEXTS = {
+    en: {
+      label: "Share of the pool per trade",
+      info: "About the share of the pool",
+      amountInfo: "About this amount and what is not checked",
+      hint: "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size.",
+      amount: "Asks for about {{amount}} {{currency}} per operation",
+      amountHint: "An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.",
+      amountStale: "The pool's balance was last read at {{time}} UTC and may be out of date.",
+      amountNoBalance: "The pool's balance has not been read yet, so the amount cannot be shown.",
+      amountLoading: "Calculating the amount…",
+      amountError: "The amount could not be loaded.",
+      belowPoolMinimum: "At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger.",
+      pairMinimumNote: "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.",
+      valueText: "{{value}}% of the pool",
+      stop: "Set the share to {{value}}%",
+      notNumber: "Enter a number, for example 25 or 33.5.",
+      outOfRange: "The share must be above 0 and at most 100.",
+      save: "Save share",
+      saving: "Saving…",
+      saveFailed: "The share was not saved. Try again.",
+      archived: "This strategy is archived and can no longer be changed.",
+      gone: "This strategy no longer exists.",
+      unreadable: "The stored share could not be read, so it cannot be edited here.",
+      saved: "Saved"
+    },
+    es: {
+      label: "Porcentaje del pool por operación",
+      info: "Acerca del porcentaje del pool",
+      amountInfo: "Acerca de este importe y de lo que no se comprueba",
+      hint: "Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño.",
+      amount: "Pide alrededor de {{amount}} {{currency}} por operación",
+      amountHint: "Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
+      amountStale: "El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado.",
+      amountNoBalance: "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
+      amountLoading: "Calculando el importe…",
+      amountError: "No se pudo cargar el importe.",
+      belowPoolMinimum: "Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
+      pairMinimumNote: "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
+      valueText: "{{value}} % del pool",
+      stop: "Fijar el porcentaje en {{value}} %",
+      notNumber: "Escriba un número, por ejemplo 25 o 33,5.",
+      outOfRange: "El porcentaje debe ser mayor que 0 y como máximo 100.",
+      save: "Guardar porcentaje",
+      saving: "Guardando…",
+      saveFailed: "El porcentaje no se guardó. Inténtelo de nuevo.",
+      archived: "Esta estrategia está archivada y ya no se puede modificar.",
+      gone: "Esta estrategia ya no existe.",
+      unreadable: "No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí.",
+      saved: "Guardado"
+    }
+  };
+
+  var STOPS = [25, 50, 75, 100];
+  var SAVE_MS = 700;
+  var FIRST_READ_MS = 400;
+  var DEBOUNCE_MS = 300;
+  var POOL_MINIMUM = "5";
+  var CURRENCY = "USDT";
+  var CURRENCY_DECIMALS = 2;
+
+  /* ---------- pure value model (section C) ---------- */
+
+  // Position of a value on a track from 1 to 100, in percent. A control position, not money.
+  function position(v) { return ((v - 1) / 99) * 100; }
+
+  // Whole handle position: the value rounded half up and clamped to 1..100.
+  function handleOf(canon) {
+    var n = Math.floor(Number(canon) + 0.5);
+    return Math.min(100, Math.max(1, n));
+  }
+
+  // Reads typed text. One comma counts as the decimal separator. Nothing is trimmed or guessed.
+  function readText(text) {
+    var m = /^(\d+)(?:[.,](\d+))?$/.exec(text);
+    if (!m) return { kind: "notNumber" };
+    var int = m[1].replace(/^0+(?=\d)/, "");
+    var frac = (m[2] || "").replace(/0+$/, "");
+    if (int === "0" && frac === "") return { kind: "range" };
+    if (Number(int) > 100 || (Number(int) === 100 && frac !== "")) return { kind: "range" };
+    return { kind: "ok", canon: frac ? int + "." + frac : int };
+  }
+
+  // Reads the stored value as the server wrote it: digits and an optional dot fraction only.
+  function readStored(text) {
+    if (!/^\d+(\.\d+)?$/.test(text)) return null;
+    var r = readText(text);
+    return r.kind === "ok" ? r.canon : null;
+  }
+
+  /* ==========================================================================================
+     STAND-IN FOR THE SERVER. In the product this whole function is the answer of
+     GET /api/strategies/{id}/share-preview (design.md section C2): the SERVER multiplies,
+     with requested_from_percent, from one read of the balance. This prototype has no server,
+     so this is the ONLY place an amount is computed. Everything else in this file only LOOKS
+     UP the body it returns (steps[n - 1], exact) and displays it, as the panel will.
+     `share` is the optional ?share= value; the default is the stored share.
+     ========================================================================================== */
+  function serverSharePreview(opts) {
+    var SCALE = 18;
+    function toScaled(plain) {
+      var p = plain.split(".");
+      var f = ((p[1] || "") + "000000000000000000").slice(0, SCALE);
+      return BigInt(p[0] + f);
+    }
+    function fromScaled(n) {
+      var s = n.toString();
+      while (s.length < SCALE + 1) s = "0" + s;
+      return s.slice(0, s.length - SCALE) + "." + s.slice(s.length - SCALE);
+    }
+    // total * share / 100, rounded DOWN, 18 places (the engine's rule).
+    function requested(totalScaled, shareText) {
+      var p = shareText.split(".");
+      var frac = p[1] || "";
+      var num = BigInt(p[0] + frac);
+      var den = BigInt(100) * (BigInt(10) ** BigInt(frac.length));
+      return (totalScaled * num) / den;
+    }
+    var minimum = toScaled(opts.minimum);
+    function entry(shareText, shareValue) {
+      var amount = requested(toScaled(opts.total), shareText);
+      return { share: shareValue, amount: fromScaled(amount), below_pool_minimum: amount < minimum };
+    }
+    var body = {
+      currency: CURRENCY,
+      pool_minimum: fromScaled(minimum),
+      balance: null,
+      exact: null,
+      steps: []
+    };
+    if (opts.mode === "nobalance") return body;                  // no balance: no amount, never a zero
+    var ageMs = opts.mode === "stale" ? 3 * 3600 * 1000 : 2 * 60 * 1000;
+    body.balance = {
+      total: fromScaled(toScaled(opts.total)),
+      observed_at: new Date(Date.now() - ageMs).toISOString(),
+      stale: opts.mode === "stale"
+    };
+    if (opts.share !== null) {
+      var e = entry(opts.share, opts.share);
+      body.exact = e;
+    }
+    for (var n = 1; n <= 100; n++) body.steps.push(entry(String(n), n));
+    return body;
+  }
+
+  /* ---------- display of a served amount (cut as text, never rounded up) ---------- */
+  function amountText(plain) {
+    var p = plain.split(".");
+    var frac = (p[1] || "");
+    while (frac.length < CURRENCY_DECIMALS) frac += "0";
+    var cut = p[0] + "." + frac.slice(0, CURRENCY_DECIMALS);
+    var locale = state.lang === "es" ? "es-ES" : "en-US";
+    return new Intl.NumberFormat(locale, {
+      minimumFractionDigits: CURRENCY_DECIMALS,
+      maximumFractionDigits: CURRENCY_DECIMALS
+    }).format(cut);
+  }
+
+  function utcTime(iso) {
+    var d = new Date(iso);
+    function two(n) { return (n < 10 ? "0" : "") + n; }
+    return two(d.getUTCHours()) + ":" + two(d.getUTCMinutes());
+  }
+
+  function t(key, values) {
+    var s = TEXTS[state.lang][key];
+    if (values) for (var k in values) s = s.split("{{" + k + "}}").join(values[k]);
+    return s;
+  }
+
+  /* ---------- state: one value, shared by both frames ---------- */
+  var state = {
+    lang: "en",
+    storedStart: "33.5",
+    total: "2000",
+    previewMode: "normal",  // normal | stale | nobalance | error
+    mode: "normal",         // normal | archived | refused | unreadable
+    refusal: "network",     // network | archived | range | gone
+    stored: null,
+    value: null,            // last valid canonical value (what the handle shows)
+    text: "",
+    saving: false,
+    saved: false,
+    refusalKey: null,
+    archived: false,
+    open: { share: false, amount: false },   // the two disclosures: closed on load, kept across a save and a language switch
+    // the served preview
+    loading: true,          // the first read is pending
+    table: null,            // the body of the first read
+    cache: {}               // exact answers by canonical share (typed decimals)
+  };
+
+  var timers = { save: 0, first: 0, debounce: 0 };
+
+  function clearTimers() {
+    for (var k in timers) { if (timers[k]) window.clearTimeout(timers[k]); timers[k] = 0; }
+  }
+
+  function readExact(share) {
+    // One read with ?share= (a typed decimal at rest). Stands in for the second request.
+    var body = serverSharePreview({ total: state.total, minimum: POOL_MINIMUM, mode: state.previewMode, share: share });
+    return body.exact;
+  }
+
+  function resetFromBar() {
+    clearTimers();
+    state.stored = state.mode === "unreadable" ? readStored("1e1") : readStored(state.storedStart);
+    state.value = state.stored;
+    state.text = state.stored === null ? "" : state.stored;
+    state.saving = false;
+    state.saved = false;
+    state.refusalKey = null;
+    state.archived = state.mode === "archived";
+    state.loading = true;
+    state.table = null;
+    state.cache = {};
+    syncAll();
+    timers.first = window.setTimeout(function () {
+      timers.first = 0;
+      state.loading = false;
+      if (state.previewMode !== "error") {
+        state.table = serverSharePreview({ total: state.total, minimum: POOL_MINIMUM, mode: state.previewMode, share: state.stored });
+        // The first read carries the exact amount of the stored share: no request for it later.
+        if (state.table.exact && state.stored !== null) state.cache[state.stored] = state.table.exact;
+      }
+      syncAll();
+    }, FIRST_READ_MS);
+  }
+
+  function derived() {
+    var r = readText(state.text);
+    var valid = r.kind === "ok";
+    var changed = valid && r.canon !== state.stored;
+    return {
+      read: r,
+      valid: valid,
+      changed: changed,
+      canSave: !state.archived && !state.saving && changed,
+      locked: state.archived || state.saving
+    };
+  }
+
+  // Which amount the field's value has, by section C2's table. Only looks up.
+  function amountView(d) {
+    if (!d.valid) return { kind: "none" };
+    if (state.loading) return { kind: "loading" };
+    if (state.previewMode === "error" || state.table === null) return { kind: "error" };
+    if (!state.table.balance) return { kind: "nobalance" };
+    var c = d.read.canon;
+    if (/^\d+$/.test(c)) return { kind: "known", entry: state.table.steps[Number(c) - 1] };  // whole step: no request
+    var cached = state.cache[c];
+    return cached ? { kind: "known", entry: cached } : { kind: "loading" };               // decimal: waits for its read
+  }
+
+  /* ---------- events ---------- */
+  function touch() { state.saved = false; }
+
+  function cancelDebounce() {
+    if (timers.debounce) { window.clearTimeout(timers.debounce); timers.debounce = 0; }
+  }
+
+  function onRange(n) {
+    cancelDebounce();
+    state.value = String(n);
+    state.text = String(n);
+    touch();
+    syncAll();                    // the amount is read from the table at once
+  }
+
+  function onStop(n) { onRange(n); }
+
+  function onText(raw) {
+    cancelDebounce();
+    state.text = raw;
+    touch();
+    var r = readText(raw);
+    if (r.kind === "ok") state.value = r.canon;   // the handle follows only a valid value
+    syncAll();                                    // a typed decimal shows no amount yet
+    if (r.kind === "ok" && !/^\d+$/.test(r.canon) && !state.cache[r.canon] &&
+        !state.loading && state.table !== null && state.table.balance) {
+      var share = r.canon;
+      timers.debounce = window.setTimeout(function () {
+        timers.debounce = 0;
+        state.cache[share] = readExact(share);
+        syncAll();
+      }, DEBOUNCE_MS);
+    }
+  }
+
+  function onSave() {
+    var d = derived();
+    if (!d.canSave) return;
+    var sending = d.read.canon;
+    state.saving = true;
+    state.saved = false;
+    state.refusalKey = null;
+    syncAll();
+    timers.save = window.setTimeout(function () {
+      timers.save = 0;
+      state.saving = false;
+      if (state.mode === "refused") {
+        if (state.refusal === "network") state.refusalKey = "saveFailed";
+        if (state.refusal === "range") state.refusalKey = "outOfRange";
+        if (state.refusal === "gone") state.refusalKey = "gone";
+        if (state.refusal === "archived") { state.refusalKey = "archived"; state.archived = true; }
+      } else {
+        state.stored = sending;
+        state.value = sending;
+        state.text = sending;
+        state.saved = true;
+        // The save invalidates the preview, which is read again (its exact is the stored share).
+        if (state.table !== null && state.table.balance && !/^\d+$/.test(sending) && !state.cache[sending]) {
+          state.cache[sending] = readExact(sending);
+        }
+      }
+      syncAll();
+    }, SAVE_MS);
+  }
+
+  /* ---------- building one frame ---------- */
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgEl(name, attrs) {
+    var el = document.createElementNS(SVG_NS, name);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function para(cls, id) {
+    var p = document.createElement("p");
+    p.className = "msg " + cls;
+    if (id) p.id = id;
+    return p;
+  }
+
+  // The "i in a circle": a circle, a dot and a stem, all geometry attributes, coloured by currentColor.
+  function infoGlyph() {
+    var svg = svgEl("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": "true", focusable: "false" });
+    svg.appendChild(svgEl("circle", { cx: "8", cy: "8", r: "7", fill: "none", stroke: "currentColor", "stroke-width": "1.5" }));
+    svg.appendChild(svgEl("circle", { cx: "8", cy: "4.8", r: "1", fill: "currentColor" }));
+    svg.appendChild(svgEl("line", { x1: "8", y1: "7.2", x2: "8", y2: "11.6", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round" }));
+    return svg;
+  }
+
+  // A disclosure in place (B2): a real button, aria-expanded and aria-controls, never disabled.
+  // `which` is "share" or "amount"; the open state is shared by both frames. Escape closes the
+  // text while focus is on the button or inside its text, and leaves focus on the button.
+  function makeInfo(controlsId, which, container) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "info";
+    b.setAttribute("aria-controls", controlsId);
+    b.setAttribute("aria-expanded", "false");
+    b.appendChild(infoGlyph());
+    b.addEventListener("click", function () { state.open[which] = !state.open[which]; syncAll(); });
+    function onKey(e) {
+      if (e.key === "Escape" && state.open[which]) {
+        state.open[which] = false;
+        syncAll();
+        b.focus();
+      }
+    }
+    b.addEventListener("keydown", onKey);
+    container.addEventListener("keydown", onKey);
+    return b;
+  }
+
+  // The container is always in the document and empty while closed; paragraphs exist only while open.
+  function fillDisclosure(container, texts) {
+    var key = texts.join("\u0001");
+    if (container.getAttribute("data-key") === key) return;
+    container.setAttribute("data-key", key);
+    while (container.firstChild) container.removeChild(container.firstChild);
+    texts.forEach(function (s) {
+      var p = document.createElement("p");
+      p.textContent = s;
+      container.appendChild(p);
+    });
+  }
+
+  function buildFrame(prefix, widthClass, caption) {
+    var wrap = document.createElement("div");
+    wrap.className = "frame-wrap " + widthClass;
+
+    var cap = document.createElement("p");
+    cap.className = "frame-caption";
+    cap.textContent = caption;
+    wrap.appendChild(cap);
+
+    var aside = document.createElement("aside");
+    aside.className = "settings";
+    aside.innerHTML =
+      '<h2>Settings</h2>' +
+      '<section class="share" data-role="share">' +
+        '<div class="row-with-info" data-role="labelrow">' +
+          '<label class="share-label" for="' + prefix + '-field" id="' + prefix + '-label" data-role="label"></label>' +
+        '</div>' +
+        '<div class="disclosure" id="' + prefix + '-disc-share" data-role="disc-share"></div>' +
+        '<div data-role="body" class="share-body"></div>' +
+        '<p class="unreadable" data-role="unreadable" hidden></p>' +
+      '</section>' +
+      '<section class="pairs-stub" aria-label="Allowed pairs (stub)">' +
+        '<span class="stub-label">Allowed pairs</span>' +
+        '<div class="chips"><span class="chip">SOLUSDT</span><span class="chip">BTCUSDT</span><span class="chip">ETHUSDT</span></div>' +
+        '<button type="button" class="btn btn-pairs" disabled>Save pairs</button>' +
+      '</section>';
+    wrap.appendChild(aside);
+
+    var share = aside.querySelector("[data-role=share]");
+    var body = aside.querySelector("[data-role=body]");
+    var label = aside.querySelector("[data-role=label]");
+    var unreadable = aside.querySelector("[data-role=unreadable]");
+
+    // 1. the label's information button (tab stop 1) and the text it reveals
+    var labelRow = aside.querySelector("[data-role=labelrow]");
+    var discShare = aside.querySelector("[data-role=disc-share]");
+    var infoShare = makeInfo(prefix + "-disc-share", "share", discShare);
+    labelRow.appendChild(infoShare);
+
+    // 2. the field: a wrapper drawn as the field, the input sized by its size ATTRIBUTE, then the sign
+    var fieldWrap = document.createElement("div");
+    fieldWrap.className = "field-wrap";
+    var field = document.createElement("input");
+    field.type = "text";
+    field.className = "field";
+    field.id = prefix + "-field";
+    field.setAttribute("inputmode", "decimal");
+    field.setAttribute("maxlength", "12");
+    field.setAttribute("autocomplete", "off");
+    field.setAttribute("size", "1");
+    field.setAttribute("aria-describedby", prefix + "-valid");
+    field.addEventListener("input", function () { onText(field.value); });
+    var sign = document.createElement("span");
+    sign.setAttribute("aria-hidden", "true");
+    sign.className = "field-sign";
+    sign.textContent = "%";
+    fieldWrap.appendChild(field);
+    fieldWrap.appendChild(sign);
+    // A press anywhere in the wrapper puts the caret in the input (the wrapper is not a second label).
+    fieldWrap.addEventListener("mousedown", function (e) {
+      if (e.target === field || field.disabled) return;
+      e.preventDefault();
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    body.appendChild(fieldWrap);
+
+    // 3. the track, then 4. the legend of the stops
+    var trackBlock = document.createElement("div");
+    var track = document.createElement("div");
+    track.className = "track";
+
+    var svg = svgEl("svg", { "class": "drawing", "aria-hidden": "true", "focusable": "false" });
+    svg.appendChild(svgEl("line", { "class": "draw-track", x1: "0%", x2: "100%", y1: "50%", y2: "50%" }));
+    var fill = svgEl("line", { "class": "draw-fill", x1: "0%", x2: "0%", y1: "50%", y2: "50%" });
+    svg.appendChild(fill);
+    var circles = STOPS.map(function (n) {
+      var c = svgEl("circle", { "class": "draw-stop off", cx: position(n) + "%", cy: "50%", r: "5" });
+      svg.appendChild(c);
+      return c;
+    });
+    track.appendChild(svg);
+
+    var range = document.createElement("input");
+    range.type = "range";
+    range.className = "range";
+    range.id = prefix + "-range";
+    range.min = "1";
+    range.max = "100";
+    range.step = "1";
+    range.setAttribute("aria-labelledby", prefix + "-label");
+    range.addEventListener("input", function () { onRange(range.value); });
+    track.appendChild(range);
+    trackBlock.appendChild(track);
+
+    var legend = document.createElement("div");
+    legend.className = "legend";
+    var stopButtons = STOPS.map(function (n) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "stop stop-" + n;
+      var face = document.createElement("span");
+      face.className = "stop-face";
+      face.textContent = n + "%";
+      b.appendChild(face);
+      b.addEventListener("click", function () { onStop(n); });
+      legend.appendChild(b);
+      return b;
+    });
+    trackBlock.appendChild(legend);
+    body.appendChild(trackBlock);
+
+    // 5. the amount and its warning
+    var amountBlock = document.createElement("div");
+    amountBlock.className = "amount-block";
+    var amountRow = document.createElement("div");
+    amountRow.className = "row-with-info";
+    var amountLine = para("amount");
+    amountRow.appendChild(amountLine);
+    var discAmount = document.createElement("div");
+    discAmount.className = "disclosure";
+    discAmount.id = prefix + "-disc-amount";
+    var infoAmount = makeInfo(prefix + "-disc-amount", "amount", discAmount);
+    amountRow.appendChild(infoAmount);        // tab stop after the stops: the row is always rendered
+    var staleLine = para("stale");
+    var warning = para("warning");
+    warning.setAttribute("role", "status");
+    amountBlock.appendChild(amountRow);
+    amountBlock.appendChild(discAmount);
+    amountBlock.appendChild(staleLine);
+    amountBlock.appendChild(warning);
+    body.appendChild(amountBlock);
+
+    // 6. validation and refusal (no helper sentence is on screen)
+    var valid = para("validation", prefix + "-valid");
+    body.appendChild(valid);
+
+    var refusal = document.createElement("p");
+    refusal.className = "refusal";
+    refusal.setAttribute("role", "alert");
+    refusal.hidden = true;
+    body.appendChild(refusal);
+
+    // 7. save
+    var saveRow = document.createElement("div");
+    saveRow.className = "save-row";
+    var save = document.createElement("button");
+    save.type = "button";
+    save.className = "btn";
+    save.addEventListener("click", onSave);
+    var saved = document.createElement("span");
+    saved.className = "saved";
+    saved.setAttribute("role", "status");
+    saved.setAttribute("aria-live", "polite");
+    saveRow.appendChild(save);
+    saveRow.appendChild(saved);
+    body.appendChild(saveRow);
+
+    function sync() {
+      aside.setAttribute("lang", state.lang);
+      label.textContent = t("label");
+      infoShare.setAttribute("aria-label", t("info"));
+      infoShare.setAttribute("aria-expanded", state.open.share ? "true" : "false");
+      fillDisclosure(discShare, state.open.share ? [t("hint")] : []);
+      infoAmount.setAttribute("aria-label", t("amountInfo"));
+      infoAmount.setAttribute("aria-expanded", state.open.amount ? "true" : "false");
+      var readable = state.stored !== null;
+      body.hidden = !readable;
+      unreadable.hidden = readable;
+      unreadable.textContent = readable ? "" : t("unreadable");
+      if (!readable) return;
+
+      var d = derived();
+      var handle = handleOf(state.value);
+      share.setAttribute("data-disabled", d.locked ? "true" : "false");
+
+      if (field.value !== state.text) field.value = state.text;
+      field.setAttribute("size", String(Math.max(1, state.text.length)));   // the width follows the text
+      field.disabled = d.locked;
+      field.setAttribute("aria-invalid", d.valid ? "false" : "true");
+      fieldWrap.setAttribute("data-invalid", d.valid ? "false" : "true");
+      fieldWrap.setAttribute("data-disabled", d.locked ? "true" : "false");
+
+      if (range.value !== String(handle)) range.value = String(handle);
+      range.disabled = d.locked;
+      range.setAttribute("aria-valuetext", t("valueText", { value: state.value }));
+
+      fill.setAttribute("x2", position(handle) + "%");
+      STOPS.forEach(function (n, i) {
+        circles[i].setAttribute("class", "draw-stop " + (n <= handle ? "on" : "off"));
+        stopButtons[i].disabled = d.locked;
+        stopButtons[i].setAttribute("aria-pressed", state.value === String(n) ? "true" : "false");
+        stopButtons[i].setAttribute("aria-label", t("stop", { value: n }));
+      });
+
+      // the amount: only a lookup of what the (simulated) server served
+      var view = amountView(d);
+      var line = "—", quiet = true, stale = "", warn = "";
+      var disc = [];
+      if (state.table !== null && state.table.balance) {
+        disc.push(t("amountHint", { time: utcTime(state.table.balance.observed_at) }));
+      }
+      disc.push(t("pairMinimumNote"));
+      if (view.kind === "known") {
+        var bal = state.table.balance;
+        quiet = false;
+        line = t("amount", { amount: amountText(view.entry.amount), currency: state.table.currency });
+        if (bal.stale) stale = t("amountStale", { time: utcTime(bal.observed_at) });
+        if (view.entry.below_pool_minimum) {
+          warn = t("belowPoolMinimum", { minimum: amountText(state.table.pool_minimum), currency: state.table.currency });
+        }
+      } else if (view.kind === "loading") line = t("amountLoading");
+      else if (view.kind === "error") line = t("amountError");
+      else if (view.kind === "nobalance") line = t("amountNoBalance");
+      amountLine.textContent = line;
+      amountLine.className = "msg amount" + (quiet ? " quiet" : "");
+      staleLine.textContent = stale;
+      warning.textContent = warn;
+      fillDisclosure(discAmount, state.open.amount ? disc : []);
+
+      valid.textContent = d.valid ? "" : t(d.read.kind);
+      refusal.textContent = state.refusalKey ? t(state.refusalKey) : "";
+      refusal.hidden = !state.refusalKey;
+
+      save.textContent = state.saving ? t("saving") : t("save");
+      save.disabled = !d.canSave;
+      saved.textContent = state.saved ? t("saved") : "";
+    }
+
+    return { root: wrap, sync: sync };
+  }
+
+  var frames = [
+    buildFrame("a", "frame-360", "SETTINGS COLUMN · 360 px (desktop)"),
+    buildFrame("b", "frame-300", "SETTINGS COLUMN · 300 px (phone)")
+  ];
+  var stage = document.getElementById("stage");
+  frames.forEach(function (f) { stage.appendChild(f.root); });
+
+  function syncAll() {
+    frames.forEach(function (f) { f.sync(); });
+  }
+
+  /* ---------- review bar ---------- */
+  function segment(name, options, get, set) {
+    var host = document.querySelector('[data-seg="' + name + '"]');
+    var buttons = options.map(function (o) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = o.label;
+      b.addEventListener("click", function () { set(o.value); paint(); });
+      host.appendChild(b);
+      return { el: b, value: o.value };
+    });
+    function paint() {
+      buttons.forEach(function (b) { b.el.setAttribute("aria-pressed", get() === b.value ? "true" : "false"); });
+    }
+    paint();
+  }
+
+  var refusalGroup = document.getElementById("refusal-group");
+  function showRefusalGroup() { refusalGroup.hidden = state.mode !== "refused"; }
+
+  segment("lang", [{ value: "en", label: "EN" }, { value: "es", label: "ES" }],
+    function () { return state.lang; },
+    function (v) { state.lang = v; syncAll(); });
+  segment("stored", ["100", "25", "33.5", "0.5"].map(function (v) { return { value: v, label: v }; }),
+    function () { return state.storedStart; },
+    function (v) { state.storedStart = v; resetFromBar(); });
+  segment("total", [
+      { value: "300", label: "300 USDT" },
+      { value: "2000", label: "2,000 USDT" },
+      { value: "25000", label: "25,000 USDT" }
+    ],
+    function () { return state.total; },
+    function (v) { state.total = v; resetFromBar(); });
+  segment("preview", [
+      { value: "normal", label: "normal" },
+      { value: "stale", label: "stale balance" },
+      { value: "nobalance", label: "pool never synced" },
+      { value: "error", label: "preview fails" }
+    ],
+    function () { return state.previewMode; },
+    function (v) { state.previewMode = v; resetFromBar(); });
+  segment("mode", [
+      { value: "normal", label: "normal" },
+      { value: "archived", label: "archived" },
+      { value: "refused", label: "refused save" },
+      { value: "unreadable", label: "unreadable stored value" }
+    ],
+    function () { return state.mode; },
+    function (v) { state.mode = v; showRefusalGroup(); resetFromBar(); });
+  segment("refusal", [
+      { value: "network", label: "network / 5xx" },
+      { value: "range", label: "422" },
+      { value: "archived", label: "409 archived" },
+      { value: "gone", label: "404" }
+    ],
+    function () { return state.refusal; },
+    function (v) { state.refusal = v; resetFromBar(); });
+
+  resetFromBar();
+})();
+</script>
+</body>
+</html>

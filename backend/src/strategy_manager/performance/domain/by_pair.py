@@ -25,6 +25,10 @@ the caller passes one strategy's trades from one pool):
   ``pnl / pool_total_at_open``, summed within a UTC day and compounded across
   days, the same algorithm as the pool's curve. It is ``None`` when no trade of
   the pair has a return, never a fabricated zero.
+- ``win_count`` is the number of trades whose ``pnl`` is above zero and
+  ``win_rate`` is ``win_count / trade_count`` (design.md, unit 12f addendum,
+  section G). A PnL of exactly zero is not a win and counts in the total.
+  Nothing is rounded here; the wire rounds.
 
 Pure ``Decimal``, no framework, no I/O.
 """
@@ -52,6 +56,8 @@ class PairStats:
     trade_count: int
     pnl: Decimal
     value: Decimal | None
+    win_count: int
+    win_rate: Decimal
 
 
 def by_pair(trades: Sequence[ClosedTrade]) -> tuple[PairStats, ...]:
@@ -64,12 +70,18 @@ def by_pair(trades: Sequence[ClosedTrade]) -> tuple[PairStats, ...]:
     for pair in sorted(grouped):
         members = grouped[pair]
         points = compound(daily_returns(members))
+        # A win is a PnL strictly above zero: a zero is not a win and still
+        # counts in the total. ``members`` holds at least one trade, so the
+        # divisor is never zero.
+        win_count = sum(1 for t in members if t.pnl > _ZERO)
         stats.append(
             PairStats(
                 pair=pair,
                 trade_count=len(members),
                 pnl=sum((t.pnl for t in members), _ZERO),
                 value=points[-1].index - _ONE if points else None,
+                win_count=win_count,
+                win_rate=Decimal(win_count) / Decimal(len(members)),
             )
         )
     return tuple(stats)

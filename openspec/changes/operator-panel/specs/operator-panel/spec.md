@@ -41,6 +41,17 @@ frontend-design plugin.
 > Detail Shows Stats, Uptime, and Lifecycle Controls", which gains one sentence
 > pointing to them, and "Every Panel String Is Localized EN/ES" gains one
 > scenario.
+>
+> **Revised 2026-10-06 (owner decisions 44 and 48, design addendum "unit
+> 12f").** The strategy detail view gains the share of the pool per trade (a
+> field above a track, saved through an explicit Save button, with the amount it
+> asks for served by the server and two information buttons), a "Saved" text
+> after a save, two Copy buttons, the full webhook URL with its host, and a win
+> rate in "By pair". Fifteen requirements are added after "Copy-Ready Webhook
+> Message, Secret Revealed Only On Explicit Request"; "Strategy Detail Shows
+> Stats, Uptime, and Lifecycle Controls" and that webhook requirement each gain
+> one sentence pointing to them, and "Every Panel String Is Localized EN/ES"
+> gains one scenario.
 
 ## Requirements
 
@@ -179,10 +190,14 @@ enable/disable and archive controls. It also carries the delete control of
 "Deleting A Strategy Requires Explicit Confirmation And States Its Refusal"
 (added 2026-10-02, owner decision 42). It also lists the strategy's closed
 operations, as the six requirements that follow this one describe (added
-2026-10-04, owner decision 43).
+2026-10-04, owner decision 43). Its settings column MUST carry the share of the
+pool per trade, and its stats by pair MUST include a win rate, as the
+requirements added for unit 12f describe (unit 12f, 2026-10-06, owner decisions
+44 and 48).
 
 (Previously: no mention of the operations list, which the requirements below
-now specify.)
+now specify. Previously: no mention of the share of the pool per trade or of the
+win rate by pair.)
 
 #### Scenario: Detail shows uptime for an activated strategy
 
@@ -899,7 +914,11 @@ URL MUST show a placeholder where the shared secret goes by default. The panel
 MUST NOT request the secret from the server except in direct response to an
 explicit "Show secret" action, MUST NOT include it in any other request or
 view, and MUST restore the placeholder and discard the revealed value when the
-owner leaves the view.
+owner leaves the view. (Unit 12f, 2026-10-06, owner decisions 44 and 48: the
+URL shown carries the webhook's host when one is available, and two Copy
+buttons are offered, as "The Webhook URL Is Shown And Copied With Its Host" and
+"The Webhook Block Has Two Copy Buttons" describe. Neither Copy button is the
+explicit "Show secret" action, and neither requests the secret.)
 
 #### Scenario: Webhook message is copy-ready with a placeholder by default
 
@@ -924,6 +943,1206 @@ owner leaves the view.
 - GIVEN the secret is currently revealed in strategy S1's detail view
 - WHEN the owner navigates away from that view
 - THEN the placeholder is restored and the revealed value is no longer retained in the panel's state
+
+### Requirement: The Share Of The Pool Per Trade Is Shown And Edited In The Settings Column Only
+
+> **Added 2026-10-06 (owner decisions 44 and 48; design addendum "unit 12f").**
+
+The strategy detail view MUST show the strategy's share of the pool per trade
+and MUST let the owner edit it, in the page's settings column and nowhere else.
+The control MUST be the first of the column, under its heading and above the
+allowed pairs, labelled "Share of the pool per trade" / "Porcentaje del pool por
+operación". The share MUST NOT be printed in the page's header line, and MUST NOT
+be shown in a row of the Strategies list. The share is a share of the pool's
+TOTAL balance, in the strategy's own pool `(exchange, venue,
+settlement_currency)`, not of what is free; the text behind the label's
+information button says so.
+
+#### Scenario: The share is the first control of the settings column
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a stored share of `30`
+- WHEN S1's detail view renders
+- THEN the settings column shows the share control, labelled "Share of the pool per trade", above the allowed-pairs control and below the column's heading
+
+#### Scenario: The share is not printed in the header line
+
+- GIVEN strategy S1 with a stored share of `30`
+- WHEN S1's detail view renders
+- THEN no text of the page's header line contains "30%" or the word "per trade"
+
+#### Scenario: The Strategies list does not show the share
+
+- GIVEN strategies S1 and S2 with stored shares `30` and `100`
+- WHEN the Strategies list renders
+- THEN no row shows either share
+
+### Requirement: The Share Control Is A Field Above A Track With Four Stops
+
+> **Added 2026-10-06 (owner decision 48, answered 2026-10-06 and approved on the third prototype).**
+
+The share control MUST be laid out top to bottom on the full width of the
+column: the label with its information button; the field; the track with its
+handle; the legend of four stops; the amount the share asks for with its
+information button, and under it the warning of "A Share That Asks For Less Than
+The Pool's Minimum Order Is Warned About And Never Blocked" when it applies; the
+validation or refusal text; and the Save button with the "Saved" text beside it.
+No explanatory paragraph MUST be on screen.
+
+- **The field** holds the number and its percent sign together at the left. The
+  sign MUST follow the last character typed, MUST NOT be part of the field's
+  value, and MUST NOT count against the field's length. Typing `%` is not a
+  number. In a browser that cannot size a field to its text, the sign MAY stand
+  about one character off the number; it MUST still be at the left, right after
+  the number.
+- **The track** runs from 1 to 100 in whole steps of 1. It MUST NOT start at 0.
+- **The stops** are marked at 25, 50, 75 and 100. Each reads as a legend label
+  ("25%") and MUST be activatable: activating one sets the share to that value.
+- **One value.** The track and the field MUST always show the same value. The
+  handle sits at the value rounded half up to a whole number and clamped to 1
+  to 100.
+- **Decimals.** A stored value with decimals MUST be shown as stored, in the
+  field, in both languages with a dot. The value MUST be rounded to a whole
+  number only when the owner moves the handle (or presses an arrow key on it),
+  never on load and never by typing.
+- **A value below 1** is valid; the handle then sits at the start of the track.
+- **Moving the handle**, by pointer or key, or activating a stop, sets the field
+  to that whole number. **Typing** a value that reads as valid moves the handle to
+  it; typing one that does not leaves the handle where it was.
+
+#### Scenario: A stored value with decimals is shown as it is
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` has a stored share of `33.5`
+- WHEN its detail view renders
+- THEN the field shows `33.5` with the percent sign right after it, the handle sits at step 34, and the stop labelled "25%" and the stop labelled "50%" are not marked as the value
+
+#### Scenario: A stored value below 1 leaves the handle at the start
+
+- GIVEN a stored share of `0.5`
+- WHEN the detail view renders
+- THEN the field shows `0.5` and the handle sits at the start of the track, step 1
+
+#### Scenario: The handle rounds only when it is moved
+
+- GIVEN a stored share of `33.5`, the handle at step 34
+- WHEN the owner presses the right arrow once on the track
+- THEN the field shows `35`, and from the same start one press of the left arrow shows `33`
+
+#### Scenario: Activating a stop sets that value
+
+- GIVEN the field shows `33.5`
+- WHEN the owner activates the stop "75%"
+- THEN the field shows `75`, the handle sits at step 75, and that stop is marked as the current value
+
+#### Scenario: Typing a valid decimal moves the handle
+
+- GIVEN the handle is at step 34
+- WHEN the owner types `62.5` in the field
+- THEN the field holds exactly `62.5` and the handle sits at step 63
+
+#### Scenario: Typing an invalid text leaves the handle where it was
+
+- GIVEN the field holds `62.5` and the handle sits at step 63
+- WHEN the owner types `62.5x`
+- THEN the field holds exactly `62.5x` and the handle still sits at step 63
+
+#### Scenario: The sign is not part of the value
+
+- GIVEN the field shows `33.5`
+- WHEN the field's value is read
+- THEN it is `33.5`, and typing `%` into the field marks it as not a number
+
+#### Scenario: The track does not start at 0
+
+- GIVEN the share control is on screen
+- WHEN the track is read
+- THEN its smallest step is 1 and its largest is 100
+
+### Requirement: The Share Field Accepts An Exact Value And Refuses What Is Not One
+
+> **Added 2026-10-06 (owner decision 48, design addendum "unit 12f" § C).**
+
+The share field MUST accept an exact value above 0 and at most 100, decimals
+included, and MUST keep the text as typed. A comma MUST be read as the decimal
+separator (one comma only) and the value MUST be sent with a dot. The field's
+length MUST be bounded at 12 characters. The panel MUST validate before it
+sends, and MUST refuse, with Save disabled, each of these classes:
+
+- **Zero**: `0`, `0.0`. Text: "The share must be above 0 and at most 100." /
+  "El porcentaje debe ser mayor que 0 y como máximo 100."
+- **Above 100**: `100.5`, `150`. The same text.
+- **Not a number**: an empty field, `abc`, `1e1`, `-5`, `25%`, `1.000,5`, `33.`.
+  Text: "Enter a number, for example 25 or 33.5." / "Escriba un número, por
+  ejemplo 25 o 33,5." Nothing MUST be guessed and nothing trimmed into a value.
+
+Typing back the stored value MUST be valid and unchanged, with Save disabled.
+The refusal text MUST be tied to the field and the field MUST be marked invalid;
+the text MUST NOT be announced as an alert on every keystroke.
+
+#### Scenario: A decimal with a dot is accepted
+
+- GIVEN the field holds `25`
+- WHEN the owner types `33.5`
+- THEN no refusal text shows and Save is enabled
+
+#### Scenario: A comma is read as the decimal separator
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `33,5` and presses Save
+- THEN the field keeps showing `33,5` while typed, and the request body carries `"allocation_percent": "33.5"`
+
+#### Scenario: A value below 1 is accepted
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `0.5`
+- THEN no refusal text shows, Save is enabled and the handle sits at step 1
+
+#### Scenario: Exactly 100 is accepted
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `100`
+- THEN no refusal text shows and Save is enabled
+
+#### Scenario: Zero is refused
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `0`, and then `0.0`
+- THEN each time "The share must be above 0 and at most 100." shows, the field is marked invalid, and Save is disabled
+
+#### Scenario: A value above 100 is refused
+
+- GIVEN a stored share of `25`
+- WHEN the owner types `100.5`, and then `150`
+- THEN each time "The share must be above 0 and at most 100." shows and Save is disabled
+
+#### Scenario: An empty field is refused as not a number
+
+- GIVEN a stored share of `25`
+- WHEN the owner clears the field
+- THEN "Enter a number, for example 25 or 33.5." shows, Save is disabled and no value is substituted
+
+#### Scenario: Text that is not a plain decimal is refused
+
+- GIVEN a stored share of `25`
+- WHEN the owner types, one at a time, `abc`, `1e1`, `-5`, `25%`, `1.000,5` and `33.`
+- THEN each time "Enter a number, for example 25 or 33.5." shows and Save is disabled
+
+#### Scenario: The refusal text is not an alert
+
+- GIVEN the owner is typing `33.5` one character at a time
+- WHEN the field passes through the refused text `33.`
+- THEN the refusal text is tied to the field as its description and is not a live alert, so a screen reader does not announce it on that keystroke
+
+#### Scenario: Typing the stored value back is unchanged
+
+- GIVEN a stored share of `33.5` and the owner has changed the field to `40`
+- WHEN the owner types `33.5` again
+- THEN no refusal text shows and Save is disabled
+
+#### Scenario: A long paste is cut at 12 characters
+
+- GIVEN the field is empty
+- WHEN the owner pastes a text of 20 digits
+- THEN the field holds at most 12 characters
+
+### Requirement: The Share Is Saved Only Through An Explicit Save Button
+
+> **Added 2026-10-06 (owner decisions 44 and 48; design addendum "unit 12f" § C).**
+
+Moving the handle, activating a stop, or typing MUST change only what the panel
+shows; nothing MUST be sent until the owner activates Save, and leaving the page
+without saving MUST keep the stored value. Save MUST be enabled only when the
+strategy is not archived, no save is in flight, the field reads as a value above
+0 and at most 100, and that value, in plain form, differs from the stored one. A
+save MUST be one `PATCH /api/strategies/{id}` whose body is exactly
+`{"allocation_percent": "<value>"}`, the value a string, with no other field.
+A stored value MUST be read in plain form (`33.50` is `33.5`, `100.000` is
+`100`); a draft made on a stored value MUST be dropped when the stored value
+moves.
+
+The control MUST show these states:
+
+| State | What shows |
+| --- | --- |
+| Unchanged | The stored value; Save disabled |
+| Changed, not saved | The new value; Save enabled |
+| Saving | Save reads "Saving…" / "Guardando…"; the track, the stops and the field are disabled |
+| Saved | The value the server answered, and "Saved" (see "A Save Of The Share Or Of The Allowed Pairs Shows \"Saved\"") |
+| Refused 422 | "The share must be above 0 and at most 100." |
+| Refused 409 `STRATEGY_ARCHIVED` | "This strategy is archived and can no longer be changed."; the page reads the strategy again and the control turns read-only |
+| Refused 404 | "This strategy no longer exists."; the page shows its not-found state |
+| A network failure, a 5xx, or a 200 whose body is not a strategy | "The share was not saved. Try again."; the draft is kept |
+| An archived strategy | The value shown; the track, the stops, the field and Save disabled; the information buttons still enabled |
+| A stored value that cannot be read | "The stored share could not be read, so it cannot be edited here."; no track, no field, no Save, never a guess |
+
+Each refusal MUST be an alert line, and a refused save MUST NOT show "Saved". A
+401 MUST be handled as on every other call: the token is cleared and the token
+gate takes over.
+
+#### Scenario: Nothing is sent before Save
+
+- GIVEN a stored share of `30`
+- WHEN the owner moves the handle to 40, activates the stop "75%", types `12.5`, and then leaves the page without pressing Save
+- THEN no request was sent, and the strategy's stored share is still `30` when its page is opened again
+
+#### Scenario: Save sends exactly the share, as a string
+
+- GIVEN a stored share of `30` and the field holds `33.5`
+- WHEN the owner presses Save
+- THEN one `PATCH /api/strategies/{id}` is sent with the body `{"allocation_percent": "33.5"}` and no other field
+
+#### Scenario: Save is disabled while nothing changed
+
+- GIVEN a stored share of `33.50` served by the API
+- WHEN the detail view renders
+- THEN the field shows `33.5` and Save is disabled
+
+#### Scenario: Save is disabled for an invalid value
+
+- GIVEN a stored share of `30`
+- WHEN the field holds `0`
+- THEN Save is disabled
+
+#### Scenario: A save in flight disables the control
+
+- GIVEN the owner pressed Save and the answer has not arrived
+- WHEN the control is read
+- THEN Save reads "Saving…" and the track, the stops and the field are disabled
+
+#### Scenario: A successful save shows the confirmed value
+
+- GIVEN the owner saved `33.5` and the API answered 200 with a strategy whose share is `33.5`
+- WHEN the control is read
+- THEN the field shows `33.5`, Save is disabled and "Saved" shows
+
+#### Scenario: A 422 is shown with its text
+
+- GIVEN the owner pressed Save and the API answered 422
+- WHEN the control is read
+- THEN "The share must be above 0 and at most 100." shows as an alert, no "Saved" shows, and the draft is kept
+
+#### Scenario: A 409 turns the control read-only
+
+- GIVEN the owner pressed Save and the API answered 409 `STRATEGY_ARCHIVED`
+- WHEN the page has read the strategy again
+- THEN "This strategy is archived and can no longer be changed." shows, and the track, the stops, the field and Save are disabled
+
+#### Scenario: A 404 shows the not-found state
+
+- GIVEN the owner pressed Save and the API answered 404
+- WHEN the control is read
+- THEN "This strategy no longer exists." shows and the page shows its not-found state
+
+#### Scenario: A failure keeps the draft
+
+- GIVEN the owner pressed Save with `33.5` and the API answered 500
+- WHEN the control is read
+- THEN "The share was not saved. Try again." shows as an alert, the field still holds `33.5`, Save is enabled and no "Saved" shows
+
+#### Scenario: A 200 whose body is not a strategy is a failure
+
+- GIVEN the owner pressed Save and the API answered 200 with a body that is not a strategy
+- WHEN the control is read
+- THEN "The share was not saved. Try again." shows and no "Saved" shows
+
+#### Scenario: An archived strategy's share is read-only
+
+- GIVEN strategy S1 is archived with a stored share of `30`
+- WHEN its detail view renders
+- THEN the field shows `30`, and the track, the four stops, the field and Save are disabled, and both information buttons are enabled
+
+#### Scenario: A stored value that cannot be read is never guessed
+
+- GIVEN the API serves a stored share whose text is `1E+1`
+- WHEN the detail view renders
+- THEN "The stored share could not be read, so it cannot be edited here." shows, and no track, no field and no Save are present
+
+#### Scenario: A draft is dropped when the stored value moves
+
+- GIVEN the owner typed `40` on a stored `30`, and the strategy is then re-read with a stored `55`
+- WHEN the control is read
+- THEN the field shows `55` and Save is disabled
+
+### Requirement: The Amount The Share Asks For Is Computed By The Server And Shown Under The Track
+
+> **Added 2026-10-06 (owner decision 48, answered 2026-10-06; design addendum "unit 12f" § C2).**
+
+Under the track the control MUST show the amount the share in the field asks for
+per operation, in the settlement currency of the strategy's own pool
+`(exchange, venue, settlement_currency)`, as "Asks for about {amount}
+{currency} per operation" / "Pide alrededor de {amount} {currency} por
+operación". The amount MUST be the figure the server served from
+`GET /api/strategies/{id}/share-preview`; the panel MUST NOT compute it, and in
+particular MUST NOT multiply a pool's balance by the share, whatever balance the
+panel holds from another read. The figure MUST be written with the pool
+currency's own decimals, as the PnL and fees of the trades table are (two for
+USDT), and MUST be cut down to them as text, never rounded up. A time the panel
+names (the balance's read) MUST be written `HH:MM UTC`. An amount is never summed or converted across
+pools. The row, with its information button, MUST always be present.
+
+Which amount is shown, and when a request is made:
+
+- A whole number from 1 to 100 (every handle position, every stop): from the
+  table of the hundred whole steps already read. NO request MUST be made while the
+  handle is dragged or a stop activated, and the figure MUST follow the handle at
+  once.
+- The stored share, when it has decimals: from the first read, with no further
+  request.
+- Any other valid value (a typed decimal, or a value below 1): one request,
+  sent after a pause (300 ms after the last keystroke), with `share` set to the
+  value. While it is pending the line MUST show a loading mark and NO figure,
+  never the previous one beside the new percentage. An answer MUST be used only
+  when it is for the share asked, compared in plain form.
+- A text that is not a valid value: no request.
+- The preview MUST be read when the control mounts and again every 60 seconds.
+- A body that fails the panel's check (`balance`, `exact` and `steps` not all
+  present or all absent; `steps` not exactly the hundred steps numbered 1 to 100
+  in order; an amount that is not a string) MUST be an error, never a partial
+  table.
+
+| State of the amount | What shows under the track |
+| --- | --- |
+| Known | The amount and its currency |
+| The balance is stale | The same, with "The pool's balance was last read at {time} UTC and may be out of date." |
+| The pool has no balance yet | "The pool's balance has not been read yet, so the amount cannot be shown." and no figure, never a zero |
+| Loading (the first read, or a typed decimal's) | "Calculating the amount…", no figure |
+| The read failed, or its body was refused | "The amount could not be loaded." |
+| The field holds no valid value | An em dash where the figure would be |
+
+None of these states MUST disable the track, the stops, the field or Save: the
+amount is information, and its failure MUST NOT stop a save.
+
+#### Scenario: A known amount is shown from the server's figure
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` with a stored share of `33.5`, and the preview answers a total of 1000 USDT with `exact.amount` `335.000000000000000000`
+- WHEN the detail view renders
+- THEN under the track the line reads "Asks for about 335.00 USDT per operation"
+
+#### Scenario: Dragging the handle makes no request and the figure follows
+
+- GIVEN the preview was read with a total of 1000 USDT and the handle sits at step 20
+- WHEN the owner drags the handle to step 80
+- THEN no request is made, and the line reads "Asks for about 800.00 USDT per operation" at step 80
+
+#### Scenario: A stop's amount comes from the table already read
+
+- GIVEN the preview was read with a total of 1000 USDT
+- WHEN the owner activates the stop "25%"
+- THEN the line reads "Asks for about 250.00 USDT per operation" and no request is made
+
+#### Scenario: A typed decimal asks once after a pause and shows no figure meanwhile
+
+- GIVEN the line reads "Asks for about 335.00 USDT per operation" for `33.5`
+- WHEN the owner types `12.34`
+- THEN the line shows "Calculating the amount…" and no figure (at no moment does 335.00 stand beside 12.34), exactly one request with `share=12.34` is sent 300 ms after the last keystroke, and its answer `123.400000000000000000` then reads "Asks for about 123.40 USDT per operation"
+
+#### Scenario: An answer for a value the field no longer holds is not used
+
+- GIVEN a request for `12.34` is in flight
+- WHEN the owner changes the field to `12.35` and the answer for `12.34` then arrives
+- THEN that answer is not shown, and the line shows the loading mark or the figure of `12.35`
+
+#### Scenario: A value below 1 asks for its own amount
+
+- GIVEN the preview was read with a total of 1000 USDT
+- WHEN the owner types `0.5`
+- THEN one request with `share=0.5` is made after the pause, and its answer `5.000000000000000000` reads "Asks for about 5.00 USDT per operation"
+
+#### Scenario: A stored value with decimals needs no second request
+
+- GIVEN a stored share of `33.5`
+- WHEN the detail view renders and the first preview answers
+- THEN the figure comes from that answer's `exact` and no request with `share` is made
+
+#### Scenario: The figure is cut down, never rounded up
+
+- GIVEN the preview answers an amount of `4.999999999999999999` USDT for pool `(bybit, usdt-m, USDT)`
+- WHEN the line renders
+- THEN it reads "Asks for about 4.99 USDT per operation", not 5.00
+
+#### Scenario: Cutting and rounding differ
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a total of `1000.999` USDT, a share of `50`, and the server answers `500.499500000000000000`
+- WHEN the line renders
+- THEN it reads "Asks for about 500.49 USDT per operation", not 500.50
+
+#### Scenario: The panel never multiplies a balance it holds
+
+- GIVEN the pools read shows a total of 900 USDT for pool `(bybit, usdt-m, USDT)` and the preview answers 335.00 for a share of `33.5` at a total of 1000 USDT
+- WHEN the line renders
+- THEN it reads "Asks for about 335.00 USDT per operation"
+
+#### Scenario: A stale balance is shown, marked
+
+- GIVEN the preview answers a balance with `stale` true and `observed_at` 14:03 UTC
+- WHEN the line renders
+- THEN the amount shows, and "The pool's balance was last read at 14:03 UTC and may be out of date." shows with both information buttons closed
+
+#### Scenario: A pool never read shows no figure
+
+- GIVEN the preview answers `balance` null, `exact` null and `steps` empty
+- WHEN the line renders
+- THEN "The pool's balance has not been read yet, so the amount cannot be shown." shows, no figure and no zero shows, and the handle, the field and Save remain usable
+
+#### Scenario: A failed preview does not stop the save
+
+- GIVEN the preview fails with a 500
+- WHEN the owner moves the handle to 40 and presses Save
+- THEN "The amount could not be loaded." shows, the track, the stops and the field are not disabled, and Save sends `{"allocation_percent": "40"}`
+
+#### Scenario: A body that fails the panel's check is an error
+
+- GIVEN the preview answers a body whose `steps` holds 99 entries
+- WHEN the line renders
+- THEN "The amount could not be loaded." shows and no figure from that body shows
+
+#### Scenario: An invalid value shows an em dash
+
+- GIVEN the field holds `abc`
+- WHEN the line renders
+- THEN an em dash stands where the figure would be, the row's information button is present, and no request is made
+
+#### Scenario: The amount is re-read every minute
+
+- GIVEN the control has been on screen for 60 seconds
+- WHEN the interval elapses
+- THEN the preview is read again
+
+### Requirement: A Share That Asks For Less Than The Pool's Minimum Order Is Warned About And Never Blocked
+
+> **Added 2026-10-06 (owner decision 48, answered 2026-10-06; design addendum "unit 12f" § C3).**
+
+When the preview says the amount of the value in the field is below the pool's
+own minimum order (`below_pool_minimum` true), one line under the amount MUST say
+so: "At this balance the share asks for less than the pool's minimum order,
+{minimum} {currency}. Openings would be skipped until the share or the balance is
+larger." / "Con este saldo, el porcentaje pide menos que la orden mínima del
+pool, {minimum} {currency}. Las aperturas se omitirían hasta que el porcentaje o
+el saldo sean mayores." The line MUST always be visible, not behind an
+information button; MUST show on the STORED value as well as on a change; MUST be
+a status line, not an alert; and MUST be in the colour of refusals. It MUST make
+no claim about a later balance. It MUST NEVER disable Save, the field or the
+track: a value below 1% is allowed, and so is a value under the minimum. The
+minimum is the pool's own, in its settlement currency, and is not the exchange's
+minimum for any pair.
+
+#### Scenario: A share asking for less than the minimum shows the warning
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a balance of 300 USDT and a minimum order of 5 USDT
+- WHEN the field holds `1`, so the share asks for 3 USDT
+- THEN "At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped until the share or the balance is larger." shows with both information buttons closed
+
+#### Scenario: A share above the minimum shows no warning
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a balance of 300 USDT and a minimum order of 5 USDT
+- WHEN the field holds `2`, so the share asks for 6 USDT
+- THEN no warning shows
+
+#### Scenario: An amount exactly at the minimum is not warned about
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a balance of 500 USDT and a minimum order of 5 USDT
+- WHEN the field holds `1`, so the share asks for exactly 5 USDT
+- THEN no warning shows
+
+#### Scenario: The stored value is warned about on load
+
+- GIVEN a stored share of `1` on pool `(bybit, usdt-m, USDT)` with a balance of 300 USDT and a minimum order of 5 USDT, and the owner has changed nothing
+- WHEN the detail view renders
+- THEN the warning shows
+
+#### Scenario: A balance that falls puts the warning on a stored share
+
+- GIVEN a stored share of `2`, shown with a balance of 300 USDT (6 USDT, no warning), and the next read of the preview answers a balance of 200 USDT
+- WHEN the line renders again
+- THEN the amount reads 4.00 USDT and the warning shows
+
+#### Scenario: The warning never blocks Save
+
+- GIVEN a stored share of `10` and the field holds `1` with the warning showing
+- WHEN the owner presses Save
+- THEN Save was enabled and the request `{"allocation_percent": "1"}` is sent
+
+#### Scenario: A share below 1% is allowed and warned about when it is too small
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a balance of 300 USDT and a minimum order of 5 USDT
+- WHEN the field holds `0.5`
+- THEN Save is enabled and the warning shows, because the share asks for 1.50 USDT
+
+#### Scenario: No figure, no warning
+
+- GIVEN the pool has no balance yet
+- WHEN the control renders
+- THEN no warning shows
+
+### Requirement: The Exchange's Minimum Per Pair Is Not Checked By The Panel
+
+> **Added 2026-10-06 (owner decision 48, answered 2026-10-06 to Q5; design addendum "unit 12f" § C3). A known limit of this unit.**
+
+The panel MUST NOT compare the share, or the amount it asks for, with any pair's
+minimum order at the exchange, and MUST NOT refuse a save or show a warning on
+that ground. A share MAY show no warning and still be too small for a pair whose
+smallest order is large. The panel MUST say so, in the second paragraph behind the
+amount's information button: "Each pair also has a minimum order at the exchange,
+which depends on its price and on the account's leverage. The panel does not check
+it. A signal whose order would be too small is refused and nothing is opened." /
+"Cada par tiene además una orden mínima en el exchange, que depende de su precio y
+del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden
+fuera demasiado pequeña se rechaza y no se abre nada."
+
+What stands behind that sentence is only what the change's existing requirements
+state: under `DRY_RUN` the simulated exchange applies no minimum quantity and no
+minimum notional ("A Dry Run Sizes A Position At 1x"), so nothing refuses a share
+that is too small for a pair. This requirement adds no requirement about the
+worker's refusal of a live order. That refusal is existing behaviour, recorded in
+the design (§ A, U25, and § O), and is not specified by this change.
+
+#### Scenario: A share too small for a pair passes the panel
+
+- GIVEN pool `(bybit, usdt-m, USDT)` has a balance of 1000 USDT and a minimum order of 5 USDT, and strategy S1 allows a pair whose smallest order at the exchange would need 12 USDT of margin
+- WHEN the field holds `1`, so the share asks for 10 USDT
+- THEN no warning shows and Save is enabled
+
+#### Scenario: No venue is read for the check
+
+- GIVEN the owner moves the handle and saves
+- WHEN the requests the control made are listed
+- THEN none asked the exchange or a pair's contract for a minimum, and none is a request other than the strategy's save and the share preview
+
+#### Scenario: The limit is stated behind the amount's button
+
+- GIVEN the control renders with both information buttons closed
+- WHEN the owner activates the button named "About this amount and what is not checked"
+- THEN the sentence "The panel does not check it." is in the document, and before activation it was not
+
+### Requirement: Two Information Buttons Hold The Control's Explanations
+
+> **Added 2026-10-06 (owner decision 48, answered and approved 2026-10-06; design addendum "unit 12f" § B2).**
+
+The explanations of the share control MUST NOT stay on screen. The control MUST
+carry two information buttons, each revealing its text in place, in the flow,
+directly under its own row, and never in a floating layer:
+
+| Button | Sits | Named | Reveals |
+| --- | --- | --- | --- |
+| 1 | Right after the label | "About the share of the pool" / "Acerca del porcentaje del pool" | "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size." |
+| 2 | Right after the amount | "About this amount and what is not checked" / "Acerca de este importe y de lo que no se comprueba" | First paragraph: "An estimate: this share of the pool's total balance, read at {time} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage." Second paragraph: the sentence of "The Exchange's Minimum Per Pair Is Not Checked By The Panel" |
+
+What is always visible and what is behind a button:
+
+| Line | Where |
+| --- | --- |
+| The label, the field with its sign, the track, the legend | Always visible |
+| The amount, or its loading mark, or the em dash | Always visible |
+| The stale-balance line, the "not read yet" line and the "could not be loaded" line | Always visible |
+| The warning of "A Share That Asks For Less Than The Pool's Minimum Order Is Warned About And Never Blocked" | Always visible |
+| The validation text, a refused save, the unreadable stored value, "Saved" | Always visible |
+| What the share is, and that a change applies from the next operation | Behind button 1 |
+| That the amount is an estimate, is margin, and when the balance was read | Behind button 2 |
+| That the exchange's minimum per pair is not checked | Behind button 2 |
+
+Behaviour:
+
+- Both buttons MUST start closed on every visit and MUST be real buttons that
+  state whether their text is open or closed; Enter and Space MUST toggle them.
+- Each MUST open and close its own text; both MAY be open at once.
+- A button MUST close its text when activated again. Escape MUST close the text
+  while focus is on the button or inside the text, and leave focus on the button.
+  Focus leaving, or a press elsewhere, MUST NOT close it.
+- Their state MUST survive a save and a change of language, and MUST be reset when
+  another strategy's page is shown. Nothing is stored.
+- They MUST NEVER be disabled: on an archived strategy and during a save,
+  reading is still allowed.
+- The amount's row, and so its button, MUST be present in every state of the
+  amount, including the em dash.
+- A closed explanation MUST be neither in the document's text nor found by a
+  reader; its container MUST stay present so that the button always points at
+  something.
+- Except in the stale state, the time the balance was read is behind button 2,
+  not on screen. Wherever the stale line or button 2's first paragraph names it,
+  the time MUST be written `HH:MM UTC` (for example "14:03 UTC").
+
+#### Scenario: Both buttons start closed and no explanation is in the document
+
+- GIVEN strategy S1's detail view renders
+- WHEN the control is read
+- THEN both buttons report closed, and none of the three sentences "Each new operation asks for…", "An estimate: this share…" and "Each pair also has a minimum order…" is in the document
+
+#### Scenario: Button 1 reveals what the share is
+
+- GIVEN both buttons are closed
+- WHEN the owner activates "About the share of the pool"
+- THEN the button reports open and the sentence "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size." is in the document under the label's row
+
+#### Scenario: Button 2 reveals two paragraphs
+
+- GIVEN pool `(bybit, usdt-m, USDT)`'s balance was read at 14:03 UTC
+- WHEN the owner activates "About this amount and what is not checked"
+- THEN the first paragraph "An estimate: this share of the pool's total balance, read at 14:03 UTC. …" and the second paragraph "Each pair also has a minimum order at the exchange, …" are in the document under the amount's row
+
+#### Scenario: The buttons are independent
+
+- GIVEN button 1 is open
+- WHEN the owner activates button 2
+- THEN both are open, and activating button 1 closes only its own text
+
+#### Scenario: Escape closes the text and keeps focus on the button
+
+- GIVEN button 2 is open and focus is inside its text
+- WHEN the owner presses Escape
+- THEN its text closes and focus is on button 2
+
+#### Scenario: Focus leaving or a press elsewhere does not close it
+
+- GIVEN button 1 is open
+- WHEN the owner moves the handle, or moves focus to the field
+- THEN button 1's text is still open
+
+#### Scenario: The state survives a save and a change of language
+
+- GIVEN button 2 is open
+- WHEN the owner saves the share and then switches the language to Spanish
+- THEN button 2 is still open, and its text is the Spanish one
+
+#### Scenario: Another strategy's page starts closed
+
+- GIVEN button 1 is open on strategy S1's page
+- WHEN strategy S2's page is shown
+- THEN both buttons report closed
+
+#### Scenario: The buttons are never disabled
+
+- GIVEN strategy S1 is archived, and in a second case a save is in flight
+- WHEN the owner activates either button
+- THEN it opens
+
+#### Scenario: The amount's button stays when there is no figure
+
+- GIVEN the field holds `abc`
+- WHEN the control renders
+- THEN an em dash shows, and the button "About this amount and what is not checked" is present and enabled
+
+#### Scenario: What must be visible without a click is visible
+
+- GIVEN a stale balance, a share asking for less than the pool's minimum order, and both buttons closed
+- WHEN the control is read
+- THEN the stale-balance line and the warning are both in the document
+
+### Requirement: The Share Control Is Operable By Keyboard And Named For Assistive Technology
+
+> **Added 2026-10-06 (owner decision 48; design addendum "unit 12f" § C).**
+
+The tab order MUST be the order on screen: the label's information button, the
+field, the track, the four stops in order, the amount's information button, Save.
+Nine stops. The amount, the warning and an opened explanation take no stop.
+
+- On the track an arrow key MUST move one step, Home MUST go to 1 and End to 100.
+- The track and the field MUST both be named by the visible label. The track
+  MUST expose a minimum 1, a maximum 100, a step 1 and a value text with the
+  exact value, "{value}% of the pool" / "{value} % del pool", so that a stored
+  `33.5` is read as "33.5% of the pool" while the handle sits at 34.
+- Each stop MUST show "25%" (and so on), be named "Set the share to {value}%" /
+  "Fijar el porcentaje en {value} %", and report pressed exactly when the value
+  equals that stop; Enter or Space MUST activate it.
+- The field MUST be marked invalid and tied to its refusal text when it holds an
+  invalid value. The `%` sign MUST be hidden from assistive technology.
+- The warning MUST be a status; each refusal of a save MUST be an alert.
+- Each information button MUST keep one name whatever its state.
+- Hit areas: the track MUST be 44 px tall; each stop and each information button
+  MUST be at least 44 by 44 px; the field and Save MUST be at least 44 px tall.
+- Every control MUST show the panel's focus ring when focused.
+
+#### Scenario: Tab visits nine stops in the order on screen
+
+- GIVEN the control is on screen on an unarchived strategy with a valid value that changed, so Save is enabled (a disabled Save is not a tab stop)
+- WHEN the owner presses Tab from before the control
+- THEN focus visits, in order: the button "About the share of the pool", the field, the track, "25%", "50%", "75%", "100%", the button "About this amount and what is not checked", and Save
+- AND with Save disabled (nothing changed) the order ends at the button "About this amount and what is not checked"
+
+#### Scenario: Arrow, Home and End on the track
+
+- GIVEN the track is focused at step 34
+- WHEN the owner presses the right arrow, then Home, then End
+- THEN the value is 35, then 1, then 100
+
+#### Scenario: The track reads the exact value
+
+- GIVEN a stored share of `33.5`
+- WHEN the track's accessible state is read
+- THEN its minimum is 1, its maximum is 100, its step is 1, its value text is "33.5% of the pool", and its name is "Share of the pool per trade"
+
+#### Scenario: A stop says what it does and whether it is the value
+
+- GIVEN the value is exactly `50`
+- WHEN the stops are read
+- THEN the stop named "Set the share to 50%" reports pressed and the other three do not
+
+#### Scenario: The invalid field is described
+
+- GIVEN the field holds `abc`
+- WHEN the field's accessible state is read
+- THEN it is invalid and described by "Enter a number, for example 25 or 33.5."
+
+#### Scenario: Hit areas are at least 44 px
+
+- GIVEN the control is on screen
+- WHEN the stops, the information buttons, the field, the track and Save are measured by their classes
+- THEN each stop and each information button is at least 44 by 44 px, the track is 44 px tall, and the field and Save are at least 44 px tall
+
+### Requirement: A Save Of The Share Or Of The Allowed Pairs Shows "Saved"
+
+> **Added 2026-10-06 (owner decisions 44 (12f.4) and 48, answered 2026-10-06; design addendum "unit 12f" § D).** "Saved" / "Guardado" are the owner's own words.
+
+After a save of the share and after a save of the allowed pairs, the control
+MUST show "Saved" / "Guardado" beside its button. It MUST be announced to a
+screen reader as a polite status: its live region MUST be in the document before
+it has anything to say, empty until then. There MUST be NO timer: it stays until
+the owner changes something in that control again.
+
+| Control | "Saved" appears | "Saved" goes |
+| --- | --- | --- |
+| The share | When the PATCH answers 200 with a strategy | At the next movement of the handle, activation of a stop, or keystroke in the field; and when the page is left |
+| The allowed pairs | When the PUT answers 200 and the list on screen is the saved one | At the next pair added or removed; and when the page is left. Typing in the search box changes no pair and leaves it. |
+
+A failed save MUST show its refusal and NEVER "Saved"; the two MUST NEVER be on
+screen together, and a new save MUST clear "Saved" before it is sent. If the
+re-read of the allowed pairs after a 200 fails, so that the list on screen is the
+old one, "Saved" MUST NOT be shown.
+
+#### Scenario: "Saved" shows after the share is saved
+
+- GIVEN the owner saved a share of `33.5` and the API answered 200 with a strategy
+- WHEN the control is read
+- THEN "Saved" shows beside Save
+
+#### Scenario: "Saved" goes at the next change of the share
+
+- GIVEN "Saved" shows after a share save
+- WHEN the owner moves the handle, activates a stop, or types a character, each tried in turn
+- THEN "Saved" is gone each time
+
+#### Scenario: "Saved" stays until something changes
+
+- GIVEN "Saved" shows after a share save
+- WHEN ten minutes pass with no change
+- THEN "Saved" still shows
+
+#### Scenario: "Saved" shows after the allowed pairs are saved
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` had allowed pairs `{ETHUSDT}`, the owner added `SOLUSDT` and the PUT answered 200
+- WHEN the pairs control is read
+- THEN "Saved" shows beside its button, and goes when a pair is added or removed again
+
+#### Scenario: Typing in the pair search does not remove "Saved"
+
+- GIVEN "Saved" shows after a pairs save
+- WHEN the owner types `SOL` in the pair search box without adding or removing a pair
+- THEN "Saved" still shows
+
+#### Scenario: A refused save never shows "Saved"
+
+- GIVEN the owner saved a share and the API answered 409, or 500
+- WHEN the control is read
+- THEN the refusal shows and "Saved" does not
+
+#### Scenario: A new save clears "Saved" before it is sent
+
+- GIVEN "Saved" shows after a share save, and the owner changes the value and presses Save again
+- WHEN the second request is in flight
+- THEN "Saved" is not shown
+
+#### Scenario: The live region exists before it speaks
+
+- GIVEN the share control and the pairs control render with nothing saved
+- WHEN the document is read
+- THEN each has a polite status region that is empty
+
+#### Scenario: A failed re-read after a successful pairs save shows no "Saved"
+
+- GIVEN the PUT of the allowed pairs answered 200 and the re-read of the list then fails, so the old list is on screen
+- WHEN the pairs control is read
+- THEN "Saved" does not show
+
+### Requirement: The Webhook Block Has Two Copy Buttons
+
+> **Added 2026-10-06 (owner decisions 44 (12f.5) and 48, answered 2026-10-06; design addendum "unit 12f" § E).** "Copied" / "Copiado" are the owner's own words.
+
+The webhook block MUST offer two buttons: "Copy URL" / "Copiar URL" beside "Show
+secret", and "Copy message" / "Copiar mensaje" under the alert message. Each MUST
+write to the clipboard exactly the text on screen: the URL's, the placeholder
+while the secret is hidden and the real URL, secret included and as shown, once
+it is revealed; the message's, the message shown. Copying MUST NEVER request the
+secret, and MUST NOT turn the hidden placeholder into the revealed secret. The
+panel MUST NOT claim to clear the clipboard when the secret is hidden or the view
+is left. The URL MUST be text, never a link, and MUST NEVER be requested.
+
+After a copy the panel MUST show:
+
+| Result | Text beside the button activated | Until |
+| --- | --- | --- |
+| The alert message was copied | "Copied" / "Copiado" | Something else is copied, or the block is closed |
+| The URL was copied | "Copied" / "Copiado" | The same, AND the URL on screen stops being the one that was copied |
+| The browser refused, or has no clipboard | "Could not copy. Select the text and copy it by hand." / "No se pudo copiar. Seleccione el texto y cópielo a mano." instead of "Copied" | As the row of the button it belongs to |
+
+"Copied" beside the URL MUST be shown only while the URL on screen is the one
+copied. Showing or hiding the secret MUST remove it for good, so it does not
+return when the secret is shown or hidden again; and a host that arrives after
+the copy, which changes the URL on screen, MUST remove it too. The message's
+"Copied" MUST NOT be touched by showing or hiding the secret. Only one "Copied"
+MUST be on screen: a copy with the other button moves it. The panel MUST NOT
+keep the copied text; it MAY keep only which button was used, whether it worked
+and the state of the URL it copied.
+
+#### Scenario: Copying the URL with the secret hidden copies the placeholder
+
+- GIVEN strategy S1's webhook block is open, the secret is hidden and the webhook's host is `https://example.duckdns.org`
+- WHEN the owner activates "Copy URL"
+- THEN the clipboard holds the URL as shown, `https://example.duckdns.org/webhook/tradingview?secret=` followed by the placeholder, "Copied" shows beside the button, and no request for the secret was made
+
+#### Scenario: Copying the URL with the secret revealed copies the real URL
+
+- GIVEN the owner pressed "Show secret" and the real URL is on screen
+- WHEN the owner activates "Copy URL"
+- THEN the clipboard holds exactly the URL on screen, and "Copied" shows beside the button
+
+#### Scenario: Showing the secret removes "Copied" beside the URL
+
+- GIVEN the owner copied the URL with the placeholder and "Copied" shows
+- WHEN the owner presses "Show secret"
+- THEN "Copied" is gone, and the clipboard still holds the placeholder URL
+
+#### Scenario: Showing the secret again does not bring "Copied" back
+
+- GIVEN the owner copied the placeholder URL, pressed "Show secret" and then "Hide secret"
+- WHEN the URL on screen is the placeholder again
+- THEN "Copied" is not shown, because the URL on screen was not copied since
+
+#### Scenario: Hiding the secret removes "Copied" beside the URL
+
+- GIVEN the owner revealed the secret, copied the URL and "Copied" shows
+- WHEN the owner presses "Hide secret"
+- THEN "Copied" is gone
+
+#### Scenario: A host that arrives after the copy removes "Copied"
+
+- GIVEN the webhook's host is still loading, the owner copied the URL as the path alone and "Copied" shows
+- WHEN the host arrives and the URL on screen gains it
+- THEN "Copied" is gone
+
+#### Scenario: The message's "Copied" survives showing and hiding the secret
+
+- GIVEN the owner copied the alert message and "Copied" shows beside "Copy message"
+- WHEN the owner presses "Show secret" and then "Hide secret"
+- THEN "Copied" still shows beside "Copy message"
+
+#### Scenario: A copy with the other button moves "Copied"
+
+- GIVEN "Copied" shows beside "Copy message"
+- WHEN the owner activates "Copy URL"
+- THEN "Copied" shows beside "Copy URL" only
+
+#### Scenario: A refused copy says so and never shows "Copied"
+
+- GIVEN the browser refuses the clipboard write
+- WHEN the owner activates "Copy URL"
+- THEN "Could not copy. Select the text and copy it by hand." shows, "Copied" does not, and nothing is written to the console
+
+#### Scenario: A browser with no clipboard says so
+
+- GIVEN the panel is opened where no clipboard is available
+- WHEN the owner activates "Copy message"
+- THEN "Could not copy. Select the text and copy it by hand." shows
+
+#### Scenario: Neither Copy button requests the secret
+
+- GIVEN the secret is hidden
+- WHEN the owner activates "Copy URL" and "Copy message" and the requests are counted
+- THEN no request to `GET /api/webhook-secret` was made
+
+#### Scenario: The URL is never a link and never requested
+
+- GIVEN the webhook block shows the URL with a host
+- WHEN the document is read and the requests the page made are listed
+- THEN the URL is not inside a link, and no request starts with the webhook's host
+
+### Requirement: The Webhook URL Is Shown And Copied With Its Host
+
+> **Added 2026-10-06 (owner decisions 44 (12f.6), 5 and 48; design addendum "unit 12f" § F).**
+
+The webhook block MUST show the full URL TradingView posts to: the webhook's
+origin, then `/webhook/tradingview?secret=`, then the placeholder or, once
+revealed, the secret. The origin MUST come from the backend, by
+`GET /api/webhook-origin`, read when the block is opened, and MUST NEVER be
+compiled into the panel's bundle: the webhook is not on the panel's origin
+(decision 5). The panel MUST use the answer only when it is a serialised origin
+(scheme, host and optional port, with no path, query, fragment, user, trailing
+slash or upper case); anything else MUST be treated as no host. The origin MUST
+be displayed and copied, MUST NEVER be fetched, and MUST NOT be a link or a form
+target.
+
+- While the host is loading, the path alone MUST be shown, and that is what a
+  copy takes.
+- When the answer is `{"origin": null}`: the path alone and "No public host is
+  configured for the webhook, so only the path is shown. Put your webhook's host
+  in front of it." / "No hay un host público configurado para el webhook, por lo
+  que solo se muestra la ruta. Anteponga el host de su webhook."
+- When the read fails (any failure, including a 404 from an older API) or the
+  answer is not accepted: the path alone and "The webhook's host could not be
+  loaded, so only the path is shown." / "No se pudo cargar el host del webhook,
+  por lo que solo se muestra la ruta."
+
+#### Scenario: A configured host is shown in the URL
+
+- GIVEN `GET /api/webhook-origin` answers `{"origin": "https://example.duckdns.org"}` and the secret is hidden
+- WHEN the webhook block is opened
+- THEN the URL on screen is `https://example.duckdns.org/webhook/tradingview?secret=` followed by the placeholder, with no sentence about a missing host
+
+#### Scenario: A revealed secret goes after the host
+
+- GIVEN the same origin and the owner pressed "Show secret"
+- WHEN the URL renders
+- THEN it is `https://example.duckdns.org/webhook/tradingview?secret=` followed by the percent-encoded secret
+
+#### Scenario: No configured host shows the path and says why
+
+- GIVEN `GET /api/webhook-origin` answers `{"origin": null}`
+- WHEN the webhook block is opened
+- THEN the URL on screen is the path `/webhook/tradingview?secret=` and the placeholder, and "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it." shows
+
+#### Scenario: A failed read shows the path and says it could not be loaded
+
+- GIVEN `GET /api/webhook-origin` answers 404, as an older API does
+- WHEN the webhook block is opened
+- THEN the path alone shows and "The webhook's host could not be loaded, so only the path is shown." shows
+
+#### Scenario: An origin the panel does not accept is treated as no host
+
+- GIVEN `GET /api/webhook-origin` answers `{"origin": "https://example.duckdns.org/"}`
+- WHEN the webhook block is opened
+- THEN the path alone shows and "The webhook's host could not be loaded, so only the path is shown." shows
+
+#### Scenario: The host loading shows the path alone
+
+- GIVEN `GET /api/webhook-origin` has not answered
+- WHEN the webhook block is opened
+- THEN the path alone shows, and a copy at that moment takes the path alone
+
+#### Scenario: The host is never compiled in
+
+- GIVEN the panel's built bundle
+- WHEN it is searched for the DuckDNS host of the deployment
+- THEN the host is not in it
+
+#### Scenario: The only request added is to the panel's own API
+
+- GIVEN the webhook block is opened with a host
+- WHEN the requests the page made are listed
+- THEN the one added is `GET /api/webhook-origin`, and none goes to the webhook's host
+
+### Requirement: By Pair Shows A Win Rate
+
+> **Added 2026-10-06 (owner decision 44, answered 2026-10-06 twice; design addendum "unit 12f" § G and § N Q4).**
+
+The "By pair" table of the strategy detail view MUST have these columns, in this
+order: Pair, Trades, Win rate, PnL, Return. The Win rate heading MUST read "Win
+rate" / "% acierto". The mockup's OPEN column MUST NOT be built. The win rate MUST
+be written as an unsigned percentage with ONE decimal ("60.0%", "58.3%"), in
+neutral ink, from the ratio the API served; the panel MUST NOT divide or compute
+it. The percentage MUST be CUT (truncated toward zero) at one decimal, never
+rounded, so that only a pair whose every closed operation is a win reads
+"100.0%"; a pair with one win in several thousand reading "0.0%" is accepted.
+The server answers `wins`, `trades` and the ratio, and the panel MUST refuse a
+row whose `win_rate` is not `wins` over `trades` at the ratio's own scale. No column MUST be hidden, and the table MUST scroll sideways inside its own
+wrapper when it does not fit.
+
+The panel MUST check each pair row: `wins` an integer from 0 to `trades` and
+`win_rate` a string, then `win_rate` between 0 and 1, `wins` equal to 0 exactly
+when the rate is 0, and equal to `trades` exactly when the rate is 1. A row that
+fails MUST show the table's existing could-not-be-read state, and a figure that
+was not served MUST NEVER be drawn. A `by_pair` entry without `wins` or `win_rate`
+MUST be refused, which refuses the whole strategy report: against an API that does
+not serve them, the strategy's performance block shows its error with "Try again"
+and each row of the Strategies list shows its figures as unreadable. An older panel
+MUST keep working against an API that serves them.
+
+#### Scenario: The column sits after Trades
+
+- GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` has closed trades on `SOLUSDT`
+- WHEN the "By pair" table renders
+- THEN its headings read, in order, Pair, Trades, Win rate, PnL, Return
+
+#### Scenario: A rate is written with one decimal
+
+- GIVEN the API serves for `SOLUSDT` `trades` 12, `wins` 7 and `win_rate` `0.5833333333`
+- WHEN the table renders
+- THEN the Win rate cell reads "58.3%"
+
+#### Scenario: Three wins in five read 60.0%
+
+- GIVEN the API serves `trades` 5, `wins` 3 and `win_rate` `0.6000000000`
+- WHEN the table renders
+- THEN the cell reads "60.0%"
+
+#### Scenario: 199 wins in 200 are not written as a perfect record
+
+- GIVEN the API serves `trades` 200, `wins` 199 and `win_rate` `0.9950000000`
+- WHEN the table renders
+- THEN the cell reads "99.5%", not "100%"
+
+#### Scenario: The rate is cut, so 1,999 of 2,000 is not 100.0%
+
+- GIVEN the API serves `trades` 2000, `wins` 1999 and `win_rate` `0.9995000000`
+- WHEN the table renders
+- THEN the cell reads "99.9%", not "100.0%"
+
+#### Scenario: 2,000 of 2,000 reads 100.0%
+
+- GIVEN the API serves `trades` 2000, `wins` 2000 and `win_rate` `1.0000000000`
+- WHEN the table renders
+- THEN the cell reads "100.0%"
+
+#### Scenario: One win in 5,000 reads 0.0%
+
+- GIVEN the API serves `trades` 5000, `wins` 1 and `win_rate` `0.0002000000`
+- WHEN the table renders
+- THEN the cell reads "0.0%"
+
+#### Scenario: A ratio that does not match wins over trades is not drawn
+
+- GIVEN the API serves `trades` 5, `wins` 3 and `win_rate` `0.7000000000`
+- WHEN the table renders
+- THEN no row is drawn and the table's could-not-be-read state shows
+
+#### Scenario: Every trade won reads 100.0%
+
+- GIVEN the API serves `trades` 4, `wins` 4 and `win_rate` `1.0000000000`
+- WHEN the table renders
+- THEN the cell reads "100.0%"
+
+#### Scenario: No win reads 0.0%
+
+- GIVEN the API serves `trades` 3, `wins` 0 and `win_rate` `0.0000000000`
+- WHEN the table renders
+- THEN the cell reads "0.0%"
+
+#### Scenario: A row whose fields contradict is not drawn
+
+- GIVEN the API serves `trades` 5, `wins` 5 and `win_rate` `0.6000000000`
+- WHEN the table renders
+- THEN no row is drawn and the table's could-not-be-read state shows
+
+#### Scenario: A win rate out of range is not drawn
+
+- GIVEN the API serves `win_rate` `1.2000000000`
+- WHEN the table renders
+- THEN no row is drawn and the could-not-be-read state shows
+
+#### Scenario: A pair row without the new fields is refused
+
+- GIVEN the panel reads an API answer whose `by_pair` entry carries `pair`, `trades`, `pnl` and `return` and neither `wins` nor `win_rate`
+- WHEN the strategy's performance block renders
+- THEN it shows its error with "Try again", and the Strategies list row of that strategy shows its figures as unreadable
+
+#### Scenario: An older panel keeps working against the newer API
+
+- GIVEN a panel build that does not know `wins` and `win_rate`, and an API that serves them
+- WHEN the "By pair" table renders
+- THEN it shows what it showed before and no error
+
+#### Scenario: The table scrolls inside its wrapper
+
+- GIVEN a viewport narrower than the five columns need
+- WHEN the "By pair" table renders
+- THEN all five columns are present and the table scrolls sideways inside its own wrapper
+
+### Requirement: The Unit Adds No Browser Money Computation, No Inline Style And No Relaxed Policy
+
+> **Added 2026-10-06 (owner decisions 44 and 48; design addendum "unit 12f" § B and § H).**
+
+No money figure of this unit (the amount a share asks for, a pool's minimum, an
+amount in a warning) MUST be computed in the browser; each MUST be the text the
+server served, cut to the currency's decimals. The share control, the
+information buttons and the Copy buttons MUST NOT write a style attribute or set
+a style property on any element: every position that depends on a value MUST be
+drawn by geometry attributes of a graphic or by fixed classes. The panel's
+Content-Security-Policy MUST NOT be relaxed: no directive is widened for this
+unit, and in particular `style-src` MUST NOT gain `'unsafe-inline'` and
+`connect-src` MUST NOT gain any origin. All amounts of this unit are in one
+pool's own settlement currency and are never summed or converted across pools.
+
+#### Scenario: No source of the panel writes an inline style
+
+- GIVEN the panel's non-test source files
+- WHEN they are searched for an inline style attribute or property
+- THEN none is found
+
+#### Scenario: The policy is not relaxed
+
+- GIVEN the built panel is served with its dist directory configured
+- WHEN `index.html` is requested
+- THEN its Content-Security-Policy carries the same directives as before this unit, `style-src` without `'unsafe-inline'`, and `connect-src` without the webhook's host
+
+#### Scenario: Two pools are never summed
+
+- GIVEN strategies S1 on `(bybit, usdt-m, USDT)` and S2 on `(binance, usdt-m, USDT)` each show an amount
+- WHEN both pages are read
+- THEN each amount is in its own pool's currency and no combined figure is shown
+
+### Requirement: The Detail Page's Follow-Up Texts Are Exactly These, In English And Spanish
+
+> **Added 2026-10-06 (owner decisions 44 and 48; design addendum "unit 12f" § I).** "Saved" / "Guardado" and "Copied" / "Copiado" are the owner's own words; every other line is the design's.
+
+Every text this unit shows MUST be resolved through the panel's i18n and MUST read
+exactly as below (a `{{…}}` is a value filled in):
+
+| Text | English | Spanish |
+| --- | --- | --- |
+| Share label | Share of the pool per trade | Porcentaje del pool por operación |
+| Button 1's name | About the share of the pool | Acerca del porcentaje del pool |
+| Behind button 1 | Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size. | Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño. |
+| Button 2's name | About this amount and what is not checked | Acerca de este importe y de lo que no se comprueba |
+| The amount | Asks for about {{amount}} {{currency}} per operation | Pide alrededor de {{amount}} {{currency}} por operación |
+| Behind button 2, first paragraph | An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage. | Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta. |
+| Stale balance | The pool's balance was last read at {{time}} UTC and may be out of date. | El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado. |
+| No balance | The pool's balance has not been read yet, so the amount cannot be shown. | El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe. |
+| Loading | Calculating the amount… | Calculando el importe… |
+| Amount failed | The amount could not be loaded. | No se pudo cargar el importe. |
+| Below the pool's minimum | At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger. | Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores. |
+| Behind button 2, second paragraph | Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened. | Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada. |
+| The track's value text | {{value}}% of the pool | {{value}} % del pool |
+| A stop's name | Set the share to {{value}}% | Fijar el porcentaje en {{value}} % |
+| Not a number | Enter a number, for example 25 or 33.5. | Escriba un número, por ejemplo 25 o 33,5. |
+| Out of range | The share must be above 0 and at most 100. | El porcentaje debe ser mayor que 0 y como máximo 100. |
+| Save | Save share | Guardar porcentaje |
+| Saving | Saving… | Guardando… |
+| Save failed | The share was not saved. Try again. | El porcentaje no se guardó. Inténtelo de nuevo. |
+| Archived | This strategy is archived and can no longer be changed. | Esta estrategia está archivada y ya no se puede modificar. |
+| Gone | This strategy no longer exists. | Esta estrategia ya no existe. |
+| Unreadable | The stored share could not be read, so it cannot be edited here. | No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí. |
+| Saved | Saved | Guardado |
+| Copy URL | Copy URL | Copiar URL |
+| Copy message | Copy message | Copiar mensaje |
+| Copied | Copied | Copiado |
+| Copy failed | Could not copy. Select the text and copy it by hand. | No se pudo copiar. Seleccione el texto y cópielo a mano. |
+| No host configured | No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it. | No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook. |
+| Host failed | The webhook's host could not be loaded, so only the path is shown. | No se pudo cargar el host del webhook, por lo que solo se muestra la ruta. |
+| Win rate heading | Win rate | % acierto |
+
+#### Scenario: Every text reads exactly in English
+
+- GIVEN the locale is English and each state of this unit's controls is brought on screen
+- WHEN each text is read
+- THEN it equals the English column above
+
+#### Scenario: Every text reads exactly in Spanish
+
+- GIVEN the locale is Spanish and each state of this unit's controls is brought on screen
+- WHEN each text is read
+- THEN it equals the Spanish column above, and no English text is left
+
+#### Scenario: The owner's own words are unchanged
+
+- GIVEN either locale
+- WHEN the confirmation after a save and after a copy is read
+- THEN they read "Saved" / "Guardado" and "Copied" / "Copiado"
 
 ### Requirement: Settings Manages One Key Per Exchange
 
@@ -1088,6 +2307,14 @@ i18n mechanism (English and Spanish) and MUST NOT be hardcoded display text.
 - GIVEN the locale is Spanish and a closed trades table, a rehearsal row's dialog and its fills table are on screen
 - WHEN every visible string is read
 - THEN the column headings, tags, sentences, dialog labels, fills labels and states are Spanish and sourced from i18n, and the operation's side reads "LONG" or "SHORT"
+
+#### Scenario: The share control, "Saved", the Copy buttons and the win rate are localized
+
+> **Added 2026-10-06 (owner decisions 44 and 48, design addendum "unit 12f").**
+
+- GIVEN the locale is Spanish and a strategy detail view shows the share control with both information buttons open, a "Saved" text, the webhook block with both Copy buttons and a "By pair" table
+- WHEN every visible string is read
+- THEN each is the Spanish text of "The Detail Page's Follow-Up Texts Are Exactly These, In English And Spanish", sourced from i18n, with no leftover English
 
 ### Requirement: Empty States Everywhere Data May Be Absent
 

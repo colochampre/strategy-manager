@@ -1095,3 +1095,170 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 
     assert response.status_code == 204
     assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+
+
+# --------------------------------------------------------------------------
+# 12f.9.7 -- the share in plain notation, and the PATCH's contract (design.md,
+# unit 12f addendum, section C; spec: admin-api "The Strategy Update Takes The
+# Share As A Plain Decimal And The Strategy View Serves It In Plain Notation").
+#
+# ``StrategyView.allocation_percent`` is written with the wire's plain
+# notation, so a very small share is never an exponent (``1E-7``). The request
+# bodies and the validation (0 < share <= 100) are unchanged.
+# --------------------------------------------------------------------------
+
+
+async def _set_stored_share(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID, value: str
+) -> None:
+    """Writes the share straight to the column, which is an unscaled ``Numeric``."""
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET allocation_percent = CAST(:v AS numeric) WHERE id = :id"),
+            {"v": value, "id": strategy_id},
+        )
+        await session.commit()
+
+
+async def _share_of(client: AsyncClient, strategy_id: UUID) -> Any:
+    response = await client.get(f"/strategies/{strategy_id}", headers=_auth())
+    assert response.status_code == 200, response.text
+    return response.json()["allocation_percent"]
+
+
+async def _patch_share(client: AsyncClient, strategy_id: UUID, value: Any) -> Any:
+    return await client.patch(
+        f"/strategies/{strategy_id}", json={"allocation_percent": value}, headers=_auth()
+    )
+
+
+async def test_a_very_small_share_is_never_served_with_an_exponent(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Stored ``0.0000001``: pydantic writes ``Decimal("0.0000001")`` as ``1E-7``
+    unless the wire's plain notation is used. Read by GET, and answered by a
+    PATCH of the same value."""
+    strategy_id = await _register(client)
+    await _set_stored_share(pg_session_factory, strategy_id, "0.0000001")
+
+    got = await _share_of(client, strategy_id)
+    patched = await _patch_share(client, strategy_id, "0.0000001")
+
+    assert got == "0.0000001"
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == "0.0000001"
+
+
+async def test_a_decimal_share_is_saved_and_served_as_it_is(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+
+    patched = await _patch_share(client, strategy_id, "33.5")
+
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == "33.5"
+    assert await _share_of(client, strategy_id) == "33.5"
+
+
+async def test_the_patch_answer_and_a_later_get_show_the_same_text(
+    client: AsyncClient,
+) -> None:
+    strategy_id = await _register(client)
+
+    patched = await _patch_share(client, strategy_id, "33.50")
+
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == await _share_of(client, strategy_id)
+
+
+async def test_a_share_below_one_is_accepted(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+
+    patched = await _patch_share(client, strategy_id, "0.5")
+
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == "0.5"
+    assert await _share_of(client, strategy_id) == "0.5"
+
+
+async def test_a_share_of_exactly_100_is_accepted(client: AsyncClient) -> None:
+    strategy_id = await _register(client, allocation_percent="40")
+
+    patched = await _patch_share(client, strategy_id, "100")
+
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == "100"
+    assert await _share_of(client, strategy_id) == "100"
+
+
+@pytest.mark.parametrize("value", ["0", "100.5", "abc"])
+async def test_zero_above_100_and_a_text_that_is_not_a_decimal_are_422_and_the_stored_share_is_unchanged(  # noqa: E501
+    client: AsyncClient, value: str
+) -> None:
+    strategy_id = await _register(client, allocation_percent="40")
+
+    patched = await _patch_share(client, strategy_id, value)
+
+    assert patched.status_code == 422
+    assert await _share_of(client, strategy_id) == "40"
+
+
+async def test_only_the_share_changes(client: AsyncClient) -> None:
+    strategy_id = await _register(client, allowed_pairs=["ETHUSDT", "SOLUSDT"])
+    enabled = await client.patch(
+        f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth()
+    )
+    assert enabled.status_code == 200
+    before = (await client.get(f"/strategies/{strategy_id}", headers=_auth())).json()
+
+    patched = await _patch_share(client, strategy_id, "25")
+
+    assert patched.status_code == 200
+    after = patched.json()
+    assert after["allocation_percent"] == "25"
+    assert after["enabled"] is True
+    assert after["allowed_pairs"] == ["ETHUSDT", "SOLUSDT"]
+    unchanged = ("id", "name", "exchange", "venue", "settlement_currency", "fill_mode")
+    assert {key: after[key] for key in unchanged} == {key: before[key] for key in unchanged}
+    assert after["archived_at"] is None
+
+
+async def test_a_disabled_strategys_share_is_accepted_and_it_stays_disabled(
+    client: AsyncClient,
+) -> None:
+    strategy_id = await _register(client)
+    assert (await client.get(f"/strategies/{strategy_id}", headers=_auth())).json()[
+        "enabled"
+    ] is False
+
+    patched = await _patch_share(client, strategy_id, "12.5")
+
+    assert patched.status_code == 200
+    assert patched.json()["allocation_percent"] == "12.5"
+    assert patched.json()["enabled"] is False
+
+
+async def test_patching_an_unknown_strategy_is_404_with_its_existing_body(
+    client: AsyncClient,
+) -> None:
+    unknown = uuid4()
+
+    response = await _patch_share(client, unknown, "25")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": f"no strategy registered under id {unknown}"}
+
+
+async def test_an_archived_strategys_share_is_refused_409_and_the_stored_share_is_unchanged(
+    client: AsyncClient,
+) -> None:
+    """Spec scenario "An archived strategy's share is refused" (12f.9.14: the
+    existing archived test patches the NAME, so the share had no test of its own)."""
+    strategy_id = await _register(client, allocation_percent="30")
+    archived = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    assert archived.status_code == 200
+
+    response = await _patch_share(client, strategy_id, "40")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
+    assert await _share_of(client, strategy_id) == "30"

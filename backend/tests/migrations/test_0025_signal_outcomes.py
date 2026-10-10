@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
+from tests.pg_drop import drop_database_if_exists
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _DB_NAME = "strategy_manager_test_signal_outcomes"
@@ -49,14 +50,6 @@ def _maintenance_dsn(dev_url: str) -> str:
 
 def _database_url(dev_url: str, name: str) -> str:
     return re.sub(r"/[^/?]+(\?.*)?$", rf"/{name}\1", dev_url)
-
-
-async def _drop_database_if_exists(maintenance_dsn: str, name: str) -> None:
-    conn = await asyncpg.connect(maintenance_dsn)
-    try:
-        await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-    finally:
-        await conn.close()
 
 
 async def _create_database(maintenance_dsn: str, name: str) -> None:
@@ -110,13 +103,13 @@ def database_url() -> Iterator[str]:
     maintenance_dsn = _maintenance_dsn(dev_url)
     url = _database_url(dev_url, _DB_NAME)
 
-    asyncio.run(_drop_database_if_exists(maintenance_dsn, _DB_NAME))
+    asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
     _run_alembic_ok(url, "upgrade", "head")
 
     yield url
 
-    asyncio.run(_drop_database_if_exists(maintenance_dsn, _DB_NAME))
+    asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
 
 
 @pytest.fixture
@@ -412,7 +405,7 @@ def throwaway_db_factory() -> Iterator[Callable[[str], str]]:
     def make(suffix: str) -> str:
         name = f"{_THROWAWAY_DB_PREFIX}_{suffix}"
         url = _database_url(dev_url, name)
-        asyncio.run(_drop_database_if_exists(maintenance_dsn, name))
+        asyncio.run(drop_database_if_exists(maintenance_dsn, name))
         asyncio.run(_create_database(maintenance_dsn, name))
         _run_alembic_ok(url, "upgrade", "head")
         created.append(name)
@@ -421,7 +414,7 @@ def throwaway_db_factory() -> Iterator[Callable[[str], str]]:
     yield make
 
     for name in created:
-        asyncio.run(_drop_database_if_exists(maintenance_dsn, name))
+        asyncio.run(drop_database_if_exists(maintenance_dsn, name))
 
 
 def test_downgrade_succeeds_on_a_clean_database(

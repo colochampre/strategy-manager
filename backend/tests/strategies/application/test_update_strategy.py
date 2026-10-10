@@ -5,6 +5,8 @@ routes the close of an open position to the wrong adapter, which leaves a real
 holding open while the system believes it closed.
 """
 
+import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -253,3 +255,151 @@ async def test_noop_patch_setting_enabled_true_again_writes_no_event() -> None:
 
     assert log.calls == []
     assert commit.commits == 1
+
+
+# --------------------------------------------------------------------------
+# 12f.9.6 -- the INFO line of a changed share (design.md, unit 12f addendum,
+# section J; spec: strategy-lifecycle "A Change Of A Strategy's Share Of The
+# Pool Is Logged"). Only a REAL change writes it, after the commit, with the
+# strategy id and the old and new value in plain notation.
+# --------------------------------------------------------------------------
+
+LOGGER = "strategy_manager.strategies.application.update_strategy"
+
+
+def _share_lines(caplog: pytest.LogCaptureFixture) -> list[tuple[str, int, str]]:
+    return [
+        (record.name, record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == LOGGER
+    ]
+
+
+def _with_share(value: str, **overrides: object) -> Strategy:
+    base = _strategy(**overrides)
+    return replace(
+        base,
+        policy=replace(base.policy, allocation_percent=AllocationPercent(Decimal(value))),
+    )
+
+
+async def test_a_changed_share_logs_one_info_line_with_the_id_and_both_values(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    use_case, _, _, _, _ = _build(_with_share("30"))
+
+    with caplog.at_level(logging.DEBUG):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("33.5"))
+        )
+
+    assert _share_lines(caplog) == [
+        (
+            LOGGER,
+            logging.INFO,
+            f"strategy {STRATEGY_ID} share of the pool changed from 30 to 33.5",
+        )
+    ]
+
+
+async def test_a_share_that_goes_below_one_is_logged_in_plain_notation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A tiny share must never be written as an exponent (``1E-7``)."""
+    use_case, _, _, _, _ = _build(_with_share("100"))
+
+    with caplog.at_level(logging.DEBUG):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("0.0000001"))
+        )
+
+    assert _share_lines(caplog) == [
+        (
+            LOGGER,
+            logging.INFO,
+            f"strategy {STRATEGY_ID} share of the pool changed from 100 to 0.0000001",
+        )
+    ]
+
+
+async def test_the_same_value_written_differently_logs_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """"Changed" is decided on the decimal value, not on its text: 33.5 over
+    33.5 and 33.50 over 33.5 are not changes."""
+    use_case, _, commit, _, _ = _build(_with_share("33.5"))
+
+    with caplog.at_level(logging.DEBUG):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("33.5"))
+        )
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("33.50"))
+        )
+
+    assert commit.commits == 2  # both updates ran; only the line is skipped
+    assert _share_lines(caplog) == []
+
+
+async def test_patching_another_field_logs_no_share_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    use_case, _, commit, _, _ = _build(_with_share("30", enabled=False))
+
+    with caplog.at_level(logging.DEBUG):
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=True))
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"))
+
+    assert commit.commits == 2
+    assert _share_lines(caplog) == []
+
+
+async def test_a_refused_update_logs_no_share_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Archived, a share the domain refuses, and an unknown id each raise before
+    anything is written, and none writes a share line."""
+    from strategy_manager.shared.domain.errors import InvariantViolation
+    from strategy_manager.strategies.application.update_strategy import StrategyArchived
+
+    archived, _, _, _, _ = _build(_with_share("30", archived_at=FIXED_NOW))
+    refused, _, _, _, _ = _build(_with_share("30"))
+    unknown, _, _, _, _ = _build(_with_share("30"))
+    command = UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("33.5"))
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(StrategyArchived):
+            await archived.update(command)
+        with pytest.raises(InvariantViolation):
+            await refused.update(
+                UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("150"))
+            )
+        with pytest.raises(UnknownStrategy):
+            await unknown.update(
+                UpdateCommand(strategy_id=uuid4(), allocation_percent=Decimal("33.5"))
+            )
+
+    assert _share_lines(caplog) == []
+
+
+async def test_a_failed_commit_logs_no_share_line(caplog: pytest.LogCaptureFixture) -> None:
+    """The line is written after the commit, so a rolled-back change leaves no
+    line that says it happened."""
+
+    class FailingCommit:
+        async def commit(self) -> None:
+            raise RuntimeError("commit failed")
+
+    use_case = UpdateStrategy(
+        repository=FakeRepository(_with_share("30")),  # type: ignore[arg-type]
+        commit=FailingCommit(),  # type: ignore[arg-type]
+        enablement_log=SpyEnablementLog(),  # type: ignore[arg-type]
+        clock=FixedClock(FIXED_NOW),  # type: ignore[arg-type]
+    )
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(RuntimeError, match="commit failed"):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, allocation_percent=Decimal("33.5"))
+        )
+
+    assert _share_lines(caplog) == []

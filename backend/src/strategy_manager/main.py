@@ -247,6 +247,10 @@ from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
+from strategy_manager.signals.infrastructure.webhook_origin_check import log_webhook_origin
+from strategy_manager.signals.infrastructure.webhook_origin_router import (
+    router as webhook_origin_router,
+)
 from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
@@ -304,6 +308,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         assert_webhook_secret_configured(settings)
         assert_admin_api_token_configured(settings)
         assert_panel_dist_ready(settings)
+        # A line, not an invariant: a typo in a display setting must not stop
+        # the process that receives the alerts (rule 3). Never raises.
+        log_webhook_origin(settings)
         yield
 
 
@@ -1864,6 +1871,7 @@ def create_app() -> FastAPI:
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
     api_router.include_router(webhook_secret_router)
+    api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
     app.include_router(api_router)
 
