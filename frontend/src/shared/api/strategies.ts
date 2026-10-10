@@ -76,6 +76,23 @@ export function setStrategyEnabled(strategyId: string, enabled: boolean): Promis
   });
 }
 
+/** STUB (12f.10.6 RED): answers a fixed strategy and sends nothing, until the GREEN sends the PATCH. */
+export function setStrategyAllocationPercent(_strategyId: string, _value: string): Promise<Strategy> {
+  return Promise.resolve({
+    id: "",
+    name: "",
+    exchange: "",
+    venue: "",
+    settlement_currency: "",
+    fill_mode: "SKIP",
+    allocation_percent: "0",
+    enabled: false,
+    archived_at: null,
+    allowed_pairs: [],
+    uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+  });
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
@@ -99,6 +116,13 @@ export function useSetStrategyEnabled(strategyId: string) {
       await queryClient.invalidateQueries({ queryKey: ["strategies"] });
       await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
     },
+  });
+}
+
+/** STUB (12f.10.6 RED): no cache write and no invalidation, until the GREEN adds them. */
+export function useSetAllocationPercent(strategyId: string) {
+  return useMutation<Strategy, Error, string>({
+    mutationFn: (value) => setStrategyAllocationPercent(strategyId, value),
   });
 }
 
