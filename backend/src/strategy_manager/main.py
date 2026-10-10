@@ -184,6 +184,7 @@ from strategy_manager.shared.infrastructure.access_log import (
     install_access_log_redaction,
 )
 from strategy_manager.shared.infrastructure.alerting import operator_alerts
+from strategy_manager.shared.infrastructure.api_logging import configure_api_logging
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
 from strategy_manager.shared.infrastructure.binance.factory import (
     read_only_client as binance_read_only_client,
@@ -300,6 +301,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     and it needs nothing but the settings token to install.
     """
 
+    # First, so that nothing this process says is lost and so that the bridge
+    # installed below finds a root logger that already writes. Here and not in
+    # ``create_app``: that runs at IMPORT (``app = create_app()``), and the
+    # worker imports this module, so it would configure the worker's logging as
+    # a side effect of an import.
+    configure_api_logging()
     settings = get_settings()
     async with operator_alerts(settings):
         async with engine.connect() as conn:

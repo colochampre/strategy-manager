@@ -1030,3 +1030,71 @@ The route's authentication is unchanged.
 - GIVEN the route and the pool performance read are called
 - WHEN their bodies are read outside `by_pair`
 - THEN neither carries `wins` or `win_rate`
+
+### Requirement: The API Process Writes Its Own Log Lines
+
+> **Added 2026-10-09 (found by the deploy of PR 12f-1; tasks.md unit alg).**
+
+The API process MUST write its own INFO, WARNING and ERROR lines to its
+standard streams, whether operator alerting is on or off, each line once, in the
+format the worker uses (`%(asctime)s %(levelname)-8s %(name)s: %(message)s`).
+It MUST do so by giving the root logger the level INFO and a handler of its own,
+installed before anything else in the API's startup can log and before the
+operator-alert bridge is installed. It MUST recognise its own handler, so that
+configuring twice, or configuring while another handler is already on the root
+logger (a test runner's capture, the alert bridge), writes each line once and
+never zero times.
+
+This MUST NOT change what the process already writes elsewhere: uvicorn's access
+and error lines MUST still be written once each, and the access line MUST still
+mask the webhook's secret. The INFO lines of `httpx` and `httpcore` MUST NOT be
+written, because the Telegram URL holds the bot token and a Binance URL its
+signature; their WARNING lines MUST be.
+
+#### Scenario: An INFO line is written
+
+- GIVEN the API is running under uvicorn's default logging configuration
+- WHEN an application logger writes an INFO
+- THEN the line is written once to a standard stream, in the worker's format
+
+#### Scenario: A WARNING and an ERROR are written while alerting is on
+
+- GIVEN a handler that writes nowhere is on the root logger, as the alert bridge is
+- WHEN an application logger writes an INFO, a WARNING and an ERROR
+- THEN each is written once to a standard stream
+
+#### Scenario: A handler installed first does not stop the configuration
+
+- GIVEN another handler was already on the root logger when the API configured its logging
+- WHEN an application logger writes an INFO, a WARNING and an ERROR
+- THEN each is written once to a standard stream
+
+#### Scenario: The origin's startup line reaches the journal
+
+- GIVEN `WEBHOOK_PUBLIC_ORIGIN` is `https://hook.example.org`
+- WHEN the API starts
+- THEN exactly one line naming `WEBHOOK_PUBLIC_ORIGIN` and `https://hook.example.org` is written to a standard stream
+
+#### Scenario: Configuring twice writes each line once
+
+- GIVEN the API's logging was configured twice
+- WHEN an application logger writes a line
+- THEN it is written once
+
+#### Scenario: Uvicorn's lines are not doubled and the secret stays masked
+
+- GIVEN the API's logging is configured
+- WHEN uvicorn writes an access line for `/webhook/tradingview?secret=hunter2` and an error-logger line
+- THEN each is written once, and the access line shows `secret=REDACTED` and no output holds `hunter2`
+
+#### Scenario: The HTTP client's INFO lines stay out
+
+- GIVEN the API's logging is configured
+- WHEN `httpx` and `httpcore` each write an INFO and a WARNING
+- THEN neither INFO is written and each WARNING is written once
+
+#### Scenario: Logging is configured before the alert bridge
+
+- GIVEN the API starts
+- WHEN `operator_alerts` is about to install its bridge
+- THEN the root logger is already at INFO and holds the API's own handler
