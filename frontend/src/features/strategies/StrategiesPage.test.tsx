@@ -362,6 +362,23 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
     expect(classesOf(message)).toContain("lg:col-span-3");
   });
 
+  it("a row whose report is unreadable keeps the same three tracks for its message", async () => {
+    const unreadable = () =>
+      Promise.resolve(
+        jsonResponse({
+          ...strategyReport("11111111-1111-4111-8111-111111111111"),
+          by_pair: [{ pair: "SOLUSDT", trades: 7, pnl: "41.20", return: "0.0340000000" }],
+        }),
+      );
+    stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy()], unreadable).route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    const row = await screen.findByTestId("strategy-row");
+    const message = await within(row).findByText(en.strategies.row.performanceError);
+
+    expect(classesOf(message)).toContain("lg:col-span-3");
+  });
+
   it("the reading order of a row is still name, figures, switch", async () => {
     const rows = await twoRows();
 
