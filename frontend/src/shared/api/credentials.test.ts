@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
-import { fetchCredentials } from "@/shared/api/credentials";
+import { fetchCredentials, saveCredential } from "@/shared/api/credentials";
+import type { SaveResult } from "@/shared/api/credentials";
 import served from "@/shared/credentials/served-exchanges.json";
 import { emptyKey, lock, storedKey, unlock } from "@/test/harness";
 
@@ -133,6 +134,342 @@ describe("fetchCredentials, the rows that make the whole read an error", () => {
     expect(JSON.stringify(Object.getOwnPropertyNames(error).map((name) => String(Reflect.get(error, name))))).not.toContain(
       wholeKey,
     );
+  });
+});
+
+// Two fixed fake strings. Neither is a credential: the tests need no real one (DRY_RUN, rule 1).
+const K = "FAKE-KEY-SENTINEL-AAAA9999";
+const S = "FAKE-SECRET-SENTINEL-BBBB8888";
+
+function answer(status: number, body: unknown) {
+  const fetchMock = vi.fn(() =>
+    Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+    } as Response),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function failToConnect(error: Error = new TypeError("Failed to fetch")) {
+  const fetchMock = vi.fn(() => Promise.reject(error));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const SAVED_BODY = {
+  last4: "5678",
+  facts: { trade_capable: true, validated_at: "2026-10-10T10:00:00Z" },
+  warnings: [] as string[],
+};
+
+describe("saveCredential, a save that worked", () => {
+  it("is saved with the last four characters the server answered", async () => {
+    answer(200, SAVED_BODY);
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: "5678", readOnly: false });
+  });
+
+  it("reads another last4 the same way", async () => {
+    answer(200, { ...SAVED_BODY, last4: "ab12" });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: "ab12", readOnly: false });
+  });
+
+  it.each([
+    ["three characters", "123"],
+    ["five characters", "12345"],
+    ["the whole of the key", K],
+    ["a number", 5678],
+    ["null", null],
+  ])("keeps no last4 when the answer's is %s", async (_label, last4) => {
+    answer(200, { ...SAVED_BODY, last4 });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: null, readOnly: false });
+  });
+
+  it("is read-only when the warnings hold READ_ONLY_KEY", async () => {
+    answer(200, { ...SAVED_BODY, warnings: ["READ_ONLY_KEY"] });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: "5678", readOnly: true });
+  });
+
+  it("is read-only when the facts say the key cannot trade, with no warning at all", async () => {
+    answer(200, { ...SAVED_BODY, facts: { trade_capable: false }, warnings: [] });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: "5678", readOnly: true });
+  });
+
+  it.each([
+    ["a body that is null", null],
+    ["a body that is a string", "saved"],
+    ["a body without facts or warnings", { last4: "5678" }],
+  ])("is still saved for a 200 with %s", async (_label, body) => {
+    answer(200, body);
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result.kind).toBe("saved");
+  });
+
+  it("is saved with no last4 and not read-only when the 200's body cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(new SyntaxError("Unexpected end of JSON input")),
+        } as unknown as Response),
+      ),
+    );
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "saved", last4: null, readOnly: false });
+  });
+});
+
+describe("saveCredential, every refusal by the outcome or the status", () => {
+  it.each([
+    [422, "KEY_REJECTED", "keyRejected"],
+    [422, "WITHDRAW_PERMISSION", "withdrawPermission"],
+    [422, "PERMISSIONS_UNAVAILABLE", "permissionsUnavailable"],
+    [502, "VENUE_UNREACHABLE", "venueUnreachable"],
+    [409, "CONCURRENT_SAVE", "concurrentSave"],
+    [422, "CONFIRMATION_NOT_APPLICABLE", "confirmationNotApplicable"],
+  ])("a %i %s is %s", async (status, outcome, reason) => {
+    answer(status, { outcome, detail: "text the panel never shows" });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason, missing: [], status });
+  });
+
+  it("a 422 CONFIRMATION_REQUIRED carries the missing names the response lists at its top level", async () => {
+    answer(422, {
+      outcome: "CONFIRMATION_REQUIRED",
+      detail: "binance cannot be checked by this panel; confirm: futures_enabled_confirmed",
+      missing: ["futures_enabled_confirmed"],
+    });
+
+    const result = await saveCredential("binance", K, S, ["withdrawals_disabled_confirmed"]);
+
+    expect(result).toEqual({
+      kind: "refused",
+      reason: "confirmationRequired",
+      missing: ["futures_enabled_confirmed"],
+      status: 422,
+    });
+  });
+
+  it("a CONFIRMATION_REQUIRED lists both names when both are missing", async () => {
+    answer(422, {
+      outcome: "CONFIRMATION_REQUIRED",
+      detail: "x",
+      missing: ["withdrawals_disabled_confirmed", "futures_enabled_confirmed"],
+    });
+
+    const result = await saveCredential("binance", K, S, []);
+
+    expect(result).toEqual({
+      kind: "refused",
+      reason: "confirmationRequired",
+      missing: ["withdrawals_disabled_confirmed", "futures_enabled_confirmed"],
+      status: 422,
+    });
+  });
+
+  it.each([
+    ["a string", "futures_enabled_confirmed"],
+    ["an object", { name: "futures_enabled_confirmed" }],
+    ["null", null],
+    ["absent", undefined],
+  ])("a CONFIRMATION_REQUIRED whose missing is %s lists none", async (_label, missing) => {
+    answer(422, { outcome: "CONFIRMATION_REQUIRED", detail: "x", missing });
+
+    const result = await saveCredential("binance", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "confirmationRequired", missing: [], status: 422 });
+  });
+
+  it("a 404 is notServed", async () => {
+    answer(404, { detail: "exchange 'pionex' is not served by this panel" });
+
+    const result = await saveCredential("pionex", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "notServed", missing: [], status: 404 });
+  });
+
+  it("a 503 is storageUnavailable", async () => {
+    answer(503, { detail: "credential storage is not configured" });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "storageUnavailable", missing: [], status: 503 });
+  });
+
+  it.each([
+    ["the key", [{ type: "string_too_short", loc: ["body", "api_key"], msg: "short" }], "invalidKey"],
+    ["the secret", [{ type: "string_pattern_mismatch", loc: ["body", "api_secret"], msg: "bad" }], "invalidSecret"],
+    [
+      "both, which is read as the key",
+      [
+        { type: "string_too_short", loc: ["body", "api_secret"], msg: "short" },
+        { type: "string_too_short", loc: ["body", "api_key"], msg: "short" },
+      ],
+      "invalidKey",
+    ],
+    ["neither", [{ type: "string_too_long", loc: ["body", "label"], msg: "long" }], "invalidRequest"],
+    ["nothing at all", [], "invalidRequest"],
+    ["an entry with no location", [{ type: "x", msg: "y" }], "invalidRequest"],
+  ])("a pydantic 422 naming %s gives its own reason", async (_label, detail, reason) => {
+    answer(422, { detail });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason, missing: [], status: 422 });
+  });
+
+  it("no answer at all is noAnswer, with status 0", async () => {
+    failToConnect();
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "noAnswer", missing: [], status: 0 });
+  });
+
+  it.each([
+    [500, { detail: "Internal Server Error" }],
+    [502, { detail: "Bad Gateway" }],
+    [429, { detail: "slow down" }],
+    [422, { detail: "a string where a list was expected" }],
+    [409, { outcome: "SOME_NEW_OUTCOME", detail: "x" }],
+  ])("a %i that is none of the above is unknown and carries its status", async (status, body) => {
+    answer(status, body);
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "unknown", missing: [], status });
+  });
+
+  it("a 500 whose body is not JSON is unknown too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+        } as unknown as Response),
+      ),
+    );
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "unknown", missing: [], status: 500 });
+  });
+
+  it("a 401 is unauthorized and clears nothing else of the result", async () => {
+    answer(401, { detail: "Not authenticated" });
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "unauthorized" });
+  });
+});
+
+describe("saveCredential, what it never does", () => {
+  it("resolves, never rejects, when fetch throws a plain Error", async () => {
+    failToConnect(new Error(`boom ${K} ${S}`));
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "noAnswer", missing: [], status: 0 });
+  });
+
+  it.each([
+    ["a 500", () => answer(500, { detail: "broken" })],
+    ["no answer", () => failToConnect()],
+    ["a 422 refusal", () => answer(422, { outcome: "KEY_REJECTED", detail: "no" })],
+    ["a 409 refusal", () => answer(409, { outcome: "CONCURRENT_SAVE", detail: "no" })],
+  ])("test_a_failed_save_is_not_retried: %s is one request", async (_label, stub) => {
+    const fetchMock = stub();
+
+    await saveCredential("bybit", K, S, []);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends one PUT to the exchange's path with the key and the secret only in its body, for Bybit", async () => {
+    const fetchMock = answer(200, SAVED_BODY);
+
+    await saveCredential("bybit", K, S, []);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`${API_BASE_URL}/api/credentials/bybit`);
+    expect(url).not.toContain(K);
+    expect(url).not.toContain(S);
+    expect(init.method).toBe("PUT");
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({ api_key: K, api_secret: S });
+  });
+
+  it("adds each confirmation as true for Binance, and no label", async () => {
+    const fetchMock = answer(200, SAVED_BODY);
+
+    await saveCredential("binance", K, S, ["withdrawals_disabled_confirmed", "futures_enabled_confirmed"]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`${API_BASE_URL}/api/credentials/binance`);
+    const sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(sent).toEqual({
+      api_key: K,
+      api_secret: S,
+      withdrawals_disabled_confirmed: true,
+      futures_enabled_confirmed: true,
+    });
+    expect(Object.keys(sent)).not.toContain("label");
+  });
+
+  it("test_a_save_result_is_a_plain_object_of_known_fields", async () => {
+    const echo = `${K}${S}`;
+    const known = new Set(["kind", "last4", "readOnly", "reason", "missing", "status"]);
+    const answers: [number, unknown][] = [
+      [200, { ...SAVED_BODY, detail: echo, input: K, api_key: K, api_secret: S }],
+      [422, { outcome: "KEY_REJECTED", detail: echo, input: S }],
+      [422, { outcome: "CONFIRMATION_REQUIRED", detail: echo, missing: ["futures_enabled_confirmed"] }],
+      [422, { detail: [{ type: "string_too_short", loc: ["body", "api_key"], msg: "short", input: K }] }],
+      [500, { detail: echo }],
+      [404, { detail: echo }],
+    ];
+
+    for (const [status, body] of answers) {
+      answer(status, body);
+      const result: SaveResult = await saveCredential("bybit", K, S, []);
+
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      expect(Object.keys(result).length).toBeGreaterThan(0);
+      for (const key of Object.keys(result)) {
+        expect(known.has(key)).toBe(true);
+      }
+      expect(JSON.stringify(result)).not.toContain(K);
+      expect(JSON.stringify(result)).not.toContain(S);
+    }
   });
 });
 
