@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { InfoButton, InfoText, useInfoDisclosure } from "@/features/strategies/InfoDisclosure";
@@ -121,7 +121,10 @@ describe("InfoDisclosure", () => {
     fireEvent.click(shareButton());
     shareButton().focus();
 
-    pressTab();
+    // `pressTab` moves focus without going through an event helper, so React is told to flush its updates.
+    act(() => {
+      pressTab();
+    });
     expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
     fireEvent.mouseDown(document.body);
     fireEvent.click(document.body);
