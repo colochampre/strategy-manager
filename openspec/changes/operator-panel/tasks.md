@@ -4453,7 +4453,7 @@ Shown And Copied With Its Host")
   lint 0, 63 files, 1,357 tests. Said plainly: the application's `QueryClient` (`main.tsx`) has the library's
   default retry of three, so a failed read of the origin shows the path alone for about seven seconds before the
   sentence appears; the hook was not given `retry: false` because no task asked for it.
-- [ ] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
+- [x] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
   the stub that renders both buttons and writes nothing. Tests: `::Copy URL sits beside Show secret and Copy
   message under the alert message`, `::the copied text equals the text of the <code> element, hidden and
   revealed` (RED: `expected "spy" to be called with arguments`; mutation: a second assembly of the URL in the
@@ -4465,6 +4465,32 @@ Shown And Copied With Its Host")
   per render into one constant that the `<code>` prints and the handler is given; component state holds only
   which button was used, whether it worked and, for the URL, whether the secret was shown and whether a host
   was part of it, never the text. There is no `execCommand` fallback.
+  **Done (RED `4e1cf1a`, GREEN `6cf5241`).** The stub (in the RED commit) renders both buttons and a status region
+  beside each, with no handler. `WebhookMessage.tsx` now builds the alert message once per render into `message`;
+  the `<code>` prints `url` and the `<pre>` prints `message`, and each button's handler is given the same
+  constant. State is `copied: { button, ok } | null`: one value, so there can only be one "Copied" on screen, and
+  no text. `copyText` answers; `ok` false shows the failure text through `InlineStatus tone="failure"` (the loss
+  colour). The URL's button sits in the URL's row beside Show secret; the message's button sits in its own row
+  under the `<pre>`. Four keys added to both locale files (`copyUrl`, `copyMessage`, `copied`, `copyFailed`) with
+  the design's texts. The handler touches neither the secret's `requested` flag nor its query. The record of the
+  secret's booleans for the URL ("was it shown", "was a host in it") is left to 12f.10.27, whose stub is exactly
+  this behaviour. RED as observed (10 failed of 40, in `WebhookMessage.test.tsx`): `expected "spy" to be called 1
+  times, but got 0 times` (and 2, 4 and 0 times, for the copied-text, message and no-request tests),
+  `expected "spy" to be called with arguments` (the placeholder URL and the path alone), and
+  `expect(element).toHaveTextContent()` (the three failure cases and the working "Copied"). The extended
+  `never lets the secret reach a console call...` test failed on `expected "spy" to be called 2 times`. **Passed at
+  once:** `::Copy URL sits beside Show secret and Copy message under the alert message` (the stub already places
+  them); no mutation was run for it, said plainly. Mutations after GREEN, each reverted with `git checkout`: the
+  URL assembled a second time in the handler, always with the placeholder, reds the copied-text test and the
+  extended secret test; `void secret.refetch()` in the handler reds `::a copy makes no request...` and
+  `test_no_other_control_ever_requests_the_secret`; the `false` branch reporting success (`ok: true`) reds the
+  three failure cases; `console.log(text)` in the handler reds the extended secret test. Existing tests edited:
+  `never lets the secret reach...` now stubs the clipboard and presses both Copy buttons while the secret is
+  revealed before its unchanged assertions; the file's `afterEach` removes `navigator.clipboard`; the host helpers
+  were moved from inside the host `describe` to module scope so both groups use them (no assertion changed).
+  `test_no_other_control_ever_requests_the_secret` clicks both Copy buttons now (they are in the "every other
+  button" list) and passes without an edit, since jsdom has no clipboard and the copy fails quietly. Gate after
+  GREEN: lint 0, 63 files, 1,367 tests.
 - [ ] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
   after any copy and never removes it. Tests: `::Copied shows beside the button that was used and only one
   Copied is on screen` (a copy with the other button moves it; mutation: two independent flags),
