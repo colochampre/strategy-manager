@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
+import { useStrategy } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
 import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
@@ -34,20 +35,48 @@ interface Request {
   body: string | undefined;
 }
 
-/** Every request the control makes, in order. A PATCH answers the strategy with the share it was sent. */
-function setup(subject: Strategy) {
+interface Options {
+  /** What a PATCH answers. By default: 200, the strategy with the share it was sent. */
+  patch?: (sent: string) => Promise<Response> | Response;
+}
+
+/** The strategy as the server holds it: a PATCH that succeeds changes it, a test may also change it by hand. */
+interface Server {
+  strategy: Strategy;
+  /** Set once the strategy has been deleted: a read answers 404. */
+  gone?: boolean;
+}
+
+/** Every request the control makes, in order. */
+function stub(server: Server, options: Options) {
   const requests: Request[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     requests.push({ method: init?.method ?? "GET", path, body: typeof init?.body === "string" ? init.body : undefined });
     if (init?.method === "PATCH") {
-      const sent = JSON.parse(String(init.body)) as { allocation_percent: string };
-      return Promise.resolve(jsonResponse({ ...subject, allocation_percent: sent.allocation_percent }));
+      const sent = String(init.body);
+      if (options.patch !== undefined) return Promise.resolve(options.patch(sent));
+      const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
+      server.strategy = { ...server.strategy, allocation_percent };
+      return Promise.resolve(jsonResponse(server.strategy));
+    }
+    if (path === `/api/strategies/${ID}`) {
+      return Promise.resolve(server.gone ? jsonResponse({ detail: "no such strategy" }, 404) : jsonResponse(server.strategy));
     }
     return Promise.resolve(jsonResponse({ detail: "not served by this test" }, 404));
   });
   vi.stubGlobal("fetch", fetchMock);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return requests;
+}
+
+function newClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+/** The editor over a strategy handed in as a prop, which the test moves by hand with `rerender`. */
+function setup(subject: Strategy, options: Options = {}) {
+  const requests = stub({ strategy: subject }, options);
+  const client = newClient();
   const ui = (current: Strategy) => (
     <QueryClientProvider client={client}>
       <PoolShareEditor strategy={current} />
@@ -56,6 +85,26 @@ function setup(subject: Strategy) {
   const view = render(ui(subject));
   const patches = () => requests.filter((request) => request.method === "PATCH");
   return { requests, patches, rerender: (current: Strategy) => view.rerender(ui(current)), unmount: view.unmount };
+}
+
+/** The editor in the page's position: the strategy comes from `useStrategy`, as a save's answer and re-read move it. */
+function Page() {
+  const subject = useStrategy(ID);
+  return subject.data === undefined ? <p>{subject.status}</p> : <PoolShareEditor strategy={subject.data} />;
+}
+
+function setupPage(subject: Strategy, options: Options = {}) {
+  const server: Server = { strategy: subject };
+  const requests = stub(server, options);
+  const client = newClient();
+  render(
+    <QueryClientProvider client={client}>
+      <Page />
+    </QueryClientProvider>,
+  );
+  const patches = () => requests.filter((request) => request.method === "PATCH");
+  const reads = () => requests.filter((request) => request.method === "GET" && request.path === `/api/strategies/${ID}`);
+  return { server, requests, patches, reads };
 }
 
 /** The visible label, in the language in force, so the same helpers serve both languages. */
@@ -341,6 +390,167 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
       type("0");
       expect(screen.getByText("El porcentaje debe ser mayor que 0 y como máximo 100.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Guardar porcentaje" })).toBeDisabled();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+});
+
+const SAVE_FAILED = "The share was not saved. Try again.";
+const OUT_OF_RANGE = "The share must be above 0 and at most 100.";
+const ARCHIVED = "This strategy is archived and can no longer be changed.";
+const GONE = "This strategy no longer exists.";
+const UNREADABLE = "The stored share could not be read, so it cannot be edited here.";
+
+const refuse = (status: number, detail: unknown) => () => jsonResponse({ detail }, status);
+
+/** The one alert line, once it has appeared. Presence is asserted, so a missing line fails on its assertion. */
+async function alertLine(): Promise<HTMLElement> {
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+  return screen.getByRole("alert");
+}
+
+describe("PoolShareEditor, step 3b: the states and the refusals", () => {
+  it("while saving, Save reads Saving... and the track, the stops and the field are disabled", async () => {
+    setup(strategy(), { patch: () => new Promise<Response>(() => undefined) });
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    const saving = await screen.findByRole("button", { name: "Saving…" });
+    expect(saving).toBeDisabled();
+    expect(field()).toBeDisabled();
+    expect(track()).toBeDisabled();
+    for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeDisabled();
+  });
+
+  it("a 422 shows the out-of-range text as an alert and keeps the draft", async () => {
+    setup(strategy(), { patch: refuse(422, [{ msg: "refused" }]) });
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    expect(await alertLine()).toHaveTextContent(OUT_OF_RANGE);
+    expect(field().value).toBe("40");
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("a 409 STRATEGY_ARCHIVED shows the archived text, the page re-reads the strategy and the control turns read-only", async () => {
+    const page = setupPage(strategy(), {
+      patch: () => {
+        page.server.strategy = { ...page.server.strategy, archived_at: "2026-10-09T10:00:00Z" };
+        return jsonResponse({ detail: { error: "STRATEGY_ARCHIVED", message: "archived" } }, 409);
+      },
+    });
+    await screen.findByRole("textbox");
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    expect(await alertLine()).toHaveTextContent(ARCHIVED);
+    await waitFor(() => expect(page.reads().length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(field()).toBeDisabled());
+    expect(track()).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
+    for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeDisabled();
+  });
+
+  it("a 404 shows 'This strategy no longer exists.' and the strategy is read again for the page to show its not-found state", async () => {
+    const page = setupPage(strategy(), {
+      patch: () => {
+        page.server.gone = true;
+        return jsonResponse({ detail: "no such strategy" }, 404);
+      },
+    });
+    await screen.findByRole("textbox");
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    expect(await alertLine()).toHaveTextContent(GONE);
+    await waitFor(() => expect(page.reads().length).toBeGreaterThanOrEqual(2));
+  });
+
+  it.each([
+    ["a network failure", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["a 500", refuse(500, "boom")],
+    ["a 503", refuse(503, "unavailable")],
+    ["a 200 whose body is not a strategy", () => jsonResponse({ id: 7 })],
+  ])("%s shows the failure text and keeps the draft", async (_name, patch) => {
+    setup(strategy(), { patch });
+
+    type("33.5");
+    fireEvent.click(saveButton());
+
+    expect(await alertLine()).toHaveTextContent(SAVE_FAILED);
+    expect(field().value).toBe("33.5");
+    expect(track().value).toBe("34");
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("an archived strategy's track, stops, field and Save are disabled", () => {
+    setup(strategy({ archived_at: "2026-10-01T00:00:00Z", allocation_percent: "30" }));
+
+    expect(field()).toBeDisabled();
+    expect(track()).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
+    for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeDisabled();
+    expect(field().value).toBe("30");
+  });
+
+  it.each(["1E-7", "", "1E+1", "+5", "abc"])("a stored value %j that cannot be read shows its text and no control", (stored) => {
+    setup(strategy({ allocation_percent: stored }));
+
+    expect(screen.queryByText(UNREADABLE)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Set the share/ })).toBeNull();
+  });
+
+  it("each refusal is a role=alert line, one at a time, and none shows before a save", async () => {
+    setup(strategy(), { patch: refuse(500, "boom") });
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    type("40");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(saveButton());
+
+    await alertLine();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+
+  it("the unreadable text is in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy({ allocation_percent: "1E-7" }));
+      expect(
+        screen.queryByText("No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí."),
+      ).toBeInTheDocument();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("the failure text is in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy(), { patch: refuse(500, "boom") });
+      type("40");
+      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      expect(await alertLine()).toHaveTextContent("El porcentaje no se guardó. Inténtelo de nuevo.");
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("the archived text is in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy(), { patch: refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" }) });
+      type("40");
+      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      expect(await alertLine()).toHaveTextContent("Esta estrategia está archivada y ya no se puede modificar.");
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
