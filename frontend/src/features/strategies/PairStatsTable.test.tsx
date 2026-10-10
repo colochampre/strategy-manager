@@ -6,7 +6,15 @@ import type { PairStat } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 
 function stat(overrides: Partial<PairStat> = {}): PairStat {
-  return { pair: "SOLUSDT", trades: 24, pnl: "71.10", return: "0.0710000000", ...overrides };
+  return {
+    pair: "SOLUSDT",
+    trades: 24,
+    wins: 15,
+    win_rate: "0.6250000000",
+    pnl: "71.10",
+    return: "0.0710000000",
+    ...overrides,
+  };
 }
 
 function rowOf(pair: string): HTMLElement {

@@ -260,7 +260,9 @@ describe("StrategyDetailPage", () => {
   // decision 43 moves the closed trades out of the column (task 9p.5.21), so its trades assertions moved to
   // the full-width section test below and the webhook assertion stayed.
   it("test_left_column_runs_performance_and_by_pair_and_holds_no_webhook_block_until_it_is_opened", async () => {
-    renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
+    renderPage(strategy(), {
+      byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
+    });
     await heading("ETH Breakout");
 
     const titles = [
@@ -351,8 +353,8 @@ describe("StrategyDetailPage", () => {
   it("test_a_pair_removed_from_the_allowed_pairs_is_still_listed_with_its_stats_on_the_page", async () => {
     renderPage(strategy({ allowed_pairs: ["ETHUSDT"] }), {
       byPair: [
-        { pair: "ETHUSDT", trades: 19, pnl: "52.60", return: "0.0526000000" },
-        { pair: "SOLUSDT", trades: 24, pnl: "-5.30", return: "-0.0053000000" },
+        { pair: "ETHUSDT", trades: 19, wins: 12, win_rate: "0.6315789474", pnl: "52.60", return: "0.0526000000" },
+        { pair: "SOLUSDT", trades: 24, wins: 9, win_rate: "0.3750000000", pnl: "-5.30", return: "-0.0053000000" },
       ],
     });
     await heading("ETH Breakout");

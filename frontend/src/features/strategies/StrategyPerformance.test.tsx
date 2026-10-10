@@ -29,8 +29,8 @@ function report(overrides: Partial<StrategyReport> = {}): StrategyReport {
     curve: [{ date: recent, daily_return: "0.025", index: "1.025", drawdown: "0" }],
     monthly: [{ year: today.getUTCFullYear(), month: today.getUTCMonth() + 1, return: "0.0250000000" }],
     by_pair: [
-      { pair: "SOLUSDT", trades: 3, pnl: "71.10", return: "0.0710000000" },
-      { pair: "BTCUSDT", trades: 1, pnl: "-5.30", return: null },
+      { pair: "SOLUSDT", trades: 3, wins: 2, win_rate: "0.6666666667", pnl: "71.10", return: "0.0710000000" },
+      { pair: "BTCUSDT", trades: 1, wins: 0, win_rate: "0.0000000000", pnl: "-5.30", return: null },
     ] satisfies PairStat[],
     ...overrides,
   };

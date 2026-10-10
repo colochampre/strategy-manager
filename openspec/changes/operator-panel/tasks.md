@@ -3528,7 +3528,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
 
 **The win rate column** (design § G; spec: operator-panel "By Pair Shows A Win Rate")
 
-- [ ] 12f.10.1 Plumbing, no behaviour change: `types.ts`, `PairStat` gains `wins: number` and `win_rate: string`; new
+- [x] 12f.10.1 Plumbing, no behaviour change: `types.ts`, `PairStat` gains `wins: number` and `win_rate: string`; new
   types for the preview body (`SharePreview`, its `balance`, `exact` and `steps` entries) and the origin body.
   Every fixture that types a `PairStat` gains the two fields with values that agree with its `trades`:
   `PairStatsTable.test.tsx::stat()`, `StrategyPerformance.test.tsx` (the `satisfies PairStat[]` literal),
@@ -3536,6 +3536,19 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `StrategiesPage.test.tsx` (its one); `harness.tsx` serves `by_pair: []` and needs none. Nothing else in
   those files changes. No RED: the proof is that `npm run lint` refuses a builder left without the fields
   (remove one, see `tsc` fail, restore) and the existing suites pass unmodified apart from the builders.
+  **Done (commit recorded in the delivery log).** Baseline before the batch: `npm run lint` exit 0, `npm test`
+  exit 0, 49 files and 857 tests. Added to `types.ts`: `wins` and `win_rate` on `PairStat`, and `SharePreview`,
+  `SharePreviewBalance`, `SharePreviewExact`, `SharePreviewStep` and `WebhookOrigin`, read from the backend's
+  `SharePreviewBody` and `WebhookOriginBody`. Proof: with the types changed and the builders untouched,
+  `npm run lint` failed with TS2322 and TS2739 in `PairStatsTable.test.tsx`, `StrategyDetailPage.test.tsx` (three
+  literals) and `StrategyPerformance.test.tsx` (three). The fixtures then gained the two fields, with values that
+  agree with `trades` (24 trades, 15 wins, 0.6250000000; 3 and 2; 1 and 0; 19 and 12; 24 and 9; 2 and 1). Lint
+  exit 0 again, and the `features/strategies` and `shared/api` suites passed (26 files, 520 tests). Existing
+  files edited, all test builders and only for the two fields: `PairStatsTable.test.tsx::stat()`,
+  `StrategyDetailPage.test.tsx` (two `byPair` literals), `StrategyPerformance.test.tsx` and
+  `performance.strategy.test.ts` (the valid literal and the four rejection literals, which now carry the fields
+  so they still fail for their own flaw once 12f.10.2 lands). `StrategiesPage.test.tsx` needed no edit: its one
+  `by_pair` is `[]`, so it holds no `PairStat` to complete.
 - [ ] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
   No stub is needed: the current `isPairStat` ignores keys it does not know, which is the wrong answer.
   Tests: `::refuses a by_pair entry lacking wins`, `::refuses a by_pair entry lacking win_rate`,

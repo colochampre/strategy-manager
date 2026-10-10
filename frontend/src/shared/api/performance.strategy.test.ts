@@ -55,20 +55,30 @@ afterEach(() => {
 
 describe("fetchStrategyPerformance by_pair", () => {
   it("returns the pairs the server listed, a null return kept as null", async () => {
-    respond(200, report([{ pair: "SOLUSDT", trades: 3, pnl: "4.20", return: null }]));
+    const entry = { pair: "SOLUSDT", trades: 3, wins: 2, win_rate: "0.6666666667", pnl: "4.20", return: null };
+    respond(200, report([entry]));
 
     const body = await fetchStrategyPerformance(ID);
 
-    expect(body?.by_pair).toEqual([{ pair: "SOLUSDT", trades: 3, pnl: "4.20", return: null }]);
+    expect(body?.by_pair).toEqual([entry]);
   });
 
   it.each([
     ["is missing", undefined],
     ["is not a list", { SOLUSDT: 1 }],
-    ["has an entry whose pnl is a number", [{ pair: "SOLUSDT", trades: 3, pnl: 4.2, return: null }]],
-    ["has an entry whose trade count is a string", [{ pair: "SOLUSDT", trades: "3", pnl: "4.20", return: null }]],
-    ["has an entry with no pair", [{ trades: 3, pnl: "4.20", return: null }]],
-    ["has an entry whose return is a number", [{ pair: "SOLUSDT", trades: 3, pnl: "4.20", return: 0.01 }]],
+    [
+      "has an entry whose pnl is a number",
+      [{ pair: "SOLUSDT", trades: 3, wins: 2, win_rate: "0.6666666667", pnl: 4.2, return: null }],
+    ],
+    [
+      "has an entry whose trade count is a string",
+      [{ pair: "SOLUSDT", trades: "3", wins: 2, win_rate: "0.6666666667", pnl: "4.20", return: null }],
+    ],
+    ["has an entry with no pair", [{ trades: 3, wins: 2, win_rate: "0.6666666667", pnl: "4.20", return: null }]],
+    [
+      "has an entry whose return is a number",
+      [{ pair: "SOLUSDT", trades: 3, wins: 2, win_rate: "0.6666666667", pnl: "4.20", return: 0.01 }],
+    ],
   ])("rejects a body whose by_pair %s, so no wrong figure is drawn", async (_name, byPair) => {
     respond(200, report(byPair));
 
