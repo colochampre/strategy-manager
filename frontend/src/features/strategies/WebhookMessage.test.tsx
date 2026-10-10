@@ -106,6 +106,17 @@ function stubClipboard(): ReturnType<typeof vi.fn> {
   return writeText;
 }
 
+const copyUrl = () => screen.getByRole("button", { name: "Copy URL" });
+const copyMessage = () => screen.getByRole("button", { name: "Copy message" });
+/** The status region that shares a row with `button`: each button owns one. */
+const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
+/** A click, then the microtasks of the write it starts. */
+const press = (button: HTMLElement) =>
+  act(async () => {
+    fireEvent.click(button);
+  });
+const hideButton = () => screen.getByRole("button", { name: "Hide secret" });
+
 const showButton = () => screen.getByRole("button", { name: "Show secret" });
 const revealedUrl = (secret = SECRET) => screen.findByText(`${URL_BASE}${secret}`);
 const messageText = () => screen.getByRole("group", { name: "Alert message" }).textContent;
@@ -518,16 +529,6 @@ describe("WebhookMessage", () => {
   });
 
   describe("the Copy buttons", () => {
-    const copyUrl = () => screen.getByRole("button", { name: "Copy URL" });
-    const copyMessage = () => screen.getByRole("button", { name: "Copy message" });
-    /** The status region that shares a row with `button`: each button owns one. */
-    const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
-    /** A click, then the microtasks of the write it starts. */
-    const press = (button: HTMLElement) =>
-      act(async () => {
-        fireEvent.click(button);
-      });
-
     it("test_copy_url_sits_beside_show_secret_and_copy_message_under_the_alert_message", async () => {
       setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
@@ -656,6 +657,206 @@ describe("WebhookMessage", () => {
       expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
       expect(statusBeside(copyMessage())).not.toHaveClass("text-loss");
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+    });
+  });
+
+  describe("the rule for Copied", () => {
+    /** An origin route that stays pending until the test lets it answer, as a slow host does. */
+    function lateOrigin() {
+      let answer: (origin: string | null) => void = () => undefined;
+      const route: Answer = () =>
+        new Promise<Response>((resolve) => {
+          answer = (origin) => resolve(jsonResponse({ origin }));
+        });
+      const arrive = (origin: string | null) =>
+        act(async () => {
+          answer(origin);
+          // The answer is parsed, checked and handed to the view over a few ticks.
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        });
+      return { route, arrive };
+    }
+    const copiedBeside = (button: HTMLElement) => statusBeside(button).textContent === "Copied";
+    const copiedCount = () => screen.queryAllByText("Copied").length;
+    const revealed = () => waitFor(() => expect(urlText()).toContain(`${URL_BASE}${SECRET}`));
+
+    it("test_copied_shows_beside_the_button_that_was_used_and_only_one_copied_is_on_screen", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      await press(copyUrl());
+
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
+      expect(copiedCount()).toBe(1);
+
+      await press(copyMessage());
+
+      expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copiedCount()).toBe(1);
+
+      await press(copyUrl());
+
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
+      expect(copiedCount()).toBe(1);
+    });
+
+    it("test_closing_the_block_removes_it", async () => {
+      stubClipboard();
+      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute(ID, "ETH Breakout"));
+      renderAt(
+        <Routes>
+          <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
+        </Routes>,
+        `/strategies/${ID}`,
+      );
+      await screen.findByRole("heading", { level: 1, name: "ETH Breakout" });
+      const toggle = () => screen.getByRole("button", { name: "Connect a TradingView alert" });
+      fireEvent.click(toggle());
+      await press(copyUrl());
+      await press(copyMessage());
+      expect(copiedCount()).toBe(1);
+
+      fireEvent.click(toggle());
+
+      expect(screen.queryByText("Copied")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Copy URL" })).toBeNull();
+
+      fireEvent.click(toggle());
+
+      expect(screen.queryByText("Copied")).toBeNull();
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
+    });
+
+    it("test_the_url_copied_with_the_placeholder_then_show_secret_copied_is_gone", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await press(copyUrl());
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+
+      fireEvent.click(showButton());
+      await revealed();
+
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copiedCount()).toBe(0);
+      // The clipboard still holds the placeholder URL, which is why "Copied" must not stand beside the real one.
+      expect(writeText).toHaveBeenLastCalledWith(`${HOST}${PLACEHOLDER_URL}`);
+    });
+
+    it("test_the_url_copied_revealed_then_hide_secret_copied_is_gone", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      fireEvent.click(showButton());
+      await revealed();
+      await press(copyUrl());
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+
+      fireEvent.click(hideButton());
+
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}${SECRET}`);
+    });
+
+    it("test_after_that_showing_or_hiding_the_secret_again_does_not_bring_copied_back", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await press(copyUrl());
+      fireEvent.click(showButton());
+      await revealed();
+      expect(copiedCount()).toBe(0);
+
+      // The URL on screen is the placeholder again, the very text that was copied; "Copied" still stays away.
+      fireEvent.click(hideButton());
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(copiedCount()).toBe(0);
+
+      fireEvent.click(showButton());
+      await revealed();
+      expect(copiedCount()).toBe(0);
+    });
+
+    it("test_the_url_copied_as_the_path_alone_then_the_host_loads_copied_is_gone", async () => {
+      const writeText = stubClipboard();
+      const host = lateOrigin();
+      setupHost(host.route);
+      expect(urlText()).toBe(PLACEHOLDER_URL);
+      await press(copyUrl());
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(writeText).toHaveBeenLastCalledWith(PLACEHOLDER_URL);
+
+      await host.arrive(HOST);
+
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copiedCount()).toBe(0);
+    });
+
+    it("test_the_messages_copied_survives_showing_and_hiding_the_secret", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await press(copyMessage());
+
+      fireEvent.click(showButton());
+      await revealed();
+      expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+
+      fireEvent.click(hideButton());
+      expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+      expect(copiedCount()).toBe(1);
+    });
+
+    it("test_the_clipboard_never_holds_something_the_screen_does_not_show_next_to_copied", async () => {
+      const writeText = stubClipboard();
+      const host = lateOrigin();
+      setupHost(host.route);
+      /** Whenever "Copied" stands beside a button, the last write for it is the text that button's source shows now. */
+      const lastWrite = (isUrl: boolean) =>
+        writeText.mock.calls
+          .map(([text]) => String(text))
+          .filter((text) => text.includes(URL_BASE) === isUrl)
+          .at(-1);
+      const check = () => {
+        if (copiedBeside(copyUrl())) expect(lastWrite(true)).toBe(urlText());
+        if (copiedBeside(copyMessage())) expect(lastWrite(false)).toBe(messageText());
+      };
+
+      await press(copyUrl());
+      check();
+      await press(copyMessage());
+      check();
+      await host.arrive(HOST);
+      check();
+      await press(copyUrl());
+      check();
+      expect(copiedBeside(copyUrl())).toBe(true);
+      fireEvent.click(showButton());
+      await revealed();
+      check();
+      expect(copiedBeside(copyUrl())).toBe(false);
+      await press(copyUrl());
+      check();
+      expect(copiedBeside(copyUrl())).toBe(true);
+      fireEvent.click(hideButton());
+      check();
+      expect(copiedBeside(copyUrl())).toBe(false);
+      fireEvent.click(showButton());
+      await revealed();
+      check();
+      fireEvent.click(hideButton());
+      check();
+      await press(copyUrl());
+      check();
+      expect(copiedBeside(copyUrl())).toBe(true);
+      expect(copiedBeside(copyMessage())).toBe(false);
     });
   });
 
