@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
@@ -1673,5 +1673,181 @@ describe("PoolShareEditor, the two information buttons", () => {
 
     expect(document.body.querySelectorAll("[style]")).toHaveLength(0);
     expect(requests).toEqual([]);
+  });
+});
+
+/**
+ * Every text of design § I that this control writes, in both languages, as the design has it with the
+ * example values of the state it is shown in. The table is held here and not read from the locale files, so
+ * a reworded value is red. A Spanish text left in English equals its English twin, so each Spanish text is
+ * required by name below, never by comparison with the English one.
+ */
+const SHARE_TEXTS = {
+  label: { en: "Share of the pool per trade", es: "Porcentaje del pool por operación" },
+  info: { en: "About the share of the pool", es: "Acerca del porcentaje del pool" },
+  hint: {
+    en: "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size.",
+    es: "Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño.",
+  },
+  amountInfo: { en: "About this amount and what is not checked", es: "Acerca de este importe y de lo que no se comprueba" },
+  amount: { en: "Asks for about 300.00 USDT per operation", es: "Pide alrededor de 300,00 USDT por operación" },
+  amountHint: {
+    en: "An estimate: this share of the pool's total balance, read at 14:03 UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.",
+    es: "Es una estimación: este porcentaje del saldo total del pool, leído a las 14:03 UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
+  },
+  amountStale: {
+    en: "The pool's balance was last read at 14:03 UTC and may be out of date.",
+    es: "El saldo del pool se leyó por última vez a las 14:03 UTC y puede estar desactualizado.",
+  },
+  amountNoBalance: {
+    en: "The pool's balance has not been read yet, so the amount cannot be shown.",
+    es: "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
+  },
+  amountLoading: { en: "Calculating the amount…", es: "Calculando el importe…" },
+  amountError: { en: "The amount could not be loaded.", es: "No se pudo cargar el importe." },
+  belowPoolMinimum: {
+    en: "At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped until the share or the balance is larger.",
+    es: "Con este saldo, el porcentaje pide menos que la orden mínima del pool, 5,00 USDT. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
+  },
+  pairMinimumNote: {
+    en: "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.",
+    es: "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
+  },
+  valueText: { en: "30% of the pool", es: "30 % del pool" },
+  stop: { en: "Set the share to 50%", es: "Fijar el porcentaje en 50 %" },
+  notNumber: { en: "Enter a number, for example 25 or 33.5.", es: "Escriba un número, por ejemplo 25 o 33,5." },
+  outOfRange: {
+    en: "The share must be above 0 and at most 100.",
+    es: "El porcentaje debe ser mayor que 0 y como máximo 100.",
+  },
+  save: { en: "Save share", es: "Guardar porcentaje" },
+  saving: { en: "Saving…", es: "Guardando…" },
+  saveFailed: { en: "The share was not saved. Try again.", es: "El porcentaje no se guardó. Inténtelo de nuevo." },
+  archived: {
+    en: "This strategy is archived and can no longer be changed.",
+    es: "Esta estrategia está archivada y ya no se puede modificar.",
+  },
+  gone: { en: "This strategy no longer exists.", es: "Esta estrategia ya no existe." },
+  unreadable: {
+    en: "The stored share could not be read, so it cannot be edited here.",
+    es: "No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí.",
+  },
+  // The owner's own words (decision 48).
+  saved: { en: "Saved", es: "Guardado" },
+} as const;
+
+describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I, in %s", (language) => {
+  const T = Object.fromEntries(Object.entries(SHARE_TEXTS).map(([key, texts]) => [key, texts[language]])) as Record<
+    keyof typeof SHARE_TEXTS,
+    string
+  >;
+  const named = (name: string) => screen.getByRole("button", { name });
+  const here = (text: string) => expect(screen.queryByText(text)).toBeInTheDocument();
+  const hereLater = (text: string) => waitFor(() => here(text));
+
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage(language));
+  });
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  it("the label, the two buttons' names, the amount, the track's reading, a stop and Save", async () => {
+    setup(strategy(), { preview: served({ observedAt: "2026-10-09T14:03:12Z" }) });
+    await hereLater(T.amount);
+
+    here(T.label);
+    named(T.info);
+    named(T.amountInfo);
+    expect(screen.getByRole("slider", { name: T.label })).toHaveAttribute("aria-valuetext", T.valueText);
+    named(T.stop);
+    named(T.save);
+  });
+
+  it("the hint is behind the label's button, and the estimate and the pair note behind the amount's", async () => {
+    setup(strategy(), { preview: served({ observedAt: "2026-10-09T14:03:12Z" }) });
+    await hereLater(T.amount);
+
+    fireEvent.click(named(T.info));
+    here(T.hint);
+    fireEvent.click(named(T.amountInfo));
+    here(T.amountHint);
+    here(T.pairMinimumNote);
+  });
+
+  it("the stale line", async () => {
+    setup(strategy(), { preview: served({ stale: true, observedAt: "2026-10-09T14:03:12Z" }) });
+
+    await hereLater(T.amountStale);
+  });
+
+  it("no balance, loading and a failed read", async () => {
+    setup(strategy(), { preview: served({ noBalance: true }) });
+    await hereLater(T.amountNoBalance);
+    cleanup();
+
+    setup(strategy(), { preview: () => new Promise<Response>(() => undefined) });
+    await hereLater(T.amountLoading);
+    cleanup();
+
+    setup(strategy(), { preview: () => jsonResponse({ detail: "boom" }, 500) });
+    await hereLater(T.amountError);
+  });
+
+  it("the warning on the pool's minimum", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served({ unit: 3, minimum: "5.000000000000000000" }) });
+
+    await hereLater(T.belowPoolMinimum);
+  });
+
+  it("the two refusals of a typed value", async () => {
+    setup(strategy());
+
+    type("abc");
+    here(T.notNumber);
+    type("0");
+    here(T.outOfRange);
+  });
+
+  it("Saving…, the failure, the archived refusal and the missing strategy", async () => {
+    setup(strategy(), { patch: () => new Promise<Response>(() => undefined) });
+    type("40");
+    fireEvent.click(named(T.save));
+    await waitFor(() => named(T.saving));
+    cleanup();
+
+    setup(strategy(), { patch: refuse(500, "boom") });
+    type("40");
+    fireEvent.click(named(T.save));
+    await alertLine();
+    here(T.saveFailed);
+    cleanup();
+
+    setup(strategy(), { patch: refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" }) });
+    type("40");
+    fireEvent.click(named(T.save));
+    await alertLine();
+    here(T.archived);
+    cleanup();
+
+    setup(strategy(), { patch: refuse(404, "no such strategy") });
+    type("40");
+    fireEvent.click(named(T.save));
+    await alertLine();
+    here(T.gone);
+  });
+
+  it("the unreadable stored share", () => {
+    setup(strategy({ allocation_percent: "1E-7" }));
+
+    here(T.unreadable);
+  });
+
+  it("Saved", async () => {
+    setup(strategy());
+    type("40");
+    fireEvent.click(named(T.save));
+
+    await hereLater(T.saved);
   });
 });

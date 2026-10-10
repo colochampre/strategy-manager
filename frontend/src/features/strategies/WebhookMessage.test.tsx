@@ -1,5 +1,5 @@
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -890,6 +890,69 @@ describe("WebhookMessage", () => {
       check();
       expect(copiedBeside(copyUrl())).toBe(true);
       expect(copiedBeside(copyMessage())).toBe(false);
+    });
+  });
+
+  /**
+   * The six new texts of design § I, in both languages, held here and not read from the locale files, so a
+   * reworded value is red. Each Spanish text is required by name: an untranslated value equals its English twin.
+   */
+  describe.each([
+    {
+      language: "en",
+      copyUrl: "Copy URL",
+      copyMessage: "Copy message",
+      copied: "Copied",
+      copyFailed: "Could not copy. Select the text and copy it by hand.",
+      hostUnset:
+        "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.",
+      hostError: "The webhook's host could not be loaded, so only the path is shown.",
+    },
+    {
+      language: "es",
+      copyUrl: "Copiar URL",
+      copyMessage: "Copiar mensaje",
+      copied: "Copiado",
+      copyFailed: "No se pudo copiar. Seleccione el texto y cópielo a mano.",
+      hostUnset:
+        "No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook.",
+      hostError: "No se pudo cargar el host del webhook, por lo que solo se muestra la ruta.",
+    },
+  ])("the six new texts in $language", (T) => {
+    beforeEach(async () => {
+      await act(() => i18n.changeLanguage(T.language));
+    });
+
+    it("the two buttons' names and Copied, with the status beside the button used", async () => {
+      stubClipboard();
+      setupHost(originAnswers(null));
+      await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
+
+      await press(screen.getByRole("button", { name: T.copyUrl }));
+      expect(statusBeside(screen.getByRole("button", { name: T.copyUrl }))).toHaveTextContent(T.copied);
+      await press(screen.getByRole("button", { name: T.copyMessage }));
+      expect(statusBeside(screen.getByRole("button", { name: T.copyMessage }))).toHaveTextContent(T.copied);
+    });
+
+    it("the refusal of a copy, in the loss colour", async () => {
+      setClipboard(undefined);
+      setupHost(originAnswers(null));
+      await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
+
+      await press(screen.getByRole("button", { name: T.copyUrl }));
+
+      const status = statusBeside(screen.getByRole("button", { name: T.copyUrl }));
+      expect(status).toHaveTextContent(T.copyFailed);
+      expect(status).toHaveClass("text-loss");
+    });
+
+    it("the sentence for a host that is not configured, and for one that could not be loaded", async () => {
+      setupHost(originAnswers(null));
+      await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
+      cleanup();
+
+      setupHost(() => Promise.resolve(jsonResponse({ detail: "Not Found" }, 404)));
+      await waitFor(() => expect(screen.queryByText(T.hostError)).toBeInTheDocument());
     });
   });
 

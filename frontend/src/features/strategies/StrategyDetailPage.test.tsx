@@ -493,6 +493,59 @@ describe("StrategyDetailPage", () => {
     expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
   });
 
+  it("test_every_new_key_exists_in_both_languages", () => {
+    const keys = (node: unknown, prefix: string): string[] =>
+      typeof node === "object" && node !== null
+        ? Object.entries(node).flatMap(([key, value]) => keys(value, `${prefix}.${key}`))
+        : [prefix];
+    const newKeys = (locale: typeof en) =>
+      [
+        ...keys(locale.strategies.detail.share, "strategies.detail.share"),
+        ...keys(locale.strategies.detail.saved, "strategies.detail.saved"),
+        ...["copyUrl", "copyMessage", "copied", "copyFailed", "hostUnset", "hostError"].map(
+          (key) => `strategies.webhook.${key}`,
+        ),
+        ...keys(locale.strategies.performance.byPair.winRate, "strategies.performance.byPair.winRate"),
+      ].sort();
+
+    expect(newKeys(es)).toEqual(newKeys(en));
+    // 23 share texts, "Saved", six webhook texts and the Win rate heading.
+    expect(newKeys(en)).toHaveLength(23 + 1 + 6 + 1);
+    for (const key of newKeys(en)) {
+      expect(i18n.exists(key, { lng: "en" })).toBe(true);
+      // Without the fallback to English, so a Spanish key that was deleted is not found.
+      expect(i18n.exists(key, { lng: "es", fallbackLng: [] })).toBe(true);
+    }
+  });
+
+  it("test_the_owners_own_words_are_unchanged", () => {
+    expect(en.strategies.detail.saved).toBe("Saved");
+    expect(es.strategies.detail.saved).toBe("Guardado");
+    expect(en.strategies.webhook.copied).toBe("Copied");
+    expect(es.strategies.webhook.copied).toBe("Copiado");
+  });
+
+  it.each([
+    ["en", "Win rate", "Share of the pool per trade", "Connect a TradingView alert", "Copy URL", "Copy message"],
+    ["es", "% acierto", "Porcentaje del pool por operación", "Conectar una alerta de TradingView", "Copiar URL", "Copiar mensaje"],
+  ])(
+    "test_the_new_texts_of_the_page_read_exactly_as_designed_in_%s",
+    async (language, winRate, shareLabel, openWebhook, copyUrl, copyMessage) => {
+      await i18n.changeLanguage(language);
+      renderPage(strategy(), {
+        byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
+      });
+      await heading("ETH Breakout");
+
+      const table = await screen.findByRole("table", { name: i18n.t("strategies.performance.byPair.title") });
+      expect(within(table).getByRole("columnheader", { name: winRate })).toBeInTheDocument();
+      expect(screen.getByRole("slider", { name: shareLabel })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: openWebhook }));
+      expect(screen.getByRole("button", { name: copyUrl })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: copyMessage })).toBeInTheDocument();
+    },
+  );
+
   it("renders in Spanish and has the same keys in both locales", async () => {
     await i18n.changeLanguage("es");
     renderPage(strategy({ uptime: { seconds: 2 * DAY, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: false } }));
