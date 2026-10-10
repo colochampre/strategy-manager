@@ -3536,7 +3536,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `StrategiesPage.test.tsx` (its one); `harness.tsx` serves `by_pair: []` and needs none. Nothing else in
   those files changes. No RED: the proof is that `npm run lint` refuses a builder left without the fields
   (remove one, see `tsc` fail, restore) and the existing suites pass unmodified apart from the builders.
-  **Done (commit recorded in the delivery log).** Baseline before the batch: `npm run lint` exit 0, `npm test`
+  **Done (commit `5061a3c`).** Baseline before the batch: `npm run lint` exit 0, `npm test`
   exit 0, 49 files and 857 tests. Added to `types.ts`: `wins` and `win_rate` on `PairStat`, and `SharePreview`,
   `SharePreviewBalance`, `SharePreviewExact`, `SharePreviewStep` and `WebhookOrigin`, read from the backend's
   `SharePreviewBody` and `WebhookOriginBody`. Proof: with the types changed and the builders untouched,
