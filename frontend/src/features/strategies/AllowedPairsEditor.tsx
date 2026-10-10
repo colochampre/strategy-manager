@@ -1,9 +1,9 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { InlineStatus } from "@/features/strategies/InlineStatus";
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
+import { StatusButton } from "@/features/strategies/StatusButton";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useReplaceAllowedPairs } from "@/shared/api/strategies";
@@ -98,6 +98,9 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
   const saved = savedKey !== null && savedKey === storedKey(strategy);
 
   const message = save.status === "error" ? saveError(save.error) : null;
+  const saveText = t("strategies.detail.pairs.save");
+  const savingText = t("strategies.detail.pairs.saving");
+  const savedText = t("strategies.detail.saved");
 
   return (
     <section className="flex flex-col gap-3">
@@ -122,15 +125,15 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
           {t("strategies.detail.pairs.hint")}
         </p>
         <div className="flex shrink-0 items-start gap-x-3">
-          <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
-          <button
-            type="button"
+          <StatusButton
+            texts={[saveText, savingText, savedText]}
+            shown={save.isPending ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
             onClick={handleSave}
+            // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
             disabled={archived || !changed || empty || save.isPending}
             className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-          >
-            {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
-          </button>
+          />
         </div>
       </div>
       {empty && !archived && <p className="text-xs text-loss">{t("strategies.detail.pairs.lastPair")}</p>}
