@@ -62,10 +62,12 @@ describe("fetchWebhookOrigin", () => {
     await expect(fetchWebhookOrigin()).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("reads a served value that is not a serialised origin as no host", async () => {
+  // The panel says "could not be loaded" for an origin it does not accept, and "no host is configured" only
+  // for a served null (spec: "The Webhook URL Is Shown And Copied With Its Host"), so the two must differ here.
+  it("refuses a served value that is not a serialised origin, as an error and not as no host", async () => {
     stubFetch({ origin: "https://example.org/hook" });
 
-    await expect(fetchWebhookOrigin()).resolves.toBeNull();
+    await expect(fetchWebhookOrigin()).rejects.toBeInstanceOf(ApiError);
   });
 
   it("throws the refusal of an older API (404) as an ApiError with its status", async () => {

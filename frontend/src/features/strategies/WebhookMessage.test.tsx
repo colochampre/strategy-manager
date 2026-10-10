@@ -350,6 +350,142 @@ describe("WebhookMessage", () => {
     expect(calls.every((call) => !call.url.includes(SECRET))).toBe(true);
   });
 
+  describe("the host of the URL", () => {
+    const HOST = "https://example.duckdns.org";
+    const ORIGIN_PATH = "/api/webhook-origin";
+    const HOST_UNSET =
+      "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.";
+    const HOST_ERROR = "The webhook's host could not be loaded, so only the path is shown.";
+    const originAnswers =
+      (origin: unknown): Answer =>
+      () =>
+        Promise.resolve(jsonResponse({ origin }));
+
+    /** The block, with the origin route answered by `origin` and the secret route by `secret`. */
+    function setupHost(origin: Answer, secret: Answer = answersWith(SECRET)) {
+      const calls: Call[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          calls.push({ url, init });
+          return url.endsWith(ORIGIN_PATH) ? origin() : secret();
+        }),
+      );
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const view = render(
+        <QueryClientProvider client={queryClient}>
+          <WebhookMessage strategyId={ID} />
+        </QueryClientProvider>,
+      );
+      return { calls, queryClient, ...view };
+    }
+    const urlText = () => screen.getByLabelText("Webhook URL").textContent;
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+
+    it("test_a_configured_host_is_shown_in_front_of_the_path_and_no_sentence_about_a_missing_host_shows", async () => {
+      setupHost(originAnswers(HOST));
+
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      expect(screen.queryByText(HOST_UNSET)).toBeNull();
+      expect(screen.queryByText(HOST_ERROR)).toBeNull();
+    });
+
+    it("test_a_revealed_secret_goes_after_the_host_percent_encoded", async () => {
+      setupHost(originAnswers(HOST), answersWith("a&b+c d=e"));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      fireEvent.click(showButton());
+
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}a%26b%2Bc%20d%3De`));
+    });
+
+    it("test_while_the_host_loads_the_path_alone_is_shown", async () => {
+      setupHost(() => new Promise<Response>(() => undefined));
+      await settle();
+
+      expect(urlText()).toBe(PLACEHOLDER_URL);
+      expect(screen.queryByText(HOST_UNSET)).toBeNull();
+      expect(screen.queryByText(HOST_ERROR)).toBeNull();
+    });
+
+    it('test_origin_null_shows_the_path_alone_and_says_no_public_host_is_configured', async () => {
+      setupHost(originAnswers(null));
+
+      await waitFor(() => expect(screen.queryByText(HOST_UNSET)).toBeInTheDocument());
+
+      expect(urlText()).toBe(PLACEHOLDER_URL);
+      expect(screen.queryByText(HOST_ERROR)).toBeNull();
+    });
+
+    it.each([
+      ["a 500", () => Promise.resolve(jsonResponse({ detail: "boom" }, 500))],
+      ["a 404 from an older API", () => Promise.resolve(jsonResponse({ detail: "Not Found" }, 404))],
+      ["a network failure", () => Promise.reject(new TypeError("offline"))],
+      ["a body without an origin", () => Promise.resolve(jsonResponse({ other: HOST }))],
+      ["an origin with a path", originAnswers(`${HOST}/hook`)],
+      ["an origin with a trailing slash", originAnswers(`${HOST}/`)],
+      ["an origin in upper case", originAnswers("HTTPS://Example.ORG")],
+    ] as Array<[string, Answer]>)(
+      "test_%s_shows_the_path_alone_and_says_the_host_could_not_be_loaded",
+      async (_name, origin) => {
+        setupHost(origin);
+
+        await waitFor(() => expect(screen.queryByText(HOST_ERROR)).toBeInTheDocument());
+
+        expect(urlText()).toBe(PLACEHOLDER_URL);
+        expect(screen.queryByText(HOST_UNSET)).toBeNull();
+      },
+    );
+
+    it("test_the_url_is_text_never_inside_an_anchor_and_no_request_starts_with_the_origin", async () => {
+      const { calls } = setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      const code = screen.getByLabelText("Webhook URL");
+      fireEvent.click(code);
+      fireEvent.click(showButton());
+      await revealedUrl();
+      await settle();
+
+      expect(code.tagName).toBe("CODE");
+      expect(code.closest("a")).toBeNull();
+      expect(document.querySelector("a, form, [href], [action]")).toBeNull();
+      expect(calls.filter((call) => call.url.includes("example.duckdns.org"))).toEqual([]);
+      expect(calls.map((call) => call.url).every((url) => url.endsWith(ORIGIN_PATH) || url.endsWith(SECRET_PATH))).toBe(true);
+    });
+
+    it("test_the_origin_is_read_when_the_block_is_opened_and_not_before", async () => {
+      const requests: string[] = [];
+      const strategy = strategyRoute(ID, "ETH Breakout");
+      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, (url, init) => {
+        requests.push(url);
+        if (url.endsWith(ORIGIN_PATH)) return Promise.resolve(jsonResponse({ origin: HOST }));
+        return strategy(url, init);
+      });
+      renderAt(
+        <Routes>
+          <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
+        </Routes>,
+        `/strategies/${ID}`,
+      );
+      await screen.findByRole("heading", { level: 1, name: "ETH Breakout" });
+      await settle();
+      const originRequests = () => requests.filter((url) => url.endsWith(ORIGIN_PATH));
+
+      expect(originRequests()).toHaveLength(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Connect a TradingView alert" }));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      expect(originRequests()).toHaveLength(1);
+    });
+  });
+
   it("renders its texts in Spanish", async () => {
     await i18n.changeLanguage("es");
     setup();
