@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { createElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { pressRangeKey } from "@/test/keyboard";
+import { pressRangeKey, pressTab } from "@/test/keyboard";
 
 // `pressRangeKey` stands for the browser's default action on a focused range input, as `pressEnter`
 // stands for a button's. What a test proves with it is the markup's side: a real, enabled range input
@@ -188,5 +188,51 @@ describe("pressRangeKey", () => {
     pressRangeKey("ArrowLeft");
 
     expect(input.value).toBe("51");
+  });
+});
+
+// `pressTab` stands for sequential focus navigation, which jsdom lacks. A real Tab skips an element whose
+// tabindex is -1, whatever its tag, so the helper must too: a test of the tab order that cannot see a
+// `tabIndex={-1}` put on a button would pass for the wrong reason.
+
+describe("pressTab", () => {
+  function mountButtons(...tabIndexes: Array<string | null>) {
+    return tabIndexes.map((tabIndex) => {
+      const button = document.createElement("button");
+      if (tabIndex !== null) button.setAttribute("tabindex", tabIndex);
+      document.body.append(button);
+      return button;
+    });
+  }
+
+  it("moves to the next tabbable element in document order, and wraps", () => {
+    const [first, second] = mountButtons(null, null);
+
+    expect(pressTab()).toBe(first);
+    expect(pressTab()).toBe(second);
+    expect(pressTab()).toBe(first);
+  });
+
+  it("skips a button whose tabindex is -1", () => {
+    const [first, skipped, third] = mountButtons(null, "-1", null);
+
+    expect(pressTab()).toBe(first);
+    expect(pressTab()).toBe(third);
+    expect(pressTab()).not.toBe(skipped);
+  });
+
+  it("does not skip a button whose tabindex is 0", () => {
+    const [first, second] = mountButtons(null, "0");
+
+    expect(pressTab()).toBe(first);
+    expect(pressTab()).toBe(second);
+  });
+
+  it("skips a disabled button", () => {
+    const [first, disabled, third] = mountButtons(null, null, null);
+    disabled?.setAttribute("disabled", "");
+
+    expect(pressTab()).toBe(first);
+    expect(pressTab()).toBe(third);
   });
 });
