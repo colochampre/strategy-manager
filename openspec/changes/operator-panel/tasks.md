@@ -3806,7 +3806,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   numbering check made a bare type check reds `steps numbered from 0` and `steps out of order`; the interval
   removed reds `reads again every 60 seconds`; the share left out of the key reds the asked-share key test.
   Files created: `share-preview.ts`, `share-preview.test.ts`; no existing file edited.
-- [ ] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
+- [x] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
   `frontend/src/features/strategies/webhook-url.test.ts` (Create), with stubs in `webhook-origin.ts` and
   `webhook-url.ts`: `fetchWebhookOrigin` and `useWebhookOrigin` (key `['webhook-origin']`) answering `null`,
   `acceptedOrigin(value)` returning its input and `webhookUrl(origin, value)` returning the path alone.
@@ -3820,6 +3820,34 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `undefined`; mutation: the empty origin concatenated). RED: `expected 'https://example.org/hook' to be
   null`, `expected '/webhook/tradingview?secret=...' to be 'https://example.org/webhook/...'`. GREEN: the check
   is the one comparison; the URL is plain concatenation of a checked origin, a constant path and the value.
+  **Done (RED commit `9708501`, GREEN commit `8c081ff`).** The stubs are as the task names them, with two
+  details it left open: `acceptedOrigin` and the hook live in `shared/api/webhook-origin.ts` (the API module
+  that checks the answer), `webhookUrl` in `features/strategies/webhook-url.ts`, and `webhookUrl(origin, value)`
+  takes `value` already prepared (the translated placeholder, which is not encoded, or the percent-encoded
+  secret), as `WebhookMessage` already builds it. `fetchWebhookOrigin` returns `string | null` and applies
+  `acceptedOrigin` to what the server served, so a served string that is not an origin reads as no host. RED,
+  observed (24 failed, 8 passed of 32): `expected "spy" to be called 1 times, but got 0 times`, `promise
+  resolved "null" instead of rejecting` (a body without `origin`, a number, a boolean, a list, null), `expected
+  'https://example.org/hook' to be null` (and the query, fragment, user, user and password, trailing slash,
+  upper case, default port, no scheme, empty text, port 99999), `expected '/webhook/tradingview?secret=<your
+  WEB…' to be 'https://example.org/webhook/tradingvi…'`. **Passed at once**: the five normalised cases of the
+  shared list (the stub accepts every text), the two path-alone cases of `webhookUrl` (null and the empty text,
+  which the stub never prefixes) and the served non-origin text, which the stub reads as `null`. GREEN:
+  `acceptedOrigin` is `new URL(value).origin === value` inside a `try`; the fetch answers `null` for a null
+  origin, throws for anything that is not a string, and returns `acceptedOrigin(origin)`; `webhookUrl` is
+  `${origin ?? ""}/webhook/tradingview?secret=${value}`. Mutations after the GREEN, each seen red and
+  reverted: `String(origin)` in the URL reds the null case (the empty-text case holds, as `""` concatenates
+  to nothing); `new URL(value).origin === value` weakened to `new URL(value)` reds eight refusals (path,
+  query, fragment, user, user and password, trailing slash, upper case, default port) and the served-non-origin
+  test; the fetch no longer applying `acceptedOrigin` reds the served-non-origin test only; the type guard
+  removed reds the five body refusals. The shared list's `refused` entries are NOT asserted against the panel:
+  the design's single comparison accepts three of the seventeen that the server refuses, found by running the
+  list through it (`ftp://example.org`, `https://[::1]`, `https://example.org.`). That is acceptable because the
+  server never serves a refused value; the panel must accept everything the server accepts, which it does. If
+  the owner wants the panel to refuse those three too, it is a scheme and host rule beyond the one comparison
+  the design settles, and it is not added. Files created: `webhook-origin.ts`, `webhook-origin.test.ts`,
+  `webhook-url.ts`, `webhook-url.test.ts`; no existing file edited. `WebhookMessage.tsx` does not use any of it
+  yet.
 - [ ] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
   timers), with a stub that returns its input at once. Tests: `::keeps the old value until the pause has
   passed` (299 ms), `::takes the new value at 300 ms`, `::two changes in quick succession give one update, for
