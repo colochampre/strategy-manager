@@ -4036,7 +4036,7 @@ requirements 947 to 1700)
   was not used). Differences from the approved prototype: the focus ring is the panel's `gain` outline, as every
   other control of the panel has it, where the prototype draws it in `ink`; the wrapper is `rounded-md`. No existing
   file edited.
-- [ ] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
+- [x] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
   type="range">` with no attributes. Tests: `::the track is a range input with min 1, max 100, step 1` and named
   by the visible label (`queryByRole("slider", { name: "Share of the pool per trade" })`), `::its value text is
   the exact value while the handle sits at the rounded step` (`33.5% of the pool` at 34), `::the filled part's
@@ -4051,6 +4051,29 @@ requirements 947 to 1700)
   `aria-hidden` inline SVG drawn with attributes, inset by half the thumb on each side, the stops stacked
   above the input from the handle's lower edge so none covers the handle. The legend is 12 px closer to the
   track than the first prototype, and that distance is approved (decision 48).
+  **Done (RED `fc5accf`, GREEN `5b225d0`).** `ShareSlider.tsx` now draws the track, the drawing and the four stops
+  under the field. It exports `RANGE_CLASS` (the one constant) and keeps the stops' four fixed `left-[...]` classes
+  in a table; a test holds each class to `handlePosition`. RED as observed against the stub (a bare
+  `<input type="range" />` and `RANGE_CLASS = "appearance-none"`): 26 of 47 failed. The first test of the step fails
+  on `expect(queryByRole("slider", ...)).toBeInTheDocument()` (received null); the rest fail on Testing Library's
+  "Unable to find an accessible element with the role slider / button" or on "the track has no drawing", which is the
+  same absence read through `getByRole` (I kept `getByRole` in the helpers so a later failure names the missing
+  part). No RED was an import, a type or a constructor error. Passed at once: everything of step 1, since the
+  field is untouched. Mutations after GREEN, each reverted with `git checkout`: the stops turned into `<span>` reds
+  12 tests; `size-11` removed from the stops reds the 44 px test; the track box `h-10` reds it too; every reached
+  stop in the gain class reds the gain/rule-strong test; `x2` fixed at 50 reds the three position tests; `aria-pressed`
+  given as "at or below the handle" reds the pressed test; the value text from the handle only reds the value-text
+  and both translation tests; a fixed class `left-[50%]` for the 50 stop reds that stop's position test; `step={2}`
+  reds the attribute test and both arrow cases; a `style` on the track box reds both style tests; `appearance-none`
+  removed from the constant, and the thumb's `bg-gain` changed, each red the constant test. Differences, none visible
+  in the tests: the value text of the track is the exact value when the text reads as one and the handle's step when
+  it does not (the design leaves the invalid case open); a stop is `aria-pressed` only for a valid text equal to it;
+  disabled draws the fill and the reached stops in `rule-strong`, as the prototype does. The generated stylesheet was
+  checked by building the bundle to a scratch folder: the thumb, track, `disabled:` and `focus-visible:` variants
+  compile to the selectors `...::-webkit-slider-thumb`, `:disabled::-webkit-slider-thumb` and
+  `:focus-visible::-moz-range-thumb`, `field-sizing-content`, `min-w-[1ch]`, the four `left-[...]` classes and
+  `w-[calc(...)]` are all present. Existing files edited: `locales/en.json` and `locales/es.json`, two keys under
+  `strategies.detail.share` (`valueText`, `stop`), in the wording of design § I.
 - [ ] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
   `vi.stubGlobal("fetch")`), with the stub container that renders `ShareSlider` over the stored value and a
   Save that never sends. The container holds the draft as `{ base, text, handle }` or nothing. Tests: `::a
