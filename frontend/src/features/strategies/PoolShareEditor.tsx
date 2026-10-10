@@ -74,7 +74,7 @@ function amountView(
   if (data === undefined) return read.isError ? { kind: "failed" } : { kind: "loading" };
   if (data.balance === null) return { kind: "noBalance" };
   const staleAt = data.balance.stale ? data.balance.observed_at : null;
-  const known = (amount: string): ShareAmountView => ({ kind: "known", amount, currency: data.currency, staleAt });
+  const known = (amount: string): ShareAmountView => ({ kind: "known", amount, currency: data.currency, staleAt, belowMinimum: null });
 
   const step = WHOLE_STEP.test(value) ? data.steps[Number(value) - 1] : undefined;
   if (step !== undefined) return known(step.amount);

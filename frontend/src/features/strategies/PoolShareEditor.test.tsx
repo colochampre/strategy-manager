@@ -57,13 +57,15 @@ interface PreviewSpec {
   noBalance?: boolean;
   /** A step list of this length instead of 100. */
   stepCount?: number;
+  /** What one point of share asks for, so step N asks for `unit` x N. Default 10, a pool of 1000. */
+  unit?: number;
 }
 
 function previewBody(spec: PreviewSpec = {}) {
   const minimum = spec.minimum ?? "5.000000000000000000";
   const steps = Array.from({ length: spec.stepCount ?? 100 }, (_unused, index) => {
-    const amount = 10 * (index + 1);
-    return { share: index + 1, amount: `${amount}.000000000000000000`, below_pool_minimum: amount < Number(minimum) };
+    const amount = (spec.unit ?? 10) * (index + 1);
+    return { share: index + 1, amount: amount.toFixed(18), below_pool_minimum: amount < Number(minimum) };
   });
   const base = {
     strategy_id: ID,
@@ -144,6 +146,7 @@ function setup(subject: Strategy, options: Options = {}) {
   const view = render(ui(subject));
   const patches = () => requests.filter((request) => request.method === "PATCH");
   return {
+    client,
     requests,
     previews,
     patches,
@@ -989,16 +992,16 @@ const tick = (ms: number) =>
   });
 
 /** A preview whose answer for an asked share is held until the test lets it go. */
-function heldPreview() {
+function heldPreview(spec: PreviewSpec = {}) {
   const held = new Map<string, (response: Response) => void>();
   const preview = (share: string | null) =>
     share === null
-      ? jsonResponse(previewBody())
+      ? jsonResponse(previewBody(spec))
       : new Promise<Response>((resolve) => {
           held.set(share, resolve);
         });
-  const answer = (share: string, amount: string, asked: string = share) =>
-    held.get(share)?.(jsonResponse(previewBody({ exact: { share: asked, amount } })));
+  const answer = (share: string, amount: string, asked: string = share, below = false) =>
+    held.get(share)?.(jsonResponse(previewBody({ ...spec, exact: { share: asked, amount, below } })));
   return { preview, answer, held };
 }
 
@@ -1163,5 +1166,175 @@ describe("PoolShareEditor, the amount of a typed decimal", () => {
     await tick(1000);
 
     expect(previews).toEqual([null]);
+  });
+});
+
+const WARNING =
+  "At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped until the share or the balance is larger.";
+
+/** A pool of 300 USDT: step N asks for 3 x N, so step 1 asks for 3 and step 2 for 6, against a minimum of 5. */
+const SMALL_POOL: PreviewSpec = { unit: 3, minimum: "5.000000000000000000" };
+
+describe("PoolShareEditor, the warning on the pool's minimum", () => {
+  it("a share that asks for less than the pool's minimum order shows the warning with the minimum, cut down as text", async () => {
+    setup(strategy({ allocation_percent: "30" }), { preview: served({ ...SMALL_POOL, minimum: "5.999999999999999999" }) });
+    await expectText(amountLine("90.00"));
+
+    fireEvent.click(stop(25));
+    expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+    type("1");
+
+    expect(
+      screen.queryByText(
+        "At this balance the share asks for less than the pool's minimum order, 5.99 USDT. Openings would be skipped until the share or the balance is larger.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("it is a role=status line in the loss colour, not an alert and never amber", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served(SMALL_POOL) });
+
+    await expectText(WARNING);
+
+    const line = screen.getByText(WARNING);
+    expect(line).toHaveAttribute("role", "status");
+    expect(line).toHaveClass("text-loss");
+    expect(line.className).not.toMatch(/decision/);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("it shows for a stored share under the minimum with no change made", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served(SMALL_POOL) });
+
+    await expectText(amountLine("3.00"));
+    expect(screen.queryByText(WARNING)).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("the warning follows the value in the field, not only the stored one", async () => {
+    setup(strategy({ allocation_percent: "2" }), { preview: served(SMALL_POOL) });
+    await expectText(amountLine("6.00"));
+    expect(screen.queryByText(WARNING)).toBeNull();
+
+    moveHandle("Home");
+    expect(screen.queryByText(WARNING)).toBeInTheDocument();
+    fireEvent.click(stop(50));
+    expect(screen.queryByText(WARNING)).toBeNull();
+  });
+
+  it("Save stays enabled while it shows, and the request is sent", async () => {
+    const { patches } = setup(strategy({ allocation_percent: "10" }), { preview: served(SMALL_POOL) });
+    await expectText(amountLine("30.00"));
+
+    type("1");
+
+    expect(screen.queryByText(WARNING)).toBeInTheDocument();
+    expect(saveButton()).toBeEnabled();
+    expect(field()).toBeEnabled();
+    expect(track()).toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toBe('{"allocation_percent":"1"}');
+  });
+
+  it("an amount exactly at the minimum is not warned about", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served({ unit: 5, minimum: "5.000000000000000000" }) });
+
+    await expectText(amountLine("5.00"));
+    expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+  });
+
+  it("a share the pool's minimum accepts shows no warning, and neither does one too small for a pair: the panel checks no pair", async () => {
+    const { previews, requests } = setup(strategy({ allocation_percent: "1" }), {
+      preview: served({ unit: 10, minimum: "5.000000000000000000" }),
+    });
+
+    await expectText(amountLine("10.00"));
+
+    expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+    expect(saveButton()).toBeDisabled();
+    type("2");
+    expect(saveButton()).toBeEnabled();
+    expect(previews).toEqual([null]);
+    expect(requests).toEqual([]);
+  });
+
+  it("no balance, no figure, no warning", async () => {
+    setup(strategy({ allocation_percent: "1" }), { preview: served({ noBalance: true }) });
+
+    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+    expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+  });
+
+  it("a balance that falls puts the warning on a stored share at the next read", async () => {
+    let reads = 0;
+    const { client } = setup(strategy({ allocation_percent: "2" }), {
+      preview: () => jsonResponse(previewBody(++reads === 1 ? { unit: 3, minimum: "5.000000000000000000" } : { unit: 2, minimum: "5.000000000000000000" })),
+    });
+    await expectText(amountLine("6.00"));
+    expect(screen.queryByText(WARNING)).toBeNull();
+
+    await act(() => client.invalidateQueries({ queryKey: ["strategy", ID, "share-preview"] }));
+
+    await expectText(amountLine("4.00"));
+    expect(screen.queryByText(WARNING)).toBeInTheDocument();
+  });
+
+  it("the warning reads in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy({ allocation_percent: "1" }), { preview: served(SMALL_POOL) });
+
+      await expectText(
+        "Con este saldo, el porcentaje pide menos que la orden mínima del pool, 5,00 USDT. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
+      );
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  describe("for a typed decimal", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("it shows for a typed 0.5 once its answer arrives and not while loading", async () => {
+      const { preview, answer } = heldPreview({ unit: 10, minimum: "5.000000000000000000" });
+      setup(strategy(), { preview });
+      await expectText(amountLine("300.00"));
+      vi.useFakeTimers();
+
+      type("0.5");
+      await tick(300);
+      expect(screen.queryByText(LOADING)).toBeInTheDocument();
+      expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+
+      answer("0.5", "1.500000000000000000", "0.5", true);
+      await tick(0);
+
+      expect(screen.queryByText(amountLine("1.50"))).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          "At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped until the share or the balance is larger.",
+        ),
+      ).toBeInTheDocument();
+      expect(saveButton()).toBeEnabled();
+    });
+
+    it("the warning of the value before it is gone while the next value loads", async () => {
+      const { preview, answer } = heldPreview({ unit: 10, minimum: "5.000000000000000000" });
+      setup(strategy(), { preview });
+      await expectText(amountLine("300.00"));
+      vi.useFakeTimers();
+      type("0.5");
+      await tick(300);
+      answer("0.5", "1.500000000000000000", "0.5", true);
+      await tick(0);
+      expect(screen.queryByText(/less than the pool's minimum order/)).toBeInTheDocument();
+
+      type("0.6");
+
+      expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
+    });
   });
 });

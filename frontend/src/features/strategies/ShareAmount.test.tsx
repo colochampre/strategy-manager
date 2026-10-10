@@ -14,6 +14,7 @@ const KNOWN: ShareAmountView = {
   amount: "335.000000000000000000",
   currency: "USDT",
   staleAt: null,
+  belowMinimum: null,
 };
 
 function renderAmount(view: ShareAmountView) {

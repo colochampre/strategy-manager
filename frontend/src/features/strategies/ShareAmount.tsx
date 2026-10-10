@@ -11,6 +11,8 @@ export interface KnownAmount {
   amount: string;
   currency: string;
   staleAt: string | null;
+  /** The pool's own minimum order, as served, when this figure is below it; `null` when it is not. */
+  belowMinimum: string | null;
 }
 
 /** What the line under the track says: a figure, or why there is none. */
