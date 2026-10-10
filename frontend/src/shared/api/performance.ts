@@ -68,6 +68,11 @@ function isPairStat(value: unknown): boolean {
     isRecord(value) &&
     typeof value.pair === "string" &&
     typeof value.trades === "number" &&
+    // The win count is a whole number from none to every trade; the rate rides as a string like every ratio.
+    Number.isInteger(value.wins) &&
+    (value.wins as number) >= 0 &&
+    (value.wins as number) <= value.trades &&
+    typeof value.win_rate === "string" &&
     typeof value.pnl === "string" &&
     isNullableString(value.return)
   );

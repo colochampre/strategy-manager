@@ -247,7 +247,7 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
-    expect(within(row).queryByTestId("strategy-pnl")).not.toHaveTextContent("+41.20 USDT");
+    expect(within(row).queryByTestId("strategy-pnl")).not.toBeInTheDocument();
   });
 });
 
