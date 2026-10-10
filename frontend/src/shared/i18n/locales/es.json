@@ -187,8 +187,14 @@
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       },
       "share": {
+        "label": "Porcentaje del pool por operación",
         "valueText": "{{value}} % del pool",
-        "stop": "Fijar el porcentaje en {{value}} %"
+        "stop": "Fijar el porcentaje en {{value}} %",
+        "notNumber": "Escriba un número, por ejemplo 25 o 33,5.",
+        "outOfRange": "El porcentaje debe ser mayor que 0 y como máximo 100.",
+        "tooManyDecimals": "El porcentaje tiene como máximo 18 decimales.",
+        "save": "Guardar porcentaje",
+        "saving": "Guardando…"
       }
     },
     "performance": {

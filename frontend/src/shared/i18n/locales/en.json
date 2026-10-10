@@ -187,8 +187,14 @@
         "saveFailed": "The allowed pairs were not saved. Try again."
       },
       "share": {
+        "label": "Share of the pool per trade",
         "valueText": "{{value}}% of the pool",
-        "stop": "Set the share to {{value}}%"
+        "stop": "Set the share to {{value}}%",
+        "notNumber": "Enter a number, for example 25 or 33.5.",
+        "outOfRange": "The share must be above 0 and at most 100.",
+        "tooManyDecimals": "A share has at most 18 decimal places.",
+        "save": "Save share",
+        "saving": "Saving…"
       }
     },
     "performance": {
