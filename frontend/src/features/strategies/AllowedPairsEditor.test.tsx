@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
@@ -215,5 +215,121 @@ describe("AllowedPairsEditor", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "SOLUSDT" }) })).toBeDisabled();
     expect(saveButton()).toBeDisabled();
     expect(puts).toEqual([]);
+  });
+});
+
+/** The live region beside Save, found by either of the button's two names. */
+function savedRegion(): HTMLElement {
+  const button = screen.getByRole("button", {
+    name: new RegExp(`^(${i18n.t("strategies.detail.pairs.save")}|${i18n.t("strategies.detail.pairs.saving")})$`),
+  });
+  const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
+  if (region === null || region === undefined) throw new Error("no live region beside Save");
+  return region;
+}
+
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
+
+/** Adds SOLUSDT, saves, and hands the page the saved list the way a successful re-read does. */
+async function saveSolana(rerenderWith?: (current: Strategy) => void, puts?: unknown[]) {
+  await add("SOLUSDT");
+  fireEvent.click(saveButton());
+  await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT", "SOLUSDT"] }]));
+  rerenderWith?.(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+}
+
+describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
+  it("the live region is in the document before any save, empty", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(savedRegion()).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("Saved shows when the PUT answers 200 and the list on screen is the saved one", async () => {
+    const { puts, rerender } = setup(strategy());
+
+    await saveSolana(rerender, puts);
+
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("Saved goes at the next pair added or removed", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    remove("SOLUSDT");
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("Saved goes when a pair is added", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    await add("BTCUSDT");
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("typing in the search box changes no pair and leaves Saved", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    fireEvent.change(screen.getByLabelText(i18n.t("strategies.pairs.search")), { target: { value: "BTC" } });
+
+    expect(savedRegion()).toHaveTextContent("Saved");
+  });
+
+  it.each([
+    ["a 409", () => jsonResponse({ detail: { error: "PAIRS_CHANGED", message: "changed" } }, 409)],
+    ["a 422", () => jsonResponse({ detail: { error: "UNKNOWN_PAIRS", message: "unknown", unknown: ["SOLUSDT"] } }, 422)],
+  ])("no Saved after %s", async (_name, answer) => {
+    setup(strategy(), { answer });
+
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("if the re-read after a 200 fails, so the list on screen is the old one, Saved is not shown", async () => {
+    const { puts } = setup(strategy());
+
+    await saveSolana(undefined, puts);
+    await settle();
+
+    // The page never received the saved list: the stored list is still the old one.
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("a 200 whose body is not a strategy does not show Saved", async () => {
+    const { puts } = setup(strategy(), { answer: () => jsonResponse({ ok: true }) });
+
+    await saveSolana(undefined, puts);
+    await settle();
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("Saved stays ten minutes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { puts, rerender } = setup(strategy());
+      await saveSolana(rerender, puts);
+      await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+      await act(async () => {
+        vi.advanceTimersByTime(600_000);
+      });
+
+      expect(savedRegion()).toHaveTextContent("Saved");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

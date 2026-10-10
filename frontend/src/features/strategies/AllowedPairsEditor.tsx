@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { InlineStatus } from "@/features/strategies/InlineStatus";
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
 import { ApiError } from "@/shared/api/client";
@@ -102,14 +103,17 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
           {t(message.key, message.values ?? {})}
         </p>
       )}
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={archived || !changed || empty || save.isPending}
-        className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-      >
-        {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
-      </button>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={archived || !changed || empty || save.isPending}
+          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+        >
+          {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
+        </button>
+        <InlineStatus message={null} />
+      </div>
     </section>
   );
 }
