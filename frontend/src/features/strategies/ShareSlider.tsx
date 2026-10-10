@@ -24,6 +24,9 @@ export interface ShareSliderProps {
   onStop: (stop: number) => void;
 }
 
+/** The classes of the range input, in one place so a test can read them. */
+export const RANGE_CLASS = "appearance-none";
+
 /** The longest text the field takes: a bound on the text, not a rule about the number. */
 const FIELD_MAX_LENGTH = 12;
 
@@ -76,6 +79,7 @@ export function ShareSlider({ fieldId, text, disabled, invalid, describedBy, onT
           %
         </span>
       </div>
+      <input type="range" />
     </div>
   );
 }

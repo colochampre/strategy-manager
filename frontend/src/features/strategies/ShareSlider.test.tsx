@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ShareSlider } from "@/features/strategies/ShareSlider";
+import { RANGE_CLASS, ShareSlider } from "@/features/strategies/ShareSlider";
 import type { ShareSliderProps } from "@/features/strategies/ShareSlider";
-import { parseDraft } from "@/features/strategies/share-value";
+import { handlePosition, parseDraft } from "@/features/strategies/share-value";
 import i18n from "@/shared/i18n";
+import { pressEnter, pressRangeKey, pressSpace, pressTab } from "@/test/keyboard";
 
 // The control is presentational: it takes the text, the handle, the disabled flag and its callbacks, and
 // holds nothing. These tests drive it through props and read what it draws (design § B, § K).
@@ -179,6 +180,207 @@ describe("ShareSlider, step 1: the field and its value", () => {
 
   it("no element carries a style attribute", () => {
     const { view } = renderSlider({ invalid: true, describedBy: "share-why" });
+
+    expect(view.container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+});
+
+const STOPS = [25, 50, 75, 100];
+
+function track(): HTMLInputElement {
+  return screen.getByRole("slider", { name: "Share of the pool per trade" }) as HTMLInputElement;
+}
+
+function stopButton(stop: number): HTMLElement {
+  return screen.getByRole("button", { name: `Set the share to ${stop}%` });
+}
+
+function drawing(container: HTMLElement): SVGSVGElement {
+  const svg = container.querySelector("svg");
+  if (svg === null) throw new Error("the track has no drawing");
+  return svg;
+}
+
+describe("ShareSlider, step 2: the track and the stops", () => {
+  it("the track is a range input with min 1, max 100, step 1, named by the visible label", () => {
+    renderSlider();
+
+    expect(screen.queryByRole("slider", { name: "Share of the pool per trade" })).toBeInTheDocument();
+    expect(track()).toHaveAttribute("type", "range");
+    expect(track()).toHaveAttribute("min", "1");
+    expect(track()).toHaveAttribute("max", "100");
+    expect(track()).toHaveAttribute("step", "1");
+  });
+
+  it("the handle sits at the step the container gives", () => {
+    renderSlider({ handle: 34 });
+
+    expect(track().value).toBe("34");
+  });
+
+  it("its value text is the exact value while the handle sits at the rounded step", () => {
+    renderSlider({ handle: 34, value: "33.5" });
+
+    expect(track()).toHaveAttribute("aria-valuetext", "33.5% of the pool");
+    expect(track().value).toBe("34");
+  });
+
+  it("its value text is the handle's step when the text is not a value", () => {
+    renderSlider({ handle: 63, value: null, text: "62.5x" });
+
+    expect(track()).toHaveAttribute("aria-valuetext", "63% of the pool");
+  });
+
+  it("the filled part's x2 and the four stops' cx are the positions that share-value gives", () => {
+    const { view } = renderSlider({ handle: 34 });
+    const svg = drawing(view.container);
+
+    expect(svg.querySelector("line.stroke-gain")).toHaveAttribute("x2", handlePosition(34));
+    expect(svg.querySelector("line.stroke-gain")).toHaveAttribute("x2", "33.3333%");
+    const centres = [...svg.querySelectorAll("circle")].map((circle) => circle.getAttribute("cx"));
+    expect(centres).toEqual(STOPS.map(handlePosition));
+    expect(centres).toEqual(["24.2424%", "49.4949%", "74.7475%", "100%"]);
+  });
+
+  it.each([
+    [1, "0%"],
+    [100, "100%"],
+  ])("the filled part ends at the track's own ends: handle %i", (handle, x2) => {
+    const { view } = renderSlider({ handle });
+
+    expect(drawing(view.container).querySelector("line.stroke-gain")).toHaveAttribute("x2", x2);
+  });
+
+  it("the drawing is aria-hidden and takes no press", () => {
+    const { view } = renderSlider();
+
+    expect(drawing(view.container)).toHaveAttribute("aria-hidden", "true");
+    expect(drawing(view.container)).toHaveClass("pointer-events-none");
+  });
+
+  it("a stop at or below the handle takes the gain class and the others rule-strong", () => {
+    const { view } = renderSlider({ handle: 50 });
+    const circles = [...drawing(view.container).querySelectorAll("circle")];
+
+    expect(circles.map((circle) => circle.classList.contains("fill-gain"))).toEqual([true, true, false, false]);
+    expect(circles.map((circle) => circle.classList.contains("fill-rule-strong"))).toEqual([false, false, true, true]);
+  });
+
+  it("the four stops are buttons named 'Set the share to 25%' and so on", () => {
+    renderSlider();
+
+    for (const stop of STOPS) {
+      expect(screen.queryByRole("button", { name: `Set the share to ${stop}%` })).toBeInTheDocument();
+      expect(stopButton(stop)).toHaveTextContent(`${stop}%`);
+      expect(stopButton(stop).tagName).toBe("BUTTON");
+    }
+  });
+
+  it("a stop is aria-pressed exactly when the value equals it", () => {
+    const { view } = renderSlider({ value: "75", handle: 75 });
+
+    expect(STOPS.map((stop) => stopButton(stop).getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false"]);
+    view.rerender(<ShareSlider {...props({ value: "33.5", handle: 34 })} />);
+    expect(STOPS.map((stop) => stopButton(stop).getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false"]);
+    view.rerender(<ShareSlider {...props({ value: null, handle: 25, text: "25x" })} />);
+    expect(STOPS.map((stop) => stopButton(stop).getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false"]);
+  });
+
+  it("a press on a stop reports that stop", () => {
+    const { given } = renderSlider();
+
+    fireEvent.click(stopButton(50));
+
+    expect(given.onStop).toHaveBeenCalledExactlyOnceWith(50);
+  });
+
+  it("Enter or Space activates a stop", () => {
+    const { given } = renderSlider();
+
+    stopButton(75).focus();
+    pressEnter();
+    stopButton(100).focus();
+    pressSpace();
+
+    expect(given.onStop).toHaveBeenNthCalledWith(1, 75);
+    expect(given.onStop).toHaveBeenNthCalledWith(2, 100);
+  });
+
+  it("each stop is 44 by 44 px by class and the track is 44 px tall", () => {
+    const { view } = renderSlider();
+
+    for (const stop of STOPS) expect(stopButton(stop)).toHaveClass("size-11");
+    expect(track()).toHaveClass("h-11");
+    expect(track().parentElement).toHaveClass("h-11");
+    expect(view.container.querySelectorAll("button")).toHaveLength(4);
+  });
+
+  it.each([
+    [25, "left-[24.2424%]"],
+    [50, "left-[49.4949%]"],
+    [75, "left-[74.7475%]"],
+    [100, "left-[100%]"],
+  ])("the stop %i sits at one fixed class, the position share-value gives", (stop, className) => {
+    renderSlider();
+
+    expect(stopButton(stop)).toHaveClass(className);
+    expect(className).toBe(`left-[${handlePosition(stop)}]`);
+  });
+
+  it("the vendor thumb classes and appearance-none are one constant", () => {
+    renderSlider();
+
+    expect(track()).toHaveClass("appearance-none");
+    for (const name of RANGE_CLASS.split(" ")) expect(track()).toHaveClass(name);
+    expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:appearance-none");
+    expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:bg-gain");
+    expect(RANGE_CLASS).toContain("[&::-moz-range-thumb]:bg-gain");
+    expect(RANGE_CLASS).toContain("[&::-webkit-slider-runnable-track]:bg-transparent");
+  });
+
+  it.each([
+    ["ArrowRight", 35],
+    ["ArrowLeft", 33],
+    ["Home", 1],
+    ["End", 100],
+  ])("%s moves the handle through pressRangeKey", (key, step) => {
+    const { given } = renderSlider({ handle: 34 });
+
+    track().focus();
+    pressRangeKey(key);
+
+    expect(given.onHandle).toHaveBeenCalledExactlyOnceWith(step);
+    expect(given.onText).not.toHaveBeenCalled();
+  });
+
+  it("the stops and the track are in this order after the field: the track, then 25, 50, 75, 100", () => {
+    renderSlider();
+
+    field().focus();
+    expect(pressTab()).toBe(track());
+    expect(pressTab()).toBe(stopButton(25));
+    expect(pressTab()).toBe(stopButton(50));
+    expect(pressTab()).toBe(stopButton(75));
+    expect(pressTab()).toBe(stopButton(100));
+  });
+
+  it.each([
+    ["en", "Set the share to 25%", "33.5% of the pool"],
+    ["es", "Fijar el porcentaje en 25 %", "33.5 % del pool"],
+  ])("the stop names and the value text are translated: %s", async (language, stopName, valueText) => {
+    await i18n.changeLanguage(language);
+    try {
+      renderSlider({ handle: 34, value: "33.5" });
+
+      expect(screen.getByRole("button", { name: stopName })).toBeInTheDocument();
+      expect(screen.getByRole("slider")).toHaveAttribute("aria-valuetext", valueText);
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+
+  it("the rendered tree has no style attribute", () => {
+    const { view } = renderSlider({ handle: 63, value: "62.5" });
 
     expect(view.container.querySelectorAll("[style]")).toHaveLength(0);
   });
