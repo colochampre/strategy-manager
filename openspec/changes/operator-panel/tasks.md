@@ -4407,7 +4407,7 @@ requirements 947 to 1700)
 **The webhook block** (design §§ E, F; spec: "The Webhook Block Has Two Copy Buttons", "The Webhook URL Is
 Shown And Copied With Its Host")
 
-- [ ] 12f.10.25 The full URL. RED `WebhookMessage.test.tsx`, new tests, with the stub that keeps showing the path alone.
+- [x] 12f.10.25 The full URL. RED `WebhookMessage.test.tsx`, new tests, with the stub that keeps showing the path alone.
   Tests: `::a configured host is shown in front of the path and no sentence about a missing host shows`
   (RED: `expected '/webhook/tradingview?secret=<your WEBHOOK_SECRET>' to be 'https://example.duckdns.org/webhook/...'`),
   `::a revealed secret goes after the host, percent-encoded`, `::while the host loads the path alone is
@@ -4422,6 +4422,37 @@ Shown And Copied With Its Host")
   the task records any that needs an answer for `/webhook-origin`. GREEN: `useWebhookOrigin` and
   `webhookUrl` in `WebhookMessage.tsx`; `connect-src 'self'` is untouched (the origin is displayed and copied,
   never requested).
+  **Done (RED `6077ea5`, GREEN `782d35d`).** `WebhookMessage.tsx` reads `useWebhookOrigin()` in the view that
+  mounts when the block opens, builds the URL once with `webhookUrl(origin, value)` into one constant that the
+  `<code>` prints, and shows one small sentence under the URL row: `hostUnset` for a settled `{"origin": null}`,
+  `hostError` for a settled error, nothing while loading. Two keys added to both locale files with the design's
+  exact texts (`strategies.webhook.hostUnset`, `hostError`). No stub was needed: the component already showed the
+  path alone. **A defect of the earlier work, found here:** `fetchWebhookOrigin` (12f.10.8) turned a served string
+  that is not a serialised origin into `null`, which the page cannot tell from `{"origin": null}`, so it would
+  have said "No public host is configured" where the spec says "could not be loaded". It now throws an `ApiError`
+  for such a string; the one test that pinned the old behaviour (`webhook-origin.test.ts`, "reads a served value
+  that is not a serialised origin as no host") was rewritten to expect the rejection, RED on `promise resolved
+  "null" instead of rejecting`. The decision between the two readings is the spec's own scenarios, so no product
+  question arose. RED as observed: 13 failed of 57 in the two files. The four host tests failed on
+  `expected '/webhook/tradingview?secret=<your WEB…' to be 'https://example.duckdns.org/webhook/t…'` (configured
+  host, revealed secret, no anchor, read-when-opened, the last two because they wait for the host first); the
+  null case and the seven failure cases failed on `expect(received).toBeInTheDocument()` with a null `received`
+  (the sentence is absent). **Passed at once:** `::while the host loads the path alone is shown`, the only one
+  that is true of the old code. Mutations after GREEN, each reverted with `git checkout`: the
+  `new URL(value).origin === value` check replaced by `new URL(value) ? value : null` reds the three cases that
+  serve a path, a trailing slash and upper case; the `<code>` text wrapped in `<a href>` reds the anchor test; the
+  origin read added to the page's mount reds `::the origin is read when the block is opened and not before`.
+  Existing tests edited, with their reasons: `WebhookMessage.test.tsx::setup` and the local fetch double of
+  `test_leaving_the_view_...` answer the origin route with `{"origin": null}`, because the block now asks for it
+  and their `answer` was for the secret; four assertions that counted every query in the cache
+  (`findAll()` length 1 then 0) now count the secret's entries (`findAll({ queryKey: ["webhook-secret"] })`),
+  since the host is cached too and an eviction removes only the secret; the same change in
+  `StrategyHeader.test.tsx::test_collapsing_after_a_reveal_...`, whose double also stopped counting the origin
+  request as a call for the secret. No assertion about the secret was relaxed: the eviction is still asserted
+  for the secret's own entries, and the cache-key, console and request-URL checks are unchanged. Gate after GREEN:
+  lint 0, 63 files, 1,357 tests. Said plainly: the application's `QueryClient` (`main.tsx`) has the library's
+  default retry of three, so a failed read of the origin shows the path alone for about seven seconds before the
+  sentence appears; the hook was not given `retry: false` because no task asked for it.
 - [ ] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
   the stub that renders both buttons and writes nothing. Tests: `::Copy URL sits beside Show secret and Copy
   message under the alert message`, `::the copied text equals the text of the <code> element, hidden and
