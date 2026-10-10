@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { InlineStatus } from "@/features/strategies/InlineStatus";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { parseDraft, readStored, roundToHandle } from "@/features/strategies/share-value";
 import type { DraftRefusal } from "@/features/strategies/share-value";
@@ -119,6 +120,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         >
           {busy ? t("strategies.detail.share.saving") : t("strategies.detail.share.save")}
         </button>
+        <InlineStatus message={null} />
       </div>
     </section>
   );

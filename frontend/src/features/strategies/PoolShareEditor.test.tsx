@@ -97,14 +97,20 @@ function setupPage(subject: Strategy, options: Options = {}) {
   const server: Server = { strategy: subject };
   const requests = stub(server, options);
   const client = newClient();
-  render(
+  const ui = (
     <QueryClientProvider client={client}>
       <Page />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(ui);
   const patches = () => requests.filter((request) => request.method === "PATCH");
   const reads = () => requests.filter((request) => request.method === "GET" && request.path === `/api/strategies/${ID}`);
-  return { server, requests, patches, reads };
+  /** Leaves the page and comes back to it: the cache stays, the control is a new one. */
+  const leaveAndReturn = () => {
+    view.unmount();
+    render(ui);
+  };
+  return { server, requests, patches, reads, leaveAndReturn };
 }
 
 /** The visible label, in the language in force, so the same helpers serve both languages. */
@@ -551,6 +557,161 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
       type("40");
       fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
       expect(await alertLine()).toHaveTextContent("Esta estrategia está archivada y ya no se puede modificar.");
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+});
+
+/** The live region beside Save, which is where "Saved" is written. */
+function savedRegion(): HTMLElement {
+  const region = saveButton().parentElement?.querySelector<HTMLElement>('[role="status"]');
+  if (region === null || region === undefined) throw new Error("no live region beside Save");
+  return region;
+}
+
+/** Saves 40 on a page and waits for "Saved". */
+async function saveFortyOnAPage(options: Options = {}) {
+  const page = setupPage(strategy(), options);
+  await screen.findByRole("textbox");
+  type("40");
+  fireEvent.click(saveButton());
+  await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+  return page;
+}
+
+describe("PoolShareEditor, 'Saved' for the share", () => {
+  it("Saved shows when the PATCH answers 200 with a strategy", async () => {
+    await saveFortyOnAPage();
+
+    expect(field().value).toBe("40");
+    expect(saveButton()).toBeDisabled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("the live region exists before the save, empty, and is the same element after it", async () => {
+    setupPage(strategy());
+    await screen.findByRole("textbox");
+    const before = savedRegion();
+
+    expect(before).toBeEmptyDOMElement();
+    expect(before).toHaveAttribute("aria-live", "polite");
+    type("40");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+    expect(savedRegion()).toBe(before);
+  });
+
+  it("Saved is still there ten minutes later", async () => {
+    await saveFortyOnAPage();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        vi.advanceTimersByTime(600_000);
+      });
+      expect(savedRegion()).toHaveTextContent("Saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["the handle moves", () => moveHandle("ArrowRight")],
+    ["a stop is activated", () => fireEvent.click(stop(75))],
+    ["a key is typed in the field", () => type("41")],
+  ])("Saved goes when %s", async (_name, change) => {
+    await saveFortyOnAPage();
+
+    change();
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it.each([
+    ["a 422", refuse(422, [{ msg: "refused" }])],
+    ["a 409", refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" })],
+    ["a 404", refuse(404, "no such strategy")],
+    ["a 500", refuse(500, "boom")],
+    ["a network failure", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["a 200 whose body is not a strategy", () => jsonResponse({ id: 7 })],
+  ])("no Saved after %s", async (_name, patch) => {
+    setup(strategy(), { patch });
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    await alertLine();
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("a new save clears Saved before it is sent", async () => {
+    let calls = 0;
+    const { requests } = setup(strategy(), {
+      patch: (sent) => {
+        calls += 1;
+        if (calls > 1) return new Promise<Response>(() => undefined);
+        const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
+        return jsonResponse({ ...strategy(), allocation_percent });
+      },
+    });
+    type("40");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    // The stored value did not move in this test, so Save is still enabled for the same draft.
+    fireEvent.click(saveButton());
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    await settle();
+    expect(requests.filter((request) => request.method === "PATCH")).toHaveLength(2);
+  });
+
+  it("a refusal and Saved are never on screen together", async () => {
+    let calls = 0;
+    setup(strategy(), {
+      patch: (sent) => {
+        calls += 1;
+        if (calls > 1) return jsonResponse({ detail: "boom" }, 500);
+        const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
+        return jsonResponse({ ...strategy(), allocation_percent });
+      },
+    });
+    type("40");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(saveButton());
+
+    expect(await alertLine()).toHaveTextContent("The share was not saved. Try again.");
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("Saved is neutral ink, not gain", async () => {
+    await saveFortyOnAPage();
+
+    expect(savedRegion()).toHaveClass("text-ink-2");
+    expect(savedRegion().className).not.toMatch(/gain/);
+  });
+
+  it("Saved is gone when the page is left and the control is shown again", async () => {
+    const page = await saveFortyOnAPage();
+
+    page.leaveAndReturn();
+
+    await waitFor(() => expect(field().value).toBe("40"));
+    expect(savedRegion()).toBeEmptyDOMElement();
+  });
+
+  it("Saved reads Guardado in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setupPage(strategy());
+      await screen.findByRole("textbox");
+      type("40");
+      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Guardado"));
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
