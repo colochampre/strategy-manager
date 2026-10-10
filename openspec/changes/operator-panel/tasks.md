@@ -3612,7 +3612,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   round-half-up of the fourth digit reds `cuts the rate and never rounds it up (0.9995)` and `only a rate of
   exactly one reads 100.0%` (its `0.9999999999` case). Existing files edited: `format.ts` and `format.test.ts`
   (one export and one `describe`).
-- [ ] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
+- [x] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
   component as it is, the wrong answer for five columns). Tests: `::puts the Win rate column after Trades`
   (`queryAllByRole("columnheader")` text, `toEqual` Pair, Trades, Win rate, PnL, Return), `::writes the rate
   unsigned in neutral ink` (no `+`, no `text-gain` or `text-loss`), `::the heading is Win rate in English and
@@ -3646,6 +3646,48 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `r × trades` passes 2^53. **No counts for that last disagreement were computed in this breakdown:** the
   task finds a case (trades above 10^6, the served ratio the correctly rounded one) by running the mutation
   and records it, or records that none was found and why; the mutation above is named either way.
+  **Done (RED commit `776afbd`, GREEN commit `be99cc1`, the large-count test in the commit after it).** RED
+  against the component as it was, observed (21 failed, 7 passed of 28): `expected [ 'Pair', 'Trades', 'PnL
+  USDT', …(1) ] to deeply equal [ 'Pair', 'Trades', 'Win rate', …(2) ]` (English, twice), the Spanish list
+  without `% acierto`, `expected [ <th …> ] to have a length of 5 but got 4` (OPEN and the hidden-column test),
+  seven `toHaveTextContent` failures where the rate cell is the wrong cell or absent, six `Unable to find an
+  accessible element with the role "alert"` (a rate the component drew without complaint) and one `Unable to
+  find an accessible element with the role "columnheader" and name "Win rate"`. **Not passing at once** as the
+  task predicted: the OPEN test and the hidden-column test assert five columns, so they were red too; the
+  wrapper assertion alone passes against the old component, and so does every refusal-free pre-existing test.
+  **Recorded edits of existing tests (all in the RED or the GREEN commit):** `::names the columns and says which
+  currency the PnL is in` held `["Pair", "Trades", "PnL USDT", "Return"]` and now holds the five (the name says
+  nothing about a count, so it keeps its name); `::is titled and labelled in Spanish` held `Par`, `Operaciones`,
+  `PnL USDT`, `Rendimiento` and gains `% acierto`; `::shows an em dash, never a zero, for a pair with no
+  return` read the Return cell at index 3 and reads index 4; `StrategyPerformance.test.tsx::lists the by-pair
+  table of the same report, a pair without a return as a dash` made the same index change; and
+  `::test_pair_removed_from_allowlist_still_shown_with_historical_stats` overrode `trades` alone, which now
+  disagrees with the builder's `wins` and rate, so it also overrides `wins` and `win_rate` (12 of 19, 9 of 24).
+  A test written for the Spanish form found that `toHaveTextContent` folds the no-break space into a plain
+  one, so that assertion compares `textContent` with `toBe`. GREEN: `winRate` key in both locale files; a
+  `<th>` and a `<td>` after Trades, neutral ink (no tone class); `rateAgrees` in `PairStatsTable.tsx` takes the
+  served ratio's digits as a whole number `r` over 10^scale (the scale is its own count of decimals, ten on the
+  wire), refuses a ratio above one, refuses 0 unless there are no wins and 1 unless every trade won, then
+  accepts `|r * trades - wins * 10^scale| <= trades` in `BigInt`; a row that fails, or whose rate `rateText`
+  cannot write, makes the whole table the could-not-be-read state, as for any other figure. Guarded against a
+  trade or win count that is not an integer, which would make `BigInt` throw. The tolerance is one unit of the
+  ratio's last place either way, so it needs no knowledge of the server's rounding. **Mutations after the GREEN,
+  each seen red and reverted with `git checkout`:** the comparison made always true reds the 3-of-5-at-
+  `0.7000000000` case and the `0.6000000002` case only; the tolerance set to exactly zero reds the 7-of-12,
+  the two 1-of-3 and the 3-of-5-at-the-edge cases, the neutral-ink test and the pair-removed test (their
+  builders hold rates that are not exact); `overflow-x-auto` replaced by `overflow-hidden` reds the wrapper
+  test; a `hidden sm:table-cell` on the new heading reds the same test; an extra `Open` heading reds the OPEN
+  test, the two column-list tests, the Spanish list and the five-column test. **The float case, found:** at
+  5,000,000 trades and 7,920 wins the served ratio `0.0015840001` is exactly one unit of its last place off,
+  the edge the integer check accepts. Multiplying floats (`Math.abs(Number(rate) * trades - wins) * 10^10 <=
+  trades`) puts it a hair past the edge and refuses it. A scan of 1,264 edge cases at 5,000,000 trades
+  (`wins` stepping by 7,919, a unit either side) found 912 disagreements, all in the direction of
+  refusing a ratio the integer check accepts; the first is `7920` and `0.0015840001`. That case is a new test, `::checks a trade count above a million in whole numbers`, which
+  passed at once against the GREEN and is committed on its own; the float mutation reds it and also reds the
+  3-of-5 edge case. A mutation to exact float equality (`Number(rate) === wins / trades`) reds seven tests (the
+  7-of-12, the two 1-of-3, the 3-of-5 edge, the large-count test, the neutral-ink test and the pair-removed
+  test). Existing files edited: `PairStatsTable.tsx` (the column, the check), `PairStatsTable.test.tsx` and
+  `StrategyPerformance.test.tsx` (the edits above), `locales/en.json` and `locales/es.json` (one key each).
 
 **The pure helpers and the API** (design §§ C, C2, E, F)
 
