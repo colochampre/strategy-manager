@@ -10,6 +10,7 @@ import { parseDraft, readStored, roundToHandle } from "@/features/strategies/sha
 import type { DraftRefusal } from "@/features/strategies/share-value";
 import { ApiError } from "@/shared/api/client";
 import { useSharePreview } from "@/shared/api/share-preview";
+import { useDebouncedValue } from "@/shared/lib/useDebouncedValue";
 import { useSetAllocationPercent } from "@/shared/api/strategies";
 import type { SharePreview, Strategy } from "@/shared/api/types";
 
@@ -46,6 +47,8 @@ function saveRefusal(error: unknown): string {
 }
 
 const WHOLE_STEP = /^\d+$/;
+/** The pause after the last keystroke before a typed decimal's amount is asked for. */
+const ASK_PAUSE_MS = 300;
 
 /**
  * Which amount the field's value asks for, from what the server served (design § C2). The panel multiplies
@@ -58,25 +61,27 @@ function amountView(
   stored: string,
   preview: UseQueryResult<SharePreview>,
   asked: UseQueryResult<SharePreview>,
+  askedFor: string | null,
 ): ShareAmountView {
   if (value === null) return { kind: "none" };
-  const data = preview.data;
-  if (data === undefined) return preview.isError ? { kind: "failed" } : { kind: "loading" };
+  const covered = isCovered(value, stored);
+  // The read that holds this value's amount: the first one, or the one asked for it after the pause.
+  const read = covered ? preview : asked;
+  // A typed value waits for its own read: until the pause has passed for exactly this value, there is no
+  // figure, and the answer for any other value is never looked at.
+  if (!covered && askedFor !== value) return { kind: "loading" };
+  const data = read.data;
+  if (data === undefined) return read.isError ? { kind: "failed" } : { kind: "loading" };
   if (data.balance === null) return { kind: "noBalance" };
   const staleAt = data.balance.stale ? data.balance.observed_at : null;
   const known = (amount: string): ShareAmountView => ({ kind: "known", amount, currency: data.currency, staleAt });
 
   const step = WHOLE_STEP.test(value) ? data.steps[Number(value) - 1] : undefined;
   if (step !== undefined) return known(step.amount);
-  if (value === stored) {
-    const exact = data.exact;
-    if (exact !== null && readStored(exact.share) === value) return known(exact.amount);
-    // The read is for another share than the stored one: a save just moved it, and the re-read is on its way.
-    return preview.isFetching ? { kind: "loading" } : { kind: "failed" };
-  }
-  const exact = asked.data?.exact;
-  if (exact !== undefined && exact !== null) return known(exact.amount);
-  return asked.isError ? { kind: "failed" } : { kind: "loading" };
+  // An answer counts only when it is for the share asked, compared in plain form.
+  if (data.exact !== null && readStored(data.exact.share) === value) return known(data.exact.amount);
+  // The stored share's read is for another share: a save just moved it, and the re-read is on its way.
+  return covered && read.isFetching ? { kind: "loading" } : { kind: "failed" };
 }
 
 /** Whether a served table already holds the amount of a value: a whole step from 1 to 100, or the stored share. */
@@ -103,7 +108,9 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const reading = parseDraft(text);
   // A value no served table covers: not a whole step and not the stored share. It is read once, by itself.
   const wanted = stored !== null && reading.valid && !isCovered(reading.canonical, stored) ? reading.canonical : null;
-  const asked = useSharePreview(strategy.id, wanted ?? undefined);
+  // Asked 300 ms after the last keystroke, so a number typed digit by digit sends one request, for the last.
+  const askedFor = useDebouncedValue(wanted, ASK_PAUSE_MS);
+  const asked = useSharePreview(strategy.id, askedFor ?? undefined);
   if (stored === null) {
     // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
     return (
@@ -118,7 +125,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const handle = current?.handle ?? roundToHandle(stored);
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
-  const amount = amountView(reading.valid ? reading.canonical : null, stored, preview, asked);
+  const amount = amountView(reading.valid ? reading.canonical : null, stored, preview, asked, askedFor);
 
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
   const edit = (next: string, nextHandle: number) => {
