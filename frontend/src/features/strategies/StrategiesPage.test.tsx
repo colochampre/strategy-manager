@@ -362,14 +362,15 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
     expect(classesOf(message)).toContain("lg:col-span-3");
   });
 
-  it("a row whose report is unreadable keeps the same three tracks for its message", async () => {
-    const unreadable = () =>
-      Promise.resolve(
-        jsonResponse({
-          ...strategyReport("11111111-1111-4111-8111-111111111111"),
-          by_pair: [{ pair: "SOLUSDT", trades: 7, pnl: "41.20", return: "0.0340000000" }],
-        }),
+  it("a row whose all-time figures cannot be read keeps the same three tracks for its message", async () => {
+    // A report that parses, whose all-time PnL is not a number: the row's second message path.
+    const unreadable = () => {
+      const report = strategyReport("11111111-1111-4111-8111-111111111111");
+      const all = { range: "All", pnl: "not-a-number", return: "0.0340000000", trade_count: 7 };
+      return Promise.resolve(
+        jsonResponse({ ...report, ranges: [...report.ranges.filter((entry) => entry.range !== "All"), all] }),
       );
+    };
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy()], unreadable).route);
     renderAt(<AppRoutes />, "/strategies");
 
