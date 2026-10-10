@@ -137,6 +137,10 @@
     white-space: nowrap;
   }
   .tab[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  /* Decision 59. On a phone the tabs share the row's whole width, each one the same, and a
+     tab is never squeezed under its own name or mark: with more exchanges than the width
+     holds, the row scrolls sideways. */
+  .tabs-row .tab { flex: 1 1 0; min-width: fit-content; }
   /* Decision 55. Every tab holds the same grid, with a mark or without one. Rows 1 and 3 are
      one track with a zero minimum, so they always halve the free height and the name, in
      row 2, is on the tab's centre line. The mark has row 3 to itself and cannot move the name. */
@@ -401,7 +405,7 @@
     </div>
 
     <div class="example narrow">
-      <p class="caption">1c &middot; On a phone (360 px) the tabs are their own row. It is 52 px tall, 8 more than today, with marks or without: that is the room a mark needs under a centred name.</p>
+      <p class="caption">1c &middot; On a phone (360 px) the tabs are their own row and share its whole width, each one the same, so the names are spread evenly and each is centred in its share. The row is 52 px tall, 8 more than today, with marks or without: that is the room a mark needs under a centred name.</p>
       <nav class="tabs tabs-row" aria-label="Exchanges">
         <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span></span></button>
         <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">no key</span></span></button>
@@ -1325,7 +1329,7 @@
     </div>
 
     <div class="example narrow">
-      <p class="caption" lang="en">6b &middot; The same three tabs on a phone (360 px), each with a mark: the row holds them without scrolling.</p>
+      <p class="caption" lang="en">6b &middot; The same three tabs on a phone (360 px), each with a mark: they share the row's width and it holds them without scrolling.</p>
       <nav class="tabs tabs-row" aria-label="Exchanges">
         <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span> <span class="mark amber">solo lectura</span></span></button>
         <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">sin clave</span></span></button>
