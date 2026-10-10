@@ -20,7 +20,7 @@ export interface ShareSliderProps {
   disabled: boolean;
   invalid: boolean;
   /** The id of the validation text that explains `invalid`, when one shows. */
-  describedBy?: string;
+  describedBy?: string | undefined;
   onText: (text: string) => void;
   onHandle: (step: number) => void;
   onStop: (stop: number) => void;
