@@ -4974,8 +4974,8 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 | `settings.card.tag.withdrawConfirmed` | withdraw confirmed {{date}} | retiros: confirmado el {{date}} |
 | `settings.card.tag.tradeNotVerified` | trade not verified | operar: sin verificar |
 | `settings.card.tag.withdrawNotVerified` | withdraw not verified | retiros: sin verificar |
-| `settings.card.confirmedInfo` | About what you confirmed | Sobre lo que confirmaste |
-| `settings.card.confirmedHint` | (the text above) | «Confirmado» es lo que le indicaste a este panel ese día. {{exchange}} no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con tu confirmación. Si la clave no puede operar futuros, {{exchange}} rechaza la primera orden real y recibes una alerta de Telegram. Nada comprueba el ajuste de retiros. |
+| `settings.card.confirmedInfo` | About what you confirmed | Sobre lo que usted confirmó |
+| `settings.card.confirmedHint` | (the text above) | «Confirmado» es lo que usted indicó a este panel ese día. {{exchange}} no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con su confirmación. Si la clave no puede operar futuros, {{exchange}} rechaza la primera orden real y usted recibe una alerta de Telegram. Nada comprueba el ajuste de retiros. |
 | `settings.card.saved` | Key ending in {{last4}} saved. | Clave terminada en {{last4}} guardada. |
 | `settings.card.savedNoHint` | Key saved. | Clave guardada. |
 | `settings.card.savedPending` | The rest of this card appears when the list has been read again. | El resto de esta tarjeta aparece cuando la lista se haya leído de nuevo. |
