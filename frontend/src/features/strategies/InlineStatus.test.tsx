@@ -49,6 +49,18 @@ describe("InlineStatus", () => {
     expect(region.className).not.toContain("text-loss");
   });
 
+  it("the default tone is only announced: visually hidden, the control shows the news itself", () => {
+    render(<InlineStatus message="Saved" />);
+
+    expect(screen.getByRole("status").className.split(/\s+/)).toContain("sr-only");
+  });
+
+  it("a failure is a visible text: it is not visually hidden", () => {
+    render(<InlineStatus message="Could not copy." tone="failure" />);
+
+    expect(screen.getByRole("status").className.split(/\s+/)).not.toContain("sr-only");
+  });
+
   it("a failure tone is loss, never gain", () => {
     render(<InlineStatus message="Could not copy." tone="failure" />);
 

@@ -3,7 +3,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { InfoButton, InfoText, useInfoDisclosure } from "@/features/strategies/InfoDisclosure";
-import { InlineStatus } from "@/features/strategies/InlineStatus";
+import { StatusButton } from "@/features/strategies/StatusButton";
 import { clockText } from "@/features/strategies/format";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import type { ShareAmountView } from "@/features/strategies/ShareAmount";
@@ -154,13 +154,15 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   };
   const handleStep = (step: number) => edit(String(step), step);
 
+  // A button that reads "Saved" is disabled, so a save never starts while "Saved" stands: a refusal and
+  // "Saved" are never on screen together. Set on success only, never on settle.
   const handleSave = () => {
     if (!reading.valid || !changed || archived || busy) return;
-    // Cleared before the request is sent, so a refusal and "Saved" are never on screen together; set on
-    // success only, never on settle.
-    setSaved(false);
     save.mutate(reading.canonical, { onSuccess: () => setSaved(true) });
   };
+  const saveText = t("strategies.detail.share.save");
+  const savingText = t("strategies.detail.share.saving");
+  const savedText = t("strategies.detail.saved");
 
   return (
     <section className="flex flex-col gap-3">
@@ -204,15 +206,14 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
           />
         </div>
         <div className="flex shrink-0 items-start gap-x-3">
-          <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
-          <button
-            type="button"
+          <StatusButton
+            texts={[saveText, savingText, savedText]}
+            shown={busy ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
             onClick={handleSave}
-            disabled={archived || busy || !changed}
+            disabled={archived || busy || !changed || saved}
             className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-          >
-            {busy ? t("strategies.detail.share.saving") : t("strategies.detail.share.save")}
-          </button>
+          />
         </div>
       </div>
       {!reading.valid && (
