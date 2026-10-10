@@ -4366,7 +4366,7 @@ requirements 947 to 1700)
   with it the mutation reds both tab-order tests. Existing files edited: `InfoDisclosure.tsx` (the class),
   `ShareAmount.tsx` (the `explanation` slot), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx`, `keyboard.ts` and
   `keyboard.test.ts`, the two locale files (five keys: info, hint, amountInfo, amountHint, pairMinimumNote).
-- [ ] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
+- [x] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
   the settings column, under its heading and above the allowed pairs` (RED:
   `expected null to be in the document`; mutation: the control after the pairs), `::no text of the page's header
   line contains the share or "per trade"` (**passes at once**; mutation: the share printed in the header),
@@ -4382,6 +4382,27 @@ requirements 947 to 1700)
   was made, does not change. The task reads every existing test that indexes the settings column's children
   (`test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive`) and records what
   moved; no assertion is relaxed.
+  **Done (RED `0347e29`, GREEN `fb1198b`, extra test `641e879`).** `StrategyDetailPage.tsx` mounts
+  `<PoolShareEditor key={subject.id} />` as the first child of the `<aside>` after its heading. No stub was needed:
+  the control did not exist on the page. RED as observed: two of the four new tests failed, both on
+  `expect(received).toBeInTheDocument()` with `received` null (the first-in-column test and the archived test);
+  the header test and the list test passed at once, as the task said. Mutations after GREEN, each reverted with
+  `git checkout`: the control after the pairs; `{allocation_percent}% per trade` printed in the header; the same
+  text in a list row. They were applied together in one run and exactly three tests failed: the first-in-column
+  test, the header test and the list test. I did not run them one by one. Added beyond the task: `::the share control starts over for another strategy
+  and a typed value is not carried to it` (two strategies that store the same share; a value typed and an
+  explanation opened on the first are gone on the second). It passes against the page with the `key` removed too:
+  the page unmounts the whole editor while the next strategy loads, so the `key` is an equivalent mutant at page
+  level. The key is kept as the cheap guard against a future placeholder-data read; the editor's own test of
+  "closed for another strategy" (12f.10.23) pins the keyed behaviour. Recorded edits of existing tests:
+  `harness.tsx` gained `unsyncedSharePreview`, `strategyRoute` answers `GET .../share-preview` with it, and
+  `stubApi` answers `GET /webhook-origin` with `{"origin": null}`; the local double of `StrategyDetailPage.test.tsx`
+  answers the preview. Not needed, said plainly: a PATCH answer in `strategyRoute` (it already answers the strategy
+  for any method on `/strategies/{id}`, so `test_no_other_control_ever_requests_the_secret` clicks the stops and
+  Save and passes unchanged, its assertion untouched); a preview answer in `StrategiesPage.test.tsx` (the list does
+  not mount the control); and any change to `test_enable_history_sits_in_the_settings_column_...`, which compares
+  positions between the switch, the history and archive and none moved. No test indexes the settings column's
+  children by number. Gate after GREEN: lint 0, 63 files, 1,343 tests.
 
 **The webhook block** (design §§ E, F; spec: "The Webhook Block Has Two Copy Buttons", "The Webhook URL Is
 Shown And Copied With Its Host")
