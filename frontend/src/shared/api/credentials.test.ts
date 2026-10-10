@@ -400,6 +400,23 @@ describe("saveCredential, what it never does", () => {
     expect(result).toEqual({ kind: "refused", reason: "noAnswer", missing: [], status: 0 });
   });
 
+  it("resolves noAnswer, never rejects, when the connection dies while a 200's body is read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(new TypeError(`network error while reading ${K}`)),
+        } as unknown as Response),
+      ),
+    );
+
+    const result = await saveCredential("bybit", K, S, []);
+
+    expect(result).toEqual({ kind: "refused", reason: "noAnswer", missing: [], status: 0 });
+  });
+
   it.each([
     ["a 500", () => answer(500, { detail: "broken" })],
     ["no answer", () => failToConnect()],
