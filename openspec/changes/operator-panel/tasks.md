@@ -4535,7 +4535,7 @@ Shown And Copied With Its Host")
 
 **Texts, the guard and the gate**
 
-- [ ] 12f.10.28 Localization. Tests that pass at once, in `frontend/src/features/strategies/PoolShareEditor.test.tsx` and
+- [x] 12f.10.28 Localization. Tests that pass at once, in `frontend/src/features/strategies/PoolShareEditor.test.tsx` and
   `WebhookMessage.test.tsx` (the page-level one in `StrategyDetailPage.test.tsx`): `::every text of design § I
   reads exactly as written in English and in Spanish, with each state brought on screen` (a table of both
   columns held in the test, so a reworded locale value is red; the spec's "The Detail Page's Follow-Up Texts
@@ -4545,6 +4545,26 @@ Shown And Copied With Its Host")
   unchanged` ("Saved" / "Guardado", "Copied" / "Copiado"). Mutations, each reverted: one Spanish value left
   in English and, because an untranslated value equals its English twin (the lesson of 9p.5.23), the Spanish
   texts are required BY NAME, so a value left in English reds the case; one Spanish key deleted.
+  **Done (commit `b424ad1`, no RED: every test passed at once, as the task said).** Three groups of tests. (1)
+  `PoolShareEditor.test.tsx`: a `SHARE_TEXTS` table with all 23 share texts and "Saved", English and Spanish, held in
+  the test with the design's example values filled in (the amount as 300.00 USDT, the time as 14:03, the minimum as
+  5.00 USDT, the share as 30 and the stop as 50), run by `describe.each(["en", "es"])`. Each state is brought on
+  screen and its text is looked up by exact string: the label, the two buttons' names, the amount, the track's
+  reading and a stop and Save, the hint, the estimate and the pair note (behind their buttons), the stale line,
+  the no-balance, loading and failed-read lines, the warning on the pool's minimum, the two refusals of a typed
+  value, Saving…, the save failure, the archived refusal, the missing strategy, the unreadable share and Saved.
+  (2) `WebhookMessage.test.tsx`: a table of the six new webhook texts in both languages: the two buttons' names,
+  Copied beside the button used, the refusal in the loss colour, and the two host sentences. (3)
+  `StrategyDetailPage.test.tsx`: `::every new key exists in both languages` (the flattened key sets of the share
+  texts, Saved, the six webhook keys and the Win rate heading, 31 keys, equal in both files, and each key found in
+  Spanish with the fallback to English turned off); `::the owner's own words are unchanged`; and a page-level test in
+  each language that finds the Win rate heading ("Win rate" and "% acierto"), the share's slider by its label and
+  the two Copy buttons by their names. `share.tooManyDecimals` is in the locale files and in the key-set test but
+  not in design § I's table, so it has no row in the text table. Mutations after the commit, each reverted with
+  `git checkout`: `copyUrl` left in English in `es.json` reds three tests (the two webhook cases and the page-level
+  Spanish case); `share.save` left in English reds seven (four existing Spanish tests, plus the track-and-Save case,
+  the Saving-and-refusals case and Saved of the new group); the Spanish `share.gone` key deleted reds three (the
+  refusals case of the new group, the key-set test and the existing "same keys in both locales" test).
 - [ ] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
   `::test_no_non_test_source_file_has_a_style_prop` (a search of every non-test file under `frontend/src` for
   `style=`; it passes at once today, U8). Mutation: one `style={{}}` on any element, seen red. The test also
