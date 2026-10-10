@@ -232,6 +232,23 @@ describe("the strategies list", () => {
     expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
   });
+
+  it("a report without the win fields makes the row's figures unreadable", async () => {
+    const olderApi = () =>
+      Promise.resolve(
+        jsonResponse({
+          ...strategyReport("11111111-1111-4111-8111-111111111111"),
+          by_pair: [{ pair: "SOLUSDT", trades: 7, pnl: "41.20", return: "0.0340000000" }],
+        }),
+      );
+    const api = strategiesApi([strategy()], olderApi);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    const row = await screen.findByTestId("strategy-row");
+    expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
+    expect(within(row).queryByTestId("strategy-pnl")).not.toHaveTextContent("+41.20 USDT");
+  });
 });
 
 describe("the enable switch", () => {
