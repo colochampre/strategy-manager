@@ -19,6 +19,8 @@ const FIRST_STEP = 1;
 const LAST_STEP = 100;
 const HALF_UP_DIGIT = "5";
 const POSITION_DECIMALS = 4;
+/** The API refuses a share of more than 18 decimal places (owner decision 50). */
+const MAX_DECIMALS = 18;
 
 /** Digits and fraction into the canonical form: no leading zeros, no trailing fractional zeros. */
 function canonicalOf(integer: string, fraction: string): string {
@@ -32,6 +34,12 @@ function isAboveHundred(canonical: string): boolean {
   const [integer = "", fraction = ""] = canonical.split(".");
   if (integer.length !== 3) return integer.length > 3;
   return integer > "100" || (integer === "100" && fraction !== "");
+}
+
+/** Whether a canonical value has more decimal places than the API takes, counted on its digits. */
+function hasTooManyDecimals(canonical: string): boolean {
+  const fraction = canonical.split(".")[1] ?? "";
+  return fraction.length > MAX_DECIMALS;
 }
 
 /**
@@ -54,6 +62,7 @@ export function parseDraft(text: string): DraftReading {
   const canonical = canonicalOf(match[1] ?? "", match[2] ?? "");
   if (canonical === "0") return { valid: false, refusal: "not-above-zero" };
   if (isAboveHundred(canonical)) return { valid: false, refusal: "above-hundred" };
+  if (hasTooManyDecimals(canonical)) return { valid: false, refusal: "too-many-decimals" };
   return { valid: true, canonical };
 }
 
