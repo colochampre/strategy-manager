@@ -2,10 +2,13 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { InlineStatus } from "@/features/strategies/InlineStatus";
+import { ShareAmount } from "@/features/strategies/ShareAmount";
+import type { ShareAmountView } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { parseDraft, readStored, roundToHandle } from "@/features/strategies/share-value";
 import type { DraftRefusal } from "@/features/strategies/share-value";
 import { ApiError } from "@/shared/api/client";
+import { useSharePreview } from "@/shared/api/share-preview";
 import { useSetAllocationPercent } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
 
@@ -52,6 +55,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState(false);
   const save = useSetAllocationPercent(strategy.id);
+  const preview = useSharePreview(strategy.id);
 
   const stored = readStored(strategy.allocation_percent);
   if (stored === null) {
@@ -71,6 +75,11 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const reading = parseDraft(text);
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
+  const first = preview.data?.steps[0];
+  const firstStep: ShareAmountView =
+    first === undefined || preview.data === undefined
+      ? { kind: "none" }
+      : { kind: "known", amount: first.amount, currency: preview.data.currency, staleAt: null };
 
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
   const edit = (next: string, nextHandle: number) => {
@@ -109,6 +118,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         onHandle={handleStep}
         onStop={handleStep}
       />
+      <ShareAmount view={firstStep} />
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(REFUSAL_TEXT[reading.refusal])}

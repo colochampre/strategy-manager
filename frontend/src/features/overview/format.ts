@@ -14,6 +14,11 @@ const DECIMAL = /^-?\d+(\.\d+)?$/;
 const AMOUNT_DECIMALS: Readonly<Record<string, number>> = { BTC: 8, ETH: 8 };
 const DEFAULT_AMOUNT_DECIMALS = 2;
 
+/** How many decimals a pool's settlement currency is shown with: the one table the trades and the share use. */
+export function amountDecimals(currency: string): number {
+  return AMOUNT_DECIMALS[currency] ?? DEFAULT_AMOUNT_DECIMALS;
+}
+
 /** The server's plain-notation decimal as a number, or `null` for anything else (never NaN). */
 export function parseDecimal(value: string): number | null {
   return DECIMAL.test(value) ? Number(value) : null;
@@ -25,7 +30,7 @@ export function parseDecimal(value: string): number | null {
  * beside the figure by the caller.
  */
 export function amountText(amount: number, currency: string, locale: string, signed = false): string {
-  const digits = AMOUNT_DECIMALS[currency] ?? DEFAULT_AMOUNT_DECIMALS;
+  const digits = amountDecimals(currency);
   return new Intl.NumberFormat(locale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,

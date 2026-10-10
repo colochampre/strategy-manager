@@ -1,6 +1,45 @@
 import { describe, expect, it } from "vitest";
 
-import { clockText, compactDateText, figureText, rateText, tableFigureText } from "@/features/strategies/format";
+import {
+  clockText,
+  compactDateText,
+  cutAmountText,
+  figureText,
+  rateText,
+  tableFigureText,
+} from "@/features/strategies/format";
+
+// `cutAmountText` writes a served amount of the share's pool in its settlement currency. The digits are
+// cut at the currency's decimals as text, never rounded, and only then given to `Intl` (design § C2, § O):
+// a figure rounded up could read "5.00" beside a warning that it is under 5.
+
+describe("cutAmountText", () => {
+  it.each([
+    ["4.996000000000000000", "USDT", "4.99"],
+    ["4.999999999999999999", "USDT", "4.99"],
+    ["500.499500000000000000", "USDT", "500.49"],
+    ["335.000000000000000000", "USDT", "335.00"],
+    ["1000", "USDT", "1,000.00"],
+    ["0.009999999999999999", "USDT", "0.00"],
+    ["12.3", "USDT", "12.30"],
+    ["0.123456789999999999", "BTC", "0.12345678"],
+    ["0.123456789999999999", "ETH", "0.12345678"],
+  ])("cuts %s %s down to %s", (amount, currency, written) => {
+    expect(cutAmountText(amount, currency, "en")).toBe(written);
+  });
+
+  it("writes the language's separators after the cut", () => {
+    expect(cutAmountText("1234.569999999999999999", "USDT", "es")).toBe("1234,56");
+    expect(cutAmountText("12345.679999999999999999", "USDT", "es")).toBe("12.345,67");
+  });
+
+  it.each(["", "abc", "1E+3", "-5", "+5", "1,5", " 5", "5.", ".5"])(
+    "a text that is not a plain non-negative decimal gives null: %j",
+    (amount) => {
+      expect(cutAmountText(amount, "USDT", "en")).toBeNull();
+    },
+  );
+});
 
 // `figureText` writes a price, a size or a fee from the server's own string. It is a text
 // operation, not arithmetic: money is never computed in the browser (design § F, § 15).

@@ -7,7 +7,7 @@ import { useStrategy } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
 import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
-import { jsonResponse } from "@/test/harness";
+import { jsonResponse, pool } from "@/test/harness";
 import { pressRangeKey } from "@/test/keyboard";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -38,7 +38,56 @@ interface Request {
 interface Options {
   /** What a PATCH answers. By default: 200, the strategy with the share it was sent. */
   patch?: (sent: string) => Promise<Response> | Response;
+  /** What a GET of the share preview answers, given the `share` asked (null for the stored share). Default: a 500. */
+  preview?: (share: string | null) => Promise<Response> | Response;
+  /** When set, `GET /api/pools` answers one pool holding this total, a balance the control must never multiply. */
+  pools?: string;
 }
+
+/** A served preview: a pool of 1000 USDT, so step N asks for 10 x N, and a minimum order of 5. */
+interface PreviewSpec {
+  total?: string;
+  minimum?: string;
+  currency?: string;
+  stale?: boolean;
+  observedAt?: string;
+  /** The exact amount for the stored (or asked) share, as served. Default: absent, the stored share is whole. */
+  exact?: { share: string; amount: string; below?: boolean };
+  /** A pool nothing has synced: no balance, no exact, no steps. */
+  noBalance?: boolean;
+  /** A step list of this length instead of 100. */
+  stepCount?: number;
+}
+
+function previewBody(spec: PreviewSpec = {}) {
+  const minimum = spec.minimum ?? "5.000000000000000000";
+  const steps = Array.from({ length: spec.stepCount ?? 100 }, (_unused, index) => {
+    const amount = 10 * (index + 1);
+    return { share: index + 1, amount: `${amount}.000000000000000000`, below_pool_minimum: amount < Number(minimum) };
+  });
+  const base = {
+    strategy_id: ID,
+    pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: spec.currency ?? "USDT" },
+    currency: spec.currency ?? "USDT",
+    pool_minimum: minimum,
+  };
+  if (spec.noBalance === true) return { ...base, balance: null, exact: null, steps: [] };
+  return {
+    ...base,
+    balance: {
+      total: spec.total ?? "1000.000000000000000000",
+      observed_at: spec.observedAt ?? "2026-10-09T14:03:12Z",
+      stale: spec.stale ?? false,
+    },
+    exact:
+      spec.exact === undefined
+        ? { share: "30", amount: "300.000000000000000000", below_pool_minimum: false }
+        : { share: spec.exact.share, amount: spec.exact.amount, below_pool_minimum: spec.exact.below ?? false },
+    steps,
+  };
+}
+
+const served = (spec: PreviewSpec = {}) => () => jsonResponse(previewBody(spec));
 
 /** The strategy as the server holds it: a PATCH that succeeds changes it, a test may also change it by hand. */
 interface Server {
@@ -47,11 +96,21 @@ interface Server {
   gone?: boolean;
 }
 
-/** Every request the control makes, in order. */
+/** Every request the control makes, in order; the reads of the share preview are kept apart, in `previews`. */
 function stub(server: Server, options: Options) {
   const requests: Request[] = [];
+  const previews: Array<string | null> = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
+    if (path.startsWith(`/api/strategies/${ID}/share-preview`)) {
+      const share = new URL(path, "http://panel.test").searchParams.get("share");
+      previews.push(share);
+      return Promise.resolve(options.preview?.(share) ?? jsonResponse({ detail: "no preview in this test" }, 500));
+    }
+    if (path === "/api/pools" && options.pools !== undefined) {
+      const balance = { total: options.pools, available: options.pools, observed_at: "2026-10-09T14:00:00Z", stale: false };
+      return Promise.resolve(jsonResponse([pool("bybit", "usdt-m", "USDT", balance)]));
+    }
     requests.push({ method: init?.method ?? "GET", path, body: typeof init?.body === "string" ? init.body : undefined });
     if (init?.method === "PATCH") {
       const sent = String(init.body);
@@ -66,7 +125,7 @@ function stub(server: Server, options: Options) {
     return Promise.resolve(jsonResponse({ detail: "not served by this test" }, 404));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return requests;
+  return { requests, previews };
 }
 
 function newClient() {
@@ -75,7 +134,7 @@ function newClient() {
 
 /** The editor over a strategy handed in as a prop, which the test moves by hand with `rerender`. */
 function setup(subject: Strategy, options: Options = {}) {
-  const requests = stub({ strategy: subject }, options);
+  const { requests, previews } = stub({ strategy: subject }, options);
   const client = newClient();
   const ui = (current: Strategy) => (
     <QueryClientProvider client={client}>
@@ -84,7 +143,13 @@ function setup(subject: Strategy, options: Options = {}) {
   );
   const view = render(ui(subject));
   const patches = () => requests.filter((request) => request.method === "PATCH");
-  return { requests, patches, rerender: (current: Strategy) => view.rerender(ui(current)), unmount: view.unmount };
+  return {
+    requests,
+    previews,
+    patches,
+    rerender: (current: Strategy) => view.rerender(ui(current)),
+    unmount: view.unmount,
+  };
 }
 
 /** The editor in the page's position: the strategy comes from `useStrategy`, as a save's answer and re-read move it. */
@@ -95,7 +160,7 @@ function Page() {
 
 function setupPage(subject: Strategy, options: Options = {}) {
   const server: Server = { strategy: subject };
-  const requests = stub(server, options);
+  const { requests, previews } = stub(server, options);
   const client = newClient();
   const ui = (
     <QueryClientProvider client={client}>
@@ -110,7 +175,7 @@ function setupPage(subject: Strategy, options: Options = {}) {
     view.unmount();
     render(ui);
   };
-  return { server, requests, patches, reads, leaveAndReturn };
+  return { server, requests, previews, patches, reads, leaveAndReturn };
 }
 
 /** The visible label, in the language in force, so the same helpers serve both languages. */
@@ -715,6 +780,199 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
       type("40");
       fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
       await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Guardado"));
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+});
+
+const amountLine = (amount: string, currency = "USDT") => `Asks for about ${amount} ${currency} per operation`;
+/** Waits for a text to be on screen; presence is asserted so a missing text fails on its assertion. */
+const expectText = (text: string) => waitFor(() => expect(screen.queryByText(text)).toBeInTheDocument());
+
+describe("PoolShareEditor, the amount under the track", () => {
+  it("a known amount reads 'Asks for about 335.00 USDT per operation' from the served exact", async () => {
+    setup(strategy({ allocation_percent: "33.5" }), {
+      preview: served({ exact: { share: "33.5", amount: "335.000000000000000000" } }),
+    });
+
+    await expectText(amountLine("335.00"));
+  });
+
+  it("every whole value shows the amount of its own step", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    fireEvent.click(stop(25));
+    await expectText(amountLine("250.00"));
+    fireEvent.click(stop(100));
+    await expectText(amountLine("1,000.00"));
+    moveHandle("ArrowLeft");
+    await expectText(amountLine("990.00"));
+    type("34");
+    await expectText(amountLine("340.00"));
+    type("1");
+    await expectText(amountLine("10.00"));
+    fireEvent.click(stop(75));
+    await expectText(amountLine("750.00"));
+  });
+
+  it("dragging the handle and activating a stop send no request and the figure follows at once", async () => {
+    const { previews } = setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    moveHandle("Home");
+    expect(screen.queryByText(amountLine("10.00"))).toBeInTheDocument();
+    moveHandle("End");
+    expect(screen.queryByText(amountLine("1,000.00"))).toBeInTheDocument();
+    fireEvent.click(stop(50));
+    expect(screen.queryByText(amountLine("500.00"))).toBeInTheDocument();
+    await settle();
+
+    expect(previews).toEqual([null]);
+  });
+
+  it("the stored share with decimals shows the first read's exact and sends no second request", async () => {
+    const { previews } = setup(strategy({ allocation_percent: "33.50" }), {
+      preview: served({ exact: { share: "33.5", amount: "335.000000000000000000" } }),
+    });
+
+    await expectText(amountLine("335.00"));
+    await settle();
+
+    expect(previews).toEqual([null]);
+  });
+
+  it("the amount is cut down as text to the currency's decimals and never rounded up", async () => {
+    setup(strategy({ allocation_percent: "0.4996" }), {
+      preview: served({ exact: { share: "0.4996", amount: "4.996000000000000000" } }),
+    });
+
+    await expectText(amountLine("4.99"));
+    expect(screen.queryByText(amountLine("5.00"))).toBeNull();
+  });
+
+  it("a coin-margined pool uses its own decimals", async () => {
+    setup(strategy({ allocation_percent: "12.5", settlement_currency: "BTC" }), {
+      preview: served({ currency: "BTC", exact: { share: "12.5", amount: "0.123456789999999999" } }),
+    });
+
+    await expectText(amountLine("0.12345678", "BTC"));
+  });
+
+  it("a stale balance shows the same line and when it was last read", async () => {
+    setup(strategy(), { preview: served({ stale: true, observedAt: "2026-10-09T14:03:12Z" }) });
+
+    await expectText(amountLine("300.00"));
+    await expectText("The pool's balance was last read at 14:03 UTC and may be out of date.");
+  });
+
+  it("a balance that is not stale shows no stale line", async () => {
+    setup(strategy(), { preview: served() });
+
+    await expectText(amountLine("300.00"));
+    expect(screen.queryByText(/may be out of date/)).toBeNull();
+  });
+
+  it("no balance shows its sentence and no figure, never a zero, and the control stays usable", async () => {
+    const { patches } = setup(strategy(), { preview: served({ noBalance: true }) });
+
+    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(field()).toBeEnabled();
+    fireEvent.click(stop(50));
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(patches()).toHaveLength(1));
+  });
+
+  it("loading shows 'Calculating the amount…' and no figure", async () => {
+    setup(strategy(), { preview: () => new Promise<Response>(() => undefined) });
+
+    await expectText("Calculating the amount…");
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText("—")).toBeNull();
+  });
+
+  it("a failed read shows 'The amount could not be loaded.' and the track, the stops, the field and Save stay usable", async () => {
+    const { patches } = setup(strategy(), { preview: () => jsonResponse({ detail: "boom" }, 500) });
+
+    await expectText("The amount could not be loaded.");
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(field()).toBeEnabled();
+    expect(track()).toBeEnabled();
+    for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeEnabled();
+    fireEvent.click(stop(50));
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toBe('{"allocation_percent":"50"}');
+  });
+
+  it("a body that fails the panel's check is an error and no figure from it shows", async () => {
+    setup(strategy(), { preview: served({ stepCount: 99 }) });
+
+    await expectText("The amount could not be loaded.");
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+  });
+
+  it("no valid value shows an em dash and no request is made for it", async () => {
+    const { previews } = setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    type("abc");
+
+    expect(screen.queryByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    await settle();
+    expect(previews).toEqual([null]);
+  });
+
+  it("the figure is the served string, never the pool's balance multiplied", async () => {
+    setup(strategy({ allocation_percent: "33.5" }), {
+      preview: served({ exact: { share: "33.5", amount: "335.000000000000000000" } }),
+      pools: "900.000000000000000000",
+    });
+
+    await expectText(amountLine("335.00"));
+    // 900 x 33.5 / 100 would read 301.50.
+    expect(screen.queryByText(amountLine("301.50"))).toBeNull();
+  });
+
+  it("two pools are never summed or converted", async () => {
+    const other = "22222222-2222-4222-8222-222222222222";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes(other)) {
+          return Promise.resolve(
+            jsonResponse(previewBody({ currency: "BTC", exact: { share: "12.5", amount: "0.123456789999999999" } })),
+          );
+        }
+        return Promise.resolve(jsonResponse(previewBody({ exact: { share: "33.5", amount: "335.000000000000000000" } })));
+      }),
+    );
+    render(
+      <QueryClientProvider client={newClient()}>
+        <PoolShareEditor strategy={strategy({ allocation_percent: "33.5" })} />
+        <PoolShareEditor strategy={strategy({ id: other, allocation_percent: "12.5", settlement_currency: "BTC" })} />
+      </QueryClientProvider>,
+    );
+
+    await expectText(amountLine("335.00"));
+    await expectText(amountLine("0.12345678", "BTC"));
+    expect(screen.queryByText(/335\.12|335\.0012|USDT.*BTC.*per/)).toBeNull();
+  });
+
+  it("the amount reads in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy({ allocation_percent: "33.5" }), {
+        preview: served({ exact: { share: "33.5", amount: "1234.569999999999999999" } }),
+      });
+
+      await expectText("Pide alrededor de 1234,56 USDT por operación");
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
