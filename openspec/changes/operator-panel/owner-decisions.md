@@ -361,6 +361,18 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - eight things about the typed secret are pinned by no test, among them that it is in no query cache, in no error text, emptied on Cancel and on leaving, and not sent twice by a second click;
       - the mockup `Settings.dc.html` has no Delete button and no Binance confirmations, and shows "no withdrawal" for Binance, which decisions 24 and 30 forbid.
     - The tasks of PR 13 as written are superseded once the new ones exist. The visual design is shown to the owner before the tasks are written, by the standing constraint below.
+55. **The Settings prototype is changed in four places, and its key form is approved** (2026-10-10, owner, from the review by eye of `visual/project/SettingsKeys.html`).
+    - **Tabs: the exchange's name sits at the same place in every tab**, with or without a mark. A mark ("no key", "read-only") must not move the name off its centre.
+    - **The facts of a card are laid out again.** They were a run of texts side by side, which wraps untidily when the width runs out. They are arranged so that no width breaks them badly, and each text is as short as it can be.
+    - **The key hint carries more weight**, so that the last four characters can be checked at a glance: a large secondary heading on the card's full width, with the exchange's name and the buttons, and the facts as tags under it.
+    - **A permission the owner confirmed reads as confirmed, with its date**: "trade confirmed on {date}", "withdraw confirmed on {date}". One phrase per fact; "not verified" and "confirmed" are never shown together for the same fact. The API already serves both dates (`trade_confirmed_at`, `withdraw_confirmed_at`), so nothing changes there.
+    - **The form to add or replace a key is approved as drawn.**
+    - The assistant's reading, to be shown in the revised prototype and not yet confirmed by the owner: decisions 24 and 30 stand, so the card still never states a Binance permission as a fact the application verified ("confirmed" is the owner's word, "checked" is the application's); and a key with no confirmation on record still says that it has none.
+    - Still open: the two questions of the design's § O.
+56. **The rehearsal strategies are left as they are** (2026-10-10, owner, after two read-only scripts run on the VPS).
+    - What the scripts found: since 2026-09-29 every opening of the three test strategies was refused with `REQUEST_BELOW_MIN_ORDER_SIZE`, at a share of 3, and every close after it with `NO_POSITION_TO_CLOSE`. The only two closed operations are of 2026-09-23 and were filled at price 1, before decision 45. So no rehearsal result with alert-priced fills exists yet.
+    - A `signals` row received before 2026-09-29 reads `ACCEPTED` although it was processed: it was written before outcomes were recorded. In September there are more round trips than closed operations; why was not looked into, because the PnL of that period meant nothing.
+    - The owner's choice: nothing is changed now. The real strategies will be activated soon with a share of 30, from the panel; whether with `DRY_RUN` still on is not decided.
 
 ## Standing constraints
 
