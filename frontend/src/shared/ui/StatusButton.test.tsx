@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { StatusButton } from "@/features/strategies/StatusButton";
+import { StatusButton } from "@/shared/ui/StatusButton";
 
 const classesOf = (element: Element) => element.className.split(/\s+/);
 

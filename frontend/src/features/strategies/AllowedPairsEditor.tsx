@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
-import { StatusButton } from "@/features/strategies/StatusButton";
+import { StatusButton } from "@/shared/ui/StatusButton";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useReplaceAllowedPairs } from "@/shared/api/strategies";

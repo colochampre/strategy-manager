@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { InlineStatus } from "@/features/strategies/InlineStatus";
+import { InlineStatus } from "@/shared/ui/InlineStatus";
 
 // A live region that appears together with its text is not reliably announced, so the region is always
 // in the document and empty until it has something to say (design § D).

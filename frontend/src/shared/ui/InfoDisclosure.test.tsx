@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { InfoButton, InfoText, useInfoDisclosure } from "@/features/strategies/InfoDisclosure";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { pressEnter, pressSpace, pressTab } from "@/test/keyboard";
 
 interface RowProps {

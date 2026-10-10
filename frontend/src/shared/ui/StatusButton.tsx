@@ -1,5 +1,5 @@
-import { InlineStatus } from "@/features/strategies/InlineStatus";
-import type { InlineStatusTone } from "@/features/strategies/InlineStatus";
+import { InlineStatus } from "@/shared/ui/InlineStatus";
+import type { InlineStatusTone } from "@/shared/ui/InlineStatus";
 import { cn } from "@/shared/lib/cn";
 
 interface StatusButtonProps {
