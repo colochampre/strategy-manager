@@ -4698,7 +4698,7 @@ Shown And Copied With Its Host")
   Gate after 12f.10.30b and 12f.10.30c: `npm run lint` exit 0; `npm test` exit 0, 63 test files, 1,426 tests (1,406
   before, plus 6 for 12f.10.30b and 14 for 12f.10.30c).
 
-- [ ] 12f.10.30d **"Saved" and "Copied" are the button's own text** (owner decision 52, 2026-10-10, from the second review by eye; it replaces the visible text beside the button of design § D and of decision 51). Four buttons: "Save share" (`PoolShareEditor.tsx`), "Save pairs" (`AllowedPairsEditor.tsx`), "Copy URL" and "Copy message" (`WebhookMessage.tsx`).
+- [x] 12f.10.30d **"Saved" and "Copied" are the button's own text** (owner decision 52, 2026-10-10, from the second review by eye; it replaces the visible text beside the button of design § D and of decision 51). Four buttons: "Save share" (`PoolShareEditor.tsx`), "Save pairs" (`AllowedPairsEditor.tsx`), "Copy URL" and "Copy message" (`WebhookMessage.tsx`).
   - **The rule for WHEN does not change, only where it is shown.** A Save button reads "Saved" exactly in the states where "Saved" showed beside it (set on a successful save, gone at any change of that control, never on a timer, never together with a refusal). A Copy button reads "Copied" exactly in the states where "Copied" showed beside it (the button that was used, only one "Copied" on screen, gone for the URL when the URL on screen is no longer the one copied). Every existing test of those rules keeps its meaning and is re-pointed at the button's text; none is relaxed or deleted.
   - While saving, a Save button still reads "Saving...". A Save button that reads "Saved" is disabled, as a Save button with nothing to save already is. A Copy button that reads "Copied" stays enabled and copies again when pressed.
   - **Nothing moves.** A button has ONE width for all of its texts: the width of its longest text in the current language. So the change of text pushes nothing. No visible "Saved" or "Copied" text is left beside any button, and the row built by 12f.10.30c keeps its text and its button only.
@@ -4707,6 +4707,57 @@ Shown And Copied With Its Host")
   - Texts: no new key. "Saved" is `strategies.detail.saved`, "Copied" is `strategies.webhook.copied`, in EN and ES.
   - RED on assertions against the controls as they are: the button's text after a save or a copy, and that no VISIBLE element beside the button holds "Saved" or "Copied". The width rule is pinned by structure (both texts of a button present in one cell, the one not shown hidden from sight AND from assistive technology so the accessible name is the shown text only); what it looks like is the owner's to check by eye.
   - The panel's delta spec requirement on "Saved" and the Copy scenarios are rewritten to say the button's text, and `design.md` gains one dated paragraph at the end of the unit 12f addendum recording decision 52. Earlier text of the design is not rewritten. The main specs are untouched.
+  Evidence. Built as: a new `StatusButton.tsx` renders a button and, after it, the status region. Inside the button
+  every text it can show sits in one `inline-grid` cell (`col-start-1 row-start-1`); the one shown has no extra
+  class, and each other one has `invisible` and `aria-hidden="true"`. So the button is as wide as its longest text
+  in the current language, and its accessible name is the text shown. All four buttons use it: "Save share"
+  (texts: Save share, Saving..., Saved), "Save pairs" (the same three) and "Copy URL" and "Copy message" (their own
+  text and Copied). `InlineStatus` stays the one status region of each button, always mounted. Its default tone is
+  now only announced (`sr-only`); its failure tone is the visible loss-colour text, so "Could not copy" is said
+  through the same region and the button keeps its ordinary text. A Save button that reads "Saved" is disabled; a
+  Copy button that reads "Copied" is enabled and copies again. No new key. The copy state is unchanged: which
+  button and whether it worked, never text; nothing of the secret is in a hidden text or an attribute.
+  Removed: the `InlineStatus` usages beside the buttons; `CopyStatus` in `WebhookMessage.tsx` (replaced by
+  `copyResult` and `CopyAction`); and `setSaved(false)` in the share's `handleSave`, which cannot run any more,
+  because a button that reads "Saved" is disabled and every change already clears "Saved". The region now follows
+  its button in the document; before, "Saved" came first. The Tab order is unchanged.
+  Commits. RED share `0c09394`, GREEN share `4aa5e88` (with `StatusButton`, its tests and the new tone of
+  `InlineStatus`); RED pairs `53fc3e9`, GREEN pairs `d57ae66`; RED webhook `0119472`, GREEN webhook `f412075`;
+  one test commit `aed2000` after the mutations. Every RED failed on an assertion about the button's name or its
+  structure (for example "Unable to find a button named Saved"), not on an import or a type. The share RED had 17
+  failing tests, the webhook RED 20. The component's own tests (`StatusButton.test.tsx`, 8) could not come first
+  without failing on an import, so they came with the first GREEN.
+  Existing tests edited, each for its reason, none relaxed. (a) The helpers that find the live region or a button
+  by its name (`savedRegion` in both editors; `copyUrl` and `copyMessage` in the webhook test) now allow the name
+  "Saved", or find the Copy buttons by place, because the name changes with the state. (b) In the share test, "a
+  new save clears Saved before it is sent" and "a refusal and Saved are never on screen together" pressed Save
+  while it read "Saved". That is impossible now, since the button is disabled. The first is replaced by "a button
+  that reads Saved is disabled and sends nothing when pressed" (on a bare editor, so only the text disables it) and
+  "a new save, after a change, reads Saving... and Saved is gone while in flight". The second now changes the value
+  first, then is refused: the two are still never together. (c) The "right block" and "reading order" tests of
+  12f.10.30c in both editors: "Saved, then Save" became "Save, then its status", for the new order. (d) `queryByText("Copied")` in the webhook test is now `copiedCount()` (the buttons named Copied) because the hidden
+  text "Copied" is always in the DOM; the helper `copiedBeside` asks whether the button's name is Copied. (e) The
+  Spanish test of the webhook's texts finds the Copy buttons by place after a copy. (f) The test of the
+  design's "Saved" text finds the button named Saved and the region in its block, not the bare text, which is now on
+  screen twice (once hidden). (g) Assertions were added to the existing "Saved goes", "no Saved after", ten-minutes
+  and every "Copied is gone" tests: the button's name is back to Save or Copy. One test was renamed:
+  `test_a_working_copy_says_copied_beside_the_button_used_and_in_neutral_ink` is now
+  `test_a_working_copy_makes_the_button_used_read_copied_and_its_status_says_it_unseen`. Two `InlineStatus` tests
+  were added for the two tones; the others there are unchanged.
+  Mutations after GREEN, each seen red and reverted with `git checkout`: the share's `edit` without `setSaved(false)`
+  (7 red: Saved goes, the Saving test, the refusal test); the share's Save without `|| saved` in `disabled` (red
+  only in the new tests; it first showed that a page that re-reads hides it, so the test now runs on a bare editor,
+  which is `aed2000`); `InlineStatus` neutral without `sr-only` (8 red: the "no visible Saved/Copied" tests in all
+  three controls, and the InlineStatus test); the Copy failure tone set to neutral (7 red); the Copy button text
+  shown as Copied on a refused copy (7 red); a Copied button disabled (6 red); `aria-hidden` removed from the hidden
+  texts (158 red, since every button name then holds all of its texts). No mutant was equivalent.
+  Gate: `npm run lint` exit 0; `npm test` exit 0, 64 test files, 1,469 tests (1,426 before, plus 43: 8 for
+  `StatusButton`, 2 for `InlineStatus`, 33 in the three controls). `git diff main --stat -- openspec/specs` and
+  `-- backend` are empty.
+  What only the owner's eye can confirm (jsdom has no layout): that the button really keeps one width when its text
+  changes, in English and in Spanish, and nothing around it moves; that the hidden texts leave no empty gap; that
+  the text is centred in the button; that the `sr-only` region adds no space in the rows; and that "Could not copy"
+  looks right beside the button. A screen reader's real announcement of "Saved" and "Copied" was not heard.
 
 **Follow-up, NOT part of PR 12f-2**
 

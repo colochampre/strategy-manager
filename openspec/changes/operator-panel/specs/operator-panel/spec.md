@@ -45,7 +45,7 @@ frontend-design plugin.
 > **Revised 2026-10-06 (owner decisions 44 and 48, design addendum "unit
 > 12f").** The strategy detail view gains the share of the pool per trade (a
 > field above a track, saved through an explicit Save button, with the amount it
-> asks for served by the server and two information buttons), a "Saved" text
+> asks for served by the server and two information buttons), a "Saved" button text
 > after a save, two Copy buttons, the full webhook URL with its host, and a win
 > rate in "By pair". Fifteen requirements are added after "Copy-Ready Webhook
 > Message, Secret Revealed Only On Explicit Request"; "Strategy Detail Shows
@@ -985,7 +985,7 @@ column: the label with its information button; the field; the track with its
 handle; the legend of four stops; the amount the share asks for with its
 information button, and under it the warning of "A Share That Asks For Less Than
 The Pool's Minimum Order Is Warned About And Never Blocked" when it applies; the
-validation or refusal text; and the Save button with the "Saved" text beside it.
+validation or refusal text; and the Save button, which reads "Saved" itself after a save.
 No explanatory paragraph MUST be on screen.
 
 - **The field** holds the number and its percent sign together at the left. The
@@ -1546,7 +1546,7 @@ What is always visible and what is behind a button:
 | The amount, or its loading mark, or the em dash | Always visible |
 | The stale-balance line, the "not read yet" line and the "could not be loaded" line | Always visible |
 | The warning of "A Share That Asks For Less Than The Pool's Minimum Order Is Warned About And Never Blocked" | Always visible |
-| The validation text, a refused save, the unreadable stored value, "Saved" | Always visible |
+| The validation text, a refused save, the unreadable stored value, "Saved" (the Save button's own text) | Always visible |
 | What the share is, and that a change applies from the next operation | Behind button 1 |
 | That the amount is an estimate, is margin, and when the balance was read | Behind button 2 |
 | That the exchange's minimum per pair is not checked | Behind button 2 |
@@ -1702,12 +1702,22 @@ Nine stops. The amount, the warning and an opened explanation take no stop.
 ### Requirement: A Save Of The Share Or Of The Allowed Pairs Shows "Saved"
 
 > **Added 2026-10-06 (owner decisions 44 (12f.4) and 48, answered 2026-10-06; design addendum "unit 12f" § D).** "Saved" / "Guardado" are the owner's own words.
+>
+> **Changed 2026-10-10 (owner decision 52, task 12f.10.30d).** "Saved" is the text of the Save button itself, no longer a text beside it. When it shows and when it goes are unchanged.
 
-After a save of the share and after a save of the allowed pairs, the control
-MUST show "Saved" / "Guardado" beside its button. It MUST be announced to a
-screen reader as a polite status: its live region MUST be in the document before
-it has anything to say, empty until then. There MUST be NO timer: it stays until
-the owner changes something in that control again.
+After a save of the share and after a save of the allowed pairs, the control's
+Save button MUST read "Saved" / "Guardado" in place of "Save share" / "Save pairs"
+(its accessible name is the text it shows), and MUST be disabled while it does.
+While a save is in flight it MUST still read "Saving…" / "Guardando…". No visible
+"Saved" MUST stand beside the button. The button MUST have ONE width for all of
+its texts, the width of its longest in the current language, so the change of
+text moves nothing around it: every text it can show sits in one cell, and the
+ones not shown MUST be hidden from sight and from assistive technology. Because a
+change of a button's text is not announced, the control MUST keep a visually
+hidden polite status region that says "Saved" / "Guardado" in the same states: it
+MUST be in the document before it has anything to say, empty until then. There
+MUST be NO timer: it stays until the owner changes something in that control
+again.
 
 | Control | "Saved" appears | "Saved" goes |
 | --- | --- | --- |
@@ -1715,39 +1725,40 @@ the owner changes something in that control again.
 | The allowed pairs | When the PUT answers 200 and the list on screen is the saved one | At the next pair added or removed; and when the page is left. Typing in the search box changes no pair and leaves it. |
 
 A failed save MUST show its refusal and NEVER "Saved"; the two MUST NEVER be on
-screen together, and a new save MUST clear "Saved" before it is sent. If the
-re-read of the allowed pairs after a 200 fails, so that the list on screen is the
-old one, "Saved" MUST NOT be shown.
+screen together: a button that reads "Saved" is disabled, so a save is sent only
+after a change, and the change has already cleared "Saved". If the re-read of the
+allowed pairs after a 200 fails, so that the list on screen is the old one,
+"Saved" MUST NOT be shown.
 
 #### Scenario: "Saved" shows after the share is saved
 
 - GIVEN the owner saved a share of `33.5` and the API answered 200 with a strategy
 - WHEN the control is read
-- THEN "Saved" shows beside Save
+- THEN the Save button reads "Saved" and is disabled, "Save share" is not its name, and no visible "Saved" stands beside it
 
 #### Scenario: "Saved" goes at the next change of the share
 
 - GIVEN "Saved" shows after a share save
 - WHEN the owner moves the handle, activates a stop, or types a character, each tried in turn
-- THEN "Saved" is gone each time
+- THEN the button reads "Save share" again and "Saved" is gone each time
 
 #### Scenario: "Saved" stays until something changes
 
 - GIVEN "Saved" shows after a share save
 - WHEN ten minutes pass with no change
-- THEN "Saved" still shows
+- THEN the button still reads "Saved"
 
 #### Scenario: "Saved" shows after the allowed pairs are saved
 
 - GIVEN strategy S1 on pool `(bybit, usdt-m, USDT)` had allowed pairs `{ETHUSDT}`, the owner added `SOLUSDT` and the PUT answered 200
 - WHEN the pairs control is read
-- THEN "Saved" shows beside its button, and goes when a pair is added or removed again
+- THEN the Save pairs button reads "Saved" and is disabled, and goes back to "Save pairs" when a pair is added or removed again
 
 #### Scenario: Typing in the pair search does not remove "Saved"
 
 - GIVEN "Saved" shows after a pairs save
 - WHEN the owner types `SOL` in the pair search box without adding or removing a pair
-- THEN "Saved" still shows
+- THEN the button still reads "Saved"
 
 #### Scenario: A refused save never shows "Saved"
 
@@ -1755,17 +1766,29 @@ old one, "Saved" MUST NOT be shown.
 - WHEN the control is read
 - THEN the refusal shows and "Saved" does not
 
-#### Scenario: A new save clears "Saved" before it is sent
+#### Scenario: A new save, after a change, shows no "Saved" while it is in flight
 
 - GIVEN "Saved" shows after a share save, and the owner changes the value and presses Save again
 - WHEN the second request is in flight
-- THEN "Saved" is not shown
+- THEN the button reads "Saving…" and "Saved" is not shown
+
+#### Scenario: A button that reads "Saved" cannot save again
+
+- GIVEN "Saved" shows after a share save
+- WHEN the owner presses the button
+- THEN nothing is sent, because the button is disabled
+
+#### Scenario: The button has one width for all of its texts
+
+- GIVEN a Save button
+- WHEN the document is read
+- THEN the button holds "Save share", "Saving…" and "Saved" in one cell, the one shown is its accessible name, and the other two are hidden from sight and from assistive technology
 
 #### Scenario: The live region exists before it speaks
 
 - GIVEN the share control and the pairs control render with nothing saved
 - WHEN the document is read
-- THEN each has a polite status region that is empty
+- THEN each has a polite status region that is empty and visually hidden, and that says "Saved" when the button reads it
 
 #### Scenario: A failed re-read after a successful pairs save shows no "Saved"
 
@@ -1786,16 +1809,28 @@ secret, and MUST NOT turn the hidden placeholder into the revealed secret. The
 panel MUST NOT claim to clear the clipboard when the secret is hidden or the view
 is left. The URL MUST be text, never a link, and MUST NEVER be requested.
 
+> **Changed 2026-10-10 (owner decision 52, task 12f.10.30d).** "Copied" is the text of the Copy button itself, no longer a text beside it. When it shows and when it goes are unchanged.
+
 After a copy the panel MUST show:
 
-| Result | Text beside the button activated | Until |
+| Result | Text of the button activated | Until |
 | --- | --- | --- |
-| The alert message was copied | "Copied" / "Copiado" | Something else is copied, or the block is closed |
-| The URL was copied | "Copied" / "Copiado" | The same, AND the URL on screen stops being the one that was copied |
-| The browser refused, or has no clipboard | "Could not copy. Select the text and copy it by hand." / "No se pudo copiar. Seleccione el texto y cópielo a mano." instead of "Copied" | As the row of the button it belongs to |
+| The alert message was copied | The button reads "Copied" / "Copiado" | Something else is copied, or the block is closed |
+| The URL was copied | The button reads "Copied" / "Copiado" | The same, AND the URL on screen stops being the one that was copied |
+| The browser refused, or has no clipboard | The button keeps its ordinary text, and "Could not copy. Select the text and copy it by hand." / "No se pudo copiar. Seleccione el texto y cópielo a mano." shows beside it in the loss colour | As the row of the button it belongs to |
 
-"Copied" beside the URL MUST be shown only while the URL on screen is the one
-copied. Showing or hiding the secret MUST remove it for good, so it does not
+A button that reads "Copied" MUST stay enabled and MUST copy again when pressed.
+No visible "Copied" MUST stand beside a button. Each Copy button MUST have ONE
+width for both of its texts, the width of its longest in the current language,
+so the change of text moves nothing: both texts sit in one cell, and the one not
+shown MUST be hidden from sight and from assistive technology, which makes the
+text shown the button's accessible name. Because a change of a button's text is
+not announced, each Copy button MUST keep a visually hidden polite status region,
+in the document from the first render, that says "Copied" / "Copiado" in the same
+states; a refusal is said in the same region, visibly.
+
+"Copied" on the URL's button MUST be shown only while the URL on screen is the
+one copied. Showing or hiding the secret MUST remove it for good, so it does not
 return when the secret is shown or hidden again; and a host that arrives after
 the copy, which changes the URL on screen, MUST remove it too. The message's
 "Copied" MUST NOT be touched by showing or hiding the secret. Only one "Copied"
@@ -1807,55 +1842,61 @@ and the state of the URL it copied.
 
 - GIVEN strategy S1's webhook block is open, the secret is hidden and the webhook's host is `https://example.duckdns.org`
 - WHEN the owner activates "Copy URL"
-- THEN the clipboard holds the URL as shown, `https://example.duckdns.org/webhook/tradingview?secret=` followed by the placeholder, "Copied" shows beside the button, and no request for the secret was made
+- THEN the clipboard holds the URL as shown, `https://example.duckdns.org/webhook/tradingview?secret=` followed by the placeholder, the button reads "Copied", and no request for the secret was made
 
 #### Scenario: Copying the URL with the secret revealed copies the real URL
 
 - GIVEN the owner pressed "Show secret" and the real URL is on screen
 - WHEN the owner activates "Copy URL"
-- THEN the clipboard holds exactly the URL on screen, and "Copied" shows beside the button
+- THEN the clipboard holds exactly the URL on screen, and the button reads "Copied"
 
-#### Scenario: Showing the secret removes "Copied" beside the URL
+#### Scenario: Showing the secret removes "Copied" from the URL's button
 
-- GIVEN the owner copied the URL with the placeholder and "Copied" shows
+- GIVEN the owner copied the URL with the placeholder and the button reads "Copied"
 - WHEN the owner presses "Show secret"
-- THEN "Copied" is gone, and the clipboard still holds the placeholder URL
+- THEN the button reads "Copy URL" again, and the clipboard still holds the placeholder URL
 
 #### Scenario: Showing the secret again does not bring "Copied" back
 
 - GIVEN the owner copied the placeholder URL, pressed "Show secret" and then "Hide secret"
 - WHEN the URL on screen is the placeholder again
-- THEN "Copied" is not shown, because the URL on screen was not copied since
+- THEN the button does not read "Copied", because the URL on screen was not copied since
 
-#### Scenario: Hiding the secret removes "Copied" beside the URL
+#### Scenario: Hiding the secret removes "Copied" from the URL's button
 
-- GIVEN the owner revealed the secret, copied the URL and "Copied" shows
+- GIVEN the owner revealed the secret, copied the URL and the button reads "Copied"
 - WHEN the owner presses "Hide secret"
-- THEN "Copied" is gone
+- THEN the button reads "Copy URL" again
 
 #### Scenario: A host that arrives after the copy removes "Copied"
 
-- GIVEN the webhook's host is still loading, the owner copied the URL as the path alone and "Copied" shows
+- GIVEN the webhook's host is still loading, the owner copied the URL as the path alone and the button reads "Copied"
 - WHEN the host arrives and the URL on screen gains it
-- THEN "Copied" is gone
+- THEN the button reads "Copy URL" again
 
 #### Scenario: The message's "Copied" survives showing and hiding the secret
 
-- GIVEN the owner copied the alert message and "Copied" shows beside "Copy message"
+- GIVEN the owner copied the alert message and "Copy message" reads "Copied"
 - WHEN the owner presses "Show secret" and then "Hide secret"
-- THEN "Copied" still shows beside "Copy message"
+- THEN "Copy message" still reads "Copied"
 
 #### Scenario: A copy with the other button moves "Copied"
 
-- GIVEN "Copied" shows beside "Copy message"
+- GIVEN "Copy message" reads "Copied"
 - WHEN the owner activates "Copy URL"
-- THEN "Copied" shows beside "Copy URL" only
+- THEN "Copy URL" reads "Copied" and "Copy message" reads "Copy message" again, so only one button reads "Copied"
 
-#### Scenario: A refused copy says so and never shows "Copied"
+#### Scenario: A button that reads "Copied" copies again
+
+- GIVEN "Copy URL" reads "Copied"
+- WHEN the owner presses it
+- THEN it copies the text on screen again and still reads "Copied"
+
+#### Scenario: A refused copy says so and never reads "Copied"
 
 - GIVEN the browser refuses the clipboard write
 - WHEN the owner activates "Copy URL"
-- THEN "Could not copy. Select the text and copy it by hand." shows, "Copied" does not, and nothing is written to the console
+- THEN "Could not copy. Select the text and copy it by hand." shows beside the button in the loss colour, the button keeps reading "Copy URL", no button reads "Copied", and nothing is written to the console
 
 #### Scenario: A browser with no clipboard says so
 
@@ -2324,7 +2365,7 @@ i18n mechanism (English and Spanish) and MUST NOT be hardcoded display text.
 
 > **Added 2026-10-06 (owner decisions 44 and 48, design addendum "unit 12f").**
 
-- GIVEN the locale is Spanish and a strategy detail view shows the share control with both information buttons open, a "Saved" text, the webhook block with both Copy buttons and a "By pair" table
+- GIVEN the locale is Spanish and a strategy detail view shows the share control with both information buttons open, a Save button that reads "Saved", the webhook block with both Copy buttons and a "By pair" table
 - WHEN every visible string is read
 - THEN each is the Spanish text of "The Detail Page's Follow-Up Texts Are Exactly These, In English And Spanish", sourced from i18n, with no leftover English
 
