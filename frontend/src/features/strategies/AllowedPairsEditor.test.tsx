@@ -307,10 +307,10 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     expect(savedRegion()).toBeEmptyDOMElement();
   });
 
-  it("a 200 whose body is not a strategy does not show Saved", async () => {
-    const { puts } = setup(strategy(), { answer: () => jsonResponse({ ok: true }) });
+  it("a 200 whose body is not a strategy does not show Saved, even when the page then holds the saved list", async () => {
+    const { puts, rerender } = setup(strategy(), { answer: () => jsonResponse({ ok: true }) });
 
-    await saveSolana(undefined, puts);
+    await saveSolana(rerender, puts);
     await settle();
 
     expect(savedRegion()).toBeEmptyDOMElement();

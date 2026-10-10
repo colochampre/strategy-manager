@@ -21,6 +21,16 @@ interface Draft {
 
 const storedKey = (strategy: Strategy) => strategy.allowed_pairs.join(",");
 
+/**
+ * The key of the list a save answered, or `null` when the answer holds no list of pairs. The PUT's body is
+ * not checked by the hook (which is not changed), so a 200 that is not a strategy must not show "Saved".
+ */
+function savedKeyOf(answer: Strategy | undefined): string | null {
+  const pairs: unknown = answer?.allowed_pairs;
+  if (!Array.isArray(pairs) || !pairs.every((pair) => typeof pair === "string")) return null;
+  return pairs.join(",");
+}
+
 function unknownSymbols(error: ApiError): string[] {
   const unknown = error.fields?.unknown;
   return Array.isArray(unknown) ? unknown.filter((symbol): symbol is string => typeof symbol === "string") : [];
@@ -60,6 +70,10 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
   const { t } = useTranslation();
   const ids = { pairs: useId(), hint: useId() };
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The list the last successful save answered. "Saved" shows only while the stored list is that one: if
+  // the re-read after a 200 failed, the stored list is still the old one and nothing is said (the safe
+  // side, a limit of the existing hook).
+  const [savedKey, setSavedKey] = useState<string | null>(null);
   const save = useReplaceAllowedPairs(strategy.id);
   const catalogue = useAvailablePairs({
     exchange: strategy.exchange,
@@ -76,8 +90,12 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
 
   const handleSave = () => {
     if (!changed || empty || archived) return;
-    save.mutate(pairs);
+    setSavedKey(null);
+    save.mutate(pairs, { onSuccess: (answer) => setSavedKey(savedKeyOf(answer)) });
   };
+  // Once the stored list is the saved one, an earlier draft is stale (its base differs) and is not shown,
+  // and any later edit clears `savedKey`: so the list on screen is the saved one whenever this is true.
+  const saved = savedKey !== null && savedKey === storedKey(strategy);
 
   const message = save.status === "error" ? saveError(save.error) : null;
 
@@ -87,7 +105,11 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         id={ids.pairs}
         label={t("strategies.detail.pairs.title")}
         value={pairs}
-        onChange={(next) => setDraft({ base: storedKey(strategy), pairs: next })}
+        onChange={(next) => {
+          // A pair added or removed ends "Saved"; typing in the search box never reaches this handler.
+          setSavedKey(null);
+          setDraft({ base: storedKey(strategy), pairs: next });
+        }}
         options={catalogue.data?.pairs}
         status={status}
         onRetry={() => void catalogue.refetch()}
@@ -112,7 +134,7 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         >
           {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
         </button>
-        <InlineStatus message={null} />
+        <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
       </div>
     </section>
   );
