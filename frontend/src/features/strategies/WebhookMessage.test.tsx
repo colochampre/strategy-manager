@@ -783,6 +783,39 @@ describe("WebhookMessage", () => {
       expect(copiedCount()).toBe(0);
     });
 
+    // The render check alone already hides "Copied" while the URL differs, so each handler's clearing is
+    // proved by the one case the other cannot cover: the Show that fails, and the Hide followed by a Show.
+    it("test_a_show_that_fails_still_removes_copied_beside_the_placeholder_url", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST), () => Promise.resolve(jsonResponse({ detail: "not configured" }, 503)));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await press(copyUrl());
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+
+      fireEvent.click(showButton());
+      await screen.findByRole("alert");
+
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+    });
+
+    it("test_hiding_the_secret_and_showing_it_again_does_not_bring_back_a_copy_of_the_revealed_url", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      fireEvent.click(showButton());
+      await revealed();
+      await press(copyUrl());
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+
+      fireEvent.click(hideButton());
+      fireEvent.click(showButton());
+      await revealed();
+
+      expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`);
+      expect(copiedCount()).toBe(0);
+    });
+
     it("test_the_url_copied_as_the_path_alone_then_the_host_loads_copied_is_gone", async () => {
       const writeText = stubClipboard();
       const host = lateOrigin();
