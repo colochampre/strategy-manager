@@ -326,6 +326,15 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **Where it applies.** The owner's yes was to "when the share is saved and in the preview". Read here as every place the API takes a share: the strategy update, the share preview, and the registration of a strategy, which saves a share too. Including registration is this session's reading, not a sentence the owner said.
     - Nothing the owner can type in the panel changes: 12 characters leave room for at most 10 decimals.
 
+51. **From the review by eye of PR 12f-2: two layout changes, and renaming a strategy for later** (2026-10-10, owner). Tasks 12f.10.30b and 12f.10.30c; follow-up 12f.11.
+    - Approved as built: the slider against the prototype, the field, the amount and its loading mark, the warning on the pool's minimum, "Saved", the keyboard, the Spanish texts, the performance and the win rate column.
+    - **The list's figures line up from row to row.** On the strategies list, each row's trades, all-time PnL and all-time return sit in the same place as the row above and below. Today the width of each row's own values moves them.
+    - **Save sits to the right of the text before it, in the settings column.** The column was a little too tall to be seen whole. "Save share" goes to the right of the amount line ("Asks for about ... per operation") and of what opens under it; "Save pairs" goes to the right of "Removing a pair stops new entries ...". The owner's own reading of how: the text and the button in one new row.
+    - Where "Saved" goes in that row was not said. Built as: beside its button, on the button's left. This is this session's choice, shown to the owner in the next review by eye.
+    - **Asked and not changed:** the owner asked that the list say "Strategies could not be loaded" where it said "The strategy could not be loaded." The list already says "Strategies could not be loaded." (`strategies.error`, EN and ES); the singular text is the detail page's (`strategies.detail.error`), where it is right. Reported back to the owner.
+    - **For later, not in this PR: a strategy can be renamed from its own page**, for example from an edit icon beside the name. The API already takes `name` on the update. Not designed.
+    - For this review the owner asked the assistant to edit the local fixture, `frontend/vite.fixture.config.ts`, so that its `by_pair` entries carry `wins` and `win_rate`. The file stays local and untracked; the standing rule that agents do not touch it is unchanged.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.
