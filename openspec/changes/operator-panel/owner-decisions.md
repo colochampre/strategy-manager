@@ -335,6 +335,11 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **For later, not in this PR: a strategy can be renamed from its own page**, for example from an edit icon beside the name. The API already takes `name` on the update. Not designed.
     - For this review the owner asked the assistant to edit the local fixture, `frontend/vite.fixture.config.ts`, so that its `by_pair` entries carry `wins` and `win_rate`. The file stays local and untracked; the standing rule that agents do not touch it is unchanged.
 
+52. **"Saved" and "Copied" are the button's own text, not a text beside it** (2026-10-10, owner, from the second review by eye of PR 12f-2; it replaces "beside its button" in decision 51 and in the design of unit 12f). Task 12f.10.30d.
+    - What the owner saw: "Saved" beside "Save share" pushed the explanation and the paragraphs; "Copied" beside "Copy URL" narrowed the elements of its row. The owner's words: change the text of "Copy URL" and "Copy message" to "Copied" when it is copied, and of the Save buttons to "Saved" until a change is detected, "as they were doing", so nothing is pushed only to say that it worked.
+    - **When it shows does not change.** A Save button reads "Saved" exactly when "Saved" showed beside it, and a Copy button reads "Copied" exactly when "Copied" showed beside it. No timer.
+    - This session's choices, to be seen by the owner in the next review by eye: the button keeps one width for both of its texts, so the change of text moves nothing; a screen reader is still told, through a status region that is not visible; a copy that FAILED is still said in a visible text beside its button, because a button that only stopped saying "Copied" would not say that nothing was copied.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.
