@@ -3739,7 +3739,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   (`(\d*)` on the integer side) reds the empty string and `.5`; the leading-zero drop removed reds `007.250`,
   `007` and `0033.50`; `integer > "100"` become `>= "100"` reds `100`, `100.0` and the typed-back `100.000`.
   Files created: `share-value.ts`, `share-value.test.ts`; no existing file edited.
-- [ ] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
+- [x] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
   `frontend/src/shared/api/strategies.share.test.ts` (Create, `vi.stubGlobal("fetch")`), with the stubs in
   `strategies.ts` in the same commit (the function resolves a fixed strategy without a request; the hook
   with no cache write). Tests: `::sends PATCH /api/strategies/{id} with exactly {"allocation_percent":"33.5"}`
@@ -3751,6 +3751,24 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   ['strategy', id] and returns that promise` (as the two hooks of the file do). GREEN as the tests say.
   The control's own tests assert the request body again (12f.10.16), at the place the owner's slip would
   matter.
+  **Done (RED commit `948a33c`, GREEN commit `7990124`).** The stubs are in `strategies.ts`: the function
+  answers a blank strategy without a request, the hook has a `mutationFn` and no `onSuccess` or `onSettled`.
+  RED, observed (14 failed, none passed): `expected "spy" to be called 1 times, but got 0 times` (the request
+  tests), `expected '0' to be '12.25'`, `promise resolved "{ id: '', name: '', exchange: '', …(8) }" instead of
+  rejecting`, `expected null to be an instance of ApiError` (the four refusals), `expected { …(11) } to deeply
+  equal { …(11) }` (the cache write), `expected false to be true` (the refused save never errors against the
+  stub) and `expected "invalidateQueries" to be called at least once`. **Passed at once**: none. GREEN:
+  `setStrategyAllocationPercent` sends `PATCH /strategies/{id}` with `JSON.stringify({ allocation_percent:
+  value })` and the JSON content type, and checks the answer with `isStrategy`; `useSetAllocationPercent`
+  writes the checked answer into `['strategy', id]` on success and, on settle, awaits the invalidation of
+  `['strategies']` and then of `['strategy', id]` (which also covers the share preview under it). Two tests
+  beyond the task's list: `::writes nothing when the save is refused` and `::on a refusal still invalidates
+  both keys`. Mutations after the GREEN, each seen red and reverted: `enabled: true` added to the body reds the
+  exact-body test and the three value tests (4); the value sent as `Number(value)` reds the same four; the
+  invalidations made fire-and-forget (the hook no longer returns their promise) reds `on settle invalidates …
+  and returns that promise` only; the `onSuccess` cache write removed reds `on success writes the checked
+  answer` only; the `isStrategy` check removed reds `refuses an answer that is not a strategy` only. Existing
+  file edited: `strategies.ts` (the function and the hook, additions only); created `strategies.share.test.ts`.
 - [ ] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
   `frontend/src/shared/api/share-preview.test.ts` (Create), with stubs that answer a well-formed body whose
   amounts are all zero. Tests: `::requests GET /strategies/{id}/share-preview with no query for the stored
