@@ -340,6 +340,15 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **When it shows does not change.** A Save button reads "Saved" exactly when "Saved" showed beside it, and a Copy button reads "Copied" exactly when "Copied" showed beside it. No timer.
     - This session's choices, to be seen by the owner in the next review by eye: the button keeps one width for both of its texts, so the change of text moves nothing; a screen reader is still told, through a status region that is not visible; a copy that FAILED is still said in a visible text beside its button, because a button that only stopped saying "Copied" would not say that nothing was copied.
 
+53. **"Copy URL" copies the URL TradingView needs, even while the secret is hidden** (2026-10-10, owner, from the second review by eye of PR 12f-2; it refines decision 23 and replaces "each button copies exactly the text on screen" for the URL). Task 12f.10.30e.
+    - As built before this, "Copy URL" copied what the screen showed: with the secret hidden, that is the URL with the placeholder where the secret goes, which is not a URL that works. The owner's words: the user would have to notice that an invalid URL was copied, so it should copy the real one although it is hidden.
+    - **With the secret hidden, "Copy URL" asks the server for the secret at the click, copies the full URL with it, and shows nothing new.** The screen keeps the placeholder.
+    - **With no host, "Copy URL" is disabled** (the owner's yes to the question that followed): the path alone does not work in TradingView either. The sentence that says why there is no host is already beside it.
+    - **Decision 23 stands as written:** the secret is REVEALED only by "Show secret". What changes is that two clicks now ask the server for it, where one did.
+    - Said to the owner and accepted: the clipboard then holds the secret although the screen never showed it.
+    - This session's choices: the secret asked for by a copy is used for that copy and kept nowhere (not in state, not in the query cache); if the server does not answer, or the browser refuses the write, nothing is copied and "Could not copy" shows, and the placeholder URL is never copied in its place; "Copy message" is unchanged.
+    - Not verified, for the owner's review: a browser may refuse a write to the clipboard that comes after a request rather than straight after the click. Firefox is the one to try.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.
