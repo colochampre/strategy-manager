@@ -106,8 +106,21 @@ function stubClipboard(): ReturnType<typeof vi.fn> {
   return writeText;
 }
 
-const copyUrl = () => screen.getByRole("button", { name: "Copy URL" });
-const copyMessage = () => screen.getByRole("button", { name: "Copy message" });
+// A Copy button is found by its place and not by its name: its name becomes "Copied" once it is used
+// (12f.10.30d). The URL's is the last button in the URL's row; the message's is the only one under it.
+const copyUrl = () => {
+  const urlRow = screen.getByLabelText(i18n.t("strategies.webhook.urlLabel")).parentElement as HTMLElement;
+  const buttons = within(urlRow).getAllByRole("button");
+  return buttons[buttons.length - 1] as HTMLElement;
+};
+const copyMessage = () =>
+  within(
+    screen.getByRole("group", { name: i18n.t("strategies.webhook.messageLabel") }).parentElement as HTMLElement,
+  ).getByRole("button");
+/** How many buttons read "Copied" right now: the visible places where it stands. */
+const copiedCount = () => screen.queryAllByRole("button", { name: "Copied" }).length;
+/** How many status regions say "Copied" right now: what a screen reader is told. */
+const announcedCount = () => screen.queryAllByRole("status").filter((node) => node.textContent === "Copied").length;
 /** The status region that shares a row with `button`: each button owns one. */
 const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
 /** A click, then the microtasks of the write it starts. */
@@ -639,23 +652,32 @@ describe("WebhookMessage", () => {
 
       expect(statusBeside(copyUrl())).toHaveTextContent(COPY_FAILED);
       expect(statusBeside(copyUrl())).toHaveClass("text-loss");
-      expect(screen.queryByText("Copied")).toBeNull();
+      expect(copiedCount()).toBe(0);
+      // The failure is a visible text, and the button keeps its ordinary text.
+      expect(statusBeside(copyUrl()).className.split(/\s+/)).not.toContain("sr-only");
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
 
       await press(copyMessage());
 
       expect(statusBeside(copyMessage())).toHaveTextContent(COPY_FAILED);
       expect(statusBeside(copyMessage())).toHaveClass("text-loss");
-      expect(screen.queryByText("Copied")).toBeNull();
+      expect(copiedCount()).toBe(0);
+      expect(statusBeside(copyMessage()).className.split(/\s+/)).not.toContain("sr-only");
+      expect(copyMessage()).toHaveAccessibleName("Copy message");
     });
 
-    it("test_a_working_copy_says_copied_beside_the_button_used_and_in_neutral_ink", async () => {
+    // Re-pointed by 12f.10.30d: the button used reads "Copied", and its status region says it, hidden from sight.
+    it("test_a_working_copy_makes_the_button_used_read_copied_and_its_status_says_it_unseen", async () => {
       stubClipboard();
       setupHost(originAnswers(HOST));
 
       await press(copyMessage());
 
+      expect(copyMessage()).toHaveAccessibleName("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
       expect(statusBeside(copyMessage())).not.toHaveClass("text-loss");
+      expect(statusBeside(copyMessage()).className.split(/\s+/)).toContain("sr-only");
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
     });
   });
@@ -676,8 +698,8 @@ describe("WebhookMessage", () => {
         });
       return { route, arrive };
     }
-    const copiedBeside = (button: HTMLElement) => statusBeside(button).textContent === "Copied";
-    const copiedCount = () => screen.queryAllByText("Copied").length;
+    // Re-pointed by 12f.10.30d: "Copied" stands in the button's own text, not in a text beside it.
+    const copiedBeside = (button: HTMLElement) => screen.queryAllByRole("button", { name: "Copied" }).includes(button);
     const revealed = () => waitFor(() => expect(urlText()).toContain(`${URL_BASE}${SECRET}`));
 
     it("test_copied_shows_beside_the_button_that_was_used_and_only_one_copied_is_on_screen", async () => {
@@ -687,21 +709,30 @@ describe("WebhookMessage", () => {
 
       await press(copyUrl());
 
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+      expect(copyMessage()).toHaveAccessibleName("Copy message");
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
       expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
       expect(copiedCount()).toBe(1);
+      expect(announcedCount()).toBe(1);
 
       await press(copyMessage());
 
+      expect(copyMessage()).toHaveAccessibleName("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
       expect(copiedCount()).toBe(1);
+      expect(announcedCount()).toBe(1);
 
       await press(copyUrl());
 
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+      expect(copyMessage()).toHaveAccessibleName("Copy message");
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
       expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
       expect(copiedCount()).toBe(1);
+      expect(announcedCount()).toBe(1);
     });
 
     it("test_closing_the_block_removes_it", async () => {
@@ -727,7 +758,9 @@ describe("WebhookMessage", () => {
 
       fireEvent.click(toggle());
 
-      expect(screen.queryByText("Copied")).toBeNull();
+      // Re-pointed by 12f.10.30d: the buttons hold "Copied" as a hidden text, so it is the buttons' names that are read.
+      expect(copiedCount()).toBe(0);
+      expect(announcedCount()).toBe(0);
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
       expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
     });
@@ -738,11 +771,13 @@ describe("WebhookMessage", () => {
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
 
       fireEvent.click(showButton());
       await revealed();
 
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(copiedCount()).toBe(0);
       // The clipboard still holds the placeholder URL, which is why "Copied" must not stand beside the real one.
       expect(writeText).toHaveBeenLastCalledWith(`${HOST}${PLACEHOLDER_URL}`);
@@ -756,11 +791,13 @@ describe("WebhookMessage", () => {
       await revealed();
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
 
       fireEvent.click(hideButton());
 
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}${SECRET}`);
     });
 
@@ -791,12 +828,14 @@ describe("WebhookMessage", () => {
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
 
       fireEvent.click(showButton());
       await screen.findByRole("alert");
 
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
     });
 
     it("test_hiding_the_secret_and_showing_it_again_does_not_bring_back_a_copy_of_the_revealed_url", async () => {
@@ -807,12 +846,14 @@ describe("WebhookMessage", () => {
       await revealed();
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
 
       fireEvent.click(hideButton());
       fireEvent.click(showButton());
       await revealed();
 
       expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`);
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(copiedCount()).toBe(0);
     });
 
@@ -823,12 +864,14 @@ describe("WebhookMessage", () => {
       expect(urlText()).toBe(PLACEHOLDER_URL);
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
       expect(writeText).toHaveBeenLastCalledWith(PLACEHOLDER_URL);
 
       await host.arrive(HOST);
 
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(copiedCount()).toBe(0);
     });
 
@@ -841,9 +884,11 @@ describe("WebhookMessage", () => {
       fireEvent.click(showButton());
       await revealed();
       expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+      expect(copyMessage()).toHaveAccessibleName("Copied");
 
       fireEvent.click(hideButton());
       expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+      expect(copyMessage()).toHaveAccessibleName("Copied");
       expect(copiedCount()).toBe(1);
     });
 
@@ -923,15 +968,19 @@ describe("WebhookMessage", () => {
       await act(() => i18n.changeLanguage(T.language));
     });
 
-    it("the two buttons' names and Copied, with the status beside the button used", async () => {
+    // Re-pointed by 12f.10.30d: after a copy the button's name is Copied, so it is found by place.
+    it("the two buttons' names and Copied, as the button's text and in the status beside the button used", async () => {
       stubClipboard();
       setupHost(originAnswers(null));
       await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
 
       await press(screen.getByRole("button", { name: T.copyUrl }));
-      expect(statusBeside(screen.getByRole("button", { name: T.copyUrl }))).toHaveTextContent(T.copied);
+      expect(copyUrl()).toHaveAccessibleName(T.copied);
+      expect(statusBeside(copyUrl())).toHaveTextContent(T.copied);
       await press(screen.getByRole("button", { name: T.copyMessage }));
-      expect(statusBeside(screen.getByRole("button", { name: T.copyMessage }))).toHaveTextContent(T.copied);
+      expect(copyMessage()).toHaveAccessibleName(T.copied);
+      expect(statusBeside(copyMessage())).toHaveTextContent(T.copied);
+      expect(copyUrl()).toHaveAccessibleName(T.copyUrl);
     });
 
     it("the refusal of a copy, in the loss colour", async () => {
@@ -962,5 +1011,98 @@ describe("WebhookMessage", () => {
 
     expect(screen.getByRole("button", { name: "Mostrar el secreto" })).toBeInTheDocument();
     expect(screen.getByText(`${URL_BASE}<su WEBHOOK_SECRET>`)).toBeInTheDocument();
+  });
+});
+
+// 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: both texts of a Copy button are
+// in the button, in one cell, and the one not shown is hidden from sight and from assistive technology.
+describe.each([
+  { language: "en", copyUrl: "Copy URL", copyMessage: "Copy message", copied: "Copied" },
+  { language: "es", copyUrl: "Copiar URL", copyMessage: "Copiar mensaje", copied: "Copiado" },
+] as const)("WebhookMessage, Copied is the button's own text, in $language (12f.10.30d)", (T) => {
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage(T.language));
+  });
+
+  const classesOf = (element: Element) => element.className.split(/\s+/);
+  const cellOf = (host: HTMLElement, text: string) => within(host).getByText(text);
+  const isShown = (cell: HTMLElement) => !cell.hasAttribute("aria-hidden") && !classesOf(cell).includes("invisible");
+  const isHidden = (cell: HTMLElement) =>
+    cell.getAttribute("aria-hidden") === "true" && classesOf(cell).includes("invisible");
+  /** Every element that holds exactly `text`, outside the buttons. */
+  const outsideButtons = (text: string) => screen.queryAllByText(text).filter((node) => node.closest("button") === null);
+
+  it("each Copy button holds its text and Copied, and shows only its own text while nothing was copied", async () => {
+    setupHost(originAnswers(null));
+    await settle();
+
+    for (const [button, text] of [
+      [copyUrl(), T.copyUrl],
+      [copyMessage(), T.copyMessage],
+    ] as const) {
+      expect(isShown(cellOf(button, text))).toBe(true);
+      expect(isHidden(cellOf(button, T.copied))).toBe(true);
+    }
+  });
+
+  it.each([
+    ["Copy URL", copyUrl, "copyUrl"],
+    ["Copy message", copyMessage, "copyMessage"],
+  ] as const)("%s reads Copied after a copy, stays enabled, and shows only that one of its two texts", async (_name, find, key) => {
+    stubClipboard();
+    setupHost(originAnswers(null));
+    await settle();
+
+    await press(find());
+
+    const button = screen.getByRole("button", { name: T.copied });
+    expect(button).toBe(find());
+    expect(button).toBeEnabled();
+    expect(isShown(cellOf(button, T.copied))).toBe(true);
+    expect(isHidden(cellOf(button, T[key]))).toBe(true);
+    expect(screen.queryAllByRole("button", { name: T.copied })).toHaveLength(1);
+  });
+
+  it("leaves no visible Copied beside the button: the one text outside the buttons is the hidden status", async () => {
+    stubClipboard();
+    setupHost(originAnswers(null));
+    await settle();
+    await press(copyMessage());
+
+    const elsewhere = outsideButtons(T.copied);
+
+    expect(elsewhere).toHaveLength(1);
+    const status = elsewhere[0] as HTMLElement;
+    expect(status).toHaveAttribute("role", "status");
+    expect(classesOf(status)).toContain("sr-only");
+    expect(copyMessage().parentElement).toContainElement(status);
+  });
+
+  it("a button that reads Copied copies again when pressed, and still reads Copied", async () => {
+    const writeText = stubClipboard();
+    setupHost(originAnswers(null));
+    await settle();
+    await press(copyUrl());
+
+    await press(screen.getByRole("button", { name: T.copied }));
+
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(copyUrl()).toHaveAccessibleName(T.copied);
+    expect(screen.queryAllByRole("button", { name: T.copied })).toHaveLength(1);
+  });
+
+  it("a copy that failed leaves the button's ordinary text and says so in a visible text", async () => {
+    setClipboard(undefined);
+    setupHost(originAnswers(null));
+    await settle();
+
+    await press(copyUrl());
+
+    expect(copyUrl()).toHaveAccessibleName(T.copyUrl);
+    expect(screen.queryAllByRole("button", { name: T.copied })).toHaveLength(0);
+    const failure = statusBeside(copyUrl());
+    expect(failure).not.toBeEmptyDOMElement();
+    expect(classesOf(failure)).toContain("text-loss");
+    expect(classesOf(failure)).not.toContain("sr-only");
   });
 });
