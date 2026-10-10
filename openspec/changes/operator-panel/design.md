@@ -4494,9 +4494,9 @@ Writing the delta specs showed nine things neither a decision nor the sections a
 
 ## Addendum: Settings, the exchange keys (PR 13, decisions 18, 20 to 22, 24, 30, 31 and 54) - 2026-10-10
 
-PR 13, designed again by decision 54. HEAD `d926e71`. It supersedes, for the Settings page only: the Settings bullets of § 15 ("Key entry" and the `ExchangeKeyCard` line), the Settings paragraph of § Visual design, § G of the addendum "key policy after probe P6", and the mockup `visual/project/Settings.dc.html`. The tasks of PR 13 written on 2026-09-29 and 2026-09-30 (units 10c-card, 10f-form, 10d-delete) are superseded once new ones exist. Decisions 18, 20, 21, 22, 24, 30, 31, 52 and 54 are binding and are not reopened here. The prototype for the owner's eye is `visual/project/SettingsKeys.html`; every text in it is a text of § J.
+PR 13, designed again by decision 54. HEAD `d926e71`. It supersedes, for the Settings page only: the Settings bullets of § 15 ("Key entry" and the `ExchangeKeyCard` line), the Settings paragraph of § Visual design, § G of the addendum "key policy after probe P6", and the mockup `visual/project/Settings.dc.html`. The tasks of PR 13 written on 2026-09-29 and 2026-09-30 (units 10c-card, 10f-form, 10d-delete) are superseded once new ones exist. Decisions 18, 20, 21, 22, 24, 30, 31, 52 and 54 are binding and are not reopened here. **Revised the same day by decisions 55, 57 and 58** (the owner's review of the prototype, and his answers to the two questions of § O): § D, § E, the end of a save in § F, § I, § J, § O and what follows from them. The list of what changed closes the addendum. The prototype for the owner's eye is `visual/project/SettingsKeys.html`; every English text in it is a text of § J, and its Spanish examples use the Spanish of § J's second table.
 
-**The answer in one paragraph.** The API does not change. The page reads two routes that exist, `GET /api/credentials` and `GET /api/pools`, and one small list kept in the panel of the exchanges whose key the panel manages; a backend test keeps that list equal to the server's. `ApiError` gains one field, the response's own body, so the panel can read the lists the API already sends at the top level. One pure function decides the state of an exchange, and both the card and the tab draw from it, so they cannot disagree. The key form opens inside its card, one at a time. The typed key and secret are never React state: the two fields are uncontrolled, read once at the click, sent once, and emptied after every attempt (decision 54). The save is a plain function, not a mutation, that never throws and never keeps the error. The text of every refusal is chosen by the outcome or the status, never by the server's wording. After every attempt both lists are read again, and an attempt that got no readable answer is said to be unknown, because the key may have been stored. Deleting is a dialog with a plain button (decision 54). Six units, each one revertible, in two sequential PRs: first what only reads, then what writes. Two questions are open for the owner (§ O), and the prototype is reviewed before the tasks are written.
+**The answer in one paragraph.** The API does not change. The page reads two routes that exist, `GET /api/credentials` and `GET /api/pools`, and one small list kept in the panel of the exchanges whose key the panel manages; a backend test keeps that list equal to the server's. `ApiError` gains one field, the response's own body, so the panel can read the lists the API already sends at the top level. One pure function decides the state of an exchange, and both the card and the tab draw from it, so they cannot disagree. The key form opens inside its card, one at a time, and closes by itself after a save that worked, with the result said on the card (decision 57). The typed key and secret are never React state: the two fields are uncontrolled, read once at the click, sent once, and emptied after every attempt (decision 54). The save is a plain function, not a mutation, that never throws and never keeps the error. The text of every refusal is chosen by the outcome or the status, never by the server's wording. After every attempt both lists are read again, and an attempt that got no readable answer is said to be unknown, because the key may have been stored. Deleting is a dialog with a plain button (decision 54). Six units, each one revertible, in two sequential PRs: first what only reads, then what writes. No question is left open: the two of § O were answered by decisions 57 and 58. The revised prototype is reviewed before the tasks are written.
 
 **The SDD threat matrix does not apply:** no routing, shell, subprocess, VCS or process boundary is touched. § H is this unit's own matrix, for the typed secret. **No migration.** **`DRY_RUN`, idempotency and the capital pools are not touched:** the unit adds no write path on the server, and the panel writes only through the two routes built in PR 8a and 8b.
 
@@ -4564,8 +4564,8 @@ Found while verifying:
 
 | `entry` | `trade_capable` | `poolOn` | State | Card shows (§ D) | Mark (card and tab) |
 | --- | --- | --- | --- | --- | --- |
-| `STORED` | `true` | any | **key** | The key line, by its facts. Neutral. | none |
-| `STORED` | `false` | any | **read-only** | The key line, the amber sentence, amber border. | `read-only`, amber |
+| `STORED` | `true` | any | **key** | The key hint and the tags, by its facts. Neutral. | none |
+| `STORED` | `false` | any | **read-only** | The key hint, the tags, the amber sentence, amber border. | `read-only`, amber |
 | none or `EMPTY` | - | `true` | **degraded** (decision 20) | The amber sentence, amber border. | `no key`, amber |
 | none or `EMPTY` | - | `false` | **empty**: never had a key, or it was deleted (decision 22) | The neutral sentence. | `no key`, neutral |
 | none or `EMPTY` | - | unknown | **empty**, with the page's notice that the pools could not be loaded | The neutral sentence. | `no key`, neutral |
@@ -4598,58 +4598,90 @@ A response can still echo what it was sent, if the server ever did. That is why 
 
 ### D. The card
 
-One `<article>` per exchange: `bg-panel`, `border border-rule`, `rounded-lg`, `p-5`. A grid of two columns from `sm` (`1fr auto`) and one column below it, so on a phone the buttons go under the text. Left: the name, the mark beside it, then the lines. Right: the buttons. The form, when open, spans both columns under them (§ F).
+Laid out again by decision 55. One `<article>` per exchange: `bg-panel`, `border border-rule`, `rounded-lg`, `p-5`. A grid, `grid-cols-1` below `sm` and `sm:grid-cols-[minmax(0,1fr)_auto]` from it, `items-start`, with four areas in this order in the document:
+
+| Area | Holds | Placement |
+| --- | --- | --- |
+| **head** | the name, and under it the key line | column 1, row 1 |
+| **facts** | the notice of a save (§ F), the tags, the opened information text, the sentences | the card's full width, `sm:col-span-2` |
+| **actions** | the buttons | `sm:col-start-2 sm:row-start-1` |
+| **form** | the key form, when open (§ F) | the card's full width, `sm:col-span-2` |
+
+So from `sm` the name, the key hint and the buttons share the card's first band, and the facts run under it on the whole width. On a phone the card is one column in the document's order: name, key, tags, sentences, buttons, form.
 
 **The name** is the exchange's proper name, from `exchanges.<id>` (`Bybit`, `Binance`, `Pionex`); an id with no entry is shown as the API spells it. Display type, 17 px, weight 600. The tabs keep the API's spelling they have today (N10).
 
-**The key line** is one mono 13 px line in `ink-2`, its parts joined by ` · ` in `rule-strong`, free to wrap. Each part states **only what the venue itself established**:
+**The key line** is the head's second line: a row (`flex flex-wrap items-baseline gap-x-3 gap-y-0.5`) of two paragraphs, each `whitespace-nowrap`, so when both do not fit the date goes under the hint whole.
 
-| Part | When | EN text |
-| --- | --- | --- |
-| the key | always, for a stored key | `key ••••{last4}` (read to a screen reader as "key ending in {last4}") |
-| capability | trade source `VERIFIED` and `trade_capable` true | `reads and trades` |
-| | trade source `VERIFIED` and `trade_capable` false | `reads only` |
-| | trade source not `VERIFIED`, and `validated_at` set | `reading verified` |
-| | `validated_at` null | no part |
-| withdrawal | withdraw source `VERIFIED` | `no withdrawal` |
-| | any other source | no part. **Never "no withdrawal"** (decisions 24 and 30). |
-| transfers | `internal_transfer` true | `internal transfers allowed` |
-| | `internal_transfer` false | `no internal transfers` |
-| | null | no part |
-| the date | `validated_at` set | `checked {date}`, a UTC day through the existing `dayText` |
-| | `validated_at` null | `not validated` |
+- **The key hint**, `font-mono text-xl font-semibold`: the label `key` (`text-[13px] font-normal text-ink-3`), four dots (`font-normal text-ink-3`) and the last four characters (`text-ink tracking-wider`). At 20 px it is the largest text of the card, above the name's 17 px and under the page's 24 px title, and the four characters are the only part of it in `ink`: the eye lands on what has to be compared with the exchange's own page (decision 55). The label, the dots and the characters are hidden from assistive technology, and a hidden text says "key ending in {last4}".
+- **The date**, `font-mono text-xs text-ink-3`: `checked {date}`, a UTC day through the existing `dayText`, when `validated_at` is set; `not validated` when it is null. It stands beside the key because it is the day the KEY was tried with a real read. It is not among the tags, where it would read as the date of every tag, the owner's confirmations included.
 
-**The mark lines**, one per fact the venue did not establish, mono 13 px, `ink-2`, **neutral**:
+With no key stored, the key line holds the `no key` mark as a tag, and nothing else.
 
-| Fact | Source | EN text |
-| --- | --- | --- |
-| trade | `OWNER_CONFIRMED` | `trade not verified · you confirmed on {date}` |
-| trade | `UNRECORDED`, or a value the panel does not know | `trade not verified` |
-| withdraw | `OWNER_CONFIRMED` | `withdraw not verified · you confirmed on {date}` |
-| withdraw | `UNRECORDED`, or a value the panel does not know | `withdraw not verified` |
+**The hint is a paragraph, not a heading.** It is a value, not the title of a part of the page: nothing is filed under it. The card stays named by its `h3` alone, so a button is still "Replace key Bybit" and a list of the page's headings is still one line per exchange. The order of headings does not change: `h1`, `h2`, the card's `h3`, and the `h4` of an open form. The hint looks like a second title; it is one only to the eye.
 
-A source value the panel does not know is drawn as not verified. An unknown value is never drawn as verified.
+**The hint never grows.** It is the four characters of `last4`, drawn larger. Nothing in this revision holds more of a key: no attribute, no hidden text, no test fixture. § B's four-character rule and § H row 14 stand.
 
-**What the headline says for a Binance key, and why.** It says `key ••••mK4x · reading verified · checked Oct 2, 2026`, and under it the two marks. It does not say "reads and trades". The system DOES trade with that key: `trade_capable` is true, on the owner's word. But the spec forbids showing a confirmed fact as a verified one, and "reads and trades" on that line is exactly how a verified Bybit key reads. The one thing Binance itself showed is that the key reads: the signed account read passed. So the line says that, in the same grammar as the two marks: reading verified, trade not verified, withdraw not verified. That the system sends orders on the confirmation is said where the owner asks, behind the information button beside the marks (the `InfoDisclosure` built in unit 12f): "Binance does not let this panel check what a key may do. Orders are sent on your confirmation. If the key cannot trade futures, Binance rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting." The button is shown whenever a mark carries a confirmation date.
+**The tags.** Every fact of a stored key is a tag. They are one `<ul>` (`flex flex-wrap items-center gap-1.5`, named "What is known about this key" for a screen reader), and each tag is an `<li>` with `whitespace-nowrap rounded border px-2 py-0.5 font-mono text-xs`. **There is no separator character anywhere on the card.** That is what makes the layout hold at every width, by construction and not by measuring: a tag cannot break inside (`whitespace-nowrap`), a line cannot begin with a separator (there is none), and when the width runs out a whole tag moves to the next line (`flex-wrap`), with the list's gap between the lines.
+
+| Look | Classes | Says | Tags |
+| --- | --- | --- | --- |
+| **checked** | `border-rule bg-panel-2 text-ink-2` (filled) | the exchange itself showed this to the application | `trades`, `reads`, `no withdrawal`, `transfers`, `no transfers` |
+| **confirmed** | `border-dashed border-rule-strong text-ink-2` (hollow, dashed) | the owner's word, with the day he gave it | `trade confirmed {date}`, `withdraw confirmed {date}` |
+| **not on record** | `border-dashed border-rule-strong text-ink-3` (hollow, dashed, dimmer) | nothing was recorded about this fact | `trade not verified`, `withdraw not verified` |
+| **mark** | amber: `border-decision text-decision`; grey: `border-rule-strong text-ink-3` (hollow, solid) | the state's mark, the word the tab carries (§ E) | `read-only`, `no key` |
+
+The tags of a stored key, in the order they are drawn:
+
+| # | Fact | When | EN tag | Look |
+| --- | --- | --- | --- | --- |
+| 1 | the mark | the state is **read-only** (§ B) | `read-only` | mark, amber |
+| 2 | capability | trade source `VERIFIED` and `trade_capable` true | `trades` | checked |
+| | | trade source `VERIFIED` and `trade_capable` false | no tag: the mark says it | - |
+| | | trade source not `VERIFIED`, and `validated_at` set | `reads` | checked |
+| | | `validated_at` null | no tag | - |
+| 3 | withdrawal | withdraw source `VERIFIED` | `no withdrawal` | checked |
+| | | any other source | no tag here; row 6. **Never "no withdrawal"** (decisions 24 and 30). | - |
+| 4 | transfers | `internal_transfer` true | `transfers` | checked |
+| | | `internal_transfer` false | `no transfers` | checked |
+| | | null | no tag | - |
+| 5 | trade, not checked by the venue | trade source `OWNER_CONFIRMED` and `trade_confirmed_at` set | `trade confirmed {date}` | confirmed |
+| | | any other source that is not `VERIFIED`: `UNRECORDED`, a value the panel does not know, or `OWNER_CONFIRMED` with no date | `trade not verified` | not on record |
+| 6 | withdraw, not checked by the venue | withdraw source `OWNER_CONFIRMED` and `withdraw_confirmed_at` set | `withdraw confirmed {date}` | confirmed |
+| | | any other source that is not `VERIFIED` | `withdraw not verified` | not on record |
+| 7 | the information button | a tag carries a confirmation date | the last `<li>` of the list, a button and not a tag | - |
+
+**One phrase per fact** (decision 55). Trade is said by exactly one of `trades`, `read-only`, `trade confirmed {date}` and `trade not verified`; withdrawal by exactly one of `no withdrawal`, `withdraw confirmed {date}` and `withdraw not verified`. "confirmed" and "not verified" are two rows of the same fact, so they can never be drawn together. A confirmation with no date is drawn as not verified: "confirmed on a day" cannot be said without the day. A source value the panel does not know is drawn as not verified. An unknown value is never drawn as checked.
+
+**The widths, measured once.** At 360 px the card's content is 286 px wide (the page's `p-4`, the card's `p-5` and its border). The longest tag is the Spanish `retiros: confirmado el 30 sept 2026`, 35 characters: 252 px of IBM Plex Mono at 12 px, 270 px with its padding and border. It fits, alone on its line. Below a 344 px viewport it would not; no narrower width is designed for.
+
+**What a Binance card says, and why.** Its key line is `key ••••mK4x` and `checked Oct 2, 2026`. Its tags are `reads`, `trade confirmed Oct 2, 2026` and `withdraw confirmed Oct 2, 2026`, and after them the information button. It does not say `trades`. The system DOES trade with that key: `trade_capable` is true, on the owner's word. But decisions 24 and 30 forbid showing a confirmed fact as one the application checked, and `trades` is exactly how a checked Bybit key reads. The one thing Binance itself showed is that the key reads: the signed account read passed. So `reads` is its only filled tag, and the two facts that rest on the owner's word are dashed and say "confirmed", each with the day he gave it.
+
+**"confirmed" is the owner's word and "checked" is the application's.** The card holds the two apart in three ways, and with no sentence: the word itself; the look of the tag, dashed and hollow against filled; and the place of the date, since a confirmation carries its own day and what was checked shares the one date beside the key. `withdraw confirmed` means that the owner confirmed withdrawals are disabled; the card never says `no withdrawal` for it. The explanation is where the owner asks for it, behind the information button (the `InfoDisclosure` built in unit 12f), named "About what you confirmed": "'Confirmed' is what you told this panel on that day. Binance does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, Binance rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting."
 
 **Every state, with its exact EN text.** `{x}` is the exchange's name.
 
-| State | Lines, in order | Amber | Buttons |
-| --- | --- | --- | --- |
-| **Key, verified by the venue, trades** (Bybit) | key line: `key ••••7Q2d · reads and trades · no withdrawal · internal transfers allowed · checked Oct 2, 2026` | nothing | Replace key, Delete key |
-| **Read-only** | mark `read-only`; key line with `reads only`; sentence "This key cannot trade. With dry run off, opening signals for {x} are refused until you add a key that can trade futures." | the mark, the border, the sentence | Replace key, Delete key |
-| **Confirmed by the owner** (Binance) | key line: `key ••••mK4x · reading verified · checked Oct 2, 2026`; the two marks with their dates; the information button | nothing | Replace key, Delete key |
-| **No recorded facts** (`UNRECORDED`) | key line: `key ••••7Q2d · not validated`; both marks, no date; on a served exchange, in `ink-3`: "Stored before the system recorded how a key was checked. Enter it again to have it checked." | nothing | Replace key, Delete key |
-| **Degraded** (no key, a pool on) | mark `no key`; sentence "No key stored. With dry run off, opening signals for {x} are refused until a key is added." | the mark, the border, the sentence | Add key |
-| **Empty** (no key, no pool on: never had one, or deleted) | mark `no key`; sentence "No key stored. Add one to read and trade on {x} from here." | nothing | Add key |
-| **Not served, with a key** (Pionex) | the lines of its state; then, in `ink-3`: "The {x} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here." | only what its state makes amber | none |
-| **Not served, no key** (§ O, Q2) | mark `no key`; "No key stored."; then the same sentence in `ink-3` | amber only if a pool of it is on | none |
+| State | Key line | Tags, in order | Sentences | Amber | Buttons |
+| --- | --- | --- | --- | --- | --- |
+| **Key, checked by the venue, trades** (Bybit) | `key ••••7Q2d`, `checked Oct 2, 2026` | `trades`, `no withdrawal`, `transfers` (or `no transfers`) | none | nothing | Replace key, Delete key |
+| **Read-only** | `key ••••Rf90`, `checked Oct 2, 2026` | `read-only`, `no withdrawal`, `no transfers` | "This key cannot trade. With dry run off, opening signals for {x} are refused until you add a key that can trade futures." | the `read-only` tag, the border, the sentence | Replace key, Delete key |
+| **Confirmed by the owner** (Binance) | `key ••••mK4x`, `checked Oct 2, 2026` | `reads`, `trade confirmed Oct 2, 2026`, `withdraw confirmed Oct 2, 2026`, the information button | none; the information text while it is open | nothing | Replace key, Delete key |
+| **No recorded facts** (`UNRECORDED`) | `key ••••7Q2d`, `not validated` | `trade not verified`, `withdraw not verified` | on a served exchange, in `ink-3`: "Stored before the system recorded how a key was checked. Enter it again to have it checked." | nothing | Replace key, Delete key |
+| **Degraded** (no key, a pool on) | the `no key` tag | none | "No key stored. With dry run off, opening signals for {x} are refused until a key is added." | the `no key` tag, the border, the sentence | Add key |
+| **Empty** (no key, no pool on: never had one, or deleted) | the `no key` tag, grey | none | "No key stored. Add one to read and trade on {x} from here." | nothing | Add key |
+| **Not served, with a key** (Pionex) | as its state | as its state | those of its state; then, in `ink-3`: "The {x} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here." | only what its state makes amber | none |
+| **Not served, no key** (decision 58: it is shown) | the `no key` tag, which is its only second line: there is no hint to show | none | "No key stored."; then the same sentence in `ink-3` | amber only if a pool of it is on | none |
+| **Just saved** (§ F, decision 57) | as its state, or the saved key's hint alone while the list has not been read again | as its state, or none but the `read-only` tag while the list has not been read again | first of all, the notice "Key ending in {last4} saved." | only what its state makes amber | Replace key; Delete key once the list is read |
 
-**Amber, in one line:** the `read-only` mark, the `no key` mark of a degraded exchange, and with each of them the card's border and its sentence. Everything else is neutral: the `no key` mark of an empty exchange (`ink-3`), "not validated", both "not verified" marks, and the not-served sentence. Amber means the owner has something to do; a fact that is merely unverified is state (the spec's words).
+**The no-recorded-facts card stays apart from the confirmed one.** It has no confirmation date, so it cannot say "confirmed": it says `not validated` beside the key, `trade not verified` and `withdraw not verified` as tags, and the sentence that tells what to do, which is to enter the key again. It has no information button. Its two tags are dimmer than a confirmation's (`ink-3` against `ink-2`): both looks are dashed, and the dimmer one is what tells "nothing on record" from "your word". It is still neutral, not amber: the system trades with such a key, and nothing is refused because of it.
 
-**Buttons.** "Add key" is the filled teal button (`bg-gain text-ground`): it is the one thing to do on that card. "Replace key" is outlined (`border-rule`). "Delete key" is outlined in `loss`, as "Delete strategy" is. All are at least 44 px tall. "Add key" and "Replace key" are one element that opens and closes the form: it carries `aria-expanded` and `aria-controls`. While that card's form is open, its "Delete key" is disabled. While any save is in flight, every button of the page is disabled (§ F).
+**Amber, in one line:** the `read-only` tag, the `no key` tag of a degraded exchange, and with each of them the card's border and its sentence. Everything else is neutral: the `no key` tag of an empty exchange (`ink-3`), "not validated", the "confirmed" and the "not verified" tags, and the not-served sentence. Amber means the owner has something to do; a fact that is confirmed, or merely unverified, is state (the spec's words).
 
-**Files that use an amber utility:** `shared/credentials/KeyMark.tsx` (the mark), `features/settings/ExchangeKeyCard.tsx` (the border and the sentence) and `features/settings/KeyEntryForm.tsx` (the read-only warning after a save). All three are "a read-only key" or "a keyless exchange", two of the four places amber is allowed. `AMBER_ALLOWED` gains exactly these three.
+**Buttons.** "Add key" is the filled teal button (`bg-gain text-ground`): it is the one thing to do on that card. "Replace key" is outlined (`border-rule`). "Delete key" is outlined in `loss`, as "Delete strategy" is. All are at least 44 px tall. "Add key" and "Replace key" are one element that opens and closes the form: it carries `aria-expanded` and `aria-controls`, and it is the SAME element under both texts, kept mounted when the text changes, so it can hold the focus across a first save (§ F). It reads "Replace key" when a key is stored or was just saved on this card. While that card's form is open, its "Delete key" is disabled. While any save is in flight, every button of the page is disabled (§ F).
+
+**Files that use an amber utility:** `shared/credentials/KeyMark.tsx` (the mark, as a tab's word and as a card's tag) and `features/settings/ExchangeKeyCard.tsx` (the border and the sentence). Both are "a read-only key" or "a keyless exchange", two of the four places amber is allowed. `AMBER_ALLOWED` gains exactly these two. The form has no amber: since decision 57 the warning of a read-only save is the card's own (§ F).
+
+**The structure a test pins**, because jsdom has no layout (§ K): the facts are a `<ul>` with `flex flex-wrap`; every tag is an `<li>` with `whitespace-nowrap`; the card's text holds no ` · `; for each of trade and withdrawal exactly one tag is in the list; the key hint is a `<p>`, not a heading, with `whitespace-nowrap`; and the card has exactly one heading, its `h3`, while no form is open.
 
 ### E. The tab marks
 
@@ -4657,21 +4689,38 @@ A source value the panel does not know is drawn as not verified. An unknown valu
 
 | The exchange has | Tab |
 | --- | --- |
-| a key that trades | the name alone, as today |
+| a key that trades | the name alone |
 | a key that cannot trade | the name, and under it `read-only` in amber |
 | no key, and a pool that is on | the name, and under it `no key` in amber |
 | no key, and no pool on: **a deleted key**, or an exchange never keyed | the name, and under it `no key` in `ink-3` |
 | anything, while `['credentials']` is loading or failed | the name alone. No mark is a claim of nothing, and never "the key is fine". |
 
+**The name is at the same place in every tab** (decision 55). The first drawing stacked the name and the mark and centred the pair, so a tab with a mark held its name higher than a tab without one. Now every tab, marked or not, holds the same grid, and the mark has a cell of its own:
+
+```tsx
+<button type="button" aria-pressed={selected} className="shrink-0 whitespace-nowrap rounded-md px-3.5 text-sm ...">
+  <span className="grid min-h-13 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center">
+    <span className="row-start-2 leading-5">{exchange}</span>{" "}
+    {mark !== null && <KeyMark mark={mark} className="row-start-3 self-start" />}
+  </span>
+</button>
+```
+
+- **Three rows, and the name is always the middle one.** Rows 1 and 3 are the same track, `minmax(0,1fr)`. Their minimum is zero, so what row 3 holds cannot make it taller than row 1: the two always halve the free height, and row 2 is on the tab's centre line whether row 3 is empty or not. Row 1 is always empty; it is the mirror of the row that holds the mark.
+- **The mark never shares a track with the name**, so it takes no part in placing it. Sideways the two are centred each on its own in the one column: a mark wider than its name widens its tab and leaves the name on the tab's centre.
+- **The grid is a `<span>` inside the button**, as `StatusButton` holds its texts, so nothing depends on how a browser lays out a `<button>` that is itself a grid.
+- **Every tab is 52 px tall** (`min-h-13`), not 44: each outer row is then 16 px, room for the mark's 14 px line (`KeyMark` on a tab: `font-mono text-[11px] leading-3.5 whitespace-nowrap`). The height is on every tab, never only on a marked one. The bar from `lg` is 64 px and does not change. **The tabs' own row on a phone grows from 44 to 52 px**, with marks or without.
+- **The accessible name** is "binance no key": the mark is inside the button, and the space between the two spans is a real text node. A grid does not draw a text node that is only white space, so it changes nothing to the eye.
 - **The tab of a deleted key** stays, because its pool row stays (N3), and reads `no key` in grey, the same as its card. Decision 22 asks for the mark; decision 20 keeps amber for the degraded case; a deleted key has its pool off, so it is not degraded.
-- The mark is `KeyMark`: mono 11 px, under the name, inside the same button. The tab keeps `min-h-11` and its other classes, so the bar's height does not change. Its accessible name becomes "binance no key".
-- The mark is a word, never colour alone.
+- The mark is a word, never colour alone. On a tab it is plain text; on a card the same word is a tag (§ D).
 - Both surfaces of the tabs (the bar from `lg`, the row below it on a phone) get it, because both are the same component.
 - `ExchangeTabs` itself gains no amber class: the mark carries it.
 
+**The structure a test pins** (§ K): every tab's inner `<span>` carries the same three grid classes, with a mark and without one; the name is the element with `row-start-2` in every tab, with one class list everywhere; a mark, when present, has `row-start-3`; a tab without a mark has exactly one element in its grid; and the button's accessible name is the name, a space and the mark.
+
 ### F. The form
 
-**Where.** Inside its card, under the lines and the buttons, spanning the card: a section with a 1 px dashed `rule-strong` border, as in September's mockup. Not a dialog. **One at a time:** the page holds which exchange's form is open, or none. Pressing "Add key" or "Replace key" on another card closes the open one, which unmounts it and empties it. Pressing the button that opened it closes it too.
+**Where.** Inside its card, under the facts and the buttons, spanning the card: a section with a 1 px dashed `rule-strong` border, as in September's mockup. Not a dialog. **One at a time:** the page holds which exchange's form is open, or none. Pressing "Add key" or "Replace key" on another card closes the open one, which unmounts it and empties it. Pressing the button that opened it closes it too.
 
 **Parts, in order.**
 
@@ -4680,7 +4729,7 @@ A source value the panel does not know is drawn as not verified. An unknown valu
 3. Help, `ink-3` 13 px. For an exchange with no confirmations: "Before saving, the key is tried with a real read at {x}. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning." For one with confirmations: "Before saving, the key is tried with a real read at {x}. {x} does not let this panel check what the key may do, so you confirm it here."
 4. Only when a key is stored: "Saving replaces the key stored now, also when the new key cannot trade." This is the panel's one defence against replacing the trading key with a read-only one (CLAUDE.md, "Never seal a read-only key"): the panel cannot know what a key may do before the venue is asked, and by then the old key is superseded.
 5. Only for an exchange with confirmations (Binance): a group titled "What you checked in {x}" with one checkbox per name in the file, both unticked: "I confirmed in {x} that this key has withdrawals disabled" and "I confirmed in {x} that this key has Enable Futures". Under them: "If the key lacks Enable Futures, {x} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting: it rests on your word." (N11)
-6. The refusal, or the read-only warning, when there is one.
+6. The refusal, when there is one.
 7. The buttons: "Check and save" (filled teal) and "Close".
 
 **The fields are uncontrolled.** No `value` and no `defaultValue` prop. The typed text lives in the two elements and nowhere else: not in state, not in a ref's copy, not in a store. Component state holds only: whether each field has text, which boxes are ticked, the phase, and the result of the last attempt as `{ reason, missing, status }`. Why: N13, and because what is not in React state cannot be read from it.
@@ -4695,22 +4744,30 @@ A source value the panel does not know is drawn as not verified. An unknown valu
 
 No attribute stops a browser or a password manager from OFFERING to save what was typed. That is said in § K and § N, and checked by eye.
 
-**The button says the result** (decision 52). It is a `StatusButton` with three texts, so its width never changes:
+**The button.** It is a `StatusButton` with two texts, "Check and save" and "Checking…", so its width never changes. It never reads "Saved": decision 52 is about a button that stays on screen after the save, and by decision 57 this form does not.
 
 | Moment | Button reads | Button is | Elsewhere |
 | --- | --- | --- | --- |
 | A field is empty, or a box is unticked | Check and save | disabled | - |
 | Both fields have text and every box is ticked | Check and save | enabled | - |
 | The request is in flight | Checking… | disabled | "Close" is disabled, and so is every button of every card. The fields are read-only. |
-| It was saved | Saved | disabled, until something is typed or ticked | Both fields are empty and both boxes unticked. The screen reader is told "Key ending in {last4} saved." through the button's hidden status region. The focus moves to "Close". The form stays open (§ O, Q1). |
-| It was saved and the key cannot trade | Saved | the same | Above the buttons, in amber: "Saved, but this key cannot trade. With dry run off, opening signals for {x} are refused until you add a key that can trade futures." |
-| It was refused, or no answer could be read | Check and save | disabled (the fields are empty) | Both fields are empty and both boxes unticked. The text of the table below, in `loss`, with `role="alert"`, followed by "The fields were emptied. Enter the key again to retry." in `ink-3`. The focus moves to "API key". |
+| It was saved | - | - | **The form closes by itself** (decision 57). The card says the result: "After a save that worked", below. |
+| It was refused, or no answer could be read | Check and save | disabled (the fields are empty) | **The form stays open.** Both fields are empty and both boxes unticked. The text of the table below, in `loss`, with `role="alert"`, followed by "The fields were emptied. Enter the key again to retry." in `ink-3`. The focus moves to "API key". |
 
-The refusal stays until the next attempt starts or the form closes; typing does not remove it, so the owner can read it while he types. "Saved" goes at the first key typed or box ticked, with no timer.
+The refusal stays until the next attempt starts or the form closes; typing does not remove it, so the owner can read it while he types.
 
-**The attempt, step by step.** (1) If an attempt is in flight, return: a ref holds that, not only the disabled attribute. (2) Read both fields and trim them. (3) Call `saveCredential`. (4) In `finally`: empty BOTH elements, untick the boxes, clear the two "has text" flags. (5) Unless the form was unmounted meanwhile: record the result, re-read `['credentials']` and `['pools']`, move the focus. The body sent is `{api_key, api_secret}` for Bybit and the same plus the two confirmations as `true` for Binance; no `label`, and for Bybit no confirmation field at all.
+**The attempt, step by step.** (1) If an attempt is in flight, return: a ref holds that, not only the disabled attribute. (2) Read both fields and trim them. (3) Call `saveCredential`. (4) In `finally`: empty BOTH elements, untick the boxes, clear the two "has text" flags. (5) Unless the form was unmounted meanwhile: start the re-read of `['credentials']` and `['pools']`; then, for a save that worked, hand `{ last4, readOnly }` to the page, which closes the form; for anything else, record the result and move the focus to "API key". The body sent is `{api_key, api_secret}` for Bybit and the same plus the two confirmations as `true` for Binance; no `label`, and for Bybit no confirmation field at all.
 
-**The read-only warning after a 200** comes from the answer itself (`warnings` holds `READ_ONLY_KEY`, or `facts.trade_capable` is false), not from the list read after it, because that read can fail. A 200 whose body cannot be read is still a save: the button reads "Saved", the status says "Key saved.", and the card tells the rest.
+**After a save that worked (decision 57).** The form closes at once, on the answer, without waiting for the lists. The page keeps one thing about it, `lastSave`: the exchange, the answer's `last4`, whether the answer said the key cannot trade, and `listStamp`, the `dataUpdatedAt` of `['credentials']` at that moment. `last4` is kept only when it is a string of exactly four characters (§ B's rule); otherwise it is absent. `saveCredential` applies that rule itself, so no `SaveResult` ever holds more of a key than four characters. `readOnly` comes from the answer itself (`warnings` holds `READ_ONLY_KEY`, or `facts.trade_capable` is false), not from the list read after it, because that read can fail. A 200 whose body cannot be read is still a save, with no `last4` and `readOnly` false.
+
+- **What the card shows once the list has been read again** (`dataUpdatedAt` is past `listStamp`): the card of its state (§ D), and as the first line of its facts the notice "Key ending in {last4} saved.", or "Key saved." with no `last4`. It is a plain paragraph in `ink-2`.
+- **What the card shows until then, and when that read fails:** it is drawn from the save's answer, never from the list's old entry. The key line is the SAVED key's hint, with no date; there is no tag but `read-only` when the answer said so; the notice reads "Key ending in {last4} saved. The rest of this card appears when the list has been read again." The key stored before is not drawn at all, so the card can never show the old key as if nothing had happened. When the read failed, § B's line stands above the cards as well, "This list could not be refreshed and may be out of date." with "Try again", and the card stays in this view until a read succeeds.
+- **The read-only warning is the card's own state, and nothing is added to it.** A key that cannot trade makes the card read-only: the amber `read-only` tag, the amber border and the sentence "This key cannot trade. With dry run off, opening signals for {x} are refused until you add a key that can trade futures." While the list is behind, those three are drawn from the answer's `readOnly`; afterwards from the list, as for any read-only key. The tab shows `read-only` once the list is read. The form's own warning text is gone with the form that held it.
+- **Focus.** It goes to the card's toggle, the element that opened the form. For a key that was replaced it reads "Replace key", as before. For a first key it read "Add key" and now reads "Replace key": it is the same element (§ D), and it shows "Replace key" from `lastSave` alone, before the list is read. The page moves the focus explicitly, after the form has left the document; jsdom and a browser would both leave it on the body otherwise. "Delete key" appears when the list is read, and never takes the focus.
+- **What a screen reader is told.** The page has one status region, `role="status"`, hidden from sight and always in the document. On a save it is given "Key ending in {last4} saved.", and for a key that cannot trade the card's read-only sentence after it, so the warning is heard at the moment of the save and not only found later on the card. It is the region that says "{x} key deleted." (§ G). The visible notice is not a live region, so nothing is read twice.
+- **How long the notice stays.** Until the next thing the owner does on the page: opening a form, opening the delete dialog, another save, or leaving. No timer.
+
+**An attempt whose answer could not be read is not a save that worked.** For `noAnswer` and `unknown` (the table below) the form STAYS OPEN, emptied, with its text in `loss`: the owner needs the message, and the key may or may not have been stored. Both lists are read again behind it, so the card above the form shows what is stored now.
 
 **`saveCredential` never throws and never returns the error.**
 
@@ -4743,7 +4800,7 @@ It is a plain function over `apiFetch`, called from a plain handler. **It is not
 | 422, `detail` a list, an entry whose `loc` ends in `api_key` | `invalidKey` | "The API key cannot be stored as typed. A key has 4 to 256 characters and no spaces or accented letters. Nothing was sent to {x}." | - |
 | 422, `detail` a list, an entry whose `loc` ends in `api_secret` (and none for the key) | `invalidSecret` | "The API secret cannot be stored as typed. A secret has at most 256 characters and no spaces or accented letters. Nothing was sent to {x}." | - |
 | 422, `detail` a list, neither | `invalidRequest` | "The server refused the request as malformed, so nothing was saved. Reload the page and enter the key again." | - |
-| no answer (status 0) | `noAnswer` | "No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now." | **The key may have been stored.** The re-read is what tells. |
+| no answer (status 0) | `noAnswer` | "No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now." | **The key may have been stored.** The form stays open; the re-read is what tells. |
 | any other status, a 500 included | `unknown` | "The save ended in a way this panel cannot read (status {status}), so it is not known whether the key was saved. The card shows what is stored now." | The same. |
 | 401 | none | none | The token gate takes the page. |
 
@@ -4765,7 +4822,7 @@ It is a plain function over `apiFetch`, called from a plain handler. **It is not
 
 | Answer | What the owner sees |
 | --- | --- |
-| 200 | The dialog closes. The card is the empty card (§ D). A hidden status region says "{x} key deleted." The focus goes to that card's "Add key". |
+| 200 | The dialog closes. The card is the empty card (§ D). The page's hidden status region (§ F) says "{x} key deleted." The focus goes to that card's "Add key". |
 | 409 `EXCHANGE_NOT_FLAT` | In `loss`, `role="alert"`: "The {x} key cannot be deleted yet. This is in the way:" and the list below. Both buttons stay, so the owner can fix it elsewhere and press "Delete key" again. |
 | 409 whose five lists cannot all be read | "The {x} key cannot be deleted yet: a strategy is still enabled, a position is open or an order is in progress." No list. Never half a list, the rule of `ArchiveDialog`. |
 | 404 | "The server found no {x} key to delete. Close this: the card shows what is stored now." It is not treated as a success: the same status also means "not served". |
@@ -4803,11 +4860,11 @@ The names of the strategies are text, not links: a link would leave a modal dial
 | 9 | The fields, after **Cancel** (here "Close", and the button that opened the form) | The next person at the screen finds them. | Closing unmounts the form. | `::test_closing_the_form_and_opening_it_again_shows_two_empty_fields`. |
 | 10 | The fields, after **leaving the page**, after **switching exchange**, and after a **401 in the middle of a save** | The same. | Each unmounts the form: the route changes, the page's "open form" moves to another exchange, or the token gate replaces the page (N5). After the 401 nothing is recorded, re-read or focused. | `::test_leaving_settings_and_coming_back_shows_no_open_form`; `::test_opening_another_exchange_closes_and_empties_this_one`; `::test_a_401_during_a_save_leaves_the_token_gate_and_nothing_typed`, which unlocks again and finds no form and neither sentinel in the document. |
 | 11 | The network, **twice** | A second request is a second signed read at the venue and a second chance to lose the race for the one active key. | A ref marks the attempt in flight; the button is disabled; `saveCredential` never retries. | `::test_a_second_click_and_an_enter_while_checking_send_nothing`: one PUT. `::test_a_failed_save_is_not_retried`: one PUT. |
-| 12 | **One** of the fields, left filled after an attempt | Half a credential left on screen, and decision 54 says the form is emptied. | `finally` empties both elements, whatever happened. | `::test_both_fields_are_empty_after_every_ending`: the `value` of each is `""`, asserted on both, per ending. Its RED is a `finally` that empties only the secret. |
+| 12 | **One** of the fields, left filled after an attempt | Half a credential left on screen, and decision 54 says the form is emptied. | `finally` empties both elements, whatever happened. | `::test_both_fields_are_empty_after_every_ending`: the `value` of each is `""`, asserted on both, per ending. After a save that worked the form is gone (decision 57), so there the test asserts that neither field is in the document, opens the form again and finds both empty. Its RED is a `finally` that empties only the secret. |
 | 13 | The browser's own stores: saved passwords, form history, a password manager, a spell-check service, a phone keyboard | They are outside the panel and outlive the session. | The attributes of § F. | `::test_the_fields_carry_the_attributes_that_ask_the_browser_to_keep_nothing`, attribute by attribute. **What a browser does with them cannot be tested here** (§ K). |
 | 14 | The page, through the SERVER: a fault that answered a whole key as `last4` | It would be drawn on every card and tab. | A `last4` that is not exactly four characters makes the whole list unreadable (§ B). | `credentials.test.ts::test_a_last4_that_is_not_four_characters_is_refused_and_never_rendered`. |
 | 15 | `localStorage`, `sessionStorage`, a persisted store | They survive the tab. | Nothing typed is ever given to a store. | `::test_no_storage_holds_what_was_typed`. |
-| 16 | A status region or an `aria-label` | It is read aloud. | The status says the last four characters, taken from the SERVER's answer, never cut from what was typed. | `::test_the_saved_status_reads_the_last4_of_the_answer_not_of_the_field`: the answer's `last4` differs from `K`'s ending, and the answer's is what is said. |
+| 16 | A status region or an `aria-label` | It is read aloud. | The status, the card's notice and the hint drawn before the list is read all say the last four characters taken from the SERVER's answer, never cut from what was typed, and only when the answer's `last4` is exactly four characters (§ F). | `::test_the_saved_status_reads_the_last4_of_the_answer_not_of_the_field`: the answer's `last4` differs from `K`'s ending, and the answer's is what is said and drawn. `::test_an_answer_whose_last4_is_not_four_characters_is_said_as_key_saved`: the answer's `last4` is the whole of `K`, and the document holds no `K`. |
 | 17 | The request already sent, when the form is closed or the page left | - | Nothing can call a sent request back. "Close" is disabled while it is in flight, so only leaving the page abandons it, and then the save still happens and the card shows it on the next visit. | `::test_close_is_disabled_while_checking`. The rest is a known limit. |
 | 18 | Transit, and the server's logs | - | Outside this unit. The panel and the admin API are reached over HTTPS through the tunnel of decision 5, which ends TLS before the API (unit 12f's finding U11; **not verified here**). The server's side is pinned already: the redacted 422 and the log test of § K4 and § K5. | none here |
 
@@ -4815,14 +4872,15 @@ JavaScript cannot wipe a string from memory. The rules above end every REFERENCE
 
 ### I. Accessibility and keyboard
 
-- **Structure.** `h1` "Settings" (unchanged, three existing tests find it). `h2` "Exchange keys" with the intro. The cards are a list; each is an `<article>` named by its `h3`, the exchange's name.
-- **Reading order in a card** is the document's order and the visual order: name, mark, key line, mark lines, sentences, "Add key" or "Replace key", "Delete key", then the form.
-- **The key** is read as "key ending in 7Q2d": the dotted text is hidden from assistive technology and a hidden text says it in words.
-- **A mark is a word.** No state is carried by colour alone.
+- **Structure.** `h1` "Settings" (unchanged, three existing tests find it). `h2` "Exchange keys" with the intro. The cards are a list; each is an `<article>` named by its `h3`, the exchange's name. The key hint is a paragraph (§ D), so it adds no level: the order stays `h1`, `h2`, `h3`, and `h4` for an open form's title.
+- **Reading order in a card** is the document's order: name, key hint, date (or the `no key` tag), the notice of a save, the tags, the information button, the sentences, "Add key" or "Replace key", "Delete key", then the form. On a phone that is also the visual order. From `sm` the buttons are DRAWN beside the head and stay after the facts in the document, so the information button, the one control among the facts, is reached before them although it is drawn lower. It is kept that way on purpose: the other order would put the buttons between the key and its tags on a phone, and the buttons belong beside the form they open.
+- **The key** is read as "key ending in 7Q2d": the label, the dots and the characters are hidden from assistive technology and a hidden text says it in words.
+- **The tags are a list**, named "What is known about this key", and each tag is text. What tells a confirmed fact from a checked one for the eye is the tag's look; for a screen reader it is the tag's own words, "confirmed" with its date against the bare fact. Nothing is said by the look alone.
+- **A mark is a word.** No state is carried by colour alone. On a tab the mark is part of the button's name: "binance no key" (§ E).
 - **Buttons are named with their exchange:** each is labelled by its own text and the card's heading ("Replace key Bybit"), so a list of buttons is not three times "Replace key". The visible text stays the start of the name.
 - **The form.** A section named by its title. Each field has a `<label>`; both are described by the help text. The confirmations are a `<fieldset>` with a `<legend>`; each box is a real checkbox with its label, 44 px tall. Enter in a field submits, through a `<form noValidate>` whose handler prevents the native submission.
-- **Focus.** Opening the form puts the focus in "API key". Closing it, by "Close" or by the button that opened it, returns the focus to that button. After a refusal the focus goes to "API key", where the owner types next. After a save it goes to "Close". There is no Escape on the form: it is not a dialog, and Escape is the key a browser uses to dismiss its own suggestions over a field.
-- **What a screen reader is told.** A refusal is a `role="alert"`, so it is read when it appears. "Saved" is said through the `StatusButton`'s hidden region, as "Key ending in 7Q2d saved." The read-only warning is a visible `role="status"`. While the request is in flight the button's own text, "Checking…", is its name.
+- **Focus.** Opening the form puts the focus in "API key". Closing it, by "Close" or by the button that opened it, returns the focus to that button. After a refusal the focus goes to "API key", where the owner types next. After a save that worked the form closes and the focus goes to the card's toggle, the element that opened it, which then reads "Replace key" (§ F). There is no Escape on the form: it is not a dialog, and Escape is the key a browser uses to dismiss its own suggestions over a field.
+- **What a screen reader is told.** A refusal is a `role="alert"`, so it is read when it appears. A save that worked is said through the page's hidden status region, as "Key ending in 7Q2d saved.", followed by the card's read-only sentence when the key cannot trade (§ F). The card's visible notice is not a live region. While the request is in flight the button's own text, "Checking…", is its name.
 - **The dialog.** `aria-labelledby` its title. "Cancel" is first in the document, so it has the focus when the dialog opens: the safe button. Escape cancels, except while deleting. Closing returns the focus to "Delete key"; after a delete that worked, "Delete key" is gone, so the focus goes to the card's "Add key". jsdom restores no focus by itself, so the control does it explicitly.
 - **Targets** are at least 44 px. **Focus rings** are the panel's own.
 - **Dates** are UTC days in the panel's language, through `dayText`.
@@ -4843,21 +4901,25 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 | `settings.keys.retry` | Try again |
 | `settings.keys.stale` | This list could not be refreshed and may be out of date. |
 | `settings.keys.poolsUnknown` | The pools could not be loaded, so an exchange without a key is not marked here. |
-| `settings.card.keyMasked` | key ••••{{last4}} |
+| `settings.card.keyLabel` | key |
 | `settings.card.keyEnding` | key ending in {{last4}} |
-| `settings.card.readsAndTrades` | reads and trades |
-| `settings.card.readsOnly` | reads only |
-| `settings.card.readingVerified` | reading verified |
-| `settings.card.noWithdrawal` | no withdrawal |
-| `settings.card.internalTransfer` | internal transfers allowed |
-| `settings.card.noInternalTransfer` | no internal transfers |
 | `settings.card.checkedOn` | checked {{date}} |
 | `settings.card.notValidated` | not validated |
-| `settings.card.tradeNotVerified` | trade not verified |
-| `settings.card.withdrawNotVerified` | withdraw not verified |
-| `settings.card.confirmedOn` | you confirmed on {{date}} |
-| `settings.card.notVerifiedInfo` | About what is not verified |
-| `settings.card.notVerifiedHint` | {{exchange}} does not let this panel check what a key may do. Orders are sent on your confirmation. If the key cannot trade futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting. |
+| `settings.card.facts` | What is known about this key |
+| `settings.card.tag.trades` | trades |
+| `settings.card.tag.reads` | reads |
+| `settings.card.tag.noWithdrawal` | no withdrawal |
+| `settings.card.tag.transfers` | transfers |
+| `settings.card.tag.noTransfers` | no transfers |
+| `settings.card.tag.tradeConfirmed` | trade confirmed {{date}} |
+| `settings.card.tag.withdrawConfirmed` | withdraw confirmed {{date}} |
+| `settings.card.tag.tradeNotVerified` | trade not verified |
+| `settings.card.tag.withdrawNotVerified` | withdraw not verified |
+| `settings.card.confirmedInfo` | About what you confirmed |
+| `settings.card.confirmedHint` | "Confirmed" is what you told this panel on that day. {{exchange}} does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting. |
+| `settings.card.saved` | Key ending in {{last4}} saved. |
+| `settings.card.savedNoHint` | Key saved. |
+| `settings.card.savedPending` | The rest of this card appears when the list has been read again. |
 | `settings.card.unrecordedHint` | Stored before the system recorded how a key was checked. Enter it again to have it checked. |
 | `settings.card.readOnly` | This key cannot trade. With dry run off, opening signals for {{exchange}} are refused until you add a key that can trade futures. |
 | `settings.card.degraded` | No key stored. With dry run off, opening signals for {{exchange}} are refused until a key is added. |
@@ -4875,10 +4937,7 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 | `settings.form.confirm.withdrawals_disabled_confirmed` | I confirmed in {{exchange}} that this key has withdrawals disabled |
 | `settings.form.confirm.futures_enabled_confirmed` | I confirmed in {{exchange}} that this key has Enable Futures |
 | `settings.form.confirm.help` | If the key lacks Enable Futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting: it rests on your word. |
-| `settings.form.submit` · `.submitting` · `.saved` · `.close` | Check and save · Checking… · Saved · Close |
-| `settings.form.savedStatus` | Key ending in {{last4}} saved. |
-| `settings.form.savedStatusNoHint` | Key saved. |
-| `settings.form.readOnlySaved` | Saved, but this key cannot trade. With dry run off, opening signals for {{exchange}} are refused until you add a key that can trade futures. |
+| `settings.form.submit` · `.submitting` · `.close` | Check and save · Checking… · Close |
 | `settings.form.emptied` | The fields were emptied. Enter the key again to retry. |
 | `settings.form.error.*` | the fifteen texts of § F's table, under the keys it names |
 | `settings.delete.confirmTitle` | Delete the {{exchange}} key? |
@@ -4892,18 +4951,45 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 | `settings.delete.errors.unknown` | The delete ended in a way this panel cannot read. Close this: the card shows whether the key is still stored. |
 | `settings.delete.reasons.*` | the nine texts of § G's table: `enabledStrategies`, `allocations`, `liveReservations` and `inFlightAttempts` each `_one` and `_other`, and `symbols` |
 
-`settings.title` exists and does not change. The three keys September named under `settings.key.*` and `settings.card.confirmedOn` are replaced by the names above; none was ever built.
+`settings.title` exists and does not change. The three keys September named under `settings.key.*` and `settings.card.confirmedOn` are replaced by the names above; none was ever built. Decision 55 removed `keyMasked`, `readsAndTrades`, `readsOnly`, `readingVerified`, `internalTransfer`, `noInternalTransfer`, `confirmedOn`, `notVerifiedInfo` and `notVerifiedHint`; decision 57 removed `settings.form.saved`, `.savedStatus`, `.savedStatusNoHint` and `.readOnlySaved`. None of them was built either.
 
-**EN texts that will be awkward in Spanish, to settle when they are written:**
+**The marks, the tags and the texts that changed, in both languages.** These are short, sit in a narrow place and were chosen at their Spanish length, so their Spanish is fixed here and not at build time.
 
-- **"key".** `es.json` has no word for it yet. "Clave" (as in "clave de API") is the usual one; it must be one word everywhere, tab mark included ("sin clave").
-- **"trade not verified", "withdraw not verified", "reading verified".** Three clipped labels that English builds from bare nouns. Spanish needs a choice of form that reads as a trio, for example "lectura verificada", "operar sin verificar", "retiro sin verificar".
-- **"you confirmed on {{date}}".** The locale says "usted", so a literal "usted confirmó el…" is heavy on a mark line; "confirmado por usted el {{date}}" is one way out.
+| Key | EN | ES |
+| --- | --- | --- |
+| `scope.mark.readOnly` | read-only | solo lectura |
+| `scope.mark.noKey` | no key | sin clave |
+| `settings.card.keyLabel` | key | clave |
+| `settings.card.keyEnding` | key ending in {{last4}} | clave terminada en {{last4}} |
+| `settings.card.checkedOn` | checked {{date}} | comprobada el {{date}} |
+| `settings.card.notValidated` | not validated | sin validar |
+| `settings.card.facts` | What is known about this key | Lo que se sabe de esta clave |
+| `settings.card.tag.trades` | trades | opera |
+| `settings.card.tag.reads` | reads | lee |
+| `settings.card.tag.noWithdrawal` | no withdrawal | sin retiros |
+| `settings.card.tag.transfers` | transfers | transfiere |
+| `settings.card.tag.noTransfers` | no transfers | sin transferencias |
+| `settings.card.tag.tradeConfirmed` | trade confirmed {{date}} | operar: confirmado el {{date}} |
+| `settings.card.tag.withdrawConfirmed` | withdraw confirmed {{date}} | retiros: confirmado el {{date}} |
+| `settings.card.tag.tradeNotVerified` | trade not verified | operar: sin verificar |
+| `settings.card.tag.withdrawNotVerified` | withdraw not verified | retiros: sin verificar |
+| `settings.card.confirmedInfo` | About what you confirmed | Sobre lo que confirmaste |
+| `settings.card.confirmedHint` | (the text above) | «Confirmado» es lo que le indicaste a este panel ese día. {{exchange}} no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con tu confirmación. Si la clave no puede operar futuros, {{exchange}} rechaza la primera orden real y recibes una alerta de Telegram. Nada comprueba el ajuste de retiros. |
+| `settings.card.saved` | Key ending in {{last4}} saved. | Clave terminada en {{last4}} guardada. |
+| `settings.card.savedNoHint` | Key saved. | Clave guardada. |
+| `settings.card.savedPending` | The rest of this card appears when the list has been read again. | El resto de esta tarjeta aparece cuando la lista se haya leído de nuevo. |
+
+- **The abbreviations** (decision 55 asks for the shortest text). `trades` for "reads and trades": a key that trades was read first. `reads` for "reading verified". `transfers` and `no transfers` for "internal transfers allowed" and "no internal transfers": on a key's card, beside `no withdrawal`, a transfer is one inside the account. `read-only` for "reads only": it is the mark's own word, said once.
+- **Spanish uses a colon where English sets two words side by side.** "operar confirmado" is not Spanish, and "operación confirmada" would read as one of the panel's "operaciones", a trade. So the fact is named and then its state: `operar: confirmado el 2 oct 2026`, `retiros: sin verificar`. The pair stays parallel across the two states.
+- **Lengths.** The longest mark is `solo lectura`, 12 characters, about 79 px under a tab's name; three marked tabs are about 290 px and fit the 328 px of a 360 px phone's row, and a longer list scrolls sideways, as today. The longest tag is in § D.
+- **A date in a tag has no "on" in English and keeps "el" in Spanish.** It is `dayText`'s medium date in both.
+
+**EN texts that will be awkward in Spanish, to settle when the rest are written:**
+
 - **"Enable Futures".** It is the name of a setting on Binance's own page, and Binance's Spanish page names it differently. The text should name what the owner will actually see there, which depends on the language he uses Binance in.
 - **"With dry run off".** The locale's word for dry run is "Modo simulación", so the phrase is longer in Spanish and comes twice in one text.
 - **"it rests on your word".** An idiom; say it plainly in Spanish.
 - **The lines of § G that end "Disable it first" / "Disable them first", "It ends…" / "They end…".** They agree in number and, in Spanish, in gender with the noun before them. The `_one` and `_other` keys carry that; the two sentences of each line stay in ONE key.
-- **"read-only"** as a mark: "solo lectura", which also fits under a tab's name.
 
 ### K. Test strategy
 
@@ -4918,17 +5004,17 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 | `frontend/src/test/harness.tsx` | The argument, the default, the two builders, `unexpected`. |
 | `frontend/src/shared/api/client.test.ts` | New cases for `responseBody`; none changed. |
 | `frontend/src/shared/layout/ExchangeTabs.test.tsx` | The test at lines 49-57 keeps "no tabs on `/settings`" and loses "never asks for pools" (N4). New: one case per row of § E, in both surfaces. |
-| `frontend/src/features/overview/panel-tokens.test.ts` | `AMBER_ALLOWED` gains three files (§ D). |
+| `frontend/src/features/overview/panel-tokens.test.ts` | `AMBER_ALLOWED` gains two files (§ D). |
 | `frontend/src/app/router.test.tsx`, `frontend/src/app/App.test.tsx`, `frontend/src/shared/layout/AppShell.test.tsx` | Expected to need nothing: they find the `h1` "Settings", which stays, and the default answers the new reads. To be confirmed by running them, not assumed. |
 | the tests of `StatusButton`, `InlineStatus`, `InfoDisclosure`, and every file that imports the three | Moved or re-pointed by unit 13.0 (§ L). No assertion changes. |
 
-**New test files.** `shared/api/credentials.test.ts` (the row check, the mapping of § F answer by answer, the five lists); `shared/credentials/key-state.test.ts` (a table: every row of § B, and the list's order); `features/settings/SettingsPage.test.tsx` (the page's states, the list, one form at a time); `ExchangeKeyCard.test.tsx` (every row of § D, text by text, and which are amber); `KeyEntryForm.test.tsx` (the button's states, the confirmations, every answer's text, the focus, the re-reads); `KeyEntryForm.secret.test.tsx` (§ H); `DeleteKeyDialog.test.tsx` and `DeleteKeyControl.test.tsx` (§ G); and the backend's `test_served_exchanges_fixture.py` (§ B).
+**New test files.** `shared/api/credentials.test.ts` (the row check, the mapping of § F answer by answer, the five lists); `shared/credentials/key-state.test.ts` (a table: every row of § B, and the list's order); `features/settings/SettingsPage.test.tsx` (the page's states, the list, one form at a time, and the end of a save that worked: the form gone, the notice, the status region, the focus on the toggle, and the card while the list is behind and when its read fails); `ExchangeKeyCard.test.tsx` (every row of § D, tag by tag, with each tag's look, which are amber, and the structure § D pins); `KeyEntryForm.test.tsx` (the button's states, the confirmations, every answer's text, the focus, the re-reads, and that the form stays open for every answer that is not a save); `KeyEntryForm.secret.test.tsx` (§ H); `DeleteKeyDialog.test.tsx` and `DeleteKeyControl.test.tsx` (§ G); and the backend's `test_served_exchanges_fixture.py` (§ B).
 
 **Rules that bind the task breakdown.**
 
-- **Strict TDD: each RED fails on an assertion.** The stubs that compile and answer wrongly: a `keyState` that always answers "key"; a `KeyMark` that always renders nothing; a card that prints "reads and trades" for every stored key (so the Binance test fails on its text, and "never no withdrawal" fails on its assertion); a form whose fields are controlled and whose `finally` empties only the secret (§ H rows 4 and 12); a `saveCredential` that returns the server's `detail` as its text (row 5); a dialog that sends the delete on the click that opened it.
+- **Strict TDD: each RED fails on an assertion.** The stubs that compile and answer wrongly: a `keyState` that always answers "key"; a `KeyMark` that always renders nothing; a card that prints `trades` and `no withdrawal` for every stored key (so the Binance test fails on its text, and "never no withdrawal" fails on its assertion); a card that prints `trade not verified` beside `trade confirmed {date}` (so "one phrase per fact" fails on its count); a tab that puts its mark in the name's row; a page that keeps the form open after a 200, and one that closes it and leaves the focus on the body; a card that draws the list's old entry while the list is behind; a form whose fields are controlled and whose `finally` empties only the secret (§ H rows 4 and 12); a `saveCredential` that returns the server's `detail` as its text (row 5); a dialog that sends the delete on the click that opened it.
 - **The tests that pass at once are proven by breaking what they guard**: "no mutation cache entry" (wrap the save in `useMutation` and watch it go red), "nothing in the console" (add one `console.error(error)`), "no storage" (write the key to `sessionStorage`), "a second click sends nothing" (remove the ref and the disabled attribute).
-- **The names worth keeping from the old tasks**, re-homed: `test_no_exchange_tabs_lists_every_exchange`, `test_owner_confirmed_key_shows_trade_not_verified_and_withdraw_not_verified_with_confirm_dates_and_never_no_withdrawal`, `test_not_verified_marks_are_neutral_not_amber`, `test_unrecorded_key_shows_not_validated_and_both_marks`, `test_card_never_renders_a_raw_permissions_payload`, `test_bybit_form_shows_no_confirmation_checkboxes_and_sends_none`, `test_binance_submit_sends_both_confirmations_true`, `test_delete_requires_explicit_confirmation_not_single_click`, `test_confirmed_successful_delete_shows_same_empty_state_as_never_configured`.
+- **The names worth keeping from the old tasks**, re-homed: `test_no_exchange_tabs_lists_every_exchange`, `test_owner_confirmed_key_shows_trade_confirmed_and_withdraw_confirmed_with_their_dates_and_never_not_verified_nor_no_withdrawal`, `test_confirmed_and_not_verified_tags_are_neutral_not_amber`, `test_unrecorded_key_shows_not_validated_and_both_not_verified_tags_and_never_confirmed` (the three renamed by decision 55), `test_card_never_renders_a_raw_permissions_payload`, `test_bybit_form_shows_no_confirmation_checkboxes_and_sends_none`, `test_binance_submit_sends_both_confirmations_true`, `test_delete_requires_explicit_confirmation_not_single_click`, `test_confirmed_successful_delete_shows_same_empty_state_as_never_configured`.
 - **No lock-hold harness applies.** The unit adds no lock and no second actor; the server's race is tested where it lives (PR 8b-2).
 - **No symbol crosses a module boundary here.** The symbols of a refused delete are printed as sent.
 - **Both languages.** Every new key exists in both files, and one test renders the page, an open form and an open dialog in Spanish and finds no English text of § J.
@@ -4936,7 +5022,8 @@ Every text is a key in `en.json` and `es.json`. `{{exchange}}` is the proper nam
 **What jsdom cannot show**, and the review by eye must:
 
 - What a browser does with the fields: whether it offers to save the key and the secret as a login, whether it fills a saved password into the secret, whether it offers a generated password because of `new-password`. Chrome and Firefox, and the owner's password manager if he uses one. **If a browser offers to save, the answer is "never for this site"**; no attribute removes the offer.
-- The layout: the key line wrapping at each width, the buttons going under the text on a phone, the tab's mark under its name, the height of the top bar unchanged.
+- The layout: the tags wrapping as whole tags at each width and in both languages, the date going under the hint whole, the buttons going under the facts on a phone, the name at the same height in every tab with a mark and without one, the top bar's height unchanged from `lg`, and the tabs' own row 52 px tall on a phone. The tests pin the STRUCTURE that makes these true (§ D, § E); only the eye sees the result.
+- That a tag's look reads as intended: filled for what was checked, dashed for what the owner confirmed, dashed and dimmer for what is not on record.
 - The focus ring, the native dialog's backdrop and its own focus return, and that 44 px is 44 px.
 - What a screen reader says, and in what order, after a refusal that also moves the focus.
 - The panel's fonts and its Content-Security-Policy with the built bundle served.
@@ -4952,7 +5039,7 @@ Each unit is one or more commits that can be reverted without the ones before it
 | **13.2** | `shared/api/credentials.ts`; the served list and its backend test; the harness default (§ B, § F's function, § K) | no credentials client; nothing renders from it yet | about 330 | about 800 |
 | **13.3** | `key-state.ts`, `KeyMark`, the tab marks, their texts (§ B, § E) | tabs with no marks, as today | about 200 | about 520 |
 | **13.4** | The page and the cards, with no button (§ D) | the stub page | about 420, and about 120 of texts | about 900 |
-| **13.5** | The form, and "Add key" and "Replace key" (§ F, § H) | cards that only show | about 380, and about 90 of texts | about 1,500 |
+| **13.5** | The form, "Add key" and "Replace key", and the end of a save on the page and its card: the notice, the status region, the focus, the card while the list is behind (§ F, § H) | cards that only show | about 380, and about 90 of texts | about 1,500 |
 | **13.6** | "Delete key" and its dialog (§ G) | no delete; the form still works | about 260, and about 60 of texts | about 650 |
 
 **Two sequential PRs, never stacked, split by what they can do and not by size.**
@@ -4962,7 +5049,7 @@ Each unit is one or more commits that can be reverted without the ones before it
 
 One PR for all of it is possible: the panel is not served in production, and nothing here deploys in an order. The split is recommended because 13a can merge while the form is still under the owner's eye.
 
-**Forecast, as information only.** About 1,900 lines of production code and texts and about 4,500 of tests: **4,500 to 7,000 authored lines** in all, 13a about 2,500 to 3,800 and 13b about 2,000 to 3,200. September's tasks said 900 to 1,300 for the same page. This is four to five times that, which is where the recent units of this panel ended up against their own forecasts, and the upper end is the likelier one: § H alone is some twenty tests that run once per ending. `Decision needed before apply: Yes` (§ O, and the prototype) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
+**Forecast, as information only.** About 1,900 lines of production code and texts and about 4,500 of tests: **4,500 to 7,000 authored lines** in all, 13a about 2,500 to 3,800 and 13b about 2,000 to 3,200. September's tasks said 900 to 1,300 for the same page. This is four to five times that, which is where the recent units of this panel ended up against their own forecasts, and the upper end is the likelier one: § H alone is some twenty tests that run once per ending. `Decision needed before apply: Yes` (the owner's review of the revised prototype; § O holds no open question) · `Chained PRs recommended: Yes` · `400-line budget risk: High`.
 
 **Design decisions made here** (not owner decisions; each has its reason above):
 
@@ -4972,7 +5059,7 @@ One PR for all of it is possible: the panel is not served in production, and not
 | S2 | `ApiError` gains `responseBody`; nothing else of it moves | Widening `fields`; restructuring the routes' bodies | C |
 | S3 | The page lists the served exchanges, then every other with a key row, then every other with a pool | The credentials list alone (no place for "Add key"); the pools alone (N1) | B |
 | S4 | One pure function gives the state and the mark to both the card and the tab | Each deciding for itself | B, E |
-| S5 | A Binance key's first line says "reading verified", and never "reads and trades" | "reads and trades" (a confirmed fact shown as verified); "reads" alone (reads like "reads only") | D |
+| S5 | A Binance key's one filled tag is `reads`, and never `trades` | `trades` (a confirmed fact shown as checked); no filled tag at all (the date beside the key would then say "checked" about nothing). `reads` alone was rejected in the first drawing because it read like "reads only"; as a tag beside `trade confirmed {date}` it no longer does, and a key that only reads has its own amber tag | D |
 | S6 | An unknown source value is drawn as not verified | Drawing it as the nearest known value | D |
 | S7 | The form is inside its card, one open at a time, and its fields are uncontrolled | A dialog; controlled fields (N13) | F |
 | S8 | The save is a plain function that never throws and never keeps the error | `useMutation` | F |
@@ -4983,6 +5070,14 @@ One PR for all of it is possible: the panel is not served in production, and not
 | S13 | A 404 on a delete is said, not treated as done | Closing the dialog as a success | G |
 | S14 | The three shared idioms move to `shared/ui/` | A feature importing from another feature | L |
 | S15 | The harness answers `GET /credentials` by default with a key that trades for every exchange, never answers a write, and records what it rejected | No default (R6) | K |
+| S16 | A tab is a three-row grid with the name in the middle row and the mark in the third; the two outer rows are one `minmax(0,1fr)` track | A stacked pair centred together (the first drawing: the mark moved the name); a mark taken out of the flow with `absolute` (it would not widen its tab and would run over the next one); a row kept free under every name (the name would sit above the centre when no tab has a mark) | E |
+| S17 | The facts are tags in a wrapping list, with no separator character | The dotted run of the first drawing (it breaks anywhere and can start a line with a dot); a table of facts (taller, and empty cells for what an exchange does not report) | D |
+| S18 | The key hint is a large paragraph, not a heading, and the date stands beside it | An `h4` (a heading with nothing filed under it, and a second name for the card); the hint inside the `h3` (every button would be named with the key); the date as a tag (it would date the owner's confirmations too) | D |
+| S19 | Three looks of a tag: filled for checked, dashed for confirmed, dashed and dimmer for not on record | One look and the difference in the words alone; a visible label over each group (text the owner asked to cut) | D |
+| S20 | A confirmation with no date is drawn as not verified | "confirmed" with no day | D |
+| S21 | After a save the form closes on the answer, and the card is drawn from the answer until the list is read again | Waiting for the lists before closing (a read that never answers would hold the form open on a save that worked); drawing the list's old entry meanwhile (the old key shown as if nothing had happened) | F |
+| S22 | One hidden status region on the page says a save and a delete; the card's notice is a plain paragraph | A live region per card (the notice read twice); the button's own text (decision 57 leaves no button) | F, G |
+| S23 | The form's second button stays "Close" | "Cancel": after an attempt whose answer could not be read it would read as undoing a save that may have happened | F |
 
 ### M. What stays as designed in September, and what does not
 
@@ -4990,14 +5085,14 @@ One PR for all of it is possible: the panel is not served in production, and not
 
 - One key per exchange, and one card per exchange. Settings has no exchange tabs.
 - The intro text, word for word.
-- The mono key line: last four, capability, withdrawal, the date. "reads and trades", "reads only", "no withdrawal", "not validated".
-- "trade not verified" and "withdraw not verified", each with "you confirmed on {date}", neutral and not amber. Never "no withdrawal" for a confirmed key.
+- What a card says of a key, in mono: the last four, the capability, the withdrawal fact, the date. "no withdrawal", "not validated".
+- "trade not verified" and "withdraw not verified" for a fact with nothing on record, and the owner's confirmation with its date, all neutral and not amber. Never "no withdrawal" for a confirmed key.
 - The three renderings: neutral, read-only in amber, degraded in amber; and the amber border with its sentence. The read-only and the degraded sentences, which now say "opening signals", as the spec does.
 - "Add key", "Replace key", "Delete key". "Delete key" only where a key is active.
 - The form inline, with a dashed `rule-strong` border, not a dialog. "API key", "API secret". "Check and save".
 - For Binance only, two checkboxes, unticked, the button disabled until both are ticked, both sent as `true`. Bybit shows none and sends none.
 - The submit by a plain handler, not `useMutation`. The fields emptied in `finally`, whatever happened. Nothing logged.
-- The read-only warning after a 200.
+- The read-only warning after a 200, taken from the answer and not from the list.
 - The 409's reasons rendered in the delete dialog, in `loss`. After a delete, the same card as an exchange never keyed.
 - `['credentials']`, also read by the exchange tabs, re-read after a save or a delete.
 - Amber only where it is allowed, with a test that lists the files.
@@ -5008,14 +5103,19 @@ One PR for all of it is possible: the panel is not served in production, and not
 | September | Now | Why |
 | --- | --- | --- |
 | The delete is confirmed by "an explicit confirmation" | a plain button in a dialog | decision 54 |
-| Pionex is one more card | no Replace, no Delete, one sentence | decision 54, decision 31 |
+| Pionex is one more card | no Replace, no Delete, one sentence; shown also when it has no key | decisions 54, 31 and 58 |
 | The page title is "Exchange keys" | `h1` "Settings", `h2` "Exchange keys" | The `h1` is found by three existing tests and names the route in the navigation |
 | `autoComplete="off"` on both fields | `off` on the key, `new-password` on the secret, no `name`, no spell check | Browsers ignore `off` on a password field |
 | Local component state for the fields | no state: uncontrolled fields | N13, and § H row 3 |
 | "a 422/502/409 shows the outcome's i18n reason" | a text for every answer, the unknown ones included | R5 |
-| The Binance key line reads as before, with marks | "reading verified" | S5 |
+| The Binance key line reads as before, with marks | its one filled tag is `reads` | S5 |
+| One mono key line, its parts joined by dots | the last four as a large line beside the name and the buttons, the facts as tags under it | decision 55, S17, S18 |
+| "reads and trades", "reads only", "internal transfers allowed", "no internal transfers" | `trades`, `read-only`, `transfers`, `no transfers` | decision 55: the shortest text |
+| "trade not verified" and "withdraw not verified", each with "you confirmed on {date}" | `trade confirmed {date}` and `withdraw confirmed {date}`; "not verified" only when nothing is on record | decision 55: one phrase per fact |
+| A tab's mark under its name, the pair centred | the name on the tab's centre line in every tab, the mark in a row of its own | decision 55, S16 |
+| The read-only warning of a save, in the form | on the card, as its read-only state | decision 57: the form closes after a save |
 | "If a confirmation is wrong, Binance rejects the first live order" | true of Enable Futures only, and said so | N11 |
-| "Cancel" in the form | "Close" | After a save "Cancel" would read as undoing it. One word, and no button whose text changes. |
+| "Cancel" in the form | "Close" | After an attempt whose answer could not be read, "Cancel" would read as undoing a save that may have happened (S23). One word, and no button whose text changes. |
 | A tab stacks the name over a pool summary | the name alone, with a mark only when there is one | N10: the summary was never built and is not part of this unit |
 | `settings.key.*` keys | `settings.form.*` | One name for the form everywhere; none was built |
 | Binding and expiry on the card (§ 15) | not shown | The addendum "key policy" already dropped them: they are not stored |
@@ -5029,7 +5129,9 @@ One PR for all of it is possible: the panel is not served in production, and not
 | Failure | Where it shows |
 | --- | --- |
 | A save whose answer never arrived stored the key | The form says it does not know, and the card is read again (S10). |
-| A read-only key replaced the trading key | Said before, in the form ("Saving replaces…"), and after, in amber, in the form, on the card and on the tab. On the server: one WARNING per refused opening signal, as today. **It cannot be prevented from the panel:** what a key may do is known only once the venue is asked, and the save is the asking. A check-only call would need a new route; it is not designed here. |
+| A read-only key replaced the trading key | Said before, in the form ("Saving replaces…"), and after, in amber, on the card (from the save's own answer, so also when the list is not read again) and on the tab, and said to a screen reader at the save. On the server: one WARNING per refused opening signal, as today. **It cannot be prevented from the panel:** what a key may do is known only once the venue is asked, and the save is the asking. A check-only call would need a new route; it is not designed here. |
+| A save worked, the form closed, and the list was not read again or its read failed | The card is drawn from the save's answer and says the rest is not read yet; the old key is not drawn. A failed read adds the line above the cards (§ F). |
+| The form closes and nothing takes the focus | The page puts it on the card's toggle, and a test asserts the active element (§ F). |
 | The credentials read fails behind a page that still has data | A line above the cards. |
 | The pools read fails | A line above the cards, and no exchange is called degraded on a guess. |
 | The panel's list of served exchanges drifts from the server's | A backend test fails at the gate. |
@@ -5048,22 +5150,43 @@ One PR for all of it is possible: the panel is not served in production, and not
 - **What production holds**: whether it has a Binance pool row (N2), whether its keys are still `UNRECORDED` (N8), whether a Pionex key is stored (decision 54 says this is not known). The design covers every case.
 - **That the panel is still not served in production** (unit 12f's finding U9). If it now is, the first save from the panel is a production act, and the owner's review of PR 13b comes before it.
 - **The tunnel's TLS** (§ H row 18).
+- **That `dataUpdatedAt` moves on every successful read of `['credentials']`**, also when the data read is equal to what was held (§ F's `listStamp`). From memory of TanStack Query, not run. If it does not, the card would stay in its "not read again" view after a read that changed nothing; the test of unit 13.5 that re-reads an identical list settles it on its first day.
+- **The Tailwind 4 spellings** `min-h-13`, `leading-3.5` and `grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)]` (§ E). From memory, not built here. The values they stand for are 52 px, 14 px and three rows; a different spelling changes nothing of the design.
+- **The widths of § D and § J** are arithmetic on IBM Plex Mono's advance, not a measurement. The prototype is drawn with the reviewer's system fonts, which are narrower, so a line may wrap one tag later there than in the built panel.
 
 **Other risks.**
 
+- **A short "confirmed" tag can still be read as the application's own check.** Decision 55 asked for "trade confirmed on…" with no "you" in it, and for no explaining sentence on the card. What holds the two apart is the dashed look, the confirmation's own date and the information button. If the owner's review finds that is not enough, the fix is one word, "you confirmed", at the cost of length.
+- **"withdraw confirmed" names the fact and not its direction.** What the owner confirmed is that withdrawals are DISABLED; the tag can be read as "withdrawal allowed, confirmed". It is the owner's own wording, and the card may not say "no withdrawal" for a confirmed key (decisions 24 and 30). The Spanish `retiros: confirmado` carries the same doubt.
+- **`transfers` and `no transfers` drop the word "internal".** Beside `no withdrawal` it reads as a movement inside the account; alone it could be read as any transfer.
+- **The tabs' row on a phone is 8 px taller**, for every exchange and at all times, so that a mark has room under a centred name.
 - A password manager that fills the "API key" field with a saved user name. The attributes ask it not to; if it does, the owner sees it before he presses the button, and the venue refuses the key.
 - The forecast. It is four to five times September's, and it may still be low.
 - The move of unit 13.0 touches files of a feature that was reviewed by eye this week. It is import paths only, and its own commit.
 
-### O. Questions for the owner
+### O. Questions for the owner (both answered)
 
-Only what no decision settles and the owner will see. Both are drawn in the prototype.
+The two questions no decision settled when this addendum was written. The owner answered both on 2026-10-10; none is open.
 
 **Q1. After a save that worked, does the form stay open or close by itself?**
-Recommended: **it stays open**, empty, and its button reads "Saved" until something is typed, as "Save share" does (decision 52); the card above it already shows the new key, and "Close" closes it. This keeps the result where the owner's eyes are, and gives the read-only warning a place beside the button that caused it. If the answer is the other one: the form closes on a save, the card alone shows the result, and "Saved" has no button to be written on, so a save is confirmed only by the card changing and by the screen reader's status; a refusal still keeps the form open.
+**Answered by decision 57: it closes by itself.** The design had recommended the other answer. What follows from it is in § F, "After a save that worked": the card says the result, the read-only warning is the card's own state, the focus goes to the card's toggle, and a refusal or an unreadable answer still keeps the form open.
 
 **Q2. Is an exchange the panel does not serve shown when it has NO key?**
-This is Pionex wherever no Pionex key is stored and only its old pools remain. Recommended: **yes, shown**, as a card that says "No key stored." and the sentence that its key is managed outside the panel. Then every tab has a card, and one rule covers every exchange. If the answer is the other one: such an exchange has no card; its tab still exists and still reads `no key` in grey, because the tabs come from the pools, so a tab would then have no card to explain it. Decision 54 settles only the case with a key stored.
+**Answered by decision 58: yes, it is shown**, as recommended. This is Pionex wherever no Pionex key is stored and only its old pools remain. Its card has the `no key` tag as its second line, "No key stored.", the sentence that its key is managed outside the panel, and no button (§ D). So every tab has a card, and one rule covers every exchange.
 
-Not asked, because a decision or the spec answers it: the plain delete button and Pionex's missing buttons (54), the emptied form (54), "Saved" as the button's text (52), the marks' wording and their neutral tone (24, 30 and the spec), the amber of a keyless exchange (20), the tab that stays after a delete (22), that replacing is always allowed (22).
+Never asked, because a decision or the spec answers it: the plain delete button and Pionex's missing buttons (54), the emptied form (54), the wording and the neutral tone of the facts (24, 30, 55 and the spec), the amber of a keyless exchange (20), the tab that stays after a delete (22), that replacing is always allowed (22).
+
+### Revision of 2026-10-10: the owner's review (decisions 55, 57 and 58)
+
+**Changed.**
+
+- **Tabs (§ E).** The name is the middle row of a three-row grid in every tab and the mark has the third row, so a mark cannot move the name. Every tab is 52 px tall.
+- **The card (§ D).** Four areas: head, facts, actions, form. The key hint is a 20 px paragraph under the name, with its date beside it; the facts are tags in a wrapping list with no separator; the mark of a card is a tag.
+- **The texts (§ J).** `trades`, `reads`, `transfers`, `no transfers` replace the longer phrases. A confirmed fact reads `trade confirmed {date}` or `withdraw confirmed {date}`, and "not verified" is left to a fact with nothing on record: one phrase per fact. The Spanish of every mark and tag is fixed.
+- **Three looks of a tag** hold "checked" (filled) apart from "confirmed" (dashed) and from "not on record" (dashed, dimmer, `ink-3` where it was `ink-2`).
+- **After a save that worked (§ F, decision 57)** the form closes. The card says "Key ending in {last4} saved.", is drawn from the save's answer until the list is read again, and carries the read-only warning as its own state. The focus goes to the card's toggle; one hidden status region tells a screen reader. "Saved" on the form's button, the form's own saved and read-only texts and its amber are removed. A refused or unreadable attempt keeps the form open.
+- **An unserved exchange with no key is shown (§ D, decision 58).** § O holds no open question.
+- § I, § K, § L (S5, S16 to S23), § M and § N follow.
+
+**Not changed.** The API and § B's sources; `ApiError` (§ C); the form's fields, help, confirmations and refusals (§ F), approved as drawn; the delete (§ G); the secret's threat matrix (§ H), but for rows 12 and 16; the states and which of them are amber; the units and the two PRs (§ L). The key hint is still four characters.
 

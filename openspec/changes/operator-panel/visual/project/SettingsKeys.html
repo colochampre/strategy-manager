@@ -6,9 +6,12 @@
 <title>Settings, the exchange keys - prototype</title>
 <!--
   Design prototype for PR 13 (design.md, "Addendum: Settings, the exchange keys", sections D to G).
+  Revised on 2026-10-10 after the owner's review: decisions 55 (tabs, tags, key hint, "confirmed"),
+  57 (the form closes after a save that worked) and 58 (an unserved exchange with no key is shown).
   It replaces Settings.dc.html, which is stale and is left untouched.
   Not product code: it is never imported by the app. One file, no script, no network.
-  Every text is the English text of section J of the addendum, verbatim.
+  Every English text is the text of section J of the addendum, verbatim. The Spanish marks, tags and
+  key texts of group 6 are those of section J's second table; its buttons and one sentence are provisional.
   Every example is a still picture: nothing here can be typed into, saved or deleted.
 
   Tokens used, with the Tailwind name the build maps each one to (frontend/src/index.css, @theme):
@@ -35,7 +38,8 @@
     --loss: #E0644B;
     --decision: #CE8018;
     /* Fallbacks only: no web font is requested. Archivo / IBM Plex fall through to the
-       system faces below (Segoe UI and Consolas on Windows). */
+       system faces below (Segoe UI and Consolas on Windows). Consolas is narrower than
+       IBM Plex Mono, so a line may wrap one tag later here than in the built panel. */
     --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
     --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, Consolas, Menlo, monospace;
@@ -55,6 +59,14 @@
   fieldset { border: 0; min-width: 0; }
   button, input { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 
   /* ---------- review bar and captions: NOT part of the product ---------- */
   .review-bar {
@@ -85,7 +97,21 @@
     border-bottom: 1px dashed var(--rule-strong);
   }
   .example { display: flex; flex-direction: column; gap: 8px; }
-  .narrow { width: 340px; max-width: 100%; }
+  /* A phone: 360 px wide. .narrow is the bare width (the tabs' own row); .phone adds the
+     page's 16 px padding, so a card inside it is as wide as on a 360 px screen. The dashed
+     outline is the edge of the screen and takes no room. */
+  .narrow { width: 360px; max-width: 100%; }
+  .phone {
+    width: 360px;
+    max-width: 100%;
+    padding: 16px;
+    outline: 1px dashed var(--rule-strong);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  /* Review only: where the keyboard focus is in a still picture. */
+  .focused { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   /* ---------- the top bar, as built (TopBar.tsx, ExchangeTabs.tsx) ---------- */
   .topbar {
@@ -102,21 +128,26 @@
   .tabs-row { border: 1px solid var(--rule); background: var(--panel); padding: 0 16px; overflow-x: auto; }
   .tab {
     flex: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
     padding: 0 14px;
     border: 0;
     border-radius: 6px;
     background: transparent;
     font-size: 14px;
-    line-height: 20px;
     color: var(--ink-3);
     white-space: nowrap;
   }
   .tab[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  /* Decision 55. Every tab holds the same grid, with a mark or without one. Rows 1 and 3 are
+     one track with a zero minimum, so they always halve the free height and the name, in
+     row 2, is on the tab's centre line. The mark has row 3 to itself and cannot move the name. */
+  .tab-grid {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    justify-items: center;
+    min-height: 52px;
+  }
+  .tab-name { grid-row: 2; line-height: 20px; }
+  .tab-grid .mark { grid-row: 3; align-self: start; }
   .spacer { flex: 1; }
   .badge {
     font-family: var(--font-mono);
@@ -127,16 +158,16 @@
     border: 1px solid var(--decision);
     padding: 4px 8px;
     border-radius: 2px;
+    white-space: nowrap;
   }
   .lang { font-size: 12px; text-transform: uppercase; color: var(--ink-3); }
 
-  /* The mark: the same word and the same colour on a tab and on a card. */
+  /* The mark on a tab: plain text. On a card the same word is a tag (below). */
   .mark {
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 400;
     line-height: 14px;
-    letter-spacing: 0.04em;
     color: var(--ink-3);
     white-space: nowrap;
   }
@@ -152,28 +183,58 @@
   .notice.failure { color: var(--loss); }
   .inline-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
-  /* ---------- the card ---------- */
+  /* ---------- the card: head | actions, then facts and form on the full width ---------- */
   .card {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 14px 24px;
+    align-items: start;
+    gap: 12px 24px;
     padding: 20px;
     border: 1px solid var(--rule);
     border-radius: 8px;
     background: var(--panel);
   }
   .card.amber { border-color: var(--decision); }
-  .narrow .card { grid-template-columns: minmax(0, 1fr); }
-  .card-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .card-head h3 { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
-  .keyline, .markline { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); }
-  .sep { color: var(--rule-strong); padding: 0 2px; }
-  .sentence { font-size: 13px; color: var(--ink-2); max-width: 70ch; }
-  .sentence.amber { color: var(--decision); }
-  .sentence.quiet { color: var(--ink-3); }
-  .card-actions { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
-  .with-info { display: flex; align-items: flex-start; }
+  /* The key line: the hint and its date. Each is one unbreakable unit; the date goes under
+     the hint whole when both do not fit. */
+  .keyline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+  .keyhint {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    line-height: 28px;
+    font-weight: 600;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .keyhint .label { font-size: 13px; font-weight: 400; }
+  .keyhint .dots { font-weight: 400; }
+  .keyhint .last4 { color: var(--ink); letter-spacing: 0.05em; }
+  .keydate { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--ink-3); white-space: nowrap; }
+  .card-facts { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card-actions { grid-column: 2; grid-row: 1; display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+  .phone .card { grid-template-columns: minmax(0, 1fr); }
+  .phone .card-actions { grid-column: auto; grid-row: auto; }
+
+  /* The tags: a wrapping list of whole units, with no separator character anywhere. */
+  .tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; list-style: none; }
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    padding: 2px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--panel-2);          /* checked: the exchange itself showed it */
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .tag.owner { border-style: dashed; border-color: var(--rule-strong); background: transparent; }   /* confirmed by the owner */
+  .tag.unrecorded { border-style: dashed; border-color: var(--rule-strong); background: transparent; color: var(--ink-3); }
+  .tag.mark-amber { border-color: var(--decision); background: transparent; color: var(--decision); }
+  .tag.mark-grey { border-color: var(--rule-strong); background: transparent; color: var(--ink-3); }
+  .info-item { display: flex; }
   .info {
     flex: none;
     width: 44px;
@@ -189,6 +250,9 @@
   }
   .info[aria-expanded="true"] { color: var(--ink); }
   .info svg { display: block; width: 16px; height: 16px; }
+  .sentence { font-size: 13px; color: var(--ink-2); max-width: 70ch; }
+  .sentence.amber { color: var(--decision); }
+  .sentence.quiet { color: var(--ink-3); }
 
   /* ---------- buttons ---------- */
   .btn {
@@ -208,7 +272,7 @@
   .btn[disabled] { opacity: 0.5; }
   .btn[aria-expanded="true"] { background: var(--panel-2); }
 
-  /* ---------- the key form: inside its card, under the key line ---------- */
+  /* ---------- the key form: inside its card, under the facts and the buttons ---------- */
   .keyform {
     grid-column: 1 / -1;
     display: flex;
@@ -220,7 +284,7 @@
   }
   .keyform h4 { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
   .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-  .narrow .fields { grid-template-columns: minmax(0, 1fr); }
+  .phone .fields { grid-template-columns: minmax(0, 1fr); }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .field label { font-size: 13px; color: var(--ink-2); }
   .field input {
@@ -254,7 +318,6 @@
   .refusal { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--loss); max-width: 78ch; }
   .refusal ul { padding-left: 20px; font-size: 13px; }
   .refusal .after { font-size: 13px; color: var(--ink-3); }
-  .warning { font-size: 14px; color: var(--decision); max-width: 78ch; }
   .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
   /* ---------- the delete dialog, drawn open (ArchiveDialog's box) ---------- */
@@ -279,6 +342,14 @@
   .dialog h2 { font-size: 14px; font-weight: 600; font-family: var(--font-sans); }
   .dialog .body { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--ink-2); }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* On a real small screen the wide examples take the phone's layout too. */
+  @media (max-width: 639px) {
+    .card { grid-template-columns: minmax(0, 1fr); }
+    .card-actions { grid-column: auto; grid-row: auto; }
+    .fields { grid-template-columns: minmax(0, 1fr); }
+    .topbar { gap: 12px; padding: 0 12px; }
+  }
 </style>
 </head>
 <body>
@@ -286,10 +357,11 @@
 <header class="review-bar">
   <p class="review-tag">Review bar &middot; not part of the product &middot; a still picture, nothing here is sent anywhere</p>
   <p class="review-note">
-    Settings, the exchange keys (PR 13). Each example has a caption in this grey type that says which state it is;
-    the captions are not part of the product. Keys, dates and names are samples. The exchange tabs are not shown on
-    the Settings page itself: they are drawn here because they carry the same marks as the cards.
-    Two things are questions for the owner and are marked "QUESTION" in their caption.
+    Settings, the exchange keys (PR 13), revised after the owner's review (decisions 55, 57 and 58). Each example has a
+    caption in this grey type that says which state it is; the captions are not part of the product. Keys, dates and
+    names are samples. The exchange tabs are not shown on the Settings page itself: they are drawn here because they
+    carry the same marks as the cards. No question is open. A dashed frame is a 360 px phone. Group 6 is in Spanish.
+    A white outline around a button marks where the keyboard focus is.
   </p>
 </header>
 
@@ -300,13 +372,13 @@
     <h2 class="group-title">1 &middot; The exchange tabs, on Overview and Strategies</h2>
 
     <div class="example">
-      <p class="caption">1a &middot; Bybit has a key that trades: no mark. Binance has an enabled pool and no key: "no key" in amber. Pionex has no key and no enabled pool: "no key" in grey.</p>
+      <p class="caption">1a &middot; Bybit has a key that trades: no mark. Binance has an enabled pool and no key: "no key" in amber. Pionex has no key and no enabled pool: "no key" in grey. The three names are at the same height: the mark hangs under the name and does not move it.</p>
       <div class="topbar">
         <span class="brand">Strategy Manager</span>
         <nav class="tabs" aria-label="Exchanges">
-          <button type="button" class="tab" aria-pressed="true">bybit</button>
-          <button type="button" class="tab" aria-pressed="false">binance<span class="mark amber">no key</span></button>
-          <button type="button" class="tab" aria-pressed="false">pionex<span class="mark">no key</span></button>
+          <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">no key</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">pionex</span> <span class="mark">no key</span></span></button>
         </nav>
         <span class="spacer"></span>
         <span class="badge">Dry run</span>
@@ -315,12 +387,12 @@
     </div>
 
     <div class="example">
-      <p class="caption">1b &middot; Bybit's key cannot trade: "read-only" in amber. The Binance key was deleted, so its pool is off: the tab stays, with "no key" in grey.</p>
+      <p class="caption">1b &middot; Bybit's key cannot trade: "read-only" in amber, on the selected tab. The Binance key was deleted, so its pool is off: the tab stays, with "no key" in grey. A mark wider than its name widens the tab; the name stays on the tab's centre.</p>
       <div class="topbar">
         <span class="brand">Strategy Manager</span>
         <nav class="tabs" aria-label="Exchanges">
-          <button type="button" class="tab" aria-pressed="true">bybit<span class="mark amber">read-only</span></button>
-          <button type="button" class="tab" aria-pressed="false">binance<span class="mark">no key</span></button>
+          <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span> <span class="mark amber">read-only</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark">no key</span></span></button>
         </nav>
         <span class="spacer"></span>
         <span class="badge">Dry run</span>
@@ -329,21 +401,21 @@
     </div>
 
     <div class="example narrow">
-      <p class="caption">1c &middot; On a phone the tabs are their own row, and the mark stays under the name.</p>
+      <p class="caption">1c &middot; On a phone (360 px) the tabs are their own row. It is 52 px tall, 8 more than today, with marks or without: that is the room a mark needs under a centred name.</p>
       <nav class="tabs tabs-row" aria-label="Exchanges">
-        <button type="button" class="tab" aria-pressed="true">bybit</button>
-        <button type="button" class="tab" aria-pressed="false">binance<span class="mark amber">no key</span></button>
-        <button type="button" class="tab" aria-pressed="false">pionex<span class="mark">no key</span></button>
+        <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span></span></button>
+        <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">no key</span></span></button>
+        <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">pionex</span> <span class="mark">no key</span></span></button>
       </nav>
     </div>
 
     <div class="example">
-      <p class="caption">1d &middot; While the keys are loading, or could not be loaded: no tab has a mark.</p>
+      <p class="caption">1d &middot; While the keys are loading, or could not be loaded: no tab has a mark. The names are where they are in 1a and 1b.</p>
       <div class="topbar">
         <span class="brand">Strategy Manager</span>
         <nav class="tabs" aria-label="Exchanges">
-          <button type="button" class="tab" aria-pressed="true">bybit</button>
-          <button type="button" class="tab" aria-pressed="false">binance</button>
+          <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span></span></button>
         </nav>
         <span class="spacer"></span>
         <span class="badge">Dry run</span>
@@ -364,11 +436,21 @@
       </div>
 
       <div class="example">
-        <p class="caption">2a &middot; A key the exchange itself checked, and it can trade (Bybit). Nothing is amber.</p>
+        <p class="caption">2a &middot; A key the exchange itself checked, and it can trade (Bybit). The last four characters are the large line; the date beside them is the day the key was checked. The facts are filled tags. Nothing is amber.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="false">Replace key</button>
@@ -378,11 +460,21 @@
       </div>
 
       <div class="example">
-        <p class="caption">2b &middot; A read-only key (Bybit told the system it cannot trade). Amber: the mark, the border and the sentence.</p>
+        <p class="caption">2b &middot; A read-only key (Bybit told the system it cannot trade). Amber: the "read-only" tag, the border and the sentence. "read-only" is said once, as the first tag.</p>
         <article class="card amber">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3><span class="mark amber">read-only</span></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;Rf90 <span class="sep">&middot;</span> reads only <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> no internal transfers <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Rf90</span></span><span class="sr-only">key ending in Rf90</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag mark-amber">read-only</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">no transfers</li>
+            </ul>
             <p class="sentence amber">This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
           </div>
           <div class="card-actions">
@@ -393,20 +485,26 @@
       </div>
 
       <div class="example">
-        <p class="caption">2c &middot; A Binance key, saved on the owner's two confirmations. The first line says only what Binance itself showed: the key reads. The two marks are grey, not amber. It never says "no withdrawal".</p>
+        <p class="caption">2c &middot; A Binance key, saved on the owner's two confirmations. The one filled tag is what Binance itself showed: the key reads. The two dashed tags are the owner's word, each with its day: "confirmed", and never "not verified" beside it. Nothing is amber. It never says "no withdrawal".</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;mK4x <span class="sep">&middot;</span> reading verified <span class="sep">&middot;</span> checked Oct 2, 2026</p>
-            <div class="with-info">
-              <div>
-                <p class="markline">trade not verified <span class="sep">&middot;</span> you confirmed on Oct 2, 2026</p>
-                <p class="markline">withdraw not verified <span class="sep">&middot;</span> you confirmed on Oct 2, 2026</p>
-              </div>
-              <button type="button" class="info" aria-expanded="false" aria-label="About what is not verified">
-                <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-              </button>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">key ending in mK4x</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
             </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">reads</li>
+              <li class="tag owner">trade confirmed Oct 2, 2026</li>
+              <li class="tag owner">withdraw confirmed Oct 2, 2026</li>
+              <li class="info-item">
+                <button type="button" class="info" aria-expanded="false" aria-label="About what you confirmed">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </button>
+              </li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="false">Replace key</button>
@@ -416,21 +514,27 @@
       </div>
 
       <div class="example">
-        <p class="caption">2d &middot; The same Binance card with its information button opened.</p>
+        <p class="caption">2d &middot; The same Binance card with its information button opened. The text says whose word "confirmed" is.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;mK4x <span class="sep">&middot;</span> reading verified <span class="sep">&middot;</span> checked Oct 2, 2026</p>
-            <div class="with-info">
-              <div>
-                <p class="markline">trade not verified <span class="sep">&middot;</span> you confirmed on Oct 2, 2026</p>
-                <p class="markline">withdraw not verified <span class="sep">&middot;</span> you confirmed on Oct 2, 2026</p>
-              </div>
-              <button type="button" class="info" aria-expanded="true" aria-label="About what is not verified">
-                <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-              </button>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">key ending in mK4x</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
             </div>
-            <p class="sentence quiet">Binance does not let this panel check what a key may do. Orders are sent on your confirmation. If the key cannot trade futures, Binance rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting.</p>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">reads</li>
+              <li class="tag owner">trade confirmed Oct 2, 2026</li>
+              <li class="tag owner">withdraw confirmed Oct 2, 2026</li>
+              <li class="info-item">
+                <button type="button" class="info" aria-expanded="true" aria-label="About what you confirmed">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </button>
+              </li>
+            </ul>
+            <p class="sentence quiet">"Confirmed" is what you told this panel on that day. Binance does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, Binance rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting.</p>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="false">Replace key</button>
@@ -440,13 +544,20 @@
       </div>
 
       <div class="example">
-        <p class="caption">2e &middot; A key with no recorded facts: stored before the system kept a record of how a key was checked. Grey. A key stored in production before the end of September looks like this until it is entered again.</p>
+        <p class="caption">2e &middot; A key with no recorded facts: stored before the system kept a record of how a key was checked. It has no confirmation date, so it cannot say "confirmed": its two tags say "not verified", dashed and dimmer, and the sentence says what to do. Grey. A key stored in production before the end of September looks like this until it is entered again.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> not validated</p>
-            <p class="markline">trade not verified</p>
-            <p class="markline">withdraw not verified</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">not validated</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag unrecorded">trade not verified</li>
+              <li class="tag unrecorded">withdraw not verified</li>
+            </ul>
             <p class="sentence quiet">Stored before the system recorded how a key was checked. Enter it again to have it checked.</p>
           </div>
           <div class="card-actions">
@@ -457,10 +568,13 @@
       </div>
 
       <div class="example">
-        <p class="caption">2f &middot; No key, and the exchange's pool is on (the system expects to trade it and cannot). Amber: the mark, the border and the sentence.</p>
+        <p class="caption">2f &middot; No key, and the exchange's pool is on (the system expects to trade it and cannot). "no key" stands where the key would. Amber: the tag, the border and the sentence.</p>
         <article class="card amber">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3><span class="mark amber">no key</span></div>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline"><p class="tag mark-amber">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence amber">No key stored. With dry run off, opening signals for Binance are refused until a key is added.</p>
           </div>
           <div class="card-actions">
@@ -472,8 +586,11 @@
       <div class="example">
         <p class="caption">2g &middot; No key, and the pool is off: an exchange that never had a key, or one whose key was deleted. The same card for both. Grey.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3><span class="mark">no key</span></div>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline"><p class="tag mark-grey">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence">No key stored. Add one to read and trade on Binance from here.</p>
           </div>
           <div class="card-actions">
@@ -483,43 +600,147 @@
       </div>
 
       <div class="example">
-        <p class="caption">2h &middot; An exchange this panel does not serve, with a key stored (Pionex). No Replace and no Delete, and one sentence.</p>
+        <p class="caption">2h &middot; An exchange this panel does not serve, with a key stored (Pionex). No Replace and no Delete, and one sentence. Its key has no recorded facts, so its tags are those of 2e.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Pionex</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;a81F <span class="sep">&middot;</span> not validated</p>
-            <p class="markline">trade not verified</p>
-            <p class="markline">withdraw not verified</p>
+          <div class="card-head">
+            <h3>Pionex</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">a81F</span></span><span class="sr-only">key ending in a81F</span></p>
+              <p class="keydate">not validated</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag unrecorded">trade not verified</li>
+              <li class="tag unrecorded">withdraw not verified</li>
+            </ul>
             <p class="sentence quiet">The Pionex key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.</p>
           </div>
         </article>
       </div>
 
       <div class="example">
-        <p class="caption">2i &middot; QUESTION 2 &middot; An exchange this panel does not serve, with no key and only its old pools. Recommended: shown like this, so that every tab has a card. The other answer: not listed at all.</p>
+        <p class="caption">2i &middot; An exchange this panel does not serve, with no key and only its old pools. It is shown (decision 58), so that every tab has a card. It has no key to show, so its second line is the "no key" tag; then two sentences, and no button.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Pionex</h3><span class="mark">no key</span></div>
+          <div class="card-head">
+            <h3>Pionex</h3>
+            <div class="keyline"><p class="tag mark-grey">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence">No key stored.</p>
             <p class="sentence quiet">The Pionex key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.</p>
           </div>
         </article>
+      </div>
+
+      <div class="example">
+        <p class="caption">2j &middot; On a phone (360 px): the card of 2a. One column: name, key, date, tags, then the buttons.</p>
+        <div class="phone">
+          <article class="card">
+            <div class="card-head">
+              <h3>Bybit</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+                <p class="keydate">checked Oct 2, 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="What is known about this key">
+                <li class="tag">trades</li>
+                <li class="tag">no withdrawal</li>
+                <li class="tag">transfers</li>
+              </ul>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="false">Replace key</button>
+              <button type="button" class="btn danger">Delete key</button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="example">
+        <p class="caption">2k &middot; On a phone (360 px): the Binance card of 2c, with the longest date. The tags move to the next line whole; none breaks, and no line starts with a separator, because there is none.</p>
+        <div class="phone">
+          <article class="card">
+            <div class="card-head">
+              <h3>Binance</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">key ending in mK4x</span></p>
+                <p class="keydate">checked Sep 30, 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="What is known about this key">
+                <li class="tag">reads</li>
+                <li class="tag owner">trade confirmed Sep 30, 2026</li>
+                <li class="tag owner">withdraw confirmed Sep 30, 2026</li>
+                <li class="info-item">
+                  <button type="button" class="info" aria-expanded="false" aria-label="About what you confirmed">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="false">Replace key</button>
+              <button type="button" class="btn danger">Delete key</button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="example">
+        <p class="caption">2l &middot; On a phone (360 px): the read-only card of 2b.</p>
+        <div class="phone">
+          <article class="card amber">
+            <div class="card-head">
+              <h3>Bybit</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Rf90</span></span><span class="sr-only">key ending in Rf90</span></p>
+                <p class="keydate">checked Oct 2, 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="What is known about this key">
+                <li class="tag mark-amber">read-only</li>
+                <li class="tag">no withdrawal</li>
+                <li class="tag">no transfers</li>
+              </ul>
+              <p class="sentence amber">This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="false">Replace key</button>
+              <button type="button" class="btn danger">Delete key</button>
+            </div>
+          </article>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- =========================================================== 3. the form -->
   <section class="group" aria-label="The key form">
-    <h2 class="group-title">3 &middot; The form that adds or replaces a key: it opens inside its card, one at a time</h2>
+    <h2 class="group-title">3 &middot; The form that adds or replaces a key: it opens inside its card, one at a time, and closes after a save that worked</h2>
 
     <div class="page">
 
       <div class="example">
-        <p class="caption">3a &middot; "Replace key" was pressed on the Bybit card. The form is open and empty; "Check and save" waits for both fields. "Delete key" is off while the form is open.</p>
+        <p class="caption">3a &middot; "Replace key" was pressed on the Bybit card. The form is open and empty; "Check and save" waits for both fields. "Delete key" is off while the form is open. The form is as approved; only the card above it is laid out again.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="true">Replace key</button>
@@ -544,8 +765,11 @@
       <div class="example">
         <p class="caption">3b &middot; "Add key" was pressed on a Binance card. The two confirmations start unticked; here one is ticked and the fields are filled, so "Check and save" is still off.</p>
         <article class="card amber">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3><span class="mark amber">no key</span></div>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline"><p class="tag mark-amber">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence amber">No key stored. With dry run off, opening signals for Binance are refused until a key is added.</p>
           </div>
           <div class="card-actions">
@@ -575,9 +799,19 @@
       <div class="example">
         <p class="caption">3c &middot; While the key is being checked: the button reads "Checking…", and every button of the page is off until the answer comes.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="true" disabled>Replace key</button>
@@ -600,11 +834,21 @@
       </div>
 
       <div class="example">
-        <p class="caption">3d &middot; After a refusal (here: the exchange did not accept the key). Both fields are empty again, the reason is in red, and the key stored before is untouched.</p>
+        <p class="caption">3d &middot; After a refusal (here: the exchange did not accept the key). The form stays open. Both fields are empty again, the reason is in red, and the key stored before is untouched.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="true">Replace key</button>
@@ -613,7 +857,7 @@
           <section class="keyform" aria-label="Replace the Bybit key">
             <h4>Replace the Bybit key</h4>
             <div class="fields">
-              <div class="field"><label for="d-key">API key</label><input id="d-key" type="text" readonly></div>
+              <div class="field"><label for="d-key">API key</label><input id="d-key" type="text" class="focused" readonly></div>
               <div class="field"><label for="d-secret">API secret</label><input id="d-secret" type="password" readonly></div>
             </div>
             <p class="help">Before saving, the key is tried with a real read at Bybit. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.</p>
@@ -631,10 +875,13 @@
       </div>
 
       <div class="example">
-        <p class="caption">3e &middot; After a refusal for a missing confirmation (a stale page can cause it; the button is normally off until both are ticked). The refusal names what is missing.</p>
+        <p class="caption">3e &middot; After a refusal for a missing confirmation (a stale page can cause it; the button is normally off until both are ticked). The form stays open, and the refusal names what is missing.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3><span class="mark">no key</span></div>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline"><p class="tag mark-grey">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence">No key stored. Add one to read and trade on Binance from here.</p>
           </div>
           <div class="card-actions">
@@ -643,7 +890,7 @@
           <section class="keyform" aria-label="Add a Binance key">
             <h4>Add a Binance key</h4>
             <div class="fields">
-              <div class="field"><label for="e-key">API key</label><input id="e-key" type="text" readonly></div>
+              <div class="field"><label for="e-key">API key</label><input id="e-key" type="text" class="focused" readonly></div>
               <div class="field"><label for="e-secret">API secret</label><input id="e-secret" type="password" readonly></div>
             </div>
             <p class="help">Before saving, the key is tried with a real read at Binance. Binance does not let this panel check what the key may do, so you confirm it here.</p>
@@ -669,11 +916,21 @@
       </div>
 
       <div class="example">
-        <p class="caption">3f &middot; QUESTION 1 &middot; After a save that worked. Recommended: the form stays open and empty, the button reads "Saved" until something is typed, and the card above already shows the new key. The other answer: the form closes by itself.</p>
+        <p class="caption">3f &middot; No answer came back from the server. This is NOT a save that worked, so the form stays open, emptied, and says that it does not know. The card above it is read again and shows what is stored now.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;Xw3e <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> no internal transfers <span class="sep">&middot;</span> checked Oct 10, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="true">Replace key</button>
@@ -682,13 +939,17 @@
           <section class="keyform" aria-label="Replace the Bybit key">
             <h4>Replace the Bybit key</h4>
             <div class="fields">
-              <div class="field"><label for="f-key">API key</label><input id="f-key" type="text" readonly></div>
+              <div class="field"><label for="f-key">API key</label><input id="f-key" type="text" class="focused" readonly></div>
               <div class="field"><label for="f-secret">API secret</label><input id="f-secret" type="password" readonly></div>
             </div>
             <p class="help">Before saving, the key is tried with a real read at Bybit. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.</p>
             <p class="help">Saving replaces the key stored now, also when the new key cannot trade.</p>
+            <div class="refusal" role="alert">
+              <p>No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now.</p>
+              <p class="after">The fields were emptied. Enter the key again to retry.</p>
+            </div>
             <div class="form-actions">
-              <button type="button" class="btn primary" disabled>Saved</button>
+              <button type="button" class="btn primary" disabled>Check and save</button>
               <button type="button" class="btn quiet">Close</button>
             </div>
           </section>
@@ -696,58 +957,166 @@
       </div>
 
       <div class="example">
-        <p class="caption">3g &middot; After a save that worked, of a key that cannot trade. The button reads "Saved", the warning is in amber inside the form, and the card above has turned amber with the "read-only" mark.</p>
-        <article class="card amber">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3><span class="mark amber">read-only</span></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;Rf90 <span class="sep">&middot;</span> reads only <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> no internal transfers <span class="sep">&middot;</span> checked Oct 10, 2026</p>
-            <p class="sentence amber">This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
+        <p class="caption">3g &middot; On a phone (360 px): the buttons go under the facts, and the two fields stack.</p>
+        <div class="phone">
+          <article class="card">
+            <div class="card-head">
+              <h3>Bybit</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+                <p class="keydate">checked Oct 2, 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="What is known about this key">
+                <li class="tag">trades</li>
+                <li class="tag">no withdrawal</li>
+                <li class="tag">transfers</li>
+              </ul>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="true">Replace key</button>
+              <button type="button" class="btn danger" disabled>Delete key</button>
+            </div>
+            <section class="keyform" aria-label="Replace the Bybit key">
+              <h4>Replace the Bybit key</h4>
+              <div class="fields">
+                <div class="field"><label for="g-key">API key</label><input id="g-key" type="text" readonly></div>
+                <div class="field"><label for="g-secret">API secret</label><input id="g-secret" type="password" readonly></div>
+              </div>
+              <p class="help">Before saving, the key is tried with a real read at Bybit. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.</p>
+              <p class="help">Saving replaces the key stored now, also when the new key cannot trade.</p>
+              <div class="form-actions">
+                <button type="button" class="btn primary" disabled>Check and save</button>
+                <button type="button" class="btn quiet">Close</button>
+              </div>
+            </section>
+          </article>
+        </div>
+      </div>
+
+      <div class="example">
+        <p class="caption">3h &middot; After a save that worked (decision 57): the form has closed by itself. The card shows the new key, and its first line says so. The focus is on "Replace key", the button that opened the form. A screen reader is told "Key ending in Xw3e saved." The line stays until the next thing done on the page.</p>
+        <article class="card">
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Xw3e</span></span><span class="sr-only">key ending in Xw3e</span></p>
+              <p class="keydate">checked Oct 10, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <p class="notice">Key ending in Xw3e saved.</p>
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">no transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
-            <button type="button" class="btn" aria-expanded="true">Replace key</button>
-            <button type="button" class="btn danger" disabled>Delete key</button>
+            <button type="button" class="btn focused" aria-expanded="false">Replace key</button>
+            <button type="button" class="btn danger">Delete key</button>
           </div>
-          <section class="keyform" aria-label="Replace the Bybit key">
-            <h4>Replace the Bybit key</h4>
-            <div class="fields">
-              <div class="field"><label for="g-key">API key</label><input id="g-key" type="text" readonly></div>
-              <div class="field"><label for="g-secret">API secret</label><input id="g-secret" type="password" readonly></div>
-            </div>
-            <p class="help">Before saving, the key is tried with a real read at Bybit. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.</p>
-            <p class="help">Saving replaces the key stored now, also when the new key cannot trade.</p>
-            <p class="warning" role="status">Saved, but this key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
-            <div class="form-actions">
-              <button type="button" class="btn primary" disabled>Saved</button>
-              <button type="button" class="btn quiet">Close</button>
-            </div>
-          </section>
         </article>
       </div>
 
-      <div class="example narrow">
-        <p class="caption">3h &middot; On a phone: the buttons go under the text, and the two fields stack.</p>
-        <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+      <div class="example">
+        <p class="caption">3i &middot; After a save that worked, of a key that cannot trade. The form has closed. The warning has no form to sit in, so it is the card's own read-only state: the amber tag, the border and the sentence. Nothing else is added. A screen reader hears the saved line and then the sentence.</p>
+        <article class="card amber">
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Rf90</span></span><span class="sr-only">key ending in Rf90</span></p>
+              <p class="keydate">checked Oct 10, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <p class="notice">Key ending in Rf90 saved.</p>
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag mark-amber">read-only</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">no transfers</li>
+            </ul>
+            <p class="sentence amber">This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
           </div>
           <div class="card-actions">
-            <button type="button" class="btn" aria-expanded="true">Replace key</button>
-            <button type="button" class="btn danger" disabled>Delete key</button>
+            <button type="button" class="btn focused" aria-expanded="false">Replace key</button>
+            <button type="button" class="btn danger">Delete key</button>
           </div>
-          <section class="keyform" aria-label="Replace the Bybit key">
-            <h4>Replace the Bybit key</h4>
-            <div class="fields">
-              <div class="field"><label for="h-key">API key</label><input id="h-key" type="text" readonly></div>
-              <div class="field"><label for="h-secret">API secret</label><input id="h-secret" type="password" readonly></div>
+        </article>
+      </div>
+
+      <div class="example">
+        <p class="caption">3j &middot; After a FIRST key was saved (Binance, the card of 3b). The form has closed. The button that read "Add key" is the same button and now reads "Replace key"; it has the focus. "Delete key" has appeared beside it.</p>
+        <article class="card">
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">key ending in mK4x</span></p>
+              <p class="keydate">checked Oct 10, 2026</p>
             </div>
-            <p class="help">Before saving, the key is tried with a real read at Bybit. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.</p>
-            <p class="help">Saving replaces the key stored now, also when the new key cannot trade.</p>
-            <div class="form-actions">
-              <button type="button" class="btn primary" disabled>Check and save</button>
-              <button type="button" class="btn quiet">Close</button>
+          </div>
+          <div class="card-facts">
+            <p class="notice">Key ending in mK4x saved.</p>
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">reads</li>
+              <li class="tag owner">trade confirmed Oct 10, 2026</li>
+              <li class="tag owner">withdraw confirmed Oct 10, 2026</li>
+              <li class="info-item">
+                <button type="button" class="info" aria-expanded="false" aria-label="About what you confirmed">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </button>
+              </li>
+            </ul>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn focused" aria-expanded="false">Replace key</button>
+            <button type="button" class="btn danger">Delete key</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="example">
+        <p class="caption">3k &middot; The save worked and the list of keys has not been read again yet. The card is drawn from the save's own answer: the new key's four characters, and nothing of the key stored before. Its tags, its date and "Delete key" come with the list.</p>
+        <article class="card">
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Xw3e</span></span><span class="sr-only">key ending in Xw3e</span></p>
             </div>
-          </section>
+          </div>
+          <div class="card-facts">
+            <p class="notice">Key ending in Xw3e saved. The rest of this card appears when the list has been read again.</p>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn focused" aria-expanded="false">Replace key</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="example">
+        <p class="caption">3l &middot; The save worked, of a key that cannot trade, and reading the list again FAILED. The line above the cards says the list may be out of date. The card still says what was saved and that it cannot trade, from the save's own answer; the old key is not shown as if nothing had happened.</p>
+        <div class="inline-row">
+          <p class="notice failure" role="alert">This list could not be refreshed and may be out of date.</p>
+          <button type="button" class="btn">Try again</button>
+        </div>
+        <article class="card amber">
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Rf90</span></span><span class="sr-only">key ending in Rf90</span></p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <p class="notice">Key ending in Rf90 saved. The rest of this card appears when the list has been read again.</p>
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag mark-amber">read-only</li>
+            </ul>
+            <p class="sentence amber">This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.</p>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn focused" aria-expanded="false">Replace key</button>
+          </div>
         </article>
       </div>
     </div>
@@ -767,7 +1136,7 @@
             <p>The server allows this only while every Bybit strategy is disabled and nothing is open on it.</p>
           </div>
           <div class="dialog-actions">
-            <button type="button" class="btn quiet">Cancel</button>
+            <button type="button" class="btn quiet focused">Cancel</button>
             <button type="button" class="btn danger-fill">Delete key</button>
           </div>
         </div>
@@ -842,12 +1211,15 @@
       <p class="caption">4e &middot; After a delete that worked: the dialog closes and the card is the one of 2g. The focus goes to "Add key". The tab of that exchange stays, with "no key" in grey (1b).</p>
       <div class="page">
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3><span class="mark">no key</span></div>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline"><p class="tag mark-grey">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence">No key stored. Add one to read and trade on Bybit from here.</p>
           </div>
           <div class="card-actions">
-            <button type="button" class="btn primary" aria-expanded="false">Add key</button>
+            <button type="button" class="btn primary focused" aria-expanded="false">Add key</button>
           </div>
         </article>
       </div>
@@ -884,16 +1256,26 @@
     </div>
 
     <div class="example">
-      <p class="caption">5c &middot; The keys were loaded before, and reading them again failed (after a save, for example). The cards stay, with this line above them.</p>
+      <p class="caption">5c &middot; The keys were loaded before, and reading them again failed, with no save just before it. The cards stay, with this line above them. (After a save, the card of the saved key is the one of 3l.)</p>
       <div class="page">
         <div class="inline-row">
           <p class="notice failure" role="alert">This list could not be refreshed and may be out of date.</p>
           <button type="button" class="btn">Try again</button>
         </div>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Bybit</h3></div>
-            <p class="keyline">key &bull;&bull;&bull;&bull;7Q2d <span class="sep">&middot;</span> reads and trades <span class="sep">&middot;</span> no withdrawal <span class="sep">&middot;</span> internal transfers allowed <span class="sep">&middot;</span> checked Oct 2, 2026</p>
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">key</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">key ending in 7Q2d</span></p>
+              <p class="keydate">checked Oct 2, 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="What is known about this key">
+              <li class="tag">trades</li>
+              <li class="tag">no withdrawal</li>
+              <li class="tag">transfers</li>
+            </ul>
           </div>
           <div class="card-actions">
             <button type="button" class="btn" aria-expanded="false">Replace key</button>
@@ -908,14 +1290,177 @@
       <div class="page">
         <p class="notice">The pools could not be loaded, so an exchange without a key is not marked here.</p>
         <article class="card">
-          <div class="card-main">
-            <div class="card-head"><h3>Binance</h3><span class="mark">no key</span></div>
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline"><p class="tag mark-grey">no key</p></div>
+          </div>
+          <div class="card-facts">
             <p class="sentence">No key stored. Add one to read and trade on Binance from here.</p>
           </div>
           <div class="card-actions">
             <button type="button" class="btn primary" aria-expanded="false">Add key</button>
           </div>
         </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================== 6. Spanish -->
+  <section class="group" lang="es" aria-label="The same marks, tags and key texts in Spanish">
+    <h2 class="group-title" lang="en">6 &middot; In Spanish: the marks, the tags and the key texts at their Spanish lengths</h2>
+
+    <div class="example">
+      <p class="caption" lang="en">6a &middot; The tabs of 1a and 1b in Spanish: "solo lectura" (the longest mark) and "sin clave", amber and grey. The names are at the same height.</p>
+      <div class="topbar">
+        <span class="brand">Strategy Manager</span>
+        <nav class="tabs" aria-label="Exchanges">
+          <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span> <span class="mark amber">solo lectura</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">sin clave</span></span></button>
+          <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">pionex</span> <span class="mark">sin clave</span></span></button>
+        </nav>
+        <span class="spacer"></span>
+        <span class="badge">Modo simulación</span>
+        <span class="lang">en</span>
+      </div>
+    </div>
+
+    <div class="example narrow">
+      <p class="caption" lang="en">6b &middot; The same three tabs on a phone (360 px), each with a mark: the row holds them without scrolling.</p>
+      <nav class="tabs tabs-row" aria-label="Exchanges">
+        <button type="button" class="tab" aria-pressed="true"><span class="tab-grid"><span class="tab-name">bybit</span> <span class="mark amber">solo lectura</span></span></button>
+        <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">binance</span> <span class="mark amber">sin clave</span></span></button>
+        <button type="button" class="tab" aria-pressed="false"><span class="tab-grid"><span class="tab-name">pionex</span> <span class="mark">sin clave</span></span></button>
+      </nav>
+    </div>
+
+    <div class="page">
+
+      <div class="example">
+        <p class="caption" lang="en">6c &middot; The Bybit card of 2a in Spanish. The key label, the date and the tags are the Spanish of the design; the two button texts are provisional.</p>
+        <article class="card">
+          <div class="card-head">
+            <h3>Bybit</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">clave</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">7Q2d</span></span><span class="sr-only">clave terminada en 7Q2d</span></p>
+              <p class="keydate">comprobada el 2 oct 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="Lo que se sabe de esta clave">
+              <li class="tag">opera</li>
+              <li class="tag">sin retiros</li>
+              <li class="tag">transfiere</li>
+            </ul>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn" aria-expanded="false">Reemplazar clave</button>
+            <button type="button" class="btn danger">Eliminar clave</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="example">
+        <p class="caption" lang="en">6d &middot; The Binance card of 2d in Spanish, with its information text open. Spanish names the fact and then its state, with a colon.</p>
+        <article class="card">
+          <div class="card-head">
+            <h3>Binance</h3>
+            <div class="keyline">
+              <p class="keyhint"><span aria-hidden="true"><span class="label">clave</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">clave terminada en mK4x</span></p>
+              <p class="keydate">comprobada el 2 oct 2026</p>
+            </div>
+          </div>
+          <div class="card-facts">
+            <ul class="tags" aria-label="Lo que se sabe de esta clave">
+              <li class="tag">lee</li>
+              <li class="tag owner">operar: confirmado el 2 oct 2026</li>
+              <li class="tag owner">retiros: confirmado el 2 oct 2026</li>
+              <li class="info-item">
+                <button type="button" class="info" aria-expanded="true" aria-label="Sobre lo que confirmaste">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                </button>
+              </li>
+            </ul>
+            <p class="sentence quiet">«Confirmado» es lo que le indicaste a este panel ese día. Binance no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con tu confirmación. Si la clave no puede operar futuros, Binance rechaza la primera orden real y recibes una alerta de Telegram. Nada comprueba el ajuste de retiros.</p>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn" aria-expanded="false">Reemplazar clave</button>
+            <button type="button" class="btn danger">Eliminar clave</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="example">
+        <p class="caption" lang="en">6e &middot; The worst case: the Binance card in Spanish on a phone (360 px), with the longest date. The longest tag of the design is here, "retiros: confirmado el 30 sept 2026". Each tag takes a line of its own, whole. In the built panel's font the information button may take a line of its own after them; it is a button, not a separator.</p>
+        <div class="phone">
+          <article class="card">
+            <div class="card-head">
+              <h3>Binance</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">clave</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">mK4x</span></span><span class="sr-only">clave terminada en mK4x</span></p>
+                <p class="keydate">comprobada el 30 sept 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="Lo que se sabe de esta clave">
+                <li class="tag">lee</li>
+                <li class="tag owner">operar: confirmado el 30 sept 2026</li>
+                <li class="tag owner">retiros: confirmado el 30 sept 2026</li>
+                <li class="info-item">
+                  <button type="button" class="info" aria-expanded="false" aria-label="Sobre lo que confirmaste">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/><path d="M8 7.3v4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="false">Reemplazar clave</button>
+              <button type="button" class="btn danger">Eliminar clave</button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="example">
+        <p class="caption" lang="en">6f &middot; A read-only key and a key with no recorded facts, in Spanish, on a phone (360 px). The amber sentence and the grey one are provisional Spanish; the tags are final.</p>
+        <div class="phone">
+          <article class="card amber">
+            <div class="card-head">
+              <h3>Bybit</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">clave</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">Rf90</span></span><span class="sr-only">clave terminada en Rf90</span></p>
+                <p class="keydate">comprobada el 2 oct 2026</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="Lo que se sabe de esta clave">
+                <li class="tag mark-amber">solo lectura</li>
+                <li class="tag">sin retiros</li>
+                <li class="tag">sin transferencias</li>
+              </ul>
+              <p class="sentence amber">Esta clave no puede operar. Con el modo simulación desactivado, las señales de apertura de Bybit se rechazan hasta que agregue una clave que pueda operar futuros.</p>
+            </div>
+            <div class="card-actions">
+              <button type="button" class="btn" aria-expanded="false">Reemplazar clave</button>
+              <button type="button" class="btn danger">Eliminar clave</button>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-head">
+              <h3>Pionex</h3>
+              <div class="keyline">
+                <p class="keyhint"><span aria-hidden="true"><span class="label">clave</span> <span class="dots">&bull;&bull;&bull;&bull;</span><span class="last4">a81F</span></span><span class="sr-only">clave terminada en a81F</span></p>
+                <p class="keydate">sin validar</p>
+              </div>
+            </div>
+            <div class="card-facts">
+              <ul class="tags" aria-label="Lo que se sabe de esta clave">
+                <li class="tag unrecorded">operar: sin verificar</li>
+                <li class="tag unrecorded">retiros: sin verificar</li>
+              </ul>
+              <p class="sentence quiet">La clave de Pionex se gestiona fuera de este panel, en el servidor. Aquí no se puede agregar, reemplazar ni eliminar.</p>
+            </div>
+          </article>
+        </div>
       </div>
     </div>
   </section>
