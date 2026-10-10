@@ -4220,7 +4220,7 @@ requirements 947 to 1700)
 
 **The amount, the warning and the explanations** (design §§ C2, C3, B2)
 
-- [ ] 12f.10.20 The amount under the track. RED `ShareAmount.test.tsx` and `PoolShareEditor.test.tsx`, new tests, with the
+- [x] 12f.10.20 The amount under the track. RED `ShareAmount.test.tsx` and `PoolShareEditor.test.tsx`, new tests, with the
   stub design § K names: an amount line that prints the first step's figure for every value. `ShareAmount` is
   presentational and takes strings from the preview and nothing from `['pools']`. Tests: `::a known amount reads
   "Asks for about 335.00 USDT per operation" from the served exact` (RED: `expected '10.00' to be '335.00'`),
@@ -4243,6 +4243,32 @@ requirements 947 to 1700)
   `frontend/src/features/strategies/format.ts`, using the decimals the trades table already uses for the
   pool's currency (the existing `AMOUNT_DECIMALS` in `features/overview/format.ts`, not a second table); the
   task records the helper's name, chosen in the neighbours' style.
+  **Done (RED `83d8054`, GREEN `363a78b`).** The helper is `cutAmountText(amount, currency, locale)` in
+  `features/strategies/format.ts`, beside `rateText` (the choice that was open: the cut-amount helper lives in
+  `strategies/format.ts`, and it takes its decimals from `amountDecimals`, a new export of `overview/format.ts`
+  that `amountText` now calls too, so there is still one table). It cuts the served digits at the currency's
+  decimals as text, then gives them to `amountText`. `ShareAmount.tsx` (presentational: a `view` of known, loading,
+  noBalance, failed or none, and a `trailing` slot for the amount's button, which 12f.10.23 fills) writes one line
+  per state, the stale line under a stale figure with `HH:MM UTC` from `clockText`, and treats a served amount that
+  is not a plain decimal as a failed read. `PoolShareEditor.tsx` reads the preview with `useSharePreview` and derives
+  the view in `amountView`: a whole value from 1 to 100 reads `steps[n - 1]`, the stored share reads the first
+  read's `exact` (when `exact.share` is that value; while the re-read after a save is in flight it shows the loading
+  mark, and after it fails the failed line), no balance shows the sentence, and a typed decimal shows the loading
+  mark for now, because the request for it is 12f.10.21. A figure that is already known stays on screen when only the
+  background refresh fails. RED as observed against the stub (a `ShareAmount` that printed only a known figure,
+  uncut, and an editor that gave it step 1 for every value): `cutAmountText` returned its input, so 19 cut tests
+  failed with `expected '4.996000000000000000' to be '4.99'` and the like; 19 `ShareAmount` tests and 16 editor tests
+  failed on `expect(received).toBeInTheDocument()`. Passed at once: the 18 editor tests that do not read the amount
+  and, in the new ones, none (every new editor test asserts a text the stub could not write). Mutations after
+  GREEN, each reverted with `git checkout`: an off-by-one in the step lookup reds five tests; the first step for
+  every value reds the same five; `Intl` given the unrounded number reds 16 (the cut tests, the Spanish and BTC
+  cases, in `format`, `ShareAmount` and the editor); the control disabled while the amount failed reds the
+  failed-read test and two `Saved` tests; a `usePools` read multiplied into the figure reds the "never multiplied"
+  test and four no-request tests. The test double for the editor keeps the preview reads apart from the other
+  requests (`previews`), so the no-request assertions of 12f.10.16 still mean "no save". Existing files edited:
+  `overview/format.ts` (the `amountDecimals` export, no behaviour change), `strategies/format.ts` and
+  `format.test.ts` (the helper), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (the double), the two locale
+  files (five keys: amount, amountStale, amountNoBalance, amountLoading, amountError).
 - [ ] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
   asks at once for every value. Tests: `::a typed 33.5 shows no figure, only the loading mark, until its
   answer, and then that answer's` (mutation: the previous amount kept on screen while loading),
