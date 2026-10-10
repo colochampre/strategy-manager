@@ -349,6 +349,19 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - This session's choices: the secret asked for by a copy is used for that copy and kept nowhere (not in state, not in the query cache); if the server does not answer, or the browser refuses the write, nothing is copied and "Could not copy" shows, and the placeholder URL is never copied in its place; "Copy message" is unchanged.
     - Not verified, for the owner's review: a browser may refuse a write to the clipboard that comes after a request rather than straight after the click. Firefox is the one to try.
 
+54. **Settings (PR 13) is designed again before it is built, and two things about it are decided** (2026-10-10, owner, after a readiness check of the tasks written on 2026-09-29 and 2026-09-30).
+    - **Deleting a key is confirmed with a plain button in a dialog**, as archiving a strategy is, and not by typing the exchange's name. Why: a deleted key can be entered again, and the API already refuses the delete while a strategy is enabled or a position is open (decision 22). Deleting a strategy is typed because it cannot be undone.
+    - **An exchange this panel does not serve (Pionex, decision 31) is shown without the Replace and Delete buttons**, with one sentence saying that its key is managed outside the panel. It is shown, not hidden: a key stored in the system is one the owner should see. Whether a Pionex key is stored in production today is not known.
+    - **Not reopened:** the key form is emptied after every attempt, a refused one included, so a refused save is typed again. It is a security rule of the design.
+    - **What the readiness check found, as the input of the new design:**
+      - the delete's refusal lists and the save's `missing` list sit at the top level of the API's body, and the panel's `ApiError` keeps only a structured `detail`, so the panel could not say why a delete was refused;
+      - `GET /api/credentials` lists an exchange only when it has a key, a history or an enabled pool, so an exchange with none has nowhere to show "Add a key";
+      - an empty entry carries no word on its pool, so "no key and something is wrong" (decision 20) cannot be told from "no key because the owner deleted it" without the pools;
+      - several refusals have no text: a key under four characters, the store not configured, a network failure, an exchange not served;
+      - eight things about the typed secret are pinned by no test, among them that it is in no query cache, in no error text, emptied on Cancel and on leaving, and not sent twice by a second click;
+      - the mockup `Settings.dc.html` has no Delete button and no Binance confirmations, and shows "no withdrawal" for Binance, which decisions 24 and 30 forbid.
+    - The tasks of PR 13 as written are superseded once the new ones exist. The visual design is shown to the owner before the tasks are written, by the standing constraint below.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.
