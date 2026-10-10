@@ -293,6 +293,88 @@ describe("the enable switch", () => {
   });
 });
 
+/** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
+const classesOf = (element: Element) => element.className.split(/\s+/);
+
+describe("the list's figures line up from row to row (12f.10.30b)", () => {
+  const WIDE = strategy({ id: "44444444-4444-4444-8444-444444444444", name: "Wide" });
+  const NARROW = strategy({ id: "55555555-5555-4555-8555-555555555555", name: "Narrow" });
+
+  /** Two rows whose PnL differs in width: `+1235.25` against `+988.80`, the case the owner saw. */
+  async function twoRows() {
+    const api = strategiesApi([WIDE, NARROW], (url) => {
+      const id = /\/performance\/strategies\/([^/]+)$/.exec(url)?.[1] ?? "";
+      const report = strategyReport(id);
+      const pnl = id === WIDE.id ? "1235.25" : "988.80";
+      const all = { range: "All", pnl, return: "0.0340000000", trade_count: 7 };
+      return Promise.resolve(
+        jsonResponse({ ...report, ranges: [...report.ranges.filter((entry) => entry.range !== "All"), all] }),
+      );
+    });
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+    const rows = await screen.findAllByTestId("strategy-row");
+    await waitFor(() => expect(within(rows[0] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+1,235.25"));
+    await waitFor(() => expect(within(rows[1] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+988.80"));
+    return rows;
+  }
+
+  it("the list is ONE grid of five tracks that the rows share", async () => {
+    const rows = await twoRows();
+    const list = (rows[0] as HTMLElement).parentElement as HTMLElement;
+
+    expect(classesOf(list)).toEqual(
+      expect.arrayContaining(["lg:grid", "lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto]"]),
+    );
+  });
+
+  it("every row takes the shared tracks on a subgrid and declares no tracks of its own", async () => {
+    const rows = await twoRows();
+
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(classesOf(row)).toEqual(expect.arrayContaining(["lg:grid", "lg:grid-cols-subgrid", "lg:col-span-5"]));
+      expect(classesOf(row).filter((name) => /grid-cols-\[/.test(name))).toEqual([]);
+    }
+  });
+
+  it("the three figures sit on the three middle tracks of that subgrid, in every row", async () => {
+    const rows = await twoRows();
+
+    for (const row of rows) {
+      const figures = within(row).getByTestId("strategy-trades").closest("dl") as HTMLElement;
+      expect(classesOf(figures)).toEqual(
+        expect.arrayContaining(["lg:grid", "lg:grid-cols-subgrid", "lg:col-span-3"]),
+      );
+      expect(classesOf(figures).filter((name) => /grid-cols-\[/.test(name))).toEqual([]);
+      expect(within(figures).getAllByRole("term")).toHaveLength(3);
+    }
+  });
+
+  it("a row whose report failed keeps the same three tracks for its message", async () => {
+    const api = strategiesApi([strategy()], () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    const row = await screen.findByTestId("strategy-row");
+    const message = await within(row).findByText(en.strategies.row.performanceError);
+
+    expect(classesOf(message)).toContain("lg:col-span-3");
+  });
+
+  it("the reading order of a row is still name, figures, switch", async () => {
+    const rows = await twoRows();
+
+    for (const row of rows) {
+      const link = within(row).getByRole("link");
+      const figures = within(row).getByTestId("strategy-trades").closest("dl") as HTMLElement;
+      const toggle = within(row).getByRole("switch");
+      expect(link.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      expect(figures.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    }
+  });
+});
+
 describe("copy", () => {
   it("has the list's messages in English and Spanish", () => {
     for (const locale of [en, es]) {
