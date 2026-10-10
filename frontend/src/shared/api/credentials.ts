@@ -109,11 +109,100 @@ export function useCredentials() {
   });
 }
 
+/** The seven outcomes the save route answers with, and the refusal each one is. */
+const REFUSAL_BY_OUTCOME: ReadonlyMap<string, SaveRefusal> = new Map<string, SaveRefusal>([
+  ["KEY_REJECTED", "keyRejected"],
+  ["WITHDRAW_PERMISSION", "withdrawPermission"],
+  ["PERMISSIONS_UNAVAILABLE", "permissionsUnavailable"],
+  ["VENUE_UNREACHABLE", "venueUnreachable"],
+  ["CONCURRENT_SAVE", "concurrentSave"],
+  ["CONFIRMATION_REQUIRED", "confirmationRequired"],
+  ["CONFIRMATION_NOT_APPLICABLE", "confirmationNotApplicable"],
+]);
+
+const READ_ONLY_WARNING = "READ_ONLY_KEY";
+
+function refused(reason: SaveRefusal, status: number, missing: readonly string[] = []): SaveResult {
+  return { kind: "refused", reason, missing, status };
+}
+
+/**
+ * What the panel keeps of a save that worked: the last four characters, only
+ * when the server's is exactly four, and whether the key cannot trade. Taken
+ * from the answer itself, never cut from what was typed, and never from the
+ * list that is read after it (that read can fail).
+ */
+function savedFrom(body: unknown): SaveResult {
+  const record = isRecord(body) ? body : {};
+  const facts = isRecord(record.facts) ? record.facts : {};
+  const warnings = Array.isArray(record.warnings) ? record.warnings : [];
+  const last4 = typeof record.last4 === "string" && record.last4.length === LAST4_LENGTH ? record.last4 : null;
+  const readOnly = warnings.includes(READ_ONLY_WARNING) || facts.trade_capable === false;
+  return { kind: "saved", last4, readOnly };
+}
+
+/** The names a CONFIRMATION_REQUIRED lists at the top level of its body; a non-list gives none. */
+function missingFrom(error: ApiError): string[] {
+  const missing = error.responseBody?.missing;
+  return Array.isArray(missing) ? missing.filter((name): name is string => typeof name === "string") : [];
+}
+
+/** A pydantic 422 holds a list of `{type, loc, msg}`; the field a refusal is about is the end of `loc`. */
+function validationReason(detail: readonly unknown[]): SaveRefusal {
+  const fields = detail.map((entry) => (isRecord(entry) && Array.isArray(entry.loc) ? entry.loc.at(-1) : undefined));
+  if (fields.includes("api_key")) return "invalidKey";
+  if (fields.includes("api_secret")) return "invalidSecret";
+  return "invalidRequest";
+}
+
+/** First match wins: a 401; a known outcome; a 404; a 503; a 422 whose `detail` is a list; status 0; anything else. */
+function refusalFrom(error: ApiError): SaveResult {
+  if (error.status === 401) return { kind: "unauthorized" };
+  const byOutcome = typeof error.outcome === "string" ? REFUSAL_BY_OUTCOME.get(error.outcome) : undefined;
+  if (byOutcome !== undefined) {
+    return refused(byOutcome, error.status, byOutcome === "confirmationRequired" ? missingFrom(error) : []);
+  }
+  if (error.status === 404) return refused("notServed", error.status);
+  if (error.status === 503) return refused("storageUnavailable", error.status);
+  const detail = error.responseBody?.detail;
+  if (error.status === 422 && Array.isArray(detail)) return refused(validationReason(detail), error.status);
+  if (error.status === 0) return refused("noAnswer", 0);
+  return refused("unknown", error.status);
+}
+
+/**
+ * `PUT /api/credentials/{exchange}`. A plain function over `apiFetch`, never a
+ * `useMutation`: a mutation keeps its `variables`, which would be the secret,
+ * in the mutation cache. It catches everything, maps it, and lets the error
+ * object go, so what it resolves is a plain object of known fields and never
+ * holds the server's wording nor anything that was typed. It never retries: a
+ * second request is a second signed read at the venue.
+ *
+ * The text of a refusal is chosen by the page from `reason`; the server's
+ * `detail` is never carried out of here.
+ */
 export async function saveCredential(
-  _exchange: string,
-  _apiKey: string,
-  _apiSecret: string,
-  _confirmations: readonly string[],
+  exchange: string,
+  apiKey: string,
+  apiSecret: string,
+  confirmations: readonly string[],
 ): Promise<SaveResult> {
-  return { kind: "refused", reason: "unknown", missing: [], status: 0 };
+  const body: Record<string, unknown> = { api_key: apiKey, api_secret: apiSecret };
+  for (const name of confirmations) {
+    body[name] = true;
+  }
+  try {
+    const answer = await apiFetch<unknown>(`/credentials/${encodeURIComponent(exchange)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return savedFrom(answer);
+  } catch (error) {
+    if (error instanceof ApiError) return refusalFrom(error);
+    // The only unguarded await in `apiFetch` is the 2xx body: a 200 the panel
+    // cannot read is still a save, because the venue was asked and the row written.
+    if (error instanceof SyntaxError) return savedFrom(undefined);
+    return refused("noAnswer", 0);
+  }
 }
