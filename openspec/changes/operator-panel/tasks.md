@@ -4074,7 +4074,7 @@ requirements 947 to 1700)
   `:focus-visible::-moz-range-thumb`, `field-sizing-content`, `min-w-[1ch]`, the four `left-[...]` classes and
   `w-[calc(...)]` are all present. Existing files edited: `locales/en.json` and `locales/es.json`, two keys under
   `strategies.detail.share` (`valueText`, `stop`), in the wording of design § I.
-- [ ] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
+- [x] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
   `vi.stubGlobal("fetch")`), with the stub container that renders `ShareSlider` over the stored value and a
   Save that never sends. The container holds the draft as `{ base, text, handle }` or nothing. Tests: `::a
   stored 33.5 shows 33.5 in the field and the handle at 34` (mutation: the field given the handle's value),
@@ -4091,6 +4091,34 @@ requirements 947 to 1700)
   comparison removed), `::the control makes no request but the share preview and the save` (no venue, no
   pair contract: spec "No Venue Is Read For The Check"). RED: `expected "spy" to be called with arguments`,
   `expected '30' to be '33.5'`. GREEN: the container over `share-value.ts` and `setStrategyAllocationPercent`.
+  **Done (RED `460a5f9`, GREEN `b46f2e5`, test hardening `cd3abb2`).** `PoolShareEditor.tsx` holds the draft as
+  `{ base, text, handle }` or nothing, reads the stored share with `readStored`, shows each refusal of `parseDraft`
+  as a `text-xs text-loss` line tied to the field (`aria-describedby`, `aria-invalid`, never an alert), and saves
+  `reading.canonical` through `useSetAllocationPercent`. The refusal of 13b is shown like the other three, with its
+  own text, and the editor adds a test that a 19-decimal text sends nothing and an 18-decimal one can be saved. A
+  stored value `readStored` cannot read renders nothing for now; 12f.10.17 puts its text there. RED as observed,
+  against the stub (a field over the stored value that never changes and a Save that is enabled and does nothing):
+  `expected '33.5' to be '35'`, `expected '33.5' to be '33'`, `expected '33.5' to be '75'`, `expected '33.5' to be
+  '62.5'`, `expected '30' to be '33,5'`, `expected '30' to be '1'`, `expected '30' to be '40'`, `expect(element)
+  .toBeDisabled()` for the cases that must leave Save disabled, `expected [] to have a length of 1 but got +0` for the
+  body test, and `expect(received).toBeInTheDocument()` for each refusal text. 24 of 29 failed; the five that passed
+  at once are the stored 33.5 case, the stored 0.5 case, the two no-request cases (the stub never sends) and the
+  valid value with no refusal. Mutations after GREEN, each reverted with `git checkout`: the field given the
+  handle's value reds the three stored-value tests; the decimal kept on a move reds the move, the left arrow and the
+  stop tests; the handle following an invalid text reds the typing test; the comma rule removed (the typed text sent)
+  reds `33,5 is sent as 33.5`; the `reading.canonical !== stored` comparison removed reds four tests; the `base`
+  comparison removed reds the stale-draft test; a save on the change event reds eleven tests, including both no-request
+  tests; a save on unmount reds `leaving the page after a change sends nothing`; `reading.valid` removed from the
+  `changed` test reds the four invalid cases and three more; `archived` removed from Save reds the archived-draft
+  test; `archived` removed from the field's `disabled` reds the archived test. Two things the first pass of the tests
+  did not catch and `cd3abb2` fixed: the no-request tests asserted at once, a tick before a mutation calls `fetch`, so
+  a save on the change event passed them (`settle()` now waits); and an archived strategy whose Save was not disabled
+  passed, because an unchanged draft disables Save anyway (the new test makes a change and then archives).
+  Not run: the task's mutations on the request body (`enabled` added, the value as a number, the sign read into the
+  value), which live in `setStrategyAllocationPercent` (batch 1, task 12f.10.3) and in the field (12f.10.14); the
+  tests that pin them are the exact body string here and the sibling test there. Existing files edited:
+  `locales/en.json` and `locales/es.json` (label, notNumber, outOfRange, tooManyDecimals, save, saving) and
+  `ShareSlider.tsx` (`describedBy?: string | undefined`, because `exactOptionalPropertyTypes` refuses `undefined`).
 - [ ] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
   saving, Save reads Saving... and the track, the stops and the field are disabled`, `::a 422 shows "The share
   must be above 0 and at most 100." as an alert`, `::a 409 STRATEGY_ARCHIVED shows the archived text and the
