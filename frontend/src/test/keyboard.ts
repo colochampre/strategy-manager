@@ -30,6 +30,9 @@ export function pressEnter(): void {
   if (proceeded && target.tagName === "BUTTON") fireEvent.click(target);
 }
 
+/** STUB (12f.10.13 RED): does nothing, until the GREEN stands for a range input's default action. */
+export function pressRangeKey(_key: string): void {}
+
 /** Presses Space on the focused element: a button fires its click on keyup. */
 export function pressSpace(): void {
   const target = document.activeElement as HTMLElement | null;
