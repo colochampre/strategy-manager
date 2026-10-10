@@ -51,6 +51,10 @@ export function ShareAmount({ view, trailing }: ShareAmountProps) {
   }
 
   const staleAt = view.kind === "known" && figure ? view.staleAt : null;
+  const minimum =
+    view.kind === "known" && figure && view.belowMinimum !== null
+      ? (cutAmountText(view.belowMinimum, view.currency, i18n.language) ?? view.belowMinimum)
+      : null;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -61,6 +65,13 @@ export function ShareAmount({ view, trailing }: ShareAmountProps) {
       {staleAt !== null && (
         <p className="text-xs text-ink-2">
           {t("strategies.detail.share.amountStale", { time: clockText(staleAt) ?? staleAt })}
+        </p>
+      )}
+      {/* A status line in the colour of refusals, never an alert (it changes as the handle moves) and never
+          amber. It never disables anything: it states the balance on screen, not a later one. */}
+      {minimum !== null && view.kind === "known" && (
+        <p role="status" className="text-xs text-loss">
+          {t("strategies.detail.share.belowPoolMinimum", { minimum, currency: view.currency })}
         </p>
       )}
     </div>

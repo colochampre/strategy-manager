@@ -199,6 +199,7 @@
         "amountNoBalance": "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
         "amountLoading": "Calculando el importe…",
         "amountError": "No se pudo cargar el importe.",
+        "belowPoolMinimum": "Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
         "save": "Guardar porcentaje",
         "saving": "Guardando…",
         "saveFailed": "El porcentaje no se guardó. Inténtelo de nuevo.",

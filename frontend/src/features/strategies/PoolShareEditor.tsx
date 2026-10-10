@@ -74,12 +74,21 @@ function amountView(
   if (data === undefined) return read.isError ? { kind: "failed" } : { kind: "loading" };
   if (data.balance === null) return { kind: "noBalance" };
   const staleAt = data.balance.stale ? data.balance.observed_at : null;
-  const known = (amount: string): ShareAmountView => ({ kind: "known", amount, currency: data.currency, staleAt, belowMinimum: null });
+  // The server decides whether a figure is under the pool's minimum order; the panel only carries its word.
+  const known = (amount: string, below: boolean): ShareAmountView => ({
+    kind: "known",
+    amount,
+    currency: data.currency,
+    staleAt,
+    belowMinimum: below ? data.pool_minimum : null,
+  });
 
   const step = WHOLE_STEP.test(value) ? data.steps[Number(value) - 1] : undefined;
-  if (step !== undefined) return known(step.amount);
+  if (step !== undefined) return known(step.amount, step.below_pool_minimum);
   // An answer counts only when it is for the share asked, compared in plain form.
-  if (data.exact !== null && readStored(data.exact.share) === value) return known(data.exact.amount);
+  if (data.exact !== null && readStored(data.exact.share) === value) {
+    return known(data.exact.amount, data.exact.below_pool_minimum);
+  }
   // The stored share's read is for another share: a save just moved it, and the re-read is on its way.
   return covered && read.isFetching ? { kind: "loading" } : { kind: "failed" };
 }

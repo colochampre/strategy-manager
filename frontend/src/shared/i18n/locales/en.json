@@ -199,6 +199,7 @@
         "amountNoBalance": "The pool's balance has not been read yet, so the amount cannot be shown.",
         "amountLoading": "Calculating the amount…",
         "amountError": "The amount could not be loaded.",
+        "belowPoolMinimum": "At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger.",
         "save": "Save share",
         "saving": "Saving…",
         "saveFailed": "The share was not saved. Try again.",
