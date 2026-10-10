@@ -4185,7 +4185,7 @@ requirements 947 to 1700)
   use the editor over a prop; with the page above it, a changed stored value empties the draft and Save is disabled.
   Existing files edited: `locales/en.json` and `locales/es.json` (`strategies.detail.saved`); the GREEN commit also
   carries a one-line fix to the test helper `savedRegion()`, which has to find Save under its second name, "Saving...".
-- [ ] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
+- [x] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
   mounts `InlineStatus` and never fills it; the hook is NOT changed. Tests: `::Saved shows when the PUT answers
   200 and the list on screen is the saved one`, `::Saved goes at the next pair added or removed, and typing in
   the search box changes no pair and leaves it`, `::no Saved after a 409 or a 422`, `::if the re-read after a 200
@@ -4194,6 +4194,29 @@ requirements 947 to 1700)
   pairs' Saved are two flags: a pair change leaves the share's, and the reverse` (mutation: one flag shared
   by both). RED: `expected null to be in the document`. GREEN: a local boolean next to the existing mutation,
   set from the settled success once the list on screen is the saved one.
+  **Done in part (RED `dd51d58`, GREEN `f652c37`, one added test in the next commit).** The page-level test
+  `StrategyDetailPage.test.tsx::the share's Saved and the pairs' Saved are two flags` is NOT written here: the page
+  does not mount the share control until 12f.10.24, so the test cannot exist yet. It moves to 12f.10.24, which lists
+  it as an added test. Everything else of the task is done. `AllowedPairsEditor.tsx` keeps `savedKey`, the list the
+  last successful PUT answered; "Saved" shows while the stored list (the page's `strategy.allowed_pairs`) is that
+  list, so a 200 followed by a failed re-read, which leaves the stored list old, shows nothing (the safe side the
+  design names). A pair added or removed, and a new Save, clear `savedKey`; the search box never reaches the
+  selector's `onChange`, so it leaves "Saved". A 200 whose body carries no list of pairs (the hook does not check it)
+  sets nothing, so it never shows "Saved". The save button and the `InlineStatus` now share a wrapping row. The hook
+  is not changed. RED as observed against the stub (the row and an `InlineStatus` that is never filled): 5 of 22
+  failed on `expect(element).toHaveTextContent()`; passed at once: the empty-region test, the 409 and 422 cases, the
+  failed-re-read case and the non-strategy case, all of which a never-filled region satisfies. Mutations after GREEN,
+  each reverted with `git checkout`: the reset removed from the pairs' `onChange` reds the two "goes" tests; the
+  stored-list comparison removed reds the failed-re-read test; the saved key taken from the client's list instead of
+  the answer reds the non-strategy test; the flag set on settle reds eight tests; the clear removed from the Save
+  handler passed at first, because after a 200 Save is disabled until a pair changes, which resets the key anyway.
+  The path that matters is a 200 the page never received (Save stays enabled), then a refusal on the next Save, then
+  the page catching up: the added test `a refusal and Saved are never on screen together` covers it and that
+  mutation reds it. One condition of the first draft, "and the list on screen equals the saved key", was removed
+  as unreachable: a draft is dropped once the stored list moves and any later edit clears the key, so no test could
+  red it. Silent failure found, not fixed because the hook is out of this task: a 200 whose body is not a
+  strategy shows no "Saved" and no error either; the owner sees nothing. Existing files edited:
+  `AllowedPairsEditor.tsx` and `AllowedPairsEditor.test.tsx` (the task).
 
 **The amount, the warning and the explanations** (design §§ C2, C3, B2)
 
