@@ -8,7 +8,7 @@ import type { Strategy } from "@/shared/api/types";
 import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
 import { jsonResponse, pool } from "@/test/harness";
-import { pressRangeKey } from "@/test/keyboard";
+import { pressRangeKey, pressTab } from "@/test/keyboard";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -1336,5 +1336,342 @@ describe("PoolShareEditor, the warning on the pool's minimum", () => {
 
       expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
     });
+  });
+});
+
+const SHARE_INFO = "About the share of the pool";
+const AMOUNT_INFO = "About this amount and what is not checked";
+const HINT =
+  "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size.";
+const ESTIMATE =
+  "An estimate: this share of the pool's total balance, read at 14:03 UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.";
+const PAIR_NOTE =
+  "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.";
+
+const shareInfo = () => screen.getByRole("button", { name: SHARE_INFO });
+const amountInfo = () => screen.getByRole("button", { name: AMOUNT_INFO });
+const expandedOf = (button: HTMLElement) => button.getAttribute("aria-expanded");
+/** Whether `before` comes before `after` in the document, which is the order on screen. */
+const precedes = (before: Element, after: Element) =>
+  (before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+describe("PoolShareEditor, the two information buttons", () => {
+  it("both buttons are present and closed, and none of the three explanatory sentences is in the document", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    expect(screen.queryByRole("button", { name: SHARE_INFO })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: AMOUNT_INFO })).toBeInTheDocument();
+    expect(expandedOf(shareInfo())).toBe("false");
+    expect(expandedOf(amountInfo())).toBe("false");
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.queryByText(ESTIMATE)).toBeNull();
+    expect(screen.queryByText(PAIR_NOTE)).toBeNull();
+  });
+
+  it("none of the three sentences is in the document in Spanish either", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy(), { preview: served() });
+      await expectText("Pide alrededor de 300,00 USDT por operación");
+
+      expect(screen.queryByRole("button", { name: "Acerca del porcentaje del pool" })).toBeInTheDocument();
+      expect(screen.queryByText(/Cada nueva operación pide/)).toBeNull();
+      expect(screen.queryByText(/Es una estimación/)).toBeNull();
+      expect(screen.queryByText(/Cada par tiene además/)).toBeNull();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("each button points at a container that is in the document while it is closed", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    for (const button of [shareInfo(), amountInfo()]) {
+      const container = document.getElementById(button.getAttribute("aria-controls") ?? "");
+      expect(container).toBeInTheDocument();
+      expect(container).toBeEmptyDOMElement();
+      expect(container).toHaveClass("empty:hidden");
+    }
+  });
+
+  it("the label's button shows the hint and only that, under the label's row, in the flow", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    fireEvent.click(shareInfo());
+
+    expect(expandedOf(shareInfo())).toBe("true");
+    expect(screen.queryByText(HINT)).toBeInTheDocument();
+    expect(screen.queryByText(ESTIMATE)).toBeNull();
+    expect(screen.queryByText(PAIR_NOTE)).toBeNull();
+    expect(precedes(shareInfo(), screen.getByText(HINT))).toBe(true);
+    expect(precedes(screen.getByText(HINT), field())).toBe(true);
+    expect(screen.getByText(HINT).closest("[popover]")).toBeNull();
+  });
+
+  it("the amount's button shows the estimate with the time as HH:MM UTC, then the pair note, in that order", async () => {
+    setup(strategy(), { preview: served({ observedAt: "2026-10-09T14:03:12Z" }) });
+    await expectText(amountLine("300.00"));
+
+    fireEvent.click(amountInfo());
+
+    expect(expandedOf(amountInfo())).toBe("true");
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.queryByText(ESTIMATE)).toBeInTheDocument();
+    expect(screen.queryByText(PAIR_NOTE)).toBeInTheDocument();
+    expect(precedes(screen.getByText(ESTIMATE), screen.getByText(PAIR_NOTE))).toBe(true);
+    expect(precedes(screen.getByText(amountLine("300.00")), screen.getByText(ESTIMATE))).toBe(true);
+    expect(screen.getByText(ESTIMATE).closest("[popover]")).toBeNull();
+  });
+
+  it("with no balance read, the amount's button shows the pair note only: there is no time to name", async () => {
+    setup(strategy(), { preview: served({ noBalance: true }) });
+    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+
+    fireEvent.click(amountInfo());
+
+    expect(screen.queryByText(PAIR_NOTE)).toBeInTheDocument();
+    expect(screen.queryByText(/An estimate/)).toBeNull();
+  });
+
+  it("the explanations read in Spanish with the time as HH:MM UTC", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy(), { preview: served({ observedAt: "2026-10-09T14:03:12Z" }) });
+      await expectText("Pide alrededor de 300,00 USDT por operación");
+
+      fireEvent.click(screen.getByRole("button", { name: "Acerca de este importe y de lo que no se comprueba" }));
+
+      expect(
+        screen.queryByText(
+          "Es una estimación: este porcentaje del saldo total del pool, leído a las 14:03 UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("the stale line, the warning, the validation text and a refused save are in the document with both buttons closed", async () => {
+    setup(strategy({ allocation_percent: "1" }), {
+      preview: served({ unit: 3, minimum: "5.000000000000000000", stale: true, observedAt: "2026-10-09T14:03:12Z" }),
+      patch: refuse(500, "boom"),
+    });
+    await expectText(amountLine("3.00"));
+
+    expect(expandedOf(shareInfo())).toBe("false");
+    expect(expandedOf(amountInfo())).toBe("false");
+    expect(screen.queryByText("The pool's balance was last read at 14:03 UTC and may be out of date.")).toBeInTheDocument();
+    expect(screen.queryByText(/less than the pool's minimum order/)).toBeInTheDocument();
+    type("abc");
+    expect(screen.queryByText("Enter a number, for example 25 or 33.5.")).toBeInTheDocument();
+    type("2");
+    fireEvent.click(saveButton());
+    expect(await alertLine()).toHaveTextContent("The share was not saved. Try again.");
+    expect(expandedOf(shareInfo())).toBe("false");
+  });
+
+  it("the unreadable stored value is in the document with the buttons closed", () => {
+    setup(strategy({ allocation_percent: "1E-7" }), { preview: served() });
+
+    expect(screen.queryByText("The stored share could not be read, so it cannot be edited here.")).toBeInTheDocument();
+  });
+
+  it("both can be open together, and each closes only its own text", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    fireEvent.click(shareInfo());
+    fireEvent.click(amountInfo());
+    expect(screen.queryByText(HINT)).toBeInTheDocument();
+    expect(screen.queryByText(ESTIMATE)).toBeInTheDocument();
+
+    fireEvent.click(shareInfo());
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.queryByText(ESTIMATE)).toBeInTheDocument();
+  });
+
+  it("Escape closes the text from the button or from inside it and leaves focus on the button", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    fireEvent.click(amountInfo());
+
+    fireEvent.keyDown(screen.getByText(ESTIMATE), { key: "Escape" });
+
+    expect(screen.queryByText(ESTIMATE)).toBeNull();
+    expect(amountInfo()).toHaveFocus();
+  });
+
+  it("moving the handle or the focus does not close an open explanation", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    fireEvent.click(shareInfo());
+
+    moveHandle("ArrowRight");
+    field().focus();
+    type("40");
+
+    expect(screen.queryByText(HINT)).toBeInTheDocument();
+  });
+
+  it("an open explanation survives a save", async () => {
+    setupPage(strategy(), { preview: served() });
+    await screen.findByRole("textbox");
+    await expectText(amountLine("300.00"));
+    fireEvent.click(amountInfo());
+
+    type("40");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    expect(screen.queryByText(ESTIMATE)).toBeInTheDocument();
+  });
+
+  it("an open explanation survives a refused save", async () => {
+    setup(strategy(), { preview: served(), patch: refuse(500, "boom") });
+    await expectText(amountLine("300.00"));
+    fireEvent.click(shareInfo());
+
+    type("40");
+    fireEvent.click(saveButton());
+    await alertLine();
+
+    expect(screen.queryByText(HINT)).toBeInTheDocument();
+  });
+
+  it("an open explanation survives a change of language, and is then the Spanish text", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    fireEvent.click(shareInfo());
+
+    await act(() => i18n.changeLanguage("es"));
+    try {
+      expect(screen.queryByText(/Cada nueva operación pide este porcentaje del saldo total del pool/)).toBeInTheDocument();
+      expect(screen.queryByText(HINT)).toBeNull();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("both buttons are enabled on an archived strategy, and open", async () => {
+    setup(strategy({ archived_at: "2026-10-01T00:00:00Z" }), { preview: served() });
+    await expectText(amountLine("300.00"));
+
+    expect(shareInfo()).toBeEnabled();
+    expect(amountInfo()).toBeEnabled();
+    fireEvent.click(shareInfo());
+    fireEvent.click(amountInfo());
+    expect(screen.queryByText(HINT)).toBeInTheDocument();
+    expect(screen.queryByText(PAIR_NOTE)).toBeInTheDocument();
+  });
+
+  it("both buttons are enabled while a save is in flight", async () => {
+    setup(strategy(), { preview: served(), patch: () => new Promise<Response>(() => undefined) });
+    await expectText(amountLine("300.00"));
+    type("40");
+    fireEvent.click(saveButton());
+    await screen.findByRole("button", { name: "Saving…" });
+
+    expect(shareInfo()).toBeEnabled();
+    expect(amountInfo()).toBeEnabled();
+    fireEvent.click(amountInfo());
+    expect(screen.queryByText(PAIR_NOTE)).toBeInTheDocument();
+  });
+
+  it("the amount's button is present with a figure, with the em dash, with no balance and with a failed read", async () => {
+    const present = () => expect(screen.queryByRole("button", { name: AMOUNT_INFO })).toBeInTheDocument();
+
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    present();
+    type("abc");
+    expect(screen.queryByText("—")).toBeInTheDocument();
+    present();
+  });
+
+  it.each([
+    ["no balance", { preview: served({ noBalance: true }) }, "The pool's balance has not been read yet, so the amount cannot be shown."],
+    ["a failed read", { preview: () => jsonResponse({ detail: "boom" }, 500) }, "The amount could not be loaded."],
+  ])("the amount's button is present with %s", async (_name, options, text) => {
+    setup(strategy(), options);
+
+    await expectText(text);
+
+    expect(screen.queryByRole("button", { name: AMOUNT_INFO })).toBeInTheDocument();
+    expect(amountInfo()).toBeEnabled();
+  });
+
+  it("Tab goes: the label's button, the field, the track, 25, 50, 75, 100, the amount's button, Save", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    type("40");
+    expect(saveButton()).toBeEnabled();
+
+    const visited: Array<Element | null> = [];
+    for (let stopNumber = 0; stopNumber < 9; stopNumber += 1) {
+      act(() => {
+        pressTab();
+      });
+      visited.push(document.activeElement);
+    }
+
+    expect(visited).toEqual([
+      shareInfo(),
+      field(),
+      track(),
+      stop(25),
+      stop(50),
+      stop(75),
+      stop(100),
+      amountInfo(),
+      saveButton(),
+    ]);
+  });
+
+  it("with Save disabled the order ends at the amount's button: a disabled button is no stop", async () => {
+    setup(strategy(), { preview: served() });
+    await expectText(amountLine("300.00"));
+    expect(saveButton()).toBeDisabled();
+
+    const visited: Array<Element | null> = [];
+    for (let stopNumber = 0; stopNumber < 9; stopNumber += 1) {
+      act(() => {
+        pressTab();
+      });
+      visited.push(document.activeElement);
+    }
+
+    // Eight stops, and the ninth press wraps to the first.
+    expect(visited.slice(0, 8)).toEqual([shareInfo(), field(), track(), stop(25), stop(50), stop(75), stop(100), amountInfo()]);
+    expect(visited[8]).toBe(shareInfo());
+  });
+
+  it("the stored 33.5 is read as '33.5% of the pool' with the handle at 34", async () => {
+    setup(strategy({ allocation_percent: "33.5" }), {
+      preview: served({ exact: { share: "33.5", amount: "335.000000000000000000" } }),
+    });
+    await expectText(amountLine("335.00"));
+
+    expect(track()).toHaveAttribute("aria-valuetext", "33.5% of the pool");
+    expect(track().value).toBe("34");
+  });
+
+  it("no element carries a style attribute", async () => {
+    const { requests } = setup(strategy({ allocation_percent: "1" }), {
+      preview: served({ unit: 3, minimum: "5.000000000000000000", stale: true }),
+    });
+    await expectText(amountLine("3.00"));
+    fireEvent.click(shareInfo());
+    fireEvent.click(amountInfo());
+
+    expect(document.body.querySelectorAll("[style]")).toHaveLength(0);
+    expect(requests).toEqual([]);
   });
 });
