@@ -4324,7 +4324,7 @@ requirements 947 to 1700)
   Existing files edited: `ShareAmount.tsx`, `ShareAmount.test.tsx` (the new field in its fixture),
   `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (a `unit` for the served steps and an exposed query client), the
   two locale files (`belowPoolMinimum`).
-- [ ] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
+- [x] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
   Tests: `::at mount none of the three explanatory sentences is in the document, in English and in Spanish`
   (**passes at once**; mutations: open by default; a sentence outside its container), `::the label's button
   shows the hint and only that, and the amount's shows the first paragraph with the time as HH:MM UTC and then
@@ -4340,6 +4340,32 @@ requirements 947 to 1700)
   information button given `tabIndex={-1}`), `::the stored 33.5 is read as "33.5% of the pool" with the handle
   at 34`. RED: `expected null to be in the document`. GREEN: the buttons sit right after the label and right
   after the amount; the explanation is rendered under its own row, in the flow, never a popover.
+  **Done (RED `d80a2ff`, GREEN `2d103b3`; helper fix RED `aa44adb`, GREEN `6bc202d`).** `PoolShareEditor.tsx` puts
+  `InfoButton` right after the label and, through a new `trailing` slot of `ShareAmount`, right after the amount;
+  each has its own `useInfoDisclosure`, so each state is local, closed on every visit and kept through a save, a
+  refusal and a change of language (the open text is simply re-rendered in the other language). Button 1 opens the
+  hint under the label's row; button 2 opens, through a new `explanation` slot placed between the amount's row and
+  the stale line and the warning (the prototype's order), the estimate with `HH:MM UTC` and then the pair note.
+  The estimate is left out when no balance has been read: the approved prototype writes it only when a balance
+  exists and always writes the pair note, and the spec is silent, so I followed the prototype. Neither button is
+  ever given `disabled`. `InfoText` gained `flex flex-col gap-1.5 empty:hidden`, so a closed (empty) container takes
+  no row and no gap; a class test pins it. RED as observed (no stub: there were no buttons): 22 of 129 failed, one
+  on `expect(received).toBeInTheDocument()` for the buttons and the rest on Testing Library's "Unable to find an
+  accessible element with the role button and name ...". Passed at once: the 107 earlier tests; of the new ones,
+  none, since each asks for a button. Mutations after GREEN, each reverted with `git checkout`: open by default
+  reds 16; the hint rendered outside its container reds nine; the two contents swapped reds six; the pair note
+  dropped reds five; the amount's explanation reset when a save starts reds `an open explanation survives a save`.
+  Not run, said plainly: "the field rendered after the track" (the field is in `ShareSlider`, and moving a whole block
+  with a one-line edit was not safe), "a sentence outside its container" for the amount's two paragraphs, "the open
+  state reset on every render" (the survive-a-save reset above stands for it), "disabled passed to the buttons"
+  (`InfoButton` has no `disabled` prop; the two enabled-state tests hold that), and "the control not keyed by the
+  strategy", which is the page's `key` and is tested in 12f.10.24. One defect of the test tooling found and fixed
+  here: `pressTab` treated a button with `tabindex="-1"` as tabbable, so the first tab-order test passed against a
+  button given `tabIndex={-1}` (the task's own mutation). `keyboard.test.ts` gained four `pressTab` tests, one RED
+  on `expected <button tabindex="-1"></button> to be <button></button>`; `keyboard.ts` now filters on that attribute;
+  with it the mutation reds both tab-order tests. Existing files edited: `InfoDisclosure.tsx` (the class),
+  `ShareAmount.tsx` (the `explanation` slot), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx`, `keyboard.ts` and
+  `keyboard.test.ts`, the two locale files (five keys: info, hint, amountInfo, amountHint, pairMinimumNote).
 - [ ] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
   the settings column, under its heading and above the allowed pairs` (RED:
   `expected null to be in the document`; mutation: the control after the pairs), `::no text of the page's header
