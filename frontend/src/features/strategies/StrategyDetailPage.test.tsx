@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router";
+import { Link, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
@@ -15,6 +15,7 @@ import {
   pool,
   renderAt,
   resetExchangeScope,
+  strategyRoute,
   stubApi,
   unlock,
   unsyncedSharePreview,
@@ -456,6 +457,40 @@ describe("StrategyDetailPage", () => {
     expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
     expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
     expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
+  });
+
+  it("test_the_share_control_starts_over_for_another_strategy_and_a_typed_value_is_not_carried_to_it", async () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const first = strategyRoute(ID, "ETH Breakout");
+    const second = strategyRoute(OTHER, "SOL Trend");
+    stubApi(HEALTH, [], undefined, {}, (url, init) => first(url, init) ?? second(url, init));
+    renderAt(
+      <Routes>
+        <Route
+          path="strategies/:strategyId"
+          element={
+            <>
+              <Link to={`/strategies/${OTHER}`}>next strategy</Link>
+              <StrategyDetailPage />
+            </>
+          }
+        />
+      </Routes>,
+      `/strategies/${ID}`,
+    );
+    await heading("ETH Breakout");
+
+    // Both strategies store 100. A value typed on the first, and an explanation opened on it, are its own.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.detail.share.info }));
+    expect(screen.getByRole("textbox")).toHaveValue("40");
+    expect(screen.getByText(en.strategies.detail.share.hint)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "next strategy" }));
+    await heading("SOL Trend");
+
+    expect(screen.getByRole("textbox")).toHaveValue("100");
+    expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
   });
 
   it("renders in Spanish and has the same keys in both locales", async () => {
