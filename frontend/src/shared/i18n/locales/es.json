@@ -198,6 +198,7 @@
         "title": "Por par",
         "pair": "Par",
         "trades": "Operaciones",
+        "winRate": "% acierto",
         "pnl": "PnL {{currency}}",
         "return": "Rendimiento",
         "empty": "Ningún par tiene todavía una operación cerrada.",

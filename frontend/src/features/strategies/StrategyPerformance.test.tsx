@@ -99,7 +99,7 @@ describe("StrategyPerformance", () => {
     const rows = within(table).getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(within(rows[1] as HTMLElement).getByText("+71.10")).toBeInTheDocument();
-    expect(within(rows[2] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("—");
+    expect(within(rows[2] as HTMLElement).getAllByRole("cell")[4]).toHaveTextContent("—");
     // One request feeds the whole section.
     expect(requests).toHaveLength(1);
   });

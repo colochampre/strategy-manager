@@ -32,7 +32,10 @@ describe("PairStatsTable", () => {
     render(
       <PairStatsTable
         currency="USDT"
-        pairs={[stat({ pair: "ETHUSDT", trades: 19, pnl: "52.60" }), stat({ pair: "SOLUSDT", trades: 24, pnl: "-5.30" })]}
+        pairs={[
+          stat({ pair: "ETHUSDT", trades: 19, wins: 12, win_rate: "0.6315789474", pnl: "52.60" }),
+          stat({ pair: "SOLUSDT", trades: 24, wins: 9, win_rate: "0.3750000000", pnl: "-5.30" }),
+        ]}
       />,
     );
 
@@ -165,7 +168,8 @@ describe("PairStatsTable win rate column", () => {
     render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
 
     expect(screen.getByRole("columnheader", { name: "% acierto" })).toBeInTheDocument();
-    expect(cellsOf("SOLUSDT")[2]).toHaveTextContent("62,5 %");
+    // `toHaveTextContent` folds a no-break space into a plain one, so the exact text is compared.
+    expect(cellsOf("SOLUSDT")[2]?.textContent).toBe("62,5 %");
   });
 
   it("the OPEN column is not built", () => {

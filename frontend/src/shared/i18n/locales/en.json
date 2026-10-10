@@ -198,6 +198,7 @@
         "title": "By pair",
         "pair": "Pair",
         "trades": "Trades",
+        "winRate": "Win rate",
         "pnl": "PnL {{currency}}",
         "return": "Return",
         "empty": "No pair has a closed trade yet.",
