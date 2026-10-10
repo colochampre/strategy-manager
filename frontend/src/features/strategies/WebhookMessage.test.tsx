@@ -12,6 +12,9 @@ import { jsonResponse, lock, renderAt, resetExchangeScope, stubApi, strategyRout
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
 const SECRET = "s3cr3t-Vh4lu3-Zq9";
+/** A secret that needs percent-encoding, and that is easy to search for if it leaks. */
+const AWKWARD = "p&q/r s";
+const AWKWARD_ENCODED = "p%26q%2Fr%20s";
 const URL_BASE = "/webhook/tradingview?secret=";
 const PLACEHOLDER_URL = `${URL_BASE}<your WEBHOOK_SECRET>`;
 const SECRET_PATH = "/api/webhook-secret";
@@ -202,11 +205,15 @@ describe("WebhookMessage", () => {
     expect(await screen.findByText(`${URL_BASE}a%26b%2Bc%20d%3De`)).toBeInTheDocument();
   });
 
-  it("test_no_other_control_ever_requests_the_secret", async () => {
+  // Rewritten by 12f.10.30e (decision 53): it said that no control but "Show secret" requests the secret. Now
+  // two do, and only these two: "Show secret", and "Copy URL" while the secret is hidden and a host is set.
+  it("test_no_other_control_than_show_secret_and_a_hidden_copy_url_requests_the_secret", async () => {
+    stubClipboard();
     const requests: string[] = [];
     const strategy = strategyRoute(ID, "ETH Breakout");
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, (url, init) => {
       requests.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith(ORIGIN_PATH)) return Promise.resolve(jsonResponse({ origin: HOST }));
       if (url.endsWith(SECRET_PATH)) return Promise.resolve(jsonResponse({ secret: SECRET }));
       return strategy(url, init);
     });
@@ -218,17 +225,19 @@ describe("WebhookMessage", () => {
     );
     await screen.findByRole("heading", { level: 1, name: "ETH Breakout" });
     fireEvent.click(screen.getByRole("button", { name: "Connect a TradingView alert" }));
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
     const secretRequests = () => requests.filter((request) => request.includes("webhook-secret"));
 
     const others = screen
       .getAllByRole("button")
-      .filter((button) => !["Show secret", "Connect a TradingView alert"].includes(button.textContent ?? ""));
-    expect(others.length).toBeGreaterThan(3);
+      .filter((button) => !["Show secret", "Connect a TradingView alert"].includes(button.textContent ?? ""))
+      .filter((button) => button !== copyUrl());
+    expect(others.length).toBeGreaterThan(2);
     for (const button of others) {
       fireEvent.click(button);
       fireEvent.keyDown(document.body, { key: "Escape" });
     }
-    fireEvent.click(screen.getByText(PLACEHOLDER_URL));
+    fireEvent.click(screen.getByLabelText("Webhook URL"));
     fireEvent.click(screen.getByRole("group", { name: "Alert message" }));
     act(() => {
       focusManager.setFocused(false);
@@ -242,11 +251,17 @@ describe("WebhookMessage", () => {
     expect(secretRequests()).toEqual([]);
     expect(document.body.textContent).not.toContain(SECRET);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
-    await revealedUrl();
+    // The hidden "Copy URL" is the one other control that asks, and it shows nothing of what it got.
+    await press(copyUrl());
 
     expect(secretRequests()).toHaveLength(1);
-    expect(secretRequests()[0]?.startsWith("GET ")).toBe(true);
+    expect(document.body.textContent).not.toContain(SECRET);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
+
+    expect(secretRequests()).toHaveLength(2);
+    expect(secretRequests().every((request) => request.startsWith("GET "))).toBe(true);
   });
 
   it("does not fetch again when the window regains focus or the network returns after the secret is shown", async () => {
@@ -416,22 +431,22 @@ describe("WebhookMessage", () => {
   });
 
   it("never lets the secret reach a console call, a storage, a query key or a request URL", async () => {
-    const { queryClient, calls } = setup();
+    // Rewritten by 12f.10.30e: "Copy URL" needs a host now, and a copy made while the secret is hidden asks for it.
+    const writeText = stubClipboard();
+    const { queryClient, calls } = setupHost(originAnswers(HOST));
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+    // A copy made while the secret is hidden puts the secret on the clipboard, and nowhere else.
+    await press(copyUrl());
     fireEvent.click(showButton());
-    await revealedUrl();
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
     fireEvent.click(screen.getByRole("button", { name: "Hide secret" }));
     fireEvent.click(showButton());
-    await revealedUrl();
-    // A copy of the revealed URL puts the secret on the clipboard, and nowhere else.
-    const writeText = stubClipboard();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy URL" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
-    });
-    expect(writeText).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
+    await press(copyUrl());
+    await press(copyMessage());
+    expect(writeText).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(writeText.mock.calls[0])).toContain(SECRET);
+    expect(JSON.stringify(writeText.mock.calls[1])).toContain(SECRET);
 
     for (const spy of consoleSpies) expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
     expect(JSON.stringify({ ...window.localStorage })).not.toContain(SECRET);
@@ -559,33 +574,48 @@ describe("WebhookMessage", () => {
       expect(statusBeside(copyUrl())).not.toBe(statusBeside(copyMessage()));
     });
 
-    it("test_the_copied_text_equals_the_text_of_the_code_element_hidden_and_revealed", async () => {
+    // Rewritten by 12f.10.30e (decision 53). It said that a copy equals the text of the code element, hidden
+    // and revealed. That holds only while the secret is revealed; hidden, the copy is the working URL.
+    it("test_the_copied_text_equals_the_text_of_the_code_element_while_the_secret_is_revealed", async () => {
       const writeText = stubClipboard();
-      setupHost(originAnswers(HOST), answersWith("a&b+c d=e"));
+      const { calls } = setupHost(originAnswers(HOST), answersWith("a&b+c d=e"));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
-
-      await press(copyUrl());
-
-      expect(writeText).toHaveBeenCalledTimes(1);
-      expect(writeText).toHaveBeenLastCalledWith(urlText());
 
       fireEvent.click(showButton());
       await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}a%26b%2Bc%20d%3De`));
       await press(copyUrl());
 
-      expect(writeText).toHaveBeenCalledTimes(2);
+      expect(writeText).toHaveBeenCalledTimes(1);
       expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}a%26b%2Bc%20d%3De`);
       expect(writeText).toHaveBeenLastCalledWith(urlText());
+      // The URL on screen is the real one, so it is copied as it is: the one request is the "Show secret" one.
+      expect(secretCallsOf(calls)).toHaveLength(1);
     });
 
-    it("test_the_path_alone_is_what_a_copy_takes_while_there_is_no_host", async () => {
+    // Rewritten by 12f.10.30e (decision 53). It said that a copy takes the path alone while there is no host.
+    // The path alone does not work in TradingView, so there is nothing to copy: the button is disabled.
+    it.each([
+      ["a host that is not configured", originAnswers(null)],
+      ["a host that could not be loaded", () => Promise.resolve(jsonResponse({ detail: "boom" }, 500))],
+      ["a host that is still loading", () => new Promise<Response>(() => undefined)],
+    ] as Array<[string, Answer]>)("test_with_%s_copy_url_is_disabled_and_writes_nothing", async (_name, origin) => {
       const writeText = stubClipboard();
-      setupHost(originAnswers(null));
-      await waitFor(() => expect(screen.queryByText(HOST_UNSET)).toBeInTheDocument());
+      const { calls } = setupHost(origin);
+      await settle();
 
+      expect(copyUrl()).toBeDisabled();
       await press(copyUrl());
 
-      expect(writeText).toHaveBeenCalledWith(PLACEHOLDER_URL);
+      expect(writeText).not.toHaveBeenCalled();
+      expect(secretCallsOf(calls)).toEqual([]);
+      expect(copiedCount()).toBe(0);
+      expect(copyMessage()).toBeEnabled();
+    });
+
+    it("test_with_a_host_copy_url_is_enabled", async () => {
+      setupHost(originAnswers(HOST));
+
+      await waitFor(() => expect(copyUrl()).toBeEnabled());
     });
 
     it("test_the_message_copied_is_the_message_shown", async () => {
@@ -599,23 +629,36 @@ describe("WebhookMessage", () => {
       expect(writeText).toHaveBeenCalledWith(webhookMessage(ID));
     });
 
-    it("test_a_copy_makes_no_request_and_never_asks_for_the_secret", async () => {
+    // Rewritten by 12f.10.30e (decision 53). It said that a copy makes no request. Now only "Copy message", and
+    // "Copy URL" while the secret is revealed, make none; "Copy URL" while it is hidden makes exactly one.
+    it("test_only_a_hidden_copy_url_asks_for_the_secret_and_it_asks_once_per_copy", async () => {
       const writeText = stubClipboard();
       const { calls } = setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       const before = calls.length;
 
-      await press(copyUrl());
       await press(copyMessage());
       await settle();
 
-      expect(writeText).toHaveBeenCalledTimes(2);
+      expect(writeText).toHaveBeenCalledTimes(1);
       expect(calls).toHaveLength(before);
-      expect(secretCallsOf(calls)).toEqual([]);
+
+      await press(copyUrl());
+      await settle();
+
+      expect(writeText).toHaveBeenCalledTimes(2);
+      expect(secretCallsOf(calls)).toHaveLength(1);
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
       expect(document.body.textContent).not.toContain(SECRET);
 
-      // With the secret revealed, a copy still asks for nothing more.
+      // The button reading "Copied" copies again, and asks again: the secret is kept nowhere between copies.
+      await press(copyUrl());
+      await settle();
+
+      expect(writeText).toHaveBeenCalledTimes(3);
+      expect(secretCallsOf(calls)).toHaveLength(2);
+
+      // With the secret revealed, a copy asks for nothing more.
       fireEvent.click(showButton());
       await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
       const revealed = calls.length;
@@ -623,20 +666,25 @@ describe("WebhookMessage", () => {
       await press(copyMessage());
       await settle();
 
-      expect(writeText).toHaveBeenCalledTimes(4);
+      expect(writeText).toHaveBeenCalledTimes(5);
       expect(calls).toHaveLength(revealed);
-      expect(secretCallsOf(calls)).toHaveLength(1);
+      expect(secretCallsOf(calls)).toHaveLength(3);
     });
 
-    it("test_with_the_secret_hidden_it_copies_the_url_with_the_placeholder", async () => {
+    // Rewritten by 12f.10.30e (decision 53). It said that with the secret hidden the copy is the URL with the
+    // placeholder, which does not work in TradingView. It is the URL with the secret, percent-encoded.
+    it("test_with_the_secret_hidden_it_copies_the_url_with_the_secret_and_never_the_placeholder", async () => {
       const writeText = stubClipboard();
-      setupHost(originAnswers(HOST));
+      const { calls } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
 
       await press(copyUrl());
 
-      expect(writeText).toHaveBeenCalledWith(`${HOST}/webhook/tradingview?secret=<your WEBHOOK_SECRET>`);
-      expect(JSON.stringify(writeText.mock.calls)).not.toContain(SECRET);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText).toHaveBeenCalledWith(`${HOST}/webhook/tradingview?secret=${AWKWARD_ENCODED}`);
+      expect(JSON.stringify(writeText.mock.calls)).not.toContain("WEBHOOK_SECRET");
+      expect(secretCallsOf(calls)).toHaveLength(1);
+      expect(new Headers(secretCallsOf(calls)[0]?.init?.headers).get("Authorization")).toBe("Bearer test-token");
     });
 
     it.each([
@@ -737,7 +785,13 @@ describe("WebhookMessage", () => {
 
     it("test_closing_the_block_removes_it", async () => {
       stubClipboard();
-      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute(ID, "ETH Breakout"));
+      // 12f.10.30e: "Copy URL" needs a host, so this deployment names one, and the secret route answers.
+      const strategy = strategyRoute(ID, "ETH Breakout");
+      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, (url, init) => {
+        if (url.endsWith(ORIGIN_PATH)) return Promise.resolve(jsonResponse({ origin: HOST }));
+        if (url.endsWith(SECRET_PATH)) return Promise.resolve(jsonResponse({ secret: SECRET }));
+        return strategy(url, init);
+      });
       renderAt(
         <Routes>
           <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
@@ -747,7 +801,9 @@ describe("WebhookMessage", () => {
       await screen.findByRole("heading", { level: 1, name: "ETH Breakout" });
       const toggle = () => screen.getByRole("button", { name: "Connect a TradingView alert" });
       fireEvent.click(toggle());
+      await waitFor(() => expect(copyUrl()).toBeEnabled());
       await press(copyUrl());
+      expect(copiedCount()).toBe(1);
       await press(copyMessage());
       expect(copiedCount()).toBe(1);
 
@@ -765,7 +821,10 @@ describe("WebhookMessage", () => {
       expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
     });
 
-    it("test_the_url_copied_with_the_placeholder_then_show_secret_copied_is_gone", async () => {
+    // Rewritten by 12f.10.30e (decision 53), together with the next three. They said that showing or hiding the
+    // secret takes "Copied" away from "Copy URL", because the clipboard could hold a different URL from the one
+    // on screen. It cannot now: the clipboard holds the working URL whether the secret is shown or hidden.
+    it("test_the_url_copied_with_the_secret_hidden_then_show_secret_copied_stays", async () => {
       const writeText = stubClipboard();
       setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
@@ -776,14 +835,14 @@ describe("WebhookMessage", () => {
       fireEvent.click(showButton());
       await revealed();
 
-      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
-      expect(copyUrl()).toHaveAccessibleName("Copy URL");
-      expect(copiedCount()).toBe(0);
-      // The clipboard still holds the placeholder URL, which is why "Copied" must not stand beside the real one.
-      expect(writeText).toHaveBeenLastCalledWith(`${HOST}${PLACEHOLDER_URL}`);
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+      expect(copiedCount()).toBe(1);
+      // The clipboard holds the URL the screen now shows.
+      expect(writeText).toHaveBeenLastCalledWith(urlText());
     });
 
-    it("test_the_url_copied_revealed_then_hide_secret_copied_is_gone", async () => {
+    it("test_the_url_copied_revealed_then_hide_secret_copied_stays", async () => {
       const writeText = stubClipboard();
       setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
@@ -796,35 +855,56 @@ describe("WebhookMessage", () => {
       fireEvent.click(hideButton());
 
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
-      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
-      expect(copyUrl()).toHaveAccessibleName("Copy URL");
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
       expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}${SECRET}`);
     });
 
-    it("test_after_that_showing_or_hiding_the_secret_again_does_not_bring_copied_back", async () => {
+    it("test_showing_and_hiding_the_secret_again_leaves_copied_where_it_was", async () => {
       stubClipboard();
       setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       await press(copyUrl());
       fireEvent.click(showButton());
       await revealed();
-      expect(copiedCount()).toBe(0);
+      expect(copiedCount()).toBe(1);
 
-      // The URL on screen is the placeholder again, the very text that was copied; "Copied" still stays away.
       fireEvent.click(hideButton());
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
-      expect(copiedCount()).toBe(0);
+      expect(copiedCount()).toBe(1);
 
       fireEvent.click(showButton());
       await revealed();
-      expect(copiedCount()).toBe(0);
+      expect(copiedCount()).toBe(1);
+      expect(copyUrl()).toHaveAccessibleName("Copied");
     });
 
-    // The render check alone already hides "Copied" while the URL differs, so each handler's clearing is
-    // proved by the one case the other cannot cover: the Show that fails, and the Hide followed by a Show.
-    it("test_a_show_that_fails_still_removes_copied_beside_the_placeholder_url", async () => {
+    // Rewritten by 12f.10.30e: the old name was "test_hiding_the_secret_and_showing_it_again_does_not_bring_back_a_copy_of_the_revealed_url".
+    it("test_a_copy_made_revealed_stays_copied_through_hide_and_show_again", async () => {
       stubClipboard();
-      setupHost(originAnswers(HOST), () => Promise.resolve(jsonResponse({ detail: "not configured" }, 503)));
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      fireEvent.click(showButton());
+      await revealed();
+      await press(copyUrl());
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+
+      fireEvent.click(hideButton());
+      fireEvent.click(showButton());
+      await revealed();
+
+      expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`);
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+      expect(copiedCount()).toBe(1);
+    });
+
+    it("test_a_show_that_fails_leaves_copied_on_copy_url", async () => {
+      stubClipboard();
+      let answers = 0;
+      setupHost(originAnswers(HOST), () => {
+        answers += 1;
+        return answers === 1 ? Promise.resolve(jsonResponse({ secret: SECRET })) : Promise.resolve(jsonResponse({ detail: "not configured" }, 503));
+      });
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       await press(copyUrl());
       expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
@@ -834,45 +914,58 @@ describe("WebhookMessage", () => {
       await screen.findByRole("alert");
 
       expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
-      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
-      expect(copyUrl()).toHaveAccessibleName("Copy URL");
+      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copied");
     });
 
-    it("test_hiding_the_secret_and_showing_it_again_does_not_bring_back_a_copy_of_the_revealed_url", async () => {
+    it("test_the_url_copied_then_the_other_button_used_copied_moves_to_it", async () => {
       stubClipboard();
       setupHost(originAnswers(HOST));
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
-      fireEvent.click(showButton());
-      await revealed();
       await press(copyUrl());
-      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
       expect(copyUrl()).toHaveAccessibleName("Copied");
 
-      fireEvent.click(hideButton());
-      fireEvent.click(showButton());
-      await revealed();
+      await press(copyMessage());
 
-      expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`);
+      expect(copyMessage()).toHaveAccessibleName("Copied");
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
+      expect(copiedCount()).toBe(1);
+    });
+
+    // The host cannot change by a handler: it changes when the host's own read answers again. "Copied" then
+    // stands only if the host on screen is the one that was copied.
+    it("test_the_url_copied_then_the_host_on_screen_changes_copied_is_gone", async () => {
+      const writeText = stubClipboard();
+      let origin: string = HOST;
+      const { queryClient } = setupHost(() => Promise.resolve(jsonResponse({ origin })));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await press(copyUrl());
+      expect(copyUrl()).toHaveAccessibleName("Copied");
+      expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}${SECRET}`);
+
+      origin = "https://other.example.org";
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: ["webhook-origin"] });
+      });
+
+      expect(urlText()).toBe(`https://other.example.org${PLACEHOLDER_URL}`);
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
       expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(copiedCount()).toBe(0);
     });
 
-    it("test_the_url_copied_as_the_path_alone_then_the_host_loads_copied_is_gone", async () => {
-      const writeText = stubClipboard();
-      const host = lateOrigin();
-      setupHost(host.route);
-      expect(urlText()).toBe(PLACEHOLDER_URL);
+    it("test_the_url_copied_then_the_same_host_is_read_again_copied_stays", async () => {
+      stubClipboard();
+      const { queryClient } = setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
       await press(copyUrl());
-      expect(statusBeside(copyUrl())).toHaveTextContent("Copied");
+
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: ["webhook-origin"] });
+      });
+
       expect(copyUrl()).toHaveAccessibleName("Copied");
-      expect(writeText).toHaveBeenLastCalledWith(PLACEHOLDER_URL);
-
-      await host.arrive(HOST);
-
-      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
-      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
-      expect(copyUrl()).toHaveAccessibleName("Copy URL");
-      expect(copiedCount()).toBe(0);
+      expect(copiedCount()).toBe(1);
     });
 
     it("test_the_messages_copied_survives_showing_and_hiding_the_secret", async () => {
@@ -892,23 +985,24 @@ describe("WebhookMessage", () => {
       expect(copiedCount()).toBe(1);
     });
 
-    it("test_the_clipboard_never_holds_something_the_screen_does_not_show_next_to_copied", async () => {
+    // Rewritten by 12f.10.30e (decision 53). It said that the clipboard never holds something the screen does not
+    // show next to "Copied". Now it never holds the placeholder, and whenever "Copied" stands on "Copy URL" the
+    // clipboard holds the working URL: the host on screen and the secret the server holds, percent-encoded.
+    it("test_the_clipboard_never_holds_the_placeholder_and_holds_the_working_url_next_to_copied", async () => {
       const writeText = stubClipboard();
       const host = lateOrigin();
-      setupHost(host.route);
-      /** Whenever "Copied" stands beside a button, the last write for it is the text that button's source shows now. */
-      const lastWrite = (isUrl: boolean) =>
-        writeText.mock.calls
-          .map(([text]) => String(text))
-          .filter((text) => text.includes(URL_BASE) === isUrl)
-          .at(-1);
+      setupHost(host.route, answersWith(AWKWARD));
+      const working = `${HOST}${URL_BASE}${AWKWARD_ENCODED}`;
+      /** Whatever has been written so far, for either button, is a real text and never the placeholder. */
       const check = () => {
-        if (copiedBeside(copyUrl())) expect(lastWrite(true)).toBe(urlText());
-        if (copiedBeside(copyMessage())) expect(lastWrite(false)).toBe(messageText());
+        for (const [text] of writeText.mock.calls) expect(String(text)).not.toContain("WEBHOOK_SECRET");
+        if (copiedBeside(copyUrl())) expect(writeText).toHaveBeenLastCalledWith(working);
+        if (copiedBeside(copyMessage())) expect(writeText).toHaveBeenLastCalledWith(messageText());
       };
 
       await press(copyUrl());
       check();
+      expect(writeText).not.toHaveBeenCalled();
       await press(copyMessage());
       check();
       await host.arrive(HOST);
@@ -917,24 +1011,19 @@ describe("WebhookMessage", () => {
       check();
       expect(copiedBeside(copyUrl())).toBe(true);
       fireEvent.click(showButton());
-      await revealed();
-      check();
-      expect(copiedBeside(copyUrl())).toBe(false);
-      await press(copyUrl());
+      await waitFor(() => expect(urlText()).toBe(working));
       check();
       expect(copiedBeside(copyUrl())).toBe(true);
-      fireEvent.click(hideButton());
-      check();
-      expect(copiedBeside(copyUrl())).toBe(false);
-      fireEvent.click(showButton());
-      await revealed();
+      await press(copyUrl());
       check();
       fireEvent.click(hideButton());
       check();
+      expect(copiedBeside(copyUrl())).toBe(true);
       await press(copyUrl());
       check();
       expect(copiedBeside(copyUrl())).toBe(true);
       expect(copiedBeside(copyMessage())).toBe(false);
+      expect(writeText).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -971,8 +1060,9 @@ describe("WebhookMessage", () => {
     // Re-pointed by 12f.10.30d: after a copy the button's name is Copied, so it is found by place.
     it("the two buttons' names and Copied, as the button's text and in the status beside the button used", async () => {
       stubClipboard();
-      setupHost(originAnswers(null));
-      await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
+      // 12f.10.30e: "Copy URL" is disabled with no host, so the copy is made with one.
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(copyUrl()).toBeEnabled());
 
       await press(screen.getByRole("button", { name: T.copyUrl }));
       expect(copyUrl()).toHaveAccessibleName(T.copied);
@@ -985,8 +1075,9 @@ describe("WebhookMessage", () => {
 
     it("the refusal of a copy, in the loss colour", async () => {
       setClipboard(undefined);
-      setupHost(originAnswers(null));
-      await waitFor(() => expect(screen.queryByText(T.hostUnset)).toBeInTheDocument());
+      // 12f.10.30e: "Copy URL" is disabled with no host, so the refused copy is made with one.
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(copyUrl()).toBeEnabled());
 
       await press(screen.getByRole("button", { name: T.copyUrl }));
 
@@ -1050,8 +1141,9 @@ describe.each([
     ["Copy message", copyMessage, "copyMessage"],
   ] as const)("%s reads Copied after a copy, stays enabled, and shows only that one of its two texts", async (_name, find, key) => {
     stubClipboard();
-    setupHost(originAnswers(null));
-    await settle();
+    // 12f.10.30e: "Copy URL" is disabled with no host, so both copies are made with one.
+    setupHost(originAnswers(HOST));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
 
     await press(find());
 
@@ -1080,8 +1172,9 @@ describe.each([
 
   it("a button that reads Copied copies again when pressed, and still reads Copied", async () => {
     const writeText = stubClipboard();
-    setupHost(originAnswers(null));
-    await settle();
+    // 12f.10.30e: "Copy URL" is disabled with no host, so the copy is made with one.
+    setupHost(originAnswers(HOST));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
     await press(copyUrl());
 
     await press(screen.getByRole("button", { name: T.copied }));
@@ -1093,8 +1186,9 @@ describe.each([
 
   it("a copy that failed leaves the button's ordinary text and says so in a visible text", async () => {
     setClipboard(undefined);
-    setupHost(originAnswers(null));
-    await settle();
+    // 12f.10.30e: "Copy URL" is disabled with no host, so the failed copy is made with one.
+    setupHost(originAnswers(HOST));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
 
     await press(copyUrl());
 
@@ -1104,5 +1198,205 @@ describe.each([
     expect(failure).not.toBeEmptyDOMElement();
     expect(classesOf(failure)).toContain("text-loss");
     expect(classesOf(failure)).not.toContain("sr-only");
+  });
+});
+
+// 12f.10.30e (decision 53). With the secret hidden, "Copy URL" asks the server for it at the click, writes the
+// URL that works, and keeps the secret in a local value of that one click: on screen, in the cache, in the DOM,
+// in the console and in storage there is nothing of it afterwards.
+describe("WebhookMessage, Copy URL copies the working URL while the secret is hidden (12f.10.30e)", () => {
+  const WORKING = `${HOST}${URL_BASE}${AWKWARD_ENCODED}`;
+  /** Every place a leak could be read from, other than the clipboard. */
+  const leaksOf = (queryClient: QueryClient): string[] => {
+    const places = [
+      document.body.innerHTML,
+      document.body.textContent ?? "",
+      JSON.stringify(queryClient.getQueryCache().findAll().map((query) => [query.queryKey, query.state.data])),
+      JSON.stringify({ ...window.localStorage }),
+      JSON.stringify({ ...window.sessionStorage }),
+      ...consoleSpies.map((spy) => JSON.stringify(spy.mock.calls)),
+    ];
+    return places.filter((place) =>
+      [AWKWARD, AWKWARD_ENCODED, "p&amp;q", "p%26q"].some((form) => place.includes(form)),
+    );
+  };
+
+  it("writes the URL with the secret, and the screen, the button and Show secret stay as they were", async () => {
+    const writeText = stubClipboard();
+    const { queryClient } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+    await press(copyUrl());
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+    expect(showButton()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Hide secret" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(copyUrl()).toHaveAccessibleName("Copied");
+    expect(leaksOf(queryClient)).toEqual([]);
+  });
+
+  it("leaves the query cache without the secret, and a later Show secret makes its own request", async () => {
+    const writeText = stubClipboard();
+    const { queryClient, calls } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+    await press(copyUrl());
+    await settle();
+
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
+    expect(cachedData(queryClient).filter((data) => data !== undefined)).toEqual([]);
+
+    fireEvent.click(showButton());
+    await waitFor(() => expect(urlText()).toBe(WORKING));
+
+    expect(secretCallsOf(calls)).toHaveLength(2);
+  });
+
+  it.each([
+    ["a network failure", () => Promise.reject(new TypeError("offline"))],
+    ["a refusal of the token", () => Promise.resolve(jsonResponse({ detail: "unauthorized" }, 401))],
+    ["a server error", () => Promise.resolve(jsonResponse({ detail: "the webhook secret is not configured" }, 503))],
+    ["an empty secret", () => Promise.resolve(jsonResponse({ secret: "" }))],
+    ["a body that is not a secret", () => Promise.resolve(jsonResponse({ other: "leaked-value-123" }))],
+  ] as Array<[string, Answer]>)(
+    "test_%s_writes_nothing_and_says_could_not_copy",
+    async (_name, secret) => {
+      const writeText = stubClipboard();
+      const { calls, queryClient } = setupHost(originAnswers(HOST), secret);
+      await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+      await press(copyUrl());
+      await settle();
+
+      expect(secretCallsOf(calls)).toHaveLength(1);
+      expect(writeText).not.toHaveBeenCalled();
+      expect(statusBeside(copyUrl())).toHaveTextContent(COPY_FAILED);
+      expect(statusBeside(copyUrl())).toHaveClass("text-loss");
+      expect(copyUrl()).toHaveAccessibleName("Copy URL");
+      expect(copiedCount()).toBe(0);
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(document.body.textContent).not.toContain("leaked-value-123");
+      expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
+    },
+  );
+
+  it("a failed request does not stop the next click, which copies the working URL", async () => {
+    const writeText = stubClipboard();
+    let attempt = 0;
+    const { calls } = setupHost(originAnswers(HOST), () => {
+      attempt += 1;
+      return attempt === 1 ? Promise.reject(new TypeError("offline")) : Promise.resolve(jsonResponse({ secret: AWKWARD }));
+    });
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+    await press(copyUrl());
+    await settle();
+    expect(statusBeside(copyUrl())).toHaveTextContent(COPY_FAILED);
+    expect(writeText).not.toHaveBeenCalled();
+
+    await press(copyUrl());
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(copyUrl()).toHaveAccessibleName("Copied");
+    expect(statusBeside(copyUrl())).not.toHaveTextContent(COPY_FAILED);
+    expect(secretCallsOf(calls)).toHaveLength(2);
+  });
+
+  it("a write the browser refuses after the request says could not copy and leaves the secret nowhere", async () => {
+    const refuse = vi.fn().mockRejectedValue(new DOMException("denied"));
+    setClipboard({ writeText: refuse });
+    const { calls, queryClient } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+    await press(copyUrl());
+
+    expect(secretCallsOf(calls)).toHaveLength(1);
+    expect(refuse).toHaveBeenCalledWith(WORKING);
+    expect(statusBeside(copyUrl())).toHaveTextContent(COPY_FAILED);
+    expect(copyUrl()).toHaveAccessibleName("Copy URL");
+    expect(copiedCount()).toBe(0);
+    expect(leaksOf(queryClient)).toEqual([]);
+  });
+
+  it("is disabled while the request is in flight, sends no second request, and keeps its text", async () => {
+    const writeText = stubClipboard();
+    let answer: (response: Response) => void = () => undefined;
+    const { calls } = setupHost(
+      originAnswers(HOST),
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    );
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+    await press(copyUrl());
+    await settle();
+
+    expect(secretCallsOf(calls)).toHaveLength(1);
+    expect(copyUrl()).toBeDisabled();
+    expect(copyUrl()).toHaveAccessibleName("Copy URL");
+    expect(copyMessage()).toBeEnabled();
+
+    await press(copyUrl());
+    await settle();
+
+    expect(secretCallsOf(calls)).toHaveLength(1);
+    expect(writeText).not.toHaveBeenCalled();
+
+    await act(async () => {
+      answer(jsonResponse({ secret: AWKWARD }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(copyUrl()).toBeEnabled();
+    expect(copyUrl()).toHaveAccessibleName("Copied");
+  });
+
+  it("is enabled again after a request that failed", async () => {
+    stubClipboard();
+    setupHost(originAnswers(HOST), () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+
+    await press(copyUrl());
+    await settle();
+
+    expect(copyUrl()).toBeEnabled();
+  });
+
+  it("copies the URL on screen as it is, with no request, once the secret is shown", async () => {
+    const writeText = stubClipboard();
+    const { calls } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+    fireEvent.click(showButton());
+    await waitFor(() => expect(urlText()).toBe(WORKING));
+    expect(secretCallsOf(calls)).toHaveLength(1);
+
+    await press(copyUrl());
+    await settle();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(secretCallsOf(calls)).toHaveLength(1);
+  });
+
+  it("after Hide, a hidden copy asks again and leaves nothing of the secret behind", async () => {
+    const writeText = stubClipboard();
+    const { calls, queryClient } = setupHost(originAnswers(HOST), answersWith(AWKWARD));
+    await waitFor(() => expect(copyUrl()).toBeEnabled());
+    fireEvent.click(showButton());
+    await waitFor(() => expect(urlText()).toBe(WORKING));
+    fireEvent.click(hideButton());
+
+    await press(copyUrl());
+    await settle();
+
+    expect(secretCallsOf(calls)).toHaveLength(2);
+    expect(writeText).toHaveBeenCalledWith(WORKING);
+    expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+    expect(leaksOf(queryClient)).toEqual([]);
   });
 });
