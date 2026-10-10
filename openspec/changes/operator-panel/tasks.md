@@ -4388,8 +4388,11 @@ requirements 947 to 1700)
   `expect(received).toBeInTheDocument()` with `received` null (the first-in-column test and the archived test);
   the header test and the list test passed at once, as the task said. Mutations after GREEN, each reverted with
   `git checkout`: the control after the pairs; `{allocation_percent}% per trade` printed in the header; the same
-  text in a list row. They were applied together in one run and exactly three tests failed: the first-in-column
-  test, the header test and the list test. I did not run them one by one. Added beyond the task: `::the share control starts over for another strategy
+  text in a list row. Run first together (exactly three tests failed), then **each on its own** (the three test files
+  of the page, the list and the header, run after each, reverted with `git checkout` before the next): the control
+  after the pairs reds only `::the share control is the first of the settings column ...`; the share printed in the
+  header reds only `::no text of the page's header line contains the share or "per trade"`; the share printed in a
+  list row reds only `::the Strategies list shows no row's share`. Each mutation reds exactly its own test. Added beyond the task: `::the share control starts over for another strategy
   and a typed value is not carried to it` (two strategies that store the same share; a value typed and an
   explanation opened on the first are gone on the second). It passes against the page with the `key` removed too:
   the page unmounts the whole editor while the next strategy loads, so the `key` is an equivalent mutant at page
@@ -4480,7 +4483,9 @@ Shown And Copied With Its Host")
   `expect(element).toHaveTextContent()` (the three failure cases and the working "Copied"). The extended
   `never lets the secret reach a console call...` test failed on `expected "spy" to be called 2 times`. **Passed at
   once:** `::Copy URL sits beside Show secret and Copy message under the alert message` (the stub already places
-  them); no mutation was run for it, said plainly. Mutations after GREEN, each reverted with `git checkout`: the
+  them). Its mutations, run afterwards with the Edit tool, each reverted: wrapping Copy URL and its status in their
+  own `<div>`, out of the Show secret row, reds only this test; moving the message's status out of its button's row
+  reds this test and ten more that read the status beside a button (11 in all). Mutations after GREEN, each reverted with `git checkout`: the
   URL assembled a second time in the handler, always with the placeholder, reds the copied-text test and the
   extended secret test; `void secret.refetch()` in the handler reds `::a copy makes no request...` and
   `test_no_other_control_ever_requests_the_secret`; the `false` branch reporting success (`ok: true`) reds the
@@ -4529,8 +4534,11 @@ Shown And Copied With Its Host")
   the Show handler's clearing removes it; the Show-only mutation reds it) and `::hiding the secret and showing it
   again does not bring back a copy of the revealed URL`. The second does not red the Hide-only mutation: after a
   Hide the secret can be on screen again only through Show, which clears, so the Hide handler's clearing is
-  an equivalent mutant of Show's, and is kept as the spec's literal wording. Not run, said plainly: the "two
-  independent flags" mutation of the first test. Gate after GREEN: lint 0, 63 files, 1,375 tests; after the two
+  an equivalent mutant of Show's, and is kept as the spec's literal wording. The "two
+  independent flags" mutation (one state for the URL's copy, a second for the message's, so that a copy with the
+  other button does not move "Copied") reds three tests: `::Copied shows beside the button that was used and only
+  one Copied is on screen`, `::closing the block removes it` (it copies with both buttons and expects one
+  "Copied") and `::the clipboard never holds something ...` (it copies the message after the URL). Reverted. Gate after GREEN: lint 0, 63 files, 1,375 tests; after the two
   added tests, 1,377.
 
 **Texts, the guard and the gate**
