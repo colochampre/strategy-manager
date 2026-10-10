@@ -3691,7 +3691,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
 
 **The pure helpers and the API** (design §§ C, C2, E, F)
 
-- [ ] 12f.10.5 The value model, `share-value.ts`. RED `frontend/src/features/strategies/share-value.test.ts`
+- [x] 12f.10.5 The value model, `share-value.ts`. RED `frontend/src/features/strategies/share-value.test.ts`
   (Create), with the stub module in the same commit: `readStored(text)` returning its input,
   `parseDraft(text)` answering a valid draft for every text, `roundToHandle(canonical)` returning 0, and
   `handlePosition(step)` returning `"0%"`. Tests, tables of cases, one per row of design § C:
@@ -3712,6 +3712,33 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   position and the rounding. **Settled in design § O:** `.5` is refused and `007` is read as 7 (both are cases above;
   mutation: the digits-on-both-sides rule removed reds `.5`, the leading-zero drop removed reds `007`). The regular expressions and
   escapes of the diff are read once the GREEN is written.
+  **Done (RED commit `65a9c4f`, GREEN commit `4374f15`).** The task fixes the stub's four answers; it leaves the
+  return types open, so these were chosen from design § C and record no product decision: `readStored(text):
+  string | null` (null is unreadable), `parseDraft(text): DraftReading` where `DraftReading` is `{ valid: true;
+  canonical }` or `{ valid: false; refusal }` and `refusal` is `"not-a-number"`, `"not-above-zero"` or
+  `"above-hundred"` (the three states of the design's table, so the field can word each), `roundToHandle(canonical):
+  number`, `handlePosition(step): string` (a CSS length such as `"24.2424%"`). The stub answers `{ valid: true,
+  canonical: text }` for `parseDraft`. RED, observed (56 failed, 11 passed of 67): `expected { valid: true,
+  canonical: '33,5' } to deeply equal { valid: true, canonical: '33.5' }`, `expected { valid: true, canonical:
+  'abc' } to deeply equal { valid: false, … }` (and the same for `1e1`, `25%`, `1.000,5`, `33.`, `33,`, `3,3,5`,
+  Arabic-Indic and full-width digits, text with a space either side), `expected { valid: true, canonical: '150'
+  } to deeply equal { valid: false, … }` (and `1000`, `100.5`, and `100.000000000000000001`, which a float
+  comparison would call 100). **Passed at once**: the three stored forms that are already canonical (`0.5`,
+  `33.5`, `7`), the valid cases `100`, `100.0`, `99.999` and `0.5` (the stub answers valid for every text), two of
+  the typed-back cases (`0.5`, `7.25`, already canonical) and the position of step 1. The typed-back test first
+  compared `parseDraft(x)` with `readStored(x)`, which the stub satisfied on both sides; it now compares both
+  with a literal. GREEN: a pure module, regular expressions on the digits (`STORED_TEXT` dot only,
+  `TYPED_TEXT` dot or comma, digits on both sides), a canonical form without leading zeros or trailing
+  fractional zeros, "above 100" decided on the digit strings, the handle rounded half up on the first
+  fraction digit and clamped 1 to 100, the position `(step - 1) / 99 * 100` cut to four decimals with the
+  trailing zeros dropped. Backslashes of all four patterns read back in the file. The maximum length of the
+  field (12 characters) bounds the text, so the 18-decimal bound of decision 50 is never reachable from a
+  typed value and this module does not test it. Mutations after the GREEN, each seen red and reverted: the
+  comma removed from `TYPED_TEXT` reds `reads one comma as a decimal separator` and `0,00`; the half-up digit
+  made to round nothing up reds four handle cases (`33.5`, `99.5`, `24.5`, `7.5`); digits-on-both-sides removed
+  (`(\d*)` on the integer side) reds the empty string and `.5`; the leading-zero drop removed reds `007.250`,
+  `007` and `0033.50`; `integer > "100"` become `>= "100"` reds `100`, `100.0` and the typed-back `100.000`.
+  Files created: `share-value.ts`, `share-value.test.ts`; no existing file edited.
 - [ ] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
   `frontend/src/shared/api/strategies.share.test.ts` (Create, `vi.stubGlobal("fetch")`), with the stubs in
   `strategies.ts` in the same commit (the function resolves a fixed strategy without a request; the hook
