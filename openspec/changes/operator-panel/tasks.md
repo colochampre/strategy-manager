@@ -4295,7 +4295,7 @@ requirements 947 to 1700)
   the "waiting for its own value" guard removed reds the loading and stale-answer tests. The amount view now reads
   one source per value, so the first read's lookup of 12f.10.20 and this one share a function. Existing files
   edited: `PoolShareEditor.tsx` and `PoolShareEditor.test.tsx` only.
-- [ ] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
+- [x] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
   that asks for less than the pool's minimum order shows the warning with the minimum, cut down as text`
   (`At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped
   until the share or the balance is larger.`), `::it is a role=status line in the loss colour, not an alert and
@@ -4306,6 +4306,24 @@ requirements 947 to 1700)
   and neither does one too small for a pair: the panel checks no pair` (the spec's "A Share Too Small For A
   Pair Passes The Panel"). RED: `expected null to be in the document`. GREEN: from `below_pool_minimum` of the
   step or the exact amount, and `pool_minimum` of the body.
+  **Done (RED `87a499d`, GREEN `a134cb6`).** The view of a known figure gained `belowMinimum`: the body's
+  `pool_minimum` when the served step or `exact` says `below_pool_minimum`, otherwise `null`; the panel decides
+  nothing, it carries the server's word. `ShareAmount.tsx` writes the line under the figure (and under the stale
+  line) as `<p role="status" class="text-xs text-loss">`, with the minimum cut down as text by `cutAmountText`
+  (`5.99` for a served `5.999999999999999999`). It reads the value in the field, not the stored one, so it also
+  shows for the stored share on load, and it follows the handle. It gates nothing: Save, the field and the track
+  keep their own conditions. No balance means no figure and no warning. RED as observed against the stub (the
+  field in the view, never rendered): 9 of 105 failed, all on `expect(received).toBeInTheDocument()`; passed at
+  once: the exactly-at-the-minimum case, the no-balance case, and the "accepts, and no pair checked" case, which a
+  never-warning stub satisfies. Mutations after GREEN, each reverted with `git checkout`: the warning tied to a
+  changed draft reds four tests (the stored-value, status, balance-falls and Spanish ones); Save disabled while the
+  warning shows reds two; `role="alert"` reds the status test; `text-decision` (amber) reds the same test; the
+  minimum not cut (the served 18-digit text) reds eight tests. The "less than the minimum" boundary
+  (`amount < minimum`) is the server's, so the panel has no `<` to mutate; the exactly-at-the-minimum test holds the
+  served flag. The task's "both information buttons closed" is asserted in 12f.10.23, where the buttons exist.
+  Existing files edited: `ShareAmount.tsx`, `ShareAmount.test.tsx` (the new field in its fixture),
+  `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (a `unit` for the served steps and an exposed query client), the
+  two locale files (`belowPoolMinimum`).
 - [ ] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
   Tests: `::at mount none of the three explanatory sentences is in the document, in English and in Spanish`
   (**passes at once**; mutations: open by default; a sentence outside its container), `::the label's button
