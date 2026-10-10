@@ -1,11 +1,21 @@
+import { cn } from "@/shared/lib/cn";
+
 interface InlineStatusProps {
   /** What happened, already translated; `null` while there is nothing to say. */
   message: string | null;
-  /** `failure` is the loss colour; the default is neutral ink. */
+  /** `failure` is the loss colour; the default is neutral ink, never the gain colour. */
   tone?: "neutral" | "failure";
 }
 
-/** STUB (12f.10.11 RED): a bare span with no role, until the GREEN makes it a live region. */
-export function InlineStatus({ message }: InlineStatusProps) {
-  return <span>{message}</span>;
+/**
+ * A short confirmation or failure beside a control ("Saved", "Copied"). It is ALWAYS mounted and empty
+ * until it has something to say, because a live region that appears together with its text is not
+ * reliably announced. Presentational: the control that owns the state decides what it says and when.
+ */
+export function InlineStatus({ message, tone = "neutral" }: InlineStatusProps) {
+  return (
+    <span role="status" aria-live="polite" className={cn("text-sm", tone === "failure" ? "text-loss" : "text-ink-2")}>
+      {message}
+    </span>
+  );
 }
