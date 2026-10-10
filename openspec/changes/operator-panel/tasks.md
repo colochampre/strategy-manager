@@ -3578,7 +3578,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   two accept tests. Existing file edited:
   `StrategiesPage.test.tsx` (one new test). Existing file edited in the GREEN: `performance.ts`
   (`isPairStat`, the reason of the task).
-- [ ] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
+- [x] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
   `rateText(ratio: string, locale: string): string | null` returning its argument. Tests, each from a
   scenario of the spec: `::writes a rate with one decimal and no sign` (`"0.5833333333"` gives `"58.3%"`,
   `"0.6000000000"` gives `"60.0%"`), `::cuts the rate and never rounds it up` (`"0.9995000000"` gives
@@ -3597,6 +3597,21 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   when the task is built, not chosen: the task records it here (the separator and whether a space precedes
   the sign) and asserts it with a literal in a Spanish test, `::writes the rate the way the PnL % column
   does in Spanish`. It is confirmed by eye in 12f.10.31.
+  **Done (RED commit `b749578`, GREEN commit `838881e`).** The stub is in `format.ts`. RED, observed (13 failed,
+  69 passed): `expected '0.5833333333' to be '58.3%'` (and the same shape for `0.6000000000`, `0.9995000000`,
+  `0.9950000000`, `1.0000000000`, `0.0000000000`, `0.0002000000`), `expected 'abc' to be null` (and `1e-3`, the
+  empty string, `-0.5000000000`, `0.5.0`), and `expected '0.5833333333' to be '58,3 %'` in Spanish. **Passed at
+  once**: none of the new tests. The Spanish form, READ from `percentText` through `Intl` on this machine, not
+  chosen: a decimal comma and a no-break space (U+00A0) before the percent sign, `58,3 %`, and `100,0 %`; in
+  English `58.3%` with no space. The Spanish test writes the space as ` ` so it cannot be flattened by an
+  editor. GREEN: the served string must match `^(\d+)(?:\.(\d+))?$`; the integer digits and the first three
+  fraction digits (padded with zeros) make a count of tenths of a percent; `Intl.NumberFormat` writes that count
+  over a thousand as a percentage with one fixed decimal. No division of the served ratio, no sign. A ratio
+  above one (`1.5`) is not refused here and reads `150.0%`: refusing a rate outside 0 to 1 is the table's job
+  in 12f.10.4. Mutation after the GREEN, seen red and reverted with `git checkout`: the cut replaced by a
+  round-half-up of the fourth digit reds `cuts the rate and never rounds it up (0.9995)` and `only a rate of
+  exactly one reads 100.0%` (its `0.9999999999` case). Existing files edited: `format.ts` and `format.test.ts`
+  (one export and one `describe`).
 - [ ] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
   component as it is, the wrong answer for five columns). Tests: `::puts the Win rate column after Trades`
   (`queryAllByRole("columnheader")` text, `toEqual` Pair, Trades, Win rate, PnL, Return), `::writes the rate
