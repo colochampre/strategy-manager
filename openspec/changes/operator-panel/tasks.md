@@ -3889,13 +3889,25 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
 
 **The small shared pieces** (design §§ B2, D)
 
-- [ ] 12f.10.11 `InlineStatus`. RED `InlineStatus.test.tsx` (Create), with the stub that renders a bare `<span>` with no
+- [x] 12f.10.11 `InlineStatus`. RED `InlineStatus.test.tsx` (Create), with the stub that renders a bare `<span>` with no
   role. Tests: `::is in the document before it has anything to say, empty`
   (`expect(screen.queryByRole("status")).toBeInTheDocument()`; mutation: rendered only with its text),
   `::announces politely` (`aria-live="polite"`), `::shows its message`, `::a failure tone is loss and the
   default is neutral ink-2, never gain` (the gain colour is for money made and the primary action),
   `::two instances are independent`. RED: `expected null to be in the document`. GREEN: a presentational
   component taking a message or nothing and a tone; no store.
+  **Done (RED commit `9302dcf`, GREEN commit `80d8174`).** Props chosen where the task left them open:
+  `message: string | null` and `tone?: "neutral" | "failure"`. The stub is a bare `<span>{message}</span>`.
+  RED, observed (7 failed of 7): `expected null to be in the document`-style failure for the first test
+  (`expect(received).toBeInTheDocument()`), and `Unable to find an accessible element with the role "status"`
+  for the other six. **Passed at once**: none. GREEN: `<span role="status" aria-live="polite">` always
+  rendered, `text-sm` with `text-loss` for a failure and `text-ink-2` otherwise; no store. A test beyond the
+  list: the same element survives from empty to a message and back. The colour assertions are on the class
+  names because the task asks for the tone by colour. Mutations after the GREEN, each seen red and
+  reverted: rendering nothing for a null message reds the empty-in-document, polite, same-element and
+  two-instances tests; the failure tone made `text-gain` reds the failure test; the default made `text-gain`
+  reds the default-tone test; `aria-live` made `assertive` reds the polite test. Files created:
+  `InlineStatus.tsx`, `InlineStatus.test.tsx`; no existing file edited.
 - [ ] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
   rendered with `aria-expanded="false"` that never opens. The shared piece is a hook that owns the open state
   and the ids, and two presentational parts, the button and the container. Tests: `::is closed at mount and
