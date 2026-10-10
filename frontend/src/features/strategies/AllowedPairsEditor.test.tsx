@@ -316,6 +316,26 @@ describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
     expect(savedRegion()).toBeEmptyDOMElement();
   });
 
+  it("a refusal and Saved are never on screen together: a new save clears the earlier Saved first", async () => {
+    let calls = 0;
+    const { puts, rerender } = setup(strategy(), {
+      answer: (body) =>
+        ++calls === 1
+          ? jsonResponse({ ...strategy(), allowed_pairs: body.pairs })
+          : jsonResponse({ detail: { error: "PAIRS_CHANGED", message: "changed" } }, 409),
+    });
+    // The first save is answered, but the page never receives the saved list, so Save stays enabled.
+    await saveSolana(undefined, puts);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
   it("Saved stays ten minutes", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
