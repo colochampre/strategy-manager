@@ -194,7 +194,11 @@
         "outOfRange": "The share must be above 0 and at most 100.",
         "tooManyDecimals": "A share has at most 18 decimal places.",
         "save": "Save share",
-        "saving": "Saving…"
+        "saving": "Saving…",
+        "saveFailed": "The share was not saved. Try again.",
+        "archived": "This strategy is archived and can no longer be changed.",
+        "gone": "This strategy no longer exists.",
+        "unreadable": "The stored share could not be read, so it cannot be edited here."
       }
     },
     "performance": {

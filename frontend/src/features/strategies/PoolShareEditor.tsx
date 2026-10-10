@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { parseDraft, readStored, roundToHandle } from "@/features/strategies/share-value";
 import type { DraftRefusal } from "@/features/strategies/share-value";
+import { ApiError } from "@/shared/api/client";
 import { useSetAllocationPercent } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
 
@@ -29,6 +30,16 @@ const REFUSAL_TEXT: Record<DraftRefusal, string> = {
   "too-many-decimals": "strategies.detail.share.tooManyDecimals",
 };
 
+/** The text of a refused or failed save: the status (and the archived code) decides, never the server's wording. */
+function saveRefusal(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 422) return "strategies.detail.share.outOfRange";
+    if (error.status === 409 && error.code === "STRATEGY_ARCHIVED") return "strategies.detail.share.archived";
+    if (error.status === 404) return "strategies.detail.share.gone";
+  }
+  return "strategies.detail.share.saveFailed";
+}
+
 /**
  * The share of the pool a strategy asks for per trade (design § C). The value is one decimal string: the
  * field keeps the text as typed, the handle follows it, and nothing is sent until Save. Moving the handle
@@ -41,7 +52,15 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const save = useSetAllocationPercent(strategy.id);
 
   const stored = readStored(strategy.allocation_percent);
-  if (stored === null) return null;
+  if (stored === null) {
+    // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
+    return (
+      <section className="flex flex-col gap-3">
+        <p className="text-sm text-ink-2">{t("strategies.detail.share.label")}</p>
+        <p className="text-sm text-ink-2">{t("strategies.detail.share.unreadable")}</p>
+      </section>
+    );
+  }
 
   const archived = strategy.archived_at !== null;
   const current = draft !== null && draft.base === stored ? draft : null;
@@ -84,6 +103,11 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(REFUSAL_TEXT[reading.refusal])}
+        </p>
+      )}
+      {save.status === "error" && (
+        <p role="alert" className="text-sm text-loss">
+          {t(saveRefusal(save.error))}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
