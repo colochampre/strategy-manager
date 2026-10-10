@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
@@ -631,10 +631,10 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
   });
 });
 
-/** The live region beside Save, which is where "Saved" is written. */
+/** The live region beside Save, which is where "Saved" is announced. */
 function savedRegion(): HTMLElement {
-  // The button reads "Saving…" while a save is in flight, so it is found by either name.
-  const button = screen.getByRole("button", { name: /^(Save share|Saving…)$/ });
+  // The button reads "Saving…" while a save is in flight and "Saved" after it, so it is found by any of its names.
+  const button = screen.getByRole("button", { name: /^(Save share|Saving…|Saved)$/ });
   const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
   if (region === null || region === undefined) throw new Error("no live region beside Save");
   return region;
@@ -655,7 +655,7 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
     await saveFortyOnAPage();
 
     expect(field().value).toBe("40");
-    expect(saveButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -682,6 +682,7 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
         vi.advanceTimersByTime(600_000);
       });
       expect(savedRegion()).toHaveTextContent("Saved");
+      expect(screen.queryByRole("button", { name: "Saved" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -697,6 +698,9 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
     change();
 
     expect(savedRegion()).toBeEmptyDOMElement();
+    // The button's own text goes back to Save, and it can save the new value.
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
   });
 
   it.each([
@@ -714,11 +718,27 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
 
     await alertLine();
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
   });
 
-  it("a new save clears Saved before it is sent", async () => {
+  // A button that reads Saved is disabled, so the same draft cannot be sent twice from it. This replaces
+  // "a new save clears Saved before it is sent", which clicked the button while it read Saved.
+  it("a button that reads Saved is disabled and sends nothing when pressed", async () => {
+    const { requests } = await saveFortyOnAPage();
+
+    const saved = screen.getByRole("button", { name: "Saved" });
+    fireEvent.click(saved);
+    await settle();
+
+    expect(saved).toBeDisabled();
+    expect(requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
+    expect(savedRegion()).toHaveTextContent("Saved");
+  });
+
+  it("a new save, after a change, reads Saving… and Saved is gone while it is in flight", async () => {
     let calls = 0;
-    const { requests } = setup(strategy(), {
+    setup(strategy(), {
       patch: (sent) => {
         calls += 1;
         if (calls > 1) return new Promise<Response>(() => undefined);
@@ -730,14 +750,16 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
 
-    // The stored value did not move in this test, so Save is still enabled for the same draft.
+    type("41");
     fireEvent.click(saveButton());
 
+    expect(await screen.findByRole("button", { name: "Saving…" })).toBeDisabled();
     expect(savedRegion()).toBeEmptyDOMElement();
-    await settle();
-    expect(requests.filter((request) => request.method === "PATCH")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
+  // The refusal arrives for a save sent after a change; the earlier "Saved" is gone by then, as the change
+  // itself ends it. This replaces a test that pressed the button while it still read Saved.
   it("a refusal and Saved are never on screen together", async () => {
     let calls = 0;
     setup(strategy(), {
@@ -753,10 +775,13 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
     await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
     expect(screen.queryByRole("alert")).toBeNull();
 
+    type("41");
     fireEvent.click(saveButton());
 
     expect(await alertLine()).toHaveTextContent("The share was not saved. Try again.");
     expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
   });
 
   it("Saved is neutral ink, not gain", async () => {
@@ -1843,12 +1868,15 @@ describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I
     here(T.unreadable);
   });
 
+  // Re-pointed: "Saved" is the button's own text now, and it is also said by the status region, so the text
+  // alone is on screen twice (one of them hidden from sight).
   it("Saved", async () => {
     setup(strategy());
     type("40");
     fireEvent.click(named(T.save));
 
-    await hereLater(T.saved);
+    const button = await waitFor(() => named(T.saved));
+    expect(button.parentElement?.querySelector('[role="status"]')).toHaveTextContent(T.saved);
   });
 });
 
@@ -1897,7 +1925,9 @@ describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30
     expect(classesOf(text)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
   });
 
-  it("the right block is Saved and then Save, keeps its size and is aligned to the top", async () => {
+  // Edited by 12f.10.30d: "Saved" is no longer a text before the button; the button holds it, and the
+  // status region that announces it follows the button.
+  it("the right block is Save and then its status, keeps its size and is aligned to the top", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
     const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
@@ -1909,18 +1939,18 @@ describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30
     expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
     expect(classesOf(actions)).not.toContain("flex-wrap");
     expect(status).not.toBeNull();
-    expect(precedes(status as HTMLElement, saveButton())).toBe(true);
+    expect(precedes(saveButton(), status as HTMLElement)).toBe(true);
     expect(saveButton().className).toContain("min-h-11");
   });
 
-  it("the text block comes first in the document: the amount, then Saved, then Save", async () => {
+  it("the text block comes first in the document: the amount, then Save, then its status", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
     const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
 
-    expect(precedes(screen.getByText(amountLine("300.00")), savedRegion())).toBe(true);
-    expect(precedes(amountInfo(), savedRegion())).toBe(true);
-    expect(precedes(savedRegion(), saveButton())).toBe(true);
+    expect(precedes(screen.getByText(amountLine("300.00")), saveButton())).toBe(true);
+    expect(precedes(amountInfo(), saveButton())).toBe(true);
+    expect(precedes(saveButton(), savedRegion())).toBe(true);
     expect(row.firstElementChild).toBe(childHolding(row, screen.getByText(amountLine("300.00"))));
   });
 
@@ -1975,5 +2005,94 @@ describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30
     const refusal = screen.getByText("Enter a number, for example 25 or 33.5.");
     expect(row.contains(refusal)).toBe(false);
     expect(row.contains(savedRegion())).toBe(true);
+  });
+});
+
+// 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
+// is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
+describe.each([
+  { language: "en", save: "Save share", saving: "Saving…", saved: "Saved" },
+  { language: "es", save: "Guardar porcentaje", saving: "Guardando…", saved: "Guardado" },
+] as const)("PoolShareEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage(T.language));
+  });
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  const button = (name: string) => screen.getByRole("button", { name });
+  const cellOf = (host: HTMLElement, text: string) => within(host).getByText(text);
+  const isShown = (cell: HTMLElement) => !cell.hasAttribute("aria-hidden") && !classesOf(cell).includes("invisible");
+  const isHidden = (cell: HTMLElement) =>
+    cell.getAttribute("aria-hidden") === "true" && classesOf(cell).includes("invisible");
+  /** Every element that holds exactly `text`, outside the button that owns it. */
+  const outside = (host: HTMLElement, text: string) => screen.queryAllByText(text).filter((node) => !host.contains(node));
+
+  it("holds all three of its texts and shows only Save while nothing was saved", () => {
+    setup(strategy());
+
+    const host = button(T.save);
+
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("reads Saved after a save, disabled, and shows only that one of its three texts", async () => {
+    setup(strategy());
+    type("40");
+    fireEvent.click(button(T.save));
+
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    expect(host).toBeDisabled();
+    expect(screen.queryByRole("button", { name: T.save })).toBeNull();
+    expect(isShown(cellOf(host, T.saved))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+  });
+
+  it("shows only Saving while a save is in flight", async () => {
+    setup(strategy(), { patch: () => new Promise<Response>(() => undefined) });
+    type("40");
+    fireEvent.click(button(T.save));
+
+    const host = await screen.findByRole("button", { name: T.saving });
+
+    expect(host).toBeDisabled();
+    expect(isShown(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("leaves no visible Saved beside the button: the one text outside it is the hidden status", async () => {
+    setup(strategy());
+    type("40");
+    fireEvent.click(button(T.save));
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    const elsewhere = outside(host, T.saved);
+
+    expect(elsewhere).toHaveLength(1);
+    const status = elsewhere[0] as HTMLElement;
+    expect(status).toHaveAttribute("role", "status");
+    expect(classesOf(status)).toContain("sr-only");
+    expect(host.parentElement).toContainElement(status);
+  });
+
+  it("goes back to Save when the value changes, and Saved is then in no visible text", async () => {
+    setup(strategy());
+    type("40");
+    fireEvent.click(button(T.save));
+    await screen.findByRole("button", { name: T.saved });
+
+    type("41");
+
+    const host = button(T.save);
+    expect(host).toBeEnabled();
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+    expect(outside(host, T.saved)).toEqual([]);
   });
 });
