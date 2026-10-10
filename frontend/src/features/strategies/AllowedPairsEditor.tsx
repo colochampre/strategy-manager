@@ -116,26 +116,29 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         describedBy={ids.hint}
         disabled={archived}
       />
-      <p id={ids.hint} className="text-xs text-ink-3">
-        {t("strategies.detail.pairs.hint")}
-      </p>
+      {/* One row: the note takes the room that is left and wraps, Save keeps its size beside it, both from the top. */}
+      <div className="flex items-start gap-x-3">
+        <p id={ids.hint} className="min-w-0 flex-1 text-xs text-ink-3">
+          {t("strategies.detail.pairs.hint")}
+        </p>
+        <div className="flex shrink-0 items-start gap-x-3">
+          <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={archived || !changed || empty || save.isPending}
+            className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          >
+            {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
+          </button>
+        </div>
+      </div>
       {empty && !archived && <p className="text-xs text-loss">{t("strategies.detail.pairs.lastPair")}</p>}
       {message !== null && (
         <p role="alert" className="text-sm text-loss">
           {t(message.key, message.values ?? {})}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={archived || !changed || empty || save.isPending}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-        >
-          {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
-        </button>
-        <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
-      </div>
     </section>
   );
 }

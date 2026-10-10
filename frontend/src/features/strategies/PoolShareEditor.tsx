@@ -186,18 +186,35 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         onHandle={handleStep}
         onStop={handleStep}
       />
-      <ShareAmount
-        view={amount}
-        trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
-        explanation={
-          <InfoText disclosure={amountInfo}>
-            {readAt !== null && (
-              <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
-            )}
-            <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
-          </InfoText>
-        }
-      />
+      {/* One row: the amount block takes the room that is left and wraps, Save keeps its size beside it. Both
+          start at the top, so Save does not move when the explanation opens or the warning appears. */}
+      <div className="flex items-start gap-x-3">
+        <div className="min-w-0 flex-1">
+          <ShareAmount
+            view={amount}
+            trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
+            explanation={
+              <InfoText disclosure={amountInfo}>
+                {readAt !== null && (
+                  <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
+                )}
+                <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
+              </InfoText>
+            }
+          />
+        </div>
+        <div className="flex shrink-0 items-start gap-x-3">
+          <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={archived || busy || !changed}
+            className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? t("strategies.detail.share.saving") : t("strategies.detail.share.save")}
+          </button>
+        </div>
+      </div>
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(REFUSAL_TEXT[reading.refusal])}
@@ -208,17 +225,6 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
           {t(saveRefusal(save.error))}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={archived || busy || !changed}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? t("strategies.detail.share.saving") : t("strategies.detail.share.save")}
-        </button>
-        <InlineStatus message={saved ? t("strategies.detail.saved") : null} />
-      </div>
     </section>
   );
 }
