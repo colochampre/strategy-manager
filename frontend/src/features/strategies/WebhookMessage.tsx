@@ -2,6 +2,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { InlineStatus } from "@/features/strategies/InlineStatus";
 import { webhookMessage } from "@/features/strategies/webhook-message";
 import { webhookUrl } from "@/features/strategies/webhook-url";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";
@@ -106,6 +107,13 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
               {t("strategies.webhook.hide")}
             </button>
           )}
+          <button
+            type="button"
+            className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          >
+            {t("strategies.webhook.copyUrl")}
+          </button>
+          <InlineStatus message={null} />
         </div>
         {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         {failed && (
@@ -126,6 +134,15 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
         >
           {webhookMessage(strategyId)}
         </pre>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button
+            type="button"
+            className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          >
+            {t("strategies.webhook.copyMessage")}
+          </button>
+          <InlineStatus message={null} />
+        </div>
       </div>
     </section>
   );

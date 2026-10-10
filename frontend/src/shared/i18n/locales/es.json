@@ -315,6 +315,10 @@
       "showing": "Obteniendo el secreto…",
       "hide": "Ocultar el secreto",
       "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador.",
+      "copyUrl": "Copiar URL",
+      "copyMessage": "Copiar mensaje",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar. Seleccione el texto y cópielo a mano.",
       "hostUnset": "No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook.",
       "hostError": "No se pudo cargar el host del webhook, por lo que solo se muestra la ruta."
     },

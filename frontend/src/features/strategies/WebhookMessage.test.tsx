@@ -1,5 +1,5 @@
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +60,52 @@ const cachedData = (queryClient: QueryClient) =>
 /** The secret's entries only: the webhook's host is cached too, and is not what an eviction removes. */
 const secretEntries = (queryClient: QueryClient) => queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] });
 
+const HOST = "https://example.duckdns.org";
+const HOST_UNSET =
+  "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.";
+const HOST_ERROR = "The webhook's host could not be loaded, so only the path is shown.";
+const COPY_FAILED = "Could not copy. Select the text and copy it by hand.";
+const originAnswers =
+  (origin: unknown): Answer =>
+  () =>
+    Promise.resolve(jsonResponse({ origin }));
+
+/** The block, with the origin route answered by `origin` and the secret route by `secret`. */
+function setupHost(origin: Answer, secret: Answer = answersWith(SECRET)) {
+  const calls: Call[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      return url.endsWith(ORIGIN_PATH) ? origin() : secret();
+    }),
+  );
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WebhookMessage strategyId={ID} />
+    </QueryClientProvider>,
+  );
+  return { calls, queryClient, ...view };
+}
+const secretCallsOf = (calls: Call[]) => calls.filter((call) => call.url.endsWith(SECRET_PATH));
+const urlText = () => screen.getByLabelText("Webhook URL").textContent;
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+/** `navigator.clipboard`, which jsdom lacks: a spy that resolves, a spy that rejects, or none at all. */
+function setClipboard(clipboard: unknown): void {
+  Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
+}
+function stubClipboard(): ReturnType<typeof vi.fn> {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  setClipboard({ writeText });
+  return writeText;
+}
+
 const showButton = () => screen.getByRole("button", { name: "Show secret" });
 const revealedUrl = (secret = SECRET) => screen.findByText(`${URL_BASE}${secret}`);
 const messageText = () => screen.getByRole("group", { name: "Alert message" }).textContent;
@@ -75,6 +121,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
   window.sessionStorage.clear();
+  Reflect.deleteProperty(navigator, "clipboard");
   focusManager.setFocused(undefined);
   await i18n.changeLanguage("en");
 });
@@ -351,6 +398,16 @@ describe("WebhookMessage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide secret" }));
     fireEvent.click(showButton());
     await revealedUrl();
+    // A copy of the revealed URL puts the secret on the clipboard, and nowhere else.
+    const writeText = stubClipboard();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy URL" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    });
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(writeText.mock.calls[0])).toContain(SECRET);
 
     for (const spy of consoleSpies) expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
     expect(JSON.stringify({ ...window.localStorage })).not.toContain(SECRET);
@@ -360,40 +417,6 @@ describe("WebhookMessage", () => {
   });
 
   describe("the host of the URL", () => {
-    const HOST = "https://example.duckdns.org";
-    const HOST_UNSET =
-      "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.";
-    const HOST_ERROR = "The webhook's host could not be loaded, so only the path is shown.";
-    const originAnswers =
-      (origin: unknown): Answer =>
-      () =>
-        Promise.resolve(jsonResponse({ origin }));
-
-    /** The block, with the origin route answered by `origin` and the secret route by `secret`. */
-    function setupHost(origin: Answer, secret: Answer = answersWith(SECRET)) {
-      const calls: Call[] = [];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-          const url = String(input);
-          calls.push({ url, init });
-          return url.endsWith(ORIGIN_PATH) ? origin() : secret();
-        }),
-      );
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const view = render(
-        <QueryClientProvider client={queryClient}>
-          <WebhookMessage strategyId={ID} />
-        </QueryClientProvider>,
-      );
-      return { calls, queryClient, ...view };
-    }
-    const urlText = () => screen.getByLabelText("Webhook URL").textContent;
-    const settle = () =>
-      act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      });
-
     it("test_a_configured_host_is_shown_in_front_of_the_path_and_no_sentence_about_a_missing_host_shows", async () => {
       setupHost(originAnswers(HOST));
 
@@ -491,6 +514,148 @@ describe("WebhookMessage", () => {
       await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
 
       expect(originRequests()).toHaveLength(1);
+    });
+  });
+
+  describe("the Copy buttons", () => {
+    const copyUrl = () => screen.getByRole("button", { name: "Copy URL" });
+    const copyMessage = () => screen.getByRole("button", { name: "Copy message" });
+    /** The status region that shares a row with `button`: each button owns one. */
+    const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
+    /** A click, then the microtasks of the write it starts. */
+    const press = (button: HTMLElement) =>
+      act(async () => {
+        fireEvent.click(button);
+      });
+
+    it("test_copy_url_sits_beside_show_secret_and_copy_message_under_the_alert_message", async () => {
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      const row = showButton().parentElement as HTMLElement;
+      expect(copyUrl().parentElement).toBe(row);
+      expect(row).toContainElement(screen.getByLabelText("Webhook URL"));
+      const message = screen.getByRole("group", { name: "Alert message" });
+      expect(message.parentElement).toContainElement(copyMessage());
+      expect(message.compareDocumentPosition(copyMessage()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(row).not.toContainElement(copyMessage());
+      // Each button has its own status region, empty until something is copied.
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
+      expect(statusBeside(copyMessage())).toBeEmptyDOMElement();
+      expect(statusBeside(copyUrl())).not.toBe(statusBeside(copyMessage()));
+    });
+
+    it("test_the_copied_text_equals_the_text_of_the_code_element_hidden_and_revealed", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(HOST), answersWith("a&b+c d=e"));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      await press(copyUrl());
+
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText).toHaveBeenLastCalledWith(urlText());
+
+      fireEvent.click(showButton());
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}a%26b%2Bc%20d%3De`));
+      await press(copyUrl());
+
+      expect(writeText).toHaveBeenCalledTimes(2);
+      expect(writeText).toHaveBeenLastCalledWith(`${HOST}${URL_BASE}a%26b%2Bc%20d%3De`);
+      expect(writeText).toHaveBeenLastCalledWith(urlText());
+    });
+
+    it("test_the_path_alone_is_what_a_copy_takes_while_there_is_no_host", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(null));
+      await waitFor(() => expect(screen.queryByText(HOST_UNSET)).toBeInTheDocument());
+
+      await press(copyUrl());
+
+      expect(writeText).toHaveBeenCalledWith(PLACEHOLDER_URL);
+    });
+
+    it("test_the_message_copied_is_the_message_shown", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(HOST));
+
+      await press(copyMessage());
+
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText).toHaveBeenCalledWith(messageText());
+      expect(writeText).toHaveBeenCalledWith(webhookMessage(ID));
+    });
+
+    it("test_a_copy_makes_no_request_and_never_asks_for_the_secret", async () => {
+      const writeText = stubClipboard();
+      const { calls } = setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      const before = calls.length;
+
+      await press(copyUrl());
+      await press(copyMessage());
+      await settle();
+
+      expect(writeText).toHaveBeenCalledTimes(2);
+      expect(calls).toHaveLength(before);
+      expect(secretCallsOf(calls)).toEqual([]);
+      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(document.body.textContent).not.toContain(SECRET);
+
+      // With the secret revealed, a copy still asks for nothing more.
+      fireEvent.click(showButton());
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`));
+      const revealed = calls.length;
+      await press(copyUrl());
+      await press(copyMessage());
+      await settle();
+
+      expect(writeText).toHaveBeenCalledTimes(4);
+      expect(calls).toHaveLength(revealed);
+      expect(secretCallsOf(calls)).toHaveLength(1);
+    });
+
+    it("test_with_the_secret_hidden_it_copies_the_url_with_the_placeholder", async () => {
+      const writeText = stubClipboard();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      await press(copyUrl());
+
+      expect(writeText).toHaveBeenCalledWith(`${HOST}/webhook/tradingview?secret=<your WEBHOOK_SECRET>`);
+      expect(JSON.stringify(writeText.mock.calls)).not.toContain(SECRET);
+    });
+
+    it.each([
+      ["no clipboard", () => setClipboard(undefined)],
+      ["a clipboard without writeText", () => setClipboard({})],
+      ["a rejected write", () => setClipboard({ writeText: vi.fn().mockRejectedValue(new DOMException("denied")) })],
+    ])("test_%s_shows_could_not_copy_in_the_loss_colour_beside_each_button", async (_name, arrange) => {
+      arrange();
+      setupHost(originAnswers(HOST));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+
+      await press(copyUrl());
+
+      expect(statusBeside(copyUrl())).toHaveTextContent(COPY_FAILED);
+      expect(statusBeside(copyUrl())).toHaveClass("text-loss");
+      expect(screen.queryByText("Copied")).toBeNull();
+
+      await press(copyMessage());
+
+      expect(statusBeside(copyMessage())).toHaveTextContent(COPY_FAILED);
+      expect(statusBeside(copyMessage())).toHaveClass("text-loss");
+      expect(screen.queryByText("Copied")).toBeNull();
+    });
+
+    it("test_a_working_copy_says_copied_beside_the_button_used_and_in_neutral_ink", async () => {
+      stubClipboard();
+      setupHost(originAnswers(HOST));
+
+      await press(copyMessage());
+
+      expect(statusBeside(copyMessage())).toHaveTextContent("Copied");
+      expect(statusBeside(copyMessage())).not.toHaveClass("text-loss");
+      expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
     });
   });
 
