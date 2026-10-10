@@ -3848,11 +3848,24 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   the design settles, and it is not added. Files created: `webhook-origin.ts`, `webhook-origin.test.ts`,
   `webhook-url.ts`, `webhook-url.test.ts`; no existing file edited. `WebhookMessage.tsx` does not use any of it
   yet.
-- [ ] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
+- [x] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
   timers), with a stub that returns its input at once. Tests: `::keeps the old value until the pause has
   passed` (299 ms), `::takes the new value at 300 ms`, `::two changes in quick succession give one update, for
   the last`. RED: `expected 'b' to be 'a'`. GREEN: a `setTimeout` cleared on change and on unmount; the delay
   is a parameter and the control passes 300.
+  **Done (RED commit `df8e9b5`, GREEN commit `407b604`).** The stub returns its input. RED, observed (4 failed,
+  2 passed of 6): `expected 'b' to be 'a'` (299 ms, and the delay of 50 ms), `expected 'c' to be 'a'` (two quick
+  changes: the stub already showed the last), `expected +0 to be 1` (the timer count after a change). **Passed
+  at once**: the initial value and `takes the new value at 300 ms` (the stub is already at the new value).
+  GREEN: `useState` for the debounced value and a `useEffect` that sets a `setTimeout` for the delay and clears
+  it on every change and on unmount. Tests beyond the list: the initial value, the delay being a parameter, and
+  no timer left after unmount (`vi.getTimerCount()`). Mutations after the GREEN, each seen red and reverted:
+  the `clearTimeout` removed reds `two changes in quick succession` and `leaves no timer behind`; the delay
+  fixed at 300 reds `uses the delay it is given` only; the delay shortened by a millisecond reds `keeps the old
+  value until the pause has passed`, the two-changes test and the delay test; the delay multiplied by a
+  thousand (so the value never arrives in time) reds `takes the new value at 300 ms`, the two-changes test and
+  the delay test. Files created: `useDebouncedValue.ts`, `useDebouncedValue.test.ts`;
+  no existing file edited.
 - [ ] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
   stub that answers `true` without writing. Tests: `::writes exactly the text to navigator.clipboard.writeText`
   (`expected "spy" to be called with arguments: [ 'text' ]`), `::answers false when navigator.clipboard is
