@@ -1,3 +1,4 @@
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -10,7 +11,7 @@ import type { DraftRefusal } from "@/features/strategies/share-value";
 import { ApiError } from "@/shared/api/client";
 import { useSharePreview } from "@/shared/api/share-preview";
 import { useSetAllocationPercent } from "@/shared/api/strategies";
-import type { Strategy } from "@/shared/api/types";
+import type { SharePreview, Strategy } from "@/shared/api/types";
 
 interface PoolShareEditorProps {
   strategy: Strategy;
@@ -44,6 +45,33 @@ function saveRefusal(error: unknown): string {
   return "strategies.detail.share.saveFailed";
 }
 
+const WHOLE_STEP = /^\d+$/;
+
+/**
+ * Which amount the field's value asks for, from what the server served (design § C2). The panel multiplies
+ * nothing: a whole value from 1 to 100 reads the served table of steps, the stored share reads the first
+ * read's `exact`, and no other value has a figure yet. Data first: a background refresh that failed does
+ * not hide a figure that is already known.
+ */
+function amountView(value: string | null, stored: string, preview: UseQueryResult<SharePreview>): ShareAmountView {
+  if (value === null) return { kind: "none" };
+  const data = preview.data;
+  if (data === undefined) return preview.isError ? { kind: "failed" } : { kind: "loading" };
+  if (data.balance === null) return { kind: "noBalance" };
+  const staleAt = data.balance.stale ? data.balance.observed_at : null;
+  const known = (amount: string): ShareAmountView => ({ kind: "known", amount, currency: data.currency, staleAt });
+
+  const step = WHOLE_STEP.test(value) ? data.steps[Number(value) - 1] : undefined;
+  if (step !== undefined) return known(step.amount);
+  if (value === stored) {
+    const exact = data.exact;
+    if (exact !== null && readStored(exact.share) === value) return known(exact.amount);
+    // The read is for another share than the stored one: a save just moved it, and the re-read is on its way.
+    return preview.isFetching ? { kind: "loading" } : { kind: "failed" };
+  }
+  return { kind: "loading" };
+}
+
 /**
  * The share of the pool a strategy asks for per trade (design § C). The value is one decimal string: the
  * field keeps the text as typed, the handle follows it, and nothing is sent until Save. Moving the handle
@@ -75,11 +103,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const reading = parseDraft(text);
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
-  const first = preview.data?.steps[0];
-  const firstStep: ShareAmountView =
-    first === undefined || preview.data === undefined
-      ? { kind: "none" }
-      : { kind: "known", amount: first.amount, currency: preview.data.currency, staleAt: null };
+  const amount = amountView(reading.valid ? reading.canonical : null, stored, preview);
 
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
   const edit = (next: string, nextHandle: number) => {
@@ -118,7 +142,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         onHandle={handleStep}
         onStop={handleStep}
       />
-      <ShareAmount view={firstStep} />
+      <ShareAmount view={amount} />
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(REFUSAL_TEXT[reading.refusal])}

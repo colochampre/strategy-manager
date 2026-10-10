@@ -1,3 +1,5 @@
+import { amountDecimals, amountText } from "@/features/overview/format";
+
 const SIGNIFICANT_DIGITS = 8;
 /** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */
 const TABLE_DECIMALS = 5;
@@ -96,11 +98,21 @@ export function rateText(ratio: string, locale: string): string | null {
   }).format(tenths / 1000);
 }
 
+const AMOUNT_TEXT = /^(\d+)(?:\.(\d+))?$/;
+
 /**
- * A served amount of a pool's money in its settlement currency, cut down to the currency's decimals.
+ * A served amount of a pool's money in its settlement currency (the amount a share asks for). The digits
+ * of the served string are CUT at the currency's decimals and never rounded, because the engine never
+ * rounds a request up and a figure rounded up could read "5.00" beside a warning that it is under 5; the
+ * cut digits are then given to `Intl` for the language's separators, with the decimals fixed. It is a
+ * text operation, not arithmetic. A string that is not a plain non-negative decimal gives `null`.
  */
-export function cutAmountText(amount: string, _currency: string, _locale: string): string | null {
-  return amount;
+export function cutAmountText(amount: string, currency: string, locale: string): string | null {
+  const match = AMOUNT_TEXT.exec(amount);
+  if (match === null) return null;
+  const decimals = amountDecimals(currency);
+  const fraction = (match[2] ?? "").padEnd(decimals, "0").slice(0, decimals);
+  return amountText(Number(`${match[1] ?? ""}.${fraction === "" ? "0" : fraction}`), currency, locale);
 }
 
 /**
