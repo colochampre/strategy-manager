@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { rateText } from "@/features/strategies/format";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 
@@ -17,19 +18,43 @@ interface PairStatsTableProps {
 interface ReadRow {
   pair: string;
   trades: number;
+  /** The served rate, already written (cut at one decimal), never computed here. */
+  winRate: string;
   pnl: number;
   /** Null is a pair with no return (no capital at open), which is not a zero. */
   ret: number | null;
 }
 
+const RATIO_TEXT = /^(\d+)(?:\.(\d+))?$/;
+
+/**
+ * Whether the served `rate` is `wins` over `trades`, in integers and without dividing anything. The ends
+ * are exact (0 only with no wins, 1 only with every trade won, nothing above 1); between them the rate,
+ * read as a whole number `r` over 10^scale, must sit within one unit of its last place of the true
+ * fraction: `|r * trades - wins * 10^scale| <= trades`. That holds whichever way the server rounded it.
+ */
+function rateAgrees(wins: number, trades: number, rate: string): boolean {
+  const match = RATIO_TEXT.exec(rate);
+  if (match === null || !Number.isInteger(wins) || !Number.isInteger(trades)) return false;
+  const fraction = match[2] ?? "";
+  const scaled = BigInt(`${match[1] ?? ""}${fraction}`);
+  const scale = 10n ** BigInt(fraction.length);
+  if (scaled > scale) return false;
+  if ((scaled === 0n) !== (wins === 0)) return false;
+  if ((scaled === scale) !== (wins === trades)) return false;
+  const gap = scaled * BigInt(trades) - BigInt(wins) * scale;
+  return (gap < 0n ? -gap : gap) <= BigInt(trades);
+}
+
 /** Every row parsed, or `null` when any figure cannot be read: a table with one wrong figure is worse than none. */
-function readRows(pairs: readonly PairStat[]): ReadRow[] | null {
+function readRows(pairs: readonly PairStat[], locale: string): ReadRow[] | null {
   const rows: ReadRow[] = [];
   for (const entry of pairs) {
     const pnl = parseDecimal(entry.pnl);
     const ret = entry.return === null ? null : parseDecimal(entry.return);
-    if (pnl === null || (entry.return !== null && ret === null)) return null;
-    rows.push({ pair: entry.pair, trades: entry.trades, pnl, ret });
+    const winRate = rateAgrees(entry.wins, entry.trades, entry.win_rate) ? rateText(entry.win_rate, locale) : null;
+    if (pnl === null || (entry.return !== null && ret === null) || winRate === null) return null;
+    rows.push({ pair: entry.pair, trades: entry.trades, winRate, pnl, ret });
   }
   return rows;
 }
@@ -43,7 +68,7 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const locale = i18n.resolvedLanguage ?? "en";
-  const rows = readRows(pairs);
+  const rows = readRows(pairs, locale);
 
   let body;
   if (rows === null) {
@@ -67,6 +92,9 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
                 {t("strategies.performance.byPair.trades")}
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
+                {t("strategies.performance.byPair.winRate")}
+              </th>
+              <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
                 {t("strategies.performance.byPair.pnl", { currency })}
               </th>
               <th scope="col" className="border-b border-rule py-2 font-medium">
@@ -79,6 +107,7 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
               <tr key={row.pair}>
                 <td className="border-b border-rule-soft py-2.5 pr-3 text-left text-ink">{row.pair}</td>
                 <td className="border-b border-rule-soft py-2.5 pr-3">{row.trades}</td>
+                <td className="border-b border-rule-soft py-2.5 pr-3">{row.winRate}</td>
                 <td className={cn("border-b border-rule-soft py-2.5 pr-3", toneClass(row.pnl))}>
                   {amountText(row.pnl, currency, locale, true)}
                 </td>

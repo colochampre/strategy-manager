@@ -7,6 +7,7 @@ import { ArchiveControl } from "@/features/strategies/ArchiveControl";
 import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyControl";
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
+import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { TradesTable } from "@/features/strategies/TradesTable";
@@ -19,8 +20,8 @@ import { useExchangeScope } from "@/shared/scope/exchange-store";
  * Overview's ledger line, chart and month grid for this strategy, then the By
  * pair table). Its closed trades are the widest thing on the page, so they are a
  * full-width section under the two-column grid (decision 43, design § F). The webhook block is a disclosure
- * opened from the header (decision: 12f.8 superseded). The settings column holds the allowed-pairs editor, the
- * enable switch, that switch's history and, last, the archive control. The delete control has its
+ * opened from the header (decision: 12f.8 superseded). The settings column holds the share of the pool per
+ * trade first, then the allowed-pairs editor, the enable switch, that switch's history and, last, the archive control. The delete control has its
  * own block at the very bottom, below archive (design addendum 9x § H): a
  * different act, never beside the switch.
  *
@@ -75,6 +76,7 @@ export function StrategyDetailPage() {
           className="flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5"
         >
           <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
+          <PoolShareEditor key={subject.id} strategy={subject} />
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />

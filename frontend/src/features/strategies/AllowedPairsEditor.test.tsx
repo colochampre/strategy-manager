@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
@@ -215,5 +215,347 @@ describe("AllowedPairsEditor", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.pairs.remove", { symbol: "SOLUSDT" }) })).toBeDisabled();
     expect(saveButton()).toBeDisabled();
     expect(puts).toEqual([]);
+  });
+});
+
+/** The live region beside Save, found by any of the button's three names. */
+function savedRegion(): HTMLElement {
+  const button = screen.getByRole("button", {
+    name: new RegExp(
+      `^(${i18n.t("strategies.detail.pairs.save")}|${i18n.t("strategies.detail.pairs.saving")}|${i18n.t("strategies.detail.saved")})$`,
+    ),
+  });
+  const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
+  if (region === null || region === undefined) throw new Error("no live region beside Save");
+  return region;
+}
+
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
+
+/** Adds SOLUSDT, saves, and hands the page the saved list the way a successful re-read does. */
+async function saveSolana(rerenderWith?: (current: Strategy) => void, puts?: unknown[]) {
+  await add("SOLUSDT");
+  fireEvent.click(saveButton());
+  await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT", "SOLUSDT"] }]));
+  rerenderWith?.(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+}
+
+describe("AllowedPairsEditor, 'Saved' for the allowed pairs", () => {
+  it("the live region is in the document before any save, empty", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(savedRegion()).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("Saved shows when the PUT answers 200 and the list on screen is the saved one", async () => {
+    const { puts, rerender } = setup(strategy());
+
+    await saveSolana(rerender, puts);
+
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+  });
+
+  it("Saved goes at the next pair added or removed", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    remove("SOLUSDT");
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("Saved goes when a pair is added", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    await add("BTCUSDT");
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("typing in the search box changes no pair and leaves Saved", async () => {
+    const { puts, rerender } = setup(strategy());
+    await saveSolana(rerender, puts);
+    await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+    fireEvent.change(screen.getByLabelText(i18n.t("strategies.pairs.search")), { target: { value: "BTC" } });
+
+    expect(savedRegion()).toHaveTextContent("Saved");
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+  });
+
+  it.each([
+    ["a 409", () => jsonResponse({ detail: { error: "PAIRS_CHANGED", message: "changed" } }, 409)],
+    ["a 422", () => jsonResponse({ detail: { error: "UNKNOWN_PAIRS", message: "unknown", unknown: ["SOLUSDT"] } }, 422)],
+  ])("no Saved after %s", async (_name, answer) => {
+    setup(strategy(), { answer });
+
+    await add("SOLUSDT");
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+  });
+
+  it("if the re-read after a 200 fails, so the list on screen is the old one, Saved is not shown", async () => {
+    const { puts } = setup(strategy());
+
+    await saveSolana(undefined, puts);
+    await settle();
+
+    // The page never received the saved list: the stored list is still the old one.
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+  });
+
+  it("a 200 whose body is not a strategy does not show Saved, even when the page then holds the saved list", async () => {
+    const { puts, rerender } = setup(strategy(), { answer: () => jsonResponse({ ok: true }) });
+
+    await saveSolana(rerender, puts);
+    await settle();
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+  });
+
+  it("a refusal and Saved are never on screen together: a new save clears the earlier Saved first", async () => {
+    let calls = 0;
+    const { puts, rerender } = setup(strategy(), {
+      answer: (body) =>
+        ++calls === 1
+          ? jsonResponse({ ...strategy(), allowed_pairs: body.pairs })
+          : jsonResponse({ detail: { error: "PAIRS_CHANGED", message: "changed" } }, 409),
+    });
+    // The first save is answered, but the page never receives the saved list, so Save stays enabled.
+    await saveSolana(undefined, puts);
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+
+    expect(savedRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("Saved stays ten minutes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { puts, rerender } = setup(strategy());
+      await saveSolana(rerender, puts);
+      await waitFor(() => expect(savedRegion()).toHaveTextContent("Saved"));
+
+      await act(async () => {
+        vi.advanceTimersByTime(600_000);
+      });
+
+      expect(savedRegion()).toHaveTextContent("Saved");
+      expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
+const classesOf = (element: Element) => element.className.split(/\s+/);
+
+/** The nearest element that holds both nodes: the row they share. */
+function sharedRow(first: Element, second: Element): HTMLElement {
+  let node: HTMLElement | null = first.parentElement;
+  while (node !== null && !node.contains(second)) node = node.parentElement;
+  if (node === null) throw new Error("the two nodes share no row");
+  return node;
+}
+
+/** The direct child of `row` that holds `node`. */
+function childHolding(row: HTMLElement, node: Element): HTMLElement {
+  const child = Array.from(row.children).find((candidate) => candidate.contains(node));
+  if (child === undefined) throw new Error("no child of the row holds the node");
+  return child as HTMLElement;
+}
+
+const hintText = () => screen.getByText(i18n.t("strategies.detail.pairs.hint"));
+/** Whether `before` comes before `after` in the document, which is the order on screen. */
+const precedes = (before: Element, after: Element) =>
+  (before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", () => {
+  it("Save and the note share one horizontal row, aligned to the top, that does not wrap", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    const row = sharedRow(saveButton(), hintText());
+
+    expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row)).not.toContain("flex-col");
+    expect(classesOf(row)).not.toContain("flex-wrap");
+    // The row is the note and the button block, not the whole control.
+    expect(row.contains(screen.getByLabelText(i18n.t("strategies.pairs.search")))).toBe(false);
+    expect(row.children).toHaveLength(2);
+  });
+
+  it("the left block is the note and takes the room that is left", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    const text = childHolding(row, hintText());
+
+    expect(text.contains(saveButton())).toBe(false);
+    expect(classesOf(text)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(row.firstElementChild).toBe(text);
+  });
+
+  // Edited by 12f.10.30d: "Saved" is no longer a text before the button; the button holds it, and the
+  // status region that announces it follows the button.
+  it("the right block is Save and then its status, keeps its size and is aligned to the top", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    const actions = childHolding(row, saveButton());
+
+    expect(actions).not.toBe(childHolding(row, hintText()));
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
+    expect(classesOf(actions)).not.toContain("flex-wrap");
+    expect(precedes(saveButton(), savedRegion())).toBe(true);
+    expect(actions.contains(savedRegion())).toBe(true);
+    expect(saveButton().className).toContain("min-h-11");
+  });
+
+  it("the reading order is the selector, the note, Save, then its status", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    const search = screen.getByLabelText(i18n.t("strategies.pairs.search"));
+    expect(precedes(search, hintText())).toBe(true);
+    expect(precedes(hintText(), saveButton())).toBe(true);
+    expect(precedes(saveButton(), savedRegion())).toBe(true);
+  });
+
+  it("the warning about the last pair is outside the row", async () => {
+    setup(strategy());
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+
+    remove("ETHUSDT");
+
+    const warning = screen.getByText(i18n.t("strategies.detail.pairs.lastPair"));
+    expect(row.contains(warning)).toBe(false);
+    expect(row.parentElement?.contains(warning)).toBe(true);
+  });
+
+  it("a failed save is an alert outside the row", async () => {
+    setup(strategy(), { answer: () => jsonResponse({ detail: "boom" }, 500) });
+    await catalogueReady();
+    const row = sharedRow(saveButton(), hintText());
+    await add("SOLUSDT");
+
+    fireEvent.click(saveButton());
+
+    const alert = await screen.findByRole("alert");
+    expect(row.contains(alert)).toBe(false);
+    expect(row.parentElement?.contains(alert)).toBe(true);
+  });
+});
+
+// 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
+// is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
+describe.each([
+  { language: "en", save: "Save pairs", saving: "Saving…", saved: "Saved" },
+  { language: "es", save: "Guardar pares", saving: "Guardando…", saved: "Guardado" },
+] as const)("AllowedPairsEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage(T.language));
+  });
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  const button = (name: string) => screen.getByRole("button", { name });
+  const cellOf = (host: HTMLElement, text: string) => within(host).getByText(text);
+  const isShown = (cell: HTMLElement) => !cell.hasAttribute("aria-hidden") && !classesOf(cell).includes("invisible");
+  const isHidden = (cell: HTMLElement) =>
+    cell.getAttribute("aria-hidden") === "true" && classesOf(cell).includes("invisible");
+  /** Every element that holds exactly `text`, outside the button that owns it. */
+  const outside = (host: HTMLElement, text: string) => screen.queryAllByText(text).filter((node) => !host.contains(node));
+  /** Saves SOLUSDT and hands the page the saved list, as a successful re-read does. */
+  const saveSolanaNow = async () => {
+    const { puts, rerender } = setup(strategy());
+    await add("SOLUSDT");
+    fireEvent.click(button(T.save));
+    await waitFor(() => expect(puts).toEqual([{ pairs: ["ETHUSDT", "SOLUSDT"] }]));
+    rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
+  };
+
+  it("holds all three of its texts and shows only Save while nothing was saved", () => {
+    setup(strategy());
+
+    const host = button(T.save);
+
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("reads Saved after a save, disabled, and shows only that one of its three texts", async () => {
+    await saveSolanaNow();
+
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    expect(host).toBeDisabled();
+    expect(screen.queryByRole("button", { name: T.save })).toBeNull();
+    expect(isShown(cellOf(host, T.saved))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+  });
+
+  it("shows only Saving while a save is in flight", async () => {
+    setup(strategy(), { answer: () => new Promise<Response>(() => undefined) as unknown as Response });
+    await add("SOLUSDT");
+    fireEvent.click(button(T.save));
+
+    const host = await screen.findByRole("button", { name: T.saving });
+
+    expect(host).toBeDisabled();
+    expect(isShown(cellOf(host, T.saving))).toBe(true);
+    expect(isHidden(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+  });
+
+  it("leaves no visible Saved beside the button: the one text outside it is the hidden status", async () => {
+    await saveSolanaNow();
+    const host = await screen.findByRole("button", { name: T.saved });
+
+    const elsewhere = outside(host, T.saved);
+
+    expect(elsewhere).toHaveLength(1);
+    const status = elsewhere[0] as HTMLElement;
+    expect(status).toHaveAttribute("role", "status");
+    expect(classesOf(status)).toContain("sr-only");
+    expect(host.parentElement).toContainElement(status);
+  });
+
+  it("goes back to Save when a pair is removed, and Saved is then in no visible text", async () => {
+    await saveSolanaNow();
+    await screen.findByRole("button", { name: T.saved });
+
+    remove("SOLUSDT");
+
+    const host = button(T.save);
+    expect(host).toBeEnabled();
+    expect(isShown(cellOf(host, T.save))).toBe(true);
+    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+    expect(outside(host, T.saved)).toEqual([]);
   });
 });

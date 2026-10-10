@@ -203,12 +203,59 @@ export interface RegisterStrategyBody {
   allowed_pairs: string[];
 }
 
-/** One row of `by_pair` (`PairBody`): a pair's closed trades; `return` is null without capital at open. */
+/**
+ * One row of `by_pair` (`PairBody`): a pair's closed trades; `return` is null without capital at open.
+ * `wins` counts the trades whose pnl is above zero and `win_rate` is `wins` over `trades` as a
+ * fraction in [0, 1], a decimal string. Neither is ever null: a pair listed has at least one trade.
+ */
 export interface PairStat {
   pair: string;
   trades: number;
+  wins: number;
+  win_rate: string;
   pnl: string;
   return: string | null;
+}
+
+/** `balance` of `GET /api/strategies/{id}/share-preview` (`SharePreviewBalanceBody`). */
+export interface SharePreviewBalance {
+  total: string;
+  observed_at: string;
+  stale: boolean;
+}
+
+/** `exact` of the share preview: the amount of the share as stored, a plain decimal string. */
+export interface SharePreviewExact {
+  share: string;
+  amount: string;
+  below_pool_minimum: boolean;
+}
+
+/** One entry of `steps`: `share` is a JSON integer, a step is a whole share. */
+export interface SharePreviewStep {
+  share: number;
+  amount: string;
+  below_pool_minimum: boolean;
+}
+
+/**
+ * `GET /api/strategies/{id}/share-preview` (`SharePreviewBody`). `balance`,
+ * `exact` and `steps` are null, null and empty together: a pool nothing has
+ * synced has no amount, never a zero.
+ */
+export interface SharePreview {
+  strategy_id: string;
+  pool: { exchange: string; venue: string; settlement_currency: string };
+  currency: string;
+  pool_minimum: string;
+  balance: SharePreviewBalance | null;
+  exact: SharePreviewExact | null;
+  steps: SharePreviewStep[];
+}
+
+/** `GET /api/webhook-origin` (`WebhookOriginBody`): a serialised origin, or null when none is set. */
+export interface WebhookOrigin {
+  origin: string | null;
 }
 
 /**

@@ -65,7 +65,10 @@ export function StrategiesPage() {
       rows.length === 0 ? (
         <p className="text-sm text-ink-3">{t("strategies.empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        // From lg the list is ONE grid and every row sits on it as a subgrid, so the name, the three figures
+        // and the switch have the same tracks in every row: a track is as wide as the widest value in ANY row,
+        // never as wide as its own row's. Below lg the rows stay the wrapping flex rows they were.
+        <ul className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:gap-x-6">
           {rows.map((strategy) => (
             <StrategyRow key={strategy.id} strategy={strategy} />
           ))}

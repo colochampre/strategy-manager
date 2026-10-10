@@ -76,6 +76,22 @@ export function setStrategyEnabled(strategyId: string, enabled: boolean): Promis
   });
 }
 
+/**
+ * `PATCH /api/strategies/{id}` with only `allocation_percent`, sent as the string it is: every other field
+ * stays unchanged. The answer is checked, as for a read, so the page never caches a body it cannot describe.
+ */
+export async function setStrategyAllocationPercent(strategyId: string, value: string): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ allocation_percent: value }),
+  });
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
@@ -95,6 +111,27 @@ export function useSetStrategyEnabled(strategyId: string) {
   return useMutation<Strategy, Error, boolean>({
     mutationFn: (enabled) => setStrategyEnabled(strategyId, enabled),
     // Settled, not only success: a refused change (409) says the stored state is not what the row showed.
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
+  });
+}
+
+/**
+ * Saves the share. On success the checked answer is written into `['strategy', id]`, so the stored value
+ * the page shows is the confirmed one even if the refetch that follows fails. Settled, not only success,
+ * for the reason of the enable switch: a refusal says the stored state is not what the page showed, so
+ * the list and the page (and the preview under its key) read it again. The invalidation's promise is
+ * returned, so the mutation stays pending until the page holds the new state.
+ */
+export function useSetAllocationPercent(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, string>({
+    mutationFn: (value) => setStrategyAllocationPercent(strategyId, value),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["strategy", strategyId], saved);
+    },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["strategies"] });
       await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });

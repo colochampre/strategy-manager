@@ -1,3 +1,5 @@
+import { amountDecimals, amountText } from "@/features/overview/format";
+
 const SIGNIFICANT_DIGITS = 8;
 /** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */
 const TABLE_DECIMALS = 5;
@@ -72,6 +74,45 @@ export function tableFigureText(value: string): string | null {
     if (integer !== "0") return TABLE_DECIMALS;
     return TABLE_DECIMALS - leadingZeros < TABLE_SIGNIFICANT_FLOOR ? leadingZeros + TABLE_SIGNIFICANT_FLOOR : TABLE_DECIMALS;
   });
+}
+
+const RATE_TEXT = /^(\d+)(?:\.(\d+))?$/;
+/** A rate is cut at one decimal of the percentage: three digits of the ratio, tenths of a percent. */
+const RATE_DIGITS = 3;
+
+/**
+ * A served win rate as an unsigned percentage with one decimal (`0.5833333333` is `58.3%`). The digits
+ * of the served string are cut at the tenth of a percent and never rounded, so only a rate of exactly one
+ * reads 100.0%; the cut count is then given to `Intl` for the language's separator and sign. It is a
+ * text operation, not a division, and not `percentText`, which signs every figure. A string that is not
+ * a plain ratio, an exponent included, gives `null`.
+ */
+export function rateText(ratio: string, locale: string): string | null {
+  const match = RATE_TEXT.exec(ratio);
+  if (match === null) return null;
+  const tenths = Number(`${match[1] ?? ""}${(match[2] ?? "").padEnd(RATE_DIGITS, "0").slice(0, RATE_DIGITS)}`);
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(tenths / 1000);
+}
+
+const AMOUNT_TEXT = /^(\d+)(?:\.(\d+))?$/;
+
+/**
+ * A served amount of a pool's money in its settlement currency (the amount a share asks for). The digits
+ * of the served string are CUT at the currency's decimals and never rounded, because the engine never
+ * rounds a request up and a figure rounded up could read "5.00" beside a warning that it is under 5; the
+ * cut digits are then given to `Intl` for the language's separators, with the decimals fixed. It is a
+ * text operation, not arithmetic. A string that is not a plain non-negative decimal gives `null`.
+ */
+export function cutAmountText(amount: string, currency: string, locale: string): string | null {
+  const match = AMOUNT_TEXT.exec(amount);
+  if (match === null) return null;
+  const decimals = amountDecimals(currency);
+  const fraction = (match[2] ?? "").padEnd(decimals, "0").slice(0, decimals);
+  return amountText(Number(`${match[1] ?? ""}.${fraction === "" ? "0" : fraction}`), currency, locale);
 }
 
 /**

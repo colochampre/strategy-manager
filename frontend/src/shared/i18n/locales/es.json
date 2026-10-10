@@ -185,6 +185,32 @@
         "saving": "Guardando…",
         "lastPair": "Una estrategia necesita al menos un par permitido.",
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
+      },
+      "saved": "Guardado",
+      "share": {
+        "label": "Porcentaje del pool por operación",
+        "info": "Acerca del porcentaje del pool",
+        "hint": "Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño.",
+        "amountInfo": "Acerca de este importe y de lo que no se comprueba",
+        "amountHint": "Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
+        "pairMinimumNote": "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
+        "valueText": "{{value}} % del pool",
+        "stop": "Fijar el porcentaje en {{value}} %",
+        "notNumber": "Escriba un número, por ejemplo 25 o 33,5.",
+        "outOfRange": "El porcentaje debe ser mayor que 0 y como máximo 100.",
+        "tooManyDecimals": "El porcentaje tiene como máximo 18 decimales.",
+        "amount": "Pide alrededor de {{amount}} {{currency}} por operación",
+        "amountStale": "El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado.",
+        "amountNoBalance": "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
+        "amountLoading": "Calculando el importe…",
+        "amountError": "No se pudo cargar el importe.",
+        "belowPoolMinimum": "Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
+        "save": "Guardar porcentaje",
+        "saving": "Guardando…",
+        "saveFailed": "El porcentaje no se guardó. Inténtelo de nuevo.",
+        "archived": "Esta estrategia está archivada y ya no se puede modificar.",
+        "gone": "Esta estrategia ya no existe.",
+        "unreadable": "No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí."
       }
     },
     "performance": {
@@ -198,6 +224,7 @@
         "title": "Por par",
         "pair": "Par",
         "trades": "Operaciones",
+        "winRate": "% acierto",
         "pnl": "PnL {{currency}}",
         "return": "Rendimiento",
         "empty": "Ningún par tiene todavía una operación cerrada.",
@@ -287,7 +314,13 @@
       "show": "Mostrar el secreto",
       "showing": "Obteniendo el secreto…",
       "hide": "Ocultar el secreto",
-      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador."
+      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador.",
+      "copyUrl": "Copiar URL",
+      "copyMessage": "Copiar mensaje",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar. Seleccione el texto y cópielo a mano.",
+      "hostUnset": "No hay un host público configurado para el webhook, por lo que solo se muestra la ruta. Anteponga el host de su webhook.",
+      "hostError": "No se pudo cargar el host del webhook, por lo que solo se muestra la ruta."
     },
     "archive": {
       "title": "Archivar estrategia",

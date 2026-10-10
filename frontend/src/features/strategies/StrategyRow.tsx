@@ -42,7 +42,7 @@ function Figures({ strategy }: FiguresProps) {
 
   if (performance.status === "error") {
     return (
-      <p role="alert" className="text-xs text-loss">
+      <p role="alert" className="text-xs text-loss lg:col-span-3">
         {t("strategies.row.performanceError")}
       </p>
     );
@@ -56,7 +56,7 @@ function Figures({ strategy }: FiguresProps) {
 
   if (report !== null && all !== undefined && (pnl === null || ret === null)) {
     return (
-      <p role="alert" className="text-xs text-loss">
+      <p role="alert" className="text-xs text-loss lg:col-span-3">
         {t("strategies.row.performanceError")}
       </p>
     );
@@ -64,7 +64,7 @@ function Figures({ strategy }: FiguresProps) {
 
   const empty = pending ? "…" : DASH;
   return (
-    <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2">
+    <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2 lg:col-span-3 lg:grid lg:grid-cols-subgrid lg:gap-x-6">
       <div>
         <dt className="text-ink-3">{t("strategies.row.trades")}</dt>
         <dd data-testid="strategy-trades">{report === null ? empty : report.trade_count}</dd>
@@ -98,7 +98,7 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
   return (
     <li
       data-testid="strategy-row"
-      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-md border border-rule bg-panel px-4 py-3"
+      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-md border border-rule bg-panel px-4 py-3 lg:col-span-5 lg:grid lg:grid-cols-subgrid"
     >
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex flex-wrap items-baseline gap-x-2">

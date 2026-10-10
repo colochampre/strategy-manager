@@ -1,6 +1,45 @@
 import { describe, expect, it } from "vitest";
 
-import { clockText, compactDateText, figureText, tableFigureText } from "@/features/strategies/format";
+import {
+  clockText,
+  compactDateText,
+  cutAmountText,
+  figureText,
+  rateText,
+  tableFigureText,
+} from "@/features/strategies/format";
+
+// `cutAmountText` writes a served amount of the share's pool in its settlement currency. The digits are
+// cut at the currency's decimals as text, never rounded, and only then given to `Intl` (design § C2, § O):
+// a figure rounded up could read "5.00" beside a warning that it is under 5.
+
+describe("cutAmountText", () => {
+  it.each([
+    ["4.996000000000000000", "USDT", "4.99"],
+    ["4.999999999999999999", "USDT", "4.99"],
+    ["500.499500000000000000", "USDT", "500.49"],
+    ["335.000000000000000000", "USDT", "335.00"],
+    ["1000", "USDT", "1,000.00"],
+    ["0.009999999999999999", "USDT", "0.00"],
+    ["12.3", "USDT", "12.30"],
+    ["0.123456789999999999", "BTC", "0.12345678"],
+    ["0.123456789999999999", "ETH", "0.12345678"],
+  ])("cuts %s %s down to %s", (amount, currency, written) => {
+    expect(cutAmountText(amount, currency, "en")).toBe(written);
+  });
+
+  it("writes the language's separators after the cut", () => {
+    expect(cutAmountText("1234.569999999999999999", "USDT", "es")).toBe("1234,56");
+    expect(cutAmountText("12345.679999999999999999", "USDT", "es")).toBe("12.345,67");
+  });
+
+  it.each(["", "abc", "1E+3", "-5", "+5", "1,5", " 5", "5.", ".5"])(
+    "a text that is not a plain non-negative decimal gives null: %j",
+    (amount) => {
+      expect(cutAmountText(amount, "USDT", "en")).toBeNull();
+    },
+  );
+});
 
 // `figureText` writes a price, a size or a fee from the server's own string. It is a text
 // operation, not arithmetic: money is never computed in the browser (design § F, § 15).
@@ -137,5 +176,49 @@ describe.each([
   it("gives the same text with and without leading zeros", () => {
     expect(write("0012345.678901234")).toBe(write("12345.678901234"));
     expect(write("007.5")).toBe(write("7.5"));
+  });
+});
+
+// `rateText` writes the served win rate as an unsigned percentage with one decimal. It cuts first and
+// formats second: a rate is never rounded up, so only a rate of exactly one reads 100.0%.
+
+describe("rateText", () => {
+  it.each([
+    ["0.5833333333", "58.3%"],
+    ["0.6000000000", "60.0%"],
+  ])("writes a rate with one decimal and no sign: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it.each([
+    ["0.9995000000", "99.9%"],
+    ["0.9950000000", "99.5%"],
+  ])("cuts the rate and never rounds it up: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it("only a rate of exactly one reads 100.0%", () => {
+    expect(rateText("1.0000000000", "en")).toBe("100.0%");
+    expect(rateText("0.9999999999", "en")).toBe("99.9%");
+  });
+
+  it.each([
+    ["0.0000000000", "0.0%"],
+    ["0.0002000000", "0.0%"],
+  ])("a rate of exactly zero and one win in five thousand read 0.0%%: %s", (served, expected) => {
+    expect(rateText(served, "en")).toBe(expected);
+  });
+
+  it.each(["abc", "1e-3", "", "-0.5000000000", "0.5.0"])(
+    "never writes an exponent and a string that is not a plain ratio gives null: %j",
+    (served) => {
+      expect(rateText(served, "en")).toBeNull();
+    },
+  );
+
+  it("writes the rate the way the PnL % column does in Spanish", () => {
+    // Spanish writes a decimal comma and a no-break space before the sign (U+00A0), as `percentText` does.
+    expect(rateText("0.5833333333", "es")).toBe("58,3 %");
+    expect(rateText("1.0000000000", "es")).toBe("100,0 %");
   });
 });

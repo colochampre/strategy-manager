@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router";
+import { Link, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
@@ -8,7 +8,18 @@ import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
-import { emptyPerformance, jsonResponse, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import {
+  emptyPerformance,
+  jsonResponse,
+  lock,
+  pool,
+  renderAt,
+  resetExchangeScope,
+  strategyRoute,
+  stubApi,
+  unlock,
+  unsyncedSharePreview,
+} from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const DAY = 86_400;
@@ -68,6 +79,7 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
       }
       if (!url.includes(`/strategies/${ID}`)) return undefined;
       requests.push({ method, url });
+      if (url.includes("/share-preview")) return Promise.resolve(jsonResponse(unsyncedSharePreview(ID)));
       if (url.endsWith("/events")) return Promise.resolve(jsonResponse(options.events ?? []));
       if (method === "PATCH") return Promise.resolve(options.patch?.(JSON.parse(String(init?.body))) ?? jsonResponse(subject));
       return Promise.resolve(options.strategyAnswer?.() ?? jsonResponse(subject));
@@ -260,7 +272,9 @@ describe("StrategyDetailPage", () => {
   // decision 43 moves the closed trades out of the column (task 9p.5.21), so its trades assertions moved to
   // the full-width section test below and the webhook assertion stayed.
   it("test_left_column_runs_performance_and_by_pair_and_holds_no_webhook_block_until_it_is_opened", async () => {
-    renderPage(strategy(), { byPair: [{ pair: "ETHUSDT", trades: 2, pnl: "4.00", return: "0.0040000000" }] });
+    renderPage(strategy(), {
+      byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
+    });
     await heading("ETH Breakout");
 
     const titles = [
@@ -351,8 +365,8 @@ describe("StrategyDetailPage", () => {
   it("test_a_pair_removed_from_the_allowed_pairs_is_still_listed_with_its_stats_on_the_page", async () => {
     renderPage(strategy({ allowed_pairs: ["ETHUSDT"] }), {
       byPair: [
-        { pair: "ETHUSDT", trades: 19, pnl: "52.60", return: "0.0526000000" },
-        { pair: "SOLUSDT", trades: 24, pnl: "-5.30", return: "-0.0053000000" },
+        { pair: "ETHUSDT", trades: 19, wins: 12, win_rate: "0.6315789474", pnl: "52.60", return: "0.0526000000" },
+        { pair: "SOLUSDT", trades: 24, wins: 9, win_rate: "0.3750000000", pnl: "-5.30", return: "-0.0053000000" },
       ],
     });
     await heading("ETH Breakout");
@@ -402,6 +416,135 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: i18n.t("strategies.archive.button") })).toBeEnabled();
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toBeEnabled();
   });
+
+  it("test_the_share_control_is_the_first_of_the_settings_column_under_its_heading_and_above_the_allowed_pairs", async () => {
+    renderPage(strategy({ allocation_percent: "37.5" }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
+    expect(slider).toBeInTheDocument();
+
+    const [title, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
+    expect(title).toBe(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
+    expect(first).toContainElement(slider);
+    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
+    expect(first).not.toContainElement(pairs);
+    expect(first.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("test_no_text_of_the_pages_header_line_contains_the_share_or_per_trade", async () => {
+    renderPage(strategy({ allocation_percent: "37.5" }));
+    const title = await heading("ETH Breakout");
+
+    const header = title.closest("header") as HTMLElement;
+    expect(header.textContent).not.toContain("37.5");
+    expect(header.textContent).not.toContain("%");
+    expect(header.textContent?.toLowerCase()).not.toContain("per trade");
+    expect(header.textContent).not.toContain(en.strategies.detail.share.label);
+  });
+
+  it("test_an_archived_strategy_shows_the_control_read_only", async () => {
+    renderPage(strategy({ allocation_percent: "37.5", archived_at: "2026-09-01T00:00:00+00:00" }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
+    expect(slider).toBeInTheDocument();
+    expect(slider).toBeDisabled();
+    expect(within(settings).getByRole("textbox")).toBeDisabled();
+    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
+    expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
+  });
+
+  it("test_the_share_control_starts_over_for_another_strategy_and_a_typed_value_is_not_carried_to_it", async () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const first = strategyRoute(ID, "ETH Breakout");
+    const second = strategyRoute(OTHER, "SOL Trend");
+    stubApi(HEALTH, [], undefined, {}, (url, init) => first(url, init) ?? second(url, init));
+    renderAt(
+      <Routes>
+        <Route
+          path="strategies/:strategyId"
+          element={
+            <>
+              <Link to={`/strategies/${OTHER}`}>next strategy</Link>
+              <StrategyDetailPage />
+            </>
+          }
+        />
+      </Routes>,
+      `/strategies/${ID}`,
+    );
+    await heading("ETH Breakout");
+
+    // Both strategies store 100. A value typed on the first, and an explanation opened on it, are its own.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.detail.share.info }));
+    expect(screen.getByRole("textbox")).toHaveValue("40");
+    expect(screen.getByText(en.strategies.detail.share.hint)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "next strategy" }));
+    await heading("SOL Trend");
+
+    expect(screen.getByRole("textbox")).toHaveValue("100");
+    expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
+  });
+
+  it("test_every_new_key_exists_in_both_languages", () => {
+    const keys = (node: unknown, prefix: string): string[] =>
+      typeof node === "object" && node !== null
+        ? Object.entries(node).flatMap(([key, value]) => keys(value, `${prefix}.${key}`))
+        : [prefix];
+    const newKeys = (locale: typeof en) =>
+      [
+        ...keys(locale.strategies.detail.share, "strategies.detail.share"),
+        ...keys(locale.strategies.detail.saved, "strategies.detail.saved"),
+        ...["copyUrl", "copyMessage", "copied", "copyFailed", "hostUnset", "hostError"].map(
+          (key) => `strategies.webhook.${key}`,
+        ),
+        ...keys(locale.strategies.performance.byPair.winRate, "strategies.performance.byPair.winRate"),
+      ].sort();
+
+    expect(newKeys(es)).toEqual(newKeys(en));
+    // 23 share texts, "Saved", six webhook texts and the Win rate heading.
+    expect(newKeys(en)).toHaveLength(23 + 1 + 6 + 1);
+    for (const key of newKeys(en)) {
+      expect(i18n.exists(key, { lng: "en" })).toBe(true);
+      // Without the fallback to English, so a Spanish key that was deleted is not found.
+      expect(i18n.exists(key, { lng: "es", fallbackLng: [] })).toBe(true);
+    }
+  });
+
+  it("test_the_owners_own_words_are_unchanged", () => {
+    expect(en.strategies.detail.saved).toBe("Saved");
+    expect(es.strategies.detail.saved).toBe("Guardado");
+    expect(en.strategies.webhook.copied).toBe("Copied");
+    expect(es.strategies.webhook.copied).toBe("Copiado");
+  });
+
+  it.each([
+    ["en", "Win rate", "Share of the pool per trade", "Connect a TradingView alert", "Copy URL", "Copy message"],
+    ["es", "% acierto", "Porcentaje del pool por operación", "Conectar una alerta de TradingView", "Copiar URL", "Copiar mensaje"],
+  ])(
+    "test_the_new_texts_of_the_page_read_exactly_as_designed_in_%s",
+    async (language, winRate, shareLabel, openWebhook, copyUrl, copyMessage) => {
+      await i18n.changeLanguage(language);
+      renderPage(strategy(), {
+        byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
+      });
+      await heading("ETH Breakout");
+
+      const table = await screen.findByRole("table", { name: i18n.t("strategies.performance.byPair.title") });
+      expect(within(table).getByRole("columnheader", { name: winRate })).toBeInTheDocument();
+      expect(screen.getByRole("slider", { name: shareLabel })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: openWebhook }));
+      expect(screen.getByRole("button", { name: copyUrl })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: copyMessage })).toBeInTheDocument();
+    },
+  );
 
   it("renders in Spanish and has the same keys in both locales", async () => {
     await i18n.changeLanguage("es");

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
+import { StatusButton } from "@/features/strategies/StatusButton";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useReplaceAllowedPairs } from "@/shared/api/strategies";
@@ -19,6 +20,16 @@ interface Draft {
 }
 
 const storedKey = (strategy: Strategy) => strategy.allowed_pairs.join(",");
+
+/**
+ * The key of the list a save answered, or `null` when the answer holds no list of pairs. The PUT's body is
+ * not checked by the hook (which is not changed), so a 200 that is not a strategy must not show "Saved".
+ */
+function savedKeyOf(answer: Strategy | undefined): string | null {
+  const pairs: unknown = answer?.allowed_pairs;
+  if (!Array.isArray(pairs) || !pairs.every((pair) => typeof pair === "string")) return null;
+  return pairs.join(",");
+}
 
 function unknownSymbols(error: ApiError): string[] {
   const unknown = error.fields?.unknown;
@@ -59,6 +70,10 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
   const { t } = useTranslation();
   const ids = { pairs: useId(), hint: useId() };
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The list the last successful save answered. "Saved" shows only while the stored list is that one: if
+  // the re-read after a 200 failed, the stored list is still the old one and nothing is said (the safe
+  // side, a limit of the existing hook).
+  const [savedKey, setSavedKey] = useState<string | null>(null);
   const save = useReplaceAllowedPairs(strategy.id);
   const catalogue = useAvailablePairs({
     exchange: strategy.exchange,
@@ -75,10 +90,17 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
 
   const handleSave = () => {
     if (!changed || empty || archived) return;
-    save.mutate(pairs);
+    setSavedKey(null);
+    save.mutate(pairs, { onSuccess: (answer) => setSavedKey(savedKeyOf(answer)) });
   };
+  // Once the stored list is the saved one, an earlier draft is stale (its base differs) and is not shown,
+  // and any later edit clears `savedKey`: so the list on screen is the saved one whenever this is true.
+  const saved = savedKey !== null && savedKey === storedKey(strategy);
 
   const message = save.status === "error" ? saveError(save.error) : null;
+  const saveText = t("strategies.detail.pairs.save");
+  const savingText = t("strategies.detail.pairs.saving");
+  const savedText = t("strategies.detail.saved");
 
   return (
     <section className="flex flex-col gap-3">
@@ -86,30 +108,40 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         id={ids.pairs}
         label={t("strategies.detail.pairs.title")}
         value={pairs}
-        onChange={(next) => setDraft({ base: storedKey(strategy), pairs: next })}
+        onChange={(next) => {
+          // A pair added or removed ends "Saved"; typing in the search box never reaches this handler.
+          setSavedKey(null);
+          setDraft({ base: storedKey(strategy), pairs: next });
+        }}
         options={catalogue.data?.pairs}
         status={status}
         onRetry={() => void catalogue.refetch()}
         describedBy={ids.hint}
         disabled={archived}
       />
-      <p id={ids.hint} className="text-xs text-ink-3">
-        {t("strategies.detail.pairs.hint")}
-      </p>
+      {/* One row: the note takes the room that is left and wraps, Save keeps its size beside it, both from the top. */}
+      <div className="flex items-start gap-x-3">
+        <p id={ids.hint} className="min-w-0 flex-1 text-xs text-ink-3">
+          {t("strategies.detail.pairs.hint")}
+        </p>
+        <div className="flex shrink-0 items-start gap-x-3">
+          <StatusButton
+            texts={[saveText, savingText, savedText]}
+            shown={save.isPending ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
+            onClick={handleSave}
+            // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
+            disabled={archived || !changed || empty || save.isPending}
+            className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          />
+        </div>
+      </div>
       {empty && !archived && <p className="text-xs text-loss">{t("strategies.detail.pairs.lastPair")}</p>}
       {message !== null && (
         <p role="alert" className="text-sm text-loss">
           {t(message.key, message.values ?? {})}
         </p>
       )}
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={archived || !changed || empty || save.isPending}
-        className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-      >
-        {save.isPending ? t("strategies.detail.pairs.saving") : t("strategies.detail.pairs.save")}
-      </button>
     </section>
   );
 }

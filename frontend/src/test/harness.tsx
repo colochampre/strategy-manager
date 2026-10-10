@@ -75,6 +75,19 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
   };
 }
 
+/** What `GET /strategies/{id}/share-preview` answers for a pool nothing has synced: no balance, so no amount. */
+export function unsyncedSharePreview(id: string, exchange = "bybit", venue = "usdt-m", currency = "USDT") {
+  return {
+    strategy_id: id,
+    pool: { exchange, venue, settlement_currency: currency },
+    currency,
+    pool_minimum: "5.000000000000000000",
+    balance: null,
+    exact: null,
+    steps: [],
+  };
+}
+
 /**
  * An `ExtraRoute` that serves one strategy's detail, its empty enable history
  * and its empty performance report and trades list, so a deep link to its page
@@ -103,6 +116,7 @@ export function strategyRoute(id: string, name: string): ExtraRoute {
         jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: id, by_pair: [] }),
       );
     }
+    if (url.includes(`/strategies/${id}/share-preview`)) return Promise.resolve(jsonResponse(unsyncedSharePreview(id)));
     if (url.endsWith(`/strategies/${id}/events`)) return Promise.resolve(jsonResponse([]));
     if (url.endsWith(`/strategies/${id}`)) return Promise.resolve(jsonResponse(detail));
     return undefined;
@@ -150,6 +164,8 @@ export function stubApi(
       if (health.kind === "status") return Promise.resolve(jsonResponse(health.body ?? {}, health.status));
       return Promise.resolve(jsonResponse(health.body));
     }
+    // The webhook block reads the deployment's public host when it is opened: this deployment names none.
+    if (url.endsWith("/webhook-origin")) return Promise.resolve(jsonResponse({ origin: null }));
     const performancePath = /\/performance\/pools\/(.+)$/.exec(url);
     if (performancePath) {
       const key = decodeURIComponent(performancePath[1] ?? "");

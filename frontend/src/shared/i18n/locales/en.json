@@ -185,6 +185,32 @@
         "saving": "Saving…",
         "lastPair": "A strategy needs at least one allowed pair.",
         "saveFailed": "The allowed pairs were not saved. Try again."
+      },
+      "saved": "Saved",
+      "share": {
+        "label": "Share of the pool per trade",
+        "info": "About the share of the pool",
+        "hint": "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size.",
+        "amountInfo": "About this amount and what is not checked",
+        "amountHint": "An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.",
+        "pairMinimumNote": "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.",
+        "valueText": "{{value}}% of the pool",
+        "stop": "Set the share to {{value}}%",
+        "notNumber": "Enter a number, for example 25 or 33.5.",
+        "outOfRange": "The share must be above 0 and at most 100.",
+        "tooManyDecimals": "A share has at most 18 decimal places.",
+        "amount": "Asks for about {{amount}} {{currency}} per operation",
+        "amountStale": "The pool's balance was last read at {{time}} UTC and may be out of date.",
+        "amountNoBalance": "The pool's balance has not been read yet, so the amount cannot be shown.",
+        "amountLoading": "Calculating the amount…",
+        "amountError": "The amount could not be loaded.",
+        "belowPoolMinimum": "At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger.",
+        "save": "Save share",
+        "saving": "Saving…",
+        "saveFailed": "The share was not saved. Try again.",
+        "archived": "This strategy is archived and can no longer be changed.",
+        "gone": "This strategy no longer exists.",
+        "unreadable": "The stored share could not be read, so it cannot be edited here."
       }
     },
     "performance": {
@@ -198,6 +224,7 @@
         "title": "By pair",
         "pair": "Pair",
         "trades": "Trades",
+        "winRate": "Win rate",
         "pnl": "PnL {{currency}}",
         "return": "Return",
         "empty": "No pair has a closed trade yet.",
@@ -287,7 +314,13 @@
       "show": "Show secret",
       "showing": "Fetching the secret…",
       "hide": "Hide secret",
-      "error": "The secret could not be loaded. The URL still shows the placeholder."
+      "error": "The secret could not be loaded. The URL still shows the placeholder.",
+      "copyUrl": "Copy URL",
+      "copyMessage": "Copy message",
+      "copied": "Copied",
+      "copyFailed": "Could not copy. Select the text and copy it by hand.",
+      "hostUnset": "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.",
+      "hostError": "The webhook's host could not be loaded, so only the path is shown."
     },
     "archive": {
       "title": "Archive strategy",

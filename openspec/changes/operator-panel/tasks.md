@@ -198,6 +198,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | Fix 9qf.7 | #65 | `a9ccb61` | — | 2026-10-06 | Follow-up 9qf.7, the last known 500 on the webhook: a body that is authenticated, valid JSON and shaped like an alert, and still cannot be stored. Observed as a class on the route before fixing: a NUL character or a lone surrogate in a field, in the rest of the stored body or in an object key; the literals `NaN`, `Infinity`, `-Infinity` or an overflowing number such as `1e999` as an extra value; and a body nested 3,000 levels or more, where the JSON parser overflows its recursion. Each answered 500 and now answers 422, stores nothing and writes one WARNING with a fixed reason and no value. The check is one ITERATIVE pass over the parsed body in `signals/domain/alert.py`; storable text is decided by encoding it, so accented, CJK and astral text is still accepted. `MAX_BODY_DEPTH = 64`, against a contract two levels deep and a shallowest measured failure between 2,000 and 3,000 levels. Changed on purpose: a body nested 65 to 2,000 levels was stored and is now refused; a NUL in `signal_type` keeps its 422 with the character reason instead of the UUID one. A safety net at the insert was considered and not built: the exception type it would catch also covers a lost connection, a timeout and a deadlock. Gate: ruff 0, mypy 0 (284 source files), pytest 0, 3,505 tests; a first run hit the known teardown flake twice, with no assertion failure, and the re-run was clean. Size: 796 lines added, 86 of them production code. Risk **low**. No migration. Merged 2026-10-06 16:11 UTC with a merge commit; the owner pulled as `strategy` and restarted both, and reported the API and the worker active. It left follow-up 9qf.8. |
 | Fix 9qf.8 | #66 | `c7893ab` | — | 2026-10-06 | Follow-up 9qf.8, owner decision 47, which completes unit 9qf: the webhook refuses a body larger than 65,536 bytes with a 413, stores nothing and writes one WARNING. Before it nothing bounded the body, and one carrying an 8 MB string was stored with a 200. The body is never read whole and then measured: a declared `Content-Length` past the limit is refused before reading, and otherwise the request's stream is read with a running count that stops at the first chunk past the limit; the count of bytes received is the authority, never the header. Authentication is still first, so an unauthenticated request is answered 401 with none of its body read. The limit is a constant in `signals/infrastructure/router.py`, on the webhook route only. Three route tests of 9qf.7 posted 100,000 levels of nesting, about 200 KB, and now post 9,000, within the limit and still past the parser's recursion failure. Probed against a local uvicorn: a `Content-Length` that lies or is not a number is answered 400 by the server before the application runs. Gate: ruff 0, mypy 0 (284 source files), pytest 0, 3,550 tests. Size: 722 lines added, 66 of them production code. Risk **low**: a real alert is about 300 bytes. No migration. Merged 2026-10-06 17:05 UTC with a merge commit; the owner pulled as `strategy` and restarted both, and reported both services active. |
 | PR 12f-1 | #67 | `06878b5` | — | 2026-10-09 | Unit 12f.9 (tasks 12f.9.1-12f.9.15 and 12f.9.17), the backend of owner decisions 44, 48 and 50: `wins` and `win_rate` on each `by_pair` entry of a strategy's report; the webhook's public origin from the new setting `WEBHOOK_PUBLIC_ORIGIN`, parsed as an origin and nothing more and served by `GET /api/webhook-origin`; a strategy's share of the pool served in plain notation, with one INFO line when it changes; `GET /api/strategies/{id}/share-preview`, read-only, which answers what a share asks for from the pool's total with the engine's own function, 100 integer steps and the pool's minimum; and a share bounded at 18 decimal places on its three inputs, which also turns a 500 of the update and the registration at `1e-20000` into a 422. It also carries unit tif (every throwaway test database dropped through `backend/tests/pg_drop.py`, which waits out the autovacuum worker), decision 49 with the owner-run unit whn, and the design, specs and tasks of unit 12f. Gate at `bdad8ec`: ruff 0, mypy 0 (291 source files), pytest 0, 3,764 tests. Size: 9,276 lines added, 681 of them production code, one PR by the owner's standing choice. Risk **low**: every route is new or gains fields. No migration. Merged 2026-10-09 with a merge commit. The owner pulled as `strategy`, set `WEBHOOK_PUBLIC_ORIGIN` to the name of decision 49 and restarted both. **Checked on the VPS after the deploy** (read-only, over loopback): both services active on `06878b5`; the origin route answers the configured origin; the share preview of each of the three strategies answers 100 steps with a balance that is present and not stale; the report answers with an empty `by_pair` under `DRY_RUN`. **One check failed and found unit alg:** the journal holds no startup line of the origin, because the API process writes none of its own INFO lines. |
+| Fix alg | #68 | `2f4d738` | — | 2026-10-10 | Unit alg (tasks alg.1-alg.4), found by the check after the deploy of PR 12f-1: the API process writes its own log lines. The worker configured logging at startup and the API never did, and uvicorn's configuration covers only its own loggers, so in the API the root logger sat at WARNING with no handler: every INFO line was dropped, and with operator alerts on, whose bridge is a handler on the root logger, a WARNING and an ERROR were written nowhere by the process. `configure_api_logging()` sets the root logger to INFO and adds one handler of its own that writes to stderr in the worker's format; it is the first line of `lifespan`, before the alert bridge, and not in `create_app()`, which runs at import and which the worker imports. The worker and the text of every line are unchanged; uvicorn's lines are still written once, the access line still masks the webhook's secret, and `httpx` and `httpcore` stay at WARNING. The tests of what is written run in a subprocess with uvicorn's real configuration, because `caplog` is what hid the defect. Also run against a real local uvicorn before the push. Gate at `788fbe0`: ruff 0, mypy 0 (292 source files), pytest 0, 3,784 tests. Size: 315 lines under `backend/`, 66 of them production code. Risk **low**. No migration. Merged 2026-10-10 02:06 UTC with a merge commit; the owner pulled as `strategy` and restarted both. **Checked on the VPS after the deploy:** both services active on `2f4d738`; one startup line of the origin and one "operator alerts are on" line in the journal; no WARNING, no ERROR; no secret, token or database URL in the run's lines. **It settles that alerting is on in production**, so for as long as it has been on no WARNING of the API reached the journal, and the check recorded with fix 9qf.5 + 9qf.6 may prove nothing. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -2623,7 +2624,7 @@ Every command here is run by the owner. The name `hook.strategymanager.trade` wa
 
 ---
 
-### Unit alg — the API process writes its own log lines (found by the deploy of PR 12f-1; alg.1 to alg.4 done 2026-10-09, alg.5 is the owner's step after the merge)
+### Unit alg — the API process writes its own log lines (found by the deploy of PR 12f-1; done and deployed 2026-10-10)
 
 **Found 2026-10-09, by the check after the deploy of PR 12f-1 (#67).** The route `GET /api/webhook-origin` answered the configured origin, so the setting is read, and the journal of that same run of `strategy-api` held ZERO lines naming `WEBHOOK_PUBLIC_ORIGIN`, where task 12f.9.16 expected exactly one INFO.
 
@@ -2679,7 +2680,7 @@ Every command here is run by the owner. The name `hook.strategymanager.trade` wa
 - [x] alg.4 **Gate.** `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. Record the exit codes, the collected count before and after, and every existing test edited with its reason.
 
   **Evidence, 2026-10-09, run once at the end, in the foreground.** `uv run ruff check .` exit 0. `uv run mypy src` exit 0 (292 source files). `uv run pytest --tb=short` exit 0, `3784 passed in 346.31s`. Collected: 3,764 before this unit, 3,784 after (the sum of the per-file counts of `uv run pytest --co -q`; +20, all in `test_api_logging.py`). **No existing test was edited.** The lifespan tests of `test_startup_invariants.py`, which now run with the API's handler on the root logger, still pass.
-- [ ] alg.5 **Owner step, after the merge.** Pull as `strategy`, restart both services. No migration. Check: the journal of the new run of `strategy-api` holds exactly one line naming `WEBHOOK_PUBLIC_ORIGIN`; it holds "operator alerts are on" or it does not, which settles whether alerting is on in production; no line holds the webhook's secret or a token.
+- [x] alg.5 **Owner step, after the merge.** Pull as `strategy`, restart both services. No migration. Check: the journal of the new run of `strategy-api` holds exactly one line naming `WEBHOOK_PUBLIC_ORIGIN`; it holds "operator alerts are on" or it does not, which settles whether alerting is on in production; no line holds the webhook's secret or a token. **Done 2026-10-10 by the owner.** Merged as `2f4d738` (#68) with a merge commit, pulled as `strategy`, both services restarted. A read-only check on the VPS, over the journal of the new run of `strategy-api` (started 04:06:59 on the VPS clock): both services active on `2f4d738`; exactly ONE line naming `WEBHOOK_PUBLIC_ORIGIN`, INFO, in the worker's format, with the origin of decision 49; ONE "operator alerts are on" line, so **alerting IS on in production**; 6 lines in all, 2 of them the application's INFO, no WARNING, no ERROR and no `webhook alert refused`; no unmasked webhook secret, no Telegram URL and no database URL. **What that settles about the past:** for as long as alerting has been on (since when was not established), no WARNING of the API reached the journal before this deploy. If it was on by 2026-10-06, the check recorded with fix 9qf.5 + 9qf.6 ("no `webhook alert refused` line in the last hour") could not have shown one and proves nothing. Whether an alert was refused before this deploy is not known from the journal; a refused alert stores no row, so the database does not say either. The bridge forwards an ERROR to Telegram, so that channel was not affected.
 
 Rollback boundary: one revert. It returns the API to writing no line of its own. No data is touched.
 
@@ -3527,7 +3528,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
 
 **The win rate column** (design § G; spec: operator-panel "By Pair Shows A Win Rate")
 
-- [ ] 12f.10.1 Plumbing, no behaviour change: `types.ts`, `PairStat` gains `wins: number` and `win_rate: string`; new
+- [x] 12f.10.1 Plumbing, no behaviour change: `types.ts`, `PairStat` gains `wins: number` and `win_rate: string`; new
   types for the preview body (`SharePreview`, its `balance`, `exact` and `steps` entries) and the origin body.
   Every fixture that types a `PairStat` gains the two fields with values that agree with its `trades`:
   `PairStatsTable.test.tsx::stat()`, `StrategyPerformance.test.tsx` (the `satisfies PairStat[]` literal),
@@ -3535,7 +3536,20 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `StrategiesPage.test.tsx` (its one); `harness.tsx` serves `by_pair: []` and needs none. Nothing else in
   those files changes. No RED: the proof is that `npm run lint` refuses a builder left without the fields
   (remove one, see `tsc` fail, restore) and the existing suites pass unmodified apart from the builders.
-- [ ] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
+  **Done (commit `5061a3c`).** Baseline before the batch: `npm run lint` exit 0, `npm test`
+  exit 0, 49 files and 857 tests. Added to `types.ts`: `wins` and `win_rate` on `PairStat`, and `SharePreview`,
+  `SharePreviewBalance`, `SharePreviewExact`, `SharePreviewStep` and `WebhookOrigin`, read from the backend's
+  `SharePreviewBody` and `WebhookOriginBody`. Proof: with the types changed and the builders untouched,
+  `npm run lint` failed with TS2322 and TS2739 in `PairStatsTable.test.tsx`, `StrategyDetailPage.test.tsx` (three
+  literals) and `StrategyPerformance.test.tsx` (three). The fixtures then gained the two fields, with values that
+  agree with `trades` (24 trades, 15 wins, 0.6250000000; 3 and 2; 1 and 0; 19 and 12; 24 and 9; 2 and 1). Lint
+  exit 0 again, and the `features/strategies` and `shared/api` suites passed (26 files, 520 tests). Existing
+  files edited, all test builders and only for the two fields: `PairStatsTable.test.tsx::stat()`,
+  `StrategyDetailPage.test.tsx` (two `byPair` literals), `StrategyPerformance.test.tsx` and
+  `performance.strategy.test.ts` (the valid literal and the four rejection literals, which now carry the fields
+  so they still fail for their own flaw once 12f.10.2 lands). `StrategiesPage.test.tsx` needed no edit: its one
+  `by_pair` is `[]`, so it holds no `PairStat` to complete.
+- [x] 12f.10.2 The pair-row check. RED `frontend/src/shared/api/performance.pairs.test.ts` (Create, `vi.stubGlobal("fetch")`).
   No stub is needed: the current `isPairStat` ignores keys it does not know, which is the wrong answer.
   Tests: `::refuses a by_pair entry lacking wins`, `::refuses a by_pair entry lacking win_rate`,
   `::refuses wins that is not an integer` (`1.5`, `"3"`), `::refuses wins below zero or above trades`,
@@ -3547,7 +3561,24 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   string; the strategy report is refused whole as before. The Strategies list row reads the same report, so
   its figures read as unreadable against an older API (design § G, U14): `StrategiesPage.test.tsx` gets one
   new test for it, `::a report without the win fields makes the row's figures unreadable`.
-- [ ] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
+  **Done (RED commit `16800db`, GREEN commit `eb8d7e3`).** RED, observed (10 failed, 2 passed in
+  `performance.pairs.test.ts`): `AssertionError: promise resolved "{ …(12) }" instead of rejecting` for every
+  refusal case; in `StrategiesPage.test.tsx` the new test failed with `Unable to find an element with the text:
+  This strategy's figures could not be loaded.` (the old report was accepted, so no error line). No stub: the
+  old `isPairStat` ignored the new keys. **Passed at once**: the accept test, and the extra test that accepts
+  `wins` of 0 and of `trades` (the range ends). GREEN: `isPairStat` requires `wins` an integer from 0 to
+  `trades` and `win_rate` a string. The strategies-list test needed its second assertion changed in the GREEN
+  commit (`queryByTestId("strategy-pnl")` is null on an error row, so `.not.toBeInTheDocument()`, not
+  `.not.toHaveTextContent`). Mutations after the GREEN, each seen red and reverted with `git checkout`:
+  `Number.isInteger` become `typeof === "number"` reds the fraction case only; the `>= 0` check removed reds
+  `wins below zero` only; the `<= trades` check removed reds `wins above trades` and `one bad entry among good
+  ones`; the `win_rate` string check removed reds `lacking win_rate` and `win_rate that is a JSON number`; all
+  three `wins` checks removed reds seven tests (lacking wins, the three not-an-integer cases, below zero, above
+  trades, one bad entry among good ones); a validator that refuses every entry (`pair === null` added) reds the
+  two accept tests. Existing file edited:
+  `StrategiesPage.test.tsx` (one new test). Existing file edited in the GREEN: `performance.ts`
+  (`isPairStat`, the reason of the task).
+- [x] 12f.10.3 `rateText`. RED `frontend/src/features/strategies/format.test.ts`, new tests, with the stub
   `rateText(ratio: string, locale: string): string | null` returning its argument. Tests, each from a
   scenario of the spec: `::writes a rate with one decimal and no sign` (`"0.5833333333"` gives `"58.3%"`,
   `"0.6000000000"` gives `"60.0%"`), `::cuts the rate and never rounds it up` (`"0.9995000000"` gives
@@ -3566,7 +3597,22 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   when the task is built, not chosen: the task records it here (the separator and whether a space precedes
   the sign) and asserts it with a literal in a Spanish test, `::writes the rate the way the PnL % column
   does in Spanish`. It is confirmed by eye in 12f.10.31.
-- [ ] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
+  **Done (RED commit `b749578`, GREEN commit `838881e`).** The stub is in `format.ts`. RED, observed (13 failed,
+  69 passed): `expected '0.5833333333' to be '58.3%'` (and the same shape for `0.6000000000`, `0.9995000000`,
+  `0.9950000000`, `1.0000000000`, `0.0000000000`, `0.0002000000`), `expected 'abc' to be null` (and `1e-3`, the
+  empty string, `-0.5000000000`, `0.5.0`), and `expected '0.5833333333' to be '58,3 %'` in Spanish. **Passed at
+  once**: none of the new tests. The Spanish form, READ from `percentText` through `Intl` on this machine, not
+  chosen: a decimal comma and a no-break space (U+00A0) before the percent sign, `58,3 %`, and `100,0 %`; in
+  English `58.3%` with no space. The Spanish test writes the space as ` ` so it cannot be flattened by an
+  editor. GREEN: the served string must match `^(\d+)(?:\.(\d+))?$`; the integer digits and the first three
+  fraction digits (padded with zeros) make a count of tenths of a percent; `Intl.NumberFormat` writes that count
+  over a thousand as a percentage with one fixed decimal. No division of the served ratio, no sign. A ratio
+  above one (`1.5`) is not refused here and reads `150.0%`: refusing a rate outside 0 to 1 is the table's job
+  in 12f.10.4. Mutation after the GREEN, seen red and reverted with `git checkout`: the cut replaced by a
+  round-half-up of the fourth digit reds `cuts the rate and never rounds it up (0.9995)` and `only a rate of
+  exactly one reads 100.0%` (its `0.9999999999` case). Existing files edited: `format.ts` and `format.test.ts`
+  (one export and one `describe`).
+- [x] 12f.10.4 The Win rate column. RED `PairStatsTable.test.tsx`, new tests (the file's `stat()` builder; the
   component as it is, the wrong answer for five columns). Tests: `::puts the Win rate column after Trades`
   (`queryAllByRole("columnheader")` text, `toEqual` Pair, Trades, Win rate, PnL, Return), `::writes the rate
   unsigned in neutral ink` (no `+`, no `text-gain` or `text-loss`), `::the heading is Win rate in English and
@@ -3600,10 +3646,52 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `r × trades` passes 2^53. **No counts for that last disagreement were computed in this breakdown:** the
   task finds a case (trades above 10^6, the served ratio the correctly rounded one) by running the mutation
   and records it, or records that none was found and why; the mutation above is named either way.
+  **Done (RED commit `776afbd`, GREEN commit `be99cc1`, the large-count test in the commit after it).** RED
+  against the component as it was, observed (21 failed, 7 passed of 28): `expected [ 'Pair', 'Trades', 'PnL
+  USDT', …(1) ] to deeply equal [ 'Pair', 'Trades', 'Win rate', …(2) ]` (English, twice), the Spanish list
+  without `% acierto`, `expected [ <th …> ] to have a length of 5 but got 4` (OPEN and the hidden-column test),
+  seven `toHaveTextContent` failures where the rate cell is the wrong cell or absent, six `Unable to find an
+  accessible element with the role "alert"` (a rate the component drew without complaint) and one `Unable to
+  find an accessible element with the role "columnheader" and name "Win rate"`. **Not passing at once** as the
+  task predicted: the OPEN test and the hidden-column test assert five columns, so they were red too; the
+  wrapper assertion alone passes against the old component, and so does every refusal-free pre-existing test.
+  **Recorded edits of existing tests (all in the RED or the GREEN commit):** `::names the columns and says which
+  currency the PnL is in` held `["Pair", "Trades", "PnL USDT", "Return"]` and now holds the five (the name says
+  nothing about a count, so it keeps its name); `::is titled and labelled in Spanish` held `Par`, `Operaciones`,
+  `PnL USDT`, `Rendimiento` and gains `% acierto`; `::shows an em dash, never a zero, for a pair with no
+  return` read the Return cell at index 3 and reads index 4; `StrategyPerformance.test.tsx::lists the by-pair
+  table of the same report, a pair without a return as a dash` made the same index change; and
+  `::test_pair_removed_from_allowlist_still_shown_with_historical_stats` overrode `trades` alone, which now
+  disagrees with the builder's `wins` and rate, so it also overrides `wins` and `win_rate` (12 of 19, 9 of 24).
+  A test written for the Spanish form found that `toHaveTextContent` folds the no-break space into a plain
+  one, so that assertion compares `textContent` with `toBe`. GREEN: `winRate` key in both locale files; a
+  `<th>` and a `<td>` after Trades, neutral ink (no tone class); `rateAgrees` in `PairStatsTable.tsx` takes the
+  served ratio's digits as a whole number `r` over 10^scale (the scale is its own count of decimals, ten on the
+  wire), refuses a ratio above one, refuses 0 unless there are no wins and 1 unless every trade won, then
+  accepts `|r * trades - wins * 10^scale| <= trades` in `BigInt`; a row that fails, or whose rate `rateText`
+  cannot write, makes the whole table the could-not-be-read state, as for any other figure. Guarded against a
+  trade or win count that is not an integer, which would make `BigInt` throw. The tolerance is one unit of the
+  ratio's last place either way, so it needs no knowledge of the server's rounding. **Mutations after the GREEN,
+  each seen red and reverted with `git checkout`:** the comparison made always true reds the 3-of-5-at-
+  `0.7000000000` case and the `0.6000000002` case only; the tolerance set to exactly zero reds the 7-of-12,
+  the two 1-of-3 and the 3-of-5-at-the-edge cases, the neutral-ink test and the pair-removed test (their
+  builders hold rates that are not exact); `overflow-x-auto` replaced by `overflow-hidden` reds the wrapper
+  test; a `hidden sm:table-cell` on the new heading reds the same test; an extra `Open` heading reds the OPEN
+  test, the two column-list tests, the Spanish list and the five-column test. **The float case, found:** at
+  5,000,000 trades and 7,920 wins the served ratio `0.0015840001` is exactly one unit of its last place off,
+  the edge the integer check accepts. Multiplying floats (`Math.abs(Number(rate) * trades - wins) * 10^10 <=
+  trades`) puts it a hair past the edge and refuses it. A scan of 1,264 edge cases at 5,000,000 trades
+  (`wins` stepping by 7,919, a unit either side) found 912 disagreements, all in the direction of
+  refusing a ratio the integer check accepts; the first is `7920` and `0.0015840001`. That case is a new test, `::checks a trade count above a million in whole numbers`, which
+  passed at once against the GREEN and is committed on its own; the float mutation reds it and also reds the
+  3-of-5 edge case. A mutation to exact float equality (`Number(rate) === wins / trades`) reds seven tests (the
+  7-of-12, the two 1-of-3, the 3-of-5 edge, the large-count test, the neutral-ink test and the pair-removed
+  test). Existing files edited: `PairStatsTable.tsx` (the column, the check), `PairStatsTable.test.tsx` and
+  `StrategyPerformance.test.tsx` (the edits above), `locales/en.json` and `locales/es.json` (one key each).
 
 **The pure helpers and the API** (design §§ C, C2, E, F)
 
-- [ ] 12f.10.5 The value model, `share-value.ts`. RED `frontend/src/features/strategies/share-value.test.ts`
+- [x] 12f.10.5 The value model, `share-value.ts`. RED `frontend/src/features/strategies/share-value.test.ts`
   (Create), with the stub module in the same commit: `readStored(text)` returning its input,
   `parseDraft(text)` answering a valid draft for every text, `roundToHandle(canonical)` returning 0, and
   `handlePosition(step)` returning `"0%"`. Tests, tables of cases, one per row of design § C:
@@ -3624,7 +3712,34 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   position and the rounding. **Settled in design § O:** `.5` is refused and `007` is read as 7 (both are cases above;
   mutation: the digits-on-both-sides rule removed reds `.5`, the leading-zero drop removed reds `007`). The regular expressions and
   escapes of the diff are read once the GREEN is written.
-- [ ] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
+  **Done (RED commit `65a9c4f`, GREEN commit `4374f15`).** The task fixes the stub's four answers; it leaves the
+  return types open, so these were chosen from design § C and record no product decision: `readStored(text):
+  string | null` (null is unreadable), `parseDraft(text): DraftReading` where `DraftReading` is `{ valid: true;
+  canonical }` or `{ valid: false; refusal }` and `refusal` is `"not-a-number"`, `"not-above-zero"` or
+  `"above-hundred"` (the three states of the design's table, so the field can word each), `roundToHandle(canonical):
+  number`, `handlePosition(step): string` (a CSS length such as `"24.2424%"`). The stub answers `{ valid: true,
+  canonical: text }` for `parseDraft`. RED, observed (56 failed, 11 passed of 67): `expected { valid: true,
+  canonical: '33,5' } to deeply equal { valid: true, canonical: '33.5' }`, `expected { valid: true, canonical:
+  'abc' } to deeply equal { valid: false, … }` (and the same for `1e1`, `25%`, `1.000,5`, `33.`, `33,`, `3,3,5`,
+  Arabic-Indic and full-width digits, text with a space either side), `expected { valid: true, canonical: '150'
+  } to deeply equal { valid: false, … }` (and `1000`, `100.5`, and `100.000000000000000001`, which a float
+  comparison would call 100). **Passed at once**: the three stored forms that are already canonical (`0.5`,
+  `33.5`, `7`), the valid cases `100`, `100.0`, `99.999` and `0.5` (the stub answers valid for every text), two of
+  the typed-back cases (`0.5`, `7.25`, already canonical) and the position of step 1. The typed-back test first
+  compared `parseDraft(x)` with `readStored(x)`, which the stub satisfied on both sides; it now compares both
+  with a literal. GREEN: a pure module, regular expressions on the digits (`STORED_TEXT` dot only,
+  `TYPED_TEXT` dot or comma, digits on both sides), a canonical form without leading zeros or trailing
+  fractional zeros, "above 100" decided on the digit strings, the handle rounded half up on the first
+  fraction digit and clamped 1 to 100, the position `(step - 1) / 99 * 100` cut to four decimals with the
+  trailing zeros dropped. Backslashes of all four patterns read back in the file. The maximum length of the
+  field (12 characters) bounds the text, so the 18-decimal bound of decision 50 is never reachable from a
+  typed value and this module does not test it. Mutations after the GREEN, each seen red and reverted: the
+  comma removed from `TYPED_TEXT` reds `reads one comma as a decimal separator` and `0,00`; the half-up digit
+  made to round nothing up reds four handle cases (`33.5`, `99.5`, `24.5`, `7.5`); digits-on-both-sides removed
+  (`(\d*)` on the integer side) reds the empty string and `.5`; the leading-zero drop removed reds `007.250`,
+  `007` and `0033.50`; `integer > "100"` become `>= "100"` reds `100`, `100.0` and the typed-back `100.000`.
+  Files created: `share-value.ts`, `share-value.test.ts`; no existing file edited.
+- [x] 12f.10.6 `setStrategyAllocationPercent` and `useSetAllocationPercent`. RED
   `frontend/src/shared/api/strategies.share.test.ts` (Create, `vi.stubGlobal("fetch")`), with the stubs in
   `strategies.ts` in the same commit (the function resolves a fixed strategy without a request; the hook
   with no cache write). Tests: `::sends PATCH /api/strategies/{id} with exactly {"allocation_percent":"33.5"}`
@@ -3636,7 +3751,25 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   ['strategy', id] and returns that promise` (as the two hooks of the file do). GREEN as the tests say.
   The control's own tests assert the request body again (12f.10.16), at the place the owner's slip would
   matter.
-- [ ] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
+  **Done (RED commit `948a33c`, GREEN commit `7990124`).** The stubs are in `strategies.ts`: the function
+  answers a blank strategy without a request, the hook has a `mutationFn` and no `onSuccess` or `onSettled`.
+  RED, observed (14 failed, none passed): `expected "spy" to be called 1 times, but got 0 times` (the request
+  tests), `expected '0' to be '12.25'`, `promise resolved "{ id: '', name: '', exchange: '', …(8) }" instead of
+  rejecting`, `expected null to be an instance of ApiError` (the four refusals), `expected { …(11) } to deeply
+  equal { …(11) }` (the cache write), `expected false to be true` (the refused save never errors against the
+  stub) and `expected "invalidateQueries" to be called at least once`. **Passed at once**: none. GREEN:
+  `setStrategyAllocationPercent` sends `PATCH /strategies/{id}` with `JSON.stringify({ allocation_percent:
+  value })` and the JSON content type, and checks the answer with `isStrategy`; `useSetAllocationPercent`
+  writes the checked answer into `['strategy', id]` on success and, on settle, awaits the invalidation of
+  `['strategies']` and then of `['strategy', id]` (which also covers the share preview under it). Two tests
+  beyond the task's list: `::writes nothing when the save is refused` and `::on a refusal still invalidates
+  both keys`. Mutations after the GREEN, each seen red and reverted: `enabled: true` added to the body reds the
+  exact-body test and the three value tests (4); the value sent as `Number(value)` reds the same four; the
+  invalidations made fire-and-forget (the hook no longer returns their promise) reds `on settle invalidates …
+  and returns that promise` only; the `onSuccess` cache write removed reds `on success writes the checked
+  answer` only; the `isStrategy` check removed reds `refuses an answer that is not a strategy` only. Existing
+  file edited: `strategies.ts` (the function and the hook, additions only); created `strategies.share.test.ts`.
+- [x] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
   `frontend/src/shared/api/share-preview.test.ts` (Create), with stubs that answer a well-formed body whose
   amounts are all zero. Tests: `::requests GET /strategies/{id}/share-preview with no query for the stored
   share` and `::with ?share= for an asked one`, `::refuses a body with a balance and no steps`, `::refuses
@@ -3649,7 +3782,31 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   equal`, `promise resolved ... instead of rejecting`. GREEN: every field checked by type, `steps` exactly
   100 entries numbered 1 to 100, `balance`, `exact` and `steps` present together or absent together; a
   failing check is an error, never a partial table.
-- [ ] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
+  **Done (RED commit `37198a7`, GREEN commit `9a91195`).** The stubs: `fetchSharePreview` answers a body of
+  `balance` null, `exact` null and `steps` empty with a `pool_minimum` of `"0"` and sends nothing;
+  `useSharePreview` runs it under a key no other query shares. RED, observed (29 failed, none passed):
+  `expected "spy" to be called 1 times, but got 0 times` (the request, `?share=` and encoding tests),
+  `expected '0' to be '5.000000000000000000'` (the stub's minimum, so the unsynced accept test was red, not
+  passing at once as the task predicted), `promise resolved "{ …(7) }" instead of rejecting` (every refusal),
+  `expected undefined to match object { strategy_id }` (the two key tests), `expected null to be an instance of
+  ApiError` and `expected false to be true` (the server refusal and the error state). One test first failed on
+  a `TypeError` (it indexed the first fetch call without asserting a call was made); an assertion was put before
+  it and the RED was re-run before the commit. **Passed at once**: none. GREEN: `isSharePreview` checks every
+  field by type, `balance` null needs `exact` null and `steps` empty, `balance` set needs a valid `exact` and
+  exactly 100 steps whose `share` is the JSON integer equal to the place (1 to 100); the query is
+  `GET /strategies/{id}/share-preview`, with `?share=` percent-encoded when one is asked; `useSharePreview` uses
+  key `['strategy', id, 'share-preview']` (plus the share when asked) and `refetchInterval` 60 000. Tests beyond
+  the list: the encoding of `?share=`, the server refusal as an `ApiError`, 101 steps, a step whose share is a
+  string, a stale flag that is a string, the hook reading a bad body as an error with no data, and the key
+  test checks that invalidating `['strategy', id]` refetches the preview. Mutations after the GREEN, each seen
+  red and reverted: the `steps.length === 0` pairing removed from the null case reds `steps without a
+  balance`; the `exact === null` pairing removed reds `exact without a balance`; the `isExact` check removed
+  reds `a balance and no exact value`, the two JSON-number exact cases and the `below_pool_minimum` case; the
+  100-step count removed reds `a balance and no steps`, 99 steps, 101 steps and the hook's error test; the
+  numbering check made a bare type check reds `steps numbered from 0` and `steps out of order`; the interval
+  removed reds `reads again every 60 seconds`; the share left out of the key reds the asked-share key test.
+  Files created: `share-preview.ts`, `share-preview.test.ts`; no existing file edited.
+- [x] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
   `frontend/src/features/strategies/webhook-url.test.ts` (Create), with stubs in `webhook-origin.ts` and
   `webhook-url.ts`: `fetchWebhookOrigin` and `useWebhookOrigin` (key `['webhook-origin']`) answering `null`,
   `acceptedOrigin(value)` returning its input and `webhookUrl(origin, value)` returning the path alone.
@@ -3663,29 +3820,95 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   `undefined`; mutation: the empty origin concatenated). RED: `expected 'https://example.org/hook' to be
   null`, `expected '/webhook/tradingview?secret=...' to be 'https://example.org/webhook/...'`. GREEN: the check
   is the one comparison; the URL is plain concatenation of a checked origin, a constant path and the value.
-- [ ] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
+  **Done (RED commit `9708501`, GREEN commit `8c081ff`).** The stubs are as the task names them, with two
+  details it left open: `acceptedOrigin` and the hook live in `shared/api/webhook-origin.ts` (the API module
+  that checks the answer), `webhookUrl` in `features/strategies/webhook-url.ts`, and `webhookUrl(origin, value)`
+  takes `value` already prepared (the translated placeholder, which is not encoded, or the percent-encoded
+  secret), as `WebhookMessage` already builds it. `fetchWebhookOrigin` returns `string | null` and applies
+  `acceptedOrigin` to what the server served, so a served string that is not an origin reads as no host. RED,
+  observed (24 failed, 8 passed of 32): `expected "spy" to be called 1 times, but got 0 times`, `promise
+  resolved "null" instead of rejecting` (a body without `origin`, a number, a boolean, a list, null), `expected
+  'https://example.org/hook' to be null` (and the query, fragment, user, user and password, trailing slash,
+  upper case, default port, no scheme, empty text, port 99999), `expected '/webhook/tradingview?secret=<your
+  WEB…' to be 'https://example.org/webhook/tradingvi…'`. **Passed at once**: the five normalised cases of the
+  shared list (the stub accepts every text), the two path-alone cases of `webhookUrl` (null and the empty text,
+  which the stub never prefixes) and the served non-origin text, which the stub reads as `null`. GREEN:
+  `acceptedOrigin` is `new URL(value).origin === value` inside a `try`; the fetch answers `null` for a null
+  origin, throws for anything that is not a string, and returns `acceptedOrigin(origin)`; `webhookUrl` is
+  `${origin ?? ""}/webhook/tradingview?secret=${value}`. Mutations after the GREEN, each seen red and
+  reverted: `String(origin)` in the URL reds the null case (the empty-text case holds, as `""` concatenates
+  to nothing); `new URL(value).origin === value` weakened to `new URL(value)` reds eight refusals (path,
+  query, fragment, user, user and password, trailing slash, upper case, default port) and the served-non-origin
+  test; the fetch no longer applying `acceptedOrigin` reds the served-non-origin test only; the type guard
+  removed reds the five body refusals. The shared list's `refused` entries are NOT asserted against the panel:
+  the design's single comparison accepts three of the seventeen that the server refuses, found by running the
+  list through it (`ftp://example.org`, `https://[::1]`, `https://example.org.`). That is acceptable because the
+  server never serves a refused value; the panel must accept everything the server accepts, which it does. If
+  the owner wants the panel to refuse those three too, it is a scheme and host rule beyond the one comparison
+  the design settles, and it is not added. Files created: `webhook-origin.ts`, `webhook-origin.test.ts`,
+  `webhook-url.ts`, `webhook-url.test.ts`; no existing file edited. `WebhookMessage.tsx` does not use any of it
+  yet.
+- [x] 12f.10.9 `useDebouncedValue`. RED `frontend/src/shared/lib/useDebouncedValue.test.ts` (Create, `renderHook`, fake
   timers), with a stub that returns its input at once. Tests: `::keeps the old value until the pause has
   passed` (299 ms), `::takes the new value at 300 ms`, `::two changes in quick succession give one update, for
   the last`. RED: `expected 'b' to be 'a'`. GREEN: a `setTimeout` cleared on change and on unmount; the delay
   is a parameter and the control passes 300.
-- [ ] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
+  **Done (RED commit `df8e9b5`, GREEN commit `407b604`).** The stub returns its input. RED, observed (4 failed,
+  2 passed of 6): `expected 'b' to be 'a'` (299 ms, and the delay of 50 ms), `expected 'c' to be 'a'` (two quick
+  changes: the stub already showed the last), `expected +0 to be 1` (the timer count after a change). **Passed
+  at once**: the initial value and `takes the new value at 300 ms` (the stub is already at the new value).
+  GREEN: `useState` for the debounced value and a `useEffect` that sets a `setTimeout` for the delay and clears
+  it on every change and on unmount. Tests beyond the list: the initial value, the delay being a parameter, and
+  no timer left after unmount (`vi.getTimerCount()`). Mutations after the GREEN, each seen red and reverted:
+  the `clearTimeout` removed reds `two changes in quick succession` and `leaves no timer behind`; the delay
+  fixed at 300 reds `uses the delay it is given` only; the delay shortened by a millisecond reds `keeps the old
+  value until the pause has passed`, the two-changes test and the delay test; the delay multiplied by a
+  thousand (so the value never arrives in time) reds `takes the new value at 300 ms`, the two-changes test and
+  the delay test. Files created: `useDebouncedValue.ts`, `useDebouncedValue.test.ts`;
+  no existing file edited.
+- [x] 12f.10.10 `copyText`, `shared/lib/clipboard.ts`. RED `frontend/src/shared/lib/clipboard.test.ts` (Create), with the
   stub that answers `true` without writing. Tests: `::writes exactly the text to navigator.clipboard.writeText`
   (`expected "spy" to be called with arguments: [ 'text' ]`), `::answers false when navigator.clipboard is
   missing` (`expected true to be false`), `::answers false when writeText is missing`, `::answers false when the
   write rejects` and never throws, `::never logs anything, the text may be the secret` (every console method;
   **passing at once** against the stub, so mutation: a `console.error` in the catch). GREEN: no
   `document.execCommand` fallback (design § E: it writes the secret into a second place).
+  **Done (RED commit `c69c48d`, GREEN commit `36f492a`).** The stub answers `true` without writing. RED,
+  observed (6 failed, 3 passed of 9): `expected "spy" to be called 1 times, but got 0 times` and `expected "spy"
+  to be called with arguments` (the write, the encoded URL, and the two failing writes), `expected true to be
+  false` (clipboard missing, `writeText` missing). **Passed at once**: the three never-logs cases, as the task
+  predicted. GREEN: `copyText` reads `navigator.clipboard` as possibly missing, answers `false` when it or
+  `writeText` is missing, awaits `writeText(text)` and answers `true`, and a `catch` with no binding and no
+  call answers `false`; no `execCommand`. Tests beyond the list: a URL with an encoded secret written
+  untouched, and a `writeText` that throws at once instead of rejecting. Mutations after the GREEN, each seen
+  red and reverted: a `console.error(error)` in the catch reds the never-logs case for a rejecting write; the
+  catch answering `true` reds both failing-write tests. **An equivalent mutation, said plainly:** removing the
+  `typeof clipboard.writeText !== "function"` check changes nothing a test can see, because calling a missing
+  `writeText` throws inside the `try` and the catch answers `false`. The check is kept so the code states the
+  case; it is not proven by a test. Files created: `clipboard.ts`, `clipboard.test.ts`; no existing file edited.
 
 **The small shared pieces** (design §§ B2, D)
 
-- [ ] 12f.10.11 `InlineStatus`. RED `InlineStatus.test.tsx` (Create), with the stub that renders a bare `<span>` with no
+- [x] 12f.10.11 `InlineStatus`. RED `InlineStatus.test.tsx` (Create), with the stub that renders a bare `<span>` with no
   role. Tests: `::is in the document before it has anything to say, empty`
   (`expect(screen.queryByRole("status")).toBeInTheDocument()`; mutation: rendered only with its text),
   `::announces politely` (`aria-live="polite"`), `::shows its message`, `::a failure tone is loss and the
   default is neutral ink-2, never gain` (the gain colour is for money made and the primary action),
   `::two instances are independent`. RED: `expected null to be in the document`. GREEN: a presentational
   component taking a message or nothing and a tone; no store.
-- [ ] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
+  **Done (RED commit `9302dcf`, GREEN commit `80d8174`).** Props chosen where the task left them open:
+  `message: string | null` and `tone?: "neutral" | "failure"`. The stub is a bare `<span>{message}</span>`.
+  RED, observed (7 failed of 7): `expected null to be in the document`-style failure for the first test
+  (`expect(received).toBeInTheDocument()`), and `Unable to find an accessible element with the role "status"`
+  for the other six. **Passed at once**: none. GREEN: `<span role="status" aria-live="polite">` always
+  rendered, `text-sm` with `text-loss` for a failure and `text-ink-2` otherwise; no store. A test beyond the
+  list: the same element survives from empty to a message and back. The colour assertions are on the class
+  names because the task asks for the tone by colour. Mutations after the GREEN, each seen red and
+  reverted: rendering nothing for a null message reds the empty-in-document, polite, same-element and
+  two-instances tests; the failure tone made `text-gain` reds the failure test; the default made `text-gain`
+  reds the default-tone test; `aria-live` made `assertive` reds the polite test. Files created:
+  `InlineStatus.tsx`, `InlineStatus.test.tsx`; no existing file edited.
+- [x] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
   rendered with `aria-expanded="false"` that never opens. The shared piece is a hook that owns the open state
   and the ids, and two presentational parts, the button and the container. Tests: `::is closed at mount and
   no explanation is in the document` (**passes at once**; mutation: open by default, and separately a
@@ -3702,7 +3925,37 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   replaced by a text character). GREEN: `InfoDisclosure.tsx` beside `InlineStatus`; the glyph is a circle, a
   dot and a stem drawn with attributes, `currentColor` from a text class (`ink-3` at rest, `ink-2` on hover,
   `ink` while open).
-- [ ] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
+  **Done (RED commit `23dbf3f`, GREEN commit `6d53035`, a test fix in the commit after it).** Names chosen where
+  the task left them open: `useInfoDisclosure()` returns `{ open, textId, buttonRef, toggle, close }`;
+  `InfoButton({ disclosure, label })` and `InfoText({ disclosure, children })` are the two parts. The stub is
+  the one design § K names: a button with `aria-expanded="false"` that never opens, and an empty container.
+  RED, observed (11 failed, 5 passed of 16): `expect(received).toBeInTheDocument()` (activation, Enter and
+  Space, Escape inside the text, two disclosures, tabbing away), `Unable to find an element with the text`,
+  `expected '' to match /(^|\s)size-11(\s|$)/` and `expected '' to match /(^|\s)text-ink-3(\s|$)/`. **Passed at
+  once**: closed at mount, the two names, the button never disabled, the two different containers, and the
+  name not changing with the state. Two Escape tests first passed at once because the stub never opens, so
+  they were made to assert the text IS open before pressing Escape, and re-run before the RED commit.
+  GREEN: the hook keeps the open state and a `useId` for the container; `close()` sets it false and focuses
+  the button; Escape on the button or inside the text calls `close()` while open; the container is always in
+  the document with `id` and its children only while open; the button has `aria-label`, `aria-expanded`,
+  `aria-controls`, never `disabled`, `size-11`, `-my-3` (the box adds no height to its row, design § B2,
+  confirmed by eye in 12f.10.31), `text-ink-3 hover:text-ink-2` at rest and `text-ink` open; the glyph is an
+  `aria-hidden` SVG of a circle, a dot and a stem in `currentColor`. A test beyond the list: another key does
+  not close it, and the two buttons name two different containers. **A test defect found by its mutation:**
+  the tab-away test passed against a close-on-blur mutation, because `pressTab` moves focus with `.focus()`
+  outside `act`, so React had not flushed the close when the test read the DOM. The test now wraps `pressTab`
+  in `act`; the mutation then reds it. Any later test that moves focus with `pressTab` and asserts straight
+  after needs the same wrapper. Mutations after the GREEN, each seen red and reverted: open by default reds
+  eleven tests; the paragraphs rendered outside the container reds `aria-controls … only while open` and
+  `Escape inside the text`; the container rendered only while open reds `aria-controls`; the Escape handler
+  made a no-op reds both Escape tests; focus not returned reds `Escape inside the text` only; a close on blur
+  reds the tab-away test; one state shared by every disclosure (a module variable) reds `activating again
+  closes it`, the tab-away test, the two-disclosures test and the colour test; both names made `Info` reds
+  the names tests (all sixteen, the lookups by name fail); `disabled` while open reds six tests including `never
+  disabled`; the box class removed reds the box test; the glyph replaced by the character `ⓘ` reds the box
+  test; a `style` attribute on the SVG reds the box test. Files created: `InfoDisclosure.tsx`,
+  `InfoDisclosure.test.tsx`; no existing file edited.
+- [x] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
   (Create), with the stub in `keyboard.ts` that does nothing. Tests: `::an arrow adds or removes one step`
   (34 to 35 and to 33), `::Home sets min and End sets max`, `::the result is clamped to min and max`,
   `::fires the input and change events`, `::does nothing when the keydown was prevented or the input is
@@ -3710,11 +3963,43 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   range input, as `pressEnter` stands for a button's. Page Up and Page Down are not modelled: their step is
   the browser's. What a test proves with it is the markup's side: a real, enabled range input with the right
   `min`, `max` and `step`, and no handler that swallows the key.
+  **Done (RED commit `8a95c5a`, GREEN commit `b603a0a`).** The signature is `pressRangeKey(key: string):
+  void`, acting on `document.activeElement` as `pressEnter` does; the stub is an empty function in
+  `keyboard.ts`. RED, observed (11 failed, 4 passed of 15): `expected '34' to be '35'` (and `'33'`, `'100'`,
+  `'10' to be '15'`, `'98' to be '100'`, `'99' to be '100'`, `'50' to be '51'`) and `expected [] to deeply equal
+  [ '35' ]` (the React `onChange`). **Passed at once**: the prevented keydown, the disabled input, the key that is
+  not an arrow, Home or End, and the focused text input, as the do-nothing stub satisfies them. GREEN: the
+  helper returns unless the focused element is an enabled `<input type="range">`, fires `keydown` and stops if
+  it was prevented, reads `min`, `max` and `step` (defaults 0, 100 and 1), moves by the key (arrows by one
+  `step`, Home to `min`, End to `max`), clamps, then fires `input` (through the native value setter, so a
+  React `onChange` sees it) and `change`. Page Up and Page Down are not modelled. Tests beyond the list: the
+  declared step, a step that would pass the end, a React `onChange` receiving the value once, a key that is
+  not modelled, a focused text input, and three presses in a row. The disabled input cannot take focus, so
+  that test stubs `document.activeElement` for the one call and removes the stub in a `finally`. Mutations
+  after the GREEN, each seen red and reverted: the `disabled` check removed reds the disabled test; the
+  prevented-keydown check removed reds the prevented test; the step fixed at 1 reds the declared-step and the
+  past-the-end tests; the `change` event removed reds the events test; the `type !== "range"` check removed
+  reds the text-input test. **An equivalent mutation, said plainly:** removing the helper's own clamp changes
+  nothing a test can see, because jsdom sanitises a range input's value to `min` and `max` itself, as a
+  browser does; the clamp is kept so the helper states the rule, and it is not proven by a test. Existing file
+  edited: `frontend/src/test/keyboard.ts` (one export and two private helpers added); created
+  `keyboard.test.ts`.
 
 **The share control, built up in steps a test can see** (design §§ B, C, C2, C3, B2; spec: operator-panel
 requirements 947 to 1700)
 
-- [ ] 12f.10.14 Step 1, the field and its value. RED `ShareSlider.test.tsx` (Create), with the stub design § K names: an
+- [x] 12f.10.13b **A typed share with more than 18 decimal places is refused in the field** (owner decision 50, which was taken after this unit's tasks were written; added 2026-10-10 after batch 1). The API refuses such a share with a 422 on the update and on the preview. As the tasks stood, `parseDraft` reads `33.3333333333333333333` (19 decimals, in range) as valid: the preview is asked and refused, and Save would show "The share must be above 0 and at most 100.", which is false for that value. Fix, in `share-value.ts`: a fourth refusal, `too-many-decimals`, when the CANONICAL form has more than 18 decimal places. Judged on the canonical form because that is what the panel sends: `1.5000000000000000000` typed (19 written decimals) is `1.5` and is valid; `0.123456789012345678` (18) is valid; `0.1234567890123456789` (19) is refused. Compared on the digits, never through a number. Order of the refusals: not a number, not above zero, above 100, then too many decimals. RED `share-value.test.ts`, new tests, against `parseDraft` as it is (`expected { valid: true, ... } to deeply equal { valid: false, refusal: 'too-many-decimals' }`). Tests that pass at once (the 18-decimal and the trailing-zeros cases) are proven by a mutation: the bound at 17, and the bound judged on the typed text. The control shows this refusal exactly as it shows the other three (tasks 12f.10.14 to 12f.10.17), with its own text, EN "A share has at most 18 decimal places." and the ES equivalent in the wording the other share texts use; no request is sent for it, neither the preview nor the save. The panel's delta spec gains the scenario; the main specs are untouched.
+  **Done (RED `b3974a6`, GREEN `6cee667`).** `DraftRefusal` gained `too-many-decimals` and `parseDraft` checks the
+  canonical fraction's length against a constant 18, after the three older refusals. RED as observed: the three
+  19-decimal cases failed with `expected { valid: true, …(1) } to deeply equal { valid: false, …(1) }`. Passed at
+  once: the 18-decimal case, the trailing-zeros case and the order case. Mutations after GREEN, each reverted with
+  `git checkout`: the bound at 17 reds `18 decimal places is the longest valid share`; the bound judged on the
+  typed text reds `the bound is judged on the canonical form, so trailing zeros do not count`. The order case has
+  no mutant of its own that I tried; it is guarded only by the three early returns sitting above the new one.
+  Existing files edited: `share-value.ts` and `share-value.test.ts` (the task), and the panel delta spec
+  `specs/operator-panel/spec.md` (the refusal class and one scenario). The text for the field is wired in 12f.10.14
+  to 12f.10.17.
+- [x] 12f.10.14 Step 1, the field and its value. RED `ShareSlider.test.tsx` (Create), with the stub design § K names: an
   input with a fixed `size` of 12 and the `%` sign placed before it. `ShareSlider` is presentational: it takes
   the text, the handle, the disabled flag and its callbacks. Tests: `::the field is a text input with
   inputMode decimal and maxLength 12`, `::size is the number of characters typed, and 1 when empty` (`5`, `33.5`,
@@ -3731,7 +4016,27 @@ requirements 947 to 1700)
   attribute` (**passes at once**; mutation: one `style={{}}`). GREEN: the wrapper carries the field look
   (`min-h-11`, border, `ground` fill, padding, `cursor-text`, `focus-within` ring), the input has no border, no
   fill and 2 px of right padding, then the sign in the same font and ink.
-- [ ] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
+  **Done (RED `ebef9cf`, GREEN `6cc4cda`, one added assertion `e0c826d`).** `ShareSlider.tsx` is created with its full
+  props (`fieldId`, `labelId`, `text`, `handle`, `value`, `disabled`, `invalid`, `describedBy`, `onText`, `onHandle`,
+  `onStop`); this step draws the field only. `value` is the canonical share the text reads as, or `null`; the track
+  and the stops of the next step use it. RED as observed, against the stub (size 12, sign before the input, no
+  attributes): `expected '12' to be '4'` (and for `5`, `100`, and the empty field), `toHaveAttribute("inputmode",
+  "decimal")`, `toHaveClass("field-sizing-content")`, `expected null not to be null` (the sign as next sibling),
+  `toHaveClass("min-h-11")`, `toHaveFocus()`, `toBeDisabled()`, `toHaveAttribute("aria-invalid", "true")` and
+  `"false"`. Passed at once: the twelve-character size (the stub's constant), the label name, the dot in both languages,
+  `%` passed on as typed, a keystroke reaching only `onText`, and no `style` attribute. `field-sizing-content` is a
+  utility in the pinned Tailwind 4.3.3, so `index.css` is untouched. Mutations after GREEN, each reverted with
+  `git checkout`: a constant `size` reds the four size cases; `text.length` without the minimum reds the empty case;
+  `field-sizing-content` removed and `min-w-[1ch]` removed each red the class test; the sign appended to the value
+  reds the sibling test, both dot tests and the `%` test; a spacer put between input and sign reds the sibling test
+  (this stands for the sign "at the far end"); the press handler removed reds both press tests; the handler
+  ignoring `disabled` passed at first, because jsdom cannot focus a disabled input either way, so `e0c826d` asserts
+  that the press on a disabled control is not default-prevented, and that mutation then reds it; a non-empty
+  `style` on the wrapper reds the style test (`style={{}}` renders no attribute, so it is an equivalent mutant and
+  was not used). Differences from the approved prototype: the focus ring is the panel's `gain` outline, as every
+  other control of the panel has it, where the prototype draws it in `ink`; the wrapper is `rounded-md`. No existing
+  file edited.
+- [x] 12f.10.15 Step 2, the track and the stops. RED `ShareSlider.test.tsx`, with the stub track a bare `<input
   type="range">` with no attributes. Tests: `::the track is a range input with min 1, max 100, step 1` and named
   by the visible label (`queryByRole("slider", { name: "Share of the pool per trade" })`), `::its value text is
   the exact value while the handle sits at the rounded step` (`33.5% of the pool` at 34), `::the filled part's
@@ -3746,7 +4051,30 @@ requirements 947 to 1700)
   `aria-hidden` inline SVG drawn with attributes, inset by half the thumb on each side, the stops stacked
   above the input from the handle's lower edge so none covers the handle. The legend is 12 px closer to the
   track than the first prototype, and that distance is approved (decision 48).
-- [ ] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
+  **Done (RED `fc5accf`, GREEN `5b225d0`).** `ShareSlider.tsx` now draws the track, the drawing and the four stops
+  under the field. It exports `RANGE_CLASS` (the one constant) and keeps the stops' four fixed `left-[...]` classes
+  in a table; a test holds each class to `handlePosition`. RED as observed against the stub (a bare
+  `<input type="range" />` and `RANGE_CLASS = "appearance-none"`): 26 of 47 failed. The first test of the step fails
+  on `expect(queryByRole("slider", ...)).toBeInTheDocument()` (received null); the rest fail on Testing Library's
+  "Unable to find an accessible element with the role slider / button" or on "the track has no drawing", which is the
+  same absence read through `getByRole` (I kept `getByRole` in the helpers so a later failure names the missing
+  part). No RED was an import, a type or a constructor error. Passed at once: everything of step 1, since the
+  field is untouched. Mutations after GREEN, each reverted with `git checkout`: the stops turned into `<span>` reds
+  12 tests; `size-11` removed from the stops reds the 44 px test; the track box `h-10` reds it too; every reached
+  stop in the gain class reds the gain/rule-strong test; `x2` fixed at 50 reds the three position tests; `aria-pressed`
+  given as "at or below the handle" reds the pressed test; the value text from the handle only reds the value-text
+  and both translation tests; a fixed class `left-[50%]` for the 50 stop reds that stop's position test; `step={2}`
+  reds the attribute test and both arrow cases; a `style` on the track box reds both style tests; `appearance-none`
+  removed from the constant, and the thumb's `bg-gain` changed, each red the constant test. Differences, none visible
+  in the tests: the value text of the track is the exact value when the text reads as one and the handle's step when
+  it does not (the design leaves the invalid case open); a stop is `aria-pressed` only for a valid text equal to it;
+  disabled draws the fill and the reached stops in `rule-strong`, as the prototype does. The generated stylesheet was
+  checked by building the bundle to a scratch folder: the thumb, track, `disabled:` and `focus-visible:` variants
+  compile to the selectors `...::-webkit-slider-thumb`, `:disabled::-webkit-slider-thumb` and
+  `:focus-visible::-moz-range-thumb`, `field-sizing-content`, `min-w-[1ch]`, the four `left-[...]` classes and
+  `w-[calc(...)]` are all present. Existing files edited: `locales/en.json` and `locales/es.json`, two keys under
+  `strategies.detail.share` (`valueText`, `stop`), in the wording of design § I.
+- [x] 12f.10.16 Step 3, `PoolShareEditor`: the value and Save. RED `PoolShareEditor.test.tsx` (Create,
   `vi.stubGlobal("fetch")`), with the stub container that renders `ShareSlider` over the stored value and a
   Save that never sends. The container holds the draft as `{ base, text, handle }` or nothing. Tests: `::a
   stored 33.5 shows 33.5 in the field and the handle at 34` (mutation: the field given the handle's value),
@@ -3763,7 +4091,35 @@ requirements 947 to 1700)
   comparison removed), `::the control makes no request but the share preview and the save` (no venue, no
   pair contract: spec "No Venue Is Read For The Check"). RED: `expected "spy" to be called with arguments`,
   `expected '30' to be '33.5'`. GREEN: the container over `share-value.ts` and `setStrategyAllocationPercent`.
-- [ ] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
+  **Done (RED `460a5f9`, GREEN `b46f2e5`, test hardening `cd3abb2`).** `PoolShareEditor.tsx` holds the draft as
+  `{ base, text, handle }` or nothing, reads the stored share with `readStored`, shows each refusal of `parseDraft`
+  as a `text-xs text-loss` line tied to the field (`aria-describedby`, `aria-invalid`, never an alert), and saves
+  `reading.canonical` through `useSetAllocationPercent`. The refusal of 13b is shown like the other three, with its
+  own text, and the editor adds a test that a 19-decimal text sends nothing and an 18-decimal one can be saved. A
+  stored value `readStored` cannot read renders nothing for now; 12f.10.17 puts its text there. RED as observed,
+  against the stub (a field over the stored value that never changes and a Save that is enabled and does nothing):
+  `expected '33.5' to be '35'`, `expected '33.5' to be '33'`, `expected '33.5' to be '75'`, `expected '33.5' to be
+  '62.5'`, `expected '30' to be '33,5'`, `expected '30' to be '1'`, `expected '30' to be '40'`, `expect(element)
+  .toBeDisabled()` for the cases that must leave Save disabled, `expected [] to have a length of 1 but got +0` for the
+  body test, and `expect(received).toBeInTheDocument()` for each refusal text. 24 of 29 failed; the five that passed
+  at once are the stored 33.5 case, the stored 0.5 case, the two no-request cases (the stub never sends) and the
+  valid value with no refusal. Mutations after GREEN, each reverted with `git checkout`: the field given the
+  handle's value reds the three stored-value tests; the decimal kept on a move reds the move, the left arrow and the
+  stop tests; the handle following an invalid text reds the typing test; the comma rule removed (the typed text sent)
+  reds `33,5 is sent as 33.5`; the `reading.canonical !== stored` comparison removed reds four tests; the `base`
+  comparison removed reds the stale-draft test; a save on the change event reds eleven tests, including both no-request
+  tests; a save on unmount reds `leaving the page after a change sends nothing`; `reading.valid` removed from the
+  `changed` test reds the four invalid cases and three more; `archived` removed from Save reds the archived-draft
+  test; `archived` removed from the field's `disabled` reds the archived test. Two things the first pass of the tests
+  did not catch and `cd3abb2` fixed: the no-request tests asserted at once, a tick before a mutation calls `fetch`, so
+  a save on the change event passed them (`settle()` now waits); and an archived strategy whose Save was not disabled
+  passed, because an unchanged draft disables Save anyway (the new test makes a change and then archives).
+  Not run: the task's mutations on the request body (`enabled` added, the value as a number, the sign read into the
+  value), which live in `setStrategyAllocationPercent` (batch 1, task 12f.10.3) and in the field (12f.10.14); the
+  tests that pin them are the exact body string here and the sibling test there. Existing files edited:
+  `locales/en.json` and `locales/es.json` (label, notNumber, outOfRange, tooManyDecimals, save, saving) and
+  `ShareSlider.tsx` (`describedBy?: string | undefined`, because `exactOptionalPropertyTypes` refuses `undefined`).
+- [x] 12f.10.17 Step 3b, the states and the refusals. RED `PoolShareEditor.test.tsx`, new tests. Tests: `::while
   saving, Save reads Saving... and the track, the stops and the field are disabled`, `::a 422 shows "The share
   must be above 0 and at most 100." as an alert`, `::a 409 STRATEGY_ARCHIVED shows the archived text and the
   page re-reads the strategy, and the control turns read-only`, `::a 404 shows "This strategy no longer exists."
@@ -3774,10 +4130,34 @@ requirements 947 to 1700)
   and no track, no field, no Save` (`1E-7`, an empty string), `::each refusal is a role=alert line`. RED: `expected
   null to be in the document`. **Passing at once** is the 5xx half, if the stub already surfaces any failure;
   mutation: the failure text dropped. GREEN: the states of design § C.
+  **Done (RED `060a833`, GREEN `1899fa1`).** `PoolShareEditor.tsx` maps a failed save by status: 422 to the
+  out-of-range text, 409 with code `STRATEGY_ARCHIVED` to the archived text, 404 to the gone text, anything else (a
+  network failure, a 5xx, a 200 whose body is not a strategy, which `setStrategyAllocationPercent` throws on) to
+  the failure text; one `role="alert"` line, the draft untouched. A stored value `readStored` cannot read renders the
+  label and the unreadable text and no control. RED as observed: 16 of 48 failed, all on `expect(received)
+  .toBeInTheDocument()` (the alert line, or the unreadable text, absent), except the one-line check that no alert
+  exists before a save, which failed as `Unable to find role="alert"` after the helper's own presence assertion. The
+  alert helper `alertLine()` asserts presence with `queryByRole` so a missing line fails on an assertion. Passed at
+  once: the saving state and the archived state, because 12f.10.16's container already disabled everything on
+  `busy` and `archived`; they are proven by mutation. Mutations after GREEN, each reverted with `git checkout`: the
+  generic failure text turned into another text reds the four failure cases and the Spanish one; the 409 test
+  changed reds the archived cases; the 404 test changed reds the gone case; `role="alert"` removed reds ten tests;
+  `disabled` removed from the field's wrapper props reds the saving test; the saving label dropped reds the same
+  test; the unreadable branch returning nothing reds the six unreadable cases; the draft dropped on error reds the
+  five keep-the-draft cases. One case each for the archived disabling, done in `ShareSlider.tsx` and reverted:
+  `disabled` removed from the track reds three tests, from the four stops reds three, from the field reds five
+  (it is also the only one that reds the Save-on-archived test written in 12f.10.16). The tests use two hosts: the
+  editor over a prop, and the editor under `useStrategy` as the page has it, which is what lets the 409 test see
+  the strategy served archived on the re-read, and the 404 test see the second `GET`. What the editor cannot show
+  by itself is the page's not-found state: with data cached, the page swaps its content for the not-found view
+  when the re-read answers 404, which unmounts the editor, so its alert is on screen only until the re-read lands.
+  That swap is the page's existing behaviour; 12f.10.24 mounts the editor and its test covers the page.
+  Existing files edited: `locales/en.json` and `locales/es.json` (four keys: saveFailed, archived, gone,
+  unreadable).
 
 **"Saved"** (design § D; spec: "A Save Of The Share Or Of The Allowed Pairs Shows 'Saved'")
 
-- [ ] 12f.10.18 "Saved" for the share. RED `PoolShareEditor.test.tsx`, new tests, with the stub that mounts
+- [x] 12f.10.18 "Saved" for the share. RED `PoolShareEditor.test.tsx`, new tests, with the stub that mounts
   `InlineStatus` beside Save and never fills it. Tests: `::Saved shows when the PATCH answers 200 with a strategy`
   (RED: `expected null to be in the document`), `::the live region exists before the save, empty` (mutation: the
   region rendered only with its text), `::Saved is still there ten minutes later` (fake timers, 600,000 ms;
@@ -3787,7 +4167,25 @@ requirements 947 to 1700)
   success), `::a refusal and Saved are never on screen together and a new save clears Saved before it is sent`,
   `::Saved is neutral ink, not gain`, `::Saved is gone when the page is left and the control is shown again`.
   GREEN: a boolean local to the control; no store; no timer.
-- [ ] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
+  **Done (RED `4c49534`, GREEN `da14ed4`, test hardening `9a25f64`).** `PoolShareEditor.tsx` keeps one `saved`
+  boolean: set by the per-call `onSuccess` of the save (so only on a 200 with a strategy, and after the hook has
+  invalidated and the page holds the new state), cleared by any edit (handle, stop, key) and again when Save is
+  pressed, before the request is sent. `InlineStatus` was already always mounted; the editor feeds it
+  `strategies.detail.saved` ("Saved" / "Guardado", the owner's words). RED as observed against the stub (an
+  `InlineStatus` that is never filled): 11 of 65 failed, all on `expect(element).toHaveTextContent()` (the region
+  stayed empty). Passed at once: the six "no Saved after ..." cases and the neutral-ink case's region, the stub
+  having no text to show. Mutations after GREEN, each reverted with `git checkout`: the region rendered only with
+  its text reds 13 tests; the flag set on settle (`onSettled`) reds the six refusal cases and the
+  refusal-and-Saved case; the reset removed from the edit path reds the three "goes when" cases; the reset removed
+  from the Save path reds the "new save clears Saved" and "refusal and Saved" cases; `text-gain` in `InlineStatus`
+  reds the neutral-ink case; a five-second timer that clears the flag reds `Saved is still there ten minutes later`
+  once the fake clock is installed BEFORE the save (the first version of the test installed it after, so a timer
+  started during the save was a real one and the test could not see it: `9a25f64` fixes that). The "refusal and
+  Saved are never together" case and "a new save clears Saved" need the stored value NOT to move, which is why they
+  use the editor over a prop; with the page above it, a changed stored value empties the draft and Save is disabled.
+  Existing files edited: `locales/en.json` and `locales/es.json` (`strategies.detail.saved`); the GREEN commit also
+  carries a one-line fix to the test helper `savedRegion()`, which has to find Save under its second name, "Saving...".
+- [x] 12f.10.19 "Saved" for the allowed pairs. RED `AllowedPairsEditor.test.tsx`, new tests, with the stub that
   mounts `InlineStatus` and never fills it; the hook is NOT changed. Tests: `::Saved shows when the PUT answers
   200 and the list on screen is the saved one`, `::Saved goes at the next pair added or removed, and typing in
   the search box changes no pair and leaves it`, `::no Saved after a 409 or a 422`, `::if the re-read after a 200
@@ -3796,10 +4194,33 @@ requirements 947 to 1700)
   pairs' Saved are two flags: a pair change leaves the share's, and the reverse` (mutation: one flag shared
   by both). RED: `expected null to be in the document`. GREEN: a local boolean next to the existing mutation,
   set from the settled success once the list on screen is the saved one.
+  **Done in part (RED `dd51d58`, GREEN `f652c37`, one added test in the next commit).** The page-level test
+  `StrategyDetailPage.test.tsx::the share's Saved and the pairs' Saved are two flags` is NOT written here: the page
+  does not mount the share control until 12f.10.24, so the test cannot exist yet. It moves to 12f.10.24, which lists
+  it as an added test. Everything else of the task is done. `AllowedPairsEditor.tsx` keeps `savedKey`, the list the
+  last successful PUT answered; "Saved" shows while the stored list (the page's `strategy.allowed_pairs`) is that
+  list, so a 200 followed by a failed re-read, which leaves the stored list old, shows nothing (the safe side the
+  design names). A pair added or removed, and a new Save, clear `savedKey`; the search box never reaches the
+  selector's `onChange`, so it leaves "Saved". A 200 whose body carries no list of pairs (the hook does not check it)
+  sets nothing, so it never shows "Saved". The save button and the `InlineStatus` now share a wrapping row. The hook
+  is not changed. RED as observed against the stub (the row and an `InlineStatus` that is never filled): 5 of 22
+  failed on `expect(element).toHaveTextContent()`; passed at once: the empty-region test, the 409 and 422 cases, the
+  failed-re-read case and the non-strategy case, all of which a never-filled region satisfies. Mutations after GREEN,
+  each reverted with `git checkout`: the reset removed from the pairs' `onChange` reds the two "goes" tests; the
+  stored-list comparison removed reds the failed-re-read test; the saved key taken from the client's list instead of
+  the answer reds the non-strategy test; the flag set on settle reds eight tests; the clear removed from the Save
+  handler passed at first, because after a 200 Save is disabled until a pair changes, which resets the key anyway.
+  The path that matters is a 200 the page never received (Save stays enabled), then a refusal on the next Save, then
+  the page catching up: the added test `a refusal and Saved are never on screen together` covers it and that
+  mutation reds it. One condition of the first draft, "and the list on screen equals the saved key", was removed
+  as unreachable: a draft is dropped once the stored list moves and any later edit clears the key, so no test could
+  red it. Silent failure found, not fixed because the hook is out of this task: a 200 whose body is not a
+  strategy shows no "Saved" and no error either; the owner sees nothing. Existing files edited:
+  `AllowedPairsEditor.tsx` and `AllowedPairsEditor.test.tsx` (the task).
 
 **The amount, the warning and the explanations** (design §§ C2, C3, B2)
 
-- [ ] 12f.10.20 The amount under the track. RED `ShareAmount.test.tsx` and `PoolShareEditor.test.tsx`, new tests, with the
+- [x] 12f.10.20 The amount under the track. RED `ShareAmount.test.tsx` and `PoolShareEditor.test.tsx`, new tests, with the
   stub design § K names: an amount line that prints the first step's figure for every value. `ShareAmount` is
   presentational and takes strings from the preview and nothing from `['pools']`. Tests: `::a known amount reads
   "Asks for about 335.00 USDT per operation" from the served exact` (RED: `expected '10.00' to be '335.00'`),
@@ -3822,7 +4243,33 @@ requirements 947 to 1700)
   `frontend/src/features/strategies/format.ts`, using the decimals the trades table already uses for the
   pool's currency (the existing `AMOUNT_DECIMALS` in `features/overview/format.ts`, not a second table); the
   task records the helper's name, chosen in the neighbours' style.
-- [ ] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
+  **Done (RED `83d8054`, GREEN `363a78b`).** The helper is `cutAmountText(amount, currency, locale)` in
+  `features/strategies/format.ts`, beside `rateText` (the choice that was open: the cut-amount helper lives in
+  `strategies/format.ts`, and it takes its decimals from `amountDecimals`, a new export of `overview/format.ts`
+  that `amountText` now calls too, so there is still one table). It cuts the served digits at the currency's
+  decimals as text, then gives them to `amountText`. `ShareAmount.tsx` (presentational: a `view` of known, loading,
+  noBalance, failed or none, and a `trailing` slot for the amount's button, which 12f.10.23 fills) writes one line
+  per state, the stale line under a stale figure with `HH:MM UTC` from `clockText`, and treats a served amount that
+  is not a plain decimal as a failed read. `PoolShareEditor.tsx` reads the preview with `useSharePreview` and derives
+  the view in `amountView`: a whole value from 1 to 100 reads `steps[n - 1]`, the stored share reads the first
+  read's `exact` (when `exact.share` is that value; while the re-read after a save is in flight it shows the loading
+  mark, and after it fails the failed line), no balance shows the sentence, and a typed decimal shows the loading
+  mark for now, because the request for it is 12f.10.21. A figure that is already known stays on screen when only the
+  background refresh fails. RED as observed against the stub (a `ShareAmount` that printed only a known figure,
+  uncut, and an editor that gave it step 1 for every value): `cutAmountText` returned its input, so 19 cut tests
+  failed with `expected '4.996000000000000000' to be '4.99'` and the like; 19 `ShareAmount` tests and 16 editor tests
+  failed on `expect(received).toBeInTheDocument()`. Passed at once: the 18 editor tests that do not read the amount
+  and, in the new ones, none (every new editor test asserts a text the stub could not write). Mutations after
+  GREEN, each reverted with `git checkout`: an off-by-one in the step lookup reds five tests; the first step for
+  every value reds the same five; `Intl` given the unrounded number reds 16 (the cut tests, the Spanish and BTC
+  cases, in `format`, `ShareAmount` and the editor); the control disabled while the amount failed reds the
+  failed-read test and two `Saved` tests; a `usePools` read multiplied into the figure reds the "never multiplied"
+  test and four no-request tests. The test double for the editor keeps the preview reads apart from the other
+  requests (`previews`), so the no-request assertions of 12f.10.16 still mean "no save". Existing files edited:
+  `overview/format.ts` (the `amountDecimals` export, no behaviour change), `strategies/format.ts` and
+  `format.test.ts` (the helper), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (the double), the two locale
+  files (five keys: amount, amountStale, amountNoBalance, amountLoading, amountError).
+- [x] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
   asks at once for every value. Tests: `::a typed 33.5 shows no figure, only the loading mark, until its
   answer, and then that answer's` (mutation: the previous amount kept on screen while loading),
   `::two typed values in quick succession send one request, for the last, 300 ms after the last keystroke`
@@ -3831,7 +4278,24 @@ requirements 947 to 1700)
   once at rest`, `::a text that is not a valid value sends no request and shows the em dash`, `::the request
   for a typed value carries ?share= with the canonical text`. RED: `expected null to be in the document`
   (the loading mark), `expected 2 to be 1` (the requests). GREEN: the third row of the table in design § C2.
-- [ ] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
+  **Done (RED `b82bc43`, GREEN `27f495b`).** `PoolShareEditor.tsx` works out which value no served table covers
+  (not a whole step from 1 to 100, not the stored share), holds it through `useDebouncedValue` for 300 ms and only
+  then calls `useSharePreview(id, share)`; a value that is not yet the settled one shows the loading mark, so no
+  figure stands beside a percentage it does not belong to, and an answer counts only when its `exact.share` read in
+  plain form is the value (a different one is the failed line). The tests use the fake clock installed AFTER the
+  first read, and a preview double that holds each asked answer until the test releases it. RED as observed against
+  the stub (the same call with no pause and no comparison): four tests failed, `expected [ null, '12.34' ] to deeply
+  equal [ null ]`, `expected [ null, '12.3', '12.34' ] to deeply equal [ null ]`, `expected [ null, '0.5' ] to deeply
+  equal [ null ]` and `expect(received).toBeInTheDocument()` for the refused answer. The task's named
+  `expected 2 to be 1` has no counterpart here because the RED asserts the request list; the same fact. Passed at
+  once: the answer for a value no longer held, the em dash, the canonical `?share=`, the 18-decimal case and the
+  whole-values-ask-nothing case, which a call with no pause satisfies. Mutations after GREEN, each reverted with
+  `git checkout`: the previous amount kept on screen while loading reds the loading test and the stale-answer
+  test; the pause removed reds three; the `exact.share` comparison replaced by true reds the refused-answer test;
+  the "waiting for its own value" guard removed reds the loading and stale-answer tests. The amount view now reads
+  one source per value, so the first read's lookup of 12f.10.20 and this one share a function. Existing files
+  edited: `PoolShareEditor.tsx` and `PoolShareEditor.test.tsx` only.
+- [x] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
   that asks for less than the pool's minimum order shows the warning with the minimum, cut down as text`
   (`At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped
   until the share or the balance is larger.`), `::it is a role=status line in the loss colour, not an alert and
@@ -3842,7 +4306,25 @@ requirements 947 to 1700)
   and neither does one too small for a pair: the panel checks no pair` (the spec's "A Share Too Small For A
   Pair Passes The Panel"). RED: `expected null to be in the document`. GREEN: from `below_pool_minimum` of the
   step or the exact amount, and `pool_minimum` of the body.
-- [ ] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
+  **Done (RED `87a499d`, GREEN `a134cb6`).** The view of a known figure gained `belowMinimum`: the body's
+  `pool_minimum` when the served step or `exact` says `below_pool_minimum`, otherwise `null`; the panel decides
+  nothing, it carries the server's word. `ShareAmount.tsx` writes the line under the figure (and under the stale
+  line) as `<p role="status" class="text-xs text-loss">`, with the minimum cut down as text by `cutAmountText`
+  (`5.99` for a served `5.999999999999999999`). It reads the value in the field, not the stored one, so it also
+  shows for the stored share on load, and it follows the handle. It gates nothing: Save, the field and the track
+  keep their own conditions. No balance means no figure and no warning. RED as observed against the stub (the
+  field in the view, never rendered): 9 of 105 failed, all on `expect(received).toBeInTheDocument()`; passed at
+  once: the exactly-at-the-minimum case, the no-balance case, and the "accepts, and no pair checked" case, which a
+  never-warning stub satisfies. Mutations after GREEN, each reverted with `git checkout`: the warning tied to a
+  changed draft reds four tests (the stored-value, status, balance-falls and Spanish ones); Save disabled while the
+  warning shows reds two; `role="alert"` reds the status test; `text-decision` (amber) reds the same test; the
+  minimum not cut (the served 18-digit text) reds eight tests. The "less than the minimum" boundary
+  (`amount < minimum`) is the server's, so the panel has no `<` to mutate; the exactly-at-the-minimum test holds the
+  served flag. The task's "both information buttons closed" is asserted in 12f.10.23, where the buttons exist.
+  Existing files edited: `ShareAmount.tsx`, `ShareAmount.test.tsx` (the new field in its fixture),
+  `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (a `unit` for the served steps and an exposed query client), the
+  two locale files (`belowPoolMinimum`).
+- [x] 12f.10.23 The two information buttons in the control. RED `PoolShareEditor.test.tsx`, new tests, using `InfoDisclosure`.
   Tests: `::at mount none of the three explanatory sentences is in the document, in English and in Spanish`
   (**passes at once**; mutations: open by default; a sentence outside its container), `::the label's button
   shows the hint and only that, and the amount's shows the first paragraph with the time as HH:MM UTC and then
@@ -3858,7 +4340,33 @@ requirements 947 to 1700)
   information button given `tabIndex={-1}`), `::the stored 33.5 is read as "33.5% of the pool" with the handle
   at 34`. RED: `expected null to be in the document`. GREEN: the buttons sit right after the label and right
   after the amount; the explanation is rendered under its own row, in the flow, never a popover.
-- [ ] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
+  **Done (RED `d80a2ff`, GREEN `2d103b3`; helper fix RED `aa44adb`, GREEN `6bc202d`).** `PoolShareEditor.tsx` puts
+  `InfoButton` right after the label and, through a new `trailing` slot of `ShareAmount`, right after the amount;
+  each has its own `useInfoDisclosure`, so each state is local, closed on every visit and kept through a save, a
+  refusal and a change of language (the open text is simply re-rendered in the other language). Button 1 opens the
+  hint under the label's row; button 2 opens, through a new `explanation` slot placed between the amount's row and
+  the stale line and the warning (the prototype's order), the estimate with `HH:MM UTC` and then the pair note.
+  The estimate is left out when no balance has been read: the approved prototype writes it only when a balance
+  exists and always writes the pair note, and the spec is silent, so I followed the prototype. Neither button is
+  ever given `disabled`. `InfoText` gained `flex flex-col gap-1.5 empty:hidden`, so a closed (empty) container takes
+  no row and no gap; a class test pins it. RED as observed (no stub: there were no buttons): 22 of 129 failed, one
+  on `expect(received).toBeInTheDocument()` for the buttons and the rest on Testing Library's "Unable to find an
+  accessible element with the role button and name ...". Passed at once: the 107 earlier tests; of the new ones,
+  none, since each asks for a button. Mutations after GREEN, each reverted with `git checkout`: open by default
+  reds 16; the hint rendered outside its container reds nine; the two contents swapped reds six; the pair note
+  dropped reds five; the amount's explanation reset when a save starts reds `an open explanation survives a save`.
+  Not run, said plainly: "the field rendered after the track" (the field is in `ShareSlider`, and moving a whole block
+  with a one-line edit was not safe), "a sentence outside its container" for the amount's two paragraphs, "the open
+  state reset on every render" (the survive-a-save reset above stands for it), "disabled passed to the buttons"
+  (`InfoButton` has no `disabled` prop; the two enabled-state tests hold that), and "the control not keyed by the
+  strategy", which is the page's `key` and is tested in 12f.10.24. One defect of the test tooling found and fixed
+  here: `pressTab` treated a button with `tabindex="-1"` as tabbable, so the first tab-order test passed against a
+  button given `tabIndex={-1}` (the task's own mutation). `keyboard.test.ts` gained four `pressTab` tests, one RED
+  on `expected <button tabindex="-1"></button> to be <button></button>`; `keyboard.ts` now filters on that attribute;
+  with it the mutation reds both tab-order tests. Existing files edited: `InfoDisclosure.tsx` (the class),
+  `ShareAmount.tsx` (the `explanation` slot), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx`, `keyboard.ts` and
+  `keyboard.test.ts`, the two locale files (five keys: info, hint, amountInfo, amountHint, pairMinimumNote).
+- [x] 12f.10.24 Mount in the page. RED `StrategyDetailPage.test.tsx`, new tests. Tests: `::the share control is the first of
   the settings column, under its heading and above the allowed pairs` (RED:
   `expected null to be in the document`; mutation: the control after the pairs), `::no text of the page's header
   line contains the share or "per trade"` (**passes at once**; mutation: the share printed in the header),
@@ -3874,11 +4382,35 @@ requirements 947 to 1700)
   was made, does not change. The task reads every existing test that indexes the settings column's children
   (`test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive`) and records what
   moved; no assertion is relaxed.
+  **Done (RED `0347e29`, GREEN `fb1198b`, extra test `641e879`).** `StrategyDetailPage.tsx` mounts
+  `<PoolShareEditor key={subject.id} />` as the first child of the `<aside>` after its heading. No stub was needed:
+  the control did not exist on the page. RED as observed: two of the four new tests failed, both on
+  `expect(received).toBeInTheDocument()` with `received` null (the first-in-column test and the archived test);
+  the header test and the list test passed at once, as the task said. Mutations after GREEN, each reverted with
+  `git checkout`: the control after the pairs; `{allocation_percent}% per trade` printed in the header; the same
+  text in a list row. Run first together (exactly three tests failed), then **each on its own** (the three test files
+  of the page, the list and the header, run after each, reverted with `git checkout` before the next): the control
+  after the pairs reds only `::the share control is the first of the settings column ...`; the share printed in the
+  header reds only `::no text of the page's header line contains the share or "per trade"`; the share printed in a
+  list row reds only `::the Strategies list shows no row's share`. Each mutation reds exactly its own test. Added beyond the task: `::the share control starts over for another strategy
+  and a typed value is not carried to it` (two strategies that store the same share; a value typed and an
+  explanation opened on the first are gone on the second). It passes against the page with the `key` removed too:
+  the page unmounts the whole editor while the next strategy loads, so the `key` is an equivalent mutant at page
+  level. The key is kept as the cheap guard against a future placeholder-data read; the editor's own test of
+  "closed for another strategy" (12f.10.23) pins the keyed behaviour. Recorded edits of existing tests:
+  `harness.tsx` gained `unsyncedSharePreview`, `strategyRoute` answers `GET .../share-preview` with it, and
+  `stubApi` answers `GET /webhook-origin` with `{"origin": null}`; the local double of `StrategyDetailPage.test.tsx`
+  answers the preview. Not needed, said plainly: a PATCH answer in `strategyRoute` (it already answers the strategy
+  for any method on `/strategies/{id}`, so `test_no_other_control_ever_requests_the_secret` clicks the stops and
+  Save and passes unchanged, its assertion untouched); a preview answer in `StrategiesPage.test.tsx` (the list does
+  not mount the control); and any change to `test_enable_history_sits_in_the_settings_column_...`, which compares
+  positions between the switch, the history and archive and none moved. No test indexes the settings column's
+  children by number. Gate after GREEN: lint 0, 63 files, 1,343 tests.
 
 **The webhook block** (design §§ E, F; spec: "The Webhook Block Has Two Copy Buttons", "The Webhook URL Is
 Shown And Copied With Its Host")
 
-- [ ] 12f.10.25 The full URL. RED `WebhookMessage.test.tsx`, new tests, with the stub that keeps showing the path alone.
+- [x] 12f.10.25 The full URL. RED `WebhookMessage.test.tsx`, new tests, with the stub that keeps showing the path alone.
   Tests: `::a configured host is shown in front of the path and no sentence about a missing host shows`
   (RED: `expected '/webhook/tradingview?secret=<your WEBHOOK_SECRET>' to be 'https://example.duckdns.org/webhook/...'`),
   `::a revealed secret goes after the host, percent-encoded`, `::while the host loads the path alone is
@@ -3893,7 +4425,38 @@ Shown And Copied With Its Host")
   the task records any that needs an answer for `/webhook-origin`. GREEN: `useWebhookOrigin` and
   `webhookUrl` in `WebhookMessage.tsx`; `connect-src 'self'` is untouched (the origin is displayed and copied,
   never requested).
-- [ ] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
+  **Done (RED `6077ea5`, GREEN `782d35d`).** `WebhookMessage.tsx` reads `useWebhookOrigin()` in the view that
+  mounts when the block opens, builds the URL once with `webhookUrl(origin, value)` into one constant that the
+  `<code>` prints, and shows one small sentence under the URL row: `hostUnset` for a settled `{"origin": null}`,
+  `hostError` for a settled error, nothing while loading. Two keys added to both locale files with the design's
+  exact texts (`strategies.webhook.hostUnset`, `hostError`). No stub was needed: the component already showed the
+  path alone. **A defect of the earlier work, found here:** `fetchWebhookOrigin` (12f.10.8) turned a served string
+  that is not a serialised origin into `null`, which the page cannot tell from `{"origin": null}`, so it would
+  have said "No public host is configured" where the spec says "could not be loaded". It now throws an `ApiError`
+  for such a string; the one test that pinned the old behaviour (`webhook-origin.test.ts`, "reads a served value
+  that is not a serialised origin as no host") was rewritten to expect the rejection, RED on `promise resolved
+  "null" instead of rejecting`. The decision between the two readings is the spec's own scenarios, so no product
+  question arose. RED as observed: 13 failed of 57 in the two files. The four host tests failed on
+  `expected '/webhook/tradingview?secret=<your WEB…' to be 'https://example.duckdns.org/webhook/t…'` (configured
+  host, revealed secret, no anchor, read-when-opened, the last two because they wait for the host first); the
+  null case and the seven failure cases failed on `expect(received).toBeInTheDocument()` with a null `received`
+  (the sentence is absent). **Passed at once:** `::while the host loads the path alone is shown`, the only one
+  that is true of the old code. Mutations after GREEN, each reverted with `git checkout`: the
+  `new URL(value).origin === value` check replaced by `new URL(value) ? value : null` reds the three cases that
+  serve a path, a trailing slash and upper case; the `<code>` text wrapped in `<a href>` reds the anchor test; the
+  origin read added to the page's mount reds `::the origin is read when the block is opened and not before`.
+  Existing tests edited, with their reasons: `WebhookMessage.test.tsx::setup` and the local fetch double of
+  `test_leaving_the_view_...` answer the origin route with `{"origin": null}`, because the block now asks for it
+  and their `answer` was for the secret; four assertions that counted every query in the cache
+  (`findAll()` length 1 then 0) now count the secret's entries (`findAll({ queryKey: ["webhook-secret"] })`),
+  since the host is cached too and an eviction removes only the secret; the same change in
+  `StrategyHeader.test.tsx::test_collapsing_after_a_reveal_...`, whose double also stopped counting the origin
+  request as a call for the secret. No assertion about the secret was relaxed: the eviction is still asserted
+  for the secret's own entries, and the cache-key, console and request-URL checks are unchanged. Gate after GREEN:
+  lint 0, 63 files, 1,357 tests. Said plainly: the application's `QueryClient` (`main.tsx`) has the library's
+  default retry of three, so a failed read of the origin shows the path alone for about seven seconds before the
+  sentence appears; the hook was not given `retry: false` because no task asked for it.
+- [x] 12f.10.26 The two Copy buttons. RED `WebhookMessage.test.tsx`, new tests (`navigator.clipboard` stubbed), with
   the stub that renders both buttons and writes nothing. Tests: `::Copy URL sits beside Show secret and Copy
   message under the alert message`, `::the copied text equals the text of the <code> element, hidden and
   revealed` (RED: `expected "spy" to be called with arguments`; mutation: a second assembly of the URL in the
@@ -3905,7 +4468,35 @@ Shown And Copied With Its Host")
   per render into one constant that the `<code>` prints and the handler is given; component state holds only
   which button was used, whether it worked and, for the URL, whether the secret was shown and whether a host
   was part of it, never the text. There is no `execCommand` fallback.
-- [ ] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
+  **Done (RED `4e1cf1a`, GREEN `6cf5241`).** The stub (in the RED commit) renders both buttons and a status region
+  beside each, with no handler. `WebhookMessage.tsx` now builds the alert message once per render into `message`;
+  the `<code>` prints `url` and the `<pre>` prints `message`, and each button's handler is given the same
+  constant. State is `copied: { button, ok } | null`: one value, so there can only be one "Copied" on screen, and
+  no text. `copyText` answers; `ok` false shows the failure text through `InlineStatus tone="failure"` (the loss
+  colour). The URL's button sits in the URL's row beside Show secret; the message's button sits in its own row
+  under the `<pre>`. Four keys added to both locale files (`copyUrl`, `copyMessage`, `copied`, `copyFailed`) with
+  the design's texts. The handler touches neither the secret's `requested` flag nor its query. The record of the
+  secret's booleans for the URL ("was it shown", "was a host in it") is left to 12f.10.27, whose stub is exactly
+  this behaviour. RED as observed (10 failed of 40, in `WebhookMessage.test.tsx`): `expected "spy" to be called 1
+  times, but got 0 times` (and 2, 4 and 0 times, for the copied-text, message and no-request tests),
+  `expected "spy" to be called with arguments` (the placeholder URL and the path alone), and
+  `expect(element).toHaveTextContent()` (the three failure cases and the working "Copied"). The extended
+  `never lets the secret reach a console call...` test failed on `expected "spy" to be called 2 times`. **Passed at
+  once:** `::Copy URL sits beside Show secret and Copy message under the alert message` (the stub already places
+  them). Its mutations, run afterwards with the Edit tool, each reverted: wrapping Copy URL and its status in their
+  own `<div>`, out of the Show secret row, reds only this test; moving the message's status out of its button's row
+  reds this test and ten more that read the status beside a button (11 in all). Mutations after GREEN, each reverted with `git checkout`: the
+  URL assembled a second time in the handler, always with the placeholder, reds the copied-text test and the
+  extended secret test; `void secret.refetch()` in the handler reds `::a copy makes no request...` and
+  `test_no_other_control_ever_requests_the_secret`; the `false` branch reporting success (`ok: true`) reds the
+  three failure cases; `console.log(text)` in the handler reds the extended secret test. Existing tests edited:
+  `never lets the secret reach...` now stubs the clipboard and presses both Copy buttons while the secret is
+  revealed before its unchanged assertions; the file's `afterEach` removes `navigator.clipboard`; the host helpers
+  were moved from inside the host `describe` to module scope so both groups use them (no assertion changed).
+  `test_no_other_control_ever_requests_the_secret` clicks both Copy buttons now (they are in the "every other
+  button" list) and passes without an edit, since jsdom has no clipboard and the copy fails quietly. Gate after
+  GREEN: lint 0, 63 files, 1,367 tests.
+- [x] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
   after any copy and never removes it. Tests: `::Copied shows beside the button that was used and only one
   Copied is on screen` (a copy with the other button moves it; mutation: two independent flags),
   `::closing the block removes it` (mutation: the block hidden with CSS instead of unmounted), `::the URL copied
@@ -3919,10 +4510,40 @@ Shown And Copied With Its Host")
   GREEN: the Show and Hide handlers clear the URL's copy state, and the render shows "Copied" only while both
   recorded booleans still equal the present. The panel does not claim to clear the clipboard when the secret is
   hidden or the view is left (design § E, accepted by the owner).
+  **Done (RED `b866b41`, GREEN `3546777`, two more tests `651780d`).** The stub is the GREEN of 12f.10.26
+  (one `copied` value, "Copied" after any copy, never removed). `WebhookMessage.tsx` now records, when a button
+  is pressed, `secretShown` and `hostIncluded` of the URL on screen next to the button and the result; the Show and
+  Hide handlers call `forgetUrlCopy`, which clears the URL's copy and leaves the message's; and `CopyStatus`
+  shows "Copied" beside the URL only while both recorded booleans equal the present ones. The booleans are read
+  when the button is pressed, not when the write settles. The panel keeps no text. RED as observed (5 failed of
+  48): `expect(element).toBeEmptyDOMElement()` for the placeholder-then-Show, the revealed-then-Hide and the
+  host-loads-late cases; `expected 1 to be +0` for the "does not come back" case; and, for the clipboard walk,
+  `expected 'https://example.duckdns.org/webhook/t…' to be 'https://example.duckdns.org/webhook/t…'` (the clipboard
+  held the placeholder URL while the screen showed the revealed one). **Passed at once:** `::Copied shows beside
+  the button that was used and only one Copied is on screen`, `::closing the block removes it` (a page-level test
+  through the header's button) and `::the message's Copied survives showing and hiding the secret`. Mutations after
+  GREEN, each reverted with `git checkout`: the clearing removed from both handlers reds the "does not come back"
+  case and the two tests added below; the render check removed (`stale = false`) reds the host-loads-late test;
+  every copy state cleared by the handlers (`setCopied(null)`) reds the message-survives test; the block hidden
+  with `hidden` instead of unmounted reds `::closing the block removes it` and `::the origin is read when the
+  block is opened and not before`. **The task's two separate mutations are equivalent as asked.** With the
+  clearing removed from the Show handler alone, or from the Hide handler alone, all 48 tests stayed green: the
+  render check hides "Copied" whenever the URL differs, and the other handler clears it before the secret can be
+  shown again. So I added two tests that pin each handler where the render check cannot: `::a show that fails
+  still removes Copied beside the placeholder URL` (the Show that gets a 503 leaves the URL unchanged, so only
+  the Show handler's clearing removes it; the Show-only mutation reds it) and `::hiding the secret and showing it
+  again does not bring back a copy of the revealed URL`. The second does not red the Hide-only mutation: after a
+  Hide the secret can be on screen again only through Show, which clears, so the Hide handler's clearing is
+  an equivalent mutant of Show's, and is kept as the spec's literal wording. The "two
+  independent flags" mutation (one state for the URL's copy, a second for the message's, so that a copy with the
+  other button does not move "Copied") reds three tests: `::Copied shows beside the button that was used and only
+  one Copied is on screen`, `::closing the block removes it` (it copies with both buttons and expects one
+  "Copied") and `::the clipboard never holds something ...` (it copies the message after the URL). Reverted. Gate after GREEN: lint 0, 63 files, 1,375 tests; after the two
+  added tests, 1,377.
 
 **Texts, the guard and the gate**
 
-- [ ] 12f.10.28 Localization. Tests that pass at once, in `frontend/src/features/strategies/PoolShareEditor.test.tsx` and
+- [x] 12f.10.28 Localization. Tests that pass at once, in `frontend/src/features/strategies/PoolShareEditor.test.tsx` and
   `WebhookMessage.test.tsx` (the page-level one in `StrategyDetailPage.test.tsx`): `::every text of design § I
   reads exactly as written in English and in Spanish, with each state brought on screen` (a table of both
   columns held in the test, so a reworded locale value is red; the spec's "The Detail Page's Follow-Up Texts
@@ -3932,7 +4553,27 @@ Shown And Copied With Its Host")
   unchanged` ("Saved" / "Guardado", "Copied" / "Copiado"). Mutations, each reverted: one Spanish value left
   in English and, because an untranslated value equals its English twin (the lesson of 9p.5.23), the Spanish
   texts are required BY NAME, so a value left in English reds the case; one Spanish key deleted.
-- [ ] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
+  **Done (commit `b424ad1`, no RED: every test passed at once, as the task said).** Three groups of tests. (1)
+  `PoolShareEditor.test.tsx`: a `SHARE_TEXTS` table with all 23 share texts and "Saved", English and Spanish, held in
+  the test with the design's example values filled in (the amount as 300.00 USDT, the time as 14:03, the minimum as
+  5.00 USDT, the share as 30 and the stop as 50), run by `describe.each(["en", "es"])`. Each state is brought on
+  screen and its text is looked up by exact string: the label, the two buttons' names, the amount, the track's
+  reading and a stop and Save, the hint, the estimate and the pair note (behind their buttons), the stale line,
+  the no-balance, loading and failed-read lines, the warning on the pool's minimum, the two refusals of a typed
+  value, Saving…, the save failure, the archived refusal, the missing strategy, the unreadable share and Saved.
+  (2) `WebhookMessage.test.tsx`: a table of the six new webhook texts in both languages: the two buttons' names,
+  Copied beside the button used, the refusal in the loss colour, and the two host sentences. (3)
+  `StrategyDetailPage.test.tsx`: `::every new key exists in both languages` (the flattened key sets of the share
+  texts, Saved, the six webhook keys and the Win rate heading, 31 keys, equal in both files, and each key found in
+  Spanish with the fallback to English turned off); `::the owner's own words are unchanged`; and a page-level test in
+  each language that finds the Win rate heading ("Win rate" and "% acierto"), the share's slider by its label and
+  the two Copy buttons by their names. `share.tooManyDecimals` is in the locale files and in the key-set test but
+  not in design § I's table, so it has no row in the text table. Mutations after the commit, each reverted with
+  `git checkout`: `copyUrl` left in English in `es.json` reds three tests (the two webhook cases and the page-level
+  Spanish case); `share.save` left in English reds seven (four existing Spanish tests, plus the track-and-Save case,
+  the Saving-and-refusals case and Saved of the new group); the Spanish `share.gone` key deleted reds three (the
+  refusals case of the new group, the key-set test and the existing "same keys in both locales" test).
+- [x] 12f.10.29 The source guard. RED-less test in `frontend/src/shared/theme.test.ts`, one new test:
   `::test_no_non_test_source_file_has_a_style_prop` (a search of every non-test file under `frontend/src` for
   `style=`; it passes at once today, U8). Mutation: one `style={{}}` on any element, seen red. The test also
   searches `.style.`, `setProperty`, `cssText` and `setAttribute("style"`, because the spec forbids "a style
@@ -3940,7 +4581,16 @@ Shown And Copied With Its Host")
   test lists it and the task records the exception rather than weakening the guard. The slider's own
   "no style attribute in the rendered tree" is asserted in 12f.10.14 and 12f.10.15. The amber allow-list of
   `frontend/src/features/overview/panel-tokens.test.ts` is not edited.
-- [ ] 12f.10.30 Confirm and gate: `cd frontend && npm run lint && npm test`. Record the observed totals before and after, the
+  **Done (commit `619f2ec`, no RED: it passed at once).** `theme.test.ts::test_no_non_test_source_file_has_a_style_prop`
+  searches every non-test file under `frontend/src` (the helpers `harness.tsx` and `keyboard.ts` included) with one
+  pattern, `/\bstyle\s*=|\.style\b|\bsetProperty\b|\bcssText\b|setAttribute\(\s*["']style["']/`, read back after
+  writing and every backslash confirmed. The test first checks that the pattern matches each spelling it must
+  forbid (a JSX `style=`, `.style.width`, `.style.setProperty`, `.style.cssText`, `setAttribute("style"` with
+  either quote) and not a plain `className`, so it cannot pass by matching nothing. No legitimate non-test use of
+  any of the five exists today, so there is no exception to record and the guard was not weakened. Mutation after the
+  commit, reverted with `git checkout`: `style={{}}` on the `<span>` of `InlineStatus.tsx` reds the test and names
+  `features\strategies\InlineStatus.tsx`. `panel-tokens.test.ts` is not edited.
+- [x] 12f.10.30 Confirm and gate: `cd frontend && npm run lint && npm test`. Record the observed totals before and after, the
   recorded edits by group (the `by_pair` builders; the By pair header assertion; the fetch doubles and the one
   every-other-button test; any settings-column order test that moved), and that no other existing test
   changed (`git diff --name-status` lists exactly the modified test files named in this unit). Then the spec
@@ -3970,7 +4620,172 @@ Shown And Copied With Its Host")
   | An information button does nothing, or its text is on screen from the start | closed-at-mount and open-on-activation, 12f.10.12 and 12f.10.23 |
   | A `style` prop is added | the source guard, 12f.10.29 |
   | The slider is drawn wrongly in one browser, or the sign stands off the number | not testable in jsdom: the owner's review by eye, 12f.10.31 |
-- [ ] 12f.10.31 Owner step, before the push: the review by eye. **The fixture file `frontend/vite.fixture.config.ts` is the owner's,
+
+  **Observed (2026-10-10, the branch at the commit that records 12f.10.29).** `cd frontend; npm run lint` exit 0.
+  `npm test` exit 0: **63 test files and 1,406 tests, all passed**. Before this unit: 49 files and 857 tests, so
+  the unit adds 14 files and 549 tests. `git diff main --stat -- openspec/specs` is empty and
+  `git diff main --stat -- backend` is empty: the unit changed no accepted spec and no backend file.
+  **Recorded edits of existing tests, by group.** (1) The `by_pair` builders and the By pair header assertion:
+  12f.10.1 to 12f.10.4 (`PairStatsTable.test.tsx`, `StrategyPerformance.test.tsx`, `performance.strategy.test.ts`
+  and the `byPair` literals of `StrategyDetailPage.test.tsx`), each with its reason in its own task. (2) The fetch
+  doubles and the one every-other-button test, in this batch: `harness.tsx` (`unsyncedSharePreview`, the share
+  preview in `strategyRoute`, the host route in `stubApi`) and the local double of `StrategyDetailPage.test.tsx`
+  (12f.10.24); `WebhookMessage.test.tsx` and `StrategyHeader.test.tsx`, whose doubles answer the host route and
+  whose four cache-count assertions now count the secret's entries (12f.10.25); and
+  `webhook-origin.test.ts`, whose one assertion about a string that is not an origin changed from "no host" to
+  "an error" (12f.10.25, the spec's own scenarios). `test_no_other_control_ever_requests_the_secret` needed no edit:
+  its double already answered a PATCH, and it now also clicks both Copy buttons. (3) The settings column: no
+  test that indexes its children by number exists, and
+  `test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive` compares positions that did
+  not move; nothing was edited. **Modified existing test files, against `main`:**
+  `AllowedPairsEditor.test.tsx`, `PairStatsTable.test.tsx`, `StrategiesPage.test.tsx`, `StrategyDetailPage.test.tsx`,
+  `StrategyHeader.test.tsx`, `StrategyPerformance.test.tsx`, `WebhookMessage.test.tsx`, `format.test.ts`,
+  `performance.strategy.test.ts`, `theme.test.ts` (`webhook-origin.test.ts` is a new file of this unit, listed
+  there). **One is not in the unit's "Files" list:** `StrategyHeader.test.tsx` (its double and one count, 12f.10.25).
+  No other existing test changed. `git diff main
+  --name-status` also lists `frontend/tsconfig.tsbuildinfo`, which is the build's own file and was never staged.
+  **The spec check**, each requirement added on 2026-10-06 against its covering task, and all of those tasks are
+  ticked above with their evidence: the share first and only in the settings column, 12f.10.24; a field above a
+  track with four stops, 12f.10.14 and 12f.10.15; the exact value and what it refuses, 12f.10.5 and 12f.10.16;
+  Save only on an explicit press, 12f.10.16 to 12f.10.18; the amount, 12f.10.7, 12f.10.20 and 12f.10.21; the
+  warning, 12f.10.22; the per-pair limit not checked and stated, 12f.10.22 and 12f.10.23; the two information
+  buttons, 12f.10.12 and 12f.10.23; the keyboard and the names, 12f.10.15 and 12f.10.23; "Saved", 12f.10.11,
+  12f.10.18 and 12f.10.19; the two Copy buttons, 12f.10.10, 12f.10.26 and 12f.10.27; the URL with its host,
+  12f.10.8 and 12f.10.25; By pair's win rate, 12f.10.2 to 12f.10.4; no browser money, no inline style, no relaxed
+  policy, 12f.10.20, 12f.10.29 and the CSP check of 12f.10.31 (still the owner's); the texts, 12f.10.28. Said
+  plainly: this is a mapping of requirements to tasks and an observation that those tasks are ticked, not a new
+  line-by-line reading of the spec text.
+**From the first review by eye** (owner decision 51, 2026-10-10; built before the push)
+
+- [x] 12f.10.30b **The list's figures line up from row to row** (decision 51). In `StrategyRow.tsx` and the list that holds the rows: each row's trades, all-time PnL and all-time return start at the same horizontal position in every row, whatever the width of that row's own values or of its name. Today each row lays its figures out by its own content, so `+988,80 USDT` and `+1235,25 USDT` put them in different places. The name column takes the room that is left and still truncates or wraps as it does now; the enable switch stays at the right edge. The row's DOM order, its links, its labels and what a screen reader reads do not change, and the narrow layouts (the row's existing breakpoints) keep working. jsdom has no layout, so the test pins the STRUCTURE that makes the alignment hold (for example one shared grid for the list with each row on its subgrid, or fixed tracks for the three figures) and that no figure's track is sized by its own content alone. RED on an assertion against the row as it is. The owner checks the result by eye.
+  Evidence. Built as: from the `lg` breakpoint the list (`StrategiesPage.tsx`) is ONE grid with five tracks,
+  `minmax(0,1fr)` for the name and `auto` for trades, PnL, return and the switch. Each row (`StrategyRow.tsx`) spans
+  the five tracks and sits on them as a subgrid, and its figures list spans the three middle tracks, also as a
+  subgrid. So an `auto` track is as wide as the widest value in ANY row, not in its own row, and `+1235,25 USDT` and
+  `+988,80 USDT` start at the same place. The two message paths of a row whose report failed or cannot be read
+  span the same three tracks. Below `lg` the rows are the wrapping flex rows they were. The DOM order (name, figures,
+  switch), the link, the labels and the roles did not change. Why `lg` and not `md`: five tracks at `md` would leave
+  the name almost no room; this is a choice for the owner to flip by eye. RED `108e5ec`: four assertions failed
+  against the row as it was (the list, the rows, the figures list, the message); the reading-order test passed at
+  once, as it guards behaviour that did not change. GREEN `759f9af`, then `4644633` moved the second message test
+  onto a report that parses with an unreadable PnL, because the first draft used a report the client already
+  rejects and so tested the same path twice. Mutations after GREEN, each seen red and reverted with
+  `git checkout --`: the figures list on its own `grid-cols-[auto_auto_auto]` (red: the figures test); the list with
+  four tracks (red: the list test); the message path of a parsed report without its span (green first, which
+  exposed the duplicated path, then red once the test was fixed); the figures moved after the switch in the DOM
+  (red: the reading-order test). Not equivalent mutants, none. jsdom has no layout, so these tests pin the classes
+  that make the layout hold; only the owner's eye can confirm that the figures really start at the same place at
+  the widths he uses, and that the name column still looks right at `lg` with a long name. No existing test
+  changed.
+- [x] 12f.10.30c **Save sits to the right of the text before it** (decision 51). In the settings column the Save button no longer has a row of its own. In `PoolShareEditor.tsx`: one row holds, on the left, the amount block (`ShareAmount`: the amount line, its information button, the warning, and the explanation when it is open) and, on the right, "Save share" with its "Saved" status. In `AllowedPairsEditor.tsx`: one row holds, on the left, the note "Removing a pair stops new entries ..." and, on the right, "Save pairs" with its "Saved" status. In both: the text takes the room that is left and wraps (`min-w-0`), the button keeps its size and its 44 px target and never wraps under the text at the column's width, the button is aligned to the TOP of the row so it does not move when the explanation opens or the warning appears, and "Saved" sits beside its button, on the button's left. The DOM order stays text first, then status and button, so the reading order and the Tab order are what they were. Every refusal and failure line (`role="alert"`) stays outside that row, where it is now. Nothing about when "Saved" shows or goes changes. RED on an assertion: the button and the text it follows share one row container. Existing tests that pin the old structure are edited with the reason recorded; no assertion about behaviour is relaxed.
+  Evidence. Built as: in both editors a row `flex items-start gap-x-3` holds two children. On the left, the text
+  block (`min-w-0 flex-1`): in `PoolShareEditor.tsx` a wrapper around `ShareAmount`, so the amount line, its
+  information button, the stale line, the warning and the open explanation all stay in it; in
+  `AllowedPairsEditor.tsx` the note itself. On the right, a block `flex shrink-0 items-start gap-x-3` that holds
+  "Saved" and then the button, in that DOM order, so "Saved" is on the button's left and the button keeps its size
+  and its 44 px height (`min-h-11`). Nothing in the row wraps. The refusal of a typed value, the failed-save alert
+  and the "last pair" line are now after the row, in the section, not inside it. That is the one change to the
+  reading order: those lines used to sit between the text and the button, and now follow the button. Tab order is
+  unchanged (the existing Tab-order tests pass untouched). Which element is "Saved"'s region is unchanged, so the
+  tests that find it through the button's parent still hold. RED `9bb4410`: 8 assertions failed in
+  `PoolShareEditor.test.tsx` and 6 in `AllowedPairsEditor.test.tsx`, all on the structure. GREEN `7db1e0b`. Whole
+  `features/strategies` folder: 24 files, 839 tests, passing. Mutations after GREEN, each seen red and reverted: the
+  right block without `shrink-0` (red: the right-block test); in the pairs editor "Saved" after the button (red:
+  the right-block and the reading-order tests); the failed-save alert moved into the note (red: the alert test).
+  No existing test changed, so no assertion about behaviour was relaxed. jsdom has no layout: only the owner's eye
+  can confirm that the button stays on the right and on one line at the settings column's real width, that it does
+  not move when the explanation opens, and that "Saved" looks right on its left.
+  Gate after 12f.10.30b and 12f.10.30c: `npm run lint` exit 0; `npm test` exit 0, 63 test files, 1,426 tests (1,406
+  before, plus 6 for 12f.10.30b and 14 for 12f.10.30c).
+
+- [x] 12f.10.30d **"Saved" and "Copied" are the button's own text** (owner decision 52, 2026-10-10, from the second review by eye; it replaces the visible text beside the button of design § D and of decision 51). Four buttons: "Save share" (`PoolShareEditor.tsx`), "Save pairs" (`AllowedPairsEditor.tsx`), "Copy URL" and "Copy message" (`WebhookMessage.tsx`).
+  - **The rule for WHEN does not change, only where it is shown.** A Save button reads "Saved" exactly in the states where "Saved" showed beside it (set on a successful save, gone at any change of that control, never on a timer, never together with a refusal). A Copy button reads "Copied" exactly in the states where "Copied" showed beside it (the button that was used, only one "Copied" on screen, gone for the URL when the URL on screen is no longer the one copied). Every existing test of those rules keeps its meaning and is re-pointed at the button's text; none is relaxed or deleted.
+  - While saving, a Save button still reads "Saving...". A Save button that reads "Saved" is disabled, as a Save button with nothing to save already is. A Copy button that reads "Copied" stays enabled and copies again when pressed.
+  - **Nothing moves.** A button has ONE width for all of its texts: the width of its longest text in the current language. So the change of text pushes nothing. No visible "Saved" or "Copied" text is left beside any button, and the row built by 12f.10.30c keeps its text and its button only.
+  - **A screen reader is still told.** Changing a button's text is not announced. Each button keeps a `role="status"` region that says "Saved" or "Copied" in the same states, present in the DOM from the first render and not visible (the project's visually-hidden idiom; if there is none, Tailwind's `sr-only`). The button's accessible name is its visible text.
+  - **A copy that failed is still said in a visible text** beside its button, in the loss colour, as now ("Could not copy" key `strategies.webhook.copyFailed`): a button that merely does not say "Copied" would not say that nothing was copied. The button keeps its ordinary text then.
+  - Texts: no new key. "Saved" is `strategies.detail.saved`, "Copied" is `strategies.webhook.copied`, in EN and ES.
+  - RED on assertions against the controls as they are: the button's text after a save or a copy, and that no VISIBLE element beside the button holds "Saved" or "Copied". The width rule is pinned by structure (both texts of a button present in one cell, the one not shown hidden from sight AND from assistive technology so the accessible name is the shown text only); what it looks like is the owner's to check by eye.
+  - The panel's delta spec requirement on "Saved" and the Copy scenarios are rewritten to say the button's text, and `design.md` gains one dated paragraph at the end of the unit 12f addendum recording decision 52. Earlier text of the design is not rewritten. The main specs are untouched.
+  Evidence. Built as: a new `StatusButton.tsx` renders a button and, after it, the status region. Inside the button
+  every text it can show sits in one `inline-grid` cell (`col-start-1 row-start-1`); the one shown has no extra
+  class, and each other one has `invisible` and `aria-hidden="true"`. So the button is as wide as its longest text
+  in the current language, and its accessible name is the text shown. All four buttons use it: "Save share"
+  (texts: Save share, Saving..., Saved), "Save pairs" (the same three) and "Copy URL" and "Copy message" (their own
+  text and Copied). `InlineStatus` stays the one status region of each button, always mounted. Its default tone is
+  now only announced (`sr-only`); its failure tone is the visible loss-colour text, so "Could not copy" is said
+  through the same region and the button keeps its ordinary text. A Save button that reads "Saved" is disabled; a
+  Copy button that reads "Copied" is enabled and copies again. No new key. The copy state is unchanged: which
+  button and whether it worked, never text; nothing of the secret is in a hidden text or an attribute.
+  Removed: the `InlineStatus` usages beside the buttons; `CopyStatus` in `WebhookMessage.tsx` (replaced by
+  `copyResult` and `CopyAction`); and `setSaved(false)` in the share's `handleSave`, which cannot run any more,
+  because a button that reads "Saved" is disabled and every change already clears "Saved". The region now follows
+  its button in the document; before, "Saved" came first. The Tab order is unchanged.
+  Commits. RED share `0c09394`, GREEN share `4aa5e88` (with `StatusButton`, its tests and the new tone of
+  `InlineStatus`); RED pairs `53fc3e9`, GREEN pairs `d57ae66`; RED webhook `0119472`, GREEN webhook `f412075`;
+  one test commit `aed2000` after the mutations. Every RED failed on an assertion about the button's name or its
+  structure (for example "Unable to find a button named Saved"), not on an import or a type. The share RED had 17
+  failing tests, the webhook RED 20. The component's own tests (`StatusButton.test.tsx`, 8) could not come first
+  without failing on an import, so they came with the first GREEN.
+  Existing tests edited, each for its reason, none relaxed. (a) The helpers that find the live region or a button
+  by its name (`savedRegion` in both editors; `copyUrl` and `copyMessage` in the webhook test) now allow the name
+  "Saved", or find the Copy buttons by place, because the name changes with the state. (b) In the share test, "a
+  new save clears Saved before it is sent" and "a refusal and Saved are never on screen together" pressed Save
+  while it read "Saved". That is impossible now, since the button is disabled. The first is replaced by "a button
+  that reads Saved is disabled and sends nothing when pressed" (on a bare editor, so only the text disables it) and
+  "a new save, after a change, reads Saving... and Saved is gone while in flight". The second now changes the value
+  first, then is refused: the two are still never together. (c) The "right block" and "reading order" tests of
+  12f.10.30c in both editors: "Saved, then Save" became "Save, then its status", for the new order. (d) `queryByText("Copied")` in the webhook test is now `copiedCount()` (the buttons named Copied) because the hidden
+  text "Copied" is always in the DOM; the helper `copiedBeside` asks whether the button's name is Copied. (e) The
+  Spanish test of the webhook's texts finds the Copy buttons by place after a copy. (f) The test of the
+  design's "Saved" text finds the button named Saved and the region in its block, not the bare text, which is now on
+  screen twice (once hidden). (g) Assertions were added to the existing "Saved goes", "no Saved after", ten-minutes
+  and every "Copied is gone" tests: the button's name is back to Save or Copy. One test was renamed:
+  `test_a_working_copy_says_copied_beside_the_button_used_and_in_neutral_ink` is now
+  `test_a_working_copy_makes_the_button_used_read_copied_and_its_status_says_it_unseen`. Two `InlineStatus` tests
+  were added for the two tones; the others there are unchanged.
+  Mutations after GREEN, each seen red and reverted with `git checkout`: the share's `edit` without `setSaved(false)`
+  (7 red: Saved goes, the Saving test, the refusal test); the share's Save without `|| saved` in `disabled` (red
+  only in the new tests; it first showed that a page that re-reads hides it, so the test now runs on a bare editor,
+  which is `aed2000`); `InlineStatus` neutral without `sr-only` (8 red: the "no visible Saved/Copied" tests in all
+  three controls, and the InlineStatus test); the Copy failure tone set to neutral (7 red); the Copy button text
+  shown as Copied on a refused copy (7 red); a Copied button disabled (6 red); `aria-hidden` removed from the hidden
+  texts (158 red, since every button name then holds all of its texts). No mutant was equivalent.
+  Gate: `npm run lint` exit 0; `npm test` exit 0, 64 test files, 1,469 tests (1,426 before, plus 43: 8 for
+  `StatusButton`, 2 for `InlineStatus`, 33 in the three controls). `git diff main --stat -- openspec/specs` and
+  `-- backend` are empty.
+  What only the owner's eye can confirm (jsdom has no layout): that the button really keeps one width when its text
+  changes, in English and in Spanish, and nothing around it moves; that the hidden texts leave no empty gap; that
+  the text is centred in the button; that the `sr-only` region adds no space in the rows; and that "Could not copy"
+  looks right beside the button. A screen reader's real announcement of "Saved" and "Copied" was not heard.
+
+- [x] 12f.10.30e **"Copy URL" copies the URL that works, even while the secret is hidden; with no host it is disabled** (owner decision 53, 2026-10-10; it refines decision 23 and replaces, for the URL only, the rule of 12f.10.26 and 12f.10.27 that a button copies exactly the text on screen). In `WebhookMessage.tsx` and its tests. "Copy message" does not change.
+  - **Secret shown:** the URL on screen is the real one. It is copied as it is, with no request. As now.
+  - **Secret hidden:** the click asks the server for the secret (`fetchWebhookSecret`, called directly), builds the URL with `webhookUrl(origin, encodeURIComponent(secret))`, and writes it with `copyText`. The screen does not change: the placeholder stays, "Show secret" stays "Show secret", and nothing is revealed.
+  - **The secret of a copy is kept nowhere.** It is a local value of that one click: never in component state, never in the query cache (`WEBHOOK_SECRET_QUERY_KEY` holds nothing after a copy made while hidden, and a later "Show secret" makes its own request), never in a log, an error text, an attribute or a hidden element. The copy state still holds which button and whether it worked, never text.
+  - **Never the placeholder.** If the request fails (network, 401, 5xx, a body that is not a secret) or the browser refuses the write, nothing is written to the clipboard and "Could not copy" shows beside the button, as a failed copy shows now. No path writes the placeholder URL to the clipboard.
+  - **While the request is in flight** "Copy URL" is disabled, so a second click sends no second request; its text does not change. No new display text.
+  - **No host: disabled.** "Copy URL" is disabled while the origin is unset (`{"origin": null}`), while its read failed, and while it is still loading. The existing sentences that say why are unchanged. With a host it is enabled.
+  - **"Copied".** The button reads "Copied" after a copy that worked, by the rule of decision 52. Showing or hiding the secret no longer takes "Copied" away, because the clipboard holds the same URL either way; it goes when the other Copy button is used, and when the host on screen is no longer the one that was copied. The piece of the copy state that recorded whether the secret was shown is removed if nothing reads it.
+  - **Existing tests.** The ones that pin "Copy URL copies the text on screen", "the clipboard never holds something the screen does not show next to Copied", "no other control ever requests the secret" and the show/hide rules for "Copied" state a rule this decision replaces. Each is rewritten to the new rule, by name, with the reason recorded; none is silently deleted. Everything else about the secret keeps its test: nothing asks for it on mount, focus or reconnect; "Hide secret" and leaving the view evict it; it never reaches the console.
+  - RED on assertions against the control as it is: with the secret hidden, the clipboard receives the URL with the SECRET and one request was made; the screen still shows the placeholder; the cache holds no secret afterwards; a failed request writes nothing and shows "Could not copy"; with no host the button is disabled. Mutations after the GREEN for whatever passes at once, among them: the secret put in the query cache, the placeholder URL written when the request fails, the button left enabled with no host, the button left enabled while in flight.
+  - The panel's delta spec requirement on the Copy buttons is rewritten, and `design.md` gains one dated paragraph at the end of the unit 12f addendum recording decision 53. Earlier text of the design is not rewritten. The main specs are untouched.
+  - **Not verifiable in jsdom, for the owner:** whether a real browser lets the write through after the request (Firefox is the one to try), and what the clipboard actually holds.
+  - **Done 2026-10-10.** RED `35a279d`, GREEN `cc8707b`. (The GREEN commit was first made as `6080b9c` with a wrong subject, reused by mistake from an old message file in the scratchpad. It was reworded before any push, with the same tree, parent and dates; `6080b9c` no longer exists on the branch.)
+    - **How a hidden copy works.** The click reads the host. With none, the button is disabled and nothing happens. With the secret shown, the URL on screen is copied as it is, no request. With the secret hidden, the handler sets `copyingUrl` (a flag that holds no secret), calls `fetchWebhookSecret` directly, builds `webhookUrl(origin, encodeURIComponent(secret))`, hands it to `copyText`, and then records only which button, whether it worked and the host. The `secret` is a `const` inside that `try`, so it lives from the response to the end of the write and is garbage afterwards. A failed request or a refused write sets `ok` false: nothing is written and "Could not copy" shows. The screen is not touched.
+    - **Removed.** The `UrlState` type, the `present` object, the `forgetUrlCopy` function and its two calls in `show` and `hide`, and the `secretShown` and `hostIncluded` fields of the copy state. `Copied` now records `origin` in their place. The doc comment that said only "Show secret" requests the secret is rewritten.
+    - **Existing tests rewritten to the new rule** (each has a comment with the reason above it): `test_no_other_control_ever_requests_the_secret` is now `…_than_show_secret_and_a_hidden_copy_url_requests_the_secret` (old: no control but Show secret asks; new: Copy URL asks once while hidden); `never lets the secret reach a console call…` (it used a deployment with no host, where Copy URL is now disabled, and now also copies while hidden); `test_the_copied_text_equals_the_text_of_the_code_element_hidden_and_revealed` is now `…_while_the_secret_is_revealed` (hidden, the copy is not the text on screen); `test_the_path_alone_is_what_a_copy_takes_while_there_is_no_host` is now three cases, `test_with_%s_copy_url_is_disabled_and_writes_nothing`; `test_a_copy_makes_no_request_and_never_asks_for_the_secret` is now `test_only_a_hidden_copy_url_asks_for_the_secret_and_it_asks_once_per_copy`; `test_with_the_secret_hidden_it_copies_the_url_with_the_placeholder` is now `…_with_the_secret_and_never_the_placeholder`; the five tests that said showing or hiding the secret takes "Copied" away (`test_the_url_copied_with_the_placeholder_then_show_secret_copied_is_gone`, `test_the_url_copied_revealed_then_hide_secret_copied_is_gone`, `test_after_that_showing_or_hiding_the_secret_again_does_not_bring_copied_back`, `test_a_show_that_fails_still_removes_copied_beside_the_placeholder_url`, `test_hiding_the_secret_and_showing_it_again_does_not_bring_back_a_copy_of_the_revealed_url`) now say it stays; `test_the_url_copied_as_the_path_alone_then_the_host_loads_copied_is_gone` (a path-alone copy no longer exists) is now `test_the_url_copied_then_the_host_on_screen_changes_copied_is_gone`, with a companion for the same host read again; `test_the_clipboard_never_holds_something_the_screen_does_not_show_next_to_copied` is now `…_never_holds_the_placeholder_and_holds_the_working_url_next_to_copied`. Not rewritten but changed to use a deployment with a host, because Copy URL is disabled without one: `test_closing_the_block_removes_it` and the Spanish and 30d tests that pressed Copy URL. Nothing else was relaxed.
+    - **RED** (against the control as it was): 32 of 86 tests failed on assertions: the clipboard received the placeholder URL, no request was made, `toBeDisabled` failed with no host, "Copied" was removed by a show, and a failed request still wrote. Three tests failed by a testing-library query or a timeout (`findByRole("alert")`, `getByRole` of "Copied") because the old control copied before the host arrived; they are the same cause, not an import or type error. `npm run lint` was 0 at RED.
+    - **GREEN:** `WebhookMessage.test.tsx` 86 of 86. Full gate: `npm run lint` exit 0, `npm test` exit 0, 64 test files, 1,487 tests (1,469 before). `git diff main --stat -- openspec/specs` and `-- backend` are empty. One test, the host change, first read the screen straight after `invalidateQueries` and failed on timing; it now waits for the screen (`waitFor`), as the other host tests do.
+    - **Mutations after the GREEN, each reverted with `git checkout --`, none committed.** The secret put in the query cache (`setQueryData` after the fetch): 7 red. The placeholder written when the request fails: 6 red. The button enabled with no host (`disabled={copyingUrl}`): 24 red, 3 of them the direct ones and the rest tests that no longer wait out the host. The button left enabled in flight: 1 red. The button not looking at `shown` (always asks): 3 red. The in-flight flag not reset after a failure: 2 red. The secret kept in state and printed in a `data-` attribute: 3 red. The encoding dropped (`webhookUrl(origin, secret)`): 8 red. `copyResult` not looking at which button: 21 red. The host check made never stale: 1 red. None was equivalent.
+    - **Where the secret exists and for how long** (a hidden copy): in the response body, then in the local `secret`, then in the string given to `writeText`, from the response until the write settles. In no state, ref, query-cache entry, log, error text, attribute or hidden element; the test `leaksOf` reads the document HTML and text, the cache, both storages and every console spy for the secret in its plain, encoded and HTML-escaped forms after a copy.
+    - **What only a real browser can confirm:** that the clipboard write is still allowed after the awaited request (a browser may require the write close to the click; Firefox is the one to try); what the clipboard actually holds; that the disabled Copy URL looks right (`disabled:text-ink-3 disabled:opacity-50`, as "Show secret" does); and that a click while it is disabled in flight feels fine. Not verified: a copy that finishes after the view was left still writes (the click asked for it) and shows nothing.
+
+**Follow-up, NOT part of PR 12f-2**
+
+- [ ] 12f.11 **A strategy can be renamed from its own page** (decision 51, for later). For example an edit icon beside the name in the page's header. `PATCH /api/strategies/{id}` already takes `name` (`min_length=1`). Not designed: where the control sits, how it is confirmed and cancelled, and what the refusals say are to be decided with the owner before any task is written.
+
+- [x] 12f.10.31 Owner step, before the push: the review by eye. **Done 2026-10-10 by the owner, in three rounds, with the local fixture and the local API.** Round 1 approved the slider against the prototype, the field, the amount and its loading mark, the warning on the pool's minimum, "Saved", the keyboard and the Spanish texts, and, once the fixture's `by_pair` entries carried `wins` and `win_rate` (edited by the assistant at the owner's request, see decision 51), the performance and the Win rate column; it asked for the two layout changes of decision 51 (12f.10.30b, 12f.10.30c). Round 2 approved the Copy buttons and asked for decisions 52 and 53 (12f.10.30d, 12f.10.30e). Round 3, on the final code: the four buttons change their text without moving anything, in Brave and in Firefox; "Copy URL" with the secret hidden copies the working URL, in both browsers, so the write after the request is let through; with no host "Copy URL" is disabled. **Not reported by the owner, so not confirmed:** the CSP with the built bundle served by FastAPI, a screen reader, and the unhappy cases the list below asks of the fixture (a 422, a 409, a 404 and a 500 on the save, a stale balance, a pool never read, a failed copy). The original text of the task follows. **The fixture file `frontend/vite.fixture.config.ts` is the owner's,
   untracked, and no task edits it.** Today it serves a `by_pair` without `wins` and `win_rate`, so with the new
   check the performance block would show its error state until the fixture serves them; that is the check
   working, not a defect. What the owner's fixture must serve for the review: (a) on

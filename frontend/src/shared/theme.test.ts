@@ -106,6 +106,28 @@ describe("theme rules", () => {
     }
   });
 
+  it("test_no_non_test_source_file_has_a_style_prop", () => {
+    // The CSP the panel is served with sends no `style-src 'unsafe-inline'`, so a style attribute or a style
+    // property is dropped silently in production only. The spec forbids both, not only the JSX prop.
+    const STYLE_USE = /\bstyle\s*=|\.style\b|\bsetProperty\b|\bcssText\b|setAttribute\(\s*["']style["']/;
+    // Guards against a vacuous pass: the pattern must see every spelling it is meant to forbid.
+    for (const spelling of [
+      '<div style={{ width: 1 }} />',
+      'node.style.width = "1px"',
+      'node.style.setProperty("--x", "1")',
+      'node.style.cssText = "width: 1px"',
+      'node.setAttribute("style", "width: 1px")',
+      "node.setAttribute('style', 'width: 1px')",
+    ]) {
+      expect(STYLE_USE.test(spelling)).toBe(true);
+    }
+    expect(STYLE_USE.test('<div className="w-1" />')).toBe(false);
+
+    expect(files.length).toBeGreaterThan(5);
+    const offenders = files.filter((file) => STYLE_USE.test(readFileSync(file, "utf8"))).map((file) => relative(SRC, file));
+    expect(offenders).toEqual([]);
+  });
+
   it("test_hex_colours_live_only_in_index_css", () => {
     const offenders = files.filter((f) => HEX.test(readFileSync(f, "utf8")));
     expect(offenders.map((f) => relative(SRC, f))).toEqual([]);
