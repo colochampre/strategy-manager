@@ -3908,7 +3908,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   two-instances tests; the failure tone made `text-gain` reds the failure test; the default made `text-gain`
   reds the default-tone test; `aria-live` made `assertive` reds the polite test. Files created:
   `InlineStatus.tsx`, `InlineStatus.test.tsx`; no existing file edited.
-- [ ] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
+- [x] 12f.10.12 `InfoDisclosure`. RED `InfoDisclosure.test.tsx` (Create), with the stub design § K names: a button
   rendered with `aria-expanded="false"` that never opens. The shared piece is a hook that owns the open state
   and the ids, and two presentational parts, the button and the container. Tests: `::is closed at mount and
   no explanation is in the document` (**passes at once**; mutation: open by default, and separately a
@@ -3925,6 +3925,36 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   replaced by a text character). GREEN: `InfoDisclosure.tsx` beside `InlineStatus`; the glyph is a circle, a
   dot and a stem drawn with attributes, `currentColor` from a text class (`ink-3` at rest, `ink-2` on hover,
   `ink` while open).
+  **Done (RED commit `23dbf3f`, GREEN commit `6d53035`, a test fix in the commit after it).** Names chosen where
+  the task left them open: `useInfoDisclosure()` returns `{ open, textId, buttonRef, toggle, close }`;
+  `InfoButton({ disclosure, label })` and `InfoText({ disclosure, children })` are the two parts. The stub is
+  the one design § K names: a button with `aria-expanded="false"` that never opens, and an empty container.
+  RED, observed (11 failed, 5 passed of 16): `expect(received).toBeInTheDocument()` (activation, Enter and
+  Space, Escape inside the text, two disclosures, tabbing away), `Unable to find an element with the text`,
+  `expected '' to match /(^|\s)size-11(\s|$)/` and `expected '' to match /(^|\s)text-ink-3(\s|$)/`. **Passed at
+  once**: closed at mount, the two names, the button never disabled, the two different containers, and the
+  name not changing with the state. Two Escape tests first passed at once because the stub never opens, so
+  they were made to assert the text IS open before pressing Escape, and re-run before the RED commit.
+  GREEN: the hook keeps the open state and a `useId` for the container; `close()` sets it false and focuses
+  the button; Escape on the button or inside the text calls `close()` while open; the container is always in
+  the document with `id` and its children only while open; the button has `aria-label`, `aria-expanded`,
+  `aria-controls`, never `disabled`, `size-11`, `-my-3` (the box adds no height to its row, design § B2,
+  confirmed by eye in 12f.10.31), `text-ink-3 hover:text-ink-2` at rest and `text-ink` open; the glyph is an
+  `aria-hidden` SVG of a circle, a dot and a stem in `currentColor`. A test beyond the list: another key does
+  not close it, and the two buttons name two different containers. **A test defect found by its mutation:**
+  the tab-away test passed against a close-on-blur mutation, because `pressTab` moves focus with `.focus()`
+  outside `act`, so React had not flushed the close when the test read the DOM. The test now wraps `pressTab`
+  in `act`; the mutation then reds it. Any later test that moves focus with `pressTab` and asserts straight
+  after needs the same wrapper. Mutations after the GREEN, each seen red and reverted: open by default reds
+  eleven tests; the paragraphs rendered outside the container reds `aria-controls … only while open` and
+  `Escape inside the text`; the container rendered only while open reds `aria-controls`; the Escape handler
+  made a no-op reds both Escape tests; focus not returned reds `Escape inside the text` only; a close on blur
+  reds the tab-away test; one state shared by every disclosure (a module variable) reds `activating again
+  closes it`, the tab-away test, the two-disclosures test and the colour test; both names made `Info` reds
+  the names tests (all sixteen, the lookups by name fail); `disabled` while open reds six tests including `never
+  disabled`; the box class removed reds the box test; the glyph replaced by the character `ⓘ` reds the box
+  test; a `style` attribute on the SVG reds the box test. Files created: `InfoDisclosure.tsx`,
+  `InfoDisclosure.test.tsx`; no existing file edited.
 - [ ] 12f.10.13 `pressRangeKey`, the arrow-key helper design § K says is needed. RED `frontend/src/test/keyboard.test.ts`
   (Create), with the stub in `keyboard.ts` that does nothing. Tests: `::an arrow adds or removes one step`
   (34 to 35 and to 33), `::Home sets min and End sets max`, `::the result is clamped to min and max`,
