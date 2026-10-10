@@ -4269,7 +4269,7 @@ requirements 947 to 1700)
   `overview/format.ts` (the `amountDecimals` export, no behaviour change), `strategies/format.ts` and
   `format.test.ts` (the helper), `PoolShareEditor.tsx`, `PoolShareEditor.test.tsx` (the double), the two locale
   files (five keys: amount, amountStale, amountNoBalance, amountLoading, amountError).
-- [ ] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
+- [x] 12f.10.21 A typed decimal's amount. RED `PoolShareEditor.test.tsx`, new tests (fake timers), with the stub that
   asks at once for every value. Tests: `::a typed 33.5 shows no figure, only the loading mark, until its
   answer, and then that answer's` (mutation: the previous amount kept on screen while loading),
   `::two typed values in quick succession send one request, for the last, 300 ms after the last keystroke`
@@ -4278,6 +4278,23 @@ requirements 947 to 1700)
   once at rest`, `::a text that is not a valid value sends no request and shows the em dash`, `::the request
   for a typed value carries ?share= with the canonical text`. RED: `expected null to be in the document`
   (the loading mark), `expected 2 to be 1` (the requests). GREEN: the third row of the table in design § C2.
+  **Done (RED `b82bc43`, GREEN `27f495b`).** `PoolShareEditor.tsx` works out which value no served table covers
+  (not a whole step from 1 to 100, not the stored share), holds it through `useDebouncedValue` for 300 ms and only
+  then calls `useSharePreview(id, share)`; a value that is not yet the settled one shows the loading mark, so no
+  figure stands beside a percentage it does not belong to, and an answer counts only when its `exact.share` read in
+  plain form is the value (a different one is the failed line). The tests use the fake clock installed AFTER the
+  first read, and a preview double that holds each asked answer until the test releases it. RED as observed against
+  the stub (the same call with no pause and no comparison): four tests failed, `expected [ null, '12.34' ] to deeply
+  equal [ null ]`, `expected [ null, '12.3', '12.34' ] to deeply equal [ null ]`, `expected [ null, '0.5' ] to deeply
+  equal [ null ]` and `expect(received).toBeInTheDocument()` for the refused answer. The task's named
+  `expected 2 to be 1` has no counterpart here because the RED asserts the request list; the same fact. Passed at
+  once: the answer for a value no longer held, the em dash, the canonical `?share=`, the 18-decimal case and the
+  whole-values-ask-nothing case, which a call with no pause satisfies. Mutations after GREEN, each reverted with
+  `git checkout`: the previous amount kept on screen while loading reds the loading test and the stale-answer
+  test; the pause removed reds three; the `exact.share` comparison replaced by true reds the refused-answer test;
+  the "waiting for its own value" guard removed reds the loading and stale-answer tests. The amount view now reads
+  one source per value, so the first read's lookup of 12f.10.20 and this one share a function. Existing files
+  edited: `PoolShareEditor.tsx` and `PoolShareEditor.test.tsx` only.
 - [ ] 12f.10.22 The warning. RED `PoolShareEditor.test.tsx`, new tests, with the stub that never warns. Tests: `::a share
   that asks for less than the pool's minimum order shows the warning with the minimum, cut down as text`
   (`At this balance the share asks for less than the pool's minimum order, 5.00 USDT. Openings would be skipped
