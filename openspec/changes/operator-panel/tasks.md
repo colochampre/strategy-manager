@@ -4491,7 +4491,7 @@ Shown And Copied With Its Host")
   `test_no_other_control_ever_requests_the_secret` clicks both Copy buttons now (they are in the "every other
   button" list) and passes without an edit, since jsdom has no clipboard and the copy fails quietly. Gate after
   GREEN: lint 0, 63 files, 1,367 tests.
-- [ ] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
+- [x] 12f.10.27 The rule for "Copied". RED `WebhookMessage.test.tsx`, new tests, with the stub that shows "Copied"
   after any copy and never removes it. Tests: `::Copied shows beside the button that was used and only one
   Copied is on screen` (a copy with the other button moves it; mutation: two independent flags),
   `::closing the block removes it` (mutation: the block hidden with CSS instead of unmounted), `::the URL copied
@@ -4505,6 +4505,33 @@ Shown And Copied With Its Host")
   GREEN: the Show and Hide handlers clear the URL's copy state, and the render shows "Copied" only while both
   recorded booleans still equal the present. The panel does not claim to clear the clipboard when the secret is
   hidden or the view is left (design § E, accepted by the owner).
+  **Done (RED `b866b41`, GREEN `3546777`, two more tests `651780d`).** The stub is the GREEN of 12f.10.26
+  (one `copied` value, "Copied" after any copy, never removed). `WebhookMessage.tsx` now records, when a button
+  is pressed, `secretShown` and `hostIncluded` of the URL on screen next to the button and the result; the Show and
+  Hide handlers call `forgetUrlCopy`, which clears the URL's copy and leaves the message's; and `CopyStatus`
+  shows "Copied" beside the URL only while both recorded booleans equal the present ones. The booleans are read
+  when the button is pressed, not when the write settles. The panel keeps no text. RED as observed (5 failed of
+  48): `expect(element).toBeEmptyDOMElement()` for the placeholder-then-Show, the revealed-then-Hide and the
+  host-loads-late cases; `expected 1 to be +0` for the "does not come back" case; and, for the clipboard walk,
+  `expected 'https://example.duckdns.org/webhook/t…' to be 'https://example.duckdns.org/webhook/t…'` (the clipboard
+  held the placeholder URL while the screen showed the revealed one). **Passed at once:** `::Copied shows beside
+  the button that was used and only one Copied is on screen`, `::closing the block removes it` (a page-level test
+  through the header's button) and `::the message's Copied survives showing and hiding the secret`. Mutations after
+  GREEN, each reverted with `git checkout`: the clearing removed from both handlers reds the "does not come back"
+  case and the two tests added below; the render check removed (`stale = false`) reds the host-loads-late test;
+  every copy state cleared by the handlers (`setCopied(null)`) reds the message-survives test; the block hidden
+  with `hidden` instead of unmounted reds `::closing the block removes it` and `::the origin is read when the
+  block is opened and not before`. **The task's two separate mutations are equivalent as asked.** With the
+  clearing removed from the Show handler alone, or from the Hide handler alone, all 48 tests stayed green: the
+  render check hides "Copied" whenever the URL differs, and the other handler clears it before the secret can be
+  shown again. So I added two tests that pin each handler where the render check cannot: `::a show that fails
+  still removes Copied beside the placeholder URL` (the Show that gets a 503 leaves the URL unchanged, so only
+  the Show handler's clearing removes it; the Show-only mutation reds it) and `::hiding the secret and showing it
+  again does not bring back a copy of the revealed URL`. The second does not red the Hide-only mutation: after a
+  Hide the secret can be on screen again only through Show, which clears, so the Hide handler's clearing is
+  an equivalent mutant of Show's, and is kept as the spec's literal wording. Not run, said plainly: the "two
+  independent flags" mutation of the first test. Gate after GREEN: lint 0, 63 files, 1,375 tests; after the two
+  added tests, 1,377.
 
 **Texts, the guard and the gate**
 
