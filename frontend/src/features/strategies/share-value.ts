@@ -4,8 +4,8 @@
  * step and its position on the track, and neither touches the value that is saved.
  */
 
-/** Why a typed text is not a value: not a number, not above 0, or above 100. */
-export type DraftRefusal = "not-a-number" | "not-above-zero" | "above-hundred";
+/** Why a typed text is not a value: not a number, not above 0, above 100, or of too many decimal places. */
+export type DraftRefusal = "not-a-number" | "not-above-zero" | "above-hundred" | "too-many-decimals";
 
 /** What a typed text reads as: its canonical form when valid, the reason when not. */
 export type DraftReading = { valid: true; canonical: string } | { valid: false; refusal: DraftRefusal };

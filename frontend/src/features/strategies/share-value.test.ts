@@ -64,6 +64,30 @@ describe("parseDraft", () => {
     expect(parseDraft(text)).toEqual({ valid: false, refusal: "not-a-number" });
   });
 
+  // Owner decision 50: the API refuses a share of more than 18 decimal places, judged on the canonical
+  // form, because that is what the panel sends.
+  it.each(["0.1234567890123456789", "33.3333333333333333333", "99.9999999999999999999"])(
+    "more than 18 decimal places is refused: %j",
+    (text) => {
+      expect(parseDraft(text)).toEqual({ valid: false, refusal: "too-many-decimals" });
+    },
+  );
+
+  it("18 decimal places is the longest valid share", () => {
+    expect(parseDraft("0.123456789012345678")).toEqual({ valid: true, canonical: "0.123456789012345678" });
+  });
+
+  it("the bound is judged on the canonical form, so trailing zeros do not count", () => {
+    expect(parseDraft("1.5000000000000000000")).toEqual({ valid: true, canonical: "1.5" });
+    expect(parseDraft("1,5000000000000000000")).toEqual({ valid: true, canonical: "1.5" });
+  });
+
+  it("the earlier refusals come first: zero, above 100, then too many decimals", () => {
+    expect(parseDraft("0.0000000000000000000")).toEqual({ valid: false, refusal: "not-above-zero" });
+    expect(parseDraft("100.0000000000000000001")).toEqual({ valid: false, refusal: "above-hundred" });
+    expect(parseDraft("abc.0000000000000000001")).toEqual({ valid: false, refusal: "not-a-number" });
+  });
+
   it.each([
     ["007", "7"],
     ["0033.50", "33.5"],
