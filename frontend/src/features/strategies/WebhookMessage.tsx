@@ -20,16 +20,28 @@ interface WebhookMessageProps {
 
 type CopyButton = "url" | "message";
 
-/** The last copy: the button that was used and whether the browser took the text. */
-interface Copied {
+/** What a URL copy recorded about the URL it took: whether the secret and whether a host were in it. */
+interface UrlState {
+  secretShown: boolean;
+  hostIncluded: boolean;
+}
+
+/** The last copy: the button that was used, whether the browser took the text, and the URL's state then. */
+interface Copied extends UrlState {
   button: CopyButton;
   ok: boolean;
 }
 
-/** The result beside the button that was used; the other button's status stays empty. */
-function CopyStatus({ copied, button }: { copied: Copied | null; button: CopyButton }) {
+/**
+ * The result beside the button that was used; the other button's status stays empty. "Copied" beside the
+ * URL shows only while the URL on screen is still the kind that was copied: a host that arrived after the
+ * copy changes it, and no handler sees that.
+ */
+function CopyStatus({ copied, button, present }: { copied: Copied | null; button: CopyButton; present: UrlState }) {
   const { t } = useTranslation();
   if (copied === null || copied.button !== button) return <InlineStatus message={null} />;
+  const stale = button === "url" && (copied.secretShown !== present.secretShown || copied.hostIncluded !== present.hostIncluded);
+  if (copied.ok && stale) return <InlineStatus message={null} />;
   return copied.ok ? (
     <InlineStatus message={t("strategies.webhook.copied")} />
   ) : (
@@ -74,12 +86,18 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
   const shown = requested && secret.status === "success" ? secret.data : null;
   const failed = requested && secret.status === "error";
 
+  const [copied, setCopied] = useState<Copied | null>(null);
+  // Showing or hiding the secret changes the URL on screen: what was copied of it is no longer that URL.
+  const forgetUrlCopy = () => setCopied((last) => (last?.button === "url" ? null : last));
+
   const show = () => {
+    forgetUrlCopy();
     if (!requested) setRequested(true);
     else void secret.refetch();
   };
 
   const hide = () => {
+    forgetUrlCopy();
     setRequested(false);
     evictSecret(queryClient);
   };
@@ -96,9 +114,11 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
 
   // Which button was used and whether the write worked, never the text. Nothing here touches the secret's
   // request flag or its query: a copy takes what is on screen and asks for nothing.
-  const [copied, setCopied] = useState<Copied | null>(null);
+  // The URL on screen, as far as a copy of it can tell: was the secret in it, and was a host.
+  const present: UrlState = { secretShown: shown !== null, hostIncluded: origin !== null };
   const copy = async (button: CopyButton, text: string) => {
-    setCopied({ button, ok: await copyText(text) });
+    // Recorded when the button is pressed, not when the write settles: it describes the text that was taken.
+    setCopied({ button, ok: await copyText(text), ...present });
   };
 
   return (
@@ -143,7 +163,7 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
           >
             {t("strategies.webhook.copyUrl")}
           </button>
-          <CopyStatus copied={copied} button="url" />
+          <CopyStatus copied={copied} button="url" present={present} />
         </div>
         {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         {failed && (
@@ -172,7 +192,7 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
           >
             {t("strategies.webhook.copyMessage")}
           </button>
-          <CopyStatus copied={copied} button="message" />
+          <CopyStatus copied={copied} button="message" present={present} />
         </div>
       </div>
     </section>
