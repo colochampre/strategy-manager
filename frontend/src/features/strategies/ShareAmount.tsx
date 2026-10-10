@@ -22,6 +22,8 @@ interface ShareAmountProps {
   view: ShareAmountView;
   /** The amount's information button, at the end of the row; the row is there in every state. */
   trailing?: ReactNode;
+  /** The text that button reveals, directly under the row and above the stale line and the warning. */
+  explanation?: ReactNode;
 }
 
 /** The mark for an absent figure, as the panel's tables write it. */
@@ -32,7 +34,7 @@ const DASH = "—";
  * no pool, so it cannot multiply a balance. The figure is cut down as text to the currency's decimals;
  * a served amount that is not a plain decimal is a failed read, never "NaN".
  */
-export function ShareAmount({ view, trailing }: ShareAmountProps) {
+export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
   const { t, i18n } = useTranslation();
   const known = view.kind === "known" ? cutAmountText(view.amount, view.currency, i18n.language) : null;
   const figure = view.kind === "known" && known !== null;
@@ -62,6 +64,7 @@ export function ShareAmount({ view, trailing }: ShareAmountProps) {
         <p className={cn("text-sm", figure ? "text-ink" : "text-ink-2")}>{line}</p>
         {trailing}
       </div>
+      {explanation}
       {staleAt !== null && (
         <p className="text-xs text-ink-2">
           {t("strategies.detail.share.amountStale", { time: clockText(staleAt) ?? staleAt })}

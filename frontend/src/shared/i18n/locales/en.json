@@ -189,6 +189,11 @@
       "saved": "Saved",
       "share": {
         "label": "Share of the pool per trade",
+        "info": "About the share of the pool",
+        "hint": "Each new operation asks for this share of the pool's total balance. A change applies from the next operation; one already open keeps its size.",
+        "amountInfo": "About this amount and what is not checked",
+        "amountHint": "An estimate: this share of the pool's total balance, read at {{time}} UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.",
+        "pairMinimumNote": "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.",
         "valueText": "{{value}}% of the pool",
         "stop": "Set the share to {{value}}%",
         "notNumber": "Enter a number, for example 25 or 33.5.",

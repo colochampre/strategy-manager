@@ -82,7 +82,11 @@ export function InfoButton({ disclosure, label }: InfoButtonProps) {
  */
 export function InfoText({ disclosure, children }: { disclosure: InfoDisclosureState; children: ReactNode }) {
   return (
-    <div id={disclosure.textId} onKeyDown={closeOnEscape(disclosure)}>
+    <div
+      id={disclosure.textId}
+      onKeyDown={closeOnEscape(disclosure)}
+      className="flex flex-col gap-1.5 empty:hidden"
+    >
       {disclosure.open ? children : null}
     </div>
   );

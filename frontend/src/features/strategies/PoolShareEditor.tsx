@@ -2,7 +2,9 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { InfoButton, InfoText, useInfoDisclosure } from "@/features/strategies/InfoDisclosure";
 import { InlineStatus } from "@/features/strategies/InlineStatus";
+import { clockText } from "@/features/strategies/format";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import type { ShareAmountView } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
@@ -120,6 +122,11 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   // Asked 300 ms after the last keystroke, so a number typed digit by digit sends one request, for the last.
   const askedFor = useDebouncedValue(wanted, ASK_PAUSE_MS);
   const asked = useSharePreview(strategy.id, askedFor ?? undefined);
+  // Each explanation owns its state: closed on every visit, kept through a save and a change of language.
+  const shareInfo = useInfoDisclosure();
+  const amountInfo = useInfoDisclosure();
+  // When the balance was read, from the first read; there is no time to name until a balance exists.
+  const readAt = preview.data?.balance?.observed_at ?? null;
   if (stored === null) {
     // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
     return (
@@ -157,9 +164,15 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
 
   return (
     <section className="flex flex-col gap-3">
-      <label id={ids.label} htmlFor={ids.field} className="text-sm text-ink-2">
-        {t("strategies.detail.share.label")}
-      </label>
+      <div className="flex items-start">
+        <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
+          {t("strategies.detail.share.label")}
+        </label>
+        <InfoButton disclosure={shareInfo} label={t("strategies.detail.share.info")} />
+      </div>
+      <InfoText disclosure={shareInfo}>
+        <p className="text-xs text-ink-3">{t("strategies.detail.share.hint")}</p>
+      </InfoText>
       <ShareSlider
         fieldId={ids.field}
         labelId={ids.label}
@@ -173,7 +186,18 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         onHandle={handleStep}
         onStop={handleStep}
       />
-      <ShareAmount view={amount} />
+      <ShareAmount
+        view={amount}
+        trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
+        explanation={
+          <InfoText disclosure={amountInfo}>
+            {readAt !== null && (
+              <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
+            )}
+            <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
+          </InfoText>
+        }
+      />
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(REFUSAL_TEXT[reading.refusal])}

@@ -189,6 +189,11 @@
       "saved": "Guardado",
       "share": {
         "label": "Porcentaje del pool por operación",
+        "info": "Acerca del porcentaje del pool",
+        "hint": "Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño.",
+        "amountInfo": "Acerca de este importe y de lo que no se comprueba",
+        "amountHint": "Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
+        "pairMinimumNote": "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
         "valueText": "{{value}} % del pool",
         "stop": "Fijar el porcentaje en {{value}} %",
         "notNumber": "Escriba un número, por ejemplo 25 o 33,5.",
