@@ -948,7 +948,7 @@ describe("WebhookMessage", () => {
         await queryClient.invalidateQueries({ queryKey: ["webhook-origin"] });
       });
 
-      expect(urlText()).toBe(`https://other.example.org${PLACEHOLDER_URL}`);
+      await waitFor(() => expect(urlText()).toBe(`https://other.example.org${PLACEHOLDER_URL}`));
       expect(statusBeside(copyUrl())).toBeEmptyDOMElement();
       expect(copyUrl()).toHaveAccessibleName("Copy URL");
       expect(copiedCount()).toBe(0);
