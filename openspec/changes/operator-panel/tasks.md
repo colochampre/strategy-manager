@@ -4657,8 +4657,46 @@ Shown And Copied With Its Host")
   line-by-line reading of the spec text.
 **From the first review by eye** (owner decision 51, 2026-10-10; built before the push)
 
-- [ ] 12f.10.30b **The list's figures line up from row to row** (decision 51). In `StrategyRow.tsx` and the list that holds the rows: each row's trades, all-time PnL and all-time return start at the same horizontal position in every row, whatever the width of that row's own values or of its name. Today each row lays its figures out by its own content, so `+988,80 USDT` and `+1235,25 USDT` put them in different places. The name column takes the room that is left and still truncates or wraps as it does now; the enable switch stays at the right edge. The row's DOM order, its links, its labels and what a screen reader reads do not change, and the narrow layouts (the row's existing breakpoints) keep working. jsdom has no layout, so the test pins the STRUCTURE that makes the alignment hold (for example one shared grid for the list with each row on its subgrid, or fixed tracks for the three figures) and that no figure's track is sized by its own content alone. RED on an assertion against the row as it is. The owner checks the result by eye.
-- [ ] 12f.10.30c **Save sits to the right of the text before it** (decision 51). In the settings column the Save button no longer has a row of its own. In `PoolShareEditor.tsx`: one row holds, on the left, the amount block (`ShareAmount`: the amount line, its information button, the warning, and the explanation when it is open) and, on the right, "Save share" with its "Saved" status. In `AllowedPairsEditor.tsx`: one row holds, on the left, the note "Removing a pair stops new entries ..." and, on the right, "Save pairs" with its "Saved" status. In both: the text takes the room that is left and wraps (`min-w-0`), the button keeps its size and its 44 px target and never wraps under the text at the column's width, the button is aligned to the TOP of the row so it does not move when the explanation opens or the warning appears, and "Saved" sits beside its button, on the button's left. The DOM order stays text first, then status and button, so the reading order and the Tab order are what they were. Every refusal and failure line (`role="alert"`) stays outside that row, where it is now. Nothing about when "Saved" shows or goes changes. RED on an assertion: the button and the text it follows share one row container. Existing tests that pin the old structure are edited with the reason recorded; no assertion about behaviour is relaxed.
+- [x] 12f.10.30b **The list's figures line up from row to row** (decision 51). In `StrategyRow.tsx` and the list that holds the rows: each row's trades, all-time PnL and all-time return start at the same horizontal position in every row, whatever the width of that row's own values or of its name. Today each row lays its figures out by its own content, so `+988,80 USDT` and `+1235,25 USDT` put them in different places. The name column takes the room that is left and still truncates or wraps as it does now; the enable switch stays at the right edge. The row's DOM order, its links, its labels and what a screen reader reads do not change, and the narrow layouts (the row's existing breakpoints) keep working. jsdom has no layout, so the test pins the STRUCTURE that makes the alignment hold (for example one shared grid for the list with each row on its subgrid, or fixed tracks for the three figures) and that no figure's track is sized by its own content alone. RED on an assertion against the row as it is. The owner checks the result by eye.
+  Evidence. Built as: from the `lg` breakpoint the list (`StrategiesPage.tsx`) is ONE grid with five tracks,
+  `minmax(0,1fr)` for the name and `auto` for trades, PnL, return and the switch. Each row (`StrategyRow.tsx`) spans
+  the five tracks and sits on them as a subgrid, and its figures list spans the three middle tracks, also as a
+  subgrid. So an `auto` track is as wide as the widest value in ANY row, not in its own row, and `+1235,25 USDT` and
+  `+988,80 USDT` start at the same place. The two message paths of a row whose report failed or cannot be read
+  span the same three tracks. Below `lg` the rows are the wrapping flex rows they were. The DOM order (name, figures,
+  switch), the link, the labels and the roles did not change. Why `lg` and not `md`: five tracks at `md` would leave
+  the name almost no room; this is a choice for the owner to flip by eye. RED `108e5ec`: four assertions failed
+  against the row as it was (the list, the rows, the figures list, the message); the reading-order test passed at
+  once, as it guards behaviour that did not change. GREEN `759f9af`, then `4644633` moved the second message test
+  onto a report that parses with an unreadable PnL, because the first draft used a report the client already
+  rejects and so tested the same path twice. Mutations after GREEN, each seen red and reverted with
+  `git checkout --`: the figures list on its own `grid-cols-[auto_auto_auto]` (red: the figures test); the list with
+  four tracks (red: the list test); the message path of a parsed report without its span (green first, which
+  exposed the duplicated path, then red once the test was fixed); the figures moved after the switch in the DOM
+  (red: the reading-order test). Not equivalent mutants, none. jsdom has no layout, so these tests pin the classes
+  that make the layout hold; only the owner's eye can confirm that the figures really start at the same place at
+  the widths he uses, and that the name column still looks right at `lg` with a long name. No existing test
+  changed.
+- [x] 12f.10.30c **Save sits to the right of the text before it** (decision 51). In the settings column the Save button no longer has a row of its own. In `PoolShareEditor.tsx`: one row holds, on the left, the amount block (`ShareAmount`: the amount line, its information button, the warning, and the explanation when it is open) and, on the right, "Save share" with its "Saved" status. In `AllowedPairsEditor.tsx`: one row holds, on the left, the note "Removing a pair stops new entries ..." and, on the right, "Save pairs" with its "Saved" status. In both: the text takes the room that is left and wraps (`min-w-0`), the button keeps its size and its 44 px target and never wraps under the text at the column's width, the button is aligned to the TOP of the row so it does not move when the explanation opens or the warning appears, and "Saved" sits beside its button, on the button's left. The DOM order stays text first, then status and button, so the reading order and the Tab order are what they were. Every refusal and failure line (`role="alert"`) stays outside that row, where it is now. Nothing about when "Saved" shows or goes changes. RED on an assertion: the button and the text it follows share one row container. Existing tests that pin the old structure are edited with the reason recorded; no assertion about behaviour is relaxed.
+  Evidence. Built as: in both editors a row `flex items-start gap-x-3` holds two children. On the left, the text
+  block (`min-w-0 flex-1`): in `PoolShareEditor.tsx` a wrapper around `ShareAmount`, so the amount line, its
+  information button, the stale line, the warning and the open explanation all stay in it; in
+  `AllowedPairsEditor.tsx` the note itself. On the right, a block `flex shrink-0 items-start gap-x-3` that holds
+  "Saved" and then the button, in that DOM order, so "Saved" is on the button's left and the button keeps its size
+  and its 44 px height (`min-h-11`). Nothing in the row wraps. The refusal of a typed value, the failed-save alert
+  and the "last pair" line are now after the row, in the section, not inside it. That is the one change to the
+  reading order: those lines used to sit between the text and the button, and now follow the button. Tab order is
+  unchanged (the existing Tab-order tests pass untouched). Which element is "Saved"'s region is unchanged, so the
+  tests that find it through the button's parent still hold. RED `9bb4410`: 8 assertions failed in
+  `PoolShareEditor.test.tsx` and 6 in `AllowedPairsEditor.test.tsx`, all on the structure. GREEN `7db1e0b`. Whole
+  `features/strategies` folder: 24 files, 839 tests, passing. Mutations after GREEN, each seen red and reverted: the
+  right block without `shrink-0` (red: the right-block test); in the pairs editor "Saved" after the button (red:
+  the right-block and the reading-order tests); the failed-save alert moved into the note (red: the alert test).
+  No existing test changed, so no assertion about behaviour was relaxed. jsdom has no layout: only the owner's eye
+  can confirm that the button stays on the right and on one line at the settings column's real width, that it does
+  not move when the explanation opens, and that "Saved" looks right on its left.
+  Gate after 12f.10.30b and 12f.10.30c: `npm run lint` exit 0; `npm test` exit 0, 63 test files, 1,426 tests (1,406
+  before, plus 6 for 12f.10.30b and 14 for 12f.10.30c).
 
 **Follow-up, NOT part of PR 12f-2**
 
