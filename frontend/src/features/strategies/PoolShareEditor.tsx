@@ -53,7 +53,12 @@ const WHOLE_STEP = /^\d+$/;
  * read's `exact`, and no other value has a figure yet. Data first: a background refresh that failed does
  * not hide a figure that is already known.
  */
-function amountView(value: string | null, stored: string, preview: UseQueryResult<SharePreview>): ShareAmountView {
+function amountView(
+  value: string | null,
+  stored: string,
+  preview: UseQueryResult<SharePreview>,
+  asked: UseQueryResult<SharePreview>,
+): ShareAmountView {
   if (value === null) return { kind: "none" };
   const data = preview.data;
   if (data === undefined) return preview.isError ? { kind: "failed" } : { kind: "loading" };
@@ -69,7 +74,14 @@ function amountView(value: string | null, stored: string, preview: UseQueryResul
     // The read is for another share than the stored one: a save just moved it, and the re-read is on its way.
     return preview.isFetching ? { kind: "loading" } : { kind: "failed" };
   }
-  return { kind: "loading" };
+  const exact = asked.data?.exact;
+  if (exact !== undefined && exact !== null) return known(exact.amount);
+  return asked.isError ? { kind: "failed" } : { kind: "loading" };
+}
+
+/** Whether a served table already holds the amount of a value: a whole step from 1 to 100, or the stored share. */
+function isCovered(value: string, stored: string): boolean {
+  return value === stored || (WHOLE_STEP.test(value) && Number(value) >= 1 && Number(value) <= 100);
 }
 
 /**
@@ -86,6 +98,12 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const preview = useSharePreview(strategy.id);
 
   const stored = readStored(strategy.allocation_percent);
+  const current = stored !== null && draft !== null && draft.base === stored ? draft : null;
+  const text = current?.text ?? stored ?? "";
+  const reading = parseDraft(text);
+  // A value no served table covers: not a whole step and not the stored share. It is read once, by itself.
+  const wanted = stored !== null && reading.valid && !isCovered(reading.canonical, stored) ? reading.canonical : null;
+  const asked = useSharePreview(strategy.id, wanted ?? undefined);
   if (stored === null) {
     // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
     return (
@@ -97,13 +115,10 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   }
 
   const archived = strategy.archived_at !== null;
-  const current = draft !== null && draft.base === stored ? draft : null;
-  const text = current?.text ?? stored;
   const handle = current?.handle ?? roundToHandle(stored);
-  const reading = parseDraft(text);
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
-  const amount = amountView(reading.valid ? reading.canonical : null, stored, preview);
+  const amount = amountView(reading.valid ? reading.canonical : null, stored, preview, asked);
 
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
   const edit = (next: string, nextHandle: number) => {

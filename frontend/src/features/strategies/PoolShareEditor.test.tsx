@@ -978,3 +978,190 @@ describe("PoolShareEditor, the amount under the track", () => {
     }
   });
 });
+
+const LOADING = "Calculating the amount…";
+const FAILED = "The amount could not be loaded.";
+
+/** Moves the fake clock and lets the work it starts finish: timers, promises and React's updates. */
+const tick = (ms: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+
+/** A preview whose answer for an asked share is held until the test lets it go. */
+function heldPreview() {
+  const held = new Map<string, (response: Response) => void>();
+  const preview = (share: string | null) =>
+    share === null
+      ? jsonResponse(previewBody())
+      : new Promise<Response>((resolve) => {
+          held.set(share, resolve);
+        });
+  const answer = (share: string, amount: string, asked: string = share) =>
+    held.get(share)?.(jsonResponse(previewBody({ exact: { share: asked, amount } })));
+  return { preview, answer, held };
+}
+
+describe("PoolShareEditor, the amount of a typed decimal", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Mounts the editor on a stored 30 and waits, on the real clock, for the first read; then fakes the clock. */
+  async function mounted(options: Options) {
+    const view = setup(strategy(), options);
+    await expectText(amountLine("300.00"));
+    vi.useFakeTimers();
+    return view;
+  }
+
+  it("a typed 12.34 shows no figure, only the loading mark, until its answer, and then that answer's", async () => {
+    const { preview, answer } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("12.34");
+    expect(screen.queryByText(LOADING)).toBeInTheDocument();
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(previews).toEqual([null]);
+    await tick(299);
+    expect(previews).toEqual([null]);
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    await tick(1);
+    expect(previews).toEqual([null, "12.34"]);
+    expect(screen.queryByText(LOADING)).toBeInTheDocument();
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+
+    answer("12.34", "123.400000000000000000");
+    await tick(0);
+
+    expect(screen.queryByText(amountLine("123.40"))).toBeInTheDocument();
+    expect(screen.queryByText(LOADING)).toBeNull();
+  });
+
+  it("two typed values in quick succession send one request, for the last, 300 ms after the last keystroke", async () => {
+    const { preview, answer } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("12.3");
+    await tick(200);
+    type("12.34");
+    await tick(299);
+    expect(previews).toEqual([null]);
+    await tick(1);
+
+    expect(previews).toEqual([null, "12.34"]);
+    answer("12.34", "123.400000000000000000");
+    await tick(0);
+    expect(screen.queryByText(amountLine("123.40"))).toBeInTheDocument();
+  });
+
+  it("an answer whose exact.share is not the value asked is refused", async () => {
+    const { preview, answer } = heldPreview();
+    await mounted({ preview });
+
+    type("12.34");
+    await tick(300);
+    answer("12.34", "123.500000000000000000", "12.35");
+    await tick(0);
+
+    expect(screen.queryByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(/Asks for about/)).toBeNull();
+  });
+
+  it("an answer is compared in plain form: 12.50 for 12.5 is the value asked", async () => {
+    const { preview, answer } = heldPreview();
+    await mounted({ preview });
+
+    type("12.5");
+    await tick(300);
+    answer("12.5", "125.000000000000000000", "12.50");
+    await tick(0);
+
+    expect(screen.queryByText(amountLine("125.00"))).toBeInTheDocument();
+  });
+
+  it("an answer for a value the field no longer holds is not used", async () => {
+    const { preview, answer } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("12.34");
+    await tick(300);
+    type("12.35");
+    answer("12.34", "123.400000000000000000");
+    await tick(0);
+
+    expect(screen.queryByText(amountLine("123.40"))).toBeNull();
+    expect(screen.queryByText(LOADING)).toBeInTheDocument();
+    await tick(300);
+    expect(previews).toEqual([null, "12.34", "12.35"]);
+    answer("12.35", "123.500000000000000000");
+    await tick(0);
+    expect(screen.queryByText(amountLine("123.50"))).toBeInTheDocument();
+  });
+
+  it("a value below 1 asks once at rest and reads its own amount", async () => {
+    const { preview, answer } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("0.5");
+    expect(previews).toEqual([null]);
+    await tick(300);
+    expect(previews).toEqual([null, "0.5"]);
+    answer("0.5", "5.000000000000000000");
+    await tick(0);
+
+    expect(screen.queryByText(amountLine("5.00"))).toBeInTheDocument();
+    await tick(250);
+    expect(previews).toEqual([null, "0.5"]);
+  });
+
+  it("a text that is not a valid value sends no request and shows the em dash", async () => {
+    const { preview } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("12.");
+    type("abc");
+    await tick(1000);
+
+    expect(previews).toEqual([null]);
+    expect(screen.queryByText("—")).toBeInTheDocument();
+  });
+
+  it("a value past 18 decimal places sends no preview request either", async () => {
+    const { preview } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("12.3456789012345678901");
+    await tick(1000);
+
+    expect(previews).toEqual([null]);
+  });
+
+  it.each([
+    ["12,5", "12.5"],
+    ["0033.50", "33.5"],
+    ["100.0", null],
+  ])("the request for a typed %s carries ?share= with the canonical text %s", async (typed, asked) => {
+    const { preview } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type(typed);
+    await tick(300);
+
+    expect(previews).toEqual(asked === null ? [null] : [null, asked]);
+  });
+
+  it("a whole value, a stop and the stored share ask for nothing at all", async () => {
+    const { preview } = heldPreview();
+    const { previews } = await mounted({ preview });
+
+    type("34");
+    fireEvent.click(stop(75));
+    type("30");
+    type("1");
+    type("100");
+    await tick(1000);
+
+    expect(previews).toEqual([null]);
+  });
+});
