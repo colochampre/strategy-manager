@@ -405,6 +405,48 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toBeEnabled();
   });
 
+  it("test_the_share_control_is_the_first_of_the_settings_column_under_its_heading_and_above_the_allowed_pairs", async () => {
+    renderPage(strategy({ allocation_percent: "37.5" }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
+    expect(slider).toBeInTheDocument();
+
+    const [title, first] = Array.from(settings.children) as HTMLElement[];
+    expect(title).toBe(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
+    expect(first).toContainElement(slider);
+    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
+    expect(first).not.toContainElement(pairs);
+    expect(first.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("test_no_text_of_the_pages_header_line_contains_the_share_or_per_trade", async () => {
+    renderPage(strategy({ allocation_percent: "37.5" }));
+    const title = await heading("ETH Breakout");
+
+    const header = title.closest("header") as HTMLElement;
+    expect(header.textContent).not.toContain("37.5");
+    expect(header.textContent).not.toContain("%");
+    expect(header.textContent?.toLowerCase()).not.toContain("per trade");
+    expect(header.textContent).not.toContain(en.strategies.detail.share.label);
+  });
+
+  it("test_an_archived_strategy_shows_the_control_read_only", async () => {
+    renderPage(strategy({ allocation_percent: "37.5", archived_at: "2026-09-01T00:00:00+00:00" }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
+    expect(slider).toBeInTheDocument();
+    expect(slider).toBeDisabled();
+    expect(within(settings).getByRole("textbox")).toBeDisabled();
+    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
+    expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
+  });
+
   it("renders in Spanish and has the same keys in both locales", async () => {
     await i18n.changeLanguage("es");
     renderPage(strategy({ uptime: { seconds: 2 * DAY, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: false } }));

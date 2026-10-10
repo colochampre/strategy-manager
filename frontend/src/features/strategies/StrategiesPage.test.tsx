@@ -144,6 +144,19 @@ describe("the strategies list", () => {
     expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
   });
 
+  it("test_the_strategies_list_shows_no_rows_share", async () => {
+    const api = strategiesApi([strategy({ allocation_percent: "37.5" })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    const row = await screen.findByTestId("strategy-row");
+    await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
+    expect(row.textContent).not.toContain("37.5");
+    expect(row.textContent?.toLowerCase()).not.toContain("per trade");
+    expect(row.textContent).not.toContain(en.strategies.detail.share.label);
+    expect(within(row).queryByRole("slider")).toBeNull();
+  });
+
   it("shows the venue alone, with no trailing separator, when a strategy has no allowed pairs", async () => {
     const api = strategiesApi([strategy({ allowed_pairs: [] })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
