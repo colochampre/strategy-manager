@@ -31,6 +31,8 @@ export class ApiError extends Error {
   readonly detail: string | undefined;
   readonly code: string | undefined;
   readonly fields: Readonly<Record<string, unknown>> | undefined;
+  /** The RESPONSE's JSON body when it is an object, as the server sent it. Never anything of the request. */
+  readonly responseBody: Readonly<Record<string, unknown>> | undefined;
 
   constructor(status: number, body: RefusalLikeBody | undefined) {
     const rawDetail = body?.detail;
@@ -43,6 +45,7 @@ export class ApiError extends Error {
     this.outcome = body?.outcome;
     this.detail = text;
     this.fields = structured;
+    this.responseBody = undefined;
     this.code = typeof structured?.error === "string" ? structured.error : body?.outcome;
   }
 }
