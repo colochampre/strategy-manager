@@ -3769,7 +3769,7 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   and returns that promise` only; the `onSuccess` cache write removed reds `on success writes the checked
   answer` only; the `isStrategy` check removed reds `refuses an answer that is not a strategy` only. Existing
   file edited: `strategies.ts` (the function and the hook, additions only); created `strategies.share.test.ts`.
-- [ ] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
+- [x] 12f.10.7 `fetchSharePreview` and `useSharePreview`, `shared/api/share-preview.ts`. RED
   `frontend/src/shared/api/share-preview.test.ts` (Create), with stubs that answer a well-formed body whose
   amounts are all zero. Tests: `::requests GET /strategies/{id}/share-preview with no query for the stored
   share` and `::with ?share= for an asked one`, `::refuses a body with a balance and no steps`, `::refuses
@@ -3782,6 +3782,30 @@ Modify `frontend/src/shared/api/performance.strategy.test.ts`, `frontend/src/fea
   equal`, `promise resolved ... instead of rejecting`. GREEN: every field checked by type, `steps` exactly
   100 entries numbered 1 to 100, `balance`, `exact` and `steps` present together or absent together; a
   failing check is an error, never a partial table.
+  **Done (RED commit `37198a7`, GREEN commit `9a91195`).** The stubs: `fetchSharePreview` answers a body of
+  `balance` null, `exact` null and `steps` empty with a `pool_minimum` of `"0"` and sends nothing;
+  `useSharePreview` runs it under a key no other query shares. RED, observed (29 failed, none passed):
+  `expected "spy" to be called 1 times, but got 0 times` (the request, `?share=` and encoding tests),
+  `expected '0' to be '5.000000000000000000'` (the stub's minimum, so the unsynced accept test was red, not
+  passing at once as the task predicted), `promise resolved "{ …(7) }" instead of rejecting` (every refusal),
+  `expected undefined to match object { strategy_id }` (the two key tests), `expected null to be an instance of
+  ApiError` and `expected false to be true` (the server refusal and the error state). One test first failed on
+  a `TypeError` (it indexed the first fetch call without asserting a call was made); an assertion was put before
+  it and the RED was re-run before the commit. **Passed at once**: none. GREEN: `isSharePreview` checks every
+  field by type, `balance` null needs `exact` null and `steps` empty, `balance` set needs a valid `exact` and
+  exactly 100 steps whose `share` is the JSON integer equal to the place (1 to 100); the query is
+  `GET /strategies/{id}/share-preview`, with `?share=` percent-encoded when one is asked; `useSharePreview` uses
+  key `['strategy', id, 'share-preview']` (plus the share when asked) and `refetchInterval` 60 000. Tests beyond
+  the list: the encoding of `?share=`, the server refusal as an `ApiError`, 101 steps, a step whose share is a
+  string, a stale flag that is a string, the hook reading a bad body as an error with no data, and the key
+  test checks that invalidating `['strategy', id]` refetches the preview. Mutations after the GREEN, each seen
+  red and reverted: the `steps.length === 0` pairing removed from the null case reds `steps without a
+  balance`; the `exact === null` pairing removed reds `exact without a balance`; the `isExact` check removed
+  reds `a balance and no exact value`, the two JSON-number exact cases and the `below_pool_minimum` case; the
+  100-step count removed reds `a balance and no steps`, 99 steps, 101 steps and the hook's error test; the
+  numbering check made a bare type check reds `steps numbered from 0` and `steps out of order`; the interval
+  removed reds `reads again every 60 seconds`; the share left out of the key reds the asked-share key test.
+  Files created: `share-preview.ts`, `share-preview.test.ts`; no existing file edited.
 - [ ] 12f.10.8 The webhook's origin and the URL's assembly. RED `frontend/src/shared/api/webhook-origin.test.ts` and
   `frontend/src/features/strategies/webhook-url.test.ts` (Create), with stubs in `webhook-origin.ts` and
   `webhook-url.ts`: `fetchWebhookOrigin` and `useWebhookOrigin` (key `['webhook-origin']`) answering `null`,
