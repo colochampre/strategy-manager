@@ -148,6 +148,197 @@ describe("apiFetch", () => {
     });
   });
 
+  describe("responseBody", () => {
+    function unreadable(message: string): Response {
+      return {
+        ok: false,
+        status: 500,
+        json: () => Promise.reject(new SyntaxError(message)),
+      } as unknown as Response;
+    }
+
+    async function refusalOf(response: Response): Promise<ApiError> {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      return (await apiFetch("/credentials/bybit", { method: "DELETE" }).catch(
+        (caught: unknown) => caught,
+      )) as ApiError;
+    }
+
+    it("is the whole body of a refusal that carries lists at its top level", async () => {
+      const body = {
+        outcome: "STRATEGIES_ENABLED",
+        detail: "strategies are enabled",
+        enabled_strategies: ["alpha"],
+        symbols: ["BTCUSDT"],
+        allocations: ["a-1"],
+        live_reservations: ["r-1"],
+        in_flight_attempts: ["x-1"],
+      };
+
+      const error = await refusalOf(fakeResponse(body, 409, false));
+
+      expect(error.responseBody).toEqual(body);
+    });
+
+    it("is the body of a flat refusal while fields stays undefined", async () => {
+      const error = await refusalOf(fakeResponse({ detail: "x" }, 404, false));
+
+      expect(error.responseBody).toEqual({ detail: "x" });
+      expect(error.fields).toBeUndefined();
+    });
+
+    it.each([
+      ["an array", () => fakeResponse([{ detail: "x" }], 422, false)],
+      ["a string", () => fakeResponse("boom", 502, false)],
+      ["null", () => fakeResponse(null, 500, false)],
+      ["an empty body", () => unreadable("Unexpected end of JSON input")],
+      ["a body that is not JSON", () => unreadable("Unexpected token < in JSON at position 0")],
+    ])("is undefined when the body is %s", async (_label, response) => {
+      const error = await refusalOf(response());
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.responseBody).toBeUndefined();
+    });
+
+    it.each([
+      {
+        shape: "a body with top-level lists",
+        status: 409,
+        body: { outcome: "STRATEGIES_ENABLED", detail: "enabled", symbols: ["BTCUSDT"] },
+        expected: {
+          outcome: "STRATEGIES_ENABLED",
+          detail: "enabled",
+          code: "STRATEGIES_ENABLED",
+          fields: undefined,
+          message: "enabled",
+        },
+      },
+      {
+        shape: "a flat body",
+        status: 404,
+        body: { detail: "x" },
+        expected: { outcome: undefined, detail: "x", code: undefined, fields: undefined, message: "x" },
+      },
+      {
+        shape: "a structured detail",
+        status: 422,
+        body: { detail: { error: "KEY_REJECTED", message: "no" } },
+        expected: {
+          outcome: undefined,
+          detail: "no",
+          code: "KEY_REJECTED",
+          fields: { error: "KEY_REJECTED", message: "no" },
+          message: "no",
+        },
+      },
+      {
+        shape: "a list detail",
+        status: 422,
+        body: { detail: [{ loc: ["body", "api_key"], msg: "short" }] },
+        expected: {
+          outcome: undefined,
+          detail: undefined,
+          code: undefined,
+          fields: undefined,
+          message: "Request failed with status 422",
+        },
+      },
+      {
+        shape: "an array",
+        status: 422,
+        body: [{ detail: "x" }],
+        expected: {
+          outcome: undefined,
+          detail: undefined,
+          code: undefined,
+          fields: undefined,
+          message: "Request failed with status 422",
+        },
+      },
+      {
+        shape: "a string",
+        status: 502,
+        body: "boom",
+        expected: {
+          outcome: undefined,
+          detail: undefined,
+          code: undefined,
+          fields: undefined,
+          message: "Request failed with status 502",
+        },
+      },
+      {
+        shape: "null",
+        status: 500,
+        body: null,
+        expected: {
+          outcome: undefined,
+          detail: undefined,
+          code: undefined,
+          fields: undefined,
+          message: "Request failed with status 500",
+        },
+      },
+    ])("leaves status, outcome, detail, code, fields and message as they were for $shape", async (row) => {
+      const error = await refusalOf(fakeResponse(row.body, row.status, false));
+
+      expect(error.status).toBe(row.status);
+      expect(error.outcome).toBe(row.expected.outcome);
+      expect(error.detail).toBe(row.expected.detail);
+      expect(error.code).toBe(row.expected.code);
+      expect(error.fields).toEqual(row.expected.fields);
+      expect(error.message).toBe(row.expected.message);
+    });
+
+    describe("an error never holds the request body", () => {
+      const sentinel = "SENTINEL-REQUEST-SECRET-0123456789";
+
+      function textsOf(root: unknown): string[] {
+        const seen = new Set<unknown>();
+        const found: string[] = [];
+        const walk = (value: unknown): void => {
+          if (typeof value === "string") {
+            found.push(value);
+            return;
+          }
+          if (typeof value !== "object" || value === null || seen.has(value)) {
+            return;
+          }
+          seen.add(value);
+          for (const name of Object.getOwnPropertyNames(value)) {
+            found.push(name);
+            walk((value as Record<string, unknown>)[name]);
+          }
+        };
+        walk(root);
+        return found;
+      }
+
+      async function failingPut(answer: () => Promise<Response>): Promise<ApiError> {
+        vi.stubGlobal("fetch", vi.fn().mockImplementation(answer));
+        return (await apiFetch("/credentials/bybit", {
+          method: "PUT",
+          body: JSON.stringify({ api_key: sentinel, api_secret: sentinel }),
+        }).catch((caught: unknown) => caught)) as ApiError;
+      }
+
+      it.each([
+        ["a 422", () => Promise.resolve(fakeResponse({ detail: "refused" }, 422, false))],
+        ["a 500", () => Promise.resolve(fakeResponse({ detail: "broken" }, 500, false))],
+        ["no answer at all", () => Promise.reject(new TypeError("Failed to fetch"))],
+      ])("after %s", async (_label, answer) => {
+        const error = await failingPut(answer);
+
+        expect(error).toBeInstanceOf(ApiError);
+        const everything = [error.message, ...textsOf(error)];
+        expect(everything.length).toBeGreaterThan(1);
+        for (const text of everything) {
+          expect(text).not.toContain(sentinel);
+        }
+      });
+    });
+  });
+
   it("throws a typed ApiError for a plain FastAPI 404 body, never a resolved value", async () => {
     const fetchMock = vi
       .fn()
