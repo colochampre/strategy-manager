@@ -2,7 +2,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { InlineStatus } from "@/features/strategies/InlineStatus";
+import { StatusButton } from "@/features/strategies/StatusButton";
 import { webhookMessage } from "@/features/strategies/webhook-message";
 import { webhookUrl } from "@/features/strategies/webhook-url";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";
@@ -32,20 +32,37 @@ interface Copied extends UrlState {
   ok: boolean;
 }
 
+type CopyResult = "none" | "copied" | "failed";
+
 /**
- * The result beside the button that was used; the other button's status stays empty. "Copied" beside the
- * URL shows only while the URL on screen is still the kind that was copied: a host that arrived after the
- * copy changes it, and no handler sees that.
+ * What the last copy says about one button; the other button says nothing. "Copied" on the URL's button
+ * holds only while the URL on screen is still the kind that was copied: a host that arrived after the copy
+ * changes it, and no handler sees that.
  */
-function CopyStatus({ copied, button, present }: { copied: Copied | null; button: CopyButton; present: UrlState }) {
-  const { t } = useTranslation();
-  if (copied === null || copied.button !== button) return <InlineStatus message={null} />;
+function copyResult(copied: Copied | null, button: CopyButton, present: UrlState): CopyResult {
+  if (copied === null || copied.button !== button) return "none";
   const stale = button === "url" && (copied.secretShown !== present.secretShown || copied.hostIncluded !== present.hostIncluded);
-  if (copied.ok && stale) return <InlineStatus message={null} />;
-  return copied.ok ? (
-    <InlineStatus message={t("strategies.webhook.copied")} />
-  ) : (
-    <InlineStatus message={t("strategies.webhook.copyFailed")} tone="failure" />
+  if (copied.ok) return stale ? "none" : "copied";
+  return "failed";
+}
+
+/**
+ * A Copy button that reads "Copied" itself, so nothing beside it moves (decision 52). A copy that failed
+ * keeps the button's ordinary text and says so in a visible text beside it. A button that reads "Copied"
+ * stays enabled and copies again.
+ */
+function CopyAction({ label, result, onCopy }: { label: string; result: CopyResult; onCopy: () => void }) {
+  const { t } = useTranslation();
+  const copiedText = t("strategies.webhook.copied");
+  return (
+    <StatusButton
+      texts={[label, copiedText]}
+      shown={result === "copied" ? copiedText : label}
+      message={result === "copied" ? copiedText : result === "failed" ? t("strategies.webhook.copyFailed") : null}
+      tone={result === "failed" ? "failure" : "neutral"}
+      onClick={onCopy}
+      className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+    />
   );
 }
 
@@ -156,14 +173,11 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
               {t("strategies.webhook.hide")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => void copy("url", url)}
-            className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
-          >
-            {t("strategies.webhook.copyUrl")}
-          </button>
-          <CopyStatus copied={copied} button="url" present={present} />
+          <CopyAction
+            label={t("strategies.webhook.copyUrl")}
+            result={copyResult(copied, "url", present)}
+            onCopy={() => void copy("url", url)}
+          />
         </div>
         {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         {failed && (
@@ -185,14 +199,11 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
           {message}
         </pre>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <button
-            type="button"
-            onClick={() => void copy("message", message)}
-            className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
-          >
-            {t("strategies.webhook.copyMessage")}
-          </button>
-          <CopyStatus copied={copied} button="message" present={present} />
+          <CopyAction
+            label={t("strategies.webhook.copyMessage")}
+            result={copyResult(copied, "message", present)}
+            onCopy={() => void copy("message", message)}
+          />
         </div>
       </div>
     </section>
