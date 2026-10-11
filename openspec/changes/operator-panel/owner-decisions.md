@@ -394,7 +394,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **The owner chose the first**, which was the assistant's recommendation. Why it was recommended: the VPS holds the vault and the master key, and building there would put Node and the whole npm dependency tree on that machine. The read of 2026-10-09 (unit whn) found neither Node nor `cloudflared` nor a built `frontend/dist` on the VPS.
     - **What the owner accepted with it:** a manual step at every deploy that changes `frontend/`; `git pull` no longer updates what the owner sees; and a bundle can be older or newer than the checkout beside it, with nothing saying so.
     - This session's choices, not the owner's words, to be seen by the owner in unit pps: every bundle carries a `build.txt` with the commit it was built from, readable at `/build.txt`; bundles live outside the git checkout, in a directory of their own directly under `/opt` (which belongs to root), `/opt/strategy-manager-panel/releases/<commit>`, owned by root so the service's user can read them and cannot change them; `PANEL_DIST_DIR` names a link, `/opt/strategy-manager-panel/current`, that is moved to the new release, so a new bundle needs no restart of the API.
-    - Still not decided (decision 56): whether the real strategies are activated with `DRY_RUN` on.
+    - Still not decided (decision 56): whether the real strategies are activated with `DRY_RUN` on. (Decided the same day: decision 63.)
+63. **The real strategies are activated first with `DRY_RUN` on** (2026-10-11, owner, asked once the panel was served in production; it settles what decision 56 left open).
+    - What was put to the owner: activate them with `DRY_RUN` on, or straight in live mode. The assistant recommended the first, for three reasons: no rehearsal result with fills at the alert's price exists yet (decision 56); no real signal has been confirmed through `hook.strategymanager.trade` (task whn.4); and whether a share of 30 clears the venue's minimum order has not been seen, where a share of 3 did not.
+    - **The owner chose `DRY_RUN` on.**
+    - What follows from it, as the assistant understands the earlier decisions: changing the mode later is a manual act with a restart, and the worker refuses to start in a mode that does not match the origin of an open position (decision 28), so the change is made while no simulated position is open.
+    - Not decided: when the mode is changed to live, and what has to be seen before it. The assistant's suggestion, not the owner's word: one whole round trip of each strategy, read in the panel.
 
 ## Standing constraints
 
