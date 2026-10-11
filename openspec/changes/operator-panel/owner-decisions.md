@@ -379,6 +379,10 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **On a phone the exchange tabs share the row's whole width and are centred**, instead of sitting against its left edge with the rest of the row empty. The assistant's reading of "centred and taking a bit more of the bar": every tab gets the same share of the row. It is drawn in examples 1c and 6b, and the owner saw that drawing and confirmed it the same day.
     - **Everything else is approved as drawn**, the choices the design made without asking among them: the tab row 52 px tall, the abbreviated tags, the date beside the key hint, the three looks of a tag, the save notice with no timer, and "Delete key" appearing once the list is read again. "withdraw confirmed {date}" stands; the assistant had pointed out that it does not say that withdrawals are disabled.
     - **One PR for the six units**, not the two the design recommended (one that reads, one that writes). The units and their order do not change.
+60. **The cards of Settings are as wide as the cards of Strategies** (2026-10-10, owner, from the first review by eye of the built page).
+    - What the owner saw: on a wide screen the cards of Strategies take most of the width, and the cards of Settings stopped far short of it, with the rest of the row empty.
+    - Why: the Settings page capped itself at 900 px, copied from the prototype (`.page { max-width: 900px }`). The prototype is drawn on a canvas of 980 px, so it never showed the two pages side by side. Strategies has no cap of its own and fills the shell's column of 90rem (decision 38).
+    - What changes: the page's own cap is removed, and the shell's column is the only one. The cap of each sentence inside a card (70 characters) stays, so a line of text does not grow with the card. The prototype is left as drawn.
 
 ## Standing constraints
 
