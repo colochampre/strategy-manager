@@ -318,8 +318,9 @@ function unrecorded(overrides: Record<string, unknown> = {}): CredentialEntry {
 }
 
 function factsList(): HTMLElement {
-  const list = screen.queryByRole("list", { name: FACTS });
-  expect(list, FACTS).toBeInTheDocument();
+  const name = i18n.language === "es" ? "Lo que se sabe de esta clave" : FACTS;
+  const list = screen.queryByRole("list", { name });
+  expect(list, name).toBeInTheDocument();
   return list as HTMLElement;
 }
 
