@@ -63,6 +63,20 @@ export function poolOn(exchange: string, pools: readonly HasPoolFlag[] | undefin
   return pools.some((pool) => pool.exchange === exchange && pool.enabled);
 }
 
+/** The part of a query's result that decides whether its data may be believed. */
+interface ReadResult<T> {
+  status: string;
+  data: T | undefined;
+}
+
+/**
+ * The pools the card and the tab may rely on. STUB (task 13.5.1-style RED stub):
+ * answers wrongly on purpose, so the test written next fails on its assertion.
+ */
+export function knownPools<T>(query: ReadResult<T>): T | undefined {
+  return query.data;
+}
+
 /**
  * The state of one exchange. `entry` is its row of `GET /credentials`, or
  * `undefined` when it is not listed; an `EMPTY` row and a missing row mean the
