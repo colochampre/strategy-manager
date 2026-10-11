@@ -871,6 +871,29 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     }
   });
 
+  it("keeps the card drawn from the answer while the list is behind, also after the owner opens a form", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      reread: "pending",
+      pools: [pool("bybit"), pool("binance")],
+    });
+    await cardsDrawn();
+    await submitFor("Bybit");
+    await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument());
+
+    // Another card's form: the old key of this card must not come back as if nothing had happened.
+    fireEvent.click(toggleOf("Binance"));
+    expect(bybitCard().textContent).not.toContain(OLD_LAST4);
+    expect(within(bybitCard()).queryByText(`key ending in ${NEW_LAST4}`)).toBeInTheDocument();
+    expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument();
+
+    // This card's own form: the key is stored (it was just saved), so the form says it replaces it.
+    fireEvent.click(toggleOf("Bybit"));
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Replace the Bybit key"]);
+    expect(toggleOf("Bybit")).toHaveTextContent("Replace key");
+    expect(bybitCard().textContent).not.toContain(OLD_LAST4);
+  });
+
   it("ends the notice when the owner saves again, to the new key", async () => {
     savePage({
       credentials: [storedKey("bybit", { last4: OLD_LAST4 }), storedKey("binance", { last4: "ZZZZ" })],
