@@ -4783,7 +4783,7 @@ export function saveCredential(
 ): Promise<SaveResult>;
 ```
 
-It is a plain function over `apiFetch`, called from a plain handler. **It is not a `useMutation`**: a mutation keeps its `variables`, which would be the secret, in the mutation cache. It catches everything, maps it, and lets the error object go. The mapping, first match wins: a 2xx is saved; a 401 is `unauthorized` (the page is being replaced by the token gate, and the form does nothing); a known `outcome`; a 404; a 503; a 422 whose `detail` is a list; status 0; anything else.
+It is a plain function over `apiFetch`, called from a plain handler. **It is not a `useMutation`**: a mutation keeps its `variables`, which would be the secret, in the mutation cache. It catches everything, maps it, and lets the error object go. The mapping, first match wins: a 2xx whose body is JSON is saved (a 2xx whose body cannot be read is `unknown` with status 200, never a save: the route always answers JSON, so the panel does not know what happened; found on reading unit 13.2's diff, 2026-10-10); a 401 is `unauthorized` (the page is being replaced by the token gate, and the form does nothing); a known `outcome`; a 404; a 503; a 422 whose `detail` is a list; status 0; anything else.
 
 **Every answer and its text.** The panel chooses the text by the outcome or the status. **It never renders the server's `detail`.** After each of them the form does what the last row of the table above says; the last column names only what differs.
 
