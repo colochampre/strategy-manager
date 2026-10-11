@@ -315,6 +315,23 @@ resume work.
   `systemctl restart strategy-api strategy-worker`. As root, git refuses with
   "detected dubious ownership". Never add `safe.directory` to root's global
   config: root would then run hooks and config that `strategy` can write.
+- **`git pull` does not deploy the panel.** The API serves it from
+  `PANEL_DIST_DIR=/opt/strategy-manager-panel/current`, a link to a bundle
+  built on the owner's machine and copied to the VPS (owner decision 62; there
+  is no Node on the VPS). Every deploy that changes `frontend/` repeats task
+  pps.6 of `openspec/changes/operator-panel/tasks.md`: build from a clean
+  worktree of `origin/main`, copy the archive, unpack it under
+  `/opt/strategy-manager-panel/releases/<commit>`, move the link. No restart.
+  `https://strategymanager.trade/build.txt` names the commit being served.
+  Skip the step and the old panel keeps being served, and nothing says so.
+- The panel's name, `strategymanager.trade`, reaches the API through a
+  Cloudflare Tunnel behind Cloudflare Access, and the tunnel validates the
+  Access token itself. The webhook's name, `hook.strategymanager.trade`, does
+  not: it comes through Caddy, which forwards `/webhook/tradingview` only. So
+  `BEHIND_CLOUDFLARE_TUNNEL` stays unset. In the Cloudflare zone, Real User
+  Measurements is off: it adds a script to every proxied page, and the page's
+  CSP refuses any script that is not the build's (seen 2026-10-11). E-mail
+  address obfuscation is off too, as a precaution that was not tested.
 - After every merge and deploy, update the delivery log in the active change's
   `tasks.md`.
 
