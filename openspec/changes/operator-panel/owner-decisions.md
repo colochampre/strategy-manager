@@ -400,6 +400,14 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **The owner chose `DRY_RUN` on.**
     - What follows from it, as the assistant understands the earlier decisions: changing the mode later is a manual act with a restart, and the worker refuses to start in a mode that does not match the origin of an open position (decision 28), so the change is made while no simulated position is open.
     - Not decided: when the mode is changed to live, and what has to be seen before it. The assistant's suggestion, not the owner's word: one whole round trip of each strategy, read in the panel.
+64. **The real strategies are three NEW strategies, one pair each, with a clean history** (2026-10-11, owner).
+    - What the owner found in the panel: three strategies, each with the one pair its name says, all enabled at a share of 3, which the owner had just raised to 5 from the panel so that an order clears the minimum.
+    - What the owner asked: whether ONE strategy with the three pairs at a share of 30 is the same as three strategies at 30.
+    - What the code says, read for the answer: the share sizes each opening, it is not a cap on the strategy. An opening asks for the share of the pool's TOTAL whatever anyone already holds (`process_signal.py`, the sizing read in `_handle_consumes`), and the existing-position guard looks at the strategy on ONE symbol (`holding_guard.py`), so one strategy can hold several pairs at once. For capital the two layouts are therefore the same: with three pairs open, up to 90 of the pool's total as margin, and the fill mode settles what is not available. Not checked: whether anything else in the system aggregates by strategy in a way that would change this.
+    - Where they differ, as put to the owner: one return curve and one PnL against three; pausing and the share are per strategy; one webhook message against three.
+    - What was put to the owner: raise the three existing strategies to 30, or create three new ones. The assistant recommended the first, because nothing changes in TradingView; its cost is that they keep the test period's history, the two operations closed on 2026-09-23 at price 1 among it (decision 56).
+    - **The owner chose three new strategies with a clean history.**
+    - The assistant's reading of what follows, not the owner's words: the three TradingView alerts are given the new strategies' messages, and the three existing strategies are retired from the panel once they hold nothing.
 
 ## Standing constraints
 
