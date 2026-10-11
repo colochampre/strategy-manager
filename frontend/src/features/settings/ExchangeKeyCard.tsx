@@ -22,6 +22,8 @@ export interface ExchangeKeyCardProps {
   open: boolean;
   /** The toggle was pressed: it opens the form, or closes it when it is open. */
   onToggle: () => void;
+  /** A save is in flight somewhere on the page: every button of the card is disabled. RED STUB (13.5.8): ignored. */
+  busy?: boolean;
   /** The key form, drawn under the facts and the buttons when `open`. */
   children?: ReactNode;
 }
