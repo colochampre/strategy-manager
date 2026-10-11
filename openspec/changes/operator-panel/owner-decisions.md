@@ -383,6 +383,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - What the owner saw: on a wide screen the cards of Strategies take most of the width, and the cards of Settings stopped far short of it, with the rest of the row empty.
     - Why: the Settings page capped itself at 900 px, copied from the prototype (`.page { max-width: 900px }`). The prototype is drawn on a canvas of 980 px, so it never showed the two pages side by side. Strategies has no cap of its own and fills the shell's column of 90rem (decision 38).
     - What changes: the page's own cap is removed, and the shell's column is the only one. The cap of each sentence inside a card (70 characters) stays, so a line of text does not grow with the card. The prototype is left as drawn.
+61. **The cursor says what a click does, on every page** (2026-10-10, owner; an observation about the whole panel, made during the review of Settings).
+    - **The arrow over text that is only read.** The text cursor (the I-beam) no longer appears over a heading, a figure or a sentence.
+    - **The hand over what acts on a click**: buttons, selects, checkboxes and their labels, disclosure summaries. Links already had it. A disabled control keeps the arrow, or the "not allowed" cursor where a component sets one.
+    - **The text cursor in a field** that is typed in, and nowhere else.
+    - What the assistant found and the owner did not have to know: Tailwind 4 leaves a button with the arrow, so before this only the share slider and the archived toggle showed the hand. The three rules are written once, in `index.css`, in the base layer, so a `cursor-*` class on a component still wins.
+    - What does not change: every text can still be selected and copied (the last four characters of a key, a webhook URL, a figure). Only the hint that it can is gone.
 
 ## Standing constraints
 
