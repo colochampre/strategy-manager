@@ -10,6 +10,14 @@ export interface DeleteKeyControlProps {
   name: string;
   /** The last four characters of the key the list says is stored, or none. */
   last4: string | null;
+  /** The card's form is open, or a save is in flight: the button is disabled. */
+  disabled?: boolean;
+  /** The dialog was opened: the page ends the notice of an earlier save. */
+  onOpen?: () => void;
+  /** A delete worked: the page says so and moves the focus to the card's `Add key`. */
+  onDeleted?: () => void;
+  /** The dialog closed and the card has no `Delete key` to take the focus back: the page picks it up. */
+  onFocusFallback?: () => void;
 }
 
 /** STUB (task 13.6.1): a button that opens the dialog. */
@@ -20,7 +28,7 @@ export function DeleteKeyControl({ exchange, name, last4 }: DeleteKeyControlProp
   if (last4 === null) return null;
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
+      <button type="button" aria-label={`${t("settings.card.delete")} ${name}`} onClick={() => setOpen(true)}>
         {t("settings.card.delete")}
       </button>
       {open && (
