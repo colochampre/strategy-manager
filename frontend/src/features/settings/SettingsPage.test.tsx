@@ -205,8 +205,9 @@ describe("the page's own states", () => {
     stub({ kind: "pending" });
     mountPage();
 
-    await waitFor(() => expect(screen.queryByRole("status")).toBeInTheDocument());
-    expect(screen.getByRole("status")).toHaveTextContent("Loading exchange keys…");
+    // Task 13.5.10 (R12): the page now also holds a hidden status region, so the loading line is found by its text.
+    await waitFor(() => expect(screen.queryByText("Loading exchange keys…")).toBeInTheDocument());
+    expect(screen.getByText("Loading exchange keys…")).toHaveAttribute("role", "status");
     expect(screen.queryAllByRole("article")).toEqual([]);
     expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
   });
@@ -387,6 +388,12 @@ function toggleOf(name: string): HTMLElement {
   return button as HTMLElement;
 }
 
+/** An element that must be there: a missing one fails here as an assertion, not as a query error. */
+function found<T extends HTMLElement>(element: T | null, label: string): T {
+  expect(element, label).toBeInTheDocument();
+  return element as T;
+}
+
 function formsOpen(): HTMLElement[] {
   return screen.queryAllByRole("heading", { level: 4 });
 }
@@ -490,6 +497,409 @@ describe("the toggles and the open form (task 13.5.8)", () => {
   });
 });
 
+// ---- The end of a save that worked (design § F, decision 57; task 13.5.10) ----
+
+const KEY_VALUE = "FAKE-key-0001";
+const SECRET_VALUE = "FAKE-secret-0002";
+const OLD_LAST4 = "1234";
+const NEW_LAST4 = "7Q2d";
+const SAVED_NOTICE = `Key ending in ${NEW_LAST4} saved.`;
+const PENDING_NOTICE = `${SAVED_NOTICE} The rest of this card appears when the list has been read again.`;
+/** The notice of a save, with or without its four characters; a refusal's "Nothing was saved." is not one. */
+const SAVED_NOTICE_PATTERN = /^Key (ending in \w+ )?saved\./;
+const STALE_LINE ="This list could not be refreshed and may be out of date.";
+const READ_ONLY_BYBIT =
+  "This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.";
+const WITHDRAWALS_LABEL = "I confirmed in Binance that this key has withdrawals disabled";
+const FUTURES_LABEL = "I confirmed in Binance that this key has Enable Futures";
+
+function savedAnswer(exchange: string, overrides: Record<string, unknown> = {}) {
+  return { exchange, last4: NEW_LAST4, warnings: [], facts: { trade_capable: true }, ...overrides };
+}
+
+type Reread = "ok" | "pending" | "fail" | "same";
+
+interface SaveSetup {
+  /** The list before the save. */
+  credentials: unknown[];
+  /** The list the re-read after the save returns (`ok`). */
+  after?: unknown[];
+  reread?: Reread;
+  /** What the `PUT` answers; the exchange is its argument. */
+  respond?: (exchange: string) => Promise<Response>;
+  pools?: unknown[];
+  /** Render the whole app (so the tabs exist) instead of the page alone. */
+  shell?: boolean;
+}
+
+/** The page with a save wired: the `PUT` answered by the test and the re-read after it by `reread`. */
+function savePage({
+  credentials,
+  after = credentials,
+  reread = "ok",
+  respond = (exchange) => Promise.resolve(jsonResponse(savedAnswer(exchange))),
+  pools = [pool("bybit")],
+  shell = false,
+}: SaveSetup) {
+  const state = { saved: false, reread };
+  const extra: ExtraRoute = (url, init) => {
+    const put = /\/credentials\/(\w+)$/.exec(url);
+    if (put !== null && init?.method === "PUT") {
+      state.saved = true;
+      return respond(put[1] as string);
+    }
+    if (state.saved && url.endsWith("/credentials") && (init?.method ?? "GET") === "GET") {
+      switch (state.reread) {
+        case "pending":
+          return new Promise<Response>(() => undefined);
+        case "fail":
+          return Promise.resolve(jsonResponse({ detail: "boom" }, 500));
+        case "same":
+          return Promise.resolve(jsonResponse(credentials));
+        case "ok":
+          return Promise.resolve(jsonResponse(after));
+      }
+    }
+    return undefined;
+  };
+  const fetchMock = stub(ok(...credentials), pools, extra);
+  if (shell) renderAt(<AppRoutes />, "/settings");
+  else mountPage();
+  return { fetchMock, state };
+}
+
+/** Opens a card's form, types both fields, ticks every box and presses the button. */
+async function submitFor(name: string) {
+  fireEvent.click(toggleOf(name));
+  fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY_VALUE } });
+  fireEvent.change(screen.getByLabelText("API secret"), { target: { value: SECRET_VALUE } });
+  if (name === "Binance") {
+    fireEvent.click(screen.getByLabelText(WITHDRAWALS_LABEL));
+    fireEvent.click(screen.getByLabelText(FUTURES_LABEL));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Checking…" })).not.toBeInTheDocument());
+}
+
+const noteIn = (card: HTMLElement, text: string) => within(card).queryByText(text);
+const bybitCard = () => screen.getByRole("article", { name: "Bybit" });
+const statusRegion = () => screen.queryAllByRole("status");
+
+describe("the end of a save that worked (task 13.5.10)", () => {
+  it("test_the_form_closes_on_the_answer", async () => {
+    savePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 })], reread: "pending" });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(formsOpen()).toEqual([]));
+    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
+  });
+
+  it("test_until_the_list_is_read_again_the_card_is_drawn_from_the_answer", async () => {
+    savePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 })], reread: "pending" });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument());
+    const card = bybitCard();
+    // The key line is the SAVED key's hint, with no date; the old key is nowhere.
+    expect(within(card).queryByText(`key ending in ${NEW_LAST4}`)).toBeInTheDocument();
+    expect(card.textContent).toContain(NEW_LAST4);
+    expect(card.textContent).not.toContain(OLD_LAST4);
+    expect(document.body.textContent).not.toContain(OLD_LAST4);
+    expect(card.textContent).not.toMatch(/checked|not validated/);
+    // The answer said the key trades: no tag at all, and no state of the list is claimed.
+    expect(within(card).queryByRole("list", { name: "What is known about this key" })).not.toBeInTheDocument();
+    expect(card).toHaveClass("border-rule");
+    expect(within(card).queryByRole("button", { name: /^Replace key/ })).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /^Delete key/ })).not.toBeInTheDocument();
+  });
+
+  it("draws the only tag the answer has, `read-only`, while the list is behind", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      reread: "pending",
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument());
+    const tags = within(within(bybitCard()).getByRole("list", { name: "What is known about this key" })).getAllByRole("listitem");
+    expect(tags.map((tag) => tag.textContent)).toEqual(["read-only"]);
+    expect(bybitCard().textContent).not.toContain(OLD_LAST4);
+  });
+
+  it("test_once_the_list_is_read_the_card_is_the_lists_with_the_notice", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: NEW_LAST4, validated_at: "2026-10-09T09:30:00Z" })],
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(within(bybitCard()).queryByText(`checked Oct 9, 2026`)).toBeInTheDocument());
+    const card = bybitCard();
+    const notice = found(noteIn(card, SAVED_NOTICE), "the notice");
+    // A plain paragraph in ink-2, the first line of the facts, not a live region.
+    expect(notice.tagName).toBe("P");
+    expect(notice).toHaveClass("text-ink-2");
+    expect(notice.closest("[role='status'], [aria-live]")).toBeNull();
+    expect(notice.parentElement?.firstElementChild).toBe(notice);
+    expect(noteIn(card, PENDING_NOTICE)).not.toBeInTheDocument();
+    expect(card.textContent).not.toContain(OLD_LAST4);
+  });
+
+  it("test_an_identical_list_read_again_still_ends_the_pending_view", async () => {
+    // The list read after the save is exactly the list held before it (dataUpdatedAt moves all the same, design § N).
+    savePage({
+      credentials: [storedKey("bybit", { last4: NEW_LAST4 })],
+      reread: "same",
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit"))),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
+    expect(noteIn(bybitCard(), PENDING_NOTICE)).not.toBeInTheDocument();
+    expect(within(bybitCard()).queryByRole("list", { name: "What is known about this key" })).toBeInTheDocument();
+  });
+
+  it("test_a_failed_reread_keeps_the_pending_view_and_shows_the_stale_line", async () => {
+    const { state } = savePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 })], reread: "fail" });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(screen.queryByText(STALE_LINE)).toBeInTheDocument());
+    expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument();
+    expect(bybitCard().textContent).not.toContain(OLD_LAST4);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeInTheDocument();
+
+    state.reread = "ok";
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).not.toBeInTheDocument());
+    expect(screen.queryByText(STALE_LINE)).not.toBeInTheDocument();
+  });
+
+  it("test_a_read_only_key_is_a_state_of_the_card: from the answer before the list, from the list after, and on the tab", async () => {
+    savePage({
+      shell: true,
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: NEW_LAST4, trade_capable: false })],
+      reread: "pending",
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+    });
+    await cardsDrawn();
+    await submitFor("Bybit");
+
+    // Before the list is read: amber tag, amber border and the sentence, all from the answer.
+    await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument());
+    const card = bybitCard();
+    expect(card).toHaveClass("border-decision");
+    expect(within(card).queryByText("read-only")).toHaveClass("text-decision");
+    expect(within(card).queryByText(READ_ONLY_BYBIT)).toHaveClass("text-decision");
+  });
+
+  it("test_a_read_only_key_is_a_state_of_the_card: the list says so afterwards, and the tab shows `read-only`", async () => {
+    savePage({
+      shell: true,
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: NEW_LAST4, trade_capable: false })],
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+    });
+    await cardsDrawn();
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
+    expect(bybitCard()).toHaveClass("border-decision");
+    expect(within(bybitCard()).queryByText(READ_ONLY_BYBIT)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
+    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    for (const bar of await screen.findAllByRole("navigation", { name: "Exchanges" })) {
+      await waitFor(() => expect(within(bar).queryByRole("button", { name: "bybit read-only" })).toBeInTheDocument());
+    }
+  });
+
+  it.each([
+    ["an answer with no last4", savedAnswer("bybit", { last4: undefined }), false],
+    ["a last4 that is not four characters", savedAnswer("bybit", { last4: "FAKE-WHOLE-KEY-VALUE" }), false],
+    ["a last4 that is not a string", savedAnswer("bybit", { last4: 1234 }), false],
+  ])("says `Key saved.` for %s, and draws no hint of a key the panel was not told", async (_label, body, readOnly) => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      reread: "pending",
+      respond: () => Promise.resolve(jsonResponse(body)),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(noteIn(bybitCard(), "Key saved. The rest of this card appears when the list has been read again.")).toBeInTheDocument());
+    expect(bybitCard().textContent).not.toContain(OLD_LAST4);
+    expect(bybitCard().textContent).not.toContain("FAKE-WHOLE-KEY-VALUE");
+    expect(bybitCard().className.includes("border-decision")).toBe(readOnly);
+    expect(statusRegion().map((region) => region.textContent)).toEqual(["Key saved."]);
+  });
+
+  it("does not take a 200 whose body cannot be read for a save: the form stays open and says it is not known (task 13.2.14b)", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      respond: () =>
+        Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError("not json")) } as Response),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("(status 200)");
+    expect(screen.getByRole("alert")).toHaveTextContent("not known whether the key was saved");
+    expect(formsOpen()).toHaveLength(1);
+    expect(screen.queryByText(SAVED_NOTICE_PATTERN)).not.toBeInTheDocument();
+  });
+
+  it("test_the_focus_goes_to_the_toggle: the same element, reading `Replace key` also after a FIRST key", async () => {
+    savePage({ credentials: [storedKey("bybit")], reread: "pending", pools: [pool("bybit"), pool("binance")] });
+    await cardsDrawn();
+    const before = toggleOf("Binance");
+    expect(before).toHaveTextContent("Add key");
+
+    await submitFor("Binance");
+
+    await waitFor(() => expect(formsOpen()).toEqual([]));
+    const after = toggleOf("Binance");
+    expect(after).toBe(before);
+    expect(after).toHaveTextContent("Replace key");
+    expect(after).toHaveAccessibleName("Replace key Binance");
+    expect(document.activeElement).toBe(after);
+  });
+
+  it("moves the focus to the toggle after a replace too", async () => {
+    savePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 })] });
+    await cardsDrawn();
+    const before = toggleOf("Bybit");
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(formsOpen()).toEqual([]));
+    expect(document.activeElement).toBe(before);
+  });
+
+  it("test_the_status_region_tells_a_screen_reader", async () => {
+    savePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 })], reread: "pending" });
+    await cardsDrawn();
+    // Always in the document and hidden from sight, empty until a save.
+    expect(statusRegion()).toHaveLength(1);
+    expect(statusRegion()[0]).toHaveClass("sr-only");
+    expect(statusRegion()[0]).toHaveTextContent("");
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(statusRegion()[0]).toHaveTextContent(SAVED_NOTICE));
+    expect(statusRegion()).toHaveLength(1);
+    expect(statusRegion()[0]?.textContent).toBe(SAVED_NOTICE);
+    // The visible notice is not a second live region, so nothing is read twice.
+    expect(noteIn(bybitCard(), PENDING_NOTICE)?.closest("[role='status'], [aria-live], [role='alert']")).toBeNull();
+  });
+
+  it("says the card's read-only sentence after it to a screen reader, for a key that cannot trade", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      reread: "pending",
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(statusRegion()[0]?.textContent).toBe(`${SAVED_NOTICE} ${READ_ONLY_BYBIT}`));
+  });
+
+  it("test_the_notice_has_no_timer: it is still there after ten minutes and ends when the owner opens a form", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: NEW_LAST4 })],
+    });
+    await cardsDrawn();
+    await submitFor("Bybit");
+    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      });
+      expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    fireEvent.click(toggleOf("Binance"));
+
+    expect(noteIn(bybitCard(), SAVED_NOTICE)).not.toBeInTheDocument();
+  });
+
+  it("ends the notice when the owner saves again, to the new key", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 }), storedKey("binance", { last4: "ZZZZ" })],
+      pools: [pool("bybit"), pool("binance")],
+    });
+    await cardsDrawn();
+    await submitFor("Bybit");
+    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
+
+    await submitFor("Binance");
+
+    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).not.toBeInTheDocument());
+    const binance = screen.getByRole("article", { name: "Binance" });
+    await waitFor(() => expect(noteIn(binance, SAVED_NOTICE)).toBeInTheDocument());
+  });
+
+  it("does not close the form and does not change the card for a refusal", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      respond: () => Promise.resolve(jsonResponse({ outcome: "KEY_REJECTED", detail: "x" }, 422)),
+    });
+    await cardsDrawn();
+    fireEvent.click(toggleOf("Bybit"));
+    const cardBefore = bybitCard().innerHTML.replace(/<section[\s\S]*<\/section>/, "");
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: SECRET_VALUE } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+    expect(formsOpen()).toHaveLength(1);
+    expect(within(bybitCard()).queryByText(SAVED_NOTICE_PATTERN)).not.toBeInTheDocument();
+    expect(statusRegion()[0]).toHaveTextContent("");
+    expect(bybitCard().innerHTML.replace(/<section[\s\S]*<\/section>/, "")).toBe(cardBefore);
+  });
+
+  it("keeps the form open for an answer that could not be read, with the card above showing what the re-read found", async () => {
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: "9999" })],
+      respond: () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)),
+    });
+    await cardsDrawn();
+
+    await submitFor("Bybit");
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+    expect(formsOpen()).toHaveLength(1);
+    await waitFor(() => expect(within(bybitCard()).queryByText("key ending in 9999")).toBeInTheDocument());
+    expect(within(bybitCard()).queryByText(SAVED_NOTICE_PATTERN)).not.toBeInTheDocument();
+  });
+});
+
 describe("the page in Spanish", () => {
   it("writes its own texts in Spanish and none of design § J's English", async () => {
     await i18n.changeLanguage("es");
@@ -502,8 +912,8 @@ describe("the page in Spanish", () => {
         "Una clave por exchange. Las claves se cifran en el servidor y no se vuelven a mostrar; solo se ven los últimos cuatro caracteres.",
       ),
     ).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("status")).toBeInTheDocument());
-    expect(screen.getByRole("status")).toHaveTextContent("Cargando claves de los exchanges…");
+    await waitFor(() => expect(screen.queryByText("Cargando claves de los exchanges…")).toBeInTheDocument());
+    expect(screen.getByText("Cargando claves de los exchanges…")).toHaveAttribute("role", "status");
     expect(document.body.textContent).not.toContain("Loading exchange keys");
     expect(document.body.textContent).not.toContain(INTRO);
   });
