@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 
@@ -211,4 +211,31 @@ export async function saveCredential(
     if (error instanceof SyntaxError) return refused("unknown", UNREADABLE_SUCCESS_STATUS);
     return refused("noAnswer", 0);
   }
+}
+
+/** What stands in the way of a delete, as the server listed it; the ids of what is only counted are not kept. */
+export interface NotFlatLists {
+  enabledStrategies: readonly { id: string; name: string }[];
+  symbols: readonly string[];
+  allocations: number;
+  liveReservations: number;
+  inFlightAttempts: number;
+}
+
+/** How a delete ended. `lists` is null for a refusal whose five lists cannot all be read. */
+export type DeleteResult =
+  | { kind: "deleted" }
+  | { kind: "notFlat"; lists: NotFlatLists | null }
+  | { kind: "gone" }
+  | { kind: "unknown" }
+  | { kind: "unauthorized" };
+
+/** STUB (task 13.6.1): resolves without sending. */
+export function deleteCredential(_exchange: string): Promise<DeleteResult> {
+  return Promise.resolve({ kind: "deleted" });
+}
+
+/** STUB (task 13.6.1): the mutation over the request, with no re-read. */
+export function useDeleteCredential() {
+  return useMutation<DeleteResult, Error, string>({ mutationFn: deleteCredential });
 }

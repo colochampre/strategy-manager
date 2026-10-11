@@ -423,6 +423,7 @@
       "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí.",
       "add": "Agregar clave",
       "replace": "Reemplazar clave",
+      "delete": "Eliminar clave",
       "saved": "Clave terminada en {{last4}} guardada.",
       "savedNoHint": "Clave guardada.",
       "savedPending": "El resto de esta tarjeta aparece cuando la lista se haya leído de nuevo."

@@ -226,8 +226,12 @@ describe("row 2: the mutation cache", () => {
       const source = readFileSync(file, "utf8");
       expect(source.length, file).toBeGreaterThan(100);
       const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-      // credentials.ts may use `useQuery` for the list, never `useMutation` for the save.
-      expect(code, file).not.toMatch(/useMutation/);
+      // credentials.ts may use `useQuery` for the list and `useMutation` for the delete (it carries no secret,
+      // task 13.6.3), never `useMutation` for the save.
+      const hook = /export function useDeleteCredential[\s\S]*?\r?\n\}\r?\n/.exec(code)?.[0] ?? "";
+      const withoutHookAndImport = code.replace(hook, "").replace(/^import .*$/gm, "");
+      expect(withoutHookAndImport, file).not.toMatch(/useMutation/);
+      expect(hook, file).not.toMatch(/saveCredential|api_key|api_secret|apiKey|apiSecret/);
     }
   });
 });
