@@ -57,7 +57,14 @@ export function SettingsPage() {
    * when it was exactly four characters; `listStamp` is when `['credentials']` was last read, so that the card
    * knows whether the list has been read again since.
    */
-  const [lastSave, setLastSave] = useState<{ exchange: string; last4: string | null; readOnly: boolean; listStamp: number } | null>(null);
+  const [lastSave, setLastSave] = useState<{
+    exchange: string;
+    last4: string | null;
+    readOnly: boolean;
+    listStamp: number;
+    /** Ends at the next thing the owner does; the pending view of a list not read again does not end with it. */
+    noticeOn: boolean;
+  } | null>(null);
   /** What the always-present status region says; it is the only live region the save uses. */
   const [announcement, setAnnouncement] = useState("");
 
@@ -67,7 +74,7 @@ export function SettingsPage() {
 
   /** The next thing the owner does ends the notice of a save: no timer (design § F). */
   function openFormOf(exchange: string) {
-    setLastSave(null);
+    setLastSave((current) => (current === null ? null : { ...current, noticeOn: false }));
     setAnnouncement("");
     setOpenForm(exchange);
   }
@@ -79,7 +86,7 @@ export function SettingsPage() {
    */
   function saved(exchange: string, answer: SavedKey) {
     const stamp = queryClient.getQueryState(["credentials"])?.dataUpdatedAt ?? 0;
-    setLastSave({ exchange, last4: answer.last4, readOnly: answer.readOnly, listStamp: stamp });
+    setLastSave({ exchange, last4: answer.last4, readOnly: answer.readOnly, listStamp: stamp, noticeOn: true });
     setAnnouncement(
       [
         answer.last4 === null ? t("settings.card.savedNoHint") : t("settings.card.saved", { last4: answer.last4 }),
@@ -161,6 +168,7 @@ export function SettingsPage() {
                             // Read again since the save only when `dataUpdatedAt` moved past the stamp; a failed
                             // read does not move it, so the card stays drawn from the answer.
                             pending: credentials.dataUpdatedAt <= lastSave.listStamp,
+                            showNotice: lastSave.noticeOn,
                           }
                         : null
                     }
@@ -174,7 +182,11 @@ export function SettingsPage() {
                       id={`key-form-${exchange}`}
                       exchange={exchange}
                       name={exchangeName(t, i18n, exchange)}
-                      hasKey={credentials.data.some((row) => row.exchange === exchange && row.status === "STORED")}
+                      hasKey={
+                        credentials.data.some((row) => row.exchange === exchange && row.status === "STORED") ||
+                        // A key saved a moment ago is stored even if the list has not been read again.
+                        (lastSave?.exchange === exchange && credentials.dataUpdatedAt <= lastSave.listStamp)
+                      }
                       confirmations={CONFIRMATIONS[exchange] ?? []}
                       onClose={() => closeForm(exchange)}
                       onSaved={(answer) => saved(exchange, answer)}

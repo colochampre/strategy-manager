@@ -18,6 +18,11 @@ export interface SavedView {
   readOnly: boolean;
   /** The list has not been read again since the save (or its read failed): draw the card from the answer. */
   pending: boolean;
+  /**
+   * Whether the notice is still shown once the list is read: it ends at the next thing the owner does. While
+   * `pending` the notice stays, because the card still needs the sentence that says the rest is not read yet.
+   */
+  showNotice: boolean;
 }
 
 export interface ExchangeKeyCardProps {
@@ -195,9 +200,9 @@ export function ExchangeKeyCard({
   const key = fromAnswer ? null : storedOf(entry);
   const toggleId = useId();
   /** "Replace key" when a key is stored or was just saved on this card, "Add key" otherwise. */
-  const holdsKey = key !== null || saved != null;
+  const holdsKey = key !== null || fromAnswer;
   const notice =
-    saved == null
+    saved == null || !(saved.pending || saved.showNotice)
       ? null
       : [
           saved.last4 === null ? t("settings.card.savedNoHint") : t("settings.card.saved", { last4: saved.last4 }),
