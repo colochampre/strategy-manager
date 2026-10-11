@@ -5164,7 +5164,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   **The output of `systemctl status cloudflared`, `systemctl cat cloudflared` and `ps` is never pasted anywhere.** The install command is expected to write the token into the service's own command line, which those three print. That was not read in Cloudflare's documentation; it is treated as true until the owner has seen otherwise.
 
   **Done 2026-10-11 (owner).** First the owner DELETED the inactive tunnel `strategymanager` found in pps.3, the owner's decision on the assistant's recommendation, so its token is dead. Then: `cloudflared version 2026.10.0 (built 2026-10-05-17:37 UTC)` from the apt repository; a new tunnel created in the dashboard and its connector installed with the dashboard's own command; `systemctl is-active cloudflared` answered `active`; `systemctl show cloudflared -p User` answered `User=` with nothing after it, so the service runs as root; the tunnel reads Healthy. The dashboard did not ask for a route, and none was added. Not reported: the new tunnel's name.
-- [ ] pps.6 **The bundle is built and copied (decision 62).** This task is repeated at every deploy that changes `frontend/`. Runs on the **owner's local terminal (PowerShell, repository root)**, from a CLEAN checkout of `origin/main` in a worktree of its own, never from the working tree. A build of the working tree would ship whatever is uncommitted in it, and a local `frontend/.env*` file would be baked into the bundle; neither would say so. The worktree also leaves a running Vite server and its `node_modules` alone.
+- [x] pps.6 **The bundle is built and copied (decision 62).** **First run done 2026-10-11 (below).** This task is repeated at every deploy that changes `frontend/`. Runs on the **owner's local terminal (PowerShell, repository root)**, from a CLEAN checkout of `origin/main` in a worktree of its own, never from the working tree. A build of the working tree would ship whatever is uncommitted in it, and a local `frontend/.env*` file would be baked into the bundle; neither would say so. The worktree also leaves a running Vite server and its `node_modules` alone.
 
   ```powershell
   git fetch origin
@@ -5212,12 +5212,15 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   The first line of output is the archive's name and `OK`: what arrived is what was built. The last three are `readable`, then `bundle:` and `checkout:` with the same commit. A block that stops earlier prints no `readable`: the line that failed is the last one shown, and `current` still names the previous release. `bundle:` and `checkout:` differ when the checkout was not pulled to the commit the bundle was built from; the pull comes first (`sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`). The parentheses matter: with them a failed line ends the block and leaves the SSH session open, where a bare `set -e` would close it.
 
   The bundle belongs to root, in a directory of its own directly under `/opt`, on purpose: the service's user reads it and cannot change what the owner's browser runs. Older releases stay under `releases/`; moving `current` back to one is the rollback.
+
+  **First run, 2026-10-11.** The assistant built the bundle on the owner's machine from a detached worktree of `origin/main` at `f41d904e3361`, the commit production's checkout was at: `npm ci` exit 0, `npm run build` exit 0, the script and the stylesheet named as in pps.1 (`index-DtkDgO3N.js`, `index-DESchCay.css`), `index.html` one blank line longer than pps.1's and otherwise the same, 22 entries in the archive, SHA-256 `25ee52f7e6634f7774b7afd6706517ed0e4f43e14a4ba5a5d73281326a6382e5`. The owner copied it with `scp` and ran the block, which printed `/root/panel-f41d904e3361.tgz: OK`, `readable`, `bundle:   f41d904e3361` and `checkout: f41d904e3361`. Nothing was restarted, and `PANEL_DIST_DIR` was still unset.
 - [ ] pps.7 **The mount is switched on.** Runs on the **VPS (as root)**. `PANEL_DIST_DIR` is appended to `backend/.env` as the `strategy` user, without opening or printing the file. `BEHIND_CLOUDFLARE_TUNNEL` stays unset: it describes the webhook's path, which is still Caddy. Then ONLY the API is restarted, the worker is not:
 
   ```bash
   printf '\nPANEL_DIST_DIR=/opt/strategy-manager-panel/current\n' | sudo -u strategy tee -a /opt/strategy-manager/app/backend/.env >/dev/null
   grep -c '^PANEL_DIST_DIR=' /opt/strategy-manager/app/backend/.env
   systemctl restart strategy-api
+  sleep 5
   systemctl is-active strategy-api
   journalctl -u strategy-api -n 30 --no-pager
   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/
@@ -5227,7 +5230,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/strategies
   ```
 
-  Expected, in order: (nothing); `1`; (nothing); `active`; no line saying `refusing to start`; `200`; `1`; the commit; `200`; `401`. The `grep` answering `0` means the line was glued to the one before it or the file is elsewhere, and `2` means it was added twice: either is fixed before the restart. The second-to-last line asks for the script the page names, which is the check that the link works on Linux. The header is read with `-D -` and not with `curl -I`: the page answers GET only, so a HEAD request would show no CSP header and prove nothing.
+  Expected, in order: (nothing); `1`; (nothing); (nothing, for five seconds); `active`; no line saying `refusing to start`; `200`; `1`; the commit; `200`; `401`. The five seconds are there because `is-active` asked straight after a restart answers `active` for a process that is about to refuse its own start; the `200` two lines later is the proof that it serves. The `grep` answering `0` means the line was glued to the one before it or the file is elsewhere, and `2` means it was added twice: either is fixed before the restart. The second-to-last line asks for the script the page names, which is the check that the link works on Linux. The header is read with `-D -` and not with `curl -I`: the page answers GET only, so a HEAD request would show no CSP header and prove nothing.
 
   If the API does not come back `active`, the webhook is down until it does. The way back, before anything is investigated:
 
