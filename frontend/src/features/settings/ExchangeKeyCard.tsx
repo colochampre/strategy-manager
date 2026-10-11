@@ -46,6 +46,8 @@ export interface ExchangeKeyCardProps {
   saved?: SavedView | null;
   /** The key form, drawn under the facts and the buttons when `open`. */
   children?: ReactNode;
+  /** The page's `Delete key` control, drawn after the toggle of a served card (task 13.6.1: a stub, not drawn yet). */
+  deleteSlot?: ReactNode;
 }
 
 /** The four dots that stand for the part of the key the panel never has. */
