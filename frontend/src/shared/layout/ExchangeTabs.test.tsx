@@ -505,7 +505,7 @@ describe("the tab and the card take the pools by one rule (task 13.5.0)", () => 
     const keyState = readFileSync(join(here, "..", "credentials", "key-state.ts"), "utf8");
     expect(keyState).toMatch(/export function knownPools</);
     expect(tabs).toMatch(/poolOn\([^)]*knownPools\(/);
-    expect(page).toMatch(/poolOn\([^)]*knownPools\(/);
+    expect(page).toMatch(/knownPools\(pools\)/);
     expect(tabs).not.toMatch(/pools\.data/);
     expect(page).not.toMatch(/pools\.status/);
   });

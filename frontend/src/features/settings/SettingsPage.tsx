@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
-import { exchangeList, poolOn } from "@/shared/credentials/key-state";
+import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
 import served from "@/shared/credentials/served-exchanges.json";
 
 /** The ids of the exchanges the panel manages a key for, in the file's display order. */
@@ -34,7 +34,7 @@ export function SettingsPage() {
   const titleId = useId();
   const credentials = useCredentials();
   const pools = usePools();
-  const poolList = pools.status === "success" ? pools.data : undefined;
+  const poolList = knownPools(pools);
 
   return (
     <div className="flex flex-col gap-6">

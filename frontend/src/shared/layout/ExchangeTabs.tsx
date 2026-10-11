@@ -4,7 +4,7 @@ import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import { useTokenStore } from "@/shared/auth/token-store";
 import { KeyMark } from "@/shared/credentials/KeyMark";
-import { keyMark, keyState, poolOn } from "@/shared/credentials/key-state";
+import { keyMark, keyState, knownPools, poolOn } from "@/shared/credentials/key-state";
 import { cn } from "@/shared/lib/cn";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
@@ -46,7 +46,7 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
   const markOf = (exchange: string) => {
     if (credentials.status !== "success") return null;
     const entry = credentials.data.find((row) => row.exchange === exchange);
-    return keyMark(keyState(entry, poolOn(exchange, pools.data)));
+    return keyMark(keyState(entry, poolOn(exchange, knownPools(pools))));
   };
 
   return (

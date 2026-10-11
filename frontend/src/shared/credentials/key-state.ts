@@ -70,11 +70,14 @@ interface ReadResult<T> {
 }
 
 /**
- * The pools the card and the tab may rely on. STUB (task 13.5.1-style RED stub):
- * answers wrongly on purpose, so the test written next fails on its assertion.
+ * The pools the card and the tab may rely on: the list of a read that succeeded,
+ * and nothing otherwise. TanStack Query keeps the last list after a read that
+ * failed; that list is stale, and an exchange must not be called degraded, or
+ * quiet, on a guess. The card and the tab both call this, so they take the same
+ * input (design § B and § E).
  */
 export function knownPools<T>(query: ReadResult<T>): T | undefined {
-  return query.data;
+  return query.status === "success" ? query.data : undefined;
 }
 
 /**
