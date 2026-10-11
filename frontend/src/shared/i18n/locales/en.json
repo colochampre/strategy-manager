@@ -388,6 +388,15 @@
   },
   "settings": {
     "title": "Settings",
+    "keys": {
+      "title": "Exchange keys",
+      "intro": "One key per exchange. Keys are encrypted on the server and never shown again; you only see the last four characters.",
+      "loading": "Loading exchange keys…",
+      "error": "Exchange keys could not be loaded.",
+      "retry": "Try again",
+      "stale": "This list could not be refreshed and may be out of date.",
+      "poolsUnknown": "The pools could not be loaded, so an exchange without a key is not marked here."
+    },
     "card": {
       "keyLabel": "key",
       "keyEnding": "key ending in {{last4}}",

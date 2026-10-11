@@ -387,6 +387,15 @@
     "pionex": "Pionex"
   },
   "settings": {
+    "keys": {
+      "title": "Claves de los exchanges",
+      "intro": "Una clave por exchange. Las claves se cifran en el servidor y no se vuelven a mostrar; solo se ven los últimos cuatro caracteres.",
+      "loading": "Cargando claves de los exchanges…",
+      "error": "No se pudieron cargar las claves de los exchanges.",
+      "retry": "Reintentar",
+      "stale": "Esta lista no se pudo actualizar y puede estar desactualizada.",
+      "poolsUnknown": "No se pudieron cargar los pools, así que aquí no se marca un exchange sin clave."
+    },
     "card": {
       "keyLabel": "clave",
       "keyEnding": "clave terminada en {{last4}}",
