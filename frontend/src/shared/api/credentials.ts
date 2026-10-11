@@ -213,9 +213,9 @@ export async function saveCredential(
   }
 }
 
-/** What stands in the way of a delete, as the server listed it; the ids of what is only counted are not kept. */
+/** What stands in the way of a delete, as the server listed it; only the names of strategies are kept, the other ids are counted. */
 export interface NotFlatLists {
-  enabledStrategies: readonly { id: string; name: string }[];
+  enabledStrategies: readonly string[];
   symbols: readonly string[];
   allocations: number;
   liveReservations: number;
