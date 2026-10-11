@@ -224,7 +224,9 @@ describe("saveCredential, a save that worked", () => {
     expect(result.kind).toBe("saved");
   });
 
-  it("is saved with no last4 and not read-only when the 200's body cannot be read", async () => {
+  // A 200 of this route always carries JSON, so a body that cannot be read came from something
+  // else on the way. The panel does not know whether the key was stored and must never say it was.
+  it("is unknown, never saved, when the 200's body cannot be read", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -238,7 +240,7 @@ describe("saveCredential, a save that worked", () => {
 
     const result = await saveCredential("bybit", K, S, []);
 
-    expect(result).toEqual({ kind: "saved", last4: null, readOnly: false });
+    expect(result).toEqual({ kind: "refused", reason: "unknown", missing: [], status: 200 });
   });
 });
 
