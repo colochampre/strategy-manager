@@ -1,7 +1,8 @@
 import type { TFunction } from "i18next";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, type Ref, useId } from "react";
 import { useTranslation } from "react-i18next";
 
+import { exchangeName } from "@/features/settings/exchange-name";
 import type { CredentialEntry, StoredCredential } from "@/shared/api/credentials";
 import { KeyMark } from "@/shared/credentials/KeyMark";
 import { keyMark, keyState } from "@/shared/credentials/key-state";
@@ -22,8 +23,10 @@ export interface ExchangeKeyCardProps {
   open: boolean;
   /** The toggle was pressed: it opens the form, or closes it when it is open. */
   onToggle: () => void;
-  /** A save is in flight somewhere on the page: every button of the card is disabled. RED STUB (13.5.8): ignored. */
+  /** A save is in flight somewhere on the page: every button of the card is disabled. */
   busy?: boolean;
+  /** Receives the toggle, so the page can put the focus back on it after the form has left the document. */
+  toggleRef?: Ref<HTMLButtonElement>;
   /** The key form, drawn under the facts and the buttons when `open`. */
   children?: ReactNode;
 }
@@ -154,15 +157,25 @@ function KeyHint({ last4 }: { last4: string }) {
  * It decides nothing: the state and the mark come from the same function the
  * exchange tabs call.
  */
-export function ExchangeKeyCard({ exchange, entry, poolOn, served, open, onToggle, children }: ExchangeKeyCardProps) {
+export function ExchangeKeyCard({
+  exchange,
+  entry,
+  poolOn,
+  served,
+  open,
+  onToggle,
+  busy = false,
+  toggleRef,
+  children,
+}: ExchangeKeyCardProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const state = keyState(entry, poolOn);
   const mark = keyMark(state);
   const amber = mark?.tone === "amber";
   const key = storedOf(entry);
-  const nameKey = `exchanges.${exchange}`;
-  const name = i18n.exists(nameKey) ? t(nameKey) : exchange;
+  const toggleId = useId();
+  const name = exchangeName(t, i18n, exchange);
   const disclosure = useInfoDisclosure();
   const tags = key === null ? [] : tagsOf(key, i18n.language, t);
   const confirmedDay = tags.some((tag) => tag.look === "confirmed");
@@ -245,7 +258,22 @@ export function ExchangeKeyCard({ exchange, entry, poolOn, served, open, onToggl
 
       <div className="flex flex-wrap items-start gap-2 empty:hidden sm:col-start-2 sm:row-start-1">
         {served && (
-          <button type="button" onClick={onToggle}>
+          <button
+            ref={toggleRef}
+            id={toggleId}
+            type="button"
+            aria-labelledby={`${toggleId} ${headingId}`}
+            aria-expanded={open}
+            aria-controls={`key-form-${exchange}`}
+            disabled={busy}
+            onClick={onToggle}
+            className={cn(
+              "min-h-11 rounded-md border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+              key === null
+                ? "border-gain bg-gain font-medium text-ground"
+                : "border-rule text-ink hover:bg-panel-2 aria-expanded:bg-panel-2",
+            )}
+          >
             {key === null ? t("settings.card.add") : t("settings.card.replace")}
           </button>
         )}

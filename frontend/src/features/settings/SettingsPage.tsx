@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
+import { exchangeName } from "@/features/settings/exchange-name";
 import { KeyEntryForm } from "@/features/settings/KeyEntryForm";
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
@@ -10,6 +11,11 @@ import served from "@/shared/credentials/served-exchanges.json";
 
 /** The ids of the exchanges the panel manages a key for, in the file's display order. */
 const SERVED = Object.keys(served);
+
+/** The confirmations each served exchange asks for, by name (an exchange the file lists with none asks for none). */
+const CONFIRMATIONS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(served).map(([id, entry]) => [id, entry.confirmations]),
+);
 
 const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2";
 
@@ -31,14 +37,28 @@ const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text
  * is each sentence, inside its card.
  */
 export function SettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const titleId = useId();
   const credentials = useCredentials();
   const pools = usePools();
   const poolList = knownPools(pools);
-  // RED STUB (task 13.5.1): the page holds the open form and keeps it open after a 200; it draws no status region.
+  /** The exchange whose form is open, or none: the page holds at most one, so opening another empties this one. */
   const [openForm, setOpenForm] = useState<string | null>(null);
-  const [, setSaving] = useState(false);
+  /** A save is in flight: every button of every card is disabled meanwhile. */
+  const [saving, setSaving] = useState(false);
+  /** Which toggle should have the focus once the form has left the document; a new object each time asks again. */
+  const [focusRequest, setFocusRequest] = useState<{ exchange: string } | null>(null);
+  const toggles = useRef(new Map<string, HTMLButtonElement>());
+
+  useEffect(() => {
+    if (focusRequest !== null) toggles.current.get(focusRequest.exchange)?.focus();
+  }, [focusRequest]);
+
+  /** Closes the form of `exchange` (unmounting and so emptying it) and returns the focus to the toggle that opened it. */
+  function closeForm(exchange: string) {
+    setOpenForm(null);
+    setFocusRequest({ exchange });
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -90,15 +110,20 @@ export function SettingsPage() {
                     poolOn={poolOn(exchange, poolList)}
                     served={SERVED.includes(exchange)}
                     open={openForm === exchange}
-                    onToggle={() => setOpenForm(openForm === exchange ? null : exchange)}
+                    busy={saving}
+                    onToggle={() => (openForm === exchange ? closeForm(exchange) : setOpenForm(exchange))}
+                    toggleRef={(element) => {
+                      if (element === null) toggles.current.delete(exchange);
+                      else toggles.current.set(exchange, element);
+                    }}
                   >
                     <KeyEntryForm
                       id={`key-form-${exchange}`}
                       exchange={exchange}
-                      name={exchange}
+                      name={exchangeName(t, i18n, exchange)}
                       hasKey={credentials.data.some((row) => row.exchange === exchange && row.status === "STORED")}
-                      confirmations={[]}
-                      onClose={() => setOpenForm(null)}
+                      confirmations={CONFIRMATIONS[exchange] ?? []}
+                      onClose={() => closeForm(exchange)}
                       onSaved={() => undefined}
                       onBusyChange={setSaving}
                     />
