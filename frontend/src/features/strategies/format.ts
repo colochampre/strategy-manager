@@ -138,10 +138,8 @@ export function clockText(iso: string): string | null {
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(instant);
 }
 
-/** A timestamp as a calendar day in UTC, the day boundary the whole panel uses (`day_boundary: "UTC"`). */
-export function dayText(iso: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(iso));
-}
+/** A timestamp as a calendar day in UTC; it moved to `shared/lib` for the Settings card and is re-exported here. */
+export { dayText } from "@/shared/lib/day-text";
 
 /**
  * A timestamp as a UTC date and a 24-hour time (`Sep 30, 2026, 12:30`). An instant that
