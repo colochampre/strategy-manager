@@ -1,9 +1,10 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { exchangeName } from "@/features/settings/exchange-name";
-import { KeyEntryForm } from "@/features/settings/KeyEntryForm";
+import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
@@ -21,8 +22,9 @@ const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text
 
 /**
  * Settings: one card per exchange, drawn from `GET /api/credentials` and
- * `GET /api/pools` (design § B). The page reads, and in this unit it changes
- * nothing.
+ * `GET /api/pools` (design § B). It holds the one open key form, and the end of
+ * a save that worked: the form closes on the answer, the card says so, the focus
+ * returns to the toggle and one hidden status region tells a screen reader.
  *
  * Every failure to read is a line on the page. A card says "No key stored" or
  * "the key is fine" only about what was read: while the credentials are not
@@ -49,10 +51,46 @@ export function SettingsPage() {
   /** Which toggle should have the focus once the form has left the document; a new object each time asks again. */
   const [focusRequest, setFocusRequest] = useState<{ exchange: string } | null>(null);
   const toggles = useRef(new Map<string, HTMLButtonElement>());
+  const queryClient = useQueryClient();
+  /**
+   * The last save that worked, kept until the owner does the next thing on the page. `last4` is the answer's, only
+   * when it was exactly four characters; `listStamp` is when `['credentials']` was last read, so that the card
+   * knows whether the list has been read again since.
+   */
+  const [lastSave, setLastSave] = useState<{ exchange: string; last4: string | null; readOnly: boolean; listStamp: number } | null>(null);
+  /** What the always-present status region says; it is the only live region the save uses. */
+  const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
     if (focusRequest !== null) toggles.current.get(focusRequest.exchange)?.focus();
   }, [focusRequest]);
+
+  /** The next thing the owner does ends the notice of a save: no timer (design § F). */
+  function openFormOf(exchange: string) {
+    setLastSave(null);
+    setAnnouncement("");
+    setOpenForm(exchange);
+  }
+
+  /**
+   * A save worked: the form closes on the answer, without waiting for the lists, and the page remembers only what
+   * the ANSWER said. The focus goes to the toggle once the form has left the document, and the status region
+   * tells a screen reader, with the card's read-only sentence after it when the key cannot trade.
+   */
+  function saved(exchange: string, answer: SavedKey) {
+    const stamp = queryClient.getQueryState(["credentials"])?.dataUpdatedAt ?? 0;
+    setLastSave({ exchange, last4: answer.last4, readOnly: answer.readOnly, listStamp: stamp });
+    setAnnouncement(
+      [
+        answer.last4 === null ? t("settings.card.savedNoHint") : t("settings.card.saved", { last4: answer.last4 }),
+        answer.readOnly ? t("settings.card.readOnly", { exchange: exchangeName(t, i18n, exchange) }) : null,
+      ]
+        .filter((part) => part !== null)
+        .join(" "),
+    );
+    setOpenForm(null);
+    setFocusRequest({ exchange });
+  }
 
   /** Closes the form of `exchange` (unmounting and so emptying it) and returns the focus to the toggle that opened it. */
   function closeForm(exchange: string) {
@@ -63,6 +101,10 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
+      {/* The one status region: always in the document, hidden from sight, said once at a save. */}
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
       <section aria-labelledby={titleId} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <h2 id={titleId} className="font-display text-base font-semibold text-ink">
@@ -111,7 +153,18 @@ export function SettingsPage() {
                     served={SERVED.includes(exchange)}
                     open={openForm === exchange}
                     busy={saving}
-                    onToggle={() => (openForm === exchange ? closeForm(exchange) : setOpenForm(exchange))}
+                    saved={
+                      lastSave?.exchange === exchange
+                        ? {
+                            last4: lastSave.last4,
+                            readOnly: lastSave.readOnly,
+                            // Read again since the save only when `dataUpdatedAt` moved past the stamp; a failed
+                            // read does not move it, so the card stays drawn from the answer.
+                            pending: credentials.dataUpdatedAt <= lastSave.listStamp,
+                          }
+                        : null
+                    }
+                    onToggle={() => (openForm === exchange ? closeForm(exchange) : openFormOf(exchange))}
                     toggleRef={(element) => {
                       if (element === null) toggles.current.delete(exchange);
                       else toggles.current.set(exchange, element);
@@ -124,7 +177,7 @@ export function SettingsPage() {
                       hasKey={credentials.data.some((row) => row.exchange === exchange && row.status === "STORED")}
                       confirmations={CONFIRMATIONS[exchange] ?? []}
                       onClose={() => closeForm(exchange)}
-                      onSaved={() => undefined}
+                      onSaved={(answer) => saved(exchange, answer)}
                       onBusyChange={setSaving}
                     />
                   </ExchangeKeyCard>

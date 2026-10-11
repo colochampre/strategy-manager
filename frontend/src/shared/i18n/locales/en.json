@@ -423,7 +423,10 @@
       "emptyNotServed": "No key stored.",
       "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.",
       "add": "Add key",
-      "replace": "Replace key"
+      "replace": "Replace key",
+      "saved": "Key ending in {{last4}} saved.",
+      "savedNoHint": "Key saved.",
+      "savedPending": "The rest of this card appears when the list has been read again."
     },
     "form": {
       "addTitle": "Add a {{exchange}} key",

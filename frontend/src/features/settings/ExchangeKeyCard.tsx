@@ -5,10 +5,20 @@ import { useTranslation } from "react-i18next";
 import { exchangeName } from "@/features/settings/exchange-name";
 import type { CredentialEntry, StoredCredential } from "@/shared/api/credentials";
 import { KeyMark } from "@/shared/credentials/KeyMark";
-import { keyMark, keyState } from "@/shared/credentials/key-state";
+import { type KeyState, keyMark, keyState } from "@/shared/credentials/key-state";
 import { cn } from "@/shared/lib/cn";
 import { dayText } from "@/shared/lib/day-text";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+
+/** A save that worked, as the card draws it. */
+export interface SavedView {
+  /** The answer's four characters, or none when it did not send exactly four. */
+  last4: string | null;
+  /** Whether the answer said the key cannot trade. */
+  readOnly: boolean;
+  /** The list has not been read again since the save (or its read failed): draw the card from the answer. */
+  pending: boolean;
+}
 
 export interface ExchangeKeyCardProps {
   /** The exchange's id as the API spells it. */
@@ -27,6 +37,8 @@ export interface ExchangeKeyCardProps {
   busy?: boolean;
   /** Receives the toggle, so the page can put the focus back on it after the form has left the document. */
   toggleRef?: Ref<HTMLButtonElement>;
+  /** What the last save on this card said, until the owner does something else on the page. */
+  saved?: SavedView | null;
   /** The key form, drawn under the facts and the buttons when `open`. */
   children?: ReactNode;
 }
@@ -166,15 +178,33 @@ export function ExchangeKeyCard({
   onToggle,
   busy = false,
   toggleRef,
+  saved,
   children,
 }: ExchangeKeyCardProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
-  const state = keyState(entry, poolOn);
+  /**
+   * Until the list has been read again after a save, the card is drawn from the
+   * save's own answer and never from the list's old entry, so it can never show the
+   * key stored before as if nothing had happened (design § F, decision 57).
+   */
+  const fromAnswer = saved != null && saved.pending;
+  const state: KeyState = fromAnswer ? (saved.readOnly ? "readOnly" : "key") : keyState(entry, poolOn);
   const mark = keyMark(state);
   const amber = mark?.tone === "amber";
-  const key = storedOf(entry);
+  const key = fromAnswer ? null : storedOf(entry);
   const toggleId = useId();
+  /** "Replace key" when a key is stored or was just saved on this card, "Add key" otherwise. */
+  const holdsKey = key !== null || saved != null;
+  const notice =
+    saved == null
+      ? null
+      : [
+          saved.last4 === null ? t("settings.card.savedNoHint") : t("settings.card.saved", { last4: saved.last4 }),
+          saved.pending ? t("settings.card.savedPending") : null,
+        ]
+          .filter((part) => part !== null)
+          .join(" ");
   const name = exchangeName(t, i18n, exchange);
   const disclosure = useInfoDisclosure();
   const tags = key === null ? [] : tagsOf(key, i18n.language, t);
@@ -215,7 +245,10 @@ export function ExchangeKeyCard({
           {name}
         </h3>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          {key !== null ? (
+          {fromAnswer ? (
+            // The saved key's hint, with no date: the list that would hold its date has not been read.
+            saved.last4 !== null && <KeyHint last4={saved.last4} />
+          ) : key !== null ? (
             <>
               <KeyHint last4={key.last4} />
               <p className="font-mono text-xs text-ink-3 whitespace-nowrap">
@@ -231,7 +264,8 @@ export function ExchangeKeyCard({
       </div>
 
       <div className="flex min-w-0 flex-col gap-2.5 sm:col-span-2">
-        {key !== null && (
+        {notice !== null && <p className={cn(SENTENCE, "text-ink-2")}>{notice}</p>}
+        {(key !== null || (fromAnswer && state === "readOnly")) && (
           <ul aria-label={t("settings.card.facts")} className="flex flex-wrap items-center gap-1.5">
             {state === "readOnly" && mark !== null && <KeyMark mark={mark} variant="tag" as="li" />}
             {tags.map((tag) => (
@@ -269,12 +303,12 @@ export function ExchangeKeyCard({
             onClick={onToggle}
             className={cn(
               "min-h-11 rounded-md border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
-              key === null
-                ? "border-gain bg-gain font-medium text-ground"
-                : "border-rule text-ink hover:bg-panel-2 aria-expanded:bg-panel-2",
+              holdsKey
+                ? "border-rule text-ink hover:bg-panel-2 aria-expanded:bg-panel-2"
+                : "border-gain bg-gain font-medium text-ground",
             )}
           >
-            {key === null ? t("settings.card.add") : t("settings.card.replace")}
+            {holdsKey ? t("settings.card.replace") : t("settings.card.add")}
           </button>
         )}
       </div>
