@@ -5124,11 +5124,16 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   - **What this rehearsal did NOT show:** a strategy's detail page and a card in Settings with data in them (the local database had none to show), and the page as Cloudflare delivers it. Both are pps.9.
   - Seen and left: on Windows the `.woff2` files are served as `application/octet-stream`, with no console error.
 - [x] pps.2 **`.env.example` gains `PANEL_DIST_DIR`.** **Done 2026-10-11.** The setting is commented out, with what an empty value means, the refusal to start, and that `git pull` does not update the bundle. Its header says every setting appears there, and this one did not.
-- [ ] pps.3 **Look in the Cloudflare dashboard; change nothing.** Runs in the **Cloudflare dashboard**.
+- [x] pps.3 **Look in the Cloudflare dashboard; change nothing.** Runs in the **Cloudflare dashboard**. **Done 2026-10-11, with one change the owner decided (below).**
   - DNS records of the zone: no A, AAAA or CNAME record exists for the apex `strategymanager.trade`. If one exists, stop and report it: the route of pps.8 would be refused. The `hook` record stays as it is, DNS-only.
   - The zone's Rocket Loader and Email Address Obfuscation settings are off. Either one would add an inline script to the page that the CSP blocks. If one is on, the owner decides before it is turned off, because it is a zone-wide setting.
   - Zero Trust: which identity providers are configured, and the team name.
-  - Record what was found here.
+  - **Found (owner, 2026-10-11):**
+    - DNS: the one record the owner named is the A record `hook.strategymanager.trade`, DNS-only. No record for the apex was named, which is read here as none existing; the assistant said so to the owner, who did not correct it.
+    - Rocket Loader was off.
+    - Email Address Obfuscation was ON. The owner turned it off the same day, on the assistant's recommendation: nothing in the zone goes through Cloudflare's proxy yet, so the change affects no page today. What the assistant said of that setting (it acts only on HTML that holds an e-mail address, and the script it adds comes from the page's own origin, so the CSP would probably have allowed it) was from memory and was not verified.
+    - Zero Trust already existed; the owner had opened it before. It holds an INACTIVE tunnel named `strategymanager`, which nothing in the repository records. Whether it is reused or replaced is settled in pps.5: a token of it kept on another machine would let a second connector take part of the panel's traffic.
+    - The one identity provider listed is `Cloudflare`. The team name was not reported.
 - [ ] pps.4 **The Access application.** Runs in the **Cloudflare dashboard** (Zero Trust). A self-hosted Access application for the hostname `strategymanager.trade`, the apex, with NO path, so that every path is covered. One policy, action Allow, Include, selector Emails, the owner's e-mail address exactly (not "Emails ending in"). No Bypass and no Service Auth policy. Session duration left at its default unless the owner says otherwise. This is done BEFORE pps.8. If the dashboard refuses an application for a hostname with no DNS record yet, stop and report it; do not create the route first.
 - [ ] pps.5 **Install `cloudflared` and connect a tunnel with NO route.** Runs on the **VPS (as root)**, then in the **Cloudflare dashboard**. First, on the VPS, one line at a time:
 
