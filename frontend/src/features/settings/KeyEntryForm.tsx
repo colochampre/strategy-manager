@@ -1,7 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { saveCredential } from "@/shared/api/credentials";
+import { type SaveRefusal, type SaveResult, saveCredential } from "@/shared/api/credentials";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 /** What the form hands the page when a save worked: the answer's four characters (or none) and whether the key cannot trade. */
@@ -40,9 +41,8 @@ const CLOSE =
  * The key form, inside its card (design § F). The two fields are UNCONTROLLED:
  * what the owner types lives in those two DOM elements and nowhere else, not in
  * state, not in a ref's copy, not in a store. Component state holds only whether
- * each field has text, which boxes are ticked, and whether a request is in flight.
- *
- * TASK 13.5.4: the shape. The attempt is still the bare one; task 13.5.6 finishes it.
+ * each field has text, which boxes are ticked, whether a request is in flight and
+ * the last refusal as `{reason, missing, status}`.
  */
 export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClose, onSaved, onBusyChange }: KeyEntryFormProps) {
   const { t } = useTranslation();
@@ -56,14 +56,30 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
   const [hasText, setHasText] = useState({ key: false, secret: false });
   const [ticked, setTicked] = useState<readonly string[]>([]);
   const [checking, setChecking] = useState(false);
+  const [refusal, setRefusal] = useState<{ reason: SaveRefusal; missing: readonly string[]; status: number } | null>(null);
+  const mounted = useRef(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
+    mounted.current = true;
     keyRef.current?.focus();
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const allTicked = confirmations.every((confirmation) => ticked.includes(confirmation));
   const canSubmit = hasText.key && hasText.secret && allTicked && !checking;
 
+  /**
+   * One attempt, step by step (design § F). A ref marks it in flight, because the
+   * disabled attribute stops a click and not an Enter. The two strings exist only
+   * in the locals below, which go to `saveCredential` and nowhere else. `finally`
+   * empties BOTH elements whatever happened, also when the form has left the
+   * document (the elements are held by this closure), unticks the boxes and
+   * clears the two flags. Only a form that is still mounted re-reads the lists
+   * and shows the result; a 401 does nothing, the token gate takes the page.
+   */
   async function attempt() {
     if (inFlight.current) return;
     const keyField = keyRef.current;
@@ -73,17 +89,30 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
     const apiSecret = secretField.value.trim();
     if (apiKey === "" || apiSecret === "" || !allTicked) return;
     inFlight.current = true;
+    setRefusal(null);
     setChecking(true);
     onBusyChange(true);
+    let result: SaveResult | null = null;
     try {
-      const result = await saveCredential(exchange, apiKey, apiSecret, confirmations);
-      if (result.kind === "saved") onSaved({ last4: result.last4, readOnly: result.readOnly });
+      result = await saveCredential(exchange, apiKey, apiSecret, confirmations);
     } finally {
+      keyField.value = "";
       secretField.value = "";
       inFlight.current = false;
+      setHasText({ key: false, secret: false });
+      setTicked([]);
       setChecking(false);
       onBusyChange(false);
     }
+    if (result === null || result.kind === "unauthorized" || !mounted.current) return;
+    void queryClient.refetchQueries({ queryKey: ["credentials"] });
+    void queryClient.refetchQueries({ queryKey: ["pools"] });
+    if (result.kind === "saved") {
+      onSaved({ last4: result.last4, readOnly: result.readOnly });
+      return;
+    }
+    setRefusal({ reason: result.reason, missing: result.missing, status: result.status });
+    keyField.focus();
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -95,6 +124,27 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
     setTicked((current) =>
       current.includes(confirmation) ? current.filter((item) => item !== confirmation) : [...current, confirmation],
     );
+  }
+
+  /**
+   * The names of a CONFIRMATION_REQUIRED refusal, when the server named only
+   * confirmations this form asks for: one line each, with the checkbox's own
+   * label. Anything else is said without a list, because a name the panel does
+   * not know has no label to show.
+   */
+  function listedConfirmations(shown: { reason: SaveRefusal; missing: readonly string[] }): readonly string[] {
+    if (shown.reason !== "confirmationRequired") return [];
+    const known = shown.missing.length > 0 && shown.missing.every((missing) => confirmations.includes(missing));
+    return known ? shown.missing : [];
+  }
+
+  /** The text is chosen here by `reason`; the server's own wording never reaches the screen. */
+  function refusalText(shown: { reason: SaveRefusal; missing: readonly string[]; status: number }): string {
+    const reason =
+      shown.reason === "confirmationRequired" && listedConfirmations(shown).length === 0
+        ? "confirmationRequiredUnlisted"
+        : shown.reason;
+    return t(`settings.form.error.${reason}`, { exchange: name, status: shown.status });
   }
 
   const title = hasKey ? t("settings.form.replaceTitle", { exchange: name }) : t("settings.form.addTitle", { exchange: name });
@@ -179,6 +229,20 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
           </>
         )}
 
+        {refusal !== null && (
+          <div role="alert" className="flex max-w-[78ch] flex-col gap-1 text-sm text-loss">
+            <p>{refusalText(refusal)}</p>
+            {listedConfirmations(refusal).length > 0 && (
+              <ul className="list-disc pl-5 text-[13px]">
+                {listedConfirmations(refusal).map((confirmation) => (
+                  <li key={confirmation}>{t(`settings.form.confirm.${confirmation}`, { exchange: name })}</li>
+                ))}
+              </ul>
+            )}
+            <p className="text-[13px] text-ink-3">{t("settings.form.emptied")}</p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <StatusButton
             texts={[t("settings.form.submit"), t("settings.form.submitting")]}
@@ -188,7 +252,7 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
             disabled={!canSubmit}
             className={SUBMIT}
           />
-          <button type="button" onClick={onClose} className={CLOSE}>
+          <button type="button" onClick={onClose} disabled={checking} className={CLOSE}>
             {t("settings.form.close")}
           </button>
         </div>

@@ -439,6 +439,24 @@
         "futures_enabled_confirmed": "I confirmed in {{exchange}} that this key has Enable Futures",
         "help": "If the key lacks Enable Futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting: it rests on your word."
       },
+      "emptied": "The fields were emptied. Enter the key again to retry.",
+      "error": {
+        "keyRejected": "{{exchange}} did not accept this key. Check that the key and the secret were copied whole, that the key has not expired, and that it allows this server's IP address. Nothing was saved.",
+        "withdrawPermission": "This key can take funds out of the account, so it was refused. Create a key without withdrawal permission and enter that one. Nothing was saved.",
+        "permissionsUnavailable": "{{exchange}} did not say what this key is allowed to do, so it was not saved. Try again in a moment.",
+        "venueUnreachable": "{{exchange}} could not be reached, so the key was not checked and not saved. Nothing is known to be wrong with it. Try again.",
+        "concurrentSave": "Another save for {{exchange}} finished first, so this one was not stored. The card shows the key that is stored now. Check it before saving again.",
+        "confirmationRequired": "The key was not saved, and nothing was sent to {{exchange}}, because a confirmation is missing:",
+        "confirmationRequiredUnlisted": "The key was not saved, and nothing was sent to {{exchange}}, because a confirmation is missing. Tick both and enter the key again.",
+        "confirmationNotApplicable": "The panel sent a confirmation that {{exchange}} does not take, so the key was not saved. Reload the page and enter the key again.",
+        "notServed": "{{exchange}} keys are not managed by this panel, so nothing was saved.",
+        "storageUnavailable": "The server cannot store keys right now, so nothing was saved. If this repeats, the server's encryption key is missing or unusable and has to be fixed there.",
+        "invalidKey": "The API key cannot be stored as typed. A key has 4 to 256 characters and no spaces or accented letters. Nothing was sent to {{exchange}}.",
+        "invalidSecret": "The API secret cannot be stored as typed. A secret has at most 256 characters and no spaces or accented letters. Nothing was sent to {{exchange}}.",
+        "invalidRequest": "The server refused the request as malformed, so nothing was saved. Reload the page and enter the key again.",
+        "noAnswer": "No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now.",
+        "unknown": "The save ended in a way this panel cannot read (status {{status}}), so it is not known whether the key was saved. The card shows what is stored now."
+      },
       "submit": "Check and save",
       "submitting": "Checking…",
       "close": "Close"
