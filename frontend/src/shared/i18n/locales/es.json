@@ -464,6 +464,32 @@
       "submitting": "Comprobando…",
       "close": "Cerrar"
     },
+    "delete": {
+      "confirmTitle": "¿Eliminar la clave de {{exchange}}?",
+      "confirmBody": "La clave terminada en {{last4}} se elimina de este sistema. {{exchange}} deja de leerse y de operarse desde aquí hasta que se agregue una clave de nuevo. Su historial se conserva.",
+      "condition": "El servidor lo permite solo mientras todas las estrategias de {{exchange}} estén desactivadas y no haya nada abierto en este exchange.",
+      "confirm": "Eliminar clave",
+      "cancel": "Cancelar",
+      "pending": "Eliminando…",
+      "deletedStatus": "Clave de {{exchange}} eliminada.",
+      "errors": {
+        "notFlat": "Todavía no se puede eliminar la clave de {{exchange}}. Esto lo impide:",
+        "notFlatUnlisted": "Todavía no se puede eliminar la clave de {{exchange}}: hay una estrategia activada, una posición abierta o una orden en curso.",
+        "gone": "El servidor no encontró ninguna clave de {{exchange}} que eliminar. Cierre este aviso: la tarjeta muestra lo que hay guardado ahora.",
+        "unknown": "La eliminación terminó de una forma que este panel no puede interpretar. Cierre este aviso: la tarjeta muestra si la clave sigue guardada."
+      },
+      "reasons": {
+        "enabledStrategies_one": "{{count}} estrategia activada: {{names}}. Desactívela primero.",
+        "enabledStrategies_other": "{{count}} estrategias activadas: {{names}}. Desactívelas primero.",
+        "symbols": "Posición abierta en: {{symbols}}. Debe cerrarse primero.",
+        "allocations_one": "{{count}} asignación abierta. Termina cuando se cierra su posición.",
+        "allocations_other": "{{count}} asignaciones abiertas. Terminan cuando se cierran sus posiciones.",
+        "liveReservations_one": "{{count}} reserva vigente: capital retenido para una orden. Espere a que termine y vuelva a intentarlo.",
+        "liveReservations_other": "{{count}} reservas vigentes: capital retenido para órdenes. Espere a que terminen y vuelva a intentarlo.",
+        "inFlightAttempts_one": "{{count}} orden que se está enviando ahora mismo. Espere a que termine y vuelva a intentarlo.",
+        "inFlightAttempts_other": "{{count}} órdenes que se están enviando ahora mismo. Espere a que terminen y vuelva a intentarlo."
+      }
+    },
     "title": "Configuración"
   },
   "auth": {

@@ -464,6 +464,32 @@
       "submit": "Check and save",
       "submitting": "Checking…",
       "close": "Close"
+    },
+    "delete": {
+      "confirmTitle": "Delete the {{exchange}} key?",
+      "confirmBody": "The key ending in {{last4}} is removed from this system. {{exchange}} is no longer read or traded from here until a key is added again. Its history stays.",
+      "condition": "The server allows this only while every {{exchange}} strategy is disabled and nothing is open on it.",
+      "confirm": "Delete key",
+      "cancel": "Cancel",
+      "pending": "Deleting…",
+      "deletedStatus": "{{exchange}} key deleted.",
+      "errors": {
+        "notFlat": "The {{exchange}} key cannot be deleted yet. This is in the way:",
+        "notFlatUnlisted": "The {{exchange}} key cannot be deleted yet: a strategy is still enabled, a position is open or an order is in progress.",
+        "gone": "The server found no {{exchange}} key to delete. Close this: the card shows what is stored now.",
+        "unknown": "The delete ended in a way this panel cannot read. Close this: the card shows whether the key is still stored."
+      },
+      "reasons": {
+        "enabledStrategies_one": "{{count}} enabled strategy: {{names}}. Disable it first.",
+        "enabledStrategies_other": "{{count}} enabled strategies: {{names}}. Disable them first.",
+        "symbols": "Open position on: {{symbols}}. It has to be closed first.",
+        "allocations_one": "{{count}} open allocation. It ends when its position is closed.",
+        "allocations_other": "{{count}} open allocations. They end when their positions are closed.",
+        "liveReservations_one": "{{count}} live reservation: capital held for an order. Wait for it to finish, then try again.",
+        "liveReservations_other": "{{count}} live reservations: capital held for orders. Wait for them to finish, then try again.",
+        "inFlightAttempts_one": "{{count}} order being placed right now. Wait for it to finish, then try again.",
+        "inFlightAttempts_other": "{{count}} orders being placed right now. Wait for them to finish, then try again."
+      }
     }
   },
   "auth": {

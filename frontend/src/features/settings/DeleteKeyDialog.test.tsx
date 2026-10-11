@@ -116,8 +116,9 @@ function confirmButton(name: "Delete key" | "Deleting…" = "Delete key"): HTMLE
 
 async function confirm() {
   fireEvent.click(confirmButton());
+  // A macrotask: the mutation reports `pending` a few microtasks after the click.
   await act(async () => {
-    await Promise.resolve();
+    await new Promise((done) => setTimeout(done, 0));
   });
 }
 
