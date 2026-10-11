@@ -381,8 +381,25 @@
       }
     }
   },
+  "exchanges": {
+    "bybit": "Bybit",
+    "binance": "Binance",
+    "pionex": "Pionex"
+  },
   "settings": {
-    "title": "Settings"
+    "title": "Settings",
+    "card": {
+      "keyLabel": "key",
+      "keyEnding": "key ending in {{last4}}",
+      "checkedOn": "checked {{date}}",
+      "notValidated": "not validated",
+      "facts": "What is known about this key",
+      "readOnly": "This key cannot trade. With dry run off, opening signals for {{exchange}} are refused until you add a key that can trade futures.",
+      "degraded": "No key stored. With dry run off, opening signals for {{exchange}} are refused until a key is added.",
+      "empty": "No key stored. Add one to read and trade on {{exchange}} from here.",
+      "emptyNotServed": "No key stored.",
+      "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here."
+    }
   },
   "auth": {
     "tokenGate": {

@@ -381,7 +381,24 @@
       }
     }
   },
+  "exchanges": {
+    "bybit": "Bybit",
+    "binance": "Binance",
+    "pionex": "Pionex"
+  },
   "settings": {
+    "card": {
+      "keyLabel": "clave",
+      "keyEnding": "clave terminada en {{last4}}",
+      "checkedOn": "comprobada el {{date}}",
+      "notValidated": "sin validar",
+      "facts": "Lo que se sabe de esta clave",
+      "readOnly": "Esta clave no puede operar. Con el modo simulación desactivado, las señales de apertura de {{exchange}} se rechazan hasta que usted agregue una clave que pueda operar futuros.",
+      "degraded": "No hay ninguna clave guardada. Con el modo simulación desactivado, las señales de apertura de {{exchange}} se rechazan hasta que se agregue una clave.",
+      "empty": "No hay ninguna clave guardada. Agregue una para leer y operar en {{exchange}} desde aquí.",
+      "emptyNotServed": "No hay ninguna clave guardada.",
+      "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí."
+    },
     "title": "Configuración"
   },
   "auth": {
