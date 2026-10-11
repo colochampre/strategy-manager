@@ -35,7 +35,7 @@ const TAG = "whitespace-nowrap rounded border px-2 py-0.5 font-mono text-xs";
 /**
  * What a tag says about its fact. They differ in more than colour:
  * - `checked`: the exchange itself showed it to the application (filled);
- * - `confirmed`: the owner's word, with the day he gave it (hollow, dashed);
+ * - `confirmed`: the owner's word, with the day it was given (hollow, dashed);
  * - `unrecorded`: nothing is on record about this fact (hollow, dashed, dimmer).
  */
 type TagLook = "checked" | "confirmed" | "unrecorded";
@@ -48,7 +48,7 @@ const LOOK: Record<TagLook, string> = {
 
 /** The source a fact has when the exchange itself showed it to the application. */
 const VERIFIED = "VERIFIED";
-/** The source of a fact the owner stated, with the day he did. */
+/** The source of a fact the owner stated, with the day it was stated. */
 const OWNER_CONFIRMED = "OWNER_CONFIRMED";
 /** What migration 0027 wrote for every key that existed before the system recorded how it was checked. */
 const UNRECORDED = "UNRECORDED";
@@ -231,7 +231,7 @@ export function ExchangeKeyCard({ exchange, entry, poolOn, served }: ExchangeKey
           </InfoText>
         )}
         {unrecordedKey && served && <p className={cn(SENTENCE, "text-ink-3")}>{t("settings.card.unrecordedHint")}</p>}
-        {sentence !== null &&<p className={cn(SENTENCE, sentence.tone)}>{sentence.text}</p>}
+        {sentence !== null && <p className={cn(SENTENCE, sentence.tone)}>{sentence.text}</p>}
         {!served && <p className={cn(SENTENCE, "text-ink-3")}>{t("settings.card.notServed", { exchange: name })}</p>}
       </div>
 
