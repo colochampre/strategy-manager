@@ -11,7 +11,11 @@
   "scope": {
     "exchanges": "Exchanges",
     "loading": "Loading exchanges…",
-    "error": "Exchanges could not be loaded."
+    "error": "Exchanges could not be loaded.",
+    "mark": {
+      "readOnly": "read-only",
+      "noKey": "no key"
+    }
   },
   "status": {
     "dryRun": "Dry run",

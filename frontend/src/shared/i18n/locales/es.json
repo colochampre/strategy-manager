@@ -11,7 +11,11 @@
   "scope": {
     "exchanges": "Exchanges",
     "loading": "Cargando exchanges…",
-    "error": "No se pudieron cargar los exchanges."
+    "error": "No se pudieron cargar los exchanges.",
+    "mark": {
+      "readOnly": "solo lectura",
+      "noKey": "sin clave"
+    }
   },
   "status": {
     "dryRun": "Modo simulación",
