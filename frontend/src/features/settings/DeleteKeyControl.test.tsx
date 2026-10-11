@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import i18n from "@/shared/i18n";
+import en from "@/shared/i18n/locales/en.json";
+import es from "@/shared/i18n/locales/es.json";
 import {
   type ExtraRoute,
   emptyKey,
@@ -380,5 +382,129 @@ describe("the requests of a session (spec: the panel reads the two routes and wr
     expect(requests(fetchMock, "PUT")).toHaveLength(1);
     expect(requests(fetchMock, "DELETE")).toHaveLength(1);
     expect(fetchMock.unexpected).toEqual([]);
+  });
+});
+
+// ---- The page, an open form and an open dialog in Spanish (spec; task 13.6.8 (a)) ----
+
+/** Every string under a key of a locale, with its path, whatever the depth. */
+function flatten(value: unknown, path = ""): [string, string][] {
+  if (typeof value === "string") return [[path, value]];
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => flatten(child, path === "" ? key : `${path}.${key}`));
+}
+
+/**
+ * None of the English texts of Settings is on screen. A text with a placeholder is checked by its longest fixed
+ * stretch, so a text that only differs in the name of the exchange is still caught.
+ */
+function expectNoEnglishSettingsText() {
+  const spanish = new Map(flatten(es.settings));
+  const text = document.body.textContent ?? "";
+  let checked = 0;
+  for (const [path, value] of flatten(en.settings)) {
+    if (spanish.get(path) === value) continue;
+    const longest = value.split(/\{\{[^}]*\}\}/).reduce((best, part) => (part.trim().length > best.length ? part.trim() : best), "");
+    if (longest.length < 8) continue;
+    expect(text, path).not.toContain(longest);
+    checked += 1;
+  }
+  expect(checked).toBeGreaterThan(60);
+}
+
+const PLURAL = {
+  ...REFUSAL,
+  enabled_strategies: [
+    { id: "s-1", name: "Alpha" },
+    { id: "s-2", name: "Beta" },
+  ],
+  symbols: ["STXUSDT.P", "BTCUSDT"],
+  allocations: ["a-1", "a-2"],
+  live_reservations: ["r-1", "r-2"],
+  in_flight_attempts: ["x-1", "x-2"],
+};
+const SINGULAR = {
+  ...REFUSAL,
+  enabled_strategies: [{ id: "s-1", name: "Alpha" }],
+  symbols: ["STXUSDT.P"],
+  allocations: ["a-1"],
+  live_reservations: ["r-1"],
+  in_flight_attempts: ["x-1"],
+};
+
+describe("the page, an open form and an open dialog read in Spanish", () => {
+  const answer = (status: number, body: unknown) => () => Promise.resolve(jsonResponse(body, status));
+
+  it.each([
+    [
+      "a refusal with the five kinds, in the plural",
+      answer(409, PLURAL),
+      false,
+      [
+        "Todavía no se puede eliminar la clave de Bybit. Esto lo impide:",
+        "2 estrategias activadas: Alpha, Beta. Desactívelas primero.",
+        "Posición abierta en: STXUSDT.P, BTCUSDT. Debe cerrarse primero.",
+        "2 asignaciones abiertas. Terminan cuando se cierran sus posiciones.",
+        "2 reservas vigentes: capital retenido para órdenes. Espere a que terminen y vuelva a intentarlo.",
+        "2 órdenes que se están enviando ahora mismo. Espere a que terminen y vuelva a intentarlo.",
+      ],
+    ],
+    [
+      "a refusal with the five kinds, in the singular",
+      answer(409, SINGULAR),
+      false,
+      [
+        "1 estrategia activada: Alpha. Desactívela primero.",
+        "1 asignación abierta. Termina cuando se cierra su posición.",
+        "1 reserva vigente: capital retenido para una orden. Espere a que termine y vuelva a intentarlo.",
+        "1 orden que se está enviando ahora mismo. Espere a que termine y vuelva a intentarlo.",
+      ],
+    ],
+    [
+      "a refusal whose lists cannot be read",
+      answer(409, { outcome: "EXCHANGE_NOT_FLAT", detail: DETAIL }),
+      false,
+      ["Todavía no se puede eliminar la clave de Bybit: hay una estrategia activada, una posición abierta o una orden en curso."],
+    ],
+    [
+      "a 404",
+      answer(404, { detail: DETAIL }),
+      false,
+      ["El servidor no encontró ninguna clave de Bybit que eliminar. Cierre este aviso: la tarjeta muestra lo que hay guardado ahora."],
+    ],
+    [
+      "no readable answer",
+      answer(500, { detail: DETAIL }),
+      false,
+      ["La eliminación terminó de una forma que este panel no puede interpretar. Cierre este aviso: la tarjeta muestra si la clave sigue guardada."],
+    ],
+    ["a delete in flight", () => new Promise<Response>(() => undefined), false, ["Eliminando…"]],
+    ["a delete that worked", answer(200, { exchange: "bybit" }), true, ["Clave de Bybit eliminada."]],
+  ])("%s", async (_label, onDelete, serverDeletes, expected) => {
+    await i18n.changeLanguage("es");
+    deletePage({ onDelete, serverDeletes });
+    await cardsDrawn();
+    expect(screen.queryByRole("heading", { level: 1, name: "Configuración" })).toBeInTheDocument();
+
+    // An open form.
+    fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
+    expect(screen.getByLabelText("Clave de API")).toBeInTheDocument();
+    expectNoEnglishSettingsText();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    await waitFor(() => expect(screen.queryByLabelText("Clave de API")).not.toBeInTheDocument());
+
+    // An open dialog, then the answer.
+    fireEvent.click(present(screen.queryByRole("button", { name: "Eliminar clave Bybit" })));
+    const dialog = present(screen.queryByRole("dialog", { name: "¿Eliminar la clave de Bybit?" }));
+    expect(dialog).toHaveTextContent(`La clave terminada en ${OLD_LAST4} se elimina de este sistema.`);
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancelar", "Eliminar clave"]);
+    expectNoEnglishSettingsText();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Eliminar clave" }));
+
+    for (const text of expected) {
+      await waitFor(() => expect(document.body.textContent).toContain(text));
+    }
+    expectNoEnglishSettingsText();
+    expect(document.body.textContent).not.toContain(DETAIL);
   });
 });
