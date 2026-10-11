@@ -10,7 +10,9 @@ interface StatusButtonProps {
   /** What the status region says after the button; `null` while there is nothing to say. */
   message: string | null;
   tone?: InlineStatusTone;
-  onClick: () => void;
+  onClick?: () => void;
+  /** RED STUB (task 13.5.3): accepted and ignored, so the test that wants a submit button fails on its assertion. */
+  submit?: boolean;
   disabled?: boolean;
   className: string;
 }
