@@ -77,8 +77,9 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
    * in the locals below, which go to `saveCredential` and nowhere else. `finally`
    * empties BOTH elements whatever happened, also when the form has left the
    * document (the elements are held by this closure), unticks the boxes and
-   * clears the two flags. Only a form that is still mounted re-reads the lists
-   * and shows the result; a 401 does nothing, the token gate takes the page.
+   * clears the two flags. Every ending but a 401 reads the two lists again, and
+   * only a form that is still mounted shows the result; a 401 does nothing, the
+   * token gate takes the page.
    */
   async function attempt() {
     if (inFlight.current) return;
@@ -104,9 +105,12 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
       setChecking(false);
       onBusyChange(false);
     }
-    if (result === null || result.kind === "unauthorized" || !mounted.current) return;
+    if (result === null || result.kind === "unauthorized") return;
+    // Also for a form that has left the document: the owner may have gone to another
+    // page during the check, and its exchange tabs read the keys before the save ended.
     void queryClient.refetchQueries({ queryKey: ["credentials"] });
     void queryClient.refetchQueries({ queryKey: ["pools"] });
+    if (!mounted.current) return;
     if (result.kind === "saved") {
       onSaved({ last4: result.last4, readOnly: result.readOnly });
       return;
