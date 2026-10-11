@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ExchangeKeyCard, type ExchangeKeyCardProps } from "@/features/settings/ExchangeKeyCard";
@@ -278,5 +278,366 @@ describe("test_card_never_renders_a_raw_permissions_payload", () => {
     expect(card.textContent).not.toContain("SENTINEL");
     expect(card.outerHTML).not.toContain("SENTINEL");
     expect(card.textContent).not.toContain("0123456789");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The tags (design § D): what is known about a stored key, in the order they are drawn.
+// ---------------------------------------------------------------------------------------------
+
+const DAY = "2026-10-02T09:30:00Z";
+const OTHER_DAY = "2026-10-03T09:30:00Z";
+const FACTS = "What is known about this key";
+const CONFIRMED_HINT =
+  "\"Confirmed\" is what you told this panel on that day. Binance does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, Binance rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting.";
+const UNRECORDED_HINT = "Stored before the system recorded how a key was checked. Enter it again to have it checked.";
+
+/** A Binance key whose trade and withdrawal facts are the owner's word, each with its own day. */
+function confirmed(overrides: Record<string, unknown> = {}): CredentialEntry {
+  return stored("binance", {
+    trade_capability_source: "OWNER_CONFIRMED",
+    trade_confirmed_at: DAY,
+    withdraw_check: "OWNER_CONFIRMED",
+    withdraw_confirmed_at: OTHER_DAY,
+    internal_transfer: null,
+    ...overrides,
+  });
+}
+
+/** A key stored before the system recorded how it was checked (migration 0027). */
+function unrecorded(overrides: Record<string, unknown> = {}): CredentialEntry {
+  return stored("binance", {
+    trade_capability_source: "UNRECORDED",
+    withdraw_check: "UNRECORDED",
+    validated_at: null,
+    trade_confirmed_at: null,
+    withdraw_confirmed_at: null,
+    internal_transfer: null,
+    ...overrides,
+  });
+}
+
+function factsList(): HTMLElement {
+  const list = screen.queryByRole("list", { name: FACTS });
+  expect(list, FACTS).toBeInTheDocument();
+  return list as HTMLElement;
+}
+
+/** The tags, in order: every list item that is not the information button. */
+function tags(): HTMLElement[] {
+  return within(factsList())
+    .getAllByRole("listitem")
+    .filter((item) => item.querySelector("button") === null);
+}
+
+function tagTexts(): string[] {
+  return tags().map((item) => item.textContent ?? "");
+}
+
+describe("the tags of a key checked by the venue", () => {
+  it("test_verified_key_shows_trades_no_withdrawal_and_transfers_or_no_transfers", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { internal_transfer: true }) });
+    expect(tagTexts()).toEqual(["trades", "no withdrawal", "transfers"]);
+  });
+
+  it("says `no transfers` when internal transfers are not allowed", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { internal_transfer: false }) });
+    expect(tagTexts()).toEqual(["trades", "no withdrawal", "no transfers"]);
+  });
+
+  it("draws no transfer tag when it is not known", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { internal_transfer: null }) });
+    expect(tagTexts()).toEqual(["trades", "no withdrawal"]);
+  });
+
+  it("draws no capability tag for a verified key that cannot trade: the read-only mark says it", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { trade_capable: false, internal_transfer: false }) });
+    expect(tagTexts()).toEqual(["read-only", "no withdrawal", "no transfers"]);
+  });
+});
+
+describe("the capability and withdrawal tags never claim more than was checked", () => {
+  it("draws `reads` for a trade fact the venue did not check when the key was validated", () => {
+    renderCard({ exchange: "binance", entry: unrecorded({ validated_at: DAY }) });
+    expect(tagTexts()).toEqual(["reads", "trade not verified", "withdraw not verified"]);
+  });
+
+  it("draws no capability tag when the trade fact was not checked and there is no validation day", () => {
+    renderCard({ exchange: "binance", entry: unrecorded() });
+    expect(tagTexts()).toEqual(["trade not verified", "withdraw not verified"]);
+  });
+
+  it.each(["OWNER_CONFIRMED", "UNRECORDED", "SOMETHING_NEW"])(
+    "draws `no withdrawal` never for the withdraw source %s",
+    (source) => {
+      renderCard({ exchange: "binance", entry: confirmed({ withdraw_check: source }) });
+      expect(tagTexts()).not.toContain("no withdrawal");
+      expect(screen.queryByText("no withdrawal")).not.toBeInTheDocument();
+    },
+  );
+
+  it("draws a source value it does not know as not verified, never as trades or no withdrawal", () => {
+    renderCard({
+      exchange: "binance",
+      entry: stored("binance", {
+        trade_capability_source: "FROM_THE_FUTURE",
+        withdraw_check: "FROM_THE_FUTURE",
+        trade_confirmed_at: DAY,
+        withdraw_confirmed_at: DAY,
+      }),
+    });
+
+    const texts = tagTexts();
+    expect(texts).toContain("trade not verified");
+    expect(texts).toContain("withdraw not verified");
+    expect(texts).not.toContain("trades");
+    expect(texts).not.toContain("no withdrawal");
+    expect(texts.some((text) => text.includes("confirmed"))).toBe(false);
+  });
+
+  it("draws a confirmation with no day as not verified: `confirmed` cannot be said without the day", () => {
+    renderCard({ exchange: "binance", entry: confirmed({ trade_confirmed_at: null, withdraw_confirmed_at: null }) });
+
+    expect(tagTexts()).toEqual(["reads", "trade not verified", "withdraw not verified"]);
+    expect(screen.queryByRole("button", { name: "About what you confirmed" })).not.toBeInTheDocument();
+  });
+});
+
+describe("a key the owner confirmed", () => {
+  it("test_owner_confirmed_key_shows_trade_confirmed_and_withdraw_confirmed_with_their_dates_and_never_not_verified_nor_no_withdrawal", () => {
+    const card = renderCard({ exchange: "binance", entry: confirmed({ validated_at: DAY }) });
+
+    expect(textNode("key ending in 7Q2d")).toBeInTheDocument();
+    expect(textNode("checked Oct 2, 2026")).toBeInTheDocument();
+    expect(tagTexts()).toEqual(["reads", "trade confirmed Oct 2, 2026", "withdraw confirmed Oct 3, 2026"]);
+    // The information button is the last item of the list, a button and not a tag.
+    const items = within(factsList()).getAllByRole("listitem");
+    expect(items).toHaveLength(4);
+    expect(within(items[3] as HTMLElement).queryByRole("button", { name: "About what you confirmed" })).toBeInTheDocument();
+    expect(card.textContent).not.toContain("not verified");
+    expect(card.textContent).not.toContain("no withdrawal");
+    expect(card.textContent).not.toContain("trades");
+    expect(card.outerHTML).not.toMatch(AMBER);
+  });
+
+  it("is the only control of the card and opens the text that says the withdrawal setting is not checked", () => {
+    renderCard({ exchange: "binance", entry: confirmed() });
+
+    const buttons = screen.queryAllByRole("button");
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["About what you confirmed"]);
+    const button = buttons[0] as HTMLElement;
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(CONFIRMED_HINT)).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText(CONFIRMED_HINT)).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing checks the withdrawal setting/)).toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(screen.queryByText(CONFIRMED_HINT)).not.toBeInTheDocument();
+  });
+
+  it("draws the information button for one confirmed fact too", () => {
+    renderCard({ exchange: "binance", entry: confirmed({ trade_confirmed_at: null }) });
+
+    expect(tagTexts()).toEqual(["reads", "trade not verified", "withdraw confirmed Oct 3, 2026"]);
+    expect(screen.queryByRole("button", { name: "About what you confirmed" })).toBeInTheDocument();
+  });
+
+  it("draws no information button for a key the venue checked, nor for one with nothing on record", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit") });
+    expect(screen.queryAllByRole("button")).toEqual([]);
+  });
+});
+
+describe("a key with no recorded facts", () => {
+  it("test_unrecorded_key_shows_not_validated_and_both_not_verified_tags_and_never_confirmed", () => {
+    const card = renderCard({ exchange: "binance", entry: unrecorded() });
+
+    expect(textNode("not validated")).toBeInTheDocument();
+    expect(tagTexts()).toEqual(["trade not verified", "withdraw not verified"]);
+    expect(card.textContent).not.toContain("confirmed");
+    const hint = textNode(UNRECORDED_HINT);
+    expect(hint).toHaveClass("text-ink-3");
+    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(card).toHaveClass("border-rule");
+    expect(card.outerHTML).not.toMatch(AMBER);
+  });
+
+  it("does not tell the owner to enter the key again on an exchange the panel does not manage", () => {
+    renderCard({ exchange: "pionex", entry: unrecorded(), served: false });
+
+    expect(screen.queryByText(UNRECORDED_HINT)).not.toBeInTheDocument();
+    expect(screen.queryByText(NOT_SERVED_SENTENCE)).toBeInTheDocument();
+  });
+});
+
+describe("one phrase per fact (decision 55)", () => {
+  const SOURCES = ["VERIFIED", "OWNER_CONFIRMED", "UNRECORDED", "FROM_THE_FUTURE"];
+  const DATES = [DAY, null];
+
+  it("test_one_phrase_per_fact: exactly one trade tag and one withdrawal tag, and never `confirmed` with `not verified`", () => {
+    let rendered = 0;
+    for (const tradeSource of SOURCES) {
+      for (const tradeCapable of [true, false]) {
+        // A key that cannot trade is a fact only the venue states; the owner's word makes a key capable.
+        if (!tradeCapable && tradeSource !== "VERIFIED") continue;
+        for (const validatedAt of DATES) {
+          for (const tradeConfirmedAt of DATES) {
+            for (const withdrawSource of SOURCES) {
+              for (const withdrawConfirmedAt of DATES) {
+                const entry = stored("binance", {
+                  trade_capable: tradeCapable,
+                  trade_capability_source: tradeSource,
+                  validated_at: validatedAt,
+                  trade_confirmed_at: tradeConfirmedAt,
+                  withdraw_check: withdrawSource,
+                  withdraw_confirmed_at: withdrawConfirmedAt,
+                });
+                const { unmount } = render(<ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served />);
+                const texts = tagTexts();
+                const label = JSON.stringify({ tradeSource, tradeCapable, validatedAt, tradeConfirmedAt, withdrawSource, withdrawConfirmedAt });
+
+                const trade = texts.filter((text) => /^(trades|read-only|trade confirmed .+|trade not verified)$/.test(text));
+                const withdrawal = texts.filter((text) => /^(no withdrawal|withdraw confirmed .+|withdraw not verified)$/.test(text));
+                expect(trade, label).toHaveLength(1);
+                expect(withdrawal, label).toHaveLength(1);
+                expect(texts.filter((text) => /^trade (confirmed|not verified)/.test(text)).length, label).toBeLessThanOrEqual(1);
+                expect(texts.filter((text) => /^withdraw (confirmed|not verified)/.test(text)).length, label).toBeLessThanOrEqual(1);
+                // The only tags that exist at all are the ones of the table.
+                for (const text of texts) {
+                  expect(text, label).toMatch(
+                    /^(read-only|reads|trades|no withdrawal|transfers|no transfers|trade confirmed .+|trade not verified|withdraw confirmed .+|withdraw not verified)$/,
+                  );
+                }
+                unmount();
+                rendered += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(rendered).toBeGreaterThan(100);
+  });
+
+  it("test_confirmed_and_not_verified_tags_are_neutral_not_amber", () => {
+    for (const entry of [confirmed(), unrecorded(), confirmed({ trade_confirmed_at: null })]) {
+      const { unmount } = render(<ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served />);
+      const card = screen.getByRole("article");
+      expect(card.outerHTML).not.toMatch(AMBER);
+      expect(card).toHaveClass("border-rule");
+      unmount();
+    }
+  });
+});
+
+describe("the three looks of a tag differ in more than colour", () => {
+  it("draws what the venue showed as a filled tag", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { internal_transfer: true }) });
+
+    for (const tag of tags()) {
+      expect(tag, tag.textContent ?? "").toHaveClass("border-rule", "bg-panel-2", "text-ink-2");
+      expect(tag).not.toHaveClass("border-dashed");
+    }
+  });
+
+  it("draws the owner's word as a dashed, hollow tag", () => {
+    renderCard({ exchange: "binance", entry: confirmed() });
+
+    const [reads, trade, withdraw] = tags() as [HTMLElement, HTMLElement, HTMLElement];
+    expect(reads).toHaveClass("border-rule", "bg-panel-2", "text-ink-2");
+    for (const tag of [trade, withdraw]) {
+      expect(tag).toHaveClass("border-dashed", "border-rule-strong", "text-ink-2");
+      expect(tag).not.toHaveClass("bg-panel-2");
+      expect(tag).not.toHaveClass("text-ink-3");
+    }
+  });
+
+  it("draws a fact with nothing on record as a dashed, dimmer tag", () => {
+    renderCard({ exchange: "binance", entry: unrecorded() });
+
+    for (const tag of tags()) {
+      expect(tag).toHaveClass("border-dashed", "border-rule-strong", "text-ink-3");
+      expect(tag).not.toHaveClass("text-ink-2");
+      expect(tag).not.toHaveClass("bg-panel-2");
+    }
+  });
+});
+
+describe("the structure that keeps the tags whole at every width (jsdom has no layout)", () => {
+  it("is a list that wraps, whose tags are unbreakable list items, with no separator character in the card", () => {
+    const card = renderCard({ exchange: "binance", entry: confirmed({ validated_at: DAY }) });
+
+    const list = factsList();
+    expect(list.tagName).toBe("UL");
+    expect(list).toHaveClass("flex", "flex-wrap");
+    for (const tag of tags()) {
+      expect(tag.tagName).toBe("LI");
+      expect(tag).toHaveClass("whitespace-nowrap", "rounded", "border", "px-2", "py-0.5", "font-mono", "text-xs");
+    }
+    expect(card.textContent).not.toContain(" · ");
+  });
+
+  it("keeps the checked day out of the tags", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit") });
+
+    expect(factsList()).not.toHaveTextContent("Oct 2, 2026");
+    expect(textNode("checked Oct 2, 2026").closest("ul")).toBeNull();
+  });
+});
+
+describe("the card in Spanish, with the fixed texts of design § J", () => {
+  it("writes the tags of a key the venue checked", async () => {
+    await i18n.changeLanguage("es");
+    renderCard({ exchange: "bybit", entry: stored("bybit", { internal_transfer: true }) });
+
+    expect(textNode("clave terminada en 7Q2d")).toBeInTheDocument();
+    expect(textNode("comprobada el 2 oct 2026")).toBeInTheDocument();
+    expect(tagTexts()).toEqual(["opera", "sin retiros", "transfiere"]);
+  });
+
+  it("writes `sin transferencias` and `solo lectura`", async () => {
+    await i18n.changeLanguage("es");
+    renderCard({ exchange: "bybit", entry: stored("bybit", { trade_capable: false, internal_transfer: false }) });
+
+    expect(tagTexts()).toEqual(["solo lectura", "sin retiros", "sin transferencias"]);
+  });
+
+  it("writes the owner's confirmations with their days, and the information button", async () => {
+    await i18n.changeLanguage("es");
+    renderCard({ exchange: "binance", entry: confirmed() });
+
+    expect(tagTexts()).toEqual(["lee", "operar: confirmado el 2 oct 2026", "retiros: confirmado el 3 oct 2026"]);
+    const button = screen.queryByRole("button", { name: "Sobre lo que usted confirmó" });
+    expect(button).toBeInTheDocument();
+    fireEvent.click(button as HTMLElement);
+    expect(
+      screen.queryByText(
+        "«Confirmado» es lo que usted indicó a este panel ese día. Binance no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con su confirmación. Si la clave no puede operar futuros, Binance rechaza la primera orden real y usted recibe una alerta de Telegram. Nada comprueba el ajuste de retiros.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("writes the facts with nothing on record, and the sentence that says to enter the key again", async () => {
+    await i18n.changeLanguage("es");
+    renderCard({ exchange: "binance", entry: unrecorded() });
+
+    expect(textNode("sin validar")).toBeInTheDocument();
+    expect(tagTexts()).toEqual(["operar: sin verificar", "retiros: sin verificar"]);
+    expect(screen.queryByRole("list", { name: "Lo que se sabe de esta clave" })).toBeInTheDocument();
+    expect(screen.queryByText(UNRECORDED_HINT)).not.toBeInTheDocument();
+  });
+
+  it("writes the month of a long date as the language does", async () => {
+    await i18n.changeLanguage("es");
+    renderCard({
+      exchange: "binance",
+      entry: confirmed({ withdraw_confirmed_at: "2026-09-30T09:30:00Z" }),
+    });
+
+    expect(tagTexts()).toContain("retiros: confirmado el 30 sept 2026");
   });
 });
