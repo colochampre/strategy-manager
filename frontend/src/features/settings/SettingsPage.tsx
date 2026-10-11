@@ -1,7 +1,8 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
+import { KeyEntryForm } from "@/features/settings/KeyEntryForm";
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
@@ -35,6 +36,9 @@ export function SettingsPage() {
   const credentials = useCredentials();
   const pools = usePools();
   const poolList = knownPools(pools);
+  // RED STUB (task 13.5.1): the page holds the open form and keeps it open after a 200; it draws no status region.
+  const [openForm, setOpenForm] = useState<string | null>(null);
+  const [, setSaving] = useState(false);
 
   return (
     <div className="flex flex-col gap-6">
@@ -85,7 +89,20 @@ export function SettingsPage() {
                     entry={credentials.data.find((row) => row.exchange === exchange)}
                     poolOn={poolOn(exchange, poolList)}
                     served={SERVED.includes(exchange)}
-                  />
+                    open={openForm === exchange}
+                    onToggle={() => setOpenForm(openForm === exchange ? null : exchange)}
+                  >
+                    <KeyEntryForm
+                      id={`key-form-${exchange}`}
+                      exchange={exchange}
+                      name={exchange}
+                      hasKey={credentials.data.some((row) => row.exchange === exchange && row.status === "STORED")}
+                      confirmations={[]}
+                      onClose={() => setOpenForm(null)}
+                      onSaved={() => undefined}
+                      onBusyChange={setSaving}
+                    />
+                  </ExchangeKeyCard>
                 </li>
               ))}
             </ul>

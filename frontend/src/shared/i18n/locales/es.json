@@ -420,7 +420,17 @@
       "degraded": "No hay ninguna clave guardada. Con el modo simulación desactivado, las señales de apertura de {{exchange}} se rechazan hasta que se agregue una clave.",
       "empty": "No hay ninguna clave guardada. Agregue una para leer y operar en {{exchange}} desde aquí.",
       "emptyNotServed": "No hay ninguna clave guardada.",
-      "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí."
+      "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí.",
+      "add": "Agregar clave",
+      "replace": "Reemplazar clave"
+    },
+    "form": {
+      "addTitle": "Agregar una clave de {{exchange}}",
+      "apiKey": "Clave de API",
+      "apiSecret": "Secreto de API",
+      "submit": "Comprobar y guardar",
+      "submitting": "Comprobando…",
+      "close": "Cerrar"
     },
     "title": "Configuración"
   },

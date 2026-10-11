@@ -42,7 +42,14 @@ function textNode(text: string): HTMLElement {
 }
 
 function renderCard(overrides: Partial<ExchangeKeyCardProps> & Pick<ExchangeKeyCardProps, "exchange">): HTMLElement {
-  const props: ExchangeKeyCardProps = { entry: undefined, poolOn: false, served: true, ...overrides };
+  const props: ExchangeKeyCardProps = {
+    entry: undefined,
+    poolOn: false,
+    served: true,
+    open: false,
+    onToggle: () => undefined,
+    ...overrides,
+  };
   render(<ExchangeKeyCard {...props} />);
   return screen.getByRole("article");
 }
@@ -243,9 +250,10 @@ describe("an exchange the panel does not manage", () => {
   });
 });
 
-describe("this unit draws no control", () => {
+describe("the only control a card draws is its toggle, and only when the exchange is served", () => {
   // The Binance information button belongs to the tags and is pinned with them (task 13.4.4).
-  it("test_no_card_has_a_button_in_this_unit", () => {
+  // Updated by task 13.5.1 (R12): unit 13.4 drew no button; a served card now has exactly its toggle.
+  it("test_a_served_card_has_only_its_toggle_and_an_unserved_card_has_no_button", () => {
     const cases: [string, CredentialEntry | undefined, boolean | null, boolean][] = [
       ["bybit", stored("bybit"), false, true],
       ["bybit", stored("bybit", { trade_capable: false }), true, true],
@@ -257,8 +265,11 @@ describe("this unit draws no control", () => {
       ["pionex", undefined, false, false],
     ];
     for (const [exchange, entry, poolOn, served] of cases) {
-      const { unmount } = render(<ExchangeKeyCard exchange={exchange} entry={entry} poolOn={poolOn} served={served} />);
-      expect(screen.queryAllByRole("button"), `${exchange} ${entry?.status}`).toEqual([]);
+      const { unmount } = render(
+        <ExchangeKeyCard exchange={exchange} entry={entry} poolOn={poolOn} served={served} open={false} onToggle={() => undefined} />,
+      );
+      const names = screen.queryAllByRole("button").map((button) => button.textContent);
+      expect(names, `${exchange} ${entry?.status}`).toEqual(served ? [entry?.status === "STORED" ? "Replace key" : "Add key"] : []);
       unmount();
     }
   });
@@ -421,10 +432,11 @@ describe("a key the owner confirmed", () => {
     expect(card.outerHTML).not.toMatch(AMBER);
   });
 
-  it("is the only control of the card and opens the text that says the withdrawal setting is not checked", () => {
+  it("is the only control among the facts and opens the text that says the withdrawal setting is not checked", () => {
     renderCard({ exchange: "binance", entry: confirmed() });
 
-    const buttons = screen.queryAllByRole("button");
+    // Task 13.5.1 (R12): the card's own toggle is the other button, outside the facts.
+    const buttons = within(factsList()).queryAllByRole("button");
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["About what you confirmed"]);
     const button = buttons[0] as HTMLElement;
     expect(button).toHaveAttribute("aria-expanded", "false");
@@ -449,7 +461,9 @@ describe("a key the owner confirmed", () => {
 
   it("draws no information button for a key the venue checked, nor for one with nothing on record", () => {
     renderCard({ exchange: "bybit", entry: stored("bybit") });
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    // The card's own toggle is the only button (task 13.5.1, R12).
+    expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual(["Replace key"]);
+    expect(screen.queryByRole("button", { name: /About what you confirmed/ })).not.toBeInTheDocument();
   });
 });
 
@@ -462,7 +476,7 @@ describe("a key with no recorded facts", () => {
     expect(card.textContent).not.toContain("confirmed");
     const hint = textNode(UNRECORDED_HINT);
     expect(hint).toHaveClass("text-ink-3");
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual(["Replace key"]);
     expect(card).toHaveClass("border-rule");
     expect(card.outerHTML).not.toMatch(AMBER);
   });
@@ -497,7 +511,9 @@ describe("one phrase per fact (decision 55)", () => {
                   withdraw_check: withdrawSource,
                   withdraw_confirmed_at: withdrawConfirmedAt,
                 });
-                const { unmount } = render(<ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served />);
+                const { unmount } = render(
+                  <ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />,
+                );
                 const texts = tagTexts();
                 const label = JSON.stringify({ tradeSource, tradeCapable, validatedAt, tradeConfirmedAt, withdrawSource, withdrawConfirmedAt });
 
@@ -526,7 +542,9 @@ describe("one phrase per fact (decision 55)", () => {
 
   it("test_confirmed_and_not_verified_tags_are_neutral_not_amber", () => {
     for (const entry of [confirmed(), unrecorded(), confirmed({ trade_confirmed_at: null })]) {
-      const { unmount } = render(<ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served />);
+      const { unmount } = render(
+        <ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />,
+      );
       const card = screen.getByRole("article");
       expect(card.outerHTML).not.toMatch(AMBER);
       expect(card).toHaveClass("border-rule");

@@ -421,7 +421,17 @@
       "degraded": "No key stored. With dry run off, opening signals for {{exchange}} are refused until a key is added.",
       "empty": "No key stored. Add one to read and trade on {{exchange}} from here.",
       "emptyNotServed": "No key stored.",
-      "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here."
+      "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.",
+      "add": "Add key",
+      "replace": "Replace key"
+    },
+    "form": {
+      "addTitle": "Add a {{exchange}} key",
+      "apiKey": "API key",
+      "apiSecret": "API secret",
+      "submit": "Check and save",
+      "submitting": "Checking…",
+      "close": "Close"
     }
   },
   "auth": {

@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { CredentialEntry, StoredCredential } from "@/shared/api/credentials";
@@ -18,6 +18,12 @@ export interface ExchangeKeyCardProps {
   poolOn: boolean | null;
   /** Whether the panel manages a key for this exchange (it is in `served-exchanges.json`). */
   served: boolean;
+  /** Whether this card's key form is open. */
+  open: boolean;
+  /** The toggle was pressed: it opens the form, or closes it when it is open. */
+  onToggle: () => void;
+  /** The key form, drawn under the facts and the buttons when `open`. */
+  children?: ReactNode;
 }
 
 /** The four dots that stand for the part of the key the panel never has. */
@@ -146,7 +152,7 @@ function KeyHint({ last4 }: { last4: string }) {
  * It decides nothing: the state and the mark come from the same function the
  * exchange tabs call.
  */
-export function ExchangeKeyCard({ exchange, entry, poolOn, served }: ExchangeKeyCardProps) {
+export function ExchangeKeyCard({ exchange, entry, poolOn, served, open, onToggle, children }: ExchangeKeyCardProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const state = keyState(entry, poolOn);
@@ -235,7 +241,15 @@ export function ExchangeKeyCard({ exchange, entry, poolOn, served }: ExchangeKey
         {!served && <p className={cn(SENTENCE, "text-ink-3")}>{t("settings.card.notServed", { exchange: name })}</p>}
       </div>
 
-      <div className="flex flex-wrap items-start gap-2 empty:hidden sm:col-start-2 sm:row-start-1" />
+      <div className="flex flex-wrap items-start gap-2 empty:hidden sm:col-start-2 sm:row-start-1">
+        {served && (
+          <button type="button" onClick={onToggle}>
+            {key === null ? t("settings.card.add") : t("settings.card.replace")}
+          </button>
+        )}
+      </div>
+
+      {open && children !== undefined && <div className="min-w-0 sm:col-span-2">{children}</div>}
     </article>
   );
 }
