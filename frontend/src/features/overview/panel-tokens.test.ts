@@ -54,13 +54,14 @@ function sourceFiles(dir: string): string[] {
  * count, a read-only key and a keyless exchange. The last two are drawn by
  * `shared/credentials/KeyMark.tsx`, the mark that the exchange tabs and the Settings card
  * share (PR 13, unit 13.3); the card's own border and sentence join with `ExchangeKeyCard.tsx`
- * in unit 13.4. Decision 43
+ * in unit 13.4 (added to the list by the RED step of task 13.4.3, before the card uses amber). Decision 43
  * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
  * the words and the amber of the mode badge, and the same tag on a fill of the fills table
  * whose flag differs from its operation's, and the tag in the title of the detail dialog.
  */
 const AMBER_ALLOWED = [
   "features/overview/DecisionRail.tsx",
+  "features/settings/ExchangeKeyCard.tsx",
   "features/strategies/OperationFillsTable.tsx",
   "features/strategies/TradeDetailDialog.tsx",
   "features/strategies/TradesTable.tsx",
