@@ -1,6 +1,10 @@
 import { useTranslation } from "react-i18next";
 
+import { useCredentials } from "@/shared/api/credentials";
+import { usePools } from "@/shared/api/pools";
 import { useTokenStore } from "@/shared/auth/token-store";
+import { KeyMark } from "@/shared/credentials/KeyMark";
+import { keyMark, keyState, poolOn } from "@/shared/credentials/key-state";
 import { cn } from "@/shared/lib/cn";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
@@ -16,6 +20,15 @@ interface ExchangeTabsProps {
  *
  * The row scrolls sideways and never wraps, so a long exchange list on a phone
  * cannot push the page taller than the viewport.
+ *
+ * Each tab says, under its name, what the owner has to know about that exchange's
+ * key: `read-only`, or `no key`. The word comes from the same function the
+ * Settings card uses, with the same inputs. While the credentials load or fail
+ * there is no mark: no mark is a claim of nothing, and never "the key is fine".
+ *
+ * Every tab holds the same three-row grid (design § E), so the name sits at the
+ * same height with a mark and without one. Below `lg` the tabs share the row's
+ * whole width; from `lg` they keep their own.
  */
 export function ExchangeTabs({ className }: ExchangeTabsProps) {
   const token = useTokenStore((state) => state.token);
@@ -26,6 +39,15 @@ export function ExchangeTabs({ className }: ExchangeTabsProps) {
 function ExchangeTabsBar({ className }: ExchangeTabsProps) {
   const { t } = useTranslation();
   const scope = useExchangeScope();
+  const credentials = useCredentials();
+  const pools = usePools();
+
+  /** Only a credentials read that succeeded can say anything about a key. */
+  const markOf = (exchange: string) => {
+    if (credentials.status !== "success") return null;
+    const entry = credentials.data.find((row) => row.exchange === exchange);
+    return keyMark(keyState(entry, poolOn(exchange, pools.data)));
+  };
 
   return (
     <nav
@@ -45,6 +67,7 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
       {scope.status === "ready" &&
         scope.options.map((exchange) => {
           const selected = exchange === scope.exchange;
+          const mark = markOf(exchange);
           return (
             <button
               key={exchange}
@@ -52,13 +75,21 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
               aria-pressed={selected}
               onClick={() => scope.select(exchange)}
               className={cn(
-                "min-h-11 shrink-0 whitespace-nowrap rounded-md px-3.5 text-sm transition-colors",
+                "min-w-fit flex-1 whitespace-nowrap rounded-md px-3.5 text-sm transition-colors lg:flex-none",
                 selected
                   ? "bg-panel-2 font-semibold text-ink"
                   : "text-ink-3 hover:bg-panel-2 hover:text-ink",
               )}
             >
-              {exchange}
+              <span className="grid min-h-13 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center">
+                <span className="row-start-2 leading-5">{exchange}</span>
+                {mark !== null && (
+                  <>
+                    {" "}
+                    <KeyMark mark={mark} variant="tab" className="row-start-3 self-start" />
+                  </>
+                )}
+              </span>
             </button>
           );
         })}
