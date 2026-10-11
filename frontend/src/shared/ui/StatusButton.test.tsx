@@ -97,4 +97,19 @@ describe("StatusButton", () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("type", "button");
   });
+
+  it("is the submit button of its form when asked, so Enter in a field presses it (task 13.5.3)", () => {
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit} noValidate>
+        <input aria-label="field" />
+        <StatusButton texts={["Save"]} shown="Save" message={null} className="button" submit />
+      </form>,
+    );
+
+    const button = screen.getByRole("button", { name: "Save" });
+    expect(button).toHaveAttribute("type", "submit");
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
 });
