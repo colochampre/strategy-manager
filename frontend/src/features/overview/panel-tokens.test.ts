@@ -51,8 +51,10 @@ function sourceFiles(dir: string): string[] {
 
 /**
  * The design allows amber in four places: the mode badge, the pending-bookings
- * count, a read-only key and a keyless exchange. Two of them exist so far; the
- * other two join this list with Settings and the exchange tabs (PR 13). Decision 43
+ * count, a read-only key and a keyless exchange. The last two are drawn by
+ * `shared/credentials/KeyMark.tsx`, the mark that the exchange tabs and the Settings card
+ * share (PR 13, unit 13.3); the card's own border and sentence join with `ExchangeKeyCard.tsx`
+ * in unit 13.4. Decision 43
  * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
  * the words and the amber of the mode badge, and the same tag on a fill of the fills table
  * whose flag differs from its operation's, and the tag in the title of the detail dialog.
@@ -62,6 +64,7 @@ const AMBER_ALLOWED = [
   "features/strategies/OperationFillsTable.tsx",
   "features/strategies/TradeDetailDialog.tsx",
   "features/strategies/TradesTable.tsx",
+  "shared/credentials/KeyMark.tsx",
   "shared/layout/DryRunBadge.tsx",
 ];
 
