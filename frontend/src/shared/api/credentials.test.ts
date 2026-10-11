@@ -1,9 +1,19 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { type ReactNode, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
-import { fetchCredentials, saveCredential } from "@/shared/api/credentials";
-import type { SaveResult } from "@/shared/api/credentials";
+import {
+  deleteCredential,
+  fetchCredentials,
+  saveCredential,
+  useCredentials,
+  useDeleteCredential,
+} from "@/shared/api/credentials";
+import type { DeleteResult, SaveResult } from "@/shared/api/credentials";
+import { usePools } from "@/shared/api/pools";
 import served from "@/shared/credentials/served-exchanges.json";
 import { emptyKey, lock, storedKey, unlock } from "@/test/harness";
 
@@ -489,6 +499,387 @@ describe("saveCredential, what it never does", () => {
       expect(JSON.stringify(result)).not.toContain(K);
       expect(JSON.stringify(result)).not.toContain(S);
     }
+  });
+});
+
+// ---- The delete (design § G; task 13.6.2) ----
+
+const DETAIL = "SERVER-DETAIL-SENTINEL: the text the server wrote";
+
+const FULL_REFUSAL = {
+  outcome: "EXCHANGE_NOT_FLAT",
+  detail: DETAIL,
+  enabled_strategies: [
+    { id: "s-1", name: "Alpha" },
+    { id: "s-2", name: "Beta" },
+  ],
+  symbols: ["STXUSDT.P", "BTCUSDT"],
+  allocations: ["a-1", "a-2", "a-3"],
+  live_reservations: [],
+  in_flight_attempts: ["x-1"],
+};
+
+function expectOneDeleteTo(fetchMock: ReturnType<typeof answer>, exchange: string) {
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(url).toBe(`${API_BASE_URL}/api/credentials/${exchange}`);
+  expect(init.method).toBe("DELETE");
+  expect(init.body).toBeUndefined();
+}
+
+describe("deleteCredential, the request", () => {
+  it("sends one DELETE to the exchange's path with no body, and nothing else", async () => {
+    const fetchMock = answer(200, { exchange: "bybit" });
+
+    await deleteCredential("bybit");
+
+    expectOneDeleteTo(fetchMock, "bybit");
+  });
+
+  it("reads a 200 as deleted whatever the body says", async () => {
+    answer(200, { exchange: "bybit", detail: DETAIL });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "deleted" });
+  });
+
+  it("reads a 204 with no body as deleted", async () => {
+    answer(204, undefined);
+
+    expect(await deleteCredential("binance")).toEqual({ kind: "deleted" });
+  });
+
+  it("reads a 200 whose body is not JSON as unknown: the panel cannot tell what answered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError("<html>")) } as unknown as Response),
+      ),
+    );
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("deleteCredential, a refusal and its five lists", () => {
+  it("reads the five lists of a 409 EXCHANGE_NOT_FLAT: names, symbols as sent, the rest counted", async () => {
+    answer(409, FULL_REFUSAL);
+
+    expect(await deleteCredential("bybit")).toEqual({
+      kind: "notFlat",
+      lists: {
+        enabledStrategies: ["Alpha", "Beta"],
+        symbols: ["STXUSDT.P", "BTCUSDT"],
+        allocations: 3,
+        liveReservations: 0,
+        inFlightAttempts: 1,
+      },
+    });
+  });
+
+  it("keeps empty lists as zero, so the dialog can leave their line out", async () => {
+    answer(409, { ...FULL_REFUSAL, enabled_strategies: [], symbols: [], allocations: [], in_flight_attempts: [] });
+
+    expect(await deleteCredential("bybit")).toEqual({
+      kind: "notFlat",
+      lists: { enabledStrategies: [], symbols: [], allocations: 0, liveReservations: 0, inFlightAttempts: 0 },
+    });
+  });
+
+  it.each([
+    "enabled_strategies",
+    "symbols",
+    "allocations",
+    "live_reservations",
+    "in_flight_attempts",
+  ])("never half a list: a missing %s makes the whole refusal unlisted", async (field) => {
+    const { [field]: _gone, ...body } = FULL_REFUSAL as Record<string, unknown>;
+    answer(409, body);
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "notFlat", lists: null });
+  });
+
+  it.each([
+    "enabled_strategies",
+    "symbols",
+    "allocations",
+    "live_reservations",
+    "in_flight_attempts",
+  ])("never half a list: %s that is not a list makes the whole refusal unlisted", async (field) => {
+    answer(409, { ...FULL_REFUSAL, [field]: "a string" });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "notFlat", lists: null });
+  });
+
+  it.each([
+    ["an entry with no name", [{ id: "s-1" }]],
+    ["an entry whose name is empty", [{ id: "s-1", name: "" }]],
+    ["an entry whose name is not text", [{ id: "s-1", name: 7 }]],
+    ["an entry that is not an object", ["Alpha"]],
+    ["one good entry and one with no name", [{ id: "s-1", name: "Alpha" }, { id: "s-2" }]],
+  ])("never half a list: %s makes the whole refusal unlisted", async (_label, strategies) => {
+    answer(409, { ...FULL_REFUSAL, enabled_strategies: strategies });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "notFlat", lists: null });
+  });
+
+  it.each([
+    ["symbols", ["STXUSDT.P", 5]],
+    ["allocations", ["a-1", null]],
+    ["live_reservations", [{}]],
+    ["in_flight_attempts", [1]],
+  ])("never half a list: a %s entry that is not text makes the whole refusal unlisted", async (field, entries) => {
+    answer(409, { ...FULL_REFUSAL, [field]: entries });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "notFlat", lists: null });
+  });
+
+  it("reads a 409 with another outcome, or none, as unknown: it is not the refusal the panel knows", async () => {
+    answer(409, { outcome: "CONCURRENT_SAVE", detail: DETAIL });
+    expect(await deleteCredential("bybit")).toEqual({ kind: "unknown" });
+
+    answer(409, undefined);
+    expect(await deleteCredential("bybit")).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("deleteCredential, the other answers", () => {
+  it("reads a 404 as gone, never as a success", async () => {
+    answer(404, { detail: "no key" });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "gone" });
+  });
+
+  it("leaves a 401 to the token gate", async () => {
+    answer(401, { detail: "no" });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "unauthorized" });
+  });
+
+  it.each([
+    ["a 500", () => answer(500, { detail: DETAIL })],
+    ["a 503", () => answer(503, { detail: DETAIL })],
+    ["a 422", () => answer(422, { detail: [{ loc: ["path"], msg: "x" }] })],
+    ["no answer", () => failToConnect()],
+    ["a plain Error", () => failToConnect(new Error("boom"))],
+  ])("reads %s as unknown", async (_label, stub) => {
+    stub();
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "unknown" });
+  });
+
+  it.each([
+    ["a 200", () => answer(200, {})],
+    ["a 409", () => answer(409, FULL_REFUSAL)],
+    ["a 404", () => answer(404, {})],
+    ["a 500", () => answer(500, {})],
+    ["no answer", () => failToConnect()],
+  ])("never retries: %s is one request", async (_label, stub) => {
+    const fetchMock = stub();
+
+    await deleteCredential("bybit");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves a plain object of known fields that never holds the server's wording", async () => {
+    const known = new Set(["kind", "lists", "enabledStrategies", "symbols", "allocations", "liveReservations", "inFlightAttempts"]);
+    const answers: [number, unknown][] = [
+      [200, { detail: DETAIL }],
+      [409, FULL_REFUSAL],
+      [409, { ...FULL_REFUSAL, symbols: 3 }],
+      [404, { detail: DETAIL }],
+      [500, { detail: DETAIL }],
+    ];
+
+    for (const [status, body] of answers) {
+      answer(status, body);
+      const result: DeleteResult = await deleteCredential("bybit");
+
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      expect(JSON.stringify(result)).not.toContain(DETAIL);
+      for (const key of Object.keys(result)) expect(known.has(key)).toBe(true);
+    }
+  });
+});
+
+function deferred() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function reply(status: number, body: unknown): Response {
+  return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
+}
+
+/**
+ * Credentials and pools are read once and answered at once; the DELETE is answered by `onDelete`, and every read
+ * after it by `afterwards` (a read the test holds open, say). `log` is every request, in the order it was sent.
+ */
+function session(onDelete: () => Promise<Response>, afterwards: (path: string) => Promise<Response>) {
+  const log: string[] = [];
+  let deleted = false;
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    const path = String(input).replace(`${API_BASE_URL}/api`, "");
+    log.push(`${method} ${path}`);
+    if (method === "DELETE") {
+      deleted = true;
+      return onDelete();
+    }
+    if (deleted) return afterwards(path);
+    return Promise.resolve(reply(200, []));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { log, fetchMock };
+}
+
+function mountHooks() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  const hook = renderHook(
+    () => ({ credentials: useCredentials(), pools: usePools(), remove: useDeleteCredential() }),
+    { wrapper },
+  );
+  return { client, hook };
+}
+
+async function readsDone(hook: ReturnType<typeof mountHooks>["hook"]) {
+  await waitFor(() => {
+    expect(hook.result.current.credentials.isSuccess).toBe(true);
+    expect(hook.result.current.pools.isSuccess).toBe(true);
+  });
+}
+
+describe("useDeleteCredential", () => {
+  it("sends the exchange id and nothing else, and reports the result", async () => {
+    const { log, fetchMock } = session(() => Promise.resolve(reply(200, {})), () => Promise.resolve(reply(200, [])));
+    const { hook } = mountHooks();
+    await readsDone(hook);
+
+    let result: DeleteResult | undefined;
+    await act(async () => {
+      result = await hook.result.current.remove.mutateAsync("bybit");
+    });
+
+    expect(result).toEqual({ kind: "deleted" });
+    expect(log.filter((line) => line.startsWith("DELETE"))).toEqual(["DELETE /credentials/bybit"]);
+    const deletes = fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE");
+    expect(deletes).toHaveLength(1);
+    expect((deletes[0]?.[1] as RequestInit).body).toBeUndefined();
+  });
+
+  it("test_deleting_leaves_no_secret_in_any_cache: the variables are the exchange id, and no cache holds what the server wrote", async () => {
+    session(() => Promise.resolve(reply(409, FULL_REFUSAL)), () => Promise.resolve(reply(200, [])));
+    const { client, hook } = mountHooks();
+    await readsDone(hook);
+
+    await act(async () => {
+      await hook.result.current.remove.mutateAsync("bybit");
+    });
+
+    const mutations = client.getMutationCache().getAll();
+    expect(mutations.length).toBeGreaterThan(0);
+    for (const mutation of mutations) {
+      expect(mutation.state.variables).toBe("bybit");
+      expect(JSON.stringify([mutation.state.data, mutation.state.error])).not.toContain(DETAIL);
+      expect(JSON.stringify([mutation.state.data, mutation.state.error])).not.toContain(K);
+      expect(JSON.stringify([mutation.state.data, mutation.state.error])).not.toContain(S);
+    }
+    for (const query of client.getQueryCache().getAll()) {
+      const held = JSON.stringify([query.queryKey, query.state.data, query.state.error?.message]);
+      expect(held).not.toContain(DETAIL);
+      expect(held).not.toContain(K);
+      expect(held).not.toContain(S);
+    }
+  });
+
+  it.each([
+    ["a delete that worked", () => reply(200, {})],
+    ["a refusal", () => reply(409, FULL_REFUSAL)],
+    ["a 404", () => reply(404, {})],
+    ["a 500", () => reply(500, {})],
+  ])("after %s, reads both lists again and reports only when both are read", async (_label, answerOf) => {
+    const credentials = deferred();
+    const pools = deferred();
+    const { log } = session(
+      () => Promise.resolve(answerOf()),
+      (path) => (path === "/credentials" ? credentials.promise : pools.promise),
+    );
+    const { hook } = mountHooks();
+    await readsDone(hook);
+    const before = log.length;
+
+    let settled = false;
+    let reported: Promise<DeleteResult> | undefined;
+    await act(async () => {
+      reported = hook.result.current.remove.mutateAsync("bybit").then((result) => {
+        settled = true;
+        return result;
+      });
+    });
+
+    await waitFor(() => expect(log.length).toBe(before + 3));
+    expect(log[before]).toBe("DELETE /credentials/bybit");
+    expect(log.slice(before + 1).sort()).toEqual(["GET /credentials", "GET /pools"]);
+    // Both reads are held open: the mutation has not reported.
+    expect(settled).toBe(false);
+
+    credentials.resolve(reply(200, []));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+
+    pools.resolve(reply(200, []));
+    await act(async () => {
+      await reported;
+    });
+    expect(settled).toBe(true);
+  });
+
+  it("reads both lists again after the hook has left the document: the re-read does not depend on a mounted caller", async () => {
+    const release = deferred();
+    const { log } = session(() => release.promise, () => Promise.resolve(reply(200, [])));
+    const { hook } = mountHooks();
+    await readsDone(hook);
+    const before = log.length;
+
+    act(() => {
+      hook.result.current.remove.mutate("bybit");
+    });
+    await waitFor(() => expect(log[before]).toBe("DELETE /credentials/bybit"));
+    hook.unmount();
+    release.resolve(reply(200, {}));
+
+    await waitFor(() => expect(log.slice(before + 1).sort()).toEqual(["GET /credentials", "GET /pools"]));
+  });
+
+  it("leaves a 401 to the token gate: no list is read again", async () => {
+    const { log } = session(() => Promise.resolve(reply(401, {})), () => Promise.resolve(reply(200, [])));
+    const { hook } = mountHooks();
+    await readsDone(hook);
+    const before = log.length;
+
+    await act(async () => {
+      await hook.result.current.remove.mutateAsync("bybit");
+    });
+
+    expect(log.slice(before)).toEqual(["DELETE /credentials/bybit"]);
+  });
+
+  it("does not retry a failed delete", async () => {
+    const { log } = session(() => Promise.resolve(reply(500, {})), () => Promise.resolve(reply(200, [])));
+    const { hook } = mountHooks();
+    await readsDone(hook);
+
+    await act(async () => {
+      await hook.result.current.remove.mutateAsync("bybit");
+    });
+
+    expect(log.filter((line) => line.startsWith("DELETE"))).toHaveLength(1);
   });
 });
 
