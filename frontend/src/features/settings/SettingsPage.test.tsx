@@ -828,23 +828,25 @@ describe("the end of a save that worked (task 13.5.10)", () => {
       credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
       after: [storedKey("bybit", { last4: NEW_LAST4 })],
     });
-    await cardsDrawn();
-    await submitFor("Bybit");
-    await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
-
-    vi.useFakeTimers();
+    // The timers are faked BEFORE the save, so a timer started by the save would be one of them. Time still
+    // moves by itself (shouldAdvanceTime), so the page's reads and waitFor go on working.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
+      await cardsDrawn();
+      await submitFor("Bybit");
+      await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
+
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
       });
       expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument();
+
+      fireEvent.click(toggleOf("Binance"));
+
+      expect(noteIn(bybitCard(), SAVED_NOTICE)).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
-
-    fireEvent.click(toggleOf("Binance"));
-
-    expect(noteIn(bybitCard(), SAVED_NOTICE)).not.toBeInTheDocument();
   });
 
   it("ends the notice when the owner saves again, to the new key", async () => {
