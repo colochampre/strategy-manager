@@ -11,7 +11,7 @@ interface StatusButtonProps {
   message: string | null;
   tone?: InlineStatusTone;
   onClick?: () => void;
-  /** RED STUB (task 13.5.3): accepted and ignored, so the test that wants a submit button fails on its assertion. */
+  /** The button submits its form (so Enter in a field presses it) instead of being a plain button. */
   submit?: boolean;
   disabled?: boolean;
   className: string;
@@ -23,10 +23,19 @@ interface StatusButtonProps {
  * button has the width of its longest and changing the text moves nothing around it. Only the shown text is
  * seen or read, which makes it the button's accessible name.
  */
-export function StatusButton({ texts, shown, message, tone = "neutral", onClick, disabled, className }: StatusButtonProps) {
+export function StatusButton({
+  texts,
+  shown,
+  message,
+  tone = "neutral",
+  onClick,
+  submit = false,
+  disabled,
+  className,
+}: StatusButtonProps) {
   return (
     <>
-      <button type="button" onClick={onClick} disabled={disabled} className={className}>
+      <button type={submit ? "submit" : "button"} onClick={onClick} disabled={disabled} className={className}>
         <span className="inline-grid justify-items-center">
           {texts.map((text) => (
             <span

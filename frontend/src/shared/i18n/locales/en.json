@@ -427,8 +427,18 @@
     },
     "form": {
       "addTitle": "Add a {{exchange}} key",
+      "replaceTitle": "Replace the {{exchange}} key",
       "apiKey": "API key",
       "apiSecret": "API secret",
+      "helpVerified": "Before saving, the key is tried with a real read at {{exchange}}. A key that can withdraw funds is refused. A key that cannot trade is saved with a warning.",
+      "helpConfirmed": "Before saving, the key is tried with a real read at {{exchange}}. {{exchange}} does not let this panel check what the key may do, so you confirm it here.",
+      "replaceNote": "Saving replaces the key stored now, also when the new key cannot trade.",
+      "confirm": {
+        "legend": "What you checked in {{exchange}}",
+        "withdrawals_disabled_confirmed": "I confirmed in {{exchange}} that this key has withdrawals disabled",
+        "futures_enabled_confirmed": "I confirmed in {{exchange}} that this key has Enable Futures",
+        "help": "If the key lacks Enable Futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting: it rests on your word."
+      },
       "submit": "Check and save",
       "submitting": "Checking…",
       "close": "Close"

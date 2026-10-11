@@ -426,8 +426,18 @@
     },
     "form": {
       "addTitle": "Agregar una clave de {{exchange}}",
+      "replaceTitle": "Reemplazar la clave de {{exchange}}",
       "apiKey": "Clave de API",
       "apiSecret": "Secreto de API",
+      "helpVerified": "Antes de guardarla, la clave se prueba con una lectura real en {{exchange}}. Una clave que puede retirar fondos se rechaza. Una clave que no puede operar se guarda con una advertencia.",
+      "helpConfirmed": "Antes de guardarla, la clave se prueba con una lectura real en {{exchange}}. {{exchange}} no permite que este panel compruebe qué puede hacer la clave, así que usted lo confirma aquí.",
+      "replaceNote": "Al guardar se reemplaza la clave guardada ahora, incluso cuando la nueva clave no puede operar.",
+      "confirm": {
+        "legend": "Lo que usted comprobó en {{exchange}}",
+        "withdrawals_disabled_confirmed": "Confirmé en {{exchange}} que esta clave tiene los retiros desactivados",
+        "futures_enabled_confirmed": "Confirmé en {{exchange}} que esta clave tiene «Enable Futures» (habilitar futuros)",
+        "help": "Si la clave no tiene «Enable Futures» (habilitar futuros), {{exchange}} rechaza la primera orden real y usted recibe una alerta de Telegram. Nada comprueba el ajuste de retiros: depende de lo que usted indique."
+      },
       "submit": "Comprobar y guardar",
       "submitting": "Comprobando…",
       "close": "Cerrar"
