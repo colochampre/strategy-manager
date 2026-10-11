@@ -244,7 +244,8 @@ describe("an exchange the panel does not manage", () => {
 });
 
 describe("this unit draws no control", () => {
-  it("test_no_card_has_a_button_in_this_unit (the only button anywhere is the Binance information button)", () => {
+  // The Binance information button belongs to the tags and is pinned with them (task 13.4.4).
+  it("test_no_card_has_a_button_in_this_unit", () => {
     const cases: [string, CredentialEntry | undefined, boolean | null, boolean][] = [
       ["bybit", stored("bybit"), false, true],
       ["bybit", stored("bybit", { trade_capable: false }), true, true],
@@ -260,16 +261,6 @@ describe("this unit draws no control", () => {
       expect(screen.queryAllByRole("button"), `${exchange} ${entry?.status}`).toEqual([]);
       unmount();
     }
-
-    const binance = stored("binance", {
-      trade_capability_source: "OWNER_CONFIRMED",
-      trade_confirmed_at: "2026-10-02T09:30:00Z",
-      withdraw_check: "OWNER_CONFIRMED",
-      withdraw_confirmed_at: "2026-10-02T09:30:00Z",
-    });
-    renderCard({ exchange: "binance", entry: binance });
-    const buttons = screen.queryAllByRole("button");
-    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["About what you confirmed"]);
   });
 });
 
