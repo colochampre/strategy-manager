@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import { SettingsPage } from "@/features/settings/SettingsPage";
-import { API_BASE_URL } from "@/shared/api/config";
 import i18n from "@/shared/i18n";
 import {
   type CredentialsStub,
@@ -304,7 +303,7 @@ describe("what the page reads", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/pools"))).toBe(true));
 
     const requests = fetchMock.mock.calls.map(
-      ([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(API_BASE_URL, "")}`,
+      ([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(/^.*\/api/, "")}`,
     );
     expect([...new Set(requests)].sort()).toEqual(["GET /credentials", "GET /pools"]);
     expect(fetchMock.unexpected).toEqual([]);
