@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ExchangeKeyCard, type ExchangeKeyCardProps } from "@/features/settings/ExchangeKeyCard";
 import type { CredentialEntry } from "@/shared/api/credentials";
@@ -272,6 +272,119 @@ describe("the only control a card draws is its toggle, and only when the exchang
       expect(names, `${exchange} ${entry?.status}`).toEqual(served ? [entry?.status === "STORED" ? "Replace key" : "Add key"] : []);
       unmount();
     }
+  });
+});
+
+describe("the toggle (design § D Buttons, task 13.5.8)", () => {
+  const toggle = () => screen.queryByRole<HTMLButtonElement>("button", { name: /^(Add|Replace) key/ });
+
+  it("is `Add key` on a keyless served card: filled teal, 44 px, named with its exchange", () => {
+    renderCard({ exchange: "binance", entry: empty("binance") });
+
+    const button = toggle();
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAccessibleName("Add key Binance");
+    expect(button).toHaveTextContent("Add key");
+    expect(button).toHaveClass("bg-gain", "text-ground", "min-h-11");
+    expect(button).not.toHaveClass("border-rule");
+  });
+
+  it("is `Replace key` once a key is stored: outlined, 44 px, named with its exchange", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit") });
+
+    const button = toggle();
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAccessibleName("Replace key Bybit");
+    expect(button).toHaveClass("border", "border-rule", "min-h-11");
+    expect(button).not.toHaveClass("bg-gain");
+  });
+
+  it("names the two buttons of two cards differently, never `Replace key` twice", () => {
+    render(
+      <>
+        <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined} />
+        <ExchangeKeyCard exchange="binance" entry={stored("binance")} poolOn={false} served open={false} onToggle={() => undefined} />
+      </>,
+    );
+
+    const names = screen.getAllByRole("button", { name: /^Replace key/ }).map((button) => button.getAttribute("aria-labelledby"));
+    expect(new Set(names).size).toBe(2);
+    expect(screen.queryByRole("button", { name: "Replace key Bybit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Replace key Binance" })).toBeInTheDocument();
+  });
+
+  it("carries aria-expanded and aria-controls, pointing at the form's section", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit"), open: true });
+
+    const button = toggle();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveAttribute("aria-controls", "key-form-bybit");
+  });
+
+  it("is collapsed when its form is closed", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit"), open: false });
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("is the SAME element when its text changes, so it can keep the focus across a first save", () => {
+    const props: ExchangeKeyCardProps = {
+      exchange: "binance",
+      entry: empty("binance"),
+      poolOn: false,
+      served: true,
+      open: false,
+      onToggle: () => undefined,
+    };
+    const { rerender } = render(<ExchangeKeyCard {...props} />);
+    const before = toggle();
+    expect(before).toHaveTextContent("Add key");
+
+    rerender(<ExchangeKeyCard {...props} entry={stored("binance")} />);
+
+    expect(toggle()).toHaveTextContent("Replace key");
+    expect(toggle()).toBe(before);
+  });
+
+  it("calls onToggle when pressed", () => {
+    const onToggle = vi.fn();
+    renderCard({ exchange: "bybit", entry: stored("bybit"), onToggle });
+
+    fireEvent.click(toggle() as HTMLElement);
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("is disabled while a save is in flight anywhere on the page", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit"), busy: true });
+    expect(toggle()).toBeDisabled();
+  });
+
+  it("draws the form it is given under the facts and the buttons, only when open", () => {
+    const { rerender } = render(
+      <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined}>
+        <section aria-label="the form" />
+      </ExchangeKeyCard>,
+    );
+    expect(screen.queryByRole("region", { name: "the form" })).not.toBeInTheDocument();
+
+    rerender(
+      <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open onToggle={() => undefined}>
+        <section aria-label="the form" />
+      </ExchangeKeyCard>,
+    );
+
+    const card = screen.getByRole("article");
+    expect(screen.queryByRole("region", { name: "the form" })).toBeInTheDocument();
+    const areas = Array.from(card.children);
+    expect(areas).toHaveLength(4);
+    expect(areas[2]).toContainElement(toggle());
+    expect(areas[3]).toContainElement(screen.getByRole("region", { name: "the form" }));
+    expect(areas[3]).toHaveClass("sm:col-span-2");
+  });
+
+  it("has no button of any kind on a card that is not served", () => {
+    renderCard({ exchange: "pionex", entry: stored("pionex"), served: false });
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });
 

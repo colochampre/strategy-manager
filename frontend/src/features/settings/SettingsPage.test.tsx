@@ -380,6 +380,116 @@ describe("the card and the tab agree", () => {
   });
 });
 
+/** A card's toggle, "Add key" or "Replace key" with the exchange after it. */
+function toggleOf(name: string): HTMLElement {
+  const button = within(screen.getByRole("article", { name })).queryByRole("button", { name: /^(Add|Replace) key/ });
+  expect(button, `the toggle of ${name}`).toBeInTheDocument();
+  return button as HTMLElement;
+}
+
+function formsOpen(): HTMLElement[] {
+  return screen.queryAllByRole("heading", { level: 4 });
+}
+
+describe("the toggles and the open form (task 13.5.8)", () => {
+  it("names the buttons with their exchange: `Replace key Bybit` and `Add key Binance`, not the same name twice", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-labelledby") === null ? "" : button.textContent);
+    expect(names.filter((name) => name !== "")).toEqual(["Replace key", "Add key"]);
+    expect(screen.queryByRole("button", { name: "Replace key Bybit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
+  });
+
+  it("draws no button on a card that is not served", async () => {
+    stub(ok(storedKey("bybit"), storedKey("kraken", { last4: "AB12" })), [pool("bybit")]);
+    mountPage();
+    await cardsDrawn();
+
+    expect(within(screen.getByRole("article", { name: "kraken" })).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("test_one_form_at_a_time: opening another card's form closes and unmounts the open one", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    fireEvent.click(toggleOf("Bybit"));
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Replace the Bybit key"]);
+    expect(toggleOf("Bybit")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "FAKE-typed-text" } });
+
+    fireEvent.click(toggleOf("Binance"));
+
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Add a Binance key"]);
+    expect(toggleOf("Bybit")).toHaveAttribute("aria-expanded", "false");
+    expect(toggleOf("Binance")).toHaveAttribute("aria-expanded", "true");
+    expect(within(screen.getByRole("article", { name: "Bybit" })).queryByRole("region")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("FAKE-typed-text");
+    expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
+  });
+
+  it("points aria-controls at the form it opened", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    fireEvent.click(toggleOf("Bybit"));
+
+    const section = screen.queryByRole("region", { name: "Replace the Bybit key" });
+    expect(section).toBeInTheDocument();
+    expect(toggleOf("Bybit")).toHaveAttribute("aria-controls", (section as HTMLElement).id);
+  });
+
+  it("test_the_opening_button_closes_its_own_form: and the focus returns to that button", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    fireEvent.click(toggleOf("Bybit"));
+    expect(formsOpen()).toHaveLength(1);
+
+    fireEvent.click(toggleOf("Bybit"));
+
+    await waitFor(() => expect(formsOpen()).toEqual([]));
+    expect(toggleOf("Bybit")).toHaveAttribute("aria-expanded", "false");
+    expect(toggleOf("Bybit")).toHaveFocus();
+  });
+
+  it("test_closing_returns_the_focus_to_the_toggle", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    fireEvent.click(toggleOf("Binance"));
+    expect(screen.getByLabelText("API key")).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(formsOpen()).toEqual([]));
+    expect(toggleOf("Binance")).toHaveFocus();
+  });
+
+  it("disables every button of the page while any save is in flight", async () => {
+    const pending = new Promise<Response>(() => undefined);
+    const extra: ExtraRoute = (url, init) =>
+      url.endsWith("/credentials/bybit") && init?.method === "PUT" ? pending : undefined;
+    const fetchMock = stub(ok(storedKey("bybit")), [pool("bybit")], extra);
+    mountPage();
+    await cardsDrawn();
+    fireEvent.click(toggleOf("Bybit"));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "FAKE-key-0001" } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: "FAKE-secret-0002" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    for (const button of buttons) expect(button, button.outerHTML).toBeDisabled();
+  });
+});
+
 describe("the page in Spanish", () => {
   it("writes its own texts in Spanish and none of design § J's English", async () => {
     await i18n.changeLanguage("es");
