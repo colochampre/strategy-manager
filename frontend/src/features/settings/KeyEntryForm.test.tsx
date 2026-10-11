@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KeyEntryForm, type KeyEntryFormProps } from "@/features/settings/KeyEntryForm";
+import { useCredentials } from "@/shared/api/credentials";
+import { usePools } from "@/shared/api/pools";
 import i18n from "@/shared/i18n";
 import { type ExtraRoute, jsonResponse, lock, pool, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
@@ -39,12 +41,15 @@ interface Rendered {
   props: KeyEntryFormProps;
   queryClient: QueryClient;
   fetchMock: ReturnType<typeof stubApi>;
+  /** Takes the form out of the document, as leaving the page does, keeping the query client. */
+  rerenderWithoutForm: () => void;
 }
 
 /** The form alone, on its own query client, with the `PUT` of its exchange answered by `respond`. */
 function renderForm(
   overrides: Partial<KeyEntryFormProps> = {},
   respond: () => Promise<Response> = () => Promise.resolve(jsonResponse(ANSWER)),
+  withReads = false,
 ): Rendered {
   const props: KeyEntryFormProps = {
     id: "key-form-bybit",
@@ -61,12 +66,29 @@ function renderForm(
     url.endsWith(`/credentials/${props.exchange}`) && init?.method === "PUT" ? respond() : undefined;
   const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit")] }, {}, extra);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
+      {withReads && <Reads />}
       <KeyEntryForm {...props} />
     </QueryClientProvider>,
   );
-  return { props, queryClient, fetchMock };
+  const rerenderWithoutForm = () =>
+    view.rerender(<QueryClientProvider client={queryClient}>{withReads && <Reads />}</QueryClientProvider>);
+  return { props, queryClient, fetchMock, rerenderWithoutForm };
+}
+
+/** The two lists the page holds, so that a re-read has queries to read again. */
+function Reads() {
+  useCredentials();
+  usePools();
+  return null;
+}
+
+/** The GETs of the two lists so far. */
+function listReads(fetchMock: ReturnType<typeof stubApi>) {
+  return fetchMock.mock.calls.filter(
+    ([url, init]) => /\/(credentials|pools)$/.test(String(url)) && (init?.method ?? "GET") === "GET",
+  );
 }
 
 function puts(fetchMock: ReturnType<typeof stubApi>) {
@@ -288,5 +310,342 @@ describe("the form's shape (design § F)", () => {
       expect(node.className, node.tagName).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
     }
     expect(section.querySelector("[style]")).toBeNull();
+  });
+});
+
+function answer(status: number, body: Record<string, unknown>): () => Promise<Response> {
+  return () => Promise.resolve(jsonResponse(body, status));
+}
+
+const EMPTIED = "The fields were emptied. Enter the key again to retry.";
+const SERVER_WORDING = "SERVER-WORDING-that-must-never-be-shown";
+
+interface RefusalCase {
+  reason: string;
+  respond: () => Promise<Response>;
+  text: string;
+}
+
+/** The fifteen texts of design § F, in English, with Bybit as the exchange (the Binance one below). */
+const REFUSALS: RefusalCase[] = [
+  {
+    reason: "keyRejected",
+    respond: answer(422, { outcome: "KEY_REJECTED", detail: SERVER_WORDING }),
+    text: "Bybit did not accept this key. Check that the key and the secret were copied whole, that the key has not expired, and that it allows this server's IP address. Nothing was saved.",
+  },
+  {
+    reason: "withdrawPermission",
+    respond: answer(422, { outcome: "WITHDRAW_PERMISSION", detail: SERVER_WORDING }),
+    text: "This key can take funds out of the account, so it was refused. Create a key without withdrawal permission and enter that one. Nothing was saved.",
+  },
+  {
+    reason: "permissionsUnavailable",
+    respond: answer(422, { outcome: "PERMISSIONS_UNAVAILABLE", detail: SERVER_WORDING }),
+    text: "Bybit did not say what this key is allowed to do, so it was not saved. Try again in a moment.",
+  },
+  {
+    reason: "venueUnreachable",
+    respond: answer(502, { outcome: "VENUE_UNREACHABLE", detail: SERVER_WORDING }),
+    text: "Bybit could not be reached, so the key was not checked and not saved. Nothing is known to be wrong with it. Try again.",
+  },
+  {
+    reason: "concurrentSave",
+    respond: answer(409, { outcome: "CONCURRENT_SAVE", detail: SERVER_WORDING }),
+    text: "Another save for Bybit finished first, so this one was not stored. The card shows the key that is stored now. Check it before saving again.",
+  },
+  {
+    reason: "confirmationRequiredUnlisted",
+    respond: answer(422, { outcome: "CONFIRMATION_REQUIRED", detail: SERVER_WORDING, missing: ["not_a_known_name"] }),
+    text: "The key was not saved, and nothing was sent to Bybit, because a confirmation is missing. Tick both and enter the key again.",
+  },
+  {
+    reason: "confirmationNotApplicable",
+    respond: answer(422, { outcome: "CONFIRMATION_NOT_APPLICABLE", detail: SERVER_WORDING }),
+    text: "The panel sent a confirmation that Bybit does not take, so the key was not saved. Reload the page and enter the key again.",
+  },
+  {
+    reason: "notServed",
+    respond: answer(404, { detail: SERVER_WORDING }),
+    text: "Bybit keys are not managed by this panel, so nothing was saved.",
+  },
+  {
+    reason: "storageUnavailable",
+    respond: answer(503, { detail: SERVER_WORDING }),
+    text: "The server cannot store keys right now, so nothing was saved. If this repeats, the server's encryption key is missing or unusable and has to be fixed there.",
+  },
+  {
+    reason: "invalidKey",
+    respond: answer(422, { detail: [{ type: "string_too_short", loc: ["body", "api_key"], msg: SERVER_WORDING }] }),
+    text: "The API key cannot be stored as typed. A key has 4 to 256 characters and no spaces or accented letters. Nothing was sent to Bybit.",
+  },
+  {
+    reason: "invalidSecret",
+    respond: answer(422, { detail: [{ type: "string_too_long", loc: ["body", "api_secret"], msg: SERVER_WORDING }] }),
+    text: "The API secret cannot be stored as typed. A secret has at most 256 characters and no spaces or accented letters. Nothing was sent to Bybit.",
+  },
+  {
+    reason: "invalidRequest",
+    respond: answer(422, { detail: [{ type: "missing", loc: ["body"], msg: SERVER_WORDING }] }),
+    text: "The server refused the request as malformed, so nothing was saved. Reload the page and enter the key again.",
+  },
+  {
+    reason: "noAnswer",
+    respond: () => Promise.reject(new TypeError(SERVER_WORDING)),
+    text: "No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now.",
+  },
+  {
+    reason: "unknown",
+    respond: answer(500, { detail: SERVER_WORDING }),
+    text: "The save ended in a way this panel cannot read (status 500), so it is not known whether the key was saved. The card shows what is stored now.",
+  },
+];
+
+/** Types both fields and presses the button; the alert of the refusal is waited for as an assertion. */
+async function refuseWith(respond: () => Promise<Response>, overrides: Partial<KeyEntryFormProps> = {}) {
+  const rendered = renderForm(overrides, respond, true);
+  typeBoth();
+  for (const confirmation of overrides.confirmations ?? []) {
+    tick(confirmation === "futures_enabled_confirmed" ? FUTURES : WITHDRAWALS);
+  }
+  fireEvent.click(submit());
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+  return rendered;
+}
+
+describe("the attempt: each answer shows its own text (design § F)", () => {
+  it.each(REFUSALS)("test_each_answer_shows_its_own_text: $reason", async ({ respond, text }) => {
+    await refuseWith(respond);
+
+    const alert = found(screen.queryByRole("alert"), "the refusal");
+    expect(alert).toHaveClass("text-loss");
+    expect(alert).toHaveTextContent(text);
+    // "The fields were emptied…" follows it, in ink-3, inside the same alert.
+    expect(within(alert).queryByText(EMPTIED)).toHaveClass("text-ink-3");
+    expect(alert.textContent).not.toContain(SERVER_WORDING);
+  });
+
+  it("names a missing confirmation by the checkbox's own label, one line per name", async () => {
+    await refuseWith(
+      answer(422, {
+        outcome: "CONFIRMATION_REQUIRED",
+        detail: SERVER_WORDING,
+        missing: ["futures_enabled_confirmed", "withdrawals_disabled_confirmed"],
+      }),
+      { exchange: "binance", name: "Binance", confirmations: BINANCE_CONFIRMATIONS },
+    );
+
+    const alert = found(screen.queryByRole("alert"), "the refusal");
+    expect(alert).toHaveTextContent(
+      "The key was not saved, and nothing was sent to Binance, because a confirmation is missing:",
+    );
+    const lines = within(alert).queryAllByRole("listitem").map((item) => item.textContent);
+    expect(lines).toEqual([FUTURES, WITHDRAWALS]);
+  });
+
+  it("test_a_missing_confirmation_is_named: one name gives one line", async () => {
+    await refuseWith(
+      answer(422, { outcome: "CONFIRMATION_REQUIRED", missing: ["futures_enabled_confirmed"] }),
+      { exchange: "binance", name: "Binance", confirmations: BINANCE_CONFIRMATIONS },
+    );
+
+    expect(within(found(screen.queryByRole("alert"), "the refusal")).queryAllByRole("listitem").map((item) => item.textContent)).toEqual([FUTURES]);
+  });
+
+  it.each([
+    ["names it does not know", ["something_else"]],
+    ["a mix with an unknown name", ["futures_enabled_confirmed", "something_else"]],
+    ["an empty list", []],
+    ["not a list", "futures_enabled_confirmed"],
+  ])("says confirmationRequiredUnlisted, with no lines, for a `missing` of %s", async (_label, missing) => {
+    await refuseWith(
+      answer(422, { outcome: "CONFIRMATION_REQUIRED", detail: SERVER_WORDING, missing }),
+      { exchange: "binance", name: "Binance", confirmations: BINANCE_CONFIRMATIONS },
+    );
+
+    const alert = found(screen.queryByRole("alert"), "the refusal");
+    expect(alert).toHaveTextContent(
+      "The key was not saved, and nothing was sent to Binance, because a confirmation is missing. Tick both and enter the key again.",
+    );
+    expect(within(alert).queryAllByRole("listitem")).toEqual([]);
+  });
+
+  it("test_the_servers_wording_is_never_rendered", async () => {
+    for (const { respond } of REFUSALS) {
+      await refuseWith(respond);
+      expect(document.body.textContent).not.toContain(SERVER_WORDING);
+      cleanup();
+    }
+  });
+});
+
+describe("the attempt: what the form does after a refusal (design § F)", () => {
+  it("keeps the form open, empties both fields and unticks the boxes, disables the button and moves the focus to API key", async () => {
+    await refuseWith(answer(422, { outcome: "KEY_REJECTED" }), {
+      exchange: "binance",
+      name: "Binance",
+      confirmations: BINANCE_CONFIRMATIONS,
+    });
+
+    expect(screen.queryByRole("heading", { level: 4, name: "Add a Binance key" })).toBeInTheDocument();
+    expect(keyField().value).toBe("");
+    expect(secretField().value).toBe("");
+    for (const box of screen.getAllByRole("checkbox")) expect(box).not.toBeChecked();
+    expect(submit()).toBeDisabled();
+    expect(keyField()).toHaveFocus();
+  });
+
+  it("moves the focus back to API key from wherever it was", async () => {
+    renderForm({}, answer(500, {}), true);
+    typeBoth();
+    secretField().focus();
+    expect(secretField()).toHaveFocus();
+
+    fireEvent.click(submit());
+
+    await waitFor(() => expect(keyField()).toHaveFocus());
+  });
+
+  it("keeps the refusal while the owner types, removes it when the next attempt starts", async () => {
+    let release: (response: Response) => void = () => undefined;
+    const second = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    renderForm({}, () => (++calls === 1 ? Promise.resolve(jsonResponse({ outcome: "KEY_REJECTED" }, 422)) : second), true);
+    typeBoth();
+    fireEvent.click(submit());
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+
+    fireEvent.change(keyField(), { target: { value: KEY } });
+    fireEvent.change(secretField(), { target: { value: SECRET } });
+    expect(screen.queryByRole("alert")).toBeInTheDocument();
+
+    fireEvent.click(submit());
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await act(async () => {
+      release(jsonResponse(ANSWER));
+    });
+  });
+
+  it("shows the refusal of a key that may have been stored, with the form open and emptied (noAnswer and unknown)", async () => {
+    for (const reason of ["noAnswer", "unknown"]) {
+      const { respond, text } = REFUSALS.find((entry) => entry.reason === reason) as RefusalCase;
+      await refuseWith(respond);
+      expect(screen.queryByRole("alert")).toHaveTextContent(text);
+      expect(screen.queryByRole("alert")).toHaveTextContent("not known whether the key was saved");
+      expect(keyField().value).toBe("");
+      cleanup();
+    }
+  });
+});
+
+describe("the attempt: while the request is in flight", () => {
+  it("reads `Checking…`, is disabled, disables Close and makes the fields read-only", async () => {
+    const { fetchMock } = renderForm({}, () => new Promise<Response>(() => undefined));
+    typeBoth();
+
+    fireEvent.click(submit());
+
+    await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
+    const button = found(screen.queryByRole<HTMLButtonElement>("button", { name: "Checking…" }), "Checking…");
+    expect(button).toBeDisabled();
+    expect(found(screen.queryByRole("button", { name: "Close" }), "Close")).toBeDisabled();
+    expect(keyField()).toHaveAttribute("readonly");
+    expect(secretField()).toHaveAttribute("readonly");
+  });
+
+  it("tells the page when an attempt starts and when it ends", async () => {
+    const { props } = renderForm({}, answer(500, {}));
+    typeBoth();
+
+    fireEvent.click(submit());
+
+    await waitFor(() => expect(props.onBusyChange).toHaveBeenLastCalledWith(false));
+    expect(props.onBusyChange).toHaveBeenNthCalledWith(1, true);
+    expect(props.onBusyChange).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the attempt: what is read again and what the page is told", () => {
+  it.each([
+    ["a save that worked", answer(200, ANSWER)],
+    ["a refusal", answer(422, { outcome: "KEY_REJECTED" })],
+    ["an unreadable answer", answer(500, {})],
+    ["a network failure", () => Promise.reject(new TypeError("offline"))],
+  ])("reads both lists again after %s", async (_label, respond) => {
+    const { fetchMock } = renderForm({}, respond, true);
+    await waitFor(() => expect(listReads(fetchMock)).toHaveLength(2));
+    typeBoth();
+
+    fireEvent.click(submit());
+
+    await waitFor(() => expect(listReads(fetchMock)).toHaveLength(4));
+    const urls = listReads(fetchMock).map(([url]) => String(url).replace(/^.*\/api/, ""));
+    expect(urls.filter((url) => url === "/credentials")).toHaveLength(2);
+    expect(urls.filter((url) => url === "/pools")).toHaveLength(2);
+  });
+
+  it("reads nothing again after a 401", async () => {
+    const { fetchMock } = renderForm({}, answer(401, { detail: SERVER_WORDING }), true);
+    await waitFor(() => expect(listReads(fetchMock)).toHaveLength(2));
+    typeBoth();
+
+    fireEvent.click(submit());
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    expect(puts(fetchMock)).toHaveLength(1);
+    expect(listReads(fetchMock)).toHaveLength(2);
+  });
+
+  it("hands `{last4, readOnly}` to the page once for a save that worked, and nothing for a refusal", async () => {
+    const saved = renderForm({}, answer(200, ANSWER));
+    typeBoth();
+    fireEvent.click(submit());
+    await waitFor(() => expect(saved.props.onSaved).toHaveBeenCalledTimes(1));
+    expect(saved.props.onSaved).toHaveBeenCalledWith({ last4: "Z9y8", readOnly: false });
+    cleanup();
+
+    const refused = renderForm({}, answer(422, { outcome: "KEY_REJECTED" }));
+    typeBoth();
+    fireEvent.click(submit());
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+    expect(refused.props.onSaved).not.toHaveBeenCalled();
+  });
+
+  it("says that the key cannot trade when the answer's warnings say so", async () => {
+    const { props } = renderForm({}, answer(200, { ...ANSWER, warnings: ["READ_ONLY_KEY"] }));
+    typeBoth();
+
+    fireEvent.click(submit());
+
+    await waitFor(() => expect(props.onSaved).toHaveBeenCalledWith({ last4: "Z9y8", readOnly: true }));
+  });
+
+  it("re-reads nothing, records nothing and focuses nothing when the form was taken out of the document meanwhile", async () => {
+    let release: (response: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const { fetchMock, props, rerenderWithoutForm } = renderForm({}, () => pending, true);
+    await waitFor(() => expect(listReads(fetchMock)).toHaveLength(2));
+    typeBoth();
+    fireEvent.click(submit());
+    await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+
+    rerenderWithoutForm();
+    await act(async () => {
+      release(jsonResponse(ANSWER));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(listReads(fetchMock)).toHaveLength(2);
+    expect(props.onSaved).not.toHaveBeenCalled();
+    expect(outside).toHaveFocus();
+    expect(props.onBusyChange).toHaveBeenLastCalledWith(false);
   });
 });
