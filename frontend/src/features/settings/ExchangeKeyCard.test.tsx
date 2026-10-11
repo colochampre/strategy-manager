@@ -773,3 +773,44 @@ describe("the card in Spanish, with the fixed texts of design § J", () => {
     expect(tagTexts()).toContain("retiros: confirmado el 30 sept 2026");
   });
 });
+
+// ---- The place of `Delete key` (design § D reading order, task 13.6.6) ----
+
+describe("the slot of the page's Delete key control", () => {
+  const SLOT = <button type="button">Delete key slot</button>;
+
+  it("draws the slot after the toggle and before the form, in the document's order", () => {
+    renderCard({
+      exchange: "bybit",
+      entry: stored("bybit"),
+      open: true,
+      deleteSlot: SLOT,
+      children: <p>the form</p>,
+    });
+
+    const toggle = screen.queryByRole("button", { name: "Replace key Bybit" });
+    const slot = screen.queryByRole("button", { name: "Delete key slot" });
+    const form = screen.queryByText("the form");
+    expect(toggle).toBeInTheDocument();
+    expect(slot).toBeInTheDocument();
+    expect(form).toBeInTheDocument();
+    expect((toggle as HTMLElement).compareDocumentPosition(slot as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((slot as HTMLElement).compareDocumentPosition(form as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws the slot in the same group as the toggle, so the buttons stay together", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit"), deleteSlot: SLOT });
+
+    const toggle = screen.queryByRole("button", { name: "Replace key Bybit" });
+    const slot = screen.queryByRole("button", { name: "Delete key slot" });
+    expect(slot).toBeInTheDocument();
+    expect(slot?.parentElement).toBe(toggle?.parentElement);
+  });
+
+  it("draws no slot on a card the panel does not manage", () => {
+    renderCard({ exchange: "pionex", entry: stored("pionex"), served: false, deleteSlot: SLOT });
+
+    expect(screen.queryByRole("button", { name: "Delete key slot" })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("button")).toEqual([]);
+  });
+});
