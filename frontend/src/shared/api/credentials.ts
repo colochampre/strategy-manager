@@ -122,6 +122,9 @@ const REFUSAL_BY_OUTCOME: ReadonlyMap<string, SaveRefusal> = new Map<string, Sav
 
 const READ_ONLY_WARNING = "READ_ONLY_KEY";
 
+/** The status the save route answers on success; `apiFetch` does not hand over the one it read. */
+const UNREADABLE_SUCCESS_STATUS = 200;
+
 function refused(reason: SaveRefusal, status: number, missing: readonly string[] = []): SaveResult {
   return { kind: "refused", reason, missing, status };
 }
@@ -200,9 +203,12 @@ export async function saveCredential(
     return savedFrom(answer);
   } catch (error) {
     if (error instanceof ApiError) return refusalFrom(error);
-    // The only unguarded await in `apiFetch` is the 2xx body: a 200 the panel
-    // cannot read is still a save, because the venue was asked and the row written.
-    if (error instanceof SyntaxError) return savedFrom(undefined);
+    // The only unguarded await in `apiFetch` is the 2xx body, so a `SyntaxError`
+    // is a success status with a body that is not JSON. This route always answers
+    // JSON: such a body came from something else on the way, and the panel does
+    // not know whether the key was stored. Saying "saved" here would be a guess
+    // shown as a fact, with nothing anywhere to contradict it.
+    if (error instanceof SyntaxError) return refused("unknown", UNREADABLE_SUCCESS_STATUS);
     return refused("noAnswer", 0);
   }
 }
