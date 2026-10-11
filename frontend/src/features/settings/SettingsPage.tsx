@@ -24,6 +24,10 @@ const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text
  * not look for. When a later read fails the cards stay, under a line that says
  * they may be out of date. When the pools could not be read no exchange is
  * called degraded on a guess, and one line says so.
+ *
+ * The page has no width cap of its own: like Strategies it fills the shell's
+ * column, so a card ends at the same place on both (decision 60). What is capped
+ * is each sentence, inside its card.
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -33,7 +37,7 @@ export function SettingsPage() {
   const poolList = pools.status === "success" ? pools.data : undefined;
 
   return (
-    <div className="flex max-w-[900px] flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
       <section aria-labelledby={titleId} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
