@@ -692,7 +692,7 @@ describe("the attempt: what is read again and what the page is told", () => {
     await waitFor(() => expect(props.onSaved).toHaveBeenCalledWith({ last4: "Z9y8", readOnly: true }));
   });
 
-  it("re-reads nothing, records nothing and focuses nothing when the form was taken out of the document meanwhile", async () => {
+  it("still reads both lists again, but records nothing and focuses nothing, when the form was taken out of the document meanwhile", async () => {
     let release: (response: Response) => void = () => undefined;
     const pending = new Promise<Response>((resolve) => {
       release = resolve;
@@ -712,7 +712,13 @@ describe("the attempt: what is read again and what the page is told", () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
 
-    expect(listReads(fetchMock)).toHaveLength(2);
+    // The owner left the page during the check, and the exchange tabs of the page
+    // they went to read the keys BEFORE the save ended. Without this re-read a tab
+    // would go on saying `no key` about an exchange whose key was just stored.
+    const urls = listReads(fetchMock).map(([url]) => String(url).replace(/^.*\/api/, ""));
+    expect(urls).toHaveLength(4);
+    expect(urls.filter((url) => url === "/credentials")).toHaveLength(2);
+    expect(urls.filter((url) => url === "/pools")).toHaveLength(2);
     expect(props.onSaved).not.toHaveBeenCalled();
     expect(outside).toHaveFocus();
     expect(props.onBusyChange).toHaveBeenLastCalledWith(false);
