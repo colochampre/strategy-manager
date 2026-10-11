@@ -132,7 +132,7 @@ counts the tests it lists, and the bias this change measured on every earlier un
 Updated after every merge and deploy. With this and `git log`, the state can be resumed from
 any machine.
 
-**Production now** (2026-10-06): `main` at `c7893ab`, alembic `0028`, `DRY_RUN=true`, the
+**Production now** (2026-10-11): `main` at `f41d904`, alembic `0028`, `DRY_RUN=true`, the
 frontend is not served. The rest of this paragraph was last confirmed on 2026-10-02. Enabled pools: `bybit/usdt-m/USDT` and `binance/usdt-m/USDT`. The vault
 holds one key each for binance, bybit and pionex. Three strategies are enabled, each with one
 allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
@@ -200,6 +200,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`.
 | PR 12f-1 | #67 | `06878b5` | — | 2026-10-09 | Unit 12f.9 (tasks 12f.9.1-12f.9.15 and 12f.9.17), the backend of owner decisions 44, 48 and 50: `wins` and `win_rate` on each `by_pair` entry of a strategy's report; the webhook's public origin from the new setting `WEBHOOK_PUBLIC_ORIGIN`, parsed as an origin and nothing more and served by `GET /api/webhook-origin`; a strategy's share of the pool served in plain notation, with one INFO line when it changes; `GET /api/strategies/{id}/share-preview`, read-only, which answers what a share asks for from the pool's total with the engine's own function, 100 integer steps and the pool's minimum; and a share bounded at 18 decimal places on its three inputs, which also turns a 500 of the update and the registration at `1e-20000` into a 422. It also carries unit tif (every throwaway test database dropped through `backend/tests/pg_drop.py`, which waits out the autovacuum worker), decision 49 with the owner-run unit whn, and the design, specs and tasks of unit 12f. Gate at `bdad8ec`: ruff 0, mypy 0 (291 source files), pytest 0, 3,764 tests. Size: 9,276 lines added, 681 of them production code, one PR by the owner's standing choice. Risk **low**: every route is new or gains fields. No migration. Merged 2026-10-09 with a merge commit. The owner pulled as `strategy`, set `WEBHOOK_PUBLIC_ORIGIN` to the name of decision 49 and restarted both. **Checked on the VPS after the deploy** (read-only, over loopback): both services active on `06878b5`; the origin route answers the configured origin; the share preview of each of the three strategies answers 100 steps with a balance that is present and not stale; the report answers with an empty `by_pair` under `DRY_RUN`. **One check failed and found unit alg:** the journal holds no startup line of the origin, because the API process writes none of its own INFO lines. |
 | Fix alg | #68 | `2f4d738` | — | 2026-10-10 | Unit alg (tasks alg.1-alg.4), found by the check after the deploy of PR 12f-1: the API process writes its own log lines. The worker configured logging at startup and the API never did, and uvicorn's configuration covers only its own loggers, so in the API the root logger sat at WARNING with no handler: every INFO line was dropped, and with operator alerts on, whose bridge is a handler on the root logger, a WARNING and an ERROR were written nowhere by the process. `configure_api_logging()` sets the root logger to INFO and adds one handler of its own that writes to stderr in the worker's format; it is the first line of `lifespan`, before the alert bridge, and not in `create_app()`, which runs at import and which the worker imports. The worker and the text of every line are unchanged; uvicorn's lines are still written once, the access line still masks the webhook's secret, and `httpx` and `httpcore` stay at WARNING. The tests of what is written run in a subprocess with uvicorn's real configuration, because `caplog` is what hid the defect. Also run against a real local uvicorn before the push. Gate at `788fbe0`: ruff 0, mypy 0 (292 source files), pytest 0, 3,784 tests. Size: 315 lines under `backend/`, 66 of them production code. Risk **low**. No migration. Merged 2026-10-10 02:06 UTC with a merge commit; the owner pulled as `strategy` and restarted both. **Checked on the VPS after the deploy:** both services active on `2f4d738`; one startup line of the origin and one "operator alerts are on" line in the journal; no WARNING, no ERROR; no secret, token or database URL in the run's lines. **It settles that alerting is on in production**, so for as long as it has been on no WARNING of the API reached the journal, and the check recorded with fix 9qf.5 + 9qf.6 may prove nothing. |
 | PR 12f-2 | #69 | `78cb49f` | — | 2026-10-10 | Unit 12f.10 (tasks 12f.10.1-12f.10.31, with 13b and 30b-30e), the panel of owner decisions 44, 48, 50, 51, 52 and 53, which completes unit 12f: the share of the pool edited with a slider, first in a strategy's settings column, with what the share asks for under the track, read from the API and never computed in the panel, and a warning under the pool's minimum order that never blocks the save; "Saved" and "Copied" as the button's own text, with one width per button so nothing moves, a status region that is not visible, and a failed copy said in a visible text; the webhook URL with its host from `GET /api/webhook-origin`; "Copy URL", which copies the URL TradingView needs even while the secret is hidden (the secret of a copy is a local value of that one click, kept nowhere, and the URL with the placeholder is never written) and is disabled with no host, and "Copy message"; the Win rate column of the By pair table, where a report with an entry lacking `wins` or `win_rate` is refused whole; the strategies list's figures lined up from row to row from 1024 px; each Save button to the right of the text before it. Built in three batches and three follow-up tasks from the review, on one branch; the second batch was cut off by a usage limit after its tenth task with everything committed. Found and fixed while building: a refused origin string was read as "no host configured". Gate at `19b1ab6`: lint 0, 64 test files and 1,487 tests (49 and 857 before the unit). Size: 8,680 lines added, 1,305 of them production code and 68 locale keys, one PR by the owner's standing choice. Reviewed by eye by the owner in three rounds, the last on the final code in Brave and in Firefox; the fixture's `by_pair` was edited by the assistant at the owner's request. **Not confirmed:** the CSP with the built bundle, a screen reader, and the refusals of a save and a failed copy by eye. Risk **low**: frontend only, and the panel is not served in production. No migration. Merged 2026-10-10 16:36 UTC with a merge commit; the owner reported the merge and the deploy (a pull as `strategy`, no restart). It left follow-up 12f.11, renaming a strategy from its page. |
+| PR 13 | #70 | `f41d904` | — | 2026-10-11 | `feat(panel): Settings, the exchange keys`, owner decisions 54 to 61, units 13.0 to 13.6 on branch `feat/operator-panel-settings`: the Settings page, one card per exchange the panel knows, the key form and the delete, all through the existing `GET` and `PUT`/`DELETE /api/credentials` routes. Frontend code plus one backend test, `backend/tests/accounts/domain/test_served_exchanges_fixture.py`; `git diff --stat main -- backend/src` lists no file. Final gate on the finished branch (task 13.D.1): frontend lint 0, test 0 with 75 files and 2,108 tests, build 0; backend ruff 0, mypy 0, pytest 0 with 3,789 tests in 305 files. No migration. Pushed and opened on the owner's word; merged 2026-10-11T17:29:16Z with a merge commit, on the owner's word, not squashed. The owner reported the deploy (a pull as `strategy`, no restart): the PR is frontend code and one backend test, nothing the services load changed, and the panel is not served in production yet, so the deploy changed nothing a user can see. This entry is written on branch `chore/operator-panel-serve-panel`, the next PR's branch, on 2026-10-11. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -5088,10 +5089,171 @@ Not a unit: no code is written here. These tasks close PR 13. Rules R6, R8 and R
 - [x] 13.D.1 The whole gate on both sides, once, on the finished branch: `cd frontend && npm run lint && npm test`, and `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` (never two pytest runs at once; the exit code is the result). Record the observed totals against the baseline of task 13.0.1, the list of existing test files this PR changed (`git diff --name-status main -- '*.test.*'` for the modified ones, which design § K and the units above name: `client.test.ts`, `ExchangeTabs.test.tsx`, `panel-tokens.test.ts`, the stub page's `SettingsPage.test.tsx` if one existed), and that `git diff --stat main -- backend/src` lists no file. Add `cd frontend && npm run build` once and record that it builds. *Note (done, 2026-10-11, run by the orchestrator on the finished branch): frontend `npm run lint` exit 0, `npm test` exit 0, 75 files and 2,108 tests (baseline of 13.0.1: 64 files, 1,487 tests); `npm run build` exit 0. Backend `ruff check .` exit 0, `mypy src` exit 0 on 292 source files, `pytest --tb=short` exit 0, 3,789 tests in 305 files by the per-file counts of `pytest --co -q` (five more than before, all in the one new file). `git diff --stat main -- backend/src` lists no file; the only backend file of the PR is `backend/tests/accounts/domain/test_served_exchanges_fixture.py`. Existing test files modified: `panel-tokens.test.ts`, `client.test.ts`, `ExchangeTabs.test.tsx`, `theme.test.ts` (the cursor rules of decision 61); renamed with their sources to `shared/ui/`: `InfoDisclosure.test.tsx`, `InlineStatus.test.tsx`, `StatusButton.test.tsx`. Eleven test files are new. No test file was deleted.*
 - [x] 13.D.2 The spec check, requirement by requirement, each to the task that covers it (the way 12f.10.30 does it): "Settings Reads Two Existing Routes And Changes No API" 13.1.3, 13.2.4, 13.6.6; "Every Exchange The Panel Knows Has A Card In Exactly One State" 13.3.3, 13.4.2, 13.4.7; "Settings States Its Own Loading And Failure" 13.4.7; "A Stored Key's Card Shows The Key Hint And Its Facts As Tags" 13.4.2, 13.4.4; "A Binance Permission Is Never Stated As A Fact The Application Checked" 13.4.4; "Amber Marks Only Where The Owner Has Something To Do" 13.3.6, 13.4.3, 13.4.4; "An Exchange The Panel Does Not Serve Has No Buttons" 13.4.2, 13.5.8; "The Exchange Tabs Carry The Key State" 13.3.8; "On A Phone The Exchange Tabs Share The Row's Whole Width" 13.3.8; "The Key Form Opens Inside Its Card, One At A Time" 13.5.3, 13.5.8; "The Form Asks For The Confirmations Its Exchange Requires" 13.5.3; "Every Refusal Has A Text Chosen By The Panel, Never The Server's" 13.2.8, 13.5.5; "The Form Is Emptied After Every Attempt" 13.5.2, 13.5.5; "After A Save That Worked The Form Closes And The Card Says So" 13.5.10; "The Typed Secret Lives Only In Its Two Fields" 13.5.2; "Deleting A Key Is Confirmed With A Plain Button And A Refusal Is Stated" 13.6.2, 13.6.4, 13.6.6; "Settings Is Operable By Keyboard And Named For Assistive Technology" 13.4.7, 13.5.3, 13.5.5, 13.6.6; "Every Settings Text Exists In English And Spanish" 13.3.6, 13.4.4, 13.5.13, 13.6.8; the exchange-bar scenarios of "Shared Layout Shell" 13.3.8, 13.4.7; and exchange-credentials "The Panel's List Of Served Exchanges Equals The Server's Tables" 13.2.2 to 13.2.4. List any scenario with no covering task here; there should be none. *Note (done, 2026-10-11): checked by name and by tick, not scenario by scenario. The eighteen Settings requirements of `specs/operator-panel/spec.md` (from "Settings Reads Two Existing Routes And Changes No API" to "Every Settings Text Exists In English And Spanish") are the eighteen named above, one for one, and every task the list names is ticked with its evidence. The scenarios of each requirement were not walked one by one against the tests in this step; the units' own RED steps cite them. Behaviour added after the spec was written and not in it: decisions 60 (the page has no width cap) and 61 (the cursor), and tasks 13.2.14b, 13.5.0 and 13.5.15b.*
 - [x] 13.D.3 The orchestrator reads the diff of units 13.5 and 13.6 commit by commit (`git log --reverse -p` over those commits), not as one diff, against design § H: no typed value in state, a ref, a cache, a log, an error text, an attribute, a URL or storage; no `useMutation` for the save; no `console.`; both fields emptied in `finally`; no server wording rendered; and the answer to R10 in each commit body. Any finding is a fix in a new commit on the branch, not an amend. *Note (done, 2026-10-11): done in two passes, and said as it was done. (1) The final text of every non-test source file of the two units was read whole: `KeyEntryForm.tsx`, `DeleteKeyControl.tsx`, `DeleteKeyDialog.tsx`, and the units' diffs of `SettingsPage.tsx`, `ExchangeKeyCard.tsx`, `credentials.ts`, `key-state.ts`, `ExchangeTabs.tsx` and `StatusButton.tsx`. The typed key and secret live in the two DOM fields and in two locals of `attempt()`; both fields are emptied in `finally`; the save is a plain call; no text of the server is rendered; the delete's reader was checked against `NotFlatBody` in `credentials_router.py` field by field, and the route answers 200 with a JSON body, which `apiFetch` reads. (2) The 36 commits from `375785e` to the head were scanned one by one, added lines of non-test source only, for `console.`, both storages, `useMutation`, `value=`, `defaultValue`, `data-`, `FormData`, `useReducer`, `.detail`, `title=`, cookies, `location.` and `history.`: three commits hit, all expected (the RED stub `1a0e4c9` with its two controlled fields, which task 13.5.1 asks for and the GREEN `a8bf955` removes; and the delete's `useMutation` in `2019086` and `6f465f8`, which carries only the exchange id). The tests were not read commit by commit. Every `feat` and `fix` commit has a body; no commit of the branch carries an attribution line. One finding, fixed in new commits: task 13.5.15b.*
-- [ ] 13.D.4 Push and open the PR ONLY on the owner's word. The branch is `feat/operator-panel-settings`, cut from an up-to-date `main`; the description is written to a file and passed with `--body-file`; no AI attribution in the title or the body.
-- [ ] 13.D.5 Merge with a merge commit, never squash, on the owner's word.
-- [ ] 13.D.6 Owner step, after the merge: deploy PR 13. The owner pulls as the `strategy` user, `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`, with no restart: the PR is frontend code plus one backend TEST, and nothing the services load. Nothing to check in production beyond the pull, where no panel is served (unit 12f's finding U9; if it now is, the first save from the panel is a production act, and the owner's review of units 13.5 and 13.6 came first). The assistant has no SSH access and hands over the exact command only.
-- [ ] 13.D.7 The delivery log entry for PR 13 (the merge commit, the deploy, the observed totals of 13.D.1) is written in the branch of the NEXT PR, never in this one, as the earlier entries were.
+- [x] 13.D.4 Push and open the PR ONLY on the owner's word. The branch is `feat/operator-panel-settings`, cut from an up-to-date `main`; the description is written to a file and passed with `--body-file`; no AI attribution in the title or the body. Done: pushed and opened as PR #70, `feat(panel): Settings, the exchange keys`, on the owner's word.
+- [x] 13.D.5 Merge with a merge commit, never squash, on the owner's word. Done: merged with merge commit `f41d904`, 2026-10-11T17:29:16Z, on the owner's word; not squashed.
+- [x] 13.D.6 Owner step, after the merge: deploy PR 13. The owner pulls as the `strategy` user, `sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`, with no restart: the PR is frontend code plus one backend TEST, and nothing the services load. Nothing to check in production beyond the pull, where no panel is served (unit 12f's finding U9; if it now is, the first save from the panel is a production act, and the owner's review of units 13.5 and 13.6 came first). The assistant has no SSH access and hands over the exact command only. Done: the owner reported the deploy on 2026-10-11, a pull as the `strategy` user with no restart; the panel is not served in production yet, so the deploy changed nothing a user can see.
+- [x] 13.D.7 The delivery log entry for PR 13 (the merge commit, the deploy, the observed totals of 13.D.1) is written in the branch of the NEXT PR, never in this one, as the earlier entries were. Done 2026-10-11, in the delivery log, on branch `chore/operator-panel-serve-panel`.
+
+---
+
+## Unit pps — the panel is served in production (PR 9's deploy prerequisites; decision 62; owner-run, almost no code)
+
+PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset, so the panel is built and never served. The owner needs it served to activate the real strategies with a share of 30 from the panel (decision 56). This unit is the deploy prerequisites listed at the end of `## PR 9`, in an order that never leaves the panel or `/api` reachable without Cloudflare Access. No code is written here; the repository gains decision 62, `PANEL_DIST_DIR` in `.env.example`, and this runbook. The owner runs every command; the assistant has no SSH access. Every task says where it runs.
+
+**What was read before planning (2026-10-11):**
+
+- The VPS as read on 2026-10-09 (unit whn): no `cloudflared`, no Node, no built `frontend/dist`; uvicorn on `127.0.0.1:8000` with `--proxy-headers` and `FORWARDED_ALLOW_IPS=127.0.0.1`; Caddy on 80 and 443 forwards only `/webhook/tradingview`, for `hook.strategymanager.trade` and for the DuckDNS name; `BEHIND_CLOUDFLARE_TUNNEL`, `PANEL_DIST_DIR` and `CORS_ORIGINS` unset.
+- The application checks only the admin bearer token on `/api`; nothing in `backend/src` validates the Access token (the design's risk table names it as a follow-up). Access is therefore the outer gate, and pps.8 turns on cloudflared's own validation so that the tunnel refuses what did not pass Access.
+- The repository holds no deploy artefact: no unit file, no Caddyfile, no cloudflared config, no build script.
+- Cloudflare's documentation, read through a summarising tool on 2026-10-11, so every command below is to be checked against what the dashboard itself prints: an Access application is created BEFORE the tunnel's route, or the published application "will be available to anyone on the Internet"; the apt repository uses the suite `any` (no `trixie` suite is listed for cloudflared); cloudflared needs outbound 7844 TCP and UDP and nothing inbound; adding a route creates the DNS record for the hostname, and fails if an A, AAAA or CNAME record with that name already exists; "Protect with Access" on the route makes cloudflared validate the Access token itself; Rocket Loader and e-mail address obfuscation inject inline scripts into HTML, which this page's CSP blocks.
+- Not settled by the documentation and to be read in the dashboard or on the VPS: whether an Access application can be created for the apex before any DNS record exists; which identity providers the owner's Zero Trust organisation has (organisations created after 2026-06-18 default to Cloudflare's own, earlier ones to a one-time PIN); the user the `cloudflared` service runs as and where its token sits on disk.
+
+**The order, and why:**
+
+1. Rehearse the real bundle locally (pps.1), so a CSP failure is found before anything is exposed.
+2. Access application before any route (pps.4 before pps.8).
+3. The bundle and `PANEL_DIST_DIR` before the route (pps.6, pps.7), checked on loopback and through Caddy, so the first request through the tunnel finds a working panel and the Caddy filter is proven again with the panel mounted.
+4. The route last (pps.8), then the checks from outside (pps.9).
+
+- [x] pps.1 **The real bundle rehearsed under the CSP.** **Done 2026-10-11, on the owner's machine.**
+  - `npm run build` in `frontend`: exit 0, 212 modules; one script `assets/index-DtkDgO3N.js` (541.85 kB), one stylesheet `assets/index-DESchCay.css` (30.08 kB), 16 font files (`.woff` and `.woff2`), `index.html` 0.46 kB.
+  - Static reading of the built files: `index.html` holds one external module script and one stylesheet link, both under `/assets`, and nothing inline; the stylesheet holds no `data:` URI and no `@import`; the script holds no `eval(`, `new Function(`, `new Worker(`, `createObjectURL` or `insertRule(`, and its only `createElement("style")` is React's own support for style elements, which this panel does not render; the only absolute URLs in the script are React's and React Router's error-message links and XML namespaces, none of them requested.
+  - Served by the local API with `PANEL_DIST_DIR` pointing at `frontend/dist` (port 8011): `/`, `/settings` and `/strategies/abc` answered 200 `text/html` with the CSP header and `Cache-Control: no-cache`; the script, the stylesheet and a font under `/assets` answered 200 with `public, max-age=31536000, immutable`; `/api/nope` and `GET /webhook/tradingview` answered 404 JSON.
+  - The owner opened it in a browser: the console showed only messages from a browser extension's `contentscript.js`, the same ones the Vite fixture server shows, and no Content-Security-Policy message.
+  - Served again with `PANEL_DIST_DIR` naming a LINK to the bundle (a Windows directory junction, port 8012): the page, `/index.html`, the script and a font answered 200, and `/api/nope` 404. This is the layout of decision 62; on Linux the link is a symlink, which pps.7 checks on the VPS.
+  - **What this rehearsal did NOT show:** a strategy's detail page and a card in Settings with data in them (the local database had none to show), and the page as Cloudflare delivers it. Both are pps.9.
+  - Seen and left: on Windows the `.woff2` files are served as `application/octet-stream`, with no console error.
+- [x] pps.2 **`.env.example` gains `PANEL_DIST_DIR`.** **Done 2026-10-11.** The setting is commented out, with what an empty value means, the refusal to start, and that `git pull` does not update the bundle. Its header says every setting appears there, and this one did not.
+- [ ] pps.3 **Look in the Cloudflare dashboard; change nothing.** Runs in the **Cloudflare dashboard**.
+  - DNS records of the zone: no A, AAAA or CNAME record exists for the apex `strategymanager.trade`. If one exists, stop and report it: the route of pps.8 would be refused. The `hook` record stays as it is, DNS-only.
+  - The zone's Rocket Loader and Email Address Obfuscation settings are off. Either one would add an inline script to the page that the CSP blocks. If one is on, the owner decides before it is turned off, because it is a zone-wide setting.
+  - Zero Trust: which identity providers are configured, and the team name.
+  - Record what was found here.
+- [ ] pps.4 **The Access application.** Runs in the **Cloudflare dashboard** (Zero Trust). A self-hosted Access application for the hostname `strategymanager.trade`, the apex, with NO path, so that every path is covered. One policy, action Allow, Include, selector Emails, the owner's e-mail address exactly (not "Emails ending in"). No Bypass and no Service Auth policy. Session duration left at its default unless the owner says otherwise. This is done BEFORE pps.8. If the dashboard refuses an application for a hostname with no DNS record yet, stop and report it; do not create the route first.
+- [ ] pps.5 **Install `cloudflared` and connect a tunnel with NO route.** Runs on the **VPS (as root)**, then in the **Cloudflare dashboard**. First, on the VPS, one line at a time:
+
+  ```bash
+  mkdir -p --mode=0755 /usr/share/keyrings
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+  echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' > /etc/apt/sources.list.d/cloudflared.list
+  apt-get update
+  apt-get install -y cloudflared
+  cloudflared --version
+  ```
+
+  Then, in the **Cloudflare dashboard**, create the tunnel (connector type cloudflared). The dashboard prints a `cloudflared service install <token>` command: the owner copies it straight from the dashboard into the SSH session. **THE TOKEN IS A CREDENTIAL:** whoever holds it can run the tunnel. It is never pasted into a chat, a file in the repository or a note. BEFORE pasting it, on the **VPS (as root)**, so that this session's commands are not written to root's shell history:
+
+  ```bash
+  unset HISTFILE
+  ```
+
+  After the install command has run:
+
+  ```bash
+  systemctl is-active cloudflared
+  systemctl show cloudflared -p User
+  ```
+
+  Expected: `active`, then `User=` and the service's user (nothing after the `=` means root). The tunnel reads Healthy in the dashboard. Nothing inbound is opened in ufw. No route is added in this task.
+
+  **The output of `systemctl status cloudflared`, `systemctl cat cloudflared` and `ps` is never pasted anywhere.** The install command is expected to write the token into the service's own command line, which those three print. That was not read in Cloudflare's documentation; it is treated as true until the owner has seen otherwise.
+- [ ] pps.6 **The bundle is built and copied (decision 62).** This task is repeated at every deploy that changes `frontend/`. Runs on the **owner's local terminal (PowerShell, repository root)**, on `main` at the commit production's checkout is at. A running Vite server (the fixture or the dev server) is stopped first: `npm ci` replaces `node_modules`, and on Windows it can fail on a file that server holds open.
+
+  ```powershell
+  git switch main
+  git pull --ff-only
+  $commit = git rev-parse --short=12 HEAD
+  npm --prefix frontend ci
+  npm --prefix frontend run build
+  [System.IO.File]::WriteAllText("$PWD\frontend\dist\build.txt", "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
+  tar -czf "$env:TEMP\panel-$commit.tgz" -C frontend\dist .
+  scp "$env:TEMP\panel-$commit.tgz" root@159.195.148.136:/root/
+  $commit
+  ```
+
+  The archive goes to `/root/`, not `/tmp/`: in `/tmp` another user of the machine could replace it before root unpacks it.
+
+  Then on the **VPS (as root)**, pasted as one block, with the commit printed by the last line in place of `COMMIT`:
+
+  ```bash
+  (
+  set -eu
+  c=COMMIT
+  d=/opt/strategy-manager-panel/releases/$c
+  mkdir -p "$d"
+  tar --no-same-owner -xzf "/root/panel-$c.tgz" -C "$d"
+  test -f "$d/index.html"
+  test -d "$d/assets"
+  chown -R root:root /opt/strategy-manager-panel
+  chmod -R u=rwX,go=rX /opt/strategy-manager-panel
+  ln -s "$d" /opt/strategy-manager-panel/current.new
+  mv -T /opt/strategy-manager-panel/current.new /opt/strategy-manager-panel/current
+  sudo -u strategy test -r /opt/strategy-manager-panel/current/index.html
+  echo readable
+  echo "bundle:   $(cat /opt/strategy-manager-panel/current/build.txt)"
+  echo "checkout: $(sudo -u strategy -H git -C /opt/strategy-manager/app rev-parse --short=12 HEAD)"
+  rm "/root/panel-$c.tgz"
+  )
+  ```
+
+  The last three lines of output are `readable`, then `bundle:` and `checkout:` with the same commit. A block that stops earlier prints no `readable`: the line that failed is the last one shown, and `current` still names the previous release. `bundle:` and `checkout:` differ when the checkout was not pulled to the commit the bundle was built from; the pull comes first (`sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`). The parentheses matter: with them a failed line ends the block and leaves the SSH session open, where a bare `set -e` would close it.
+
+  The bundle belongs to root, in a directory of its own directly under `/opt`, on purpose: the service's user reads it and cannot change what the owner's browser runs. Older releases stay under `releases/`; moving `current` back to one is the rollback.
+- [ ] pps.7 **The mount is switched on.** Runs on the **VPS (as root)**. `PANEL_DIST_DIR` is appended to `backend/.env` as the `strategy` user, without opening or printing the file. `BEHIND_CLOUDFLARE_TUNNEL` stays unset: it describes the webhook's path, which is still Caddy. Then ONLY the API is restarted, the worker is not:
+
+  ```bash
+  printf '\nPANEL_DIST_DIR=/opt/strategy-manager-panel/current\n' | sudo -u strategy tee -a /opt/strategy-manager/app/backend/.env >/dev/null
+  grep -c '^PANEL_DIST_DIR=' /opt/strategy-manager/app/backend/.env
+  systemctl restart strategy-api
+  systemctl is-active strategy-api
+  journalctl -u strategy-api -n 30 --no-pager
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/
+  curl -s -D - -o /dev/null http://127.0.0.1:8000/ | grep -i -c '^content-security-policy'
+  curl -s http://127.0.0.1:8000/build.txt
+  curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8000$(curl -s http://127.0.0.1:8000/ | grep -o '/assets/[^"]*\.js' | head -n 1)"
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/strategies
+  ```
+
+  Expected, in order: (nothing); `1`; (nothing); `active`; no line saying `refusing to start`; `200`; `1`; the commit; `200`; `401`. The `grep` answering `0` means the line was glued to the one before it or the file is elsewhere, and `2` means it was added twice: either is fixed before the restart. The second-to-last line asks for the script the page names, which is the check that the link works on Linux. The header is read with `-D -` and not with `curl -I`: the page answers GET only, so a HEAD request would show no CSP header and prove nothing.
+
+  If the API does not come back `active`, the webhook is down until it does. The way back, before anything is investigated:
+
+  ```bash
+  sudo -u strategy sed -i '/^PANEL_DIST_DIR=/d' /opt/strategy-manager/app/backend/.env
+  systemctl restart strategy-api
+  systemctl is-active strategy-api
+  ```
+
+  **THE RESTART LOSES ANY ALERT THAT ARRIVES DURING IT.** For the seconds the API is down Caddy answers the webhook with an error, and TradingView does not send an alert twice. The owner picks a moment away from the close of the candles the three real alerts fire on.
+
+  Then, from the **owner's local terminal (PowerShell, repository root)**, the proof that the panel did not become public through Caddy (the design's risk table: the panel is exposed without Access if the proxy forwards more than the webhook):
+
+  ```powershell
+  curl.exe -s -o NUL -w "%{http_code}`n" https://hook.strategymanager.trade/
+  curl.exe -s -o NUL -w "%{http_code}`n" https://hook.strategymanager.trade/settings
+  curl.exe -s -o NUL -w "%{http_code}`n" https://hook.strategymanager.trade/build.txt
+  ```
+
+  Each answers `404`. The same three against the DuckDNS name while it is still served (whn.5). If any answers 200, remove `PANEL_DIST_DIR` and restart the API before anything else.
+- [ ] pps.8 **The tunnel's route.** Runs in the **Cloudflare dashboard**. A published application for the hostname `strategymanager.trade`, no path, service `http://127.0.0.1:8000`, with "Protect with Access" turned on for the application of pps.4. From this moment the hostname answers. If the dashboard reports that a record with that host already exists, stop: that is pps.3.
+- [ ] pps.9 **The checks from outside** (also the production half of X.3 in the cross-PR sweep). Runs on the **owner's local terminal (PowerShell, repository root)**, with no session:
+
+  ```powershell
+  curl.exe -s -o NUL -w "%{http_code} %{redirect_url}`n" https://strategymanager.trade/
+  curl.exe -s -o NUL -w "%{http_code} %{redirect_url}`n" https://strategymanager.trade/api/strategies
+  curl.exe -s -o NUL -w "%{http_code} %{redirect_url}`n" https://strategymanager.trade/build.txt
+  ```
+
+  Each answers a redirect to a `cloudflareaccess.com` address, never `200` and never the application's own `401`. Then, in a private browser window: the Access login appears; after it, the panel loads and asks for the admin token; the mode mark reads the mode; Overview, Strategies, one strategy's detail page and Settings show their data; the console shows no Content-Security-Policy message on any of them; the page's source holds no script the build did not put there; `/build.txt` reads the deployed commit. Last, the webhook is unharmed: the check of whn.3 again (a POST with no secret to `https://hook.strategymanager.trade/webhook/tradingview` answers 401).
+- [ ] pps.10 **The real strategies are activated from the panel with a share of 30** (decision 56). Runs in the **panel**, in the owner's browser. **BLOCKED** on a decision of the owner that is still open: whether with `DRY_RUN` on. Asked when pps.9 is done. Before a strategy is enabled, its share preview shows an amount above the venue's minimum order: the test strategies' openings were refused with `REQUEST_BELOW_MIN_ORDER_SIZE` at a share of 3.
+- [ ] pps.11 **After pps.9: record it.** The panel's deploy steps (pps.6, and that `git pull` alone leaves the old panel) are added to the Delivery agreements of the project's `CLAUDE.md`; the delivery log gains this unit's entry. Repository work, done by the assistant on the next PR's branch from what the owner reports.
+
+**Kept for later (not started):**
+
+- pps.f1 When the Access session ends while the panel is open, its requests to `/api` are redirected to the login, which `connect-src 'self'` blocks, so the panel shows that it could not load and reloading the page is the way back. Cloudflare's documentation says a request carrying `X-Requested-With: XMLHttpRequest` receives a 401 instead. Telling the owner that the session ended needs design.
+- pps.f2 `.woff2` is served as `application/octet-stream` on Windows. What the VPS serves is not known until pps.7.
+- pps.f3 Old releases under `releases/` are never removed.
+- pps.f4 Whether the `X-Forwarded-For` the API sees through the tunnel is the visitor's address was not checked; nothing in the panel's path reads it (the webhook's allowlist does, and the webhook does not come through the tunnel).
 
 ---
 
@@ -5099,6 +5261,6 @@ Not a unit: no code is written here. These tasks close PR 13. Rules R6, R8 and R
 
 - [ ] X.1 `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` — full suite.
 - [ ] X.2 `cd frontend && npm run lint && npm test` — full suite.
-- [ ] X.3 `cd frontend && npm run build` — the production build the CSP rehearsal (design decision 13, "font-src falls back to default-src 'self'") must load without a console CSP violation, checked manually by the owner against the deployed `PANEL_DIST_DIR` bundle.
+- [ ] X.3 `cd frontend && npm run build` — the production build the CSP rehearsal (design decision 13, "font-src falls back to default-src 'self'") must load without a console CSP violation, checked manually by the owner against the deployed `PANEL_DIST_DIR` bundle. Its local half was done on 2026-10-11 as pps.1; its production half is pps.9.
 - [ ] X.4 Grep sweep: no remaining reference to `bybit_api_key`, `bybit_api_secret`, `binance_api_key`, `binance_api_secret`, `credentials_from_settings`, or `recharts` anywhere under `backend/src` or `frontend/src`/`package.json`.
 - [ ] X.5 i18n sweep: every key referenced by a new component exists in both `frontend/src/shared/i18n/locales/en.json` and `es.json` — a RED test per feature already covers this per-unit; this is the final cross-feature confirmation.

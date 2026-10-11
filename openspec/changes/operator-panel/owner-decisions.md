@@ -389,6 +389,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **The text cursor in a field** that is typed in, and nowhere else.
     - What the assistant found and the owner did not have to know: Tailwind 4 leaves a button with the arrow, so before this only the share slider and the archived toggle showed the hand. The three rules are written once, in `index.css`, in the base layer, so a `cursor-*` class on a component still wins.
     - What does not change: every text can still be selected and copied (the last four characters of a key, a webhook URL, a figure). Only the hint that it can is gone.
+62. **The panel's bundle is built on the owner's machine and copied to the server** (2026-10-11, owner, when the plan to serve the panel in production was presented).
+    - What was asked: how the built panel reaches the VPS. Two ways were put to the owner: build it on the owner's machine and copy it, or install Node on the VPS and build it there after each pull.
+    - **The owner chose the first**, which was the assistant's recommendation. Why it was recommended: the VPS holds the vault and the master key, and building there would put Node and the whole npm dependency tree on that machine. The read of 2026-10-09 (unit whn) found neither Node nor `cloudflared` nor a built `frontend/dist` on the VPS.
+    - **What the owner accepted with it:** a manual step at every deploy that changes `frontend/`; `git pull` no longer updates what the owner sees; and a bundle can be older or newer than the checkout beside it, with nothing saying so.
+    - This session's choices, not the owner's words, to be seen by the owner in unit pps: every bundle carries a `build.txt` with the commit it was built from, readable at `/build.txt`; bundles live outside the git checkout, in a directory of their own directly under `/opt` (which belongs to root), `/opt/strategy-manager-panel/releases/<commit>`, owned by root so the service's user can read them and cannot change them; `PANEL_DIST_DIR` names a link, `/opt/strategy-manager-panel/current`, that is moved to the new release, so a new bundle needs no restart of the API.
+    - Still not decided (decision 56): whether the real strategies are activated with `DRY_RUN` on.
 
 ## Standing constraints
 
