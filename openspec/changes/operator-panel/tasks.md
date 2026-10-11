@@ -5135,7 +5135,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
     - Zero Trust already existed; the owner had opened it before. It holds an INACTIVE tunnel named `strategymanager`, which nothing in the repository records. Whether it is reused or replaced is settled in pps.5: a token of it kept on another machine would let a second connector take part of the panel's traffic.
     - The one identity provider listed is `Cloudflare`. The team name was not reported.
 - [x] pps.4 **The Access application.** Runs in the **Cloudflare dashboard** (Zero Trust). A self-hosted Access application for the hostname `strategymanager.trade`, the apex, with NO path, so that every path is covered. One policy, action Allow, Include, selector Emails, the owner's e-mail address exactly (not "Emails ending in"). No Bypass and no Service Auth policy. Session duration left at its default unless the owner says otherwise. This is done BEFORE pps.8. If the dashboard refuses an application for a hostname with no DNS record yet, stop and report it; do not create the route first. **Done 2026-10-11 (owner):** no application existed before. The application was created without objection for a hostname that has no DNS record yet, which the documentation had not settled. Its one policy, `Owner only`, is Allow with a single address under Include. The owner was told to use the selector Emails, to leave the session duration at its default and to add no Bypass or Service Auth policy, and reported no departure from that; those three were not confirmed one by one.
-- [ ] pps.5 **Install `cloudflared` and connect a tunnel with NO route.** Runs on the **VPS (as root)**, then in the **Cloudflare dashboard**. First, on the VPS, one line at a time:
+- [x] pps.5 **Install `cloudflared` and connect a tunnel with NO route.** Runs on the **VPS (as root)**, then in the **Cloudflare dashboard**. First, on the VPS, one line at a time:
 
   ```bash
   mkdir -p --mode=0755 /usr/share/keyrings
@@ -5162,28 +5162,36 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   Expected: `active`, then `User=` and the service's user (nothing after the `=` means root). The tunnel reads Healthy in the dashboard. Nothing inbound is opened in ufw. No route is added in this task.
 
   **The output of `systemctl status cloudflared`, `systemctl cat cloudflared` and `ps` is never pasted anywhere.** The install command is expected to write the token into the service's own command line, which those three print. That was not read in Cloudflare's documentation; it is treated as true until the owner has seen otherwise.
-- [ ] pps.6 **The bundle is built and copied (decision 62).** This task is repeated at every deploy that changes `frontend/`. Runs on the **owner's local terminal (PowerShell, repository root)**, on `main` at the commit production's checkout is at. A running Vite server (the fixture or the dev server) is stopped first: `npm ci` replaces `node_modules`, and on Windows it can fail on a file that server holds open.
+
+  **Done 2026-10-11 (owner).** First the owner DELETED the inactive tunnel `strategymanager` found in pps.3, the owner's decision on the assistant's recommendation, so its token is dead. Then: `cloudflared version 2026.10.0 (built 2026-10-05-17:37 UTC)` from the apt repository; a new tunnel created in the dashboard and its connector installed with the dashboard's own command; `systemctl is-active cloudflared` answered `active`; `systemctl show cloudflared -p User` answered `User=` with nothing after it, so the service runs as root; the tunnel reads Healthy. The dashboard did not ask for a route, and none was added. Not reported: the new tunnel's name.
+- [ ] pps.6 **The bundle is built and copied (decision 62).** This task is repeated at every deploy that changes `frontend/`. Runs on the **owner's local terminal (PowerShell, repository root)**, from a CLEAN checkout of `origin/main` in a worktree of its own, never from the working tree. A build of the working tree would ship whatever is uncommitted in it, and a local `frontend/.env*` file would be baked into the bundle; neither would say so. The worktree also leaves a running Vite server and its `node_modules` alone.
 
   ```powershell
-  git switch main
-  git pull --ff-only
-  $commit = git rev-parse --short=12 HEAD
-  npm --prefix frontend ci
-  npm --prefix frontend run build
-  [System.IO.File]::WriteAllText("$PWD\frontend\dist\build.txt", "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
-  tar -czf "$env:TEMP\panel-$commit.tgz" -C frontend\dist .
+  git fetch origin
+  $commit = git rev-parse --short=12 origin/main
+  $build = "$env:TEMP\panel-build-$commit"
+  git worktree add --detach $build origin/main
+  npm --prefix "$build\frontend" ci
+  npm --prefix "$build\frontend" run build
+  [System.IO.File]::WriteAllText("$build\frontend\dist\build.txt", "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
+  tar -czf "$env:TEMP\panel-$commit.tgz" -C "$build\frontend\dist" .
+  git worktree remove --force $build
+  (Get-FileHash "$env:TEMP\panel-$commit.tgz" -Algorithm SHA256).Hash.ToLower()
   scp "$env:TEMP\panel-$commit.tgz" root@159.195.148.136:/root/
   $commit
   ```
 
+  The two values it prints, the archive's SHA-256 and the commit, go into the block that follows.
+
   The archive goes to `/root/`, not `/tmp/`: in `/tmp` another user of the machine could replace it before root unpacks it.
 
-  Then on the **VPS (as root)**, pasted as one block, with the commit printed by the last line in place of `COMMIT`:
+  Then on the **VPS (as root)**, pasted as one block, with the commit in place of `COMMIT` and the checksum in place of `SHA256`:
 
   ```bash
   (
   set -eu
   c=COMMIT
+  echo "SHA256  /root/panel-$c.tgz" | sha256sum -c -
   d=/opt/strategy-manager-panel/releases/$c
   mkdir -p "$d"
   tar --no-same-owner -xzf "/root/panel-$c.tgz" -C "$d"
@@ -5201,7 +5209,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   )
   ```
 
-  The last three lines of output are `readable`, then `bundle:` and `checkout:` with the same commit. A block that stops earlier prints no `readable`: the line that failed is the last one shown, and `current` still names the previous release. `bundle:` and `checkout:` differ when the checkout was not pulled to the commit the bundle was built from; the pull comes first (`sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`). The parentheses matter: with them a failed line ends the block and leaves the SSH session open, where a bare `set -e` would close it.
+  The first line of output is the archive's name and `OK`: what arrived is what was built. The last three are `readable`, then `bundle:` and `checkout:` with the same commit. A block that stops earlier prints no `readable`: the line that failed is the last one shown, and `current` still names the previous release. `bundle:` and `checkout:` differ when the checkout was not pulled to the commit the bundle was built from; the pull comes first (`sudo -u strategy -H git -C /opt/strategy-manager/app pull --ff-only`). The parentheses matter: with them a failed line ends the block and leaves the SSH session open, where a bare `set -e` would close it.
 
   The bundle belongs to root, in a directory of its own directly under `/opt`, on purpose: the service's user reads it and cannot change what the owner's browser runs. Older releases stay under `releases/`; moving `current` back to one is the rollback.
 - [ ] pps.7 **The mount is switched on.** Runs on the **VPS (as root)**. `PANEL_DIST_DIR` is appended to `backend/.env` as the `strategy` user, without opening or printing the file. `BEHIND_CLOUDFLARE_TUNNEL` stays unset: it describes the webhook's path, which is still Caddy. Then ONLY the API is restarted, the worker is not:
