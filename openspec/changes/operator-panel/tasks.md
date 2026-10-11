@@ -5214,7 +5214,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   The bundle belongs to root, in a directory of its own directly under `/opt`, on purpose: the service's user reads it and cannot change what the owner's browser runs. Older releases stay under `releases/`; moving `current` back to one is the rollback.
 
   **First run, 2026-10-11.** The assistant built the bundle on the owner's machine from a detached worktree of `origin/main` at `f41d904e3361`, the commit production's checkout was at: `npm ci` exit 0, `npm run build` exit 0, the script and the stylesheet named as in pps.1 (`index-DtkDgO3N.js`, `index-DESchCay.css`), `index.html` one blank line longer than pps.1's and otherwise the same, 22 entries in the archive, SHA-256 `25ee52f7e6634f7774b7afd6706517ed0e4f43e14a4ba5a5d73281326a6382e5`. The owner copied it with `scp` and ran the block, which printed `/root/panel-f41d904e3361.tgz: OK`, `readable`, `bundle:   f41d904e3361` and `checkout: f41d904e3361`. Nothing was restarted, and `PANEL_DIST_DIR` was still unset.
-- [ ] pps.7 **The mount is switched on.** Runs on the **VPS (as root)**. `PANEL_DIST_DIR` is appended to `backend/.env` as the `strategy` user, without opening or printing the file. `BEHIND_CLOUDFLARE_TUNNEL` stays unset: it describes the webhook's path, which is still Caddy. Then ONLY the API is restarted, the worker is not:
+- [x] pps.7 **The mount is switched on.** Runs on the **VPS (as root)**. `PANEL_DIST_DIR` is appended to `backend/.env` as the `strategy` user, without opening or printing the file. `BEHIND_CLOUDFLARE_TUNNEL` stays unset: it describes the webhook's path, which is still Caddy. Then ONLY the API is restarted, the worker is not:
 
   ```bash
   printf '\nPANEL_DIST_DIR=/opt/strategy-manager-panel/current\n' | sudo -u strategy tee -a /opt/strategy-manager/app/backend/.env >/dev/null
@@ -5251,6 +5251,8 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
   ```
 
   Each answers `404`. The same three against the DuckDNS name while it is still served (whn.5). If any answers 200, remove `PANEL_DIST_DIR` and restart the API before anything else.
+
+  **Done 2026-10-11 (owner).** `grep -c` answered `1`. After the restart `is-active` answered `active`. On loopback: `/` answered 200 with one `content-security-policy` header; `/build.txt` answered `f41d904e3361`; the script the page names answered 200, so the link works on Linux; `/assets/archivo-latin-600-normal-3BBy0ZsW.woff2` answered `200 font/woff2`; `/api/strategies` answered 401. From outside, `/`, `/settings` and `/build.txt` answered 404 on `hook.strategymanager.trade` and on the DuckDNS name, six of six: the panel is mounted and Caddy does not let it out. Not reported: the journal. Not checked: whether an alert arrived during the restart.
 - [ ] pps.8 **The tunnel's route.** Runs in the **Cloudflare dashboard**. A published application for the hostname `strategymanager.trade`, no path, service `http://127.0.0.1:8000`, with "Protect with Access" turned on for the application of pps.4. From this moment the hostname answers. If the dashboard reports that a record with that host already exists, stop: that is pps.3.
 - [ ] pps.9 **The checks from outside** (also the production half of X.3 in the cross-PR sweep). Runs on the **owner's local terminal (PowerShell, repository root)**, with no session:
 
@@ -5267,7 +5269,7 @@ PR 9's code has been in production since 2026-09-30 with `PANEL_DIST_DIR` unset,
 **Kept for later (not started):**
 
 - pps.f1 When the Access session ends while the panel is open, its requests to `/api` are redirected to the login, which `connect-src 'self'` blocks, so the panel shows that it could not load and reloading the page is the way back. Cloudflare's documentation says a request carrying `X-Requested-With: XMLHttpRequest` receives a 401 instead. Telling the owner that the session ended needs design.
-- pps.f2 `.woff2` is served as `application/octet-stream` on Windows. What the VPS serves is not known until pps.7.
+- pps.f2 CLOSED 2026-10-11, nothing to do. `.woff2` is served as `application/octet-stream` on Windows only; the VPS serves `font/woff2` (pps.7).
 - pps.f3 Old releases under `releases/` are never removed.
 - pps.f4 Whether the `X-Forwarded-For` the API sees through the tunnel is the visitor's address was not checked; nothing in the panel's path reads it (the webhook's allowlist does, and the webhook does not come through the tunnel).
 
