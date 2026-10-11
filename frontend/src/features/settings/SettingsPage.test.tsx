@@ -112,6 +112,20 @@ describe("the page's structure", () => {
     expect(own).toHaveLength(articles.length);
     for (const item of own) expect(within(item).getAllByRole("article")).toHaveLength(1);
   });
+
+  it("puts no width cap of its own around a card: the shell's column is the only one", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    const [card] = await cardsDrawn();
+
+    // Strategies fills the shell's column (decision 38). A cap on this page makes
+    // its cards end short of where the cards of Strategies end (decision 60).
+    const capped: string[] = [];
+    for (let node: HTMLElement | null | undefined = card; node != null; node = node.parentElement) {
+      if (/(^|\s)max-w-/.test(node.className)) capped.push(node.className);
+    }
+    expect(capped).toEqual([]);
+  });
 });
 
 describe("the list of exchanges", () => {
