@@ -2,7 +2,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { StatusButton } from "@/features/strategies/StatusButton";
+import { StatusButton } from "@/shared/ui/StatusButton";
 import { webhookMessage } from "@/features/strategies/webhook-message";
 import { webhookUrl } from "@/features/strategies/webhook-url";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";

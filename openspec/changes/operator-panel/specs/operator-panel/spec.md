@@ -52,6 +52,17 @@ frontend-design plugin.
 > Stats, Uptime, and Lifecycle Controls" and that webhook requirement each gain
 > one sentence pointing to them, and "Every Panel String Is Localized EN/ES"
 > gains one scenario.
+>
+> **Revised 2026-10-10 (owner decisions 54 to 59, design addendum "Settings,
+> the exchange keys (PR 13)").** Settings was designed again and the September
+> requirements about it are replaced, not amended. The three requirements
+> "Settings Manages One Key Per Exchange", "Settings Shows the Validation
+> Outcome On Add/Replace" and "Settings Allows Deleting a Key, With Explicit
+> Confirmation and a Stated Refusal" are replaced by the group that starts at
+> "Settings Reads Two Existing Routes And Changes No API". "Shared Layout Shell"
+> gains the tab marks by pointing to "The Exchange Tabs Carry The Key State".
+> No API changes. This capability had not been merged to `openspec/specs/` when
+> this revision was written, so the replacement is in place.
 
 ## Requirements
 
@@ -62,10 +73,9 @@ sidebar navigation for Overview, Strategies, and Settings on wide viewports,
 and the same navigation as a bottom bar on small viewports. The top bar MUST
 carry exchange selection on the exchange-scoped views (Overview, Strategies).
 Settings is not exchange-scoped: it lists every exchange and its top bar
-carries no exchange selection (Settings.dc.html). An exchange whose active key
-cannot trade MUST be marked read-only in the exchange selection. An exchange
-with an enabled pool and no active key at all MUST be marked distinctly as
-"no key" in the exchange selection (revised 2026-09-25, decision 20).
+carries no exchange selection (Settings.dc.html). The exchange selection
+MUST carry each exchange's key mark as "The Exchange Tabs Carry The Key State"
+states it (revised 2026-10-10, decisions 20, 22, 55 and 59).
 
 #### Scenario: A keyless (DEGRADED) exchange is marked in the exchange bar
 
@@ -73,7 +83,8 @@ with an enabled pool and no active key at all MUST be marked distinctly as
 
 - GIVEN Binance has an enabled pool and no active credential, and Bybit has a trade-capable one
 - WHEN the exchange bar renders
-- THEN Binance is marked "no key", and Bybit is not
+- THEN Binance is marked "no key" in amber, and Bybit is not marked
+- AND the full rule, including the grey "no key" of a deleted key, is in "The Exchange Tabs Carry The Key State"
 
 #### Scenario: Sidebar navigation on a wide viewport
 
@@ -2225,146 +2236,986 @@ exactly as below (a `{{…}}` is a value filled in):
 - WHEN the confirmation after a save and after a copy is read
 - THEN they read "Saved" / "Guardado" and "Copied" / "Copiado"
 
-### Requirement: Settings Manages One Key Per Exchange
+### Requirement: Settings Reads Two Existing Routes And Changes No API
 
-> **Revised 2026-09-24 (owner decision 18).** READ and TRADE slots are
-> withdrawn; each exchange has one key.
->
-> **Revised 2026-09-25 (owner decision 20).** A DEGRADED exchange (an enabled
-> pool with no key) is distinguished from an exchange that was never
-> configured, both shown as "no key" but only the DEGRADED case marked.
+> **Replaces 2026-10-10 (owner decisions 18, 20, 22, 54, 58).** September's
+> "Settings Manages One Key Per Exchange" is withdrawn.
 
-The Settings view MUST show one entry per exchange, showing last-4, whether
-the key reads and trades or reads only, and the recorded facts when a key is
-active, and MUST allow adding or replacing that exchange's key. An exchange
-whose key cannot trade MUST be marked read-only and MUST state that, with dry
-run off, its opening signals are refused until a key that can trade futures is
-stored. An exchange with an enabled pool and no key at all MUST be marked "no
-key" and MUST state that, with dry run off, its opening signals are refused
-until a key is stored.
+The Settings view MUST read `GET /api/credentials` and `GET /api/pools`, and
+MUST write only through the existing `PUT /api/credentials/{exchange}` (save)
+and `DELETE /api/credentials/{exchange}` (delete). Settings MUST add no route,
+no response field, no status and no migration. `ApiError` MAY gain one
+read-only field, `responseBody`, holding the RESPONSE's JSON body when it is an
+object; it MUST NOT hold anything of the request, and every field it already
+has MUST keep its meaning.
 
-A fact the owner confirmed MUST NOT be presented as verified. It MUST be shown
-as "trade not verified" or "withdraw not verified", each with the date the owner
-confirmed it, in a neutral tone (the mark is state, not a call to action). A
-row sealed before facts were recorded MUST be shown as "not validated" together
-with both marks.
+The panel MUST keep one small file of the exchanges whose key it manages
+(`frontend/src/shared/credentials/served-exchanges.json`): their ids in display
+order, and for each the confirmations its form asks for (none for Bybit;
+`withdrawals_disabled_confirmed` and `futures_enabled_confirmed` for Binance).
+That file MUST equal the server's tables, as "The Panel's List Of Served
+Exchanges Equals The Server's Tables" in the exchange-credentials capability
+requires; that requirement is a test and changes no behaviour.
 
-#### Scenario: An exchange with no key shows a defined empty state
+#### Scenario: The panel reads the two routes and writes through the two
 
-- GIVEN no active credential exists for Binance and its pool is not enabled
+- GIVEN the owner opens Settings, saves a key and deletes a key
+- WHEN the requests the panel sent are listed
+- THEN the reads are `GET /api/credentials` and `GET /api/pools`, and the writes are one `PUT` and one `DELETE` to `/api/credentials/{exchange}`, with no other write
+
+#### Scenario: The error keeps the response body and never the request body
+
+- GIVEN a `PUT` whose body holds a sentinel string is answered 422, then 500, then fails with no answer
+- WHEN the thrown `ApiError` is inspected
+- THEN no own property of it and not its `message` holds the sentinel, and for a 409 whose body carries top-level lists `responseBody` holds them
+- AND `status`, `outcome`, `detail`, `code` and `fields` keep the values they had before the field existed
+
+#### Scenario: The served list is not a change of the API
+
+- GIVEN the change is applied
+- WHEN the backend's production files are compared with those before it
+- THEN no router, schema, model or migration differs because of Settings
+
+### Requirement: Every Exchange The Panel Knows Has A Card In Exactly One State
+
+> **Replaces 2026-10-10 (owner decisions 20, 22, 54, 58).**
+
+Settings MUST show one card per exchange, an `<article>` named by its `h3`, the
+exchange's proper name (`Bybit`, `Binance`, `Pionex`; an id with no entry is
+shown as the API spells it). The exchanges listed MUST be the union, without
+repeats, of: the served exchanges in the file's order; then every other
+exchange in `GET /api/credentials`; then every other exchange that has a pool
+in `GET /api/pools`, the last two sorted by name. So every tab has a card, a
+stored key is always shown, and an exchange with no row in either route (Binance
+before its first key) still has a card.
+
+One pure function (`keyState`) MUST give each exchange its state from three
+inputs, and the card and the tab MUST both draw from it. An entry that is
+`EMPTY` and an exchange not listed mean the same: no active key. `poolOn` is
+true when at least one pool of the exchange has `enabled: true`, and is unknown
+while the pools are loading or failed.
+
+| Active key | `trade_capable` | `poolOn` | State | Mark (card and tab) |
+| --- | --- | --- | --- | --- |
+| stored | true | any | key | none |
+| stored | false | any | read-only | `read-only`, amber |
+| none | - | true | degraded | `no key`, amber |
+| none | - | false | empty (never had a key, or it was deleted) | `no key`, neutral |
+| none | - | unknown | empty, with the page's notice that the pools could not be loaded | `no key`, neutral |
+
+Whether an exchange is served MUST be a second axis, not a state: it decides
+only whether the card has buttons.
+
+The card MUST say, in these exact English words with `{x}` the exchange's name:
+
+| State | Sentence | Buttons |
+| --- | --- | --- |
+| key | none | Replace key, Delete key |
+| read-only | "This key cannot trade. With dry run off, opening signals for {x} are refused until you add a key that can trade futures." | Replace key, Delete key |
+| degraded | "No key stored. With dry run off, opening signals for {x} are refused until a key is added." | Add key |
+| empty | "No key stored. Add one to read and trade on {x} from here." | Add key |
+
+An empty or degraded card's key line MUST hold the `no key` tag and nothing else.
+
+#### Scenario: A key that trades is neutral and unmarked
+
+- GIVEN Bybit has an active key with `trade_capable` true
 - WHEN Settings renders
-- THEN Binance's entry shows a defined empty state and an add control, not last-4 or permissions
-
-#### Scenario: An active key shows last-4 and recorded facts only
-
-- GIVEN an active credential exists for Bybit
-- WHEN Settings renders
-- THEN Bybit's entry shows only its last-4, its trade capability, the date its live read passed and its internal-transfer state, never a full key, a secret or a raw permission payload
-
-#### Scenario: An owner-confirmed key is never shown as verified
-
-- GIVEN Binance's active credential was saved with the owner's two confirmations
-- WHEN Settings renders
-- THEN Binance's entry shows "trade not verified" and "withdraw not verified", each with the date the owner confirmed it, and does not state that the key has no withdrawal permission as a fact
-
-#### Scenario: A key sealed before facts were recorded is shown as not validated
-
-- GIVEN Binance's active credential was sealed before facts were recorded
-- WHEN Settings renders
-- THEN Binance's entry shows "not validated" together with both "not verified" marks, and no confirmation date
+- THEN Bybit's card has no mark and no sentence, and offers "Replace key" and "Delete key"
 
 #### Scenario: A read-only key is marked and explained
 
-- GIVEN Binance's active credential cannot trade
+- GIVEN Bybit's active key has `trade_capable` false
 - WHEN Settings renders
-- THEN Binance's entry is marked read-only and states that live opening signals for Binance are refused until a key that can trade is stored
+- THEN the card shows the amber `read-only` tag and the read-only sentence, and offers "Replace key" and "Delete key"
 
-#### Scenario: A DEGRADED exchange is marked and explained
+#### Scenario: A degraded exchange is marked and explained
 
-> **Added 2026-09-25 (owner decision 20).**
-
-- GIVEN Binance's pool is enabled and Binance has no active credential
+- GIVEN Binance has no active key and an enabled pool
 - WHEN Settings renders
-- THEN Binance's entry is marked "no key" and states that, with dry run off, its opening signals are refused until a key is stored
+- THEN the card shows the amber `no key` tag, the degraded sentence and "Add key"
 
-### Requirement: Settings Shows the Validation Outcome On Add/Replace
+#### Scenario: An exchange that never had a key, or whose key was deleted, is empty and neutral
 
-Submitting a key add or replace MUST show the validation outcome to the
-owner: success with the resulting last-4 and recorded facts (with the read-only
-warning when the key cannot trade), or the specific refusal reason (live read
-failed, venue unreachable, withdraw permission present, permissions unavailable,
-a required owner confirmation missing, a confirmation that does not apply, or a
-concurrent save).
+- GIVEN Binance has no active key and no enabled pool
+- WHEN Settings renders
+- THEN the card shows the grey `no key` tag, the empty sentence and "Add key", no key hint and no facts, and nothing on it is amber
 
-For Binance the form MUST ask for two owner confirmations, "withdrawals
-disabled" and "Enable Futures", each unticked by default, and MUST NOT allow
-submitting until both are ticked. The server enforces the same rule. For Bybit
-the form MUST show no confirmation.
+#### Scenario: Binance with no row in either route still has a card
 
-#### Scenario: A refused save shows its reason
+- GIVEN neither `GET /api/credentials` nor `GET /api/pools` lists Binance
+- WHEN Settings renders
+- THEN a Binance card exists, in the empty state, after the Bybit card, and offers "Add key"
 
-- GIVEN the owner submits a key with withdraw permission
-- WHEN the save is refused
-- THEN the panel shows the withdraw-permission refusal reason and stores nothing
+#### Scenario: A stored key of an exchange nothing else lists is shown
 
-#### Scenario: A successful save shows the resulting last-4 and facts
+- GIVEN `GET /api/credentials` lists a stored key for an exchange that is not in the served file and has no pool
+- WHEN Settings renders
+- THEN that exchange has a card showing the key, after the served cards
 
-- GIVEN the owner submits a valid key that can trade futures
-- WHEN the save succeeds
-- THEN the panel shows the resulting last-4 and recorded facts for that exchange, with no read-only warning
+#### Scenario: Unknown pools do not call an exchange degraded
 
-#### Scenario: A read-only key is saved with a warning
+- GIVEN `GET /api/pools` failed and Binance has no active key
+- WHEN Settings renders
+- THEN Binance's card is in the empty state with a grey `no key`, no card is amber for lack of a key, and one line says that the pools could not be loaded so an exchange without a key is not marked
 
-- GIVEN the owner submits a valid key that cannot trade
-- WHEN the save succeeds
-- THEN the panel shows the resulting last-4 together with the read-only warning, and the exchange is marked read-only
+#### Scenario: A row that is not believed is an error, not "no keys"
+
+- GIVEN `GET /api/credentials` answers a stored row whose `last4` is not exactly four characters, or a body that is not a list of valid rows
+- WHEN Settings renders
+- THEN the keys are treated as failed to load, the bad `last4` is drawn nowhere, and no card says "No key stored"
+
+### Requirement: Settings States Its Own Loading And Failure
+
+> **Added 2026-10-10 (design addendum, section B).**
+
+While `GET /api/credentials` has no data, Settings MUST show "Loading exchange
+keys…" and no card. When it failed with no data, Settings MUST show "Exchange
+keys could not be loaded." and "Try again" and MUST NOT show a card, because a
+card drawn from the served file alone would say "No key stored" about a key the
+panel could not read. When it has data and a later read failed, the cards MUST
+stay under the line "This list could not be refreshed and may be out of date."
+with "Try again".
+
+#### Scenario: Loading shows no card
+
+- GIVEN the credentials read has not answered
+- WHEN Settings renders
+- THEN "Loading exchange keys…" is shown and no card is
+
+#### Scenario: A failed first read shows no card
+
+- GIVEN the credentials read failed and nothing was read before
+- WHEN Settings renders
+- THEN "Exchange keys could not be loaded." and "Try again" are shown, no card is, and "Try again" reads the list again
+
+#### Scenario: A failed later read keeps the cards
+
+- GIVEN the credentials were read and a later read failed
+- WHEN Settings renders
+- THEN the cards stay, the line "This list could not be refreshed and may be out of date." and "Try again" are shown
+
+### Requirement: A Stored Key's Card Shows The Key Hint And Its Facts As Tags
+
+> **Replaces 2026-10-10 (owner decision 55).**
+
+A card with a stored key MUST show, as the head's second line, the key hint
+and, beside it, a date. The key hint MUST be a paragraph (not a heading) in the
+largest text of the card, the label `key`, four dots and the last four
+characters of the key, with only those characters in the strongest ink. It
+MUST never hold more than the last four characters: not in text, not in an
+attribute, not in a hidden label, not in a test fixture. The label, the dots and
+the characters MUST be hidden from assistive technology and a hidden text MUST
+say "key ending in {last4}". The date MUST read "checked {date}" (a UTC day in
+the panel's language) when `validated_at` is set and "not validated" when it is
+null; it MUST NOT be among the tags. The hint and the date MUST each be
+unbreakable, so that when both do not fit the date moves under the hint whole.
+
+The facts MUST be one list of tags, named "What is known about this key". Each
+fact MUST be one `<li>` that cannot break inside, the list MUST wrap whole tags
+onto a new line when the width runs out, and the card MUST hold no separator
+character between facts. Each of trade and withdrawal MUST be said by exactly
+one tag. The tags, in this order:
+
+| # | Fact | Condition | EN tag | ES tag | Look |
+| --- | --- | --- | --- | --- | --- |
+| 1 | the mark | state read-only | `read-only` | `solo lectura` | mark, amber |
+| 2 | capability | trade source `VERIFIED` and `trade_capable` true | `trades` | `opera` | checked |
+| | | trade source `VERIFIED` and `trade_capable` false | no tag | | |
+| | | trade source not `VERIFIED` and `validated_at` set | `reads` | `lee` | checked |
+| | | `validated_at` null | no tag | | |
+| 3 | withdrawal | withdraw source `VERIFIED` | `no withdrawal` | `sin retiros` | checked |
+| 4 | transfers | `internal_transfer` true | `transfers` | `transfiere` | checked |
+| | | `internal_transfer` false | `no transfers` | `sin transferencias` | checked |
+| | | null | no tag | | |
+| 5 | trade, not checked by the venue | source `OWNER_CONFIRMED` and `trade_confirmed_at` set | `trade confirmed {date}` | `operar: confirmado el {date}` | confirmed |
+| | | any other source that is not `VERIFIED` (`UNRECORDED`, an unknown value, or `OWNER_CONFIRMED` with no date) | `trade not verified` | `operar: sin verificar` | not on record |
+| 6 | withdraw, not checked by the venue | source `OWNER_CONFIRMED` and `withdraw_confirmed_at` set | `withdraw confirmed {date}` | `retiros: confirmado el {date}` | confirmed |
+| | | any other source that is not `VERIFIED` | `withdraw not verified` | `retiros: sin verificar` | not on record |
+| 7 | information button | a tag carries a confirmation date | the last item of the list, a button and not a tag | | |
+
+"Confirmed" and "not verified" are two rows of the same fact, so they MUST NEVER
+be shown together for one fact. "Not verified" MUST be shown only for a fact
+with nothing on record. A source value the panel does not know MUST be shown as
+not verified and never as checked.
+
+The three looks MUST differ by more than colour: **checked** is filled
+(`border-rule bg-panel-2 text-ink-2`) and says the exchange itself showed the
+fact to the application; **confirmed** is hollow and dashed
+(`border-dashed border-rule-strong text-ink-2`) and says the owner's word with
+the day he gave it; **not on record** is hollow, dashed and dimmer
+(`border-dashed border-rule-strong text-ink-3`).
+
+The information button MUST be named "About what you confirmed" and, when open,
+MUST show: "'Confirmed' is what you told this panel on that day. {x} does not
+let the panel check what a key may do, so orders are sent on your confirmation.
+If the key cannot trade futures, {x} rejects the first live order and you get a
+Telegram alert. Nothing checks the withdrawal setting."
+
+A card MUST NOT show a full key, a secret, or a raw permission payload.
+
+#### Scenario: A Bybit key checked by the venue
+
+- GIVEN Bybit's key ends in `7Q2d`, was validated on 2026-10-02, trades, has a `VERIFIED` withdraw check and `internal_transfer` true
+- WHEN the card renders
+- THEN the key line reads `key ••••7Q2d` with `checked Oct 2, 2026`, and the tags are `trades`, `no withdrawal`, `transfers`, all filled, with no information button
+
+#### Scenario: The key hint is a paragraph that never holds more than four characters
+
+- GIVEN any stored key
+- WHEN the card's markup is read
+- THEN the hint is a `<p>` that cannot break inside, the card has exactly one heading while no form is open, and nothing in the document, attributes included, holds more than the last four characters of the key
+
+#### Scenario: The hint is read in words
+
+- GIVEN a key ending in `7Q2d`
+- WHEN its accessible text is read
+- THEN it reads "key ending in 7Q2d", and the label, the dots and the characters are hidden from assistive technology
+
+#### Scenario: The date stands beside the key and not among the tags
+
+- GIVEN a key with `validated_at` set, and a key with it null
+- WHEN each card renders
+- THEN the first reads "checked {date}" beside the hint, the second "not validated", and neither is a tag
+
+#### Scenario: The tags wrap whole and carry no separator
+
+- GIVEN any stored key
+- WHEN the card's structure is read
+- THEN the facts are one list that wraps, each tag cannot break inside, and the card's text contains no " · "
+
+#### Scenario: A fact is said by one tag
+
+- GIVEN Binance's key with both facts owner-confirmed on Oct 2, 2026
+- WHEN the card renders
+- THEN exactly one tag says trade (`trade confirmed Oct 2, 2026`), exactly one says withdrawal (`withdraw confirmed Oct 2, 2026`), and neither "trade not verified" nor "withdraw not verified" is on the card
+
+#### Scenario: A confirmation with no date reads as not verified
+
+- GIVEN a key whose trade source is `OWNER_CONFIRMED` and whose `trade_confirmed_at` is null
+- WHEN the card renders
+- THEN it shows `trade not verified` and not "confirmed"
+
+#### Scenario: A key with no recorded facts is not validated and not confirmed
+
+- GIVEN a key sealed before facts were recorded (both sources `UNRECORDED`, `validated_at` null)
+- WHEN the card renders
+- THEN it reads `not validated` beside the key, shows the dimmer dashed tags `trade not verified` and `withdraw not verified`, no confirmation date, no information button, and, on a served exchange, in the neutral weak ink, "Stored before the system recorded how a key was checked. Enter it again to have it checked."
+- AND nothing on the card is amber
+
+#### Scenario: A source the panel does not know is not drawn as checked
+
+- GIVEN a key whose withdraw source is a value the panel does not know
+- WHEN the card renders
+- THEN it shows `withdraw not verified` and not `no withdrawal`
+
+### Requirement: A Binance Permission Is Never Stated As A Fact The Application Checked
+
+> **Replaces 2026-10-10 (owner decisions 24, 30 and 55).**
+
+"Confirmed" is the owner's word and "checked" is the application's. A card MUST
+NOT show `trades` or `no withdrawal` for a fact whose source is
+`OWNER_CONFIRMED`, and MUST NOT show a Binance withdrawal as anything but
+"withdraw confirmed {date}" or "withdraw not verified". The only filled tag of a
+Binance key MUST be `reads`, because the signed read passing is the one thing
+Binance itself showed.
+
+#### Scenario: A confirmed Binance key never reads as checked
+
+- GIVEN Binance's key was saved with both confirmations
+- WHEN the card renders
+- THEN the tags are `reads`, `trade confirmed {date}`, `withdraw confirmed {date}` and the information button, and neither `trades` nor `no withdrawal` is on the card
+
+#### Scenario: The same key's tags differ in more than colour
+
+- GIVEN the same card
+- WHEN the tags are read as text
+- THEN the filled tag and the two dashed tags are told apart by their words ("reads" against "confirmed" with a date)
+
+### Requirement: Amber Marks Only Where The Owner Has Something To Do
+
+> **Replaces 2026-10-10 (owner decisions 20 and 55).**
+
+Amber MUST appear only on the `read-only` tag, on the `no key` tag of a
+degraded exchange, and, with each of them, on the card's border and sentence.
+The `no key` tag of an empty exchange, "not validated", the "confirmed" tags,
+the "not verified" tags and the not-served sentence MUST be neutral. The form
+MUST contain no amber. The files that use an amber utility MUST be exactly
+`shared/credentials/KeyMark.tsx` and `features/settings/ExchangeKeyCard.tsx`
+among the Settings files, and the panel's existing test of allowed amber files
+MUST list exactly those two.
+
+#### Scenario: Only a state that needs an action is amber
+
+- GIVEN cards in each state
+- WHEN their classes are read
+- THEN amber is on the read-only and degraded cards' tag, border and sentence and on no other card, tag or sentence
+
+#### Scenario: The list of amber files is exact
+
+- GIVEN the source files of the panel
+- WHEN the allowed-amber test runs
+- THEN the two files above are the only Settings files that use an amber utility
+
+### Requirement: An Exchange The Panel Does Not Serve Has No Buttons
+
+> **Added 2026-10-10 (owner decisions 31, 54 and 58).**
+
+An exchange that is not in the served file (Pionex) MUST be shown whether or
+not it has a key, and MUST have no "Add key", "Replace key" or "Delete key". With
+a stored key its card MUST show its state as for any exchange, then, in weak
+ink: "The {x} key is managed outside this panel, on the server. It cannot be
+added, replaced or deleted here." Without a key its card MUST show the `no key`
+tag as its only second line, "No key stored." and then the same sentence, amber
+only when a pool of it is on.
+
+#### Scenario: A Pionex key is shown without buttons
+
+- GIVEN Pionex has a stored key and is not in the served file
+- WHEN Settings renders
+- THEN the card shows the key hint and facts as for any exchange, the sentence that the key is managed outside the panel, and no button
+
+#### Scenario: A Pionex card exists without a key
+
+- GIVEN Pionex has pool rows and no stored key
+- WHEN Settings renders
+- THEN the card reads "No key stored." and the managed-outside sentence, shows the `no key` tag, and has no button
+- AND the tag is amber only if a Pionex pool is enabled
+
+### Requirement: The Exchange Tabs Carry The Key State
+
+> **Added 2026-10-10 (owner decisions 20, 22, 55). Replaces the tab mark text
+> of 2026-09-25.**
+
+Each exchange tab MUST read the same state as its card (the same function, the
+same inputs) and MUST show under its name: nothing for a key that trades;
+`read-only` in amber for a key that cannot trade; `no key` in amber for no key
+with a pool on; `no key` in grey for no key and no pool on (a deleted key, or an
+exchange never keyed). While `GET /api/credentials` is loading or failed, a tab
+MUST show its name alone, and MUST NOT show any mark, because no mark is a claim
+of nothing. The mark MUST be a word, never colour alone, and MUST be part of the
+tab's accessible name ("binance no key"). The tab of a deleted key MUST stay.
+
+The name MUST sit at the same place in every tab, with or without a mark: every
+tab's inner element is a grid of three rows whose outer two rows are the same
+track, the name is the middle row, a mark is the third row, and a tab without a
+mark holds one element. Every tab MUST be 52 px tall; the bar from the large
+breakpoint MUST keep its height. Settings MUST show no exchange tabs.
+
+#### Scenario: Each state's mark on a tab
+
+- GIVEN exchanges in each state of the table and the credentials read answered
+- WHEN the tabs render, in the bar and in the phone row
+- THEN each shows the mark above and no other, and the amber ones carry the amber utility
+
+#### Scenario: No mark while the keys load or fail
+
+- GIVEN `GET /api/credentials` is loading, then failed
+- WHEN the tabs render
+- THEN every tab shows its name alone, in both cases
+
+#### Scenario: The mark is in the accessible name
+
+- GIVEN Binance has no key
+- WHEN its tab's accessible name is read
+- THEN it is "binance no key"
+
+#### Scenario: A mark does not move the name
+
+- GIVEN one tab with a mark and one without
+- WHEN their structure is read
+- THEN both inner elements carry the same three grid classes, the name has the same class list and the middle-row placement in both, the mark has the third-row placement, and the unmarked tab has exactly one element in its grid
+
+#### Scenario: A deleted key's tab stays and is grey
+
+- GIVEN Bybit's key was deleted, so its pool is disabled
+- WHEN the tabs render
+- THEN Bybit's tab is present with `no key` in grey, not amber
+
+#### Scenario: A shell render proves the credentials read is answered
+
+- GIVEN a shell test with the default test harness
+- WHEN it renders the tabs
+- THEN the harness answered `GET /credentials`, no request was rejected as unexpected, and no tab has a mark
+
+### Requirement: On A Phone The Exchange Tabs Share The Row's Whole Width
+
+> **Added 2026-10-10 (owner decision 59).**
+
+Below the large breakpoint, every tab MUST take the same share of the row and be
+centred in it, and MUST NOT be squeezed under its own name or mark; when the
+tabs do not fit, the row MUST scroll sideways and MUST NOT wrap. From the large
+breakpoint the tabs MUST keep their own width. A tab MUST carry the utilities
+that give an equal share (`flex-1`), a minimum of its content (`min-w-fit`), and
+its own width from the large breakpoint (`lg:flex-none`), and MUST NOT carry
+`shrink-0`.
+
+#### Scenario: The tabs share the row
+
+- GIVEN a phone width and two exchanges
+- WHEN the tab row's structure is read
+- THEN every tab carries `flex-1`, `min-w-fit` and `lg:flex-none`, none carries `shrink-0`, and the row keeps its sideways scroll and does not wrap
+
+#### Scenario: The same component serves both surfaces
+
+- GIVEN the bar from the large breakpoint and the row below it
+- WHEN either is rendered
+- THEN both are the same component and both carry the marks
+
+### Requirement: The Key Form Opens Inside Its Card, One At A Time
+
+> **Replaces 2026-10-10 (owner decisions 54 and 57).** September's "Settings
+> Shows the Validation Outcome On Add/Replace" is withdrawn.
+
+"Add key" and "Replace key" MUST be one element that opens and closes the key
+form of its card; it MUST carry `aria-expanded` and `aria-controls`, and it MUST
+stay mounted when its text changes. The form MUST open inside its card, under
+the facts and the buttons, as a section named by its title, not as a dialog,
+and the page MUST hold at most one open form. Opening the form of another card,
+or pressing the button that opened it, MUST close the open one and empty it.
+Leaving Settings MUST close it. While a save is in flight every button of every
+card MUST be disabled, and while a card's form is open its "Delete key" MUST be
+disabled.
+
+The form MUST hold, in this order: the title ("Add a {x} key", or "Replace the
+{x} key" when a key is stored); two fields, "API key" and "API secret"; the help
+("Before saving, the key is tried with a real read at {x}. A key that can
+withdraw funds is refused. A key that cannot trade is saved with a warning." for
+an exchange with no confirmations, or "Before saving, the key is tried with a
+real read at {x}. {x} does not let this panel check what the key may do, so you
+confirm it here." for one with them); only when a key is stored, "Saving
+replaces the key stored now, also when the new key cannot trade."; the
+confirmations; the refusal when there is one; and the buttons "Check and save"
+and "Close". The title MUST be an `h4`. The panel MUST check nothing about the
+key beyond both fields having text. The form MUST have no Escape handling.
+
+#### Scenario: One form at a time
+
+- GIVEN the Bybit form is open with text typed in it
+- WHEN the owner presses "Add key" on Binance's card
+- THEN Bybit's form is gone, Binance's is open, and reopening Bybit's shows two empty fields
+
+#### Scenario: The opening button closes its own form
+
+- GIVEN a form is open
+- WHEN the owner presses the button that opened it
+- THEN the form closes, its fields are emptied on reopening, and the focus is on that button
+
+#### Scenario: Opening the form puts the focus in the key field
+
+- GIVEN a card with no open form
+- WHEN the owner opens its form
+- THEN the focus is in "API key"
+
+#### Scenario: A replace form warns about replacing
+
+- GIVEN Bybit has a stored key
+- WHEN the owner opens its form
+- THEN the title is "Replace the Bybit key" and the note "Saving replaces the key stored now, also when the new key cannot trade." is shown, and an exchange with no key shows neither
+
+#### Scenario: The submit button follows what is typed
+
+- GIVEN an open form
+- WHEN a field is empty, or a required box is unticked, then both fields have text and every box is ticked
+- THEN "Check and save" is disabled, then enabled
+
+#### Scenario: Close is the second button's word
+
+- GIVEN an open form
+- WHEN its buttons are read
+- THEN they are "Check and save" and "Close", and neither is ever "Cancel" or "Saved"
+
+### Requirement: The Form Asks For The Confirmations Its Exchange Requires
+
+> **Replaces 2026-10-10 (owner decisions 24 and 30).**
+
+For an exchange with confirmations in the served file (Binance) the form MUST
+show a group titled "What you checked in {x}" with one real checkbox per name,
+each unticked: "I confirmed in {x} that this key has withdrawals disabled" and
+"I confirmed in {x} that this key has Enable Futures", followed by "If the key
+lacks Enable Futures, {x} rejects the first live order and you get a Telegram
+alert. Nothing checks the withdrawal setting: it rests on your word." The
+submit MUST be disabled until both are ticked, and the request MUST carry both as
+`true`. For Bybit the form MUST show no confirmation and the request MUST carry
+no confirmation field. The request body MUST be `{api_key, api_secret}` plus the
+confirmations, with no `label`.
 
 #### Scenario: A Binance key cannot be submitted without both confirmations
 
-- GIVEN the owner has typed a Binance key and ticked at most one of the two confirmations
-- WHEN the form is shown
-- THEN submitting is disabled, and both confirmations are cleared together with the key fields once the submission finishes
+- GIVEN both fields have text and at most one box is ticked
+- WHEN the form is read
+- THEN "Check and save" is disabled
 
-#### Scenario: A refusal for a missing confirmation names it
+#### Scenario: A Binance request carries both confirmations
 
-- GIVEN the server refuses a Binance save because a confirmation is missing
-- WHEN the refusal is shown
-- THEN the panel names which confirmation is missing and stores nothing
+- GIVEN both fields have text and both boxes are ticked
+- WHEN the owner presses "Check and save"
+- THEN one `PUT` is sent with `api_key`, `api_secret`, `withdrawals_disabled_confirmed: true` and `futures_enabled_confirmed: true`
 
-#### Scenario: A Bybit form shows no confirmation
+#### Scenario: A Bybit form shows and sends no confirmation
 
-- GIVEN the owner opens the key form for Bybit
-- WHEN the form renders
-- THEN it shows no owner confirmation, because Bybit's facts are verified by the venue
+- GIVEN the Bybit form with both fields filled
+- WHEN it is read and submitted
+- THEN it shows no checkbox and the body holds only `api_key` and `api_secret`
 
-### Requirement: Settings Allows Deleting a Key, With Explicit Confirmation and a Stated Refusal
+#### Scenario: The Binance help does not claim more than is true
 
-> **Added 2026-09-25 (owner decision 22).**
+- GIVEN the Binance form
+- WHEN its help is read
+- THEN the Enable Futures consequence and the unchecked withdrawal setting are stated apart, and no text says that a wrong withdrawals confirmation is caught by the venue
 
-An exchange with an active key MUST offer a delete control in Settings. Using
-it MUST require an explicit confirmation step before the delete request is
-sent. A refused delete MUST show the specific reason (an enabled strategy on
-that exchange, or an open position/live reservation on that exchange), naming
-what is unmet. A successful delete MUST update that exchange's entry to the
-same defined empty state shown for an exchange that was never configured.
+### Requirement: Every Refusal Has A Text Chosen By The Panel, Never The Server's
 
-#### Scenario: Deleting is not triggered by a single click without confirmation
+> **Replaces 2026-10-10 (design addendum, section F).**
 
-- GIVEN Bybit has an active key
+The form's refusal MUST be a `role="alert"` in the loss colour, chosen by the
+response's `outcome` or status, and MUST NOT render the server's `detail`. A
+refusal MUST be followed by "The fields were emptied. Enter the key again to
+retry." Typing MUST NOT remove it; the next attempt or closing the form MUST.
+After a refusal the focus MUST move to "API key". The texts, `{x}` being the
+exchange's name:
+
+| Answer | Key under `settings.form.error.` | EN text |
+| --- | --- | --- |
+| 422 `KEY_REJECTED` | `keyRejected` | "{x} did not accept this key. Check that the key and the secret were copied whole, that the key has not expired, and that it allows this server's IP address. Nothing was saved." |
+| 422 `WITHDRAW_PERMISSION` | `withdrawPermission` | "This key can take funds out of the account, so it was refused. Create a key without withdrawal permission and enter that one. Nothing was saved." |
+| 422 `PERMISSIONS_UNAVAILABLE` | `permissionsUnavailable` | "{x} did not say what this key is allowed to do, so it was not saved. Try again in a moment." |
+| 502 `VENUE_UNREACHABLE` | `venueUnreachable` | "{x} could not be reached, so the key was not checked and not saved. Nothing is known to be wrong with it. Try again." |
+| 409 `CONCURRENT_SAVE` | `concurrentSave` | "Another save for {x} finished first, so this one was not stored. The card shows the key that is stored now. Check it before saving again." |
+| 422 `CONFIRMATION_REQUIRED` | `confirmationRequired` | "The key was not saved, and nothing was sent to {x}, because a confirmation is missing:" then one line per name in `missing`, each the checkbox's own label |
+| 422 `CONFIRMATION_REQUIRED`, `missing` not a list of known names | `confirmationRequiredUnlisted` | "The key was not saved, and nothing was sent to {x}, because a confirmation is missing. Tick both and enter the key again." |
+| 422 `CONFIRMATION_NOT_APPLICABLE` | `confirmationNotApplicable` | "The panel sent a confirmation that {x} does not take, so the key was not saved. Reload the page and enter the key again." |
+| 404 | `notServed` | "{x} keys are not managed by this panel, so nothing was saved." |
+| 503 | `storageUnavailable` | "The server cannot store keys right now, so nothing was saved. If this repeats, the server's encryption key is missing or unusable and has to be fixed there." |
+| 422, `detail` a list, an entry whose `loc` ends in `api_key` | `invalidKey` | "The API key cannot be stored as typed. A key has 4 to 256 characters and no spaces or accented letters. Nothing was sent to {x}." |
+| 422, `detail` a list, an entry whose `loc` ends in `api_secret` and none for the key | `invalidSecret` | "The API secret cannot be stored as typed. A secret has at most 256 characters and no spaces or accented letters. Nothing was sent to {x}." |
+| 422, `detail` a list, neither | `invalidRequest` | "The server refused the request as malformed, so nothing was saved. Reload the page and enter the key again." |
+| no answer (status 0) | `noAnswer` | "No answer came back from the server, so it is not known whether the key was saved. The card shows what is stored now." |
+| any other status, a 500 included | `unknown` | "The save ended in a way this panel cannot read (status {status}), so it is not known whether the key was saved. The card shows what is stored now." |
+| 401 | none | none: the token gate takes the page |
+
+The refusal for `CONFIRMATION_REQUIRED` MUST name which confirmation is missing.
+For `noAnswer` and `unknown` the panel MUST NOT treat the attempt as a save that
+worked, MUST keep the form open, and MUST read both lists again so the card shows
+what is stored now.
+
+#### Scenario: Each answer shows its own text
+
+- GIVEN the form is submitted and the server answers each row of the table
+- WHEN the refusal is read
+- THEN it equals the row's English text (`{status}` filled for `unknown`), and nothing stored is changed by the panel
+
+#### Scenario: A missing confirmation is named
+
+- GIVEN the server refuses a Binance save with `missing` holding `futures_enabled_confirmed`
+- WHEN the refusal is read
+- THEN it lists "I confirmed in Binance that this key has Enable Futures" and not the other box
+
+#### Scenario: The server's wording is never rendered
+
+- GIVEN every refusal is answered with a `detail` that contains the typed key and secret, the pydantic one with an `input` field that does, and a network failure whose message does
+- WHEN the document's text is read
+- THEN it holds neither the typed key nor the typed secret
+
+#### Scenario: A save with no answer is said to be unknown
+
+- GIVEN the request fails with no answer
+- WHEN the attempt ends
+- THEN the form stays open and empty with the `noAnswer` text, both lists are read again, and no "saved" notice is shown
+
+### Requirement: The Form Is Emptied After Every Attempt
+
+> **Replaces 2026-10-10 (owner decision 54, not reopened).**
+
+After every attempt, a save that worked and a refused or unread one included,
+both fields MUST be emptied and the boxes unticked. While the request is in
+flight the button MUST read "Checking…", be disabled, and the fields MUST be
+read-only; "Close" MUST be disabled. A second click or Enter while it is in
+flight MUST send no second request, and a failed save MUST NOT be retried.
+
+#### Scenario: Both fields are empty after every ending
+
+- GIVEN a save that worked, each refusal, a network failure and a 401
+- WHEN each attempt ends
+- THEN neither field holds text, asserted on both, and the boxes are unticked; after the save that worked the form is gone and reopening it shows two empty fields
+
+#### Scenario: A second click sends nothing
+
+- GIVEN a save is in flight
+- WHEN the owner clicks the button again or presses Enter
+- THEN exactly one `PUT` has been sent
+
+#### Scenario: A failed save is not retried
+
+- GIVEN a save fails
+- WHEN time passes
+- THEN exactly one `PUT` was sent
+
+#### Scenario: Close is disabled while checking
+
+- GIVEN a save is in flight
+- WHEN the form is read
+- THEN "Close" is disabled and the button reads "Checking…"
+
+### Requirement: After A Save That Worked The Form Closes And The Card Says So
+
+> **Added 2026-10-10 (owner decision 57).** Replaces September's "success
+> shows the resulting last-4 in the form" and the read-only warning in the form.
+
+When a save works, the form MUST close on the answer, without waiting for the
+lists. The card MUST say "Key ending in {last4} saved." (or "Key saved." when the
+answer's `last4` is not exactly four characters, or absent) as the first line of
+its facts, a plain paragraph that is not a live region, until the next thing the
+owner does on the page (opening a form, opening the delete dialog, another save,
+or leaving); it MUST NOT use a timer. The `last4` MUST come from the answer and
+never be cut from what was typed.
+
+Until `GET /api/credentials` has been read again, and when that read fails, the
+card MUST be drawn from the save's answer and MUST NOT show the key stored before
+as current: the key line is the saved key's hint with no date; the only tag is
+`read-only` when the answer said the key cannot trade (`warnings` holds
+`READ_ONLY_KEY`, or `facts.trade_capable` is false); and the notice reads "Key
+ending in {last4} saved. The rest of this card appears when the list has been
+read again." A failed read MUST also show the stale-list line above the cards.
+"Delete key" MUST appear only once the list is read again.
+
+The read-only warning MUST be the card's own state: the amber `read-only` tag, the
+amber border and the read-only sentence, drawn from the answer while the list is
+behind and from the list afterwards. The form MUST carry no warning of its own.
+
+The keyboard focus MUST move, after the form has left the document, to the card's
+toggle, which reads "Replace key" from the answer alone, also for a first key.
+"Delete key" MUST NOT take the focus.
+
+The page MUST hold one status region (`role="status"`), hidden from sight and
+always in the document. On a save it MUST say "Key ending in {last4} saved.",
+followed by the card's read-only sentence for a key that cannot trade; the same
+region says "{x} key deleted." after a delete.
+
+#### Scenario: The form closes on the answer
+
+- GIVEN the owner submits a valid key
+- WHEN the answer is a 200
+- THEN the form is gone, and both lists are read again
+
+#### Scenario: The card says it, and the old key is not shown meanwhile
+
+- GIVEN Bybit has a stored key ending `AAAA` and the owner replaces it, the answer says `last4` is `BBBB`, and the credentials list has not been read again
+- WHEN the card renders
+- THEN it shows `key ••••BBBB` with no date, the notice with "The rest of this card appears when the list has been read again.", and `AAAA` appears nowhere, including when the re-read fails
+
+#### Scenario: Once the list is read the card is the list's, with the notice
+
+- GIVEN the list was read again after the save
+- WHEN the card renders
+- THEN it is the card of its state, with "Key ending in BBBB saved." as the first line of its facts, and "Delete key" is offered
+
+#### Scenario: A read-only key is a state of the card
+
+- GIVEN the owner saves a key whose answer says it cannot trade
+- WHEN the form closes
+- THEN the card shows the amber `read-only` tag, the amber border and the read-only sentence, drawn from the answer even if the list has not been read, and the tab shows `read-only` once the list is read
+
+#### Scenario: The focus goes to the toggle
+
+- GIVEN a first key is saved for Binance
+- WHEN the form has closed
+- THEN the active element is the card's toggle, which reads "Replace key", and it is the same element that read "Add key"
+
+#### Scenario: The status region tells a screen reader
+
+- GIVEN a key that cannot trade is saved
+- WHEN the form closes
+- THEN the status region says "Key ending in {last4} saved." followed by the read-only sentence, and the card's visible notice is not a live region
+
+#### Scenario: The last four come from the answer
+
+- GIVEN the answer's `last4` differs from the end of the typed key, and in another run is the whole typed key
+- WHEN the status and the card are read
+- THEN the first says and draws the answer's four characters, the second says "Key saved." and the document holds no typed key
+
+#### Scenario: The notice has no timer
+
+- GIVEN a save notice is on a card
+- WHEN time passes and then the owner opens a form
+- THEN the notice stays until the form opens, and is gone after
+
+### Requirement: The Typed Secret Lives Only In Its Two Fields
+
+> **Added 2026-10-10 (design addendum, section H, owner decision 54).**
+
+The "API key" and "API secret" fields MUST be uncontrolled: no `value` and no
+`defaultValue`, no `name`. "API key" MUST be `type="text"` with
+`autoComplete="off"`, `spellCheck={false}`, `autoCapitalize="off"` and
+`autoCorrect="off"`; "API secret" MUST be `type="password"` with
+`autoComplete="new-password"`. Component state MUST hold only whether each field
+has text, which boxes are ticked, the phase and the result of the last attempt.
+The save MUST be a plain function that never throws and never returns the error
+object; it MUST NOT be a mutation. The typed text MUST be nowhere else:
+
+| Place | Rule |
+| --- | --- |
+| a query's key, data or error | never |
+| the mutation cache | no entry exists for a save |
+| React state | none; the fields are uncontrolled |
+| a DOM attribute, or the document's markup | never; neither field has a `value` attribute |
+| a rendered error text | never; the server's `detail` is not rendered |
+| the console | nothing in Settings or the credentials client writes to it, and the save never rejects |
+| the URL or query string | never; the key and secret travel in the body of one `PUT` |
+| `localStorage`, `sessionStorage` or any persisted store | never |
+| a status region or an `aria-label` | only the answer's four characters |
+
+#### Scenario: No query cache entry holds the key or the secret
+
+- GIVEN sentinels `K` and `S` typed into the fields
+- WHEN each ending (a save, each refusal, a network failure, a 401) has happened
+- THEN a walk of every query's key, data and error finds neither
+
+#### Scenario: No mutation cache entry exists for a save
+
+- GIVEN a save of each ending
+- WHEN the mutation cache is read
+- THEN it holds no entry for the save, and the form and the credentials client never pass the save to `useMutation`
+
+#### Scenario: The fields are uncontrolled
+
+- GIVEN the form's source
+- WHEN it is read
+- THEN neither field has `value=` or `defaultValue=`, neither has a `name`, and each carries exactly the attributes above
+
+#### Scenario: No attribute of the document holds the key or the secret
+
+- GIVEN `K` and `S` typed, and again after each ending
+- WHEN the document's markup is read
+- THEN it holds neither and no field has a `value` attribute
+
+#### Scenario: Nothing is written to the console
+
+- GIVEN each ending
+- WHEN the console spies are read
+- THEN none was called, no source of Settings or the credentials client calls `console.`, and the save resolves for a `fetch` that throws a plain error
+
+#### Scenario: The request is one PUT with the secret only in its body
+
+- GIVEN a submitted form
+- WHEN the requests are listed
+- THEN there is one `PUT` to the exchange's path with no query string, carrying the key and the secret in its body only
+
+#### Scenario: No storage holds what was typed
+
+- GIVEN each ending
+- WHEN `localStorage` and `sessionStorage` are read
+- THEN neither holds `K` or `S`
+
+#### Scenario: Closing, leaving and switching empty the fields
+
+- GIVEN text typed in a form
+- WHEN the owner closes it, leaves Settings and returns, or opens another exchange's form
+- THEN no form is open or the other one is, and reopening shows two empty fields
+
+#### Scenario: A 401 in the middle of a save leaves nothing typed
+
+- GIVEN a save is answered 401
+- WHEN the token gate takes the page and the owner unlocks it
+- THEN no form is open, neither sentinel is in the document, and nothing was recorded, re-read or focused for the save
+
+#### Scenario: A save result holds only known fields
+
+- GIVEN a result from the save function
+- WHEN its own properties are listed
+- THEN they are the known fields of `saved`, `refused` or `unauthorized`, and `last4` is kept only when it is exactly four characters
+
+#### Scenario: The fields ask the browser to keep nothing
+
+- GIVEN the form
+- WHEN each field's attributes are read
+- THEN they are the ones above, attribute by attribute
+
+#### Scenario: What a browser does with the fields is reviewed by eye
+
+- GIVEN the form in a real browser
+- WHEN the owner types a key
+- THEN the review by eye records whether the browser offers to save it as a login, because no attribute prevents the offer and no automated test can see it
+
+### Requirement: Deleting A Key Is Confirmed With A Plain Button And A Refusal Is Stated
+
+> **Replaces 2026-10-10 (owner decisions 22 and 54).** The confirmation is a
+> plain button in a dialog; the owner types nothing.
+
+A served card with a stored key MUST offer "Delete key", always enabled while
+shown; one click MUST only open a dialog and MUST send no request. The dialog
+MUST be a native modal dialog labelled by its title "Delete the {x} key?", with
+the body "The key ending in {last4} is removed from this system. {x} is no
+longer read or traded from here until a key is added again. Its history stays."
+and "The server allows this only while every {x} strategy is disabled and
+nothing is open on it." Its buttons MUST be, in the document's order, "Cancel"
+(focused when the dialog opens) and "Delete key", each at least 44 px tall;
+"Delete key" reads "Deleting…" while the request is in flight, both buttons are
+then disabled, and nothing closes the dialog (Escape included) until it settles.
+Closing MUST return the focus to the card's "Delete key". The delete MUST be a
+mutation over `DELETE /api/credentials/{exchange}`, which carries no secret, and
+on every settled attempt MUST read `GET /api/credentials` and `GET /api/pools`
+again and wait for them before it reports.
+
+| Answer | What the owner sees |
+| --- | --- |
+| 200 | The dialog closes; the card is the empty card; the status region says "{x} key deleted."; the focus goes to that card's "Add key"; the tab reads `no key` in grey |
+| 409 `EXCHANGE_NOT_FLAT` | In the loss colour, `role="alert"`: "The {x} key cannot be deleted yet. This is in the way:" and one line per non-empty list; both buttons stay |
+| 409 whose five lists cannot all be read | "The {x} key cannot be deleted yet: a strategy is still enabled, a position is open or an order is in progress." and no list |
+| 404 | "The server found no {x} key to delete. Close this: the card shows what is stored now." Not treated as a success |
+| no answer, or any other status | "The delete ended in a way this panel cannot read. Close this: the card shows whether the key is still stored." |
+| 401 | The token gate takes the page |
+
+The lines, read from the response body, MUST be, with strategy names as text and
+never links, and ids of allocations, reservations and attempts counted and never
+listed:
+
+| Field | EN text |
+| --- | --- |
+| `enabled_strategies` | one: "{count} enabled strategy: {names}. Disable it first." / other: "{count} enabled strategies: {names}. Disable them first." |
+| `symbols` | "Open position on: {symbols}. It has to be closed first." |
+| `allocations` | one: "{count} open allocation. It ends when its position is closed." / other: "{count} open allocations. They end when their positions are closed." |
+| `live_reservations` | one: "{count} live reservation: capital held for an order. Wait for it to finish, then try again." / other: "{count} live reservations: capital held for orders. Wait for them to finish, then try again." |
+| `in_flight_attempts` | one: "{count} order being placed right now. Wait for it to finish, then try again." / other: "{count} orders being placed right now. Wait for them to finish, then try again." |
+
+#### Scenario: A single click sends nothing
+
+- GIVEN Bybit has a stored key
 - WHEN the owner clicks "Delete key" once
-- THEN the panel requires an explicit confirmation before the delete request is sent
+- THEN the dialog opens with "Cancel" focused and no `DELETE` has been sent
 
-#### Scenario: A refused delete states why
+#### Scenario: The confirmation is a plain button
 
-- GIVEN Bybit has an active key and an enabled strategy bound to its pool
-- WHEN the owner confirms deleting the Bybit key
-- THEN the panel shows that the key cannot be deleted while Bybit has an enabled strategy, and Bybit's entry still shows its active key
+- GIVEN the dialog is open
+- WHEN the owner presses "Delete key" in it
+- THEN one `DELETE /api/credentials/bybit` is sent, with nothing typed first
 
-#### Scenario: A confirmed, successful delete clears the exchange's entry
+#### Scenario: A refused delete states why and keeps the key
 
-- GIVEN Bybit has an active key, every strategy bound to its pool is disabled, and none holds an open position
-- WHEN the owner confirms deleting the Bybit key
-- THEN Bybit's entry shows the same empty state as an exchange with no key, and an "Add key" control
+- GIVEN Bybit has a stored key, one enabled strategy named "Alpha" and an open position on `SOLUSDT`
+- WHEN the owner confirms and the server answers 409 `EXCHANGE_NOT_FLAT`
+- THEN the dialog shows "1 enabled strategy: Alpha. Disable it first." and "Open position on: SOLUSDT. It has to be closed first.", both buttons stay, and Bybit's card still shows its key
+
+#### Scenario: Never half a list
+
+- GIVEN a 409 whose lists cannot all be read
+- WHEN the dialog shows it
+- THEN it shows the sentence with no list
+
+#### Scenario: A successful delete leaves the empty card and the tab
+
+- GIVEN Bybit's strategies are all disabled and nothing is open
+- WHEN the owner confirms and the server answers 200
+- THEN the dialog is closed, the card is the empty card with "Add key", Bybit's tab stays with a grey `no key`, the status region says "Bybit key deleted.", and the focus is on "Add key"
+
+#### Scenario: A 404 is not a success
+
+- GIVEN the server answers 404
+- WHEN the dialog shows it
+- THEN it reads the 404 text and the card is read again, and the panel does not report the key as deleted
+
+#### Scenario: A delete with no readable answer says the key may be gone
+
+- GIVEN the delete fails with no answer
+- WHEN the dialog shows it
+- THEN it reads the unknown text, and the card is read again
+
+#### Scenario: The dialog cannot be dismissed mid-request
+
+- GIVEN the delete is in flight
+- WHEN the owner presses Escape or either button
+- THEN the dialog stays open
+
+#### Scenario: Deleting leaves no secret in any cache
+
+- GIVEN a delete of any ending
+- WHEN the mutation cache is read
+- THEN it holds no key or secret, because the request carried none
+
+### Requirement: Settings Is Operable By Keyboard And Named For Assistive Technology
+
+> **Added 2026-10-10 (design addendum, section I).**
+
+Settings MUST have the heading order `h1` "Settings", `h2` "Exchange keys" with
+the intro "One key per exchange. Keys are encrypted on the server and never
+shown again; you only see the last four characters.", then each card's `h3`, and
+an open form's `h4`. The cards MUST be a list. A card's document order MUST be:
+name, key hint, date (or the `no key` tag), the save notice, the tags, the
+information button, the sentences, "Add key" or "Replace key", "Delete key", then
+the form. Each button MUST be named with its exchange ("Replace key Bybit") while
+its visible text stays the start of the name. Each field MUST have a `<label>`
+and be described by the help; the confirmations MUST be a `<fieldset>` with a
+`<legend>`. Enter in a field MUST submit through a `<form noValidate>` whose
+handler prevents the native submission. A refusal MUST be read when it appears.
+Targets MUST be at least 44 px tall. No state MUST be carried by colour alone.
+Dates MUST be UTC days in the panel's language.
+
+#### Scenario: The headings are in order
+
+- GIVEN Settings with all cards and one open form
+- WHEN the headings are listed
+- THEN they are `h1`, `h2`, one `h3` per card and the form's `h4`, with no heading between a card's name and its facts
+
+#### Scenario: Buttons carry their exchange
+
+- GIVEN Bybit and Binance cards
+- WHEN the buttons are listed by accessible name
+- THEN they read "Replace key Bybit" and "Add key Binance" and not the same name twice
+
+#### Scenario: A refusal is an alert and the focus is where the owner types next
+
+- GIVEN a refused save
+- WHEN the form is read
+- THEN the refusal has `role="alert"` and the focus is in "API key"
+
+#### Scenario: Enter submits through the handler
+
+- GIVEN both fields have text and the boxes are ticked
+- WHEN the owner presses Enter in a field
+- THEN one request is sent through the form's handler and the native submission is prevented
+
+### Requirement: Every Settings Text Exists In English And Spanish
+
+> **Added 2026-10-10 (design addendum, section J).**
+
+Every text of Settings, the card, the tags, the marks, the form, the refusals,
+the delete dialog and the status region MUST exist in `en.json` and `es.json` and
+be resolved through i18n, with no hardcoded display text. The Spanish MUST
+address the owner as "usted", as `es.json` already does ("Elija", "Escriba", "Pegue"; for example "Sobre lo que usted confirmó", "usted recibe"),
+never as "tú" or "vos". The Spanish of the marks and tags MUST be exactly: `solo lectura`,
+`sin clave`, `opera`, `lee`, `sin retiros`, `transfiere`, `sin transferencias`,
+`operar: confirmado el {date}`, `retiros: confirmado el {date}`, `operar: sin
+verificar`, `retiros: sin verificar`; the card's labels `clave`, `clave terminada
+en {last4}`, `comprobada el {date}`, `sin validar`, `Lo que se sabe de esta
+clave`, `Sobre lo que usted confirmó`; and the notices `Clave terminada en {last4}
+guardada.`, `Clave guardada.` and `El resto de esta tarjeta aparece cuando la
+lista se haya leído de nuevo.` The Spanish of the other texts is written at
+build time in the same register. A date in a tag MUST be the panel's medium UTC
+date, with no "on" in English and "el" in Spanish.
+
+#### Scenario: The page, an open form and an open dialog read in Spanish
+
+- GIVEN the locale is Spanish
+- WHEN Settings, an open form and an open delete dialog are rendered
+- THEN every text is Spanish and none of the English texts of this change is found
+
+#### Scenario: The fixed Spanish is exact
+
+- GIVEN the locale is Spanish and cards in each state
+- WHEN the marks and tags are read
+- THEN they equal the Spanish above
+
+#### Scenario: The register is "usted"
+
+- GIVEN every Spanish text added by Settings
+- WHEN they are read
+- THEN none addresses the owner as "tú" or "vos", and every imperative is a "usted" one
+
+#### Scenario: Every new key exists in both files
+
+- GIVEN the two locale files
+- WHEN their Settings keys are compared
+- THEN the sets are equal
 
 ### Requirement: Every Panel String Is Localized EN/ES
 

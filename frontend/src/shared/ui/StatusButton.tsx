@@ -1,5 +1,5 @@
-import { InlineStatus } from "@/features/strategies/InlineStatus";
-import type { InlineStatusTone } from "@/features/strategies/InlineStatus";
+import { InlineStatus } from "@/shared/ui/InlineStatus";
+import type { InlineStatusTone } from "@/shared/ui/InlineStatus";
 import { cn } from "@/shared/lib/cn";
 
 interface StatusButtonProps {
@@ -10,7 +10,9 @@ interface StatusButtonProps {
   /** What the status region says after the button; `null` while there is nothing to say. */
   message: string | null;
   tone?: InlineStatusTone;
-  onClick: () => void;
+  onClick?: () => void;
+  /** The button submits its form (so Enter in a field presses it) instead of being a plain button. */
+  submit?: boolean;
   disabled?: boolean;
   className: string;
 }
@@ -21,10 +23,19 @@ interface StatusButtonProps {
  * button has the width of its longest and changing the text moves nothing around it. Only the shown text is
  * seen or read, which makes it the button's accessible name.
  */
-export function StatusButton({ texts, shown, message, tone = "neutral", onClick, disabled, className }: StatusButtonProps) {
+export function StatusButton({
+  texts,
+  shown,
+  message,
+  tone = "neutral",
+  onClick,
+  submit = false,
+  disabled,
+  className,
+}: StatusButtonProps) {
   return (
     <>
-      <button type="button" onClick={onClick} disabled={disabled} className={className}>
+      <button type={submit ? "submit" : "button"} onClick={onClick} disabled={disabled} className={className}>
         <span className="inline-grid justify-items-center">
           {texts.map((text) => (
             <span

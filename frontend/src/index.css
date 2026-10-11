@@ -48,6 +48,32 @@ body {
   @apply bg-ground text-ink font-sans antialiased;
 }
 
+/* The cursor says what a click does (owner decision 61): the arrow over text
+   that is only read, the hand over what acts on a click, the text cursor in a
+   field. All three sit in the base layer, so a `cursor-*` utility on an element
+   still wins; outside every layer they would beat the utilities. */
+@layer base {
+  body {
+    cursor: default;
+  }
+
+  /* Tailwind 4 leaves a button with the arrow, so the hand is named here. */
+  button:not(:disabled),
+  select:not(:disabled),
+  summary,
+  input:is([type="checkbox"], [type="radio"]):not(:disabled),
+  label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+    cursor: pointer;
+  }
+
+  /* Said by the panel, not left to the browser's own sheet: a field that
+     inherited the arrow from `body` would look like text that cannot be typed in. */
+  textarea:not(:disabled),
+  input:not(:disabled, [type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"]) {
+    cursor: text;
+  }
+}
+
 /* Monetary and percentage figures are read in columns; keep them aligned. */
 .tabular {
   font-variant-numeric: tabular-nums;

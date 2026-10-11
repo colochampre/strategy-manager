@@ -349,6 +349,47 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - This session's choices: the secret asked for by a copy is used for that copy and kept nowhere (not in state, not in the query cache); if the server does not answer, or the browser refuses the write, nothing is copied and "Could not copy" shows, and the placeholder URL is never copied in its place; "Copy message" is unchanged.
     - Not verified, for the owner's review: a browser may refuse a write to the clipboard that comes after a request rather than straight after the click. Firefox is the one to try.
 
+54. **Settings (PR 13) is designed again before it is built, and two things about it are decided** (2026-10-10, owner, after a readiness check of the tasks written on 2026-09-29 and 2026-09-30).
+    - **Deleting a key is confirmed with a plain button in a dialog**, as archiving a strategy is, and not by typing the exchange's name. Why: a deleted key can be entered again, and the API already refuses the delete while a strategy is enabled or a position is open (decision 22). Deleting a strategy is typed because it cannot be undone.
+    - **An exchange this panel does not serve (Pionex, decision 31) is shown without the Replace and Delete buttons**, with one sentence saying that its key is managed outside the panel. It is shown, not hidden: a key stored in the system is one the owner should see. Whether a Pionex key is stored in production today is not known.
+    - **Not reopened:** the key form is emptied after every attempt, a refused one included, so a refused save is typed again. It is a security rule of the design.
+    - **What the readiness check found, as the input of the new design:**
+      - the delete's refusal lists and the save's `missing` list sit at the top level of the API's body, and the panel's `ApiError` keeps only a structured `detail`, so the panel could not say why a delete was refused;
+      - `GET /api/credentials` lists an exchange only when it has a key, a history or an enabled pool, so an exchange with none has nowhere to show "Add a key";
+      - an empty entry carries no word on its pool, so "no key and something is wrong" (decision 20) cannot be told from "no key because the owner deleted it" without the pools;
+      - several refusals have no text: a key under four characters, the store not configured, a network failure, an exchange not served;
+      - eight things about the typed secret are pinned by no test, among them that it is in no query cache, in no error text, emptied on Cancel and on leaving, and not sent twice by a second click;
+      - the mockup `Settings.dc.html` has no Delete button and no Binance confirmations, and shows "no withdrawal" for Binance, which decisions 24 and 30 forbid.
+    - The tasks of PR 13 as written are superseded once the new ones exist. The visual design is shown to the owner before the tasks are written, by the standing constraint below.
+55. **The Settings prototype is changed in four places, and its key form is approved** (2026-10-10, owner, from the review by eye of `visual/project/SettingsKeys.html`).
+    - **Tabs: the exchange's name sits at the same place in every tab**, with or without a mark. A mark ("no key", "read-only") must not move the name off its centre.
+    - **The facts of a card are laid out again.** They were a run of texts side by side, which wraps untidily when the width runs out. They are arranged so that no width breaks them badly, and each text is as short as it can be.
+    - **The key hint carries more weight**, so that the last four characters can be checked at a glance: a large secondary heading on the card's full width, with the exchange's name and the buttons, and the facts as tags under it.
+    - **A permission the owner confirmed reads as confirmed, with its date**: "trade confirmed on {date}", "withdraw confirmed on {date}". One phrase per fact; "not verified" and "confirmed" are never shown together for the same fact. The API already serves both dates (`trade_confirmed_at`, `withdraw_confirmed_at`), so nothing changes there.
+    - **The form to add or replace a key is approved as drawn.**
+    - The assistant's reading, to be shown in the revised prototype and not yet confirmed by the owner: decisions 24 and 30 stand, so the card still never states a Binance permission as a fact the application verified ("confirmed" is the owner's word, "checked" is the application's); and a key with no confirmation on record still says that it has none.
+    - Still open: the two questions of the design's § O.
+56. **The rehearsal strategies are left as they are** (2026-10-10, owner, after two read-only scripts run on the VPS).
+    - What the scripts found: since 2026-09-29 every opening of the three test strategies was refused with `REQUEST_BELOW_MIN_ORDER_SIZE`, at a share of 3, and every close after it with `NO_POSITION_TO_CLOSE`. The only two closed operations are of 2026-09-23 and were filled at price 1, before decision 45. So no rehearsal result with alert-priced fills exists yet.
+    - A `signals` row received before 2026-09-29 reads `ACCEPTED` although it was processed: it was written before outcomes were recorded. In September there are more round trips than closed operations; why was not looked into, because the PnL of that period meant nothing.
+    - The owner's choice: nothing is changed now. The real strategies will be activated soon with a share of 30, from the panel; whether with `DRY_RUN` still on is not decided.
+57. **After a save that worked, the key form closes by itself** (2026-10-10, owner, the first question of the design's § O). The result is read on the card, which shows the new key. The design recommended leaving the form open and empty with the button reading "Saved"; the owner chose the other variant. What follows from it, for the design to settle: the read-only warning of a save has no form to sit in, so it is said on the card; and the form leaving the page must not leave the keyboard focus nowhere.
+58. **An exchange the panel does not serve is shown also when it has no key** (2026-10-10, owner, the second question of the design's § O). It gets a card that says that no key is stored and that its key is managed outside the panel, with no button. So every tab has a card, and one rule covers every exchange. Decision 54 had settled only the case with a key stored.
+59. **The revised Settings prototype is approved with one change, and Settings goes in one PR** (2026-10-10, owner, from the second review by eye of `visual/project/SettingsKeys.html`).
+    - **On a phone the exchange tabs share the row's whole width and are centred**, instead of sitting against its left edge with the rest of the row empty. The assistant's reading of "centred and taking a bit more of the bar": every tab gets the same share of the row. It is drawn in examples 1c and 6b, and the owner saw that drawing and confirmed it the same day.
+    - **Everything else is approved as drawn**, the choices the design made without asking among them: the tab row 52 px tall, the abbreviated tags, the date beside the key hint, the three looks of a tag, the save notice with no timer, and "Delete key" appearing once the list is read again. "withdraw confirmed {date}" stands; the assistant had pointed out that it does not say that withdrawals are disabled.
+    - **One PR for the six units**, not the two the design recommended (one that reads, one that writes). The units and their order do not change.
+60. **The cards of Settings are as wide as the cards of Strategies** (2026-10-10, owner, from the first review by eye of the built page).
+    - What the owner saw: on a wide screen the cards of Strategies take most of the width, and the cards of Settings stopped far short of it, with the rest of the row empty.
+    - Why: the Settings page capped itself at 900 px, copied from the prototype (`.page { max-width: 900px }`). The prototype is drawn on a canvas of 980 px, so it never showed the two pages side by side. Strategies has no cap of its own and fills the shell's column of 90rem (decision 38).
+    - What changes: the page's own cap is removed, and the shell's column is the only one. The cap of each sentence inside a card (70 characters) stays, so a line of text does not grow with the card. The prototype is left as drawn.
+61. **The cursor says what a click does, on every page** (2026-10-10, owner; an observation about the whole panel, made during the review of Settings).
+    - **The arrow over text that is only read.** The text cursor (the I-beam) no longer appears over a heading, a figure or a sentence.
+    - **The hand over what acts on a click**: buttons, selects, checkboxes and their labels, disclosure summaries. Links already had it. A disabled control keeps the arrow, or the "not allowed" cursor where a component sets one.
+    - **The text cursor in a field** that is typed in, and nowhere else.
+    - What the assistant found and the owner did not have to know: Tailwind 4 leaves a button with the arrow, so before this only the share slider and the archived toggle showed the hand. The three rules are written once, in `index.css`, in the base layer, so a `cursor-*` class on a component still wins.
+    - What does not change: every text can still be selected and copied (the last four characters of a key, a webhook URL, a figure). Only the hint that it can is gone.
+
 ## Standing constraints
 
 - Rule 7 applies: pools in different settlement currencies are never summed.

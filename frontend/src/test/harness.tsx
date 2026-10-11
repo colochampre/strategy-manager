@@ -19,6 +19,7 @@ export type PoolsStub =
   | { kind: "network-error" }
   | { kind: "pending" };
 
+export type CredentialsStub = PoolsStub;
 export type PerformanceStub = PoolsStub;
 export type AvailablePairsStub = PoolsStub;
 
@@ -45,6 +46,61 @@ export function pool(
     balance,
     reserved: "0",
     allocatable: balance === null ? null : balance.available,
+  };
+}
+
+/** One `STORED` row of `GET /credentials`, in the API's shape; the overrides replace any of its fields. */
+export function storedKey(exchange: string, overrides: Record<string, unknown> = {}) {
+  return {
+    exchange,
+    status: "STORED",
+    label: "default",
+    last4: "1234",
+    stored_at: "2026-10-01T10:00:00Z",
+    validated_at: "2026-10-01T10:00:00Z",
+    trade_capable: true,
+    trade_capability_source: "VERIFIED",
+    trade_confirmed_at: null,
+    withdraw_check: "VERIFIED",
+    withdraw_confirmed_at: null,
+    internal_transfer: false,
+    ...overrides,
+  };
+}
+
+/**
+ * What `GET /credentials` answers when a test names no credentials: one key
+ * that trades per DISTINCT exchange of a pools list, so in every shell test
+ * each exchange has a key and no tab gains a mark; an empty list for any other
+ * pools stub. Without it the stub would reject the read, `apiFetch` would turn
+ * that into an error, and every shell test would stay green with the read
+ * failing inside it.
+ */
+function defaultCredentials(pools: PoolsStub): CredentialsStub {
+  if (pools.kind !== "ok" || !Array.isArray(pools.body)) return { kind: "ok", body: [] };
+  const exchanges: string[] = [];
+  for (const row of pools.body as ({ exchange?: unknown } | null)[]) {
+    const exchange = row?.exchange;
+    if (typeof exchange === "string" && !exchanges.includes(exchange)) exchanges.push(exchange);
+  }
+  return { kind: "ok", body: exchanges.map((exchange) => storedKey(exchange)) };
+}
+
+/** One `EMPTY` row of `GET /credentials`: the exchange and its status, everything else null. */
+export function emptyKey(exchange: string) {
+  return {
+    exchange,
+    status: "EMPTY",
+    label: null,
+    last4: null,
+    stored_at: null,
+    validated_at: null,
+    trade_capable: null,
+    trade_capability_source: null,
+    trade_confirmed_at: null,
+    withdraw_check: null,
+    withdraw_confirmed_at: null,
+    internal_transfer: null,
   };
 }
 
@@ -144,7 +200,9 @@ export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> 
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
  * without an entry answers an empty ledger. `extra` is asked first. `available`
  * overrides a pool's available pairs, keyed `exchange/venue/ccy`; a pool without
- * an entry lists `AAVEUSDT`, `SFPUSDT` and `STXUSDT`.
+ * an entry lists `AAVEUSDT`, `SFPUSDT` and `STXUSDT`. `credentials` overrides the
+ * answer to `GET /credentials` (see `defaultCredentials`). Every URL it rejects is
+ * recorded in the returned mock's `unexpected` array.
  */
 export function stubApi(
   health: HealthStub,
@@ -153,7 +211,9 @@ export function stubApi(
   performance: Record<string, PerformanceStub> = {},
   extra?: ExtraRoute,
   available: Record<string, AvailablePairsStub> = {},
+  credentials?: CredentialsStub,
 ) {
+  const unexpected: string[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const owned = extra?.(url, init);
@@ -191,6 +251,14 @@ export function stubApi(
       if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
       return Promise.resolve(jsonResponse(stub.body));
     }
+    // GET only: a PUT or a DELETE to `/credentials/...` is never answered, so no test can save or delete a key by accident.
+    if (url.endsWith("/credentials") && (init?.method ?? "GET") === "GET") {
+      const stub = credentials ?? defaultCredentials(pools);
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
+    }
     if (url.endsWith("/pools")) {
       if (pools.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (pools.kind === "pending") return new Promise<Response>(() => undefined);
@@ -198,10 +266,11 @@ export function stubApi(
       return Promise.resolve(jsonResponse(pools.body));
     }
     if (url.includes("/reconciliation/bookings")) return Promise.resolve(jsonResponse(bookings));
+    unexpected.push(url);
     return Promise.reject(new Error(`unexpected fetch: ${url}`));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
+  return Object.assign(fetchMock, { unexpected });
 }
 
 /**

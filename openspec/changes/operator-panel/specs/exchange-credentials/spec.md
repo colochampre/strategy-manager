@@ -416,6 +416,46 @@ No raw permission payload MUST be stored or returned.
 - WHEN its state is read through any API surface
 - THEN none of those values appear in the response
 
+### Requirement: The Panel's List Of Served Exchanges Equals The Server's Tables
+
+> **Added 2026-10-10 (owner decision 54, design addendum "Settings, the exchange
+> keys", section B).** This is a test. It changes no behaviour, no route, no
+> response and no migration.
+
+The panel keeps a file of the exchanges whose key it manages
+(`frontend/src/shared/credentials/served-exchanges.json`). A backend test
+(`backend/tests/accounts/domain/test_served_exchanges_fixture.py`) MUST keep it
+equal to the server's two tables: the file's exchanges MUST be exactly the keys of
+`KNOWN_FUTURES_POOLS` and of `KEY_POLICIES`, and an exchange MUST list
+confirmations in the file exactly when its policy is `OWNER_CONFIRMED`, naming
+`WITHDRAWALS_CONFIRMATION` and `FUTURES_CONFIRMATION` as the server names them.
+The test MUST fail at the gate when a third exchange, or a changed policy, is
+added to the server without the file.
+
+#### Scenario: The file's exchanges are the server's
+
+- GIVEN the served file and the two tables
+- WHEN the test runs
+- THEN the file's exchanges equal the keys of `KNOWN_FUTURES_POOLS` and equal the keys of `KEY_POLICIES`
+
+#### Scenario: Confirmations follow the policy
+
+- GIVEN an exchange whose policy is `OWNER_CONFIRMED`, and one whose policy is not
+- WHEN the test compares them with the file
+- THEN the first lists exactly the two confirmations the server names and the second lists none
+
+#### Scenario: A drift fails the gate
+
+- GIVEN a server table that gains an exchange the file lacks
+- WHEN the backend gate runs
+- THEN the test fails on its assertion
+
+#### Scenario: The test is the whole change to the backend
+
+- GIVEN the backend after this change
+- WHEN its production files are compared with those before
+- THEN none differs because of this requirement
+
 ### Requirement: Saving A Credential Enables The Exchange's Futures Pool
 
 > **Added 2026-09-25 (owner decision 21).**
