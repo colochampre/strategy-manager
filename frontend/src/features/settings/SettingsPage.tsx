@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { exchangeName } from "@/features/settings/exchange-name";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
@@ -73,10 +74,23 @@ export function SettingsPage() {
   }, [focusRequest]);
 
   /** The next thing the owner does ends the notice of a save: no timer (design § F). */
-  function openFormOf(exchange: string) {
+  function endNotice() {
     setLastSave((current) => (current === null ? null : { ...current, noticeOn: false }));
     setAnnouncement("");
+  }
+
+  function openFormOf(exchange: string) {
+    endNotice();
     setOpenForm(exchange);
+  }
+
+  /**
+   * A delete worked and the lists were read again: the status region says it and the focus goes to the card's
+   * toggle, which is `Add key` now, because the `Delete key` the owner pressed is gone.
+   */
+  function deleted(exchange: string) {
+    setAnnouncement(t("settings.delete.deletedStatus", { exchange: exchangeName(t, i18n, exchange) }));
+    setFocusRequest({ exchange });
   }
 
   /**
@@ -97,6 +111,17 @@ export function SettingsPage() {
     );
     setOpenForm(null);
     setFocusRequest({ exchange });
+  }
+
+  /**
+   * The last four characters of the key the LIST says is stored, or none. While a card is drawn from a save's
+   * answer there is none: `Delete key` appears once the list has been read again (decision 59).
+   */
+  function listedLast4(exchange: string): string | null {
+    if (credentials.data === undefined) return null;
+    if (lastSave?.exchange === exchange && credentials.dataUpdatedAt <= lastSave.listStamp) return null;
+    const entry = credentials.data.find((row) => row.exchange === exchange);
+    return entry?.status === "STORED" ? entry.last4 : null;
   }
 
   /** Closes the form of `exchange` (unmounting and so emptying it) and returns the focus to the toggle that opened it. */
@@ -177,6 +202,17 @@ export function SettingsPage() {
                       if (element === null) toggles.current.delete(exchange);
                       else toggles.current.set(exchange, element);
                     }}
+                    deleteSlot={
+                      <DeleteKeyControl
+                        exchange={exchange}
+                        name={exchangeName(t, i18n, exchange)}
+                        last4={listedLast4(exchange)}
+                        disabled={openForm === exchange || saving}
+                        onOpen={endNotice}
+                        onDeleted={() => deleted(exchange)}
+                        onFocusFallback={() => setFocusRequest({ exchange })}
+                      />
+                    }
                   >
                     <KeyEntryForm
                       id={`key-form-${exchange}`}

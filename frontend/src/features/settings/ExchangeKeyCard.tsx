@@ -46,7 +46,10 @@ export interface ExchangeKeyCardProps {
   saved?: SavedView | null;
   /** The key form, drawn under the facts and the buttons when `open`. */
   children?: ReactNode;
-  /** The page's `Delete key` control, drawn after the toggle of a served card (task 13.6.1: a stub, not drawn yet). */
+  /**
+   * The page's `Delete key` control, drawn after the toggle of a served card and never on one the panel does not
+   * manage. The page gives it, so this card needs no query client; the control draws nothing when no key is stored.
+   */
   deleteSlot?: ReactNode;
 }
 
@@ -187,6 +190,7 @@ export function ExchangeKeyCard({
   toggleRef,
   saved,
   children,
+  deleteSlot,
 }: ExchangeKeyCardProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
@@ -318,6 +322,7 @@ export function ExchangeKeyCard({
             {holdsKey ? t("settings.card.replace") : t("settings.card.add")}
           </button>
         )}
+        {served && deleteSlot}
       </div>
 
       {open && children !== undefined && <div className="min-w-0 sm:col-span-2">{children}</div>}
