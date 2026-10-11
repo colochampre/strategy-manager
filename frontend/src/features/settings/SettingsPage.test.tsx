@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import i18n from "@/shared/i18n";
+import en from "@/shared/i18n/locales/en.json";
+import es from "@/shared/i18n/locales/es.json";
 import {
   type CredentialsStub,
   type ExtraRoute,
@@ -581,6 +583,26 @@ async function submitFor(name: string) {
   await waitFor(() => expect(screen.queryByRole("button", { name: "Checking…" })).not.toBeInTheDocument());
 }
 
+/** Every string under a key of a locale, with its path, whatever the depth. */
+function flatten(value: unknown, path = ""): [string, string][] {
+  if (typeof value === "string") return [[path, value]];
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => flatten(child, path === "" ? key : `${path}.${key}`));
+}
+
+/** None of the English texts of Settings (those that differ from their Spanish and hold no placeholder) is on screen. */
+function expectNoEnglishSettingsText() {
+  const spanish = new Map(flatten(es.settings));
+  const text = document.body.textContent ?? "";
+  let checked = 0;
+  for (const [path, value] of flatten(en.settings)) {
+    if (value.includes("{{") || spanish.get(path) === value) continue;
+    expect(text, path).not.toContain(value);
+    checked += 1;
+  }
+  expect(checked).toBeGreaterThan(25);
+}
+
 const noteIn = (card: HTMLElement, text: string) => within(card).queryByText(text);
 const bybitCard = () => screen.getByRole("article", { name: "Bybit" });
 const statusRegion = () => screen.queryAllByRole("status");
@@ -918,6 +940,53 @@ describe("the page in Spanish", () => {
     expect(screen.getByText("Cargando claves de los exchanges…")).toHaveAttribute("role", "status");
     expect(document.body.textContent).not.toContain("Loading exchange keys");
     expect(document.body.textContent).not.toContain(INTRO);
+  });
+
+  it("writes the toggles, an open form, the notice and the status region in Spanish, and none of the English texts of Settings", async () => {
+    await i18n.changeLanguage("es");
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      reread: "pending",
+      respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+    });
+    await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("button", { name: "Reemplazar clave Bybit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agregar clave Binance" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agregar clave Binance" }));
+    expect(screen.queryByRole("heading", { level: 4, name: "Agregar una clave de Binance" })).toBeInTheDocument();
+    expect(document.body.textContent).toContain("Confirmé en Binance que esta clave tiene los retiros desactivados");
+    expectNoEnglishSettingsText();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
+    fireEvent.change(screen.getByLabelText("Clave de API"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("Secreto de API"), { target: { value: SECRET_VALUE } });
+    fireEvent.click(screen.getByRole("button", { name: "Comprobar y guardar" }));
+
+    // The fixed Spanish of the notice (design § J's second table), exact.
+    const pending = "Clave terminada en 7Q2d guardada. El resto de esta tarjeta aparece cuando la lista se haya leído de nuevo.";
+    await waitFor(() => expect(within(bybitCard()).queryByText(pending)).toBeInTheDocument());
+    expect(statusRegion()[0]?.textContent).toContain("Clave terminada en 7Q2d guardada.");
+    expect(statusRegion()[0]?.textContent).toContain("Esta clave no puede operar.");
+    expectNoEnglishSettingsText();
+  });
+
+  it("writes the first-line notice and the unnamed notice in Spanish, exactly", async () => {
+    await i18n.changeLanguage("es");
+    savePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
+      after: [storedKey("bybit", { last4: NEW_LAST4 })],
+    });
+    await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
+    fireEvent.change(screen.getByLabelText("Clave de API"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("Secreto de API"), { target: { value: SECRET_VALUE } });
+    fireEvent.click(screen.getByRole("button", { name: "Comprobar y guardar" }));
+
+    await waitFor(() => expect(within(bybitCard()).queryByText("Clave terminada en 7Q2d guardada.")).toBeInTheDocument());
+    expect(en.settings.card.savedNoHint).not.toBe(es.settings.card.savedNoHint);
+    expect(es.settings.card.savedNoHint).toBe("Clave guardada.");
+    expectNoEnglishSettingsText();
   });
 
   it("writes the failure, the stale line and the pools line in Spanish", async () => {

@@ -6,6 +6,8 @@ import { KeyEntryForm, type KeyEntryFormProps } from "@/features/settings/KeyEnt
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import i18n from "@/shared/i18n";
+import en from "@/shared/i18n/locales/en.json";
+import es from "@/shared/i18n/locales/es.json";
 import { type ExtraRoute, jsonResponse, lock, pool, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
@@ -535,6 +537,73 @@ describe("the attempt: what the form does after a refusal (design § F)", () => 
       expect(screen.queryByRole("alert")).toHaveTextContent("not known whether the key was saved");
       expect(keyField().value).toBe("");
       cleanup();
+    }
+  });
+});
+
+/** Every string under a key of a locale, with its path, whatever the depth. */
+function flatten(value: unknown, path = ""): [string, string][] {
+  if (typeof value === "string") return [[path, value]];
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => flatten(child, path === "" ? key : `${path}.${key}`));
+}
+
+describe("the form in Spanish (spec: Every Settings Text Exists In English And Spanish)", () => {
+  const english = flatten(en.settings.form);
+  const spanish = new Map(flatten(es.settings.form));
+
+  it("has every key of the form in both languages", () => {
+    expect(english.length).toBeGreaterThanOrEqual(30);
+    expect([...spanish.keys()].sort()).toEqual(english.map(([path]) => path).sort());
+  });
+
+  it("finds none of the English texts of the form, an open Binance form with its help, boxes and fieldset", async () => {
+    await i18n.changeLanguage("es");
+    renderForm({ exchange: "binance", name: "Binance", confirmations: BINANCE_CONFIRMATIONS, hasKey: true });
+
+    const text = document.body.textContent ?? "";
+    expect(screen.queryByRole("heading", { level: 4, name: "Reemplazar la clave de Binance" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Clave de API")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Secreto de API")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Lo que usted comprobó en Binance" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Comprobar y guardar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cerrar" })).toBeInTheDocument();
+    for (const [path, value] of english) {
+      if (value.includes("{{") || spanish.get(path) === value) continue;
+      expect(text, path).not.toContain(value);
+    }
+    // The help and the notes are the Spanish ones, with the exchange's name in them.
+    expect(text).toContain("Antes de guardarla, la clave se prueba con una lectura real en Binance.");
+    expect(text).toContain("Al guardar se reemplaza la clave guardada ahora");
+    expect(text).toContain("Nada comprueba el ajuste de retiros: depende de lo que usted indique.");
+  });
+
+  it.each(REFUSALS)("says the refusal in Spanish, with no English text of it: $reason", async ({ reason, respond, text }) => {
+    await i18n.changeLanguage("es");
+    renderForm({}, respond, true);
+    fireEvent.change(screen.getByLabelText("Clave de API"), { target: { value: KEY } });
+    fireEvent.change(screen.getByLabelText("Secreto de API"), { target: { value: SECRET } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Comprobar y guardar" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
+    const spoken = found(screen.queryByRole("alert"), "the refusal").textContent ?? "";
+    expect(spoken).not.toContain(text);
+    expect(spoken).toContain("Los campos se vaciaron. Vuelva a introducir la clave para reintentar.");
+    expect(spoken).not.toContain(EMPTIED);
+    // It is the Spanish text of this reason, with the exchange's name or the status in it.
+    const expected = es.settings.form.error[reason as keyof typeof es.settings.form.error] ?? "";
+    expect(expected, reason).not.toBe("");
+    expect(spoken).toContain(expected.replace("{{exchange}}", "Bybit").replace("{{status}}", "500"));
+  });
+
+  it("addresses the owner as usted in every text of the form, never as tu or vos", () => {
+    const familiar =
+      /\b(tú|tienes|puedes|debes|ingresa|inténtalo|querés|podés|vos|tenés|fijate|asegurate|volvé|creá|marcá|recargá)\b/i;
+    for (const [path, value] of spanish) expect(value, path).not.toMatch(familiar);
+    const imperatives = [...spanish.values()].join(" ");
+    for (const usted of ["Compruebe", "Cree", "Marque", "Recargue", "Vuelva", "Inténtelo"]) {
+      expect(imperatives, usted).toContain(usted);
     }
   });
 });
