@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 
@@ -230,12 +230,81 @@ export type DeleteResult =
   | { kind: "unknown" }
   | { kind: "unauthorized" };
 
-/** STUB (task 13.6.1): resolves without sending. */
-export function deleteCredential(_exchange: string): Promise<DeleteResult> {
-  return Promise.resolve({ kind: "deleted" });
+/** The outcome the delete route answers with when the exchange still has exposure. */
+const NOT_FLAT = "EXCHANGE_NOT_FLAT";
+
+function isTexts(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
-/** STUB (task 13.6.1): the mutation over the request, with no re-read. */
+/**
+ * The five lists of a refusal, or null. Never half a list: when any of the five is missing or is not a list, or a
+ * strategy has no name, none of them is trusted, because a line that left out one thing in the way would let the
+ * owner believe the rest is all there is. Strategies are kept by name (shown as text); every other list is counted.
+ */
+function listsFrom(body: Readonly<Record<string, unknown>> | undefined): NotFlatLists | null {
+  if (body === undefined) return null;
+  const { enabled_strategies: strategies, symbols, allocations, live_reservations: reservations } = body;
+  const attempts = body.in_flight_attempts;
+  if (!Array.isArray(strategies)) return null;
+  const names: string[] = [];
+  for (const entry of strategies) {
+    if (!isRecord(entry) || typeof entry.name !== "string" || entry.name === "") return null;
+    names.push(entry.name);
+  }
+  if (!isTexts(symbols) || !isTexts(allocations) || !isTexts(reservations) || !isTexts(attempts)) return null;
+  return {
+    enabledStrategies: names,
+    symbols,
+    allocations: allocations.length,
+    liveReservations: reservations.length,
+    inFlightAttempts: attempts.length,
+  };
+}
+
+/** A 401; a 404; a 409 that is the refusal the panel knows; anything else, which includes no answer. */
+function deleteOutcomeFrom(error: ApiError): DeleteResult {
+  if (error.status === 401) return { kind: "unauthorized" };
+  if (error.status === 404) return { kind: "gone" };
+  if (error.status === 409 && error.outcome === NOT_FLAT) {
+    return { kind: "notFlat", lists: listsFrom(error.responseBody) };
+  }
+  return { kind: "unknown" };
+}
+
+/**
+ * `DELETE /api/credentials/{exchange}`. Catches everything and resolves a plain object of known fields: the
+ * server's `detail` never leaves here, and the text of every outcome is chosen by the dialog. It never retries.
+ * A 404 is `gone`, never a success: the same status also means "not served". An answer that cannot be read is
+ * `unknown`, because the key may have been deleted.
+ */
+export async function deleteCredential(exchange: string): Promise<DeleteResult> {
+  try {
+    await apiFetch<unknown>(`/credentials/${encodeURIComponent(exchange)}`, { method: "DELETE" });
+    return { kind: "deleted" };
+  } catch (error) {
+    if (error instanceof ApiError) return deleteOutcomeFrom(error);
+    // A 2xx whose body is not JSON (a `SyntaxError`) or any other failure: the panel does not know what answered.
+    return { kind: "unknown" };
+  }
+}
+
+/**
+ * The delete as a mutation, as archiving a strategy is: it carries only the exchange id, so nothing sensitive can
+ * sit in the mutation cache. On every settled attempt but a 401 it reads both lists again and waits for them
+ * before it reports, so the card behind a dialog is already the new one when the dialog closes. The re-read is
+ * given to the hook and not to `mutate`, so it also runs when the dialog or the page has left the document.
+ */
 export function useDeleteCredential() {
-  return useMutation<DeleteResult, Error, string>({ mutationFn: deleteCredential });
+  const queryClient = useQueryClient();
+  return useMutation<DeleteResult, Error, string>({
+    mutationFn: deleteCredential,
+    onSettled: async (result) => {
+      if (result?.kind === "unauthorized") return;
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["credentials"] }),
+        queryClient.refetchQueries({ queryKey: ["pools"] }),
+      ]);
+    },
+  });
 }
