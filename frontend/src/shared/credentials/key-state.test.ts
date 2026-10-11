@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CredentialEntry } from "@/shared/api/credentials";
-import { exchangeList, keyMark, keyState, poolOn } from "@/shared/credentials/key-state";
+import { exchangeList, keyMark, keyState, knownPools, poolOn } from "@/shared/credentials/key-state";
 import { emptyKey, pool, storedKey } from "@/test/harness";
 
 /** The harness builders answer in the API's wire shape; the module takes the typed entry. */
@@ -72,6 +72,22 @@ describe("poolOn: an exchange has a pool on when any enabled pool is its own", (
 
   it("is unknown, never false, while the pools are not known", () => {
     expect(poolOn("bybit", undefined)).toBeNull();
+  });
+});
+
+describe("knownPools: the one rule for when the pools may be believed (task 13.5.0)", () => {
+  const list = [pool("bybit")];
+
+  it("gives the list of a read that succeeded", () => {
+    expect(knownPools({ status: "success", data: list })).toBe(list);
+  });
+
+  it("gives nothing for a read that failed, even when an earlier list is still held", () => {
+    expect(knownPools({ status: "error", data: list })).toBeUndefined();
+  });
+
+  it("gives nothing while the first read is pending", () => {
+    expect(knownPools({ status: "pending", data: undefined })).toBeUndefined();
   });
 });
 

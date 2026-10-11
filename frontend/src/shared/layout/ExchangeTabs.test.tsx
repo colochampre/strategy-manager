@@ -1,7 +1,9 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -9,7 +11,9 @@ import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import {
   type CredentialsStub,
+  type ExtraRoute,
   emptyKey,
+  jsonResponse,
   lock,
   pool,
   renderAt,
@@ -459,6 +463,51 @@ describe("the structure that keeps a tab's name at the same place (jsdom has no 
       expect(bar).toHaveClass("overflow-x-auto");
       expect(bar).not.toHaveClass("flex-wrap");
     }
+  });
+});
+
+describe("the tab and the card take the pools by one rule (task 13.5.0)", () => {
+  it("shows no amber mark on any tab once a re-read of the pools has failed", async () => {
+    let poolsFail = false;
+    const extra: ExtraRoute = (url) => {
+      if (url.endsWith("/pools")) {
+        return Promise.resolve(poolsFail ? jsonResponse({ detail: "boom" }, 500) : jsonResponse([pool("bybit"), pool("binance")]));
+      }
+      return undefined;
+    };
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, extra, {}, credentialsOk(storedKey("bybit"), emptyKey("binance")));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    for (const bar of await bothBars()) {
+      expect(within(await tabNamed(bar, "binance no key")).getByText("no key")).toHaveClass("text-decision");
+    }
+
+    poolsFail = true;
+    await act(() => queryClient.refetchQueries({ queryKey: ["pools"] }));
+
+    // The card of this exchange, with the pools unknown, is neutral (SettingsPage); no tab may be amber from the old list.
+    await waitFor(() => expect(queryClient.getQueryState(["pools"])?.status).toBe("error"));
+    for (const bar of screen.getAllByRole("navigation", { name: "Exchanges" })) {
+      expect(bar.querySelector(".text-decision")).toBeNull();
+    }
+  });
+
+  it("takes the pools of the card and of the tab from the same function of key-state", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const tabs = readFileSync(join(here, "ExchangeTabs.tsx"), "utf8");
+    const page = readFileSync(join(here, "..", "..", "features", "settings", "SettingsPage.tsx"), "utf8");
+    const keyState = readFileSync(join(here, "..", "credentials", "key-state.ts"), "utf8");
+    expect(keyState).toMatch(/export function knownPools</);
+    expect(tabs).toMatch(/poolOn\([^)]*knownPools\(/);
+    expect(page).toMatch(/poolOn\([^)]*knownPools\(/);
+    expect(tabs).not.toMatch(/pools\.data/);
+    expect(page).not.toMatch(/pools\.status/);
   });
 });
 
