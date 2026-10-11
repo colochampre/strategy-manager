@@ -26,6 +26,18 @@ function classRegions(text: string): string[] {
   return regions;
 }
 
+/** What `@layer base` holds between its braces, or "" when the sheet has no such layer. */
+function baseLayer(css: string): string {
+  const open = css.indexOf("{", css.indexOf("@layer base"));
+  if (!css.includes("@layer base") || open === -1) return "";
+  let depth = 0;
+  for (let index = open; index < css.length; index += 1) {
+    if (css[index] === "{") depth += 1;
+    if (css[index] === "}" && (depth -= 1) === 0) return css.slice(open + 1, index);
+  }
+  return "";
+}
+
 const HEX = /#[0-9a-fA-F]{3,8}\b/;
 const VAR = /var\(/;
 const UTILITY = "(?:bg|text|border|ring|outline|fill|stroke|divide|from|to|via|placeholder|caret|accent|shadow|decoration)";
@@ -104,6 +116,35 @@ describe("theme rules", () => {
     ]) {
       expect(css).toContain(added);
     }
+  });
+
+  it("test_the_cursor_is_the_arrow_over_text_the_hand_over_a_control_and_the_text_cursor_in_a_field", () => {
+    const css = readFileSync(join(SRC, "index.css"), "utf8");
+    const base = baseLayer(css);
+
+    // Plain text is read, not typed in: the arrow (decision 61).
+    expect(base).toMatch(/\bbody\s*\{\s*cursor:\s*default;/);
+    // Tailwind 4 leaves a button with the arrow, so what acts on a click is named here.
+    const hand = /([^{}]*)\{\s*cursor:\s*pointer;/.exec(base)?.[1] ?? "";
+    for (const control of ["button:not(:disabled)", "select:not(:disabled)", "summary", '[type="checkbox"]', "label:has("]) {
+      expect(hand).toContain(control);
+    }
+    // A field keeps the text cursor by a rule of the panel, not by the browser's own sheet.
+    const field = /([^{}]*)\{\s*cursor:\s*text;/.exec(base)?.[1] ?? "";
+    expect(field).toContain("textarea:not(:disabled)");
+    expect(field).toMatch(/input:not\(:disabled,[^)]*\[type="checkbox"\][^)]*\[type="range"\]/);
+  });
+
+  it("test_every_cursor_rule_of_index_css_sits_in_the_base_layer", () => {
+    // A rule outside every layer beats the utilities, whatever their order: an unlayered
+    // `button { cursor: pointer }` would silently win over `disabled:cursor-not-allowed`.
+    const css = readFileSync(join(SRC, "index.css"), "utf8");
+    const count = (text: string) => text.match(/\bcursor:/g)?.length ?? 0;
+    expect(count(css)).toBeGreaterThan(0);
+    expect(count(baseLayer(css))).toBe(count(css));
+    // Guards against a vacuous pass: the reader must stop at the layer's own closing brace.
+    expect(baseLayer("@layer base { a { cursor: text; } } b { cursor: wait; }")).toBe(" a { cursor: text; } ");
+    expect(baseLayer("b { cursor: wait; }")).toBe("");
   });
 
   it("test_no_non_test_source_file_has_a_style_prop", () => {
