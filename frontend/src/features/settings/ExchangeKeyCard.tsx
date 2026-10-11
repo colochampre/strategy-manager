@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -6,6 +7,7 @@ import { KeyMark } from "@/shared/credentials/KeyMark";
 import { keyMark, keyState } from "@/shared/credentials/key-state";
 import { cn } from "@/shared/lib/cn";
 import { dayText } from "@/shared/lib/day-text";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 export interface ExchangeKeyCardProps {
   /** The exchange's id as the API spells it. */
@@ -22,6 +24,92 @@ export interface ExchangeKeyCardProps {
 const DOTS = "••••";
 
 const SENTENCE = "max-w-[70ch] text-[13px]";
+
+/**
+ * A tag cannot break inside (`whitespace-nowrap`) and the list wraps, so when the
+ * width runs out a WHOLE tag moves to the next line. There is no separator
+ * character anywhere on the card, so no line can begin with one.
+ */
+const TAG = "whitespace-nowrap rounded border px-2 py-0.5 font-mono text-xs";
+
+/**
+ * What a tag says about its fact. They differ in more than colour:
+ * - `checked`: the exchange itself showed it to the application (filled);
+ * - `confirmed`: the owner's word, with the day he gave it (hollow, dashed);
+ * - `unrecorded`: nothing is on record about this fact (hollow, dashed, dimmer).
+ */
+type TagLook = "checked" | "confirmed" | "unrecorded";
+
+const LOOK: Record<TagLook, string> = {
+  checked: "border-rule bg-panel-2 text-ink-2",
+  confirmed: "border-dashed border-rule-strong text-ink-2",
+  unrecorded: "border-dashed border-rule-strong text-ink-3",
+};
+
+/** The source a fact has when the exchange itself showed it to the application. */
+const VERIFIED = "VERIFIED";
+/** The source of a fact the owner stated, with the day he did. */
+const OWNER_CONFIRMED = "OWNER_CONFIRMED";
+/** What migration 0027 wrote for every key that existed before the system recorded how it was checked. */
+const UNRECORDED = "UNRECORDED";
+
+interface Tag {
+  id: string;
+  text: string;
+  look: TagLook;
+}
+
+/**
+ * The facts of a stored key as tags, in the order of design § D. One phrase per
+ * fact: trade is said by exactly one of `trades`, the `read-only` mark, `trade
+ * confirmed` and `trade not verified`, and withdrawal by exactly one of `no
+ * withdrawal`, `withdraw confirmed` and `withdraw not verified`. A source value
+ * the panel does not know is drawn as not verified, never as checked, and a
+ * confirmation with no day is not verified either: "confirmed" cannot be said
+ * without the day.
+ */
+function tagsOf(key: StoredCredential, language: string, t: TFunction): Tag[] {
+  const tags: Tag[] = [];
+  const tradeChecked = key.trade_capability_source === VERIFIED;
+  const withdrawChecked = key.withdraw_check === VERIFIED;
+
+  if (tradeChecked) {
+    if (key.trade_capable) tags.push({ id: "trades", text: t("settings.card.tag.trades"), look: "checked" });
+  } else if (key.validated_at !== null) {
+    tags.push({ id: "reads", text: t("settings.card.tag.reads"), look: "checked" });
+  }
+  if (withdrawChecked) tags.push({ id: "noWithdrawal", text: t("settings.card.tag.noWithdrawal"), look: "checked" });
+  if (key.internal_transfer === true) tags.push({ id: "transfers", text: t("settings.card.tag.transfers"), look: "checked" });
+  if (key.internal_transfer === false) {
+    tags.push({ id: "noTransfers", text: t("settings.card.tag.noTransfers"), look: "checked" });
+  }
+
+  if (!tradeChecked) {
+    const day = key.trade_capability_source === OWNER_CONFIRMED ? key.trade_confirmed_at : null;
+    tags.push(
+      day === null
+        ? { id: "tradeNotVerified", text: t("settings.card.tag.tradeNotVerified"), look: "unrecorded" }
+        : {
+            id: "tradeConfirmed",
+            text: t("settings.card.tag.tradeConfirmed", { date: dayText(day, language) }),
+            look: "confirmed",
+          },
+    );
+  }
+  if (!withdrawChecked) {
+    const day = key.withdraw_check === OWNER_CONFIRMED ? key.withdraw_confirmed_at : null;
+    tags.push(
+      day === null
+        ? { id: "withdrawNotVerified", text: t("settings.card.tag.withdrawNotVerified"), look: "unrecorded" }
+        : {
+            id: "withdrawConfirmed",
+            text: t("settings.card.tag.withdrawConfirmed", { date: dayText(day, language) }),
+            look: "confirmed",
+          },
+    );
+  }
+  return tags;
+}
 
 function storedOf(entry: CredentialEntry | undefined): StoredCredential | null {
   return entry?.status === "STORED" ? entry : null;
@@ -67,6 +155,11 @@ export function ExchangeKeyCard({ exchange, entry, poolOn, served }: ExchangeKey
   const key = storedOf(entry);
   const nameKey = `exchanges.${exchange}`;
   const name = i18n.exists(nameKey) ? t(nameKey) : exchange;
+  const disclosure = useInfoDisclosure();
+  const tags = key === null ? [] : tagsOf(key, i18n.language, t);
+  const confirmedDay = tags.some((tag) => tag.look === "confirmed");
+  const unrecordedKey =
+    key !== null && key.trade_capability_source === UNRECORDED && key.withdraw_check === UNRECORDED;
 
   /** The sentence of the state; a keyless exchange the panel does not manage gets the short one. */
   const sentence = (() => {
@@ -117,15 +210,28 @@ export function ExchangeKeyCard({ exchange, entry, poolOn, served }: ExchangeKey
       </div>
 
       <div className="flex min-w-0 flex-col gap-2.5 sm:col-span-2">
-        {(key !== null || state === "readOnly") && (
+        {key !== null && (
           <ul aria-label={t("settings.card.facts")} className="flex flex-wrap items-center gap-1.5">
             {state === "readOnly" && mark !== null && <KeyMark mark={mark} variant="tag" as="li" />}
-            {/* STUB until task 13.4.5: the facts are not drawn from the key yet. */}
-            {key !== null && <li>trades</li>}
-            {key !== null && <li>no withdrawal</li>}
+            {tags.map((tag) => (
+              <li key={tag.id} className={cn(TAG, LOOK[tag.look])}>
+                {tag.text}
+              </li>
+            ))}
+            {confirmedDay && (
+              <li className="flex">
+                <InfoButton disclosure={disclosure} label={t("settings.card.confirmedInfo")} />
+              </li>
+            )}
           </ul>
         )}
-        {sentence !== null && <p className={cn(SENTENCE, sentence.tone)}>{sentence.text}</p>}
+        {confirmedDay && (
+          <InfoText disclosure={disclosure}>
+            <p className={cn(SENTENCE, "text-ink-2")}>{t("settings.card.confirmedHint", { exchange: name })}</p>
+          </InfoText>
+        )}
+        {unrecordedKey && served && <p className={cn(SENTENCE, "text-ink-3")}>{t("settings.card.unrecordedHint")}</p>}
+        {sentence !== null &&<p className={cn(SENTENCE, sentence.tone)}>{sentence.text}</p>}
         {!served && <p className={cn(SENTENCE, "text-ink-3")}>{t("settings.card.notServed", { exchange: name })}</p>}
       </div>
 
