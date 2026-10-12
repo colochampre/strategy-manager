@@ -5193,13 +5193,46 @@ Never asked, because a decision or the spec answers it: the plain delete button 
 
 ## Addendum: open positions, a mark and a list read from the ledger (decision 65) - 2026-10-11
 
+> **Revised 2026-10-12 after the owner's review of the prototype.** The prototype is approved as
+> drawn at commit `6603dea` (decision 65, the bullets dated 2026-10-12). It is the visual reference
+> for the implementation, its Spanish included, and this addendum now describes what it draws.
+>
+> - **The Overview part is in.** It is a unit of the delivery like the others, no longer separable
+>   (§ H, § L, § M; § O, Q1 and Q2).
+> - **The Strategies page shows nothing of another exchange.** Everything it draws is selected by
+>   the exchange of the selected tab. No screen states the whole system's answer any more; § B says
+>   what still holds, what no longer does, and what protects a mode change.
+> - **The summary above the list is three labelled figures**, not a sentence: `Open: 2 · Orders in
+>   flight: 1 · Last read: 21:40:03 UTC` (§ H, § I). The sentence forms and their keys are gone.
+> - **The marks follow one rule**: the shape says what a mark is, the colour says the origin, red
+>   says that something needs the owner (§ H).
+> - **The top bar's "Live" badge changes from `loss` to `gain`**, in this delivery (§ H, § L, § M).
+> - **The venue mark on the detail page is one line**, built from the same component as the line
+>   of an order in flight (§ E, § H).
+> - **The texts are the prototype's**, each with its key (§ I), and § J describes the prototype as
+>   it is.
+> - **The backend keeps its route, its body and its reuse of the guard's reader.** One thing is
+>   added: a WARNING when an element's pool is not its reservation's, because the pool's exchange
+>   now decides which tab shows an element (§ C; § K, row 17).
+> - **Found in the code while revising**: the live-only count has a second caller, on the strategy
+>   detail page (§ A, P27); the router does not scroll to an anchor by itself (P29); the figures'
+>   helpers write a decimal point in every language (P30). Four questions follow from the revision
+>   and are open in § O, each with the default the tasks build until it is answered.
+>
+> Rewritten: §§ H, I, J and O. Amended: the two paragraphs below, § A (P8 and P20, and P24 to P30
+> added), § B (point 4 and the two blocks after it), § C (two statements and one block), § E (what
+> the mark carries, its two forms, where it leads), § F (why the route keeps no parameter, three
+> cells and one paragraph), §§ K, L, M and N. § D and § G are unchanged. P24 to P30 and every file
+> and line this revision cites were read in the working tree at HEAD `3cc7a4d`; the findings P1 to
+> P23 keep the HEAD they were verified at, and were not re-read.
+
 HEAD `24f52d7`, branch `feat/operator-panel-open-positions`. Decision 65 and its four recorded
 answers are binding and are not reopened here: scope B (a mark and a list read from the ledger, no
 current price, no unrealised PnL, no new read of the venue); rehearsal and live positions always
 shown together, each marked with its origin; the fields of a row, with "margin granted" and the
-leverage as recorded and no notional column; the two agreed places (the strategies list and the
-detail page) and the two places the owner confirms on the prototype (the Overview's list and the
-Overview's count); a disabled strategy's position shown like any other; and the row's own mark when
+leverage as recorded and no notional column; the places they show (the strategies list, the detail
+page and, agreed on 2026-10-12, the Overview's list and the Overview's count); the selected
+exchange as the scope of the Strategies page; a disabled strategy's position shown like any other; and the row's own mark when
 the reconciliation has confirmed that the venue disagrees. This addendum settles what they left to
 the design. It is design only: it writes no task, no code and no spec file. The unit's identifier
 is for the tasks to choose; "unit op" below is a placeholder.
@@ -5222,11 +5255,12 @@ margin, the leverage and the venue mark only decorate a row and can never remove
 orders the guard cannot judge (no exchange order id yet) are added on top. So an empty answer means
 that the guard's two inputs were empty at that instant, for either value of `DRY_RUN`. No file of
 the guard changes, so its 27 domain tests, the 16 integration tests of its reader and its wiring
-tests keep pinning it as they do today. Every page of the panel is a filter of that one answer, held in one
-query cache: the row marks, the detail page's section and (if agreed) the Overview's list and
-count. A sentence at the top of the Strategies page states the whole system's answer in words,
-because that page is filtered by exchange and hides archived strategies while the guard looks at
-everything. No migration, no lock, no write.
+tests keep pinning it as they do today. Every page of the panel is a selection from that one answer, held in one
+query cache: the row marks, the detail page's section, and the Overview's list and count. The
+Strategies page draws only what the selected exchange holds: three labelled figures above the list
+(how many positions are open, how many orders are in flight, when that was read) and, under them,
+the names of what that exchange holds and its list does not show. No screen answers for the whole
+system; the worker's guard does, at every start (§ B). No migration, no lock, no write.
 
 ### A. Findings from the code (verified at HEAD `24f52d7`)
 
@@ -5239,7 +5273,7 @@ everything. No migration, no lock, no write.
 | P5 | Fills and the attempt's `FILLED` status are written in one commit. | `execution/application/settle_execution.py:113-145` | No instant exists at which an order is neither in flight nor in the ledger (§ G). |
 | P6 | The guard is a pure use case over a two-method port, called from the worker's start with its own short session. | `execution/application/assert_mode_matches_ledger.py:33-49`; `execution/application/ports.py:386-403`; `main.py:771-792` | The same adapter can be given to a second caller without touching the guard. |
 | P7 | The performance path derives "open" on the LIVE groups only, from the first row's symbol only, and requires both a buy and a sell for "closed". An unresolved allocation is counted apart and logged, not listed. | `performance/domain/derive_trade.py:94-96, 122, 153-158`; `performance/application/read_pool_performance.py:53-58`; `allocation_fills_source.py:135` | `excluded.open_trade_count` can read 0 while the guard refuses. |
-| P8 | The panel shows that count on the Overview and nowhere else; it shows neither the rehearsal count nor the unresolved count. | `frontend/src/features/overview/MonthlySummary.tsx:43-48`; `en.json:79-80` | The owner has no sign of a rehearsal or unresolved position today. |
+| P8 | The panel shows that count in `MonthlySummary` and in no other component; it shows neither the rehearsal count nor the unresolved count. The first writing said "on the Overview and nowhere else", which is inexact: the component has two callers (P27). | `frontend/src/features/overview/MonthlySummary.tsx:43-48`; `en.json:79-80` | The owner has no sign of a rehearsal or unresolved position today. |
 | P9 | Three more implementations of the rule exist: `net_base_quantity` (one allocation, base-fee rule), `symbol_holdings` (one market, base-fee rule, `HAVING net <> 0`; it raises on an unsplittable symbol) and `net_positions_by_symbol` (per raw symbol, a DIFFERENT fee rule: any fee not in the settlement currency subtracts). | `ledger/infrastructure/repository.py:56-88, 149-214, 90-147` | They feed closes, the archive check, the key delete and the reconciliation. This design changes none of them (§ N). |
 | P10 | No route serves an open operation. `operation_figures` needs a closing side and answers `None` without one. | `performance/infrastructure/performance_router.py:402-487`; `performance/domain/operation.py:200-205` | The figures of an open position need their own pure function (§ D). |
 | P11 | The margin an opening order is built with is `reservations.amount`. An allocation IS its reservation (`ledger_entries.allocation_id` is a foreign key to `reservations.id`). | `place_order.py:150-159`; `allocation/infrastructure/models.py:45`; `ledger/infrastructure/models.py:42-44` | "Margin granted" is that column, never recomputed. |
@@ -5251,10 +5285,17 @@ everything. No migration, no lock, no write.
 | P17 | Each row of the strategies list already makes its own request, `GET /performance/strategies/{id}`, and each of those runs the pool-wide aggregate on the server. | `frontend/src/features/strategies/StrategyRow.tsx:41`; `performance/application/read_strategy_performance.py:62` | The new read must not add a second request per row (§ F). |
 | P18 | The performance hooks have a stale time of 60 s and NO refetch interval; the pools and health hooks refetch every 60 s. Approving a booking invalidates `['bookings','pending']` only. | `frontend/src/shared/api/performance.ts:240-279`; `pools.ts:48-56`; `health.ts:29-38`; `ConfirmBookingDialog.tsx:35, 43` | § H sets the new hook's freshness and what invalidates it. |
 | P19 | The closed-trades table always asks for rehearsal rows and marks them with the mode badge's words in the `decision` token. | `performance.ts:177-178`; `TradesTable.tsx:41-45, 100-104`; `DryRunBadge.tsx:30-36` | The origin tag of an open position reuses those words and that token. |
-| P20 | The list is one grid from `lg`; each row is a subgrid of five tracks, and the name, pool line and uptime sit in the first track. The detail page's closed trades are a full-width section under the two-column grid. | `StrategiesPage.tsx:68-76`; `StrategyRow.tsx:99-121`; `StrategyDetailPage.tsx:68-89` | The mark is a fourth line of the first track; the new section sits above `TradesTable`. |
+| P20 | The list is one grid from `lg`; each row is a subgrid of five tracks, and the name, pool line and uptime sit in the first track. The detail page's closed trades are a full-width section under the two-column grid. | `StrategiesPage.tsx:68-76`; `StrategyRow.tsx:99-121`; `StrategyDetailPage.tsx:68-89` | The marks are a fourth child of the row, its second grid row in the first track, as the prototype draws them (the first writing put them inside the name block); the new section sits above `TradesTable`. |
 | P21 | The API's sessions use the engine's default isolation. No file under `backend/src` sets an isolation level. | `shared/db.py:21-28`; grep for `isolation_level`, `REPEATABLE READ`, `SERIALIZABLE`: no match | The snapshot of § G is the first of its kind here. |
 | P22 | The fills of one CLOSED operation are served by a route keyed by strategy and allocation. Whether that read also answers for an allocation that is still open is **not verified**: no statement either way was found in `performance_router.py` or in `read_operation_fills.py`. | `performance_router.py:459-487` | Nothing in this design calls that route or depends on it. An open position does not open onto its fills in this delivery (§ O, Q5; § N, follow-up F2). |
 | P23 | Production held 4 `fake-fill-` ledger rows on 2026-09-29. No later count is recorded in the repository. | `tasks.md:151` | The cost figures of § G are stated by statement, not by measured time. |
+| P24 | The exchange tabs are the distinct exchanges of `GET /pools`, and that route lists every pool, enabled or not. The Strategies page and the Overview draw nothing pool-scoped until that scope is known, and each filters by the selected exchange on the client, as the pending bookings do. A strategy's exchange cannot be changed after it is created. | `frontend/src/shared/scope/exchange-store.ts:36-38, 69-79`; `accounts/infrastructure/pool_overview.py:12-13`; `StrategiesPage.tsx:36-49, 63`; `OverviewPage.tsx:41-44`; `BookingsListView.tsx:62-65`; `strategies/infrastructure/router.py:16` | An exchange has a tab exactly when it has a row in `capital_pools`. The scope of 2026-10-12 is this same client-side filter, applied to the one answer (§ H). |
+| P25 | Every element carries an exchange: the three columns are `NOT NULL` on a fill and on an attempt. A reservation's pool is a row of `capital_pools` by foreign key, an opening attempt takes its pool from its reservation, and a fill takes its pool from its attempt. No source file deletes a pool row: a pool is only ever disabled. | `ledger/infrastructure/models.py:48-50`; `execution/infrastructure/models.py:74-76`; `allocation/infrastructure/models.py:22-30`; `place_order.py:191-193`; `settle_execution.py:225-227`; `accounts/infrastructure/capital_pool_writer.py:55-71`; grep for `delete(` under `backend/src`: strategies, jobs and credentials only | A position opened by this system sits on an exchange that has a tab. An element whose exchange has no tab has a pool that is not its reservation's, which the read can detect without a new statement (§ C). |
+| P26 | A closing attempt takes its pool from its command, and a booked fill from its proposal. Neither was traced back to `capital_pools`. | `close_position.py:216-218`; `reconciliation/application/approve_booking.py:302-304, 319-321` | **Not verified** that these two always name the reservation's pool. § C's check covers the case where they do not. |
+| P27 | `MonthlySummary` has two callers: the Overview's pool panel, with the pool's report, and the strategy detail page's performance block, with the strategy's report. The second one writes "N open trades not in the curve" for ONE strategy, live positions only, and a test pins it. | `PoolPanel.tsx:146`; `features/strategies/StrategyPerformance.tsx:56`; `StrategyPerformance.test.tsx:107-115` | Decision 65 changes the Overview's count. It says nothing of the detail page's, which nobody had seen was there (§ H; § O, Q6). |
+| P28 | The "Live" badge is `border-loss text-loss`, with the comment "because real money moves", and one test pins the class. No spec file names the badge's colour. | `frontend/src/shared/layout/DryRunBadge.tsx:14, 35`; `AppShell.test.tsx:117-124`; grep of `specs/` for "loss colour": no line about the badge | The change to `gain` is two lines, one comment and one test (§ H, § L). |
+| P29 | The app runs under a plain `BrowserRouter`. No source file reads the location's hash or scrolls an element into view, and there is no `ScrollRestoration`. | `frontend/src/app/App.tsx:1-9`; grep of `frontend/src` for `ScrollRestoration`, `scrollIntoView`, `location.hash`: no match outside tests | A link to an anchor on another page lands at the top of that page. The rail has to bring itself into view (§ E, § H). That React Router does nothing with a hash under `BrowserRouter` is **not verified** against its documentation; the test of § L proves whichever holds. |
+| P30 | `tableFigureText` and `figureText` write a decimal POINT in every language: they take no locale. `amountText` takes one and writes the language's separator. `clockText` writes hours and minutes, never seconds. | `features/strategies/format.ts:51, 60-77, 135-139`; `features/overview/format.ts:32` | In Spanish the closed trades table already reads `184.3` beside `0,17`. Example 25 of the prototype draws a comma in both (§ I; § O, Q9). A time with seconds needs a helper (§ H). |
 
 **Verified since the first writing** (the validation of 2026-10-11, the first two re-read for this
 revision): the archived mark is `strategies.archived_at`
@@ -5276,8 +5317,14 @@ snapshot's; the migration files 0011, 0012, 0015, 0020 to 0022, 0024 and 0025 ex
 - `holding_guard.py` was not re-read (decision 64 records that it looks at one strategy on one
   symbol).
 - Whether the fills route answers for an open allocation (P22). Nothing here depends on it.
+- Added on 2026-10-12: that a closing attempt and a booked fill always name their reservation's
+  pool (P26); that a reservation takes its pool from its strategy (`process_signal.py` was not
+  re-read for it); what React Router does with a hash under `BrowserRouter` (P29); and whether
+  i18next falls back to a key with no plural suffix when it is given a `count` (§ I avoids
+  depending on it).
 
-**Where the inputs were inexact.** (1) "SUBMITTED attempts judged by their order id" leaves out
+**Where the inputs were inexact.** (6, found on 2026-10-12) The live-only count is not on the
+Overview alone: the strategy detail page draws it too, for the strategy (P27). (1) "SUBMITTED attempts judged by their order id" leaves out
 the attempt whose order id is still NULL: the guard skips it (P3). (2) Closed rehearsal operations
 are served on request by the API, but the panel always asks, so on screen they are always listed
 and marked (P19). (3) The panel shows booking proposals, not discrepancies (P15). (4) The existing
@@ -5318,11 +5365,42 @@ of `DRY_RUN`.
 3. The use case emits exactly one row per element of each sequence. The facts it reads afterwards
    (§ C) are looked up by id and attached; an id with no facts keeps its row with empty figures.
    No branch of the use case filters, groups or merges the two sequences.
-4. The client renders every element of the answer: in a row's mark when its strategy's row is on
-   screen, otherwise by name in the page's sentence (§ H). The sentence "Nothing is open on any
-   exchange" is drawn only for a successful read with both lists empty.
+4. The client draws every element of the answer on the tab of the element's own exchange, and on
+   no other (owner, 2026-10-12): in a row's mark when its strategy's row is on screen, otherwise
+   by name under the figures (§ H). The figures `Open: 0 · Orders in flight: 0` are drawn for a
+   tab only from a successful read that holds no element of that tab's exchange.
 
-Points 2 and 3 are pinned by tests (§ L, T1 to T4); point 4 by frontend tests (T9, T10).
+Points 2 and 3 are pinned by tests (§ L, T1 to T4); point 4 by frontend tests (T9, T10, T15).
+
+**What the scope change of 2026-10-12 does to this section.**
+
+- **What still holds, unchanged.** The invariant above is a statement about the ROUTE's answer,
+  and the route still answers for the whole system (§ F). Points 1 to 3 and their tests do not
+  change. The guard does not change.
+- **What no longer holds.** The first writing gave the panel one sentence for the whole system:
+  "Nothing is open on any exchange". The owner does not want the Strategies page to speak of an
+  exchange other than the selected one, so that sentence is gone, and no screen of the panel now
+  says that nothing is open anywhere.
+- **The rule that is true now, per exchange.** For the selected exchange X, a successful read
+  draws `Open: 0 · Orders in flight: 0` exactly when the answer holds no element whose
+  `pool.exchange` is X. And every element whose `pool.exchange` is X is in a row on screen or is
+  named under the figures. The page is complete for ONE exchange at a time.
+- **What the whole system's answer is made of now.** Nothing is open anywhere exactly when every
+  tab reads zero and zero AND every element's exchange is one of the tabs. The second half is not
+  something the owner can see. It holds for every position this system opens (P24, P25); where it
+  does not hold, the stored data is at fault, the read says so in the log (§ C; § K, row 17), and
+  the panel shows that element on no tab (§ H; § O, Q7).
+- **What protects a mode change.** Not the panel. The worker refuses to start in a mode that
+  cannot close what the ledger holds, whether or not anyone looked: `assert_mode_matches_ledger`
+  runs at the worker's start (P6), over a reader that aggregates the whole ledger with no `WHERE`,
+  every pool enabled or not and every strategy archived or not (P2), and over every `SUBMITTED`
+  attempt that has an order id (P3); the fold reports as open anything it cannot prove flat (P1).
+  The table above is its behaviour, case by case. The owner was told this before answering
+  (decision 65, 2026-10-12: "It is not a risk to money"). What the panel adds is the way to find
+  WHAT is open before the worker refuses: the owner reads each exchange's tab, with the
+  strategies disabled or the worker stopped (decision 63).
+- **The one thing the guard does not judge** is an attempt with no order id yet (P3, P4). The
+  panel shows it, on its exchange's tab, as an order in flight of unknown origin.
 
 **The guard itself does not change.** Not one line of `mode_origin.py`, `mode_origin_reader.py`,
 `assert_mode_matches_ledger.py` or `main.assert_dry_run_matches_ledger`, and not one line of their
@@ -5344,16 +5422,18 @@ statement instead.
 **What the invariant does not cover, said so that it is not read as more than it is.**
 
 - **Time.** The panel's read and the worker's start are two instants. A signal processed between
-  them opens something. The sentence carries the time it was read, and the procedure of decision 63
+  them opens something. The figures carry the time they were read, and the procedure of decision 63
   (change the mode while nothing is open) is done with the strategies disabled or the worker
   stopped.
 - **Other refusals.** A start can still be refused for a reason that is not an open position or an
   in-flight order (a key that does not open, decision 20's checks). Those are not this view's.
 - **The panel shows more than the guard refuses on**: positions of the CURRENT mode, and orders
-  with no order id. That is the safe direction, and it is why the sentence is not worded as "the
-  mode can be changed".
+  with no order id. That is the safe direction, and it is why no text of the panel is worded as
+  "the mode can be changed".
 - **One database.** The API and the worker are assumed to read the same database, as they do in
   production.
+- **Other exchanges.** Since 2026-10-12 a tab's figures say nothing of another exchange. Zero and
+  zero on one tab is not "nothing is open" (the block above).
 
 ### C. The read model
 
@@ -5394,7 +5474,8 @@ in flight at step 1 and filled before step 2 is shown twice for one refresh, nev
 SELECT a.id, a.reservation_id IS NOT NULL AS opening,
        a.exchange, a.venue, a.settlement_currency, a.symbol,
        a.exchange_order_id, a.created_at,
-       r.strategy_id, s.name, s.archived_at IS NOT NULL AS archived
+       r.strategy_id, s.name, s.archived_at IS NOT NULL AS archived,
+       r.exchange, r.venue, r.settlement_currency   -- the reservation's pool, for the check below
 FROM execution_attempts a
 LEFT JOIN reservations r ON r.id = coalesce(a.reservation_id, a.closes_allocation_id)
 LEFT JOIN strategies s ON s.id = r.strategy_id
@@ -5411,7 +5492,8 @@ GROUP BY allocation_id, strategy_id, exchange, venue, settlement_currency, symbo
 
 -- position_facts, 2 of 2: the grant, the leverage of the opening order, the strategy
 SELECT r.id, r.strategy_id, s.name, s.archived_at IS NOT NULL AS archived,
-       r.amount, r.status, a.leverage
+       r.amount, r.status, a.leverage,
+       r.exchange, r.venue, r.settlement_currency   -- the reservation's pool, for the check below
 FROM reservations r
 JOIN strategies s ON s.id = r.strategy_id
 LEFT JOIN execution_attempts a ON a.reservation_id = r.id
@@ -5420,6 +5502,25 @@ WHERE r.id = ANY(:open_ids);
 
 The fills statement does not test the rehearsal prefix. A position's origin comes from the guard's
 own flags and from nowhere else, so the prefix is tested in one statement for both readers.
+
+**The pool of an element, and the one check added on 2026-10-12.** An element's `pool` is the
+guard's own: the pool of the allocation's fills for a position (`OpenAllocationOrigin.exchange`,
+`.venue` and `.settlement_currency`, `mode_origin.py:59-67`) and the attempt's own columns for an
+order (`mode_origin.py:71-81`, and the same columns in `submitted_orders`). It is the label the
+guard's refusal prints (`_pool_label`, `mode_origin.py:219-220`), so the panel and the refusal
+name the same pool. It is never replaced by the reservation's.
+
+Until 2026-10-12 that pool was a label: every element was named on every view. It is now the key
+that decides which tab shows an element (§ H), so a wrong key hides one. The two facts statements
+therefore also read the reservation's pool, three columns each and no new statement, and the use
+case compares. A position or an order whose pool is not its reservation's keeps its row and its
+own pool, and the read logs one WARNING with the allocation or attempt id and both pools (§ K,
+row 17; § L, T12). So does a `SUBMITTED` attempt that joins to no reservation at all; both of its
+parent columns are foreign keys to `reservations` (`execution/infrastructure/models.py:60-65`),
+so that needs an attempt with neither set. A `NO_FACTS` position and an undecorated order have no
+reservation row to compare with and are already logged (rows 10 and 16). A reservation's pool
+always has a tab (P24, P25), so an element that no tab can show is one of these four cases, and
+each of them leaves a line in the log.
 
 **Domain types**, in `performance/domain/open_position.py` (new). Pure dataclasses and functions;
 the imports are the standard library, `execution.domain.mode_origin`,
@@ -5546,17 +5647,27 @@ row of ITS pool lists ITS allocation id in `open_allocation_ids`. The market is 
 
 **What the mark carries** (`venue_disagreement`, null when there is none), and what draws each:
 the discrepancy's id, which only matches the row to a pending proposal; the venue's net and the
-ledger's net as the reconciliation stored them, drawn in the mark's sentence; `allocation_count`,
-drawn as "shared by N positions" when it is above one; and `last_observed_at`, drawn as "Last
-compared": it is what tells a mark of two minutes ago from one frozen since the mode was changed.
-The discrepancy's kind and the instant it was first confirmed are not served: no text of the panel
-reads them.
+ledger's net as the reconciliation stored them, drawn in the venue line as "exchange {x}, ledger
+{y}"; `allocation_count`, drawn as "shared by N positions on this pair" when it is above one; and
+`last_observed_at`, drawn as "last compared": it is what tells a mark of two minutes ago from one
+frozen since the mode was changed, which is why a time of another day is written with its date
+(§ H). The discrepancy's kind and the instant it was first confirmed are not served: no text of
+the panel reads them.
 
-**Where it leads.** The panel already holds the pending proposals (P15). The row links to the
+**Two forms of one mark** (owner, 2026-10-12). On a row of the strategies list it is a chip, "Venue
+disagrees", beside its position's chip, followed by the link or by "No booking is proposed for
+it.". On the detail page and in the Overview's list it is ONE line under its position's row,
+across the table's width, in the type of the line of an order in flight and with a solid red
+border; § H gives its parts and the component the two lines share.
+
+**Where it leads.** The panel already holds the pending proposals (P15). The mark links to the
 Overview's "Needs your decision" rail when a pending proposal names this allocation and this
-discrepancy; the rail gains an anchor id and nothing else. When no proposal is pending (the kind is
-never proposed, the proposal expired or was rejected, or none is prepared yet), the row states the
-disagreement and that no booking is proposed, and leads nowhere. The owner confirmed this on
+discrepancy. The rail gains an anchor id, and, because the router does not scroll to an anchor by
+itself (P29), an effect that brings the rail into view when the location's hash names it. When no
+proposal is pending (the kind is never proposed, the proposal expired or was rejected, or none is
+prepared yet), the mark states the disagreement and that no booking is proposed, and leads
+nowhere. While the proposals are still loading, or their read failed, the mark draws neither the
+link nor those words: it does not know, and "no booking is proposed" would be a claim. The owner confirmed the form without a link on
 2026-10-11 (§ O, Q3). A view of the confirmed discrepancies is not in this delivery: it is the next
 unit, with a design of its own, and the row's mark will link to it once it exists (§ N, follow-up
 F1).
@@ -5581,6 +5692,27 @@ GET /api/positions/open        no path parameter, no query parameter
    a mark that the detail page, read a minute later, does not.
 4. The answer is small: one element per open allocation. A strategy holds at most one per pair.
 
+**Whether the scope of 2026-10-12 changes the route: it does not.** The Strategies page now
+draws one exchange, and the route could take an `exchange` parameter. It keeps none, for these
+reasons.
+
+1. The invariant of § B is about the whole answer, and T1 to T3 compare the route's answer with
+   the guard's reader's, whole. A parameter would put a filter between the reader's output and the
+   answer, which is the one thing point 3 of § B forbids ("no branch of the use case filters").
+2. Which exchange is selected is a state of the panel, not of the system. The panel already
+   filters the pending bookings by exchange on the client, from an endpoint with no exchange
+   parameter (owner decision 3; P24). The same filter over the same kind of answer is one pattern,
+   not two.
+3. Three views select from the answer by three different keys: the Strategies page by exchange,
+   the detail page by strategy, the Overview by pool. One answer in one cache serves the three
+   and cannot disagree with itself; a tab change is a new selection of an answer already held,
+   not a request.
+4. It would save nothing. The heavy statement is the guard's aggregate, which has no `WHERE` and
+   must not gain one (§ G).
+
+Serving the other exchanges' elements to the browser does not go against the owner's decision,
+which is about what the page shows. What the page shows is pinned by a test (§ L, T15).
+
 The performance router's rule "every body is one pool" is the reason this is a router of its own.
 The answer lists positions of several pools the way `GET /api/reconciliation/discrepancies` lists
 rows of several pools (`reconciliation/infrastructure/router.py:162-199`): each element carries its
@@ -5603,8 +5735,8 @@ One element of `positions`:
 | `allocation_id` | uuid | the position's identity; rows are grouped by it and never by symbol |
 | `strategy_id` | uuid or null | the owner of the allocation; null only with `NO_FACTS`, because the guard's element names the strategy and carries no id |
 | `strategy_name` | string | never null: the guard's element carries it |
-| `strategy_archived` | boolean or null | so the sentence can say why a position is not on the list; null only with `NO_FACTS` |
-| `pool` | `{exchange, venue, settlement_currency}` | the pool of the fills, as the guard labels it |
+| `strategy_archived` | boolean or null | so the line under the figures can say why a position is not on the list; null only with `NO_FACTS` |
+| `pool` | `{exchange, venue, settlement_currency}` | the pool of the fills, as the guard labels it; three non-empty strings, always. Its `exchange` decides which tab shows the element (§ H) |
 | `currency` | string | the pool's settlement currency: the unit of `entry_price`, `fees`, `margin_granted` |
 | `markets` | list of strings | market keys, sorted; one element unless the data is at fault |
 | `origin` | `"rehearsal"`, `"live"` or `"mixed"` | the guard's `Origin` values |
@@ -5630,15 +5762,16 @@ One element of `orders`:
 | `attempt_id` | uuid | the order's identity |
 | `strategy_id`, `strategy_archived` | uuid or null, boolean or null | null on an order the facts could not decorate (§ C), and if the attempt's parent row is missing |
 | `strategy_name` | string or null | null only if the attempt's parent row is missing |
-| `pool` | object | the attempt's own pool columns |
+| `pool` | object | the attempt's own pool columns; three non-empty strings, always. Its `exchange` decides which tab shows the order |
 | `market` | string | `market_key` of the attempt's symbol |
 | `action` | `"OPEN"`, `"CLOSE"` or null | which of the attempt's two origins is set; null on an order the facts could not decorate |
 | `origin` | `"rehearsal"`, `"live"` or `"unknown"` | by the order id's prefix; `unknown` when no order id is recorded |
 | `submitted_at` | instant or null | the attempt's `created_at`: how long it has been in flight; null on an order the facts could not decorate |
 
 **Nothing is served that the panel does not draw.** Every field above is read by a component of
-§ H: the ids as keys and to match a row to its strategy or to a proposal; the names, the pool and
-`strategy_archived` by the sentence that names what the list does not show; `currency` and
+§ H: the ids as keys and to match a row to its strategy or to a proposal; the pool by every view's
+selection (its exchange by the Strategies page, its three values by the Overview); the names and
+`strategy_archived` by the line that names what the list does not show; `currency` and
 `base_currency` by the headings and the units; the figures, `opened_at`, `fees`, `other_fees`,
 `margin_granted`, `leverage`, `opened_size`, `fill_count` and `reservation_status` by the detail
 section; `figures_missing` by the reason under a dash. Six fields of the first writing had no
@@ -5724,6 +5857,11 @@ With something open: seven. The count does not grow with the number of positions
 
 ### H. Frontend
 
+Rewritten on 2026-10-12. The prototype (`visual/project/OpenPositions.html`, commit `6603dea`) is
+the reference for every layout below. Where this section and the picture differ, the difference
+is named and has its reason; where the picture draws nothing for a case, the section says so and
+builds the case from parts the picture does draw.
+
 **The data.** `frontend/src/shared/api/positions.ts` (new): `fetchOpenPositions`, a shape check of
 every element in the manner of `performance.ts` (a body that is not this shape is an error, never
 an empty list; a 404 is an error), and `useOpenPositions()`.
@@ -5737,25 +5875,268 @@ an empty list; a 404 is an error), and `useOpenPositions()`.
 | Invalidated by | a booking approved or rejected (beside `['bookings','pending']`), and the "Read again" button |
 | Not invalidated by | the enable switch, a share change, an archive: none of them opens or closes anything |
 
-Two helpers in the same file select from the one answer: `ofStrategy(state, id)` and
-`notShown(state, visibleStrategyIds)`. An element whose `strategy_id` is null is in no strategy's
-selection and is always in `notShown`. The pool's selection, `ofPool`, is not here: it has one
-caller, the Overview's list, and lives in that component's file, so that dropping the Overview
-part leaves no dead code behind.
+The shape check requires `pool.exchange`, `pool.venue` and `pool.settlement_currency` to be
+non-empty strings on every element, as `fetchPools` requires them of a pool (`pools.ts:17-30`). An
+element without them refuses the whole answer: a position that no tab could claim must be an
+error on screen, never a row that silently belongs nowhere.
 
-**Components.** New files under `frontend/src/features/positions/`; the two pages only place them.
+Five pure functions in the same file select from the one answer. Each takes an `OpenState` and
+answers an `OpenState`, so they compose, and none of them asks the server anything.
 
-| Component | Where | What it is |
+| Selector | What it keeps | Who calls it |
 | --- | --- | --- |
-| `OpenStateLine` | Strategies page ONLY, under the title row, above the list (owner, 2026-10-11, § O Q4: no variant in the header, on any page) | The whole system's answer in one sentence, with its time and a "Read again" button. It does not wait for the exchange scope: its subject is the whole system. |
-| `OpenMarks` | `StrategyRow`, a fourth line of the first track, under the uptime | One chip per position and per in-flight order of that strategy: pair, side, origin; the venue mark when present. Chips wrap. |
-| `OpenPositionsSection` | Strategy detail, a full-width section between the two-column grid and `TradesTable` | The strategy's positions as a table from `md` and as stacked cards below it, then its in-flight orders as lines, then the notes. |
-| `OriginTag`, `VenueMark` | shared by the three above | The origin's word and token; the disagreement's sentence, time and link. |
-| `PoolOpenPositions`, with its own `ofPool` | **separable**: `PoolPanel`, under the month grid | The pool's positions with the strategy's name as a link (plain text when the row has no strategy id), and its in-flight orders. |
-| the count in `MonthlySummary` | **separable** | "N open, M of them dry run", counted from the pool's positions, replacing the live-only count. |
+| `ofExchange(state, exchange)` | the positions and the orders whose `pool.exchange` is exactly that string | the Strategies page, for everything it draws; the detail page, for its unmatched count |
+| `ofStrategy(state, strategyId)` | the positions and the orders of that strategy; a null `strategy_id` belongs to no strategy | `OpenMarks`, `OpenPositionsSection` |
+| `ofPool(state, pool)` | the elements whose pool has those three values, never the exchange alone (rule 7) | `PoolOpenPositions` and the Overview's count |
+| `notShown(state, visibleStrategyIds)` | the elements whose `strategy_id` is null or is not in the set | `OpenStateLine`, over the result of `ofExchange` |
+| `unmatched(state)` | the elements whose `strategy_id` is null | the detail page, over the result of `ofExchange` |
 
-Reused as they are: the words and the token of the mode badge, `cn`, `Link`, and the formatting
-helpers below.
+`ofPool` lived in the Overview's own file while that part could be dropped. It is here now, with
+the others.
+
+**The scope rule (owner, 2026-10-12): the Strategies page shows nothing of another exchange.**
+Everything that page draws is selected from `ofExchange(state, exchange)`, where `exchange` is the
+selected tab's, and from nothing else:
+
+- the two counts are the lengths of its two lists;
+- a row's marks are `ofStrategy` of it, for that row's strategy;
+- the line under the figures is `notShown` of it, for the ids of the rows on screen.
+
+So the count "Open" always equals the position chips on screen plus the positions named under
+the figures, and no pair, name or count of another exchange can reach the page. Changing the tab
+selects again from the answer already held; it asks the server nothing. § L, T15 pins it.
+
+The other two pages keep their own key. The detail page selects by strategy id over the whole
+answer: a strategy's page shows that strategy's positions wherever the ledger put them, and the
+tabs follow the strategy's exchange (`StrategyDetailPage.tsx:38-44`). The Overview selects by
+pool, among the pools of the selected exchange (`OverviewPage.tsx:41-44`).
+
+**Components.** New files under `frontend/src/features/positions/`; the three pages only place
+them. `features/positions` imports from `shared/` and, for the pending proposals,
+`usePendingBookings` from `features/bookings`, as `features/overview` already does
+(`DecisionRail.tsx:3-4`). Nothing imports back into it but the three pages.
+
+| Component | File | Where it sits | Props | What it is |
+| --- | --- | --- | --- | --- |
+| `OpenStateLine` | `OpenStateLine.tsx` | `StrategiesPage`, between the title row and the list, and on no other page (§ O, Q4). Drawn only once the scope is ready and an exchange is selected | `exchange`, the selected tab's; `visibleStrategyIds`, a set, or null while the strategies list is loading | The three figures of that exchange, the lines under them and the "Read again" button |
+| `OpenMarks` | `OpenMarks.tsx` | `StrategyRow`, as a fourth child of the row: from `lg` the row's second grid row, in the first track only; below `lg` a full-width last line of the wrapping row | `strategy` | One chip per position and per order of that strategy on its exchange, the venue chip after its position's chip. Nothing at all when there is none |
+| `Mark` | `Mark.tsx` | inside `OpenMarks` | `kind`: position, order or venue; `origin` | The chip: one base class and the variants of the table below |
+| `MarkLine`, with `OrderLine` and `VenueLine` | `MarkLine.tsx` | under a table, in a table's sub-row, in a card | `variant`: order or venue; `origin` for an order | The one line component, and the two lines made from it |
+| `OriginTag`, `origin.ts` | `OriginTag.tsx`, `origin.ts` | in a chip, a line, a table cell, a card | `origin` | The origin's word in its token. `origin.ts` is the ONE table from an origin to its text key, its text class and its border class; the chip, the line and the tag all read it |
+| `PositionsTable` | `PositionsTable.tsx` | inside the two components below | `positions`; `variant`: strategy or pool; `proposals` | The table from `md` and the cards below it, each row with its sub-rows |
+| `OpenPositionsSection` | `OpenPositionsSection.tsx` | `StrategyDetailPage`, a full-width section between the two-column grid and `TradesTable` | `strategy` | The heading, the strategy's positions, its orders as lines, the notes |
+| `PoolOpenPositions` | `PoolOpenPositions.tsx` | `PoolPanel`, under the month grid and its summary, OUTSIDE the `report !== null` condition that wraps those two (`PoolPanel.tsx:143-148`) | `pool` | The heading and the pool's positions, the strategy's name first |
+| the count | `features/overview/MonthlySummary.tsx` | where today's "open trades" part is | a new optional prop, `open` | "N open, M of them dry run" |
+| the badge | `shared/layout/DryRunBadge.tsx` | the top bar | - | "Live" in `gain` |
+| the rail | `features/overview/DecisionRail.tsx` | the Overview | - | an `id`, and an effect that brings it into view |
+
+Reused as they are: `cn`, `Link`, `usePendingBookings`, the trades table's column words, and the
+formatting helpers below.
+
+**The summary: `OpenStateLine`** (examples 1 to 12, 25a to 25c, 26a).
+
+- **What it counts.** "Open" is the number of positions of the selected exchange and "Orders in
+  flight" the number of its orders: the two lengths of `ofExchange(state, exchange)`. They count
+  what the exchange holds, not what the list shows, so a position of an archived strategy is in
+  the count and is named on the second line (example 10: `Open: 2`, with no position chip on any
+  row). The figures name no exchange: the selected tab does.
+- **"Last read"** is the answer's `as_of`, with seconds.
+- **The layout, as drawn.** One wrapping line: the figures and, under them, the lines; then the
+  button. The figures are mono, 12 px, tabular, `text-ink-2`; each label is `text-ink-3` and is
+  followed by a colon; a `·` in `text-ink-3` separates them. Below `sm` the figures wrap and no
+  separator is drawn, so that none starts a line. The button is bordered (`border-rule`) and 44 px
+  tall.
+- **The second line, "Not on this list: {items}."**, is drawn when `notShown` is not empty, in
+  `text-ink-2`. It names what the selected exchange holds and its list does not show, and only
+  that (owner, 2026-10-12): a position or an order of an archived strategy while archived ones are
+  hidden; one that could not be matched to a strategy; and, by the same rule, every element of
+  the exchange when the strategies list failed to load, since then the list shows none. It never
+  names anything of another exchange: `notShown` is given `ofExchange`'s result.
+- **One item** is these parts joined by ` · `, in this order: the strategy's name; "archived" when
+  the strategy is; the pair (several market keys joined by ` / `, the guard's own join); "order in
+  flight" for an order; the origin's word; "figures not readable" for a position whose
+  `figures_missing` is not null. Items are joined by `; `, positions first, then orders, each in
+  the answer's order. Example 10 draws two positions; an ORDER as an item is not drawn in the
+  prototype and is built from the chip's own words.
+- **While the strategies list is loading** the second line is withheld (`visibleStrategyIds` is
+  null): every element would otherwise be named for an instant and then move to its row. The
+  figures are drawn all the same, since they do not depend on the list.
+- **A failed refresh** keeps the last figures, with "Last read" still the last good answer's time,
+  and adds "Could not be refreshed since {time} UTC." in `text-loss` as the last line (examples
+  11c and 11d). It is detected as an error on a query that still holds data.
+- **The live region.** The two counts and the lines under them are inside one `role="status"`
+  region; the "Last read" figure sits on the same visual line and OUTSIDE that region. The
+  prototype puts the role on the whole block. This is the one difference in markup, and it has no
+  visual effect: the time changes at every refresh, and a region that holds it would be announced
+  once a minute for a state that did not change (§ L, T10). The loading text is a `role="status"`
+  and the first failure a `role="alert"`, as drawn in example 11.
+- **Before the scope is known**, or when no exchange exists, the component is not drawn and asks
+  for nothing: figures for an exchange nobody can name would be unfiltered data under a tab, the
+  failure the scope exists to prevent (`exchange-store.ts:58-67`). The page's own text already
+  says why the list is absent (`StrategiesPage.tsx:36-49`).
+
+**The marks: one rule** (owner, 2026-10-12; the key "Reading the marks" of the prototype). The
+shape says what a mark is, the colour says the origin, and red says one thing only: something is
+wrong and needs the owner. No mark says a result.
+
+| Mark | Fill | Border | Words |
+| --- | --- | --- | --- |
+| Position, dry run | `bg-panel-2` | solid, `border-decision` | pair and side in `text-ink`, "Dry run" in `text-decision` |
+| Position, live | `bg-panel-2` | solid, `border-gain` | pair and side in `text-ink`, "Live" in `text-gain` |
+| Position holding fills of both origins | `bg-panel-2` | solid, `border-loss` | pair and side in `text-ink`, "Dry run and live" in `text-loss` |
+| Position, origin unknown | `bg-panel-2` | solid, `border-rule-strong` | "origin unknown" in `text-ink-3`. The key draws it; no answer produces it today, since a position's origin is one of three values (§ F) |
+| Order in flight, dry run | `bg-transparent` | `border-dashed`, `border-decision` | pair and "order in flight" in `text-ink`, "Dry run" in `text-decision` |
+| Order in flight, live | `bg-transparent` | `border-dashed`, `border-gain` | the same, "Live" in `text-gain` |
+| Order in flight, origin unknown | `bg-transparent` | `border-dashed`, `border-rule-strong` | the same, "origin unknown" in `text-ink-3` |
+| Venue disagrees, the chip | `bg-transparent` | solid, `border-loss` | "Venue disagrees" in `text-loss` |
+| The separator ` · ` inside any mark | - | - | `text-ink-3` |
+
+- **The chip's base**, common to every row above: mono, 12 px on a 16 px line, 2 px by 8 px of
+  padding, a 4 px radius, a 1 px border, one line (`whitespace-nowrap`). Below `lg` a chip may
+  break anywhere, so a long pair cannot push the row wider than a phone.
+- **What a chip reads.** A position: pair, then `LONG` or `SHORT`, or "side not readable" when
+  the side is null, then the origin. An order: pair, "order in flight", the origin. Whether an
+  order opens or closes is on its line on the detail page, not on the chip.
+- **The venue chip** follows its position's chip, and after it comes the link "See the pending
+  decision" or the words "No booking is proposed for it." in `text-ink-2`, 12 px. The three wrap
+  together as one group (example 7).
+- **Dashed means an order in flight and nothing else.** No other element of these components uses
+  `border-dashed`.
+- **Red means "needs the owner" and nothing else**: a position of both origins, the venue
+  disagreeing, a read that failed. Always with its words.
+- **Cyan is the origin "Live"**, the colour of the "Live" badge. `LONG` and `SHORT` stay in ink:
+  `gain` and `loss` mean a result elsewhere on this panel, and a side is not one.
+- **Only palette tokens**, from `frontend/src/index.css` `@theme`: `panel-2`, `rule`,
+  `rule-strong`, `ink`, `ink-2`, `ink-3`, `gain`, `loss`, `decision`. No hex and no `var()` in a
+  class (§ L, T11). The prototype's own style sheet uses `var()` because it is one HTML file with
+  no build; its header maps each of its names to the Tailwind token.
+
+**One component for the two lines.** The prototype draws the line of an order in flight and the
+line of the venue mark from one base class and two modifiers, so that the two cannot drift apart.
+`MarkLine` is that base, written once: the full width of its container, wrapping, 8 px by 12 px
+of padding, a 6 px radius, a 1 px border, a transparent fill, mono, 12 px, left-aligned,
+`text-ink`, the ` · ` separator in `text-ink-3`. It has exactly two variants.
+
+| Line | Border | Its parts, in order, separated by ` · ` |
+| --- | --- | --- |
+| `OrderLine` (example 19) | `border-dashed`, in the origin's colour as on a chip | the pair; "order in flight"; "opening" or "closing", left out when `action` is null; the origin's word in its token; "sent {time} UTC", left out when `submitted_at` is null |
+| `VenueLine` (examples 18, 24, 25e) | solid, `border-loss` | the pair; "venue disagrees" in `text-loss`; "exchange {x}, ledger {y}"; "last compared {time} UTC"; "shared by N positions on this pair", only when `allocation_count` is above one; then the link "See the pending decision", or the words "no booking is proposed" |
+
+- `{x}` and `{y}` are the two nets as stored, each followed by the position's base currency when
+  it has one (`exchange 0 AAVE, ledger 0.82 AAVE`).
+- The venue line is a `role="group"` named "Venue disagrees, {pair}", and its link is a real link
+  named "See the pending decision, {pair}".
+- Its last part follows § E: the link when a pending proposal names this allocation and this
+  discrepancy, the words when the proposals were read and none does, and neither while the
+  proposals are loading or their read failed.
+- The chip-sized venue mark of the strategies list is a `Mark`, not a `MarkLine`, and is
+  unchanged by the owner's second review.
+
+**The detail section: `OpenPositionsSection`** (examples 13 to 21, 25d, 25e, 26b). Heading "Open
+positions". It selects `ofStrategy(state, strategy.id)` over the whole answer.
+
+| Column | What the cell holds |
+| --- | --- |
+| Opened (UTC) | the date and, under it in `text-ink-3`, the time: the trades table's `Instant` |
+| Pair | the market keys, in `text-ink`; under them the origin's word in its token, 11 px, sans, as the trades table tags a rehearsal row (`TradesTable.tsx:100-104`) |
+| Side | `LONG` or `SHORT`; a dash with "figures not readable" for a screen reader when it is null |
+| Size | the size and its base currency as a unit (sans, 11 px, `text-ink-3`); under it "of {opened} opened" when `opened_size` differs from `size` |
+| Entry | the price; under it "average of N fills" when `fill_count` is above one |
+| Fees {currency} | the fees, and each fee in another currency beside them, as the trades table writes them |
+| Margin granted {currency} | the margin |
+| Leverage | "{value}x"; a dash with "not recorded" for a screen reader when it is null, never "1x" |
+
+- **From `md` a table, below it one card per position** (example 20): the pair and the side in
+  the card's head with the origin's word at its right, then the same six labels and values in two
+  columns. A card is an `article` named by its pair and side.
+- **Sub-rows**, each a row of one cell across the eight columns, directly under its position's
+  row and in this order: the venue line; the reason the figures are missing, in sans, 12 px,
+  `text-ink-2` (example 17); the reservation's note when its status is not `FILLED`. In a card
+  they are the card's last elements, in the same order (example 24 draws the venue line there).
+- **The orders** of the strategy are `OrderLine`s in a list under the table, or under "No open
+  position." when it holds no position (example 19b).
+- **The notes** come last, each drawn only when a row on screen makes it true, in this order: the
+  dry-run note, the note of a position of both origins, the margin note (examples 15, 17, 19a).
+  The margin note is true of any position. Examples 18b and 18c leave it out; that is the
+  picture's shorthand, not a rule.
+- **Unmatched elements.** While `unmatched(ofExchange(state, strategy.exchange))` is not empty,
+  the section says "N open positions could not be matched to a strategy. The Strategies page
+  names them.": in place of "No open position." when the strategy has no position of its own
+  (example 26b), and above the notes otherwise. See "A row with no strategy id" below for why the
+  strategy's exchange bounds it.
+- **Figures.** Prices and sizes are written by `tableFigureText`, the two nets by `figureText`,
+  fees and margin by `amountText`: the helpers of the closed trades table, which sits right under
+  this section, so one page writes a figure one way. Two consequences are named in § O, Q9: in
+  Spanish a price reads `184.3`, with a point, where example 25 draws a comma (P30); and a margin
+  reads `121.80`, with the currency's decimals, where some of the prototype's samples read
+  `121.8`. The prototype's numbers are samples (its review bar says so), not a format.
+
+**The Overview part: `PoolOpenPositions` and the count** (examples 22 to 24). It ships with the
+rest.
+
+- **The list.** `ofPool(state, pool)`, under the month grid and its summary. The same
+  `PositionsTable` in its pool variant: the strategy's name is the first column, a link to the
+  strategy's page, or plain text when the position has no strategy id; there is no Fees column.
+  Eight columns, as drawn: Strategy, Opened (UTC), Pair, Side, Size, Entry, Margin granted,
+  Leverage. Below `md` it is cards, the strategy's name under the card's head. The sub-rows are
+  the table's own, so a position the venue disagrees on carries its line here too (example 24).
+- **No notes** under the Overview's list, as drawn.
+- **It does not depend on the pool's performance report.** `PoolPanel` draws the month grid and
+  its summary only when a report exists. The list is placed after that block and outside its
+  condition: a pool whose report is missing or failed can still hold a position.
+- **Its states** are not drawn in the prototype and are the detail section's, with the same
+  texts: "Reading open positions…", the error sentence with "Read again", "No open position.". The
+  heading is always drawn. This matters for the count: an absent count means "nothing open" (example
+  23c), and a failed read also leaves it absent, so the error sentence right under it is what
+  keeps that from being read as zero.
+- **Orders in flight are not drawn on the Overview.** The first writing listed them there. The
+  prototype draws none, the owner's words for this part are "every open position", and the
+  approved order line has no place for a strategy's name, which a line on the Overview would
+  need. They stay on the Strategies page and on the detail page. § O, Q8 asks the owner.
+
+**The Overview's count.** `MonthlySummary` gains an optional prop, `open`, and has two callers
+(P27).
+
+| `open` | Who passes it | What the summary writes |
+| --- | --- | --- |
+| absent | the strategy detail page, unchanged | today's part, "N open trades not in the curve", from `excluded.open_trade_count` |
+| null | the Overview, while the read is loading or failed | no part about open positions, old or new |
+| `{total, rehearsal}` | the Overview, from `ofPool`'s positions | nothing when `total` is zero; "N open" when `rehearsal` is zero; otherwise "N open, M of them dry run" |
+
+`rehearsal` counts the positions whose origin is `rehearsal`. A position of both origins is in
+`total` and not in `rehearsal`; its row says what it is. The part sits where today's sits, after
+the worst month. On the Overview the live-only sentence is no longer drawn;
+`excluded.open_trade_count` stays in the API, true as "what the curve leaves out". The detail
+page's sentence is not touched: decision 65 speaks of the Overview's count, and nobody had seen
+that the detail page writes one too (§ O, Q6).
+
+**The "Live" badge** (owner, 2026-10-12). In `DryRunBadge.tsx` the last branch becomes
+`"border-gain text-gain"`, and the comment's line for `dry_run: false` says that "Live" is drawn
+in `gain`, the colour the marks give the origin "Live", and that the badge states the mode and is
+not an alarm. Nothing else of the component changes: the neutral states stay neutral, so a failed
+or pending read still cannot be read as either mode. The comment beside `--color-gain` in
+`index.css` gains "the Live mode"; the token's value does not change. In Spanish the badge reads
+"Modo simulación" (`status.dryRun`) where a mark reads "Simulación", the trades table's word;
+both exist today and neither changes.
+
+**The rail.** `DecisionRail`'s `aside` gains `id="decision-rail"`. The marks link to
+`{ pathname: "/", hash: "#decision-rail" }`. The router does nothing with a hash (P29), so the
+rail reads the location and, when the hash is its id, scrolls itself into view once it is
+mounted, and again when the hash changes while it is on screen. The link is drawn from op.2 on
+(the list's venue chip has it), so the rail's change belongs to op.2.
+
+**Times.** Three kinds, each with `UTC` written after it.
+
+| Time | Written as | Helper |
+| --- | --- | --- |
+| "Last read", "could not be refreshed since", "last compared" | hours, minutes and seconds | `clockSecondsText`, new, beside `clockText` |
+| "sent" | hours and minutes | `clockText` |
+| "Opened" | the date and the time on two lines | `Instant` |
+
+A time that is not on the UTC day of the answer's `as_of` is written with its date before it, by
+`compactDateText`. The prototype draws no such case, and without the date it would be the silent
+one: an order sent yesterday at 21:12 would read as sent minutes ago, and a venue mark frozen
+since the mode was changed would read as compared today (§ E; § K, row 20).
 
 **The formatting helpers move to `shared/`, in a commit of their own.** `amountText` and
 `parseDecimal` live in `features/overview/format.ts`; `figureText`, `tableFigureText`,
@@ -5767,178 +6148,365 @@ modules, and `features/strategies` reads `features/overview/format` (`StrategyRo
 files move whole to `shared/lib/`, with their tests, and the two cells to `shared/ui/`, as unit
 13.0 moved three shared idioms for Settings: import paths only, no assertion changed, one commit
 that opens op.2. Importing them where they are was the alternative, and was not taken: it would
-add a third feature to a dependency that is already crossed.
+add a third feature to a dependency that is already crossed. The move adds no helper:
+`clockSecondsText` and the rule for a time of another day are written afterwards, with their
+tests, in op.2 proper.
 
-**Tokens** (from `frontend/src/index.css` `@theme`; no hex, no `var()` in a class).
+**Why each token**, for the marks' table above.
 
 | What | Token | Why |
 | --- | --- | --- |
 | Origin "Dry run" | `decision` | the mode badge's and the trades table's (P19) |
-| Origin "Live" | `ink-2` | a live position in live use is the normal state, not an alarm |
-| Origin "Dry run and live" | `loss` | neither mode can close it |
-| Origin "origin unknown" | `ink-3` | nothing is claimed |
-| Venue disagrees | `loss` border and text | the position may no longer exist |
+| Origin "Live" | `gain` | owner, 2026-10-12: the colour of the "Live" badge, which takes it in this delivery. The first writing drew it in `ink-2`; the owner asked that the badge and the marks agree and preferred cyan to red |
+| Origin "Dry run and live" | `loss` | it needs the owner: neither mode can close it |
+| Origin "origin unknown" | `ink-3`, with a `rule-strong` border | nothing is claimed |
+| Venue disagrees | `loss` border and text | it needs the owner: the position may no longer exist |
 | LONG, SHORT | `ink` | `gain` and `loss` mean PnL on this panel, and there is none here |
 | Figures | `ink-2`, mono, tabular | as the trades table |
 
 **Every state.**
 
-| State | `OpenStateLine` | `OpenMarks` (a row) | `OpenPositionsSection` (detail) |
-| --- | --- | --- | --- |
-| Loading, nothing read yet | "Reading open positions…", `role="status"` | a decorative "…" with `aria-hidden`, and the translated `positions.state.loading` as its `sr-only` name; the row's figures already draw the same literal while they load (`StrategyRow.tsx:65`) | "Reading open positions…" |
-| Failed, nothing read yet | the error sentence, `role="alert"`, `loss` | nothing, and the line above says why a row without a mark means nothing | the error sentence and "Read again" |
-| Read, then a refresh failed | the last answer and "could not be refreshed since {time}", `loss` | the last answer | the last answer and the same sentence |
-| Nothing open anywhere | "Nothing is open on any exchange. Read at {time} UTC." | nothing | "No open position." |
-| One live | the count sentence | `SOLUSDT · LONG · Live` | one row, every figure |
-| One rehearsal | the count sentence | `SOLUSDT · LONG · Dry run` | one row, 1x, and the dry-run note |
-| Mixed | the count sentence | `SOLUSDT · LONG · Dry run and live` | one row and the mixed note |
-| Unresolved symbol | the count sentence | `XYZBTC · side not readable · Live` | one row, the five figures as dashes with the reason |
-| Order in flight | the count sentence | `SOLUSDT · order in flight · Dry run` | a line under the table, with its time |
-| Discrepancy confirmed | the count sentence | the chip in `loss` with "venue disagrees" | the row's mark, its time and its link or its "no booking is proposed" |
-| A disabled strategy holding one | the count sentence | the chip, in a row whose switch is off | as any other |
-| Several positions on one strategy | the count sentence | the chips wrap inside the first track | several rows |
-| Open, and not on this list | names each one: strategy, exchange or "archived", pair, origin | - | - |
-| A position or an order with no strategy id (§ C: the facts could not decorate it) | always named: the strategy's name, the exchange, the pair, the origin and "figures not readable" | - (it cannot be placed on a row) | "N open positions could not be matched to a strategy", in place of "No open position.", which is never drawn while one exists |
-| Phone width | the sentence wraps; the button is 44 px tall | chips wrap under the uptime | cards, one per position |
+| State | `OpenStateLine` (Strategies) | `OpenMarks` (a row) | `OpenPositionsSection` (detail) | `PoolOpenPositions` and the count (Overview) |
+| --- | --- | --- | --- | --- |
+| The scope is loading or failed, or no exchange exists | not drawn; the page's own text says why | no row | the section does not wait for the scope: it selects by strategy id | no panel (`OverviewPage.tsx:41-44`) |
+| Loading, nothing read yet | "Reading open positions…", `role="status"`, `text-ink-3`, no button | a decorative "…" with `aria-hidden`, and the translated `positions.state.loading` as its `sr-only` name; the row's figures already draw the same literal while they load (`StrategyRow.tsx:65`) | "Reading open positions…" | the same text under the heading; no count |
+| Failed, nothing read yet | the error sentence, `role="alert"`, `text-loss`, and "Read again" | nothing, and the line above says why a row without a mark means nothing | the error sentence and "Read again" | the error sentence and "Read again"; no count |
+| Read, then a refresh failed | the last figures and "Could not be refreshed since {time} UTC." in `text-loss` | the last answer | the last answer and the same sentence | the last answer and the same sentence |
+| Nothing open on the selected exchange | `Open: 0 · Orders in flight: 0 · Last read: {time} UTC` | nothing | "No open position." | "No open position."; no count |
+| One live | `Open: 1` | `AAVEUSDT · LONG · Live`, cyan | one row, every figure, the margin note | one row; "1 open" |
+| One rehearsal | `Open: 1` | `SFPUSDT · SHORT · Dry run`, amber | one row, 1x, the dry-run note | one row; "1 open, 1 of them dry run" |
+| Both origins | `Open: 1` | `STXUSDT · LONG · Dry run and live`, red | one row and its note | one row; counted in N, not in M |
+| Unresolved symbol | `Open: 1` | `XYZBTC · side not readable · Live` | one row, the side, size and entry as dashes, the reason under it | the same row |
+| Order in flight | `Orders in flight: 1` | `SFPUSDT · order in flight · Live`, dashed and unfilled | a dashed line under the table, with its time | not drawn (§ O, Q8) |
+| The venue disagrees | counted as any position | the position's chip, the red chip, then the link or "No booking is proposed for it." | the red line under the position's row | the same line, under the row or in the card |
+| A disabled strategy holding one | counted | the chip, in a row whose switch is off | as any other | as any other |
+| Several positions on one strategy | `Open: 3` | the chips wrap in their own grid row; the figures and the switch do not move | several rows | several rows |
+| An archived strategy's, while archived ones are hidden | counted, and named under the figures with "archived" | no row to sit on | its own page shows it | listed in its pool |
+| A position or an order with no strategy id (§ C: the facts could not decorate it) | counted on the tab of its own exchange, and named there: the strategy's name, the pair, the origin and, for a position, "figures not readable" | it cannot be placed on a row | "N open positions could not be matched to a strategy", on the pages of that exchange's strategies; "No open position." is never drawn while one exists | a position is listed in its pool, its strategy's name as plain text |
+| An element of another exchange | nothing: not counted, not named | nothing | - | nothing |
+| An element whose exchange has no tab | on no tab (§ O, Q7); logged by the read (§ C) | nothing | shown on its strategy's page when it has a strategy id | nothing |
+| The strategies list is still loading | the figures; the second line is withheld | no row yet | - | - |
+| The strategies list failed | the figures, and every element of the exchange named under them | no row | - | - |
+| Phone width | the figures wrap and lose their separators; the button is 44 px tall | the chips are the row's last line | cards, one per position | cards, the strategy's name under each head |
 
-- **The rule that makes the list page complete.** Every element of the answer is drawn in a row
-  that is on screen, or it is named in `OpenStateLine`. A position of another exchange, of an
-  archived strategy while archived ones are hidden, or of a strategy whose list failed to load is
-  named there. So the list page shows nothing open only when the answer is empty.
-- **A row with no strategy id is always named in the sentence.** A `NO_FACTS` position and an
-  undecorated order (§ C) carry the strategy's name and no id. A name is not matched to a row:
-  it is not an identity, and whether names are unique was not checked. `notShown` returns every element whose id is not on screen, and a
-  null id is never on screen, so such a row is named in `OpenStateLine` on every exchange's view
-  and the sentence "Nothing is open on any exchange" cannot be drawn while it exists. The detail
-  page cannot tell whose it is either: while the answer holds one, a strategy's section never says
-  "No open position."; it says that N open positions could not be matched to a strategy and that
-  the Strategies page names them. On the Overview part it is listed in its pool, which the guard's
-  element does carry.
+**What the scope change does to the rules of the first writing.** Each rule is stated as it is
+true now, with what it replaces.
+
+- **The rule that makes the list page complete is now a rule per exchange.** It was: every
+  element of the answer is drawn in a row on screen or named in the page's sentence, so the page
+  shows nothing open only when the answer is empty. It is: every element of the SELECTED
+  exchange is drawn in a row on screen or named under the figures, so a tab reads zero and zero
+  only when the answer holds nothing of that exchange. An element of another exchange is neither
+  drawn nor named nor counted. Three kinds are still named rather than drawn: a position or an
+  order of an archived strategy while archived ones are hidden, one with no strategy id, and any
+  element of the exchange when the strategies list failed to load.
+- **A row with no strategy id is named on the tab of its own exchange, and only there.** It was
+  named on every exchange's view. A `NO_FACTS` position and an undecorated order (§ C) carry no
+  strategy id, but each carries its pool: the guard's element has it (`mode_origin.py:59-81`), and
+  the body always serves it (§ F). So `ofExchange` places it like any other element, and
+  `notShown` then names it, since a null id is never on screen. Which exchange names it is
+  therefore decided by the read model, from the guard's own label, and not by the panel. A name
+  is still not matched to a row: names are unique in the table
+  (`strategies/infrastructure/models.py:44`), but the strategies list and this answer are two
+  reads of two instants, and a row is keyed by its id.
+- **When an element's exchange cannot be told.** It always can, as a string: the columns are
+  `NOT NULL` (P25) and the shape check refuses an answer without it. What can happen is a string
+  that is no tab. That element is then on NO tab: by the owner's rule it is "another exchange"
+  for every tab, and there is no tab to move to. This design does not decide that it should be
+  shown, because showing it means writing about an exchange other than the selected one, which is
+  what the owner asked not to read (§ O, Q7). What it does decide: such an element can only be
+  one of the four cases of § C, each of which the read logs at every request, so it is never
+  without a trace; and its strategy's detail page shows it when it has a strategy id, because
+  that page selects by id.
+- **What the strategy detail page says when the answer holds an unmatched element.** It was:
+  while the answer holds one, no strategy's section says "No open position.". It is: while the
+  STRATEGY'S OWN EXCHANGE holds one. An unmatched element of another exchange cannot be this
+  strategy's in any stored data that is not at fault (a strategy's exchange never changes, P24),
+  and the sentence "The Strategies page names it" is true only on that exchange's tab, which is
+  the tab the detail page selects. The count is of unmatched positions and orders together; the
+  approved sentence says "position" for both.
+- **What the owner read before a mode change, and no longer reads.** The first writing said that
+  the sentence "Nothing is open on any exchange" is the one the owner reads before changing
+  `DRY_RUN`. That reading no longer exists on one screen. Before a mode change the owner looks at
+  each exchange's tab (decision 65, 2026-10-12). What protects the change is the guard, and § B
+  gives the evidence: the worker does not start in a mode that cannot close what the ledger
+  holds, on any exchange, enabled pool or not, archived strategy or not.
 - **Disabled is not hidden.** `OpenMarks` does not read `strategy.enabled`.
-- **Accessibility.** Each chip is text, not colour alone: the origin is a word. The venue mark's
-  link is a real link with the pair in its name. The dashes carry their reason in `sr-only` text,
-  as in the trades table. `OpenStateLine` is a `role="status"` region, so a refresh that changes
-  the count is announced once.
-- **The Overview part is separable.** `PoolOpenPositions` and the count are in files of their own
-  and read the same hook. Dropping them removes two components, one prop and their texts, and
-  touches nothing else. `excluded.open_trade_count` stays in the API either way: it remains true
-  as "what the curve leaves out".
+- **Accessibility.** Each mark is text, not colour or shape alone: the origin is a word, and so
+  are "order in flight" and "venue disagrees". The venue mark's link is a real link with the pair
+  in its name. The dashes carry their reason in `sr-only` text, as in the trades table. The list
+  of a row's marks is named "Open positions of {name}". The figures' live region is described
+  above.
+- **The Overview part is part of the delivery.** It was separable. `PoolOpenPositions`, the
+  count's prop and `ofPool` are ordinary parts of op.4, which ships with the rest (§ M).
 
-### I. Texts (proposed, for the owner's review) and i18n keys
+### I. Texts and i18n keys (approved with the prototype, 2026-10-12)
 
-A new `positions.*` group holds what the three places share; each place keeps its own group for
-its headings. The column words that already exist for the closed trades (`Pair`, `Side`, `Size`,
-`Entry`, `Fees`, `Opened`) are REUSED from `strategies.performance.trades.*`, so the two tables
-cannot drift; their Spanish was not re-read here.
+These are the texts. The owner approved the prototype as drawn, its Spanish included (decision 65,
+2026-10-12), so every English text below is the prototype's, letter for letter, and so is every
+Spanish text that example 25 draws. The last column names the examples that draw each text, the
+English ones first and the Spanish ones after the semicolon; a dash means that the prototype does
+not draw the text in that language. The notes under the tables say what that leaves.
 
-| Key | English | Spanish |
-| --- | --- | --- |
-| `positions.state.loading` | Reading open positions… | Leyendo posiciones abiertas… |
-| `positions.state.error` | Open positions could not be read. A row without a mark does not mean that nothing is open. | No se pudieron leer las posiciones abiertas. Una fila sin marca no significa que no haya nada abierto. |
-| `positions.state.stale` | Could not be refreshed since {{time}} UTC. | No se pudo actualizar desde las {{time}} UTC. |
-| `positions.state.none` | Nothing is open on any exchange. Read at {{time}} UTC. | No hay nada abierto en ningún exchange. Leído a las {{time}} UTC. |
-| `positions.state.some` | Open now, on every exchange: {{positions}} and {{orders}}. Read at {{time}} UTC. | Abierto ahora, en todos los exchanges: {{positions}} y {{orders}}. Leído a las {{time}} UTC. |
-| `positions.state.positions_one` / `_other` | {{count}} position / {{count}} positions | {{count}} posición / {{count}} posiciones |
-| `positions.state.orders_one` / `_other` | {{count}} order in flight / {{count}} orders in flight | {{count}} orden en curso / {{count}} órdenes en curso |
-| `positions.state.notShown` | Not on this list: {{items}}. | Fuera de esta lista: {{items}}. |
-| `positions.state.archived` | archived | archivada |
-| `positions.state.refresh` | Read again | Leer de nuevo |
-| `positions.origin.rehearsal` | Dry run | Simulación |
-| `positions.origin.live` | Live | En vivo |
-| `positions.origin.mixed` | Dry run and live | Simulación y en vivo |
-| `positions.origin.unknown` | origin unknown | origen desconocido |
-| `positions.sideUnreadable` | side not readable | lado no legible |
-| `positions.order.inFlight` | order in flight | orden en curso |
-| `positions.order.open` / `.close` | opening / closing | apertura / cierre |
-| `positions.order.sent` | sent {{time}} UTC | enviada {{time}} UTC |
-| `positions.venue.disagrees` | Venue disagrees | El exchange no coincide |
-| `positions.venue.detail` | The exchange reports {{venue}} and the ledger {{ledger}}. Last compared {{time}} UTC. | El exchange informa {{venue}} y el libro mayor {{ledger}}. Última comparación {{time}} UTC. |
-| `positions.venue.shared` | The difference is shared by {{count}} positions on this pair. | La diferencia es compartida por {{count}} posiciones en este par. |
-| `positions.venue.link` | See the pending decision | Ver la decisión pendiente |
-| `positions.venue.noProposal` | No booking is proposed for it. | No hay un registro propuesto para esta diferencia. |
-| `positions.table.title` | Open positions | Posiciones abiertas |
-| `positions.table.empty` | No open position. | Sin posiciones abiertas. |
-| `positions.table.margin` | Margin granted {{currency}} | Margen otorgado {{currency}} |
-| `positions.table.leverage` | Leverage | Apalancamiento |
-| `positions.table.leverageValue` | {{value}}x | {{value}}x |
-| `positions.table.notRecorded` | not recorded | no registrado |
-| `positions.table.ofOpened` | of {{opened}} opened | de {{opened}} abiertas |
-| `positions.table.averageOf` | average of {{count}} fills | promedio de {{count}} ejecuciones |
-| `positions.table.unmatched_one` / `_other` | {{count}} open position could not be matched to a strategy. The Strategies page names it. / {{count}} open positions could not be matched to a strategy. The Strategies page names them. | {{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra. / {{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra. |
-| `positions.state.unreadable` | figures not readable | cifras no legibles |
-| `positions.reason.UNRESOLVED_SYMBOL` | The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived. | La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan. |
-| `positions.reason.SEVERAL_MARKETS` | The fills of this position name more than one pair. | Las ejecuciones de esta posición nombran más de un par. |
-| `positions.reason.FLIPPED` | The fills sold more than was bought, or bought more than was sold. The entry price is not derived. | Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula. |
-| `positions.reason.other` | The figures could not be derived from the fills. | Las cifras no se pudieron calcular a partir de las ejecuciones. |
-| `positions.note.margin` | Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now. | El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora. |
-| `positions.note.rehearsal` | A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total. | Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total. |
-| `positions.note.mixed` | This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand. | Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange. |
-| `positions.note.reservation` | Its reservation reads {{status}}, not FILLED. | Su reserva figura como {{status}}, no FILLED. |
-| `overview.open.strategy` (separable; it is the Overview list's only own heading, so it lives in the Overview's group and goes with op.4) | Strategy | Estrategia |
-| `overview.monthlySummary.openAll_one` / `_other` (separable) | {{count}} open / {{count}} open | {{count}} abierta / {{count}} abiertas |
-| `overview.monthlySummary.openWithRehearsal` (separable) | {{count}} open, {{rehearsal}} of them dry run | {{count}} abiertas, {{rehearsal}} de ellas en simulación |
+A `positions.*` group holds what the three places share; the Overview keeps its two texts in its
+own group.
 
-A note is drawn only when a row on screen makes it true, as the trades table's notes are. The
-sentence "Nothing is open on any exchange" is the one the owner reads before a mode change; § B
-says why it is not worded as a permission.
+**The summary above the strategies list, and the states.**
 
-### J. What the visual prototype must draw
+| Key | English | Spanish | Drawn in |
+| --- | --- | --- | --- |
+| `positions.state.figures.open` | Open | Abiertas | 1 to 12, 26a; 25a to 25c |
+| `positions.state.figures.orders` | Orders in flight | Órdenes en curso | 1 to 12, 26a; 25a to 25c |
+| `positions.state.figures.lastRead` | Last read | Última lectura | 1 to 12, 26a; 25a to 25c |
+| `positions.state.figures.time` | {{time}} UTC | {{time}} UTC | the same |
+| `positions.state.notShown` | Not on this list: {{items}}. | Fuera de esta lista: {{items}}. | 10, 12d, 26a; 25c |
+| `positions.state.archived` | archived | archivada | 10, 12d; 25c |
+| `positions.state.unreadable` | figures not readable | cifras no legibles | 10, 17, 26a; 25c |
+| `positions.state.refresh` | Read again | Leer de nuevo | 1 to 12, 21; 25a to 25c |
+| `positions.state.loading` | Reading open positions… | Leyendo posiciones abiertas… | 11a, 21; - |
+| `positions.state.error` | Open positions could not be read. A row without a mark does not mean that nothing is open. | No se pudieron leer las posiciones abiertas. Una fila sin marca no significa que no haya nada abierto. | 11b, 21; - |
+| `positions.state.stale` | Could not be refreshed since {{time}} UTC. | No se pudo actualizar desde las {{time}} UTC. | 11c, 11d; - |
 
-One file, `visual/project/OpenPositions.html`, in the manner of `SettingsKeys.html`, with the
-panel's tokens and both languages. It is not built by this design. It draws these examples, and no
-others are needed to review the unit.
+The colon after a label and the ` · ` between two figures are punctuation written by the
+component, the same in both languages, as the summary under the month grid already joins its parts
+(`MonthlySummary.tsx:53`). So are the ` · ` between the parts of a mark, of a line and of an item,
+and the `; ` between two items.
 
-1. Strategies list, desktop: the sentence "Nothing is open on any exchange. Read at 21:40:03 UTC."
+**The marks, the order line and the venue mark.**
+
+| Key | English | Spanish | Drawn in |
+| --- | --- | --- | --- |
+| `positions.marks.name` | Open positions of {{name}} | Posiciones abiertas de {{name}} | 2 to 10, as the accessible name of a row's marks; - |
+| `positions.origin.rehearsal` | Dry run | Simulación | 3, 15, 19, 22; 25a |
+| `positions.origin.live` | Live | En vivo | 2, 14, 22; 25b, 25d |
+| `positions.origin.mixed` | Dry run and live | Simulación y en vivo | 4, 17; - |
+| `positions.origin.unknown` | origin unknown | origen desconocido | 6; - |
+| `positions.sideUnreadable` | side not readable | lado no legible | 5; - |
+| `positions.order.inFlight` | order in flight | orden en curso | 6, 10, 19; 25c |
+| `positions.order.open` / `.close` | opening / closing | apertura / cierre | 19; - |
+| `positions.order.sent` | sent {{time}} UTC | enviada {{time}} UTC | 19; - |
+| `positions.venue.disagrees` | Venue disagrees | El exchange no coincide | 7, 12b, the key; 25b |
+| `positions.venue.noProposal` | No booking is proposed for it. | No hay un registro propuesto para esta diferencia. | 7, 12b; 25b |
+| `positions.venue.link` | See the pending decision | Ver la decisión pendiente | 7, 18a, 18c, 24; 25b, 25e |
+| `positions.venue.linkName` | See the pending decision, {{pair}} | Ver la decisión pendiente, {{pair}} | the same, as the link's accessible name |
+| `positions.venue.groupName` | Venue disagrees, {{pair}} | El exchange no coincide, {{pair}} | 18, 24, as the line's accessible name; 25e |
+| `positions.venue.line.disagrees` | venue disagrees | el exchange no coincide | 18, 24; 25e |
+| `positions.venue.line.nets` | exchange {{venue}}, ledger {{ledger}} | exchange {{venue}}, libro mayor {{ledger}} | 18, 24; 25e |
+| `positions.venue.line.compared` | last compared {{time}} UTC | última comparación {{time}} UTC | 18, 24; 25e |
+| `positions.venue.line.shared` | shared by {{positions}} positions on this pair | compartida por {{positions}} posiciones en este par | 18c; 25e |
+| `positions.venue.line.noProposal` | no booking is proposed | no hay un registro propuesto para esta diferencia | 18b; 25e |
+
+The chip and the line say the same thing in two cases of the first letter and with or without a
+full stop, as drawn: a chip is a label and its follow-up a sentence; a line is one run of parts.
+So they are two sets of keys, not one transformed in code. `positions.venue.line.shared` is drawn
+only above one, has no singular, and its variable is not named `count`, so i18next resolves no
+plural for it.
+
+**The table, its cells and its notes.**
+
+| Key | English | Spanish | Drawn in |
+| --- | --- | --- | --- |
+| `positions.table.title` | Open positions | Posiciones abiertas | 13 to 24; 25d, 25e |
+| `positions.table.empty` | No open position. | Sin posiciones abiertas. | 13, 19b; - |
+| `positions.table.margin` | Margin granted {{currency}} | Margen otorgado {{currency}} | 14 to 20, 22, 24; 25d, 25e |
+| `positions.table.leverage` | Leverage | Apalancamiento | 14 to 20, 22, 24; 25d, 25e |
+| `positions.table.leverageValue` | {{value}}x | {{value}}x | the same |
+| `positions.table.notRecorded` | not recorded | no registrado | 15, for a screen reader; - |
+| `positions.table.ofOpened` | of {{opened}} opened | de {{opened}} abiertas | 16; - |
+| `positions.table.averageOf` | average of {{fills}} fills | promedio de {{fills}} ejecuciones | 16; - |
+| `positions.table.unmatched_one` / `_other` | {{count}} open position could not be matched to a strategy. The Strategies page names it. / {{count}} open positions could not be matched to a strategy. The Strategies page names them. | {{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra. / {{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra. | 26b; - |
+| `positions.reason.UNRESOLVED_SYMBOL` | The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived. | La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan. | 17; - |
+| `positions.reason.SEVERAL_MARKETS` | The fills of this position name more than one pair. | Las ejecuciones de esta posición nombran más de un par. | -; - |
+| `positions.reason.FLIPPED` | The fills sold more than was bought, or bought more than was sold. The entry price is not derived. | Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula. | -; - |
+| `positions.reason.other` | The figures could not be derived from the fills. | Las cifras no se pudieron calcular a partir de las ejecuciones. | -; - |
+| `positions.note.margin` | Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now. | El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora. | 14 to 17, 18a, 19a, 20; 25d |
+| `positions.note.rehearsal` | A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total. | Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total. | 15, 19a; - |
+| `positions.note.mixed` | This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand. | Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange. | 17; - |
+| `positions.note.reservation` | Its reservation reads {{status}}, not FILLED. | Su reserva figura como {{status}}, no FILLED. | -; - |
+
+**The Overview's own texts.**
+
+| Key | English | Spanish | Drawn in |
+| --- | --- | --- | --- |
+| `overview.open.strategy` | Strategy | Estrategia | 22; - |
+| `overview.monthlySummary.openAll_one` / `_other` | {{count}} open / {{count}} open | {{count}} abierta / {{count}} abiertas | 23a; - |
+| `overview.monthlySummary.openWithRehearsal` | {{count}} open, {{rehearsal}} of them dry run | {{count}} abiertas, {{rehearsal}} de ellas en simulación | 22, 23b, 24; - |
+
+**Existing keys the prototype draws, reused and not changed.** Each was read in both locale files
+on 2026-10-12 and matches the picture.
+
+| What is drawn | Keys | English | Spanish |
+| --- | --- | --- | --- |
+| The Overview list's and the detail table's column headings (14 to 24; 25d, 25e) | `strategies.performance.trades.opened`, `.pair`, `.side`, `.size`, `.entry`, `.fees` | Opened (UTC), Pair, Side, Size, Entry, Fees {{currency}} | Apertura (UTC), Par, Sentido, Tamaño, Entrada, Comisiones {{currency}} |
+| The side | `strategies.performance.trades.direction.LONG`, `.SHORT` | LONG, SHORT | LONG, SHORT |
+| A fee in another currency | `strategies.performance.trades.otherFee` | + {{amount}} {{currency}} | + {{amount}} {{currency}} |
+| The rail of example 24: its title, its count, its explainer | `overview.decisionRail.title`, `.pending_one` / `_other`, `.explainer` | Needs your decision; {{count}} pending; Closes the venue made that the ledger has not recorded. Approving writes them to the ledger for good. | Requiere su decisión; {{count}} pendiente / pendientes; Cierres que hizo el exchange y que el libro mayor todavía no registró. Aprobarlos los escribe en el libro mayor de forma definitiva. |
+| The rail's card of example 24 | `bookings.card.side`, `.quantity`, `.observedVenueNet`, `.observedLedgerNet` | Side, Quantity, Venue net, Ledger net | not re-read |
+| The badge of the top bar | `status.live`, `status.dryRun` | Live, Dry run | En vivo, Modo simulación |
+
+- **The Overview list's column headings** are the first row of this table plus
+  `overview.open.strategy`, `positions.table.margin` and `positions.table.leverage`. It has no
+  Fees column.
+- **The rail's card is `BookingCard`, unchanged.** Example 24 draws four of its fields. The real
+  card also writes when the proposal expires, the strategy's id, the allocation's id and each
+  fill, and has its two buttons, "Reject" and "Approve" (`BookingCard.tsx:21-59`;
+  `BookingsListView.tsx:76-91`). The picture is a shortened drawing of it, not a new card: this
+  delivery changes the rail's `id` and its scroll, and nothing of the card.
+- **The units next to a size or a net** (`0.82 AAVE`) are the position's base currency, not a
+  text.
+- **A card's accessible name** is the pair and the side (`AAVEUSDT LONG`), composed in the
+  component as `PoolPanel` composes its own (`PoolPanel.tsx:128`), not a key.
+
+**Keys of the first writing that no longer exist.** None was ever added to a locale file.
+
+| Key | Why |
+| --- | --- |
+| `positions.state.none`, `positions.state.some` | the summary is three figures, not a sentence, and names no exchange |
+| `positions.state.positions_one` / `_other`, `positions.state.orders_one` / `_other` | they were the two halves of the sentence; a figure is a number beside a label |
+| `positions.venue.detail`, `positions.venue.shared` | the venue mark of the detail page is one line of parts, not stacked sentences; `positions.venue.line.*` replaces them |
+
+`overview.monthlySummary.open_one` / `_other` ("N open trades not in the curve") is NOT removed:
+the strategy detail page still writes it (§ H; § O, Q6).
+
+**What the last column leaves, said plainly.**
+
+- **Spanish that the prototype does not draw.** Every row whose last column ends in a dash. Their
+  Spanish is the first writing's, the same table example 25 was drawn from, with one new text:
+  "Posiciones abiertas de {{name}}", the accessible name of a row's marks, which example 25 has no
+  attribute for. The owner's "the Spanish is fine" was said of what example 25 draws.
+- **English that the prototype does not draw**: three of the four reasons and the reservation's
+  note. They are the first writing's.
+- **One oddity in the count.** With one open position that is a dry run, the approved form reads
+  "1 open, 1 of them dry run" and "1 abiertas, 1 de ellas en simulación". The prototype draws it
+  for two and for three. A singular form would be a text the owner has not seen (§ N).
+- **Numbers are not texts.** The prototype's Spanish draws every number with a decimal comma. The
+  panel's helpers do not all do that (P30; § H; § O, Q9).
+
+A note is drawn only when a row on screen makes it true, as the trades table's notes are. No text
+of this section says that nothing is open anywhere, and none is worded as a permission to change
+the mode (§ B).
+
+### J. The visual prototype, as approved
+
+One file, `openspec/changes/operator-panel/visual/project/OpenPositions.html`, at commit
+`6603dea`, approved by the owner on 2026-10-12 ("Está muy bien. Queda así"). It is the visual
+reference for the implementation, its Spanish included. It is not product code: one HTML file, no
+script, no network, every example a still picture. Nobody edits it from here on; a later change
+to what it draws is a new decision.
+
+**What the page holds, in its own order.**
+
+1. **The review bar**, which is not part of the product: a note on what the page is, the key
+   "Reading the marks", and the list of examples.
+2. **Group A, the Strategies page**: examples 1 to 12.
+3. **Group B, the strategy detail page**: examples 13 to 21.
+4. **Group C, Spanish and the unmatched position**: examples 25 and 26.
+5. **Group D, the Overview**: examples 22 to 24. They are drawn last, after 25 and 26, and keep
+   their numbers.
+
+**The key, "Reading the marks".** Seven sample marks, each with one line of explanation, and the
+rule under them. It is where the marks' rule of § H can be checked at a glance.
+
+| Sample | What the key says of it |
+| --- | --- |
+| `AAVEUSDT · LONG · Dry run` | a position opened in dry run: filled, solid amber border, amber word |
+| `AAVEUSDT · LONG · Live` | a position opened live: filled, solid cyan border, cyan word |
+| `AAVEUSDT · LONG · Dry run and live` | a position holding fills of both origins: red, because neither mode can close it |
+| `AAVEUSDT · LONG · origin unknown` | origin not known: grey border and grey words, solid on a position |
+| `AAVEUSDT · order in flight · Dry run` | an order in flight, dry run: unfilled, dashed amber border |
+| `AAVEUSDT · order in flight · Live` | an order in flight, live: unfilled, dashed cyan border |
+| `Venue disagrees` | the exchange disagrees with the ledger: red, with its words; it needs the owner |
+
+**The 26 examples.** Every English text is § I's, and every Spanish text of example 25.
+
+1. The Strategies page, desktop, with its top bar (the tabs `binance` and `bybit`, the "Live"
+   badge in cyan): `Open: 0 · Orders in flight: 0 · Last read: 21:40:03 UTC` and "Read again",
    above three rows that carry no mark.
-2. A row with one live position: `AAVEUSDT · LONG · Live`.
-3. A row with one rehearsal position: `SFPUSDT · SHORT · Dry run`.
-4. A row with a position holding fills of both origins: `STXUSDT · LONG · Dry run and live`.
-5. A row with a position whose symbol cannot be resolved: the pair, "side not readable", its origin.
-6. A row with an order in flight and no fill yet, in its three origins: dry run, live, origin
-   unknown.
-7. A row with a position the venue disagrees on, in its two variants: with a pending decision (the
-   link) and with no booking proposed.
+2. A row with one live position: `AAVEUSDT · LONG · Live`, in cyan.
+3. A row with one rehearsal position: `SFPUSDT · SHORT · Dry run`, in amber, under the amber "Dry
+   run" badge.
+4. A row with a position holding fills of both origins: `STXUSDT · LONG · Dry run and live`, in
+   red.
+5. A row with a position whose symbol cannot be resolved: `XYZBTC · side not readable · Live`.
+6. Three rows, each with an order in flight and no fill yet, dashed and unfilled: dry run, live,
+   origin unknown. `Open: 0 · Orders in flight: 3`.
+7. Two rows with a position the venue disagrees on: the position's chip, the red chip "Venue
+   disagrees", then the link "See the pending decision" on one and "No booking is proposed for
+   it." on the other.
 8. A DISABLED strategy's row (switch off) that carries a position's chip.
-9. A row with three positions on three pairs, the chips wrapping inside the first column without
-   moving the figures or the switch.
-10. The sentence in its "something is open" form: "Open now, on every exchange: 2 positions and 1
-    order in flight", followed by "Not on this list:" naming one position on another exchange and
-    one on an archived strategy.
-11. The sentence while loading, when the first read failed, and when a refresh failed after a good
-    read. The failed forms must not be readable as "nothing is open".
-12. Examples 2, 7, 9 and 10 at phone width (390 px).
-13. Detail page, desktop: the section "Open positions" above "Closed trades", empty: "No open
-    position."
-14. The section with one live position and every column: opened, pair, side, size, entry, fees,
-    margin granted, leverage; and the margin note under the table.
-15. The section with one rehearsal position at 1x and the dry-run note; and a row whose leverage is
-    empty (none recorded).
-16. A position closed in part (size "0.3 of 0.5 opened") and a position opened by three fills
-    ("average of 3 fills").
-17. A mixed position with its note, and an unresolved position with its five dashes and the reason.
-18. A position the venue disagrees on: the mark with both nets and "Last compared", in its two
-    variants (link, no booking proposed), and the variant shared by two positions.
-19. One order in flight as a line under the table (opening, sent at a time), and the section with
-    an order in flight and no position.
-20. The section with three positions, at desktop width and as cards at phone width.
-21. The section while loading and when the read failed.
-22. **Separable, for the owner's yes or no:** an Overview pool panel with its list of open
-    positions under the month grid, three positions of two strategies, each strategy's name a link.
-23. **Separable:** the count under the month grid in its three forms: "1 open", "2 open, 1 of them
-    dry run", and absent when nothing is open; beside it, today's sentence ("1 open trade not in
-    the curve") for comparison.
-24. **Separable:** example 22 at phone width, with a position the venue disagrees on and the
-    "Needs your decision" rail under the chart.
-25. Examples 3, 7, 10, 14 and 18 in Spanish.
-26. A position the facts could not decorate, which has no strategy row to sit on: the sentence of
-    example 10 naming it (strategy name, exchange, pair, origin, "figures not readable"), and a
-    detail section that reads "1 open position could not be matched to a strategy. The Strategies
-    page names it." where "No open position." would be.
+9. A row with three positions on three pairs, the chips wrapping in their own grid row, beside a
+   row with none: the figures and the switch sit at the same height in both.
+10. "Something is open, and not on this list": `Open: 2 · Orders in flight: 1`, with the order on a
+    row of the page and neither position on one. Under the figures: "Not on this list: LINK 4h -
+    RSI Divergences · archived · LINKUSDT · Dry run; STX 4h - RSI Divergences · XYZBTC · Live ·
+    figures not readable." Both are held by the selected exchange; nothing of another exchange is
+    named.
+11. The summary in four states: 11a loading; 11b the first read failed, in red, with the button;
+    11c a refresh failed after a good read, the last figures kept and "Could not be refreshed
+    since 21:38:12 UTC." in red under them; 11d the same when the last good answer was empty. No
+    failed form can be read as zero open.
+12. Examples 2, 7, 9 and 10 at phone width (390 px): the figures wrap, the button stays 44 px
+    tall, and the chips are the row's last line.
+13. The detail page, desktop, with its top bar: the section "Open positions" between the
+    two-column grid and "Closed trades", empty: "No open position."
+14. The section with one live position and every column: Opened (UTC), Pair with the origin's word
+    under it, Side, Size with its unit, Entry, Fees USDT, Margin granted USDT, Leverage; and the
+    margin note under the table.
+15. A rehearsal position at 1x with the dry-run note, and a row whose leverage is a dash ("not
+    recorded" for a screen reader).
+16. A position closed in part ("0.3 AAVE", "of 0.5 opened") and a position opened by three fills
+    ("average of 3 fills" under its entry).
+17. A position of both origins with its note, and an unresolved position: the side, the size and
+    the entry as dashes, the reason in a sub-row under it, the fees, margin and leverage shown.
+18. A position the venue disagrees on, as ONE red line under its row across the table: 18a with
+    the link; 18b ending "no booking is proposed"; 18c with "shared by 2 positions on this pair"
+    before the link.
+19. An order in flight as a dashed line under the table: 19a under a position, "SFPUSDT · order in
+    flight · closing · Dry run · sent 21:12 UTC"; 19b with no position, under "No open position.".
+20. Three positions, as a table at desktop width and as cards at phone width.
+21. The section while loading, and when the read failed, with the button.
+22. An Overview pool panel with its list of open positions under the month grid and its summary:
+    three positions of two strategies, the strategy's name the first column and a link; no Fees
+    column. The summary line ends "3 open, 1 of them dry run".
+23. The count in its three forms, beside today's sentence for comparison: "1 open"; "2 open, 1 of
+    them dry run"; and absent when nothing is open.
+24. Example 22 at phone width: the "Needs your decision" rail between the chart and the month
+    grid, the positions as cards with the strategy's name under each head, and the venue line
+    inside the card of the position the venue disagrees on, its link leading to the rail.
+25. Examples 3, 7, 10, 14 and 18 in Spanish (25a to 25e).
+26. A position the facts could not decorate: 26a the Strategies page, `Open: 1` and "Not on this
+    list: STX 4h - RSI Divergences · XYZBTC · Live · figures not readable.", with no chip on any
+    row; 26b the detail section reading "1 open position could not be matched to a strategy. The
+    Strategies page names it." where "No open position." would be.
 
-**After the owner's answers of 2026-10-11 (§ O).** Examples 1 to 25 keep their numbers and their
-content. No example draws the sentence in the header or on another page (Q4), and none draws a
-position opening onto its fills (Q5). The "no booking proposed" variants of examples 7 and 18 stay
-as the form this delivery ships (Q3). Example 26 is added by the validation.
+**What the prototype does not draw, and where this design says what is built instead.** None of
+these is a disagreement with the picture; each is a case it has no example for.
+
+| Not drawn | Built as | Section |
+| --- | --- | --- |
+| An order in flight as an item of "Not on this list" | the chip's own words: name, pair, "order in flight", origin | H |
+| A time that is not of today | its date before it | H |
+| The Overview's list while loading, when the read failed, and empty | the detail section's three states and texts | H |
+| An order in flight on the Overview | not drawn there | H; O, Q8 |
+| The unmatched sentence when the strategy also has positions | above the notes | H |
+| A position with both a venue line and a reason | the venue line first | H |
+| The reservation's note | a sub-row under its position, in the reason's type | H |
+| The Spanish of the texts example 25 does not hold | § I's Spanish column | I |
+
+**Three places where the picture is its own shorthand**, and the rule is what is built.
+
+- Examples 18b and 18c leave out the margin note that 18a draws. The note is true of any
+  position (§ H).
+- In example 25e the third venue line, the one shared by two positions, ends at "compartida por 2
+  posiciones en este par" and draws neither the link nor the words. The English of the same case,
+  18c, ends with the link. The rule is 18c's: once the proposals are read, the line ends with one
+  of the two (§ H).
+- The numbers are samples, as the review bar says: some margins read `121.8` where the panel's
+  money helper writes `121.80`, and the Spanish numbers all carry a comma (§ H; § O, Q9).
+
+**The earlier answers still hold.** No example draws the summary in the header or on another page
+(§ O, Q4), and none draws a position opening onto its fills (Q5). The forms without a link of
+examples 7 and 18 are what this delivery ships (Q3).
 
 ### K. What fails here without a log line?
 
@@ -5949,22 +6517,30 @@ as the form this delivery ships (Q3). Example 26 is added by the validation.
 | 3 | An order sent and not yet filled, or stuck | Nothing: the performance path has no fill to count | A row of its own, with the time it was sent, so an order in flight for hours is visible as such. One with no order id reads "origin unknown". |
 | 4 | A position whose reservation is not `FILLED` (expired or released while its order filled) | A margin shown as granted for capital the pool counts as free | `reservation_status` is served; the row says so and the read logs one WARNING with the allocation id. Plausible and not proven: `SUBMITTED` may go to `EXPIRED` or `RELEASED` (`allocation/domain/reservation.py:36-52`). § L, T12. |
 | 5 | A rehearsal position shown as live, or the reverse | The owner changes the mode on a wrong reading | The origin is the guard's own two flags, from the guard's own statement. No second prefix test exists. § L, T3 seeds a live id that only CONTAINS the marker. |
-| 6 | A stale answer | "Nothing is open" from ten minutes ago | The sentence carries its time; the hook refetches every 60 s and on focus; a failed refresh is said in `loss`; "Read again" asks now. |
+| 6 | A stale answer | `Open: 0` from ten minutes ago | The figures carry "Last read"; the hook refetches every 60 s and on focus; a failed refresh keeps the last figures and says since when in `loss`, also when they are zero (example 11d); "Read again" asks now. |
 | 7 | One position written under two spellings (`STXUSDT.P` opened, `STXUSDT` booked) | Two rows, or one open and one "short" | Rows are per allocation. The fold nets every spelling; `markets` is the set of market keys, so the row says `STXUSDT` once. |
-| 8 | A disabled or archived strategy's position | Nothing, if the view followed the switch or the archived filter | Disabled: the chip is drawn. Archived and hidden, or another exchange: named in the sentence. |
+| 8 | A disabled or archived strategy's position | Nothing, if the view followed the switch or the archived filter | Disabled: the chip is drawn. Archived and hidden: counted in the figures and named under them, on its exchange's tab. Another exchange: not shown on this tab, by the owner's decision of 2026-10-12 (row 18). |
 | 9 | The figures and the fold disagree (the fold says open, the net computed for display is zero) | A row dropped, or a size of 0 | The row stays, `figures_missing` is `INCONSISTENT`, one WARNING names the allocation. § L, T5 is what keeps this from happening. |
-| 10 | An allocation the guard's reader returned and the facts read did not | A row dropped | The row stays with `NO_FACTS` and no strategy id, named in the page's sentence (§ H); one WARNING with the allocation id. § L, T12. |
+| 10 | An allocation the guard's reader returned and the facts read did not | A row dropped | The row stays with `NO_FACTS` and no strategy id, counted and named under the figures on the tab of its own exchange (§ H); one WARNING with the allocation id. § L, T12. |
 | 11 | An unresolved symbol | Nothing on the panel today (P8) | The row, with its reason; one WARNING with the allocation id, as the performance reads log it. § L, T12. |
 | 12 | A confirmed row whose market is not among the position's markets | A mark about another market | The mark stays (the allocation id is the key) and one WARNING names both. § L, T12. |
 | 13 | A body that is not the expected shape, or a 404 from an older API | An empty list | An error state. The shape check refuses the whole answer; a 404 is a failure here. |
 | 14 | A confirmed disagreement with no proposal to decide | A link that leads to an empty rail | No link: the row says that no booking is proposed. § O, Q3. |
 | 15 | The snapshot is not in force (the statement is not the first of the transaction) | Figures of two instants in one row | PostgreSQL refuses a `SET TRANSACTION` issued after a query: an error, hence a 500 and the error state, not a silent degradation. § L, T6 proves the happy path. |
-| 16 | An order the guard's reader returned and the submitted-orders read did not (possible only if the snapshot is lost) | An order dropped: the one case the guard refuses on and the panel would not show | The row STAYS, built from the reader's element, with no strategy id, action or time; it is named in the page's sentence. One WARNING with the attempt id. § L, T12. |
+| 16 | An order the guard's reader returned and the submitted-orders read did not (possible only if the snapshot is lost) | An order dropped: the one case the guard refuses on and the panel would not show | The row STAYS, built from the reader's element, with no strategy id, action or time; it is counted and named under the figures on the tab of its own exchange. One WARNING with the attempt id. § L, T12. |
+| 17 | An element whose pool is not its reservation's, or a `SUBMITTED` attempt with no reservation: its exchange may be no tab at all (added 2026-10-12) | Nothing, on any tab: the exchange is now the key that decides which tab shows an element, and no tab has that key | The row stays in the answer with its own pool; one WARNING with the allocation or attempt id and both pools, at every read. Its strategy's detail page shows it when it has a strategy id. Whether the Strategies page should name it is the owner's to say (§ O, Q7). § L, T12. |
+| 18 | The selected tab reads zero and zero while another exchange holds a position | "Nothing is open", read as the whole system's answer before a mode change | By the owner's decision the page speaks of one exchange. No text says "nothing is open" without a tab above it, none is worded as a permission, and the guard refuses the start whatever was read (§ B). § L, T15 pins that the other exchange's elements are absent, so that the absence is the rule and not a defect. |
+| 19 | The strategies list failed, or is filtered, while positions exist | Rows with no mark, read as "no strategy holds anything" | The figures do not depend on the list, and every element of the exchange that no row carries is named under them. |
+| 20 | An order sent, or a disagreement last compared, on an earlier day | "sent 21:12 UTC", read as minutes ago | A time that is not on the day of the read is written with its date (§ H). § L, T18. |
+| 21 | The Overview's read failed | No count under the month grid, which is also how "nothing open" looks (example 23c) | The list's heading is always drawn, with the error sentence and "Read again" under it. § L, T13. |
+| 22 | The pending proposals are loading or their read failed, on a position the venue disagrees on | "no booking is proposed", a claim nobody checked | Neither the link nor the words is drawn until the proposals are read (§ E). § L, T19. |
+| 23 | The link "See the pending decision" lands at the top of the Overview | A link that seems to lead nowhere, on a phone where the rail is below the chart | The rail brings itself into view when the hash names it (P29). § L, T19. |
+| 24 | A pool with no performance report holds a position | Nothing on the Overview: the month grid and its summary are not drawn without a report | The list is placed outside that condition (`PoolPanel.tsx:143-148`). § L, T13. |
 
 **Levels**, the ones `performance/application/scope.py:18-24` gives for read models: WARNING with
 the ids for a fault in stored data, nothing when nothing is wrong, never ERROR, because a read
 model fires once per page view and only ERROR reaches the operator's alerts. No price, quantity,
-fee or margin is ever logged. Rows 4, 9, 10, 11, 12 and 16 repeat on every read while the fault
+fee or margin is ever logged. Rows 4, 9, 10, 11, 12, 16 and 17 repeat on every read while the fault
 exists, and each has a test that reads the log record (§ L, T12; T5 keeps row 9 from arising);
 with a 60 s poll that is one line a minute per open tab, which is the accepted cost of a fault that
 is otherwise invisible.
@@ -5985,11 +6561,18 @@ say how.
 | T6 | **The snapshot.** On real PostgreSQL, a harness holds the read between its first and second statement, a second connection commits a closing fill, and the read is released. Asserted: the answer is the state BEFORE the fill, whole. Then the same harness with the snapshot statement removed must show the mixed state, which proves the test can fail. | infrastructure | § G. It is also the proof that the statement is accepted as the transaction's first. |
 | T7 | **Statement counts.** Four with nothing open, seven with one position and with twenty, in the manner of `test_operations_statement_counts.py`. | infrastructure | No statement per row. |
 | T8 | Domain tables for `open_position_figures` (one fill, several fills, a partial close, a base-currency fee, a flip, two markets, an unresolved symbol, a SHORT, and the two `INCONSISTENT` cases: a net of exactly zero, and a held side with no quantity or notional above zero), for `origin_of` against the origin `find_mismatches` reports, and for the mark's key (a row naming the allocation, a row of the same market naming another, an `OBSERVED` row, a resolved row, a row of another pool, a row naming two allocations). Router tests for the body, field by field, for a `NO_FACTS` position and an undecorated order (their nullable fields are written as JSON null, never omitted and never a zero), and for 401. | domain, infrastructure | § D, § E, § F. |
-| T9 | Frontend, the API module: a well-formed body; a body with one bad element refused whole; a 404 as an error; the two selectors, and that `notShown` returns an element whose `strategy_id` is null whatever ids are on screen. | Vitest | § H, § K row 13. |
-| T10 | Frontend, the components: every state of § H's table for `OpenStateLine`, `OpenMarks` and `OpenPositionsSection`; that a failed read never draws the "nothing is open" sentence; that every element of a fixture answer is drawn in a row or named in the sentence; the link only with a matching pending proposal; a disabled row keeps its chip; `['positions','open']` is invalidated after a booking is approved AND after one is rejected, one test in each of `ConfirmBookingDialog.test.tsx` and `RejectBookingDialog.test.tsx`; a position with no strategy id is named in the sentence and keeps both "Nothing is open on any exchange" and the detail's "No open position." from being drawn; the loading mark of a row has the translated accessible name. | Vitest, Testing Library | § H. |
-| T11 | Frontend, texts and tokens: every new key exists in both locale files, in the manner of the existing parity tests; no hex and no `var()` in the new files' classes. | Vitest | Conventions. |
-| T12 | **Every WARNING of § K, and the row it must not cost.** With fakes and the log captured, one case each: a position whose reservation reads `EXPIRED` (row 4); the fold calling an allocation open while the display net is zero (row 9); an open allocation the facts read does not answer for (row 10); an unresolved symbol (row 11); a confirmed row that names the allocation under another market (row 12); an in-flight element with no submitted row (row 16). Asserted for each: the row IS in the answer with the fields § C and § F give it; exactly one WARNING is logged; it carries the allocation or attempt id; it carries no price, quantity, fee or margin. And a case with nothing wrong logs nothing. | application, fakes | § K rows 4, 9, 10, 11, 12, 16; § C "a row the facts cannot decorate stays". |
-| T13 | **Separable, with op.4.** `ofPool` selects by the three values of a pool and never by exchange alone; `PoolOpenPositions` draws no position of another pool of the same exchange; the count reads "N open, M of them dry run" from the pool's positions; a row with no strategy id is listed in its pool with its name as plain text. | Vitest, Testing Library | § H, the Overview part; rule 7. |
+| T9 | Frontend, the API module (`shared/api/positions.test.ts`): a well-formed body; a body with one bad element refused whole, an element with no `pool.exchange` among them; a 404 as an error; the five selectors: `ofExchange` keeps exactly the elements of that exchange and matches the string exactly; `ofPool` selects by the three values and never by exchange alone; `notShown` returns an element whose `strategy_id` is null whatever ids are on screen; and, over one fixture, the positions of `ofExchange` equal the union of `ofStrategy` for the visible ids and `notShown`, with nothing in both. | Vitest | § H, § K row 13. Changed on 2026-10-12: five selectors, not two. |
+| T10 | Frontend, the components: every state of § H's table for `OpenStateLine`, `OpenMarks` and `OpenPositionsSection`. For `OpenStateLine`: the three figures with their labels; that a failed first read draws no figure at all, so never `Open: 0`; that a failed refresh keeps the last figures and adds the red sentence, also when they are zero; that every element of the selected exchange in a fixture is drawn in a row or named under the figures, and that the count equals the two together; the item of an archived strategy's position and of one with no strategy id, letter for letter as example 10; the second line withheld while the strategies list loads; that a refetch which changes only `as_of` changes no text inside the `role="status"` region. For the rest: the link only with a matching pending proposal; a disabled row keeps its chip; `['positions','open']` is invalidated after a booking is approved AND after one is rejected, one test in each of `ConfirmBookingDialog.test.tsx` and `RejectBookingDialog.test.tsx`; an unmatched element of the strategy's exchange keeps the detail's "No open position." from being drawn, and one of another exchange does not; the loading mark of a row has the translated accessible name. | Vitest, Testing Library | § H. Changed on 2026-10-12: the figures replace the sentence, and the selected exchange bounds every assertion. |
+| T11 | Frontend, texts and tokens: every key of § I exists in both locale files, in the manner of the existing parity tests, and no key of § I's "no longer exist" table does; no hex and no `var()` in the classes of the files under `features/positions`. | Vitest | Conventions. |
+| T12 | **Every WARNING of § K, and the row it must not cost.** With fakes and the log captured, one case each: a position whose reservation reads `EXPIRED` (row 4); the fold calling an allocation open while the display net is zero (row 9); an open allocation the facts read does not answer for (row 10); an unresolved symbol (row 11); a confirmed row that names the allocation under another market (row 12); an in-flight element with no submitted row (row 16); and, added on 2026-10-12, a position whose fills name one pool and whose reservation another, an order whose attempt names one pool and whose reservation another, and a `SUBMITTED` attempt with no reservation (row 17), the two pools spelled as two different exchanges. Asserted for each: the row IS in the answer with the fields § C and § F give it, its `pool` its own and not the reservation's; exactly one WARNING is logged; it carries the allocation or attempt id; it carries no price, quantity, fee or margin. And a case with nothing wrong logs nothing. | application, fakes | § K rows 4, 9, 10, 11, 12, 16, 17; § C "a row the facts cannot decorate stays". |
+| T13 | **The Overview part** (`PoolOpenPositions.test.tsx`, `MonthlySummary.test.tsx`, `PoolPanel`'s tests). `PoolOpenPositions` draws no position of another pool of the same exchange; the strategy's name is a link, and plain text for a position with no strategy id; there is no Fees column; no order in flight is drawn; the venue line is drawn under its row. Its three states: loading, failed with "Read again", empty; and the list is drawn for a pool that has no performance report. The count: "N open" with no rehearsal position, "N open, M of them dry run" with some, a position of both origins in N and not in M, no part at zero, and no part at all while the read is loading or failed. | Vitest, Testing Library | § H, the Overview part; § K rows 21 and 24; rule 7. Changed on 2026-10-12: no longer separable. |
+| T14 | **The "Live" badge** (`shared/layout/AppShell.test.tsx`). The test "says Live, in the loss colour, when the server reports dry_run false" is renamed "says Live, in the gain colour, when the server reports dry_run false" and asserts `text-gain` and `border-gain` on the badge, and that it has neither `text-loss` nor `border-loss`. The four other tests of that `describe` do not change: the neutral states stay neutral. | Vitest, Testing Library | § H; decision 65. Changed test. |
+| T15 | **The Strategies page shows nothing of another exchange** (`features/strategies/StrategiesPage.test.tsx`). One answer holds, on `binance`, one position on a visible strategy; and on `bybit`, a position on a visible strategy, a position of an archived strategy, a position with no strategy id and an order in flight, each with a pair and a strategy name found nowhere else in the fixture. With `binance` selected: the figures read `Open: 1` and `Orders in flight: 0`; no "Not on this list" line is drawn; and none of `bybit`'s pairs or names is in the document. Then the scope selects `bybit`, with no new request: the figures read `Open: 3` and `Orders in flight: 1`, and `binance`'s pair is gone. Non-vacuity: make `OpenStateLine` read the whole answer and watch it go red. | Vitest, Testing Library | § B point 4; § H, the scope rule; § K row 18. New. |
+| T16 | **The marks' rule, as a table** (`features/positions/Mark.test.tsx`). For every kind and origin of § H's table: a position has `bg-panel-2` and no `border-dashed`; an order has `border-dashed` and `bg-transparent`; `border-dashed` is on no mark that is not an order; `border-loss` and `text-loss` are on the position of both origins and on the venue chip and on no other; a live mark has `border-gain` and its word `text-gain`; a dry-run mark `border-decision` and `text-decision`; an unknown origin `border-rule-strong` and `text-ink-3`; and every mark holds its origin, or "Venue disagrees", as text. | Vitest, Testing Library | § H, the marks. New. |
+| T17 | **One line, two variants** (`features/positions/MarkLine.test.tsx`). `OrderLine` and `VenueLine` render the same element with the same class list but for the border's style and colour; the order line's parts and the venue line's parts in § H's order, letter for letter as examples 19 and 18, in both languages for the venue line (25e); a part with no value is left out with its separator (`action` null, `submitted_at` null, a count of one). | Vitest, Testing Library | § H, the two lines. New. |
+| T18 | **A time of another day carries its date.** `clockSecondsText`; and "sent", "last compared" and "could not be refreshed since" given an instant of the day before the read's `as_of`. | Vitest | § H, times; § K row 20. New. |
+| T19 | **The link and the rail.** The venue mark, as a chip and as a line: the link with a matching pending proposal; the words with the proposals read and none matching; neither while the proposals are loading and when their read failed. `DecisionRail` has the id, and scrolls into view when rendered at a location whose hash is that id, and not otherwise (`scrollIntoView` is stubbed: jsdom has none). | Vitest, Testing Library | § E; § K rows 22 and 23. New. |
+| T20 | **`MonthlySummary` keeps its second caller.** With no `open` prop it writes "N open trades not in the curve" as today; `StrategyPerformance.test.tsx:107-115` is not edited and passes. | Vitest, Testing Library | § H; P27. New. |
 
 - **Symbols.** Every test that crosses a boundary uses a different spelling on each side: the
   ledger's fills as `STXUSDT.P`, the discrepancy row as `STXUSDT`, a booked fill as `STXUSDT`, an
@@ -6000,7 +6583,8 @@ say how.
   agent edits it. What the owner would add is one handler, `GET /api/positions/open`, answering a
   body with § J's examples: one live, one rehearsal, one mixed, one unresolved, one order in
   flight, one with a `venue_disagreement` whose `discrepancy_id` and `allocation_id` match a
-  proposal the fixture's bookings handler already serves, and one on another exchange. The tasks
+  proposal the fixture's bookings handler already serves, one on an archived strategy, and one on
+  another exchange, so that changing the tab is seen to change the figures. The tasks
   hand that body over as a JSON file under `openspec/`, ready to paste.
 - **Gate.** Each unit has its own, named in § M.
 
@@ -6011,36 +6595,55 @@ already importable and returning the wrong thing, never on an import or a constr
 | --- | --- | --- |
 | op.1 | T6, the snapshot. The route's dependency is first written as a pass-through that yields a plain session, and the use case as a stub that reads the two lists in two statements. | The held read then shows the state AFTER the concurrent fill; the assertion "the state before the fill, whole" fails. It is also the unit's riskiest assumption, so it is settled before anything is built on it. |
 | op.1, next | T1, with `ReadOpenPositions` stubbed to answer an empty state. | The guard's mismatch identifiers are not among the answer's ids. |
-| op.2 | T10: `OpenStateLine` given a FAILED read, with a stub that draws the "nothing is open" sentence whenever it has no data. | The assertion that the sentence is absent fails. This is the panel's version of the invariant, so it is the first thing pinned. |
+| op.2, the badge | T14, renamed and asserting `text-gain`, before `DryRunBadge.tsx` is touched. | The badge still has `text-loss`: the assertion fails, on a class and not on an import. |
+| op.2 | T10: `OpenStateLine` given a FAILED read, with a stub that draws `Open: 0` whenever it has no data. | The assertion that no figure is drawn fails. This is the panel's version of the invariant, so it is the first thing pinned. |
+| op.2, next | T15, with `OpenStateLine` and `OpenMarks` first written over the whole answer. | The other exchange's pair is in the document and the count is too high. |
 | op.3 | T10: `OpenPositionsSection` given one position whose `leverage` is null, with a stub that writes every cell from a default. | The assertion that the cell holds a dash with "not recorded", and not "1x", fails. |
 | op.4 | T13: `PoolOpenPositions` given positions of two pools of one exchange, with a stub that draws all it is given. | The assertion that the other pool's position is absent fails. |
 
 The mechanical move that opens op.2 (§ H) has no red test: it changes import paths only, and its
-proof is that every existing test passes unchanged.
+proof is that every existing test passes unchanged. The badge's change, the second commit of op.2,
+does have one (T14).
 
 ### M. Delivery
 
-**Before the tasks are written:** the prototype of § J, reviewed by the owner, who also answers the
-two points decision 65 left for it: the Overview's list and the Overview's count, § O's Q1 and Q2.
-The other three questions of § O are answered.
+**Before the tasks are written: nothing is pending.** The prototype is approved (§ J) and the two
+points decision 65 left for it are answered (§ O, Q1 and Q2). Four questions are open in § O, each
+with the default the tasks build; none of them holds the tasks back.
 
-| Unit | Contents | Forecast, authored lines |
+| Unit | Contents, in the order they are built | Forecast, authored lines |
 | --- | --- | --- |
-| op.1 | Backend: the domain module, the ports, `ReadOpenPositions`, the two adapters, the router and its snapshot dependency, the two lines in `main.py`, T1 to T8 and T12 | 1,700 to 2,400 |
-| op.2 | Panel: first, in a commit of its own, the move of the two format files and of `Absent` and `Instant` to `shared/` (§ H; renames and about twenty import lines). Then the API module and hook with its two selectors, `OpenStateLine`, `OpenMarks` in `StrategyRow`, the invalidation in the two booking dialogs, the shared texts, T9 to T11 for them | 1,100 to 1,600 |
-| op.3 | Panel: `OpenPositionsSection` on the detail page, the venue mark and its link, the rail's anchor, texts, their tests | 900 to 1,400 |
-| op.4 | **Separable.** Panel: `PoolOpenPositions` with its `ofPool`, the count in `MonthlySummary`, the `overview.*` texts of § I, T13 | 500 to 800 |
+| op.1 | Backend: the domain module, the ports, `ReadOpenPositions` with the pool check of § C, the two adapters, the router and its snapshot dependency, the two lines in `main.py`, T1 to T8 and T12 | 1,750 to 2,500 |
+| op.2 | The Strategies page. **Two commits open it, each on its own.** First the mechanical move: the two format files with their tests to `shared/lib/`, `Absent` and `Instant` to `shared/ui/`, about twenty import lines, no assertion changed (60 to 120). Then the badge: `DryRunBadge.tsx`, its test, one comment in `index.css` (15 to 25). Then the unit proper: the API module, its shape check, the hook and the five selectors; `origin.ts`, `OriginTag`, `Mark`; `OpenStateLine`; `OpenMarks` in `StrategyRow`; the rail's id and scroll; the time helper; the invalidation in the two booking dialogs; this unit's texts; T9 to T11, T14 to T16, T18, and the chip's half of T19 | 1,700 to 2,500 |
+| op.3 | The detail page: `PositionsTable` in its strategy variant, `MarkLine` with `OrderLine` and `VenueLine`, `OpenPositionsSection`, its texts; T17, the line's half of T19, the section's part of T10 | 1,300 to 2,000 |
+| op.4 | The Overview: the pool variant of `PositionsTable`, `PoolOpenPositions` in `PoolPanel`, the `open` prop of `MonthlySummary`, the three `overview.*` texts; T13, T20 | 600 to 950 |
+| | **The four units** | **5,350 to 7,950** |
 
-The forecasts assume tests at about twice the production code, as the last units ran. Nothing of
-op.4 sits in an earlier unit: its helper, its heading's text and its tests are its own. The rail's
-anchor is op.3's, because the venue mark's link needs it whether or not op.4 is built.
+**How the forecast was recomputed, and why it grew.** The first writing gave 3,600 to 5,300 for
+op.1 to op.3 and 500 to 800 for op.4, so 4,100 to 6,100. It is now 5,350 to 7,950, counted
+component by component with the tests at about twice the production code, as the last units ran.
+
+| | Production | Tests | Why it differs from the first writing |
+| --- | --- | --- | --- |
+| op.1 | 600 to 850 | 1,150 to 1,650 | three columns in two statements, one comparison, three cases in T12 |
+| op.2, the two opening commits | 50 to 100 | 25 to 45 | the badge is new; the move was already counted |
+| op.2 proper | 650 to 850 | 1,000 to 1,500 | the marks' one table and its test, five selectors where there were two, T15, the rail's scroll, the time of another day; and the first figure was low for five components and their states |
+| op.3 | 500 to 700 | 800 to 1,300 | the shared line and its test, the table written once for two pages, the proposals' loading state |
+| op.4 | 150 to 250 | 450 to 700 | its three states, the list for a pool with no report, the count's three values, the summary's second caller |
+
+About 500 to 700 lines are what the owner's review added. The rest is that the first frontend
+figures were low, which is said here and not hidden in the range. Nothing was removed to make the
+number smaller, and the summary as three figures is somewhat cheaper than the sentence it replaces.
+
+The rail's id and scroll are op.2's, not op.3's as first written: the list's venue chip carries
+the link, so the first unit that draws a link owns its target.
 
 **The gate of each unit**, run after it and before its commits are closed.
 
 | Unit | Gate |
 | --- | --- |
 | op.1 | `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. It touches no frontend file. |
-| op.2 | `cd frontend && npm run lint && npm test`, run once after the mechanical move alone (every existing test passes unchanged) and once after the unit. It touches no backend file. |
+| op.2 | `cd frontend && npm run lint && npm test`, run three times: after the mechanical move alone (every existing test passes unchanged), after the badge's commit, and after the unit. It touches no backend file. |
 | op.3 | `cd frontend && npm run lint && npm test`. |
 | op.4 | `cd frontend && npm run lint && npm test`. |
 | the PR | both gates, on the branch's head, before it is opened. |
@@ -6049,19 +6652,25 @@ pytest prints no summary line in this shell: the backend gate is read from its e
 the per-file counts of `uv run pytest --co -q`, as the working agreements say.
 
 - **Order.** op.1 first: the panel refuses an answer it cannot read, so the route exists before the
-  code that asks for it. Then op.2, then op.3. op.4 last, or not at all.
-- **One PR for op.1 to op.3**, cut from an up-to-date `main`, each unit its own work-unit commits
-  with its tests. The owner's standing preference is one PR per unit of work unless there is a
-  specific reason to split, and none holds here: the three units are one feature, the backend
+  code that asks for it. Then op.2, opened by its two commits; then op.3; then op.4. op.4 is last
+  because it reuses op.3's table, not because it might be dropped: the owner agreed to it on
+  2026-10-12.
+- **One PR for the four units**, cut from an up-to-date `main`, each unit its own work-unit
+  commits with its tests. The owner's standing preference is one PR per unit of work unless there
+  is a specific reason to split, and none holds here: the four units are one feature, the backend
   alone shows nothing, and the one order hazard is harmless (a new bundle against an older API
-  shows the error sentence, never "nothing is open"). The size is far above the 400-line review
-  budget; the owner has said that the budget is soft.
-- **op.4** goes in the same PR if the owner says yes to both of its points at the prototype
-  review. If the answer is not yet known when the tasks are written, it is a second PR, cut from
-  `main` after the first is merged, and that is the specific reason to split: it may be dropped or
-  changed. If the owner says no, it is not built.
-- `Decision needed before apply: Yes` (the prototype review, with § O's Q1 and Q2) · `Chained PRs recommended:
-  No` (one PR, or two sequential ones as above, never stacked) · `400-line budget risk: High`.
+  shows the error sentence, never a figure of zero). The reason the first writing gave for a
+  second PR, that the Overview part might be dropped or changed, is gone. The size is far above
+  the 400-line review budget; the owner has said that the budget is soft.
+- **If the tasks slice it all the same** (the session's delivery strategy is `auto-chain`), the
+  slices are the four units in this order, each a PR cut from an up-to-date `main` after the one
+  before it is merged: sequential, never stacked, as the working agreements say. Each is safe to
+  ship alone. op.1 adds a route nobody calls. op.2 gives the Strategies page its figures and
+  marks; its venue chip's link already reaches the rail. op.3 adds the detail section. op.4 adds
+  the Overview's list and changes its count. The badge's commit could ship first of all, alone.
+- `Decision needed before apply: No` (§ O's four open questions each have a default) · `Chained
+  PRs recommended: No` (one PR; if sliced, sequential by unit, never stacked) · `400-line budget
+  risk: High`.
 
 **Migration: none.** Every column the read uses exists and is populated by code that runs today:
 `ledger_entries` (`ledger/infrastructure/models.py:36-64`), `reservations.amount` and `.status`
@@ -6080,24 +6689,27 @@ already exist (§ G). So no migration is rehearsed and none runs.
    lists against what the owner knows to be open.
 3. The bundle step of task pps.6, since `frontend/` changed: built on the owner's machine from a
    clean checkout of `origin/main`, copied to a release directory of its own.
-4. Read the Strategies page: the sentence, the marks, one strategy's section.
+4. Read the panel: `https://strategymanager.trade/build.txt` names the commit; then the figures on
+   EACH exchange's tab of the Strategies page, the marks, one strategy's section, the Overview's
+   list and count, and the badge's colour.
 5. The delivery log of the active change's `tasks.md`.
 
 **Rollback.** Revert the PR's merge commit, pull, restart `strategy-api`, and point the panel back
 at the previous release directory. Nothing was written and no schema changed, so there is no data
 to undo. Rolling back only the bundle is also safe: the older panel never asks for the route.
 
-**Reverting op.4 alone.** It is frontend only, so no service is restarted either way.
+**Reverting one part alone.** Each is frontend only, so no service is restarted; each is followed
+by the bundle step of pps.6.
 
-- If it shipped inside the one PR: revert its own work-unit commits, in reverse order. They touch
-  its two components, the one prop of `PoolPanel`, the sentence in `MonthlySummary`, the
-  `overview.*` keys and T13, and no file of op.1 to op.3. Then the bundle step of pps.6.
-- If it shipped as a second PR: revert that PR's merge commit, then the bundle step.
-- If it was never built: nothing to revert; `excluded.open_trade_count` and today's sentence are
-  untouched by op.1 to op.3.
-
-Either way the Overview returns to today's count and the list, the detail page and the route keep
-working: they do not import anything of op.4.
+- **The Overview part (op.4).** It is no longer separable by design, and it is still revertible:
+  revert its work-unit commits, in reverse order. They touch `PoolOpenPositions`, the pool variant
+  of `PositionsTable`, `PoolPanel`, the `open` prop of `MonthlySummary`, the three `overview.*`
+  keys, T13 and T20. The Overview returns to today's count; the list, the detail page and the
+  route keep working, since nothing of op.1 to op.3 imports op.4.
+- **The badge.** Revert its one commit: two lines, a comment and a test. The marks keep their
+  colours; the badge and the live marks would then disagree, which is the state the owner asked
+  to end, so this is a revert for a defect and not a choice of taste.
+- **The mechanical move** is not reverted alone: everything after it imports from `shared/`.
 
 **Design decisions made here** (not owner decisions; each has its reason above):
 
@@ -6113,15 +6725,26 @@ working: they do not import anything of op.4.
 | D8 | Figures that cannot be derived are null with a reason; the row always stays | D, K |
 | D9 | The venue mark is keyed by allocation id inside the pool, on open CONFIRMED rows only; no origin filter | E |
 | D10 | The mark links only when a pending proposal names the allocation and the discrepancy | E |
-| D11 | A sentence on the Strategies page, and only there (§ O, Q4), states the whole system's answer and names what the list does not show | H |
+| D11 | **Superseded on 2026-10-12 by the owner.** It was: a sentence on the Strategies page states the whole system's answer. It is: three labelled figures, on the Strategies page and only there (§ O, Q4), for the selected exchange and no other, with the names of what that exchange holds and its list does not show | B, H |
 | D12 | One query key, 60 s stale time and refetch interval; invalidated by a booking decision | H |
-| D13 | Origin "Dry run" in `decision`, as the mode badge and the trades table; "Live" in neutral ink | H |
-| D14 | The Overview's list and count are files of their own, droppable without touching the rest | H, M |
-| D15 | One PR for op.1 to op.3; op.4 with it only if agreed before the tasks | M |
-| D16 | A row the facts cannot decorate stays, without a strategy id, and is always named in the page's sentence | C, F, H |
+| D13 | **Superseded on 2026-10-12 by the owner.** It was: "Live" in neutral ink. It is: "Dry run" in `decision`, "Live" in `gain`, and `loss` only for what needs the owner | H |
+| D14 | **Withdrawn**: the Overview part is in. It stays revertible (§ M) | H, M |
+| D15 | One PR for the four units | M |
+| D16 | A row the facts cannot decorate stays, without a strategy id. Amended on 2026-10-12: it is named on the tab of its own exchange, not on every view | C, F, H |
 | D17 | The body serves only what a component draws | F |
 | D18 | The formatting helpers and the two cells move to `shared/` in a commit of their own | H |
-| D19 | The Overview part owns its selector, its heading's text and its tests | H, I, M |
+| D19 | **Withdrawn**: `ofPool` is with the other selectors, and the Overview's texts are ordinary keys | H, I, M |
+| D20 | The route stays whole-system and takes no parameter; the selected exchange is a selection on the client | F, H |
+| D21 | Everything the Strategies page draws is selected from `ofExchange` first, so the count equals what is drawn plus what is named | H |
+| D22 | An element belongs to the exchange of its own pool, the guard's label. The read compares that pool with the reservation's and logs a difference; it never replaces one with the other | C, K |
+| D23 | An element whose exchange has no tab is shown on no tab until the owner says otherwise (§ O, Q7); it is always logged | C, H, K |
+| D24 | One table from an origin to its word and its two classes; one line component with two variants | H |
+| D25 | The live region holds the counts and not the time of the read | H |
+| D26 | A time that is not of the read's day is written with its date | H, K |
+| D27 | The link's last part is drawn only from a successful read of the proposals; the rail scrolls itself into view | E, H, K |
+| D28 | The Overview's list does not depend on the pool's report, always draws its heading, and draws no order in flight (§ O, Q8) | H |
+| D29 | `MonthlySummary` takes the new count as an optional prop; its second caller, the detail page, is not changed (§ O, Q6) | H |
+| D30 | Figures are written by the closed trades table's helpers (§ O, Q9) | H |
 
 **Threat matrix.** N/A: no routing of commands, shell, subprocess, VCS or PR automation,
 executable-file classification or process integration. The new HTTP route is read-only, sits
@@ -6135,11 +6758,18 @@ behind the router-level bearer token and takes no input.
 | The whole-ledger aggregate runs once a minute per open tab | It grows with the ledger, which only grows | It is the statement the worker runs at each start and the order of work the list already does per row. If it becomes slow, the answer is to bound the guard's statement itself, for both readers at once, which is a change to the guard and so a design of its own. |
 | Five implementations of the rule become six readers of two definitions, not one | The archive check, the key delete, the closes and the reconciliation keep their own SQL (P9) | Out of scope by choice: each feeds a write or a refusal with its own tests. This design adds no implementation of the DECISION; it adds one of the display arithmetic, pinned to the fold by T5. |
 | `SET TRANSACTION` as the session's first statement may not behave as assumed on this stack | It is the first use of a non-default isolation here | T6 is the first test written. If it cannot be made to hold, the fallback is the default level with § C's order of statements, which never shows less than there is; the tasks say so before building on it. |
-| The sentence is read as a permission to change the mode | It states a fact about one instant | Its wording and its time (§ B, § I). The guard remains the control; the panel is the view. |
+| Zero and zero on one tab is read as "nothing is open anywhere", or as a permission to change the mode | It states a fact about one exchange at one instant, and since 2026-10-12 no screen states the whole system's | The owner chose this knowing it (decision 65: before a mode change the owner looks at each exchange's tab). The figures carry their time and sit under the tab that scopes them. The guard remains the control and refuses the start whatever was read (§ B); the panel is the view. |
+| A cyan mark is read as "winning" | Cyan is also the colour of a gain in the figures of this panel, so a live position that is losing carries a "winning" colour: the mirror of the owner's first misreading, a red mark read as "losing" | Said to the owner before the answer, and accepted. What answers it: every mark says "Live" as a word, the top bar's badge is the same cyan and says the same word, and no mark holds a number. `LONG` and `SHORT` stay in ink, and red is never an origin. To be judged again in live use. |
+| The "Live" badge stops being an alarm | It was red "because real money moves"; in cyan it is a statement of the mode | The owner's decision, with that consequence stated. The badge is still always visible (decision 32), and a failed or pending read still shows neither mode. |
+| An open position or order on an exchange that has no tab | No tab shows it, and the owner has nowhere to look | It needs stored data at fault (P25, P26). The read logs it at every request (§ K, row 17), its strategy's page shows it, and the guard still refuses on it. Whether the Strategies page should name it is open (§ O, Q7). |
+| The detail page writes a live-only count above a section that lists every position | "1 open trade not in the curve" beside two rows, one of them a dry run | Not changed here: decision 65 names the Overview's count, and this second caller was found on 2026-10-12 (P27). The two statements are both true as worded. § O, Q6. |
+| In Spanish, numbers do not all read as the prototype draws them | Example 25 draws a comma in prices and sizes; the helpers write a point there and a comma in fees, as the closed trades table does today | The open positions follow the table under them, so one page is consistent. § O, Q9. |
+| "1 open, 1 of them dry run" | The approved form is awkward for one position, and ungrammatical in Spanish ("1 abiertas") | Left as approved: a singular form would be a text the owner has not seen. It shows for exactly one case, and can be added as its own key without touching anything else. |
+| The Overview shows no order in flight | A pool whose only open thing is an order reads "No open position." | True as worded, and the Strategies page counts and marks the order. § O, Q8. |
 | The API and the worker could disagree about `DRY_RUN` | The panel shows the mode from `/health`, the API's own setting | Not changed here. The read does not depend on the mode at all. |
 | A strategy with many pairs open draws many chips | The row grows taller | Bounded by its allowed pairs; the chips wrap inside the first track (§ J, example 9). |
 | Reusing `strategies.performance.trades.*` for the column words ties two tables' texts | A later change of one changes both | Intended: the same word for the same figure. The prototype shows both tables on one page. |
-| The forecast | The last units ran above theirs | It already assumes tests at twice the code. |
+| The forecast | The last units ran above theirs, and this one grew by about a third between two writings | It was recounted component by component on 2026-10-12, with tests at twice the code, and § M says which part of the growth is the review's and which was an earlier undercount. |
 | The `leverage` of an old position may be NULL for a reason other than "spot" | The cell is empty and the reason reads "not recorded" | Correct by the owner's rule: never filled in. |
 
 **Follow-ups, recorded and not designed here.**
@@ -6154,21 +6784,50 @@ behind the router-level bearer token and takes no input.
 design are the session's behaviour under `SET TRANSACTION` (T6) and whether a reservation can be
 other than `FILLED` under a position (§ K, row 4).
 
-### O. Questions for the owner: two open, three answered (2026-10-11)
+### O. Questions for the owner: five answered, four open (2026-10-12)
 
-Two points are carried from decision 65, which left them for the prototype review; they are the
-only open ones. The three this addendum raised were answered by the owner on 2026-10-11.
+The two points decision 65 left for the prototype review were answered on 2026-10-12, and the
+three this addendum raised on 2026-10-11. The revision of 2026-10-12 surfaced four more, which
+only the owner can answer. Each has the default the tasks build until it is answered, so none of
+them holds the delivery back, and each can be answered with one word.
 
-**Open, for the prototype review.**
+**Open.**
 
-**Q1 (carried). Does the Overview list every open position of the selected exchange, pool by
-pool?** The prototype draws it (§ J, example 22). The design builds it as a separable part.
+**Q6. The strategy detail page writes "N open trades not in the curve" for that strategy, counting
+live positions only. Should it change as the Overview's count does, stay as it is, or go?**
+Decision 65 changes the Overview's count; nobody had seen that the same sentence is also drawn on
+the detail page (P27). The section "Open positions" will sit a little below it and list every
+position, dry-run ones included, so the two can read differently. **Default: it stays as it is.**
 
-**Q2 (carried). Does the Overview's count change from "N open trades not in the curve", which
-counts live positions only, to "N open, M of them dry run"?** The prototype draws both (§ J,
-example 23).
+**Q7. If an open position or order ever sits on an exchange that has no tab, should the
+Strategies page name it on every tab, or show nothing and leave it to the log and to the worker's
+refusal?** It needs stored data at fault, and the read logs it at every request (§ C). Naming it
+means writing about an exchange other than the selected one, which is what the owner asked not to
+read; not naming it means the panel shows it nowhere but on its strategy's own page. **Default: it
+is shown on no tab.**
+
+**Q8. Should a pool's list on the Overview also show that pool's orders in flight?** The first
+writing listed them there. The prototype draws none, and the approved order line has no place for
+the strategy's name, which a line on the Overview would need. **Default: no; orders in flight are
+on the Strategies page and on the strategy's page.**
+
+**Q9. Should the open positions write their numbers as the closed trades table does today?** That
+table writes a price or a size with a decimal point in both languages and money with the
+language's separator and the currency's decimals (P30). Example 25 draws a comma everywhere, and
+some sample margins without their last zero. **Default: yes, as the table under them**, so in
+Spanish a price reads `184.3` and fees `0,17`, and a margin reads `121.80`. The other answer
+changes the closed trades table too, which is decision 46's.
 
 **Answered.**
+
+**Q1 (carried). Does the Overview list every open position of the selected exchange, pool by
+pool?**
+**Answered 2026-10-12: yes** ("Lo de Overview me parece bien, lo incorporamos"). It is a unit of
+the delivery, no longer a separable part (§ H, § M).
+
+**Q2 (carried). Does the Overview's count change from "N open trades not in the curve", which
+counts live positions only, to "N open, M of them dry run"?**
+**Answered 2026-10-12: yes**, with Q1 (§ H). What the answer does not cover is Q6 above.
 
 **Q3. When the reconciliation has confirmed that the venue disagrees and there is no booking to
 decide, is the row's own statement enough?**
@@ -6182,6 +6841,18 @@ to it once it exists (§ E; § N, follow-up F1).
 ("Nothing is open on any exchange" / "Open now, on every exchange: …")?**
 **Answered 2026-10-11: yes, the Strategies page only.** There is no variant in the header, beside
 the mode badge or on any other page (§ H).
+**Changed on 2026-10-12, by the owner, in two steps.** First its scope: the Strategies page shows
+nothing of another exchange, so the summary answers for the selected exchange only, and "Not on
+this list" names only what that same exchange holds. Then its form: three labelled figures,
+`Open: 0 · Orders in flight: 0 · Last read: 21:40:03 UTC`, that name no exchange, in place of a
+sentence. The place did not change: the Strategies page, and only there. No screen now answers
+for the whole system (§ B).
+
+**Also decided by the owner on 2026-10-12, without a question of this section** (decision 65):
+the marks' rule, shape for what a mark is, colour for the origin, red for what needs the owner;
+the "Live" badge in `gain`, in this delivery; the venue mark of the detail page as one line in the
+type of the order line, with a solid red border; and the prototype approved as drawn at commit
+`6603dea`, its texts and its Spanish included.
 
 **Q5. Should an open position open onto its individual fills, as a closed operation does?**
 **Answered 2026-10-11: not in this delivery.** It is recorded as a follow-up (§ N, F2). Nothing in
