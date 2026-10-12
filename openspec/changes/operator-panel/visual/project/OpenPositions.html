@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open positions - prototype</title>
+<!--
+  Design prototype for owner decision 65 (design.md, "Addendum: open positions, a mark and a list read
+  from the ledger", sections H, I and J). Sibling of SettingsKeys.html: same scaffolding, same tokens.
+  Not product code: it is never imported by the app. One file, no script, no network, no web font.
+  Every English text is the text of section I verbatim, and so is every Spanish text of example 25.
+  Where section I has no text for something drawn, the closest text of the panel is used and the review
+  note at the top of the page says so. Every example is a still picture: nothing here can be clicked.
+
+  Tokens used, with the Tailwind name the build maps each one to (frontend/src/index.css, @theme):
+    ground -> bg-ground         panel -> bg-panel         panel-2 -> bg-panel-2
+    rule -> border-rule         rule-soft -> border-rule-soft   rule-strong -> border-rule-strong
+    ink / ink-2 / ink-3 -> text-ink / text-ink-2 / text-ink-3
+    gain -> teal (links, primary action, gains)   gain-bright -> link hover
+    loss -> ember (losses, refusals, "venue disagrees", "Dry run and live")
+    decision -> amber (the mode badge's "Dry run" and the "Needs your decision" count)
+    font-display -> Archivo, font-sans -> IBM Plex Sans, font-mono -> IBM Plex Mono (fallbacks below)
+-->
+<style>
+  :root {
+    --ground: #0C1116;
+    --panel: #141B22;
+    --panel-2: #1B242C;
+    --rule: #28333C;
+    --rule-soft: #1E272F;
+    --rule-strong: #3D4E5C;
+    --ink: #E7EDF1;
+    --ink-2: #A9B8C3;
+    --ink-3: #7A8C99;
+    --gain: #1FA6B8;
+    --gain-bright: #6FD0DC;
+    --loss: #E0644B;
+    --decision: #CE8018;
+    --gain-2: color-mix(in srgb, #1FA6B8 32%, #1E272F);
+    --gain-4: color-mix(in srgb, #1FA6B8 56%, #1E272F);
+    --loss-2: color-mix(in srgb, #E0644B 32%, #1E272F);
+    /* Fallbacks only: no web font is requested (see SettingsKeys.html). */
+    --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    cursor: default;
+  }
+  h1, h2, h3, h4, p, ul, ol, dl, dd, figure { margin: 0; padding: 0; }
+  ul, ol { list-style: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  a { color: var(--gain); text-decoration: none; cursor: pointer; }
+  a:hover { color: var(--gain-bright); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+
+  /* ---------- review bar, captions and example scaffolding: NOT part of the product ---------- */
+  .review-bar {
+    border-bottom: 1px dashed var(--rule-strong);
+    background: var(--panel);
+    padding: 14px 20px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .review-tag, .caption, .review-note, .toc {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-3);
+  }
+  .review-tag { text-transform: uppercase; letter-spacing: 0.12em; }
+  .review-note { max-width: 110ch; }
+  .toc { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .toc a { color: var(--ink-2); }
+  .stage { padding: 28px 20px 64px; display: flex; flex-direction: column; gap: 44px; max-width: 1000px; }
+  .group { display: flex; flex-direction: column; gap: 32px; }
+  .group-title {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-2); padding-bottom: 8px; border-bottom: 1px dashed var(--rule-strong);
+  }
+  .group.separable { border: 1px dashed var(--decision); padding: 20px; margin-top: 8px; }
+  .group.separable .group-title { color: var(--decision); border-bottom-color: var(--decision); }
+  .group-note { font-size: 13px; color: var(--ink-2); max-width: 90ch; }
+  .example { display: flex; flex-direction: column; gap: 10px; scroll-margin-top: 16px; }
+  .ex-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .num {
+    font-family: var(--font-mono); font-size: 12px; padding: 1px 8px; border: 1px solid var(--rule-strong);
+    border-radius: 4px; color: var(--ink-2);
+  }
+  .ex-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--ink); }
+  .caption { max-width: 110ch; }
+  .sub { display: flex; flex-direction: column; gap: 8px; }
+  .row-of { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  /* A phone: 390 px wide including the page's 16 px padding; the dashed outline is the screen's edge. */
+  .phone {
+    width: 390px; max-width: 100%; padding: 16px; outline: 1px dashed var(--rule-strong);
+    display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  }
+  .phone h1 { font-size: 24px; }
+  /* A desktop frame is the page area (main padding 28 px) under or without the top bar. */
+  .deskframe { overflow-x: auto; }
+  .screen {
+    min-width: 760px; border: 1px solid var(--rule); background: var(--ground);
+    display: flex; flex-direction: column;
+  }
+  .screen > .main { padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+  .placeholder {
+    border: 1px dashed var(--rule-strong); border-radius: 8px; padding: 18px 20px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  }
+
+  /* ---------- top bar, as in SettingsKeys.html (TopBar.tsx) ---------- */
+  .topbar { display: flex; align-items: center; gap: 32px; height: 64px; padding: 0 28px; border-bottom: 1px solid var(--rule); background: var(--panel); }
+  .brand { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+  .tabs { display: flex; align-items: center; gap: 4px; }
+  .tab { padding: 0 14px; min-height: 40px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; color: var(--ink-3); }
+  .tab[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  .spacer { flex: 1; }
+  .badge {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--decision); border: 1px solid var(--decision); padding: 4px 8px; border-radius: 2px; white-space: nowrap;
+  }
+  .badge.live { color: var(--loss); border-color: var(--loss); }
+  .lang { font-size: 12px; text-transform: uppercase; color: var(--ink-3); }
+
+  /* ---------- page furniture (StrategiesPage.tsx, TradesTable.tsx) ---------- */
+  h1.pt { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--ink); }
+  h2.st { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
+  .title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+  .title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; }
+  .archtoggle { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; color: var(--ink); }
+  .box { flex: none; width: 18px; height: 18px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--ground); }
+  .btn {
+    min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--rule);
+    background: transparent; font-size: 14px; color: var(--ink); white-space: nowrap;
+  }
+  .btn:hover { background: var(--panel-2); }
+  .btn.primary { border-color: var(--gain); background: var(--gain); color: var(--ground); font-weight: 500; }
+  .btn.primary:hover { background: var(--gain); opacity: 0.9; }
+  .sect { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .text-sm { font-size: 14px; color: var(--ink-2); }
+  .text-sm.t3 { color: var(--ink-3); }
+  .text-sm.err { color: var(--loss); }
+  .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+
+  /* ---------- OpenStateLine: the whole system's sentence, Strategies page only ---------- */
+  .osl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+  .osl-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14px; color: var(--ink-2); flex: 1 1 24rem; }
+  .osl-text .loss { color: var(--loss); }
+  .osl-text .t3 { color: var(--ink-3); }
+  .osl .btn { flex: none; }
+
+  /* ---------- the strategies list: one grid from lg, each row a subgrid (StrategiesPage.tsx, StrategyRow.tsx) ---------- */
+  .slist { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; column-gap: 24px; row-gap: 12px; }
+  .srow {
+    grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; column-gap: 24px; row-gap: 0;
+    border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); padding: 12px 16px;
+  }
+  .sname { grid-column: 1; grid-row: 1; align-self: center; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .slink { font-family: var(--font-display); font-size: 16px; font-weight: 600; line-height: 24px; }
+  .pool { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+  .uptime { font-size: 12px; color: var(--ink-2); }
+  .figs {
+    grid-column: 2 / span 3; grid-row: 1; align-self: center; display: grid; grid-template-columns: subgrid; column-gap: 24px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  .figs dt { color: var(--ink-3); }
+  .gain { color: var(--gain); }
+  .loss-t { color: var(--loss); }
+  .sw { grid-column: 5; grid-row: 1; align-self: center; display: flex; flex-direction: column; align-items: flex-end; }
+  .switch {
+    position: relative; display: inline-flex; align-items: center; flex: none; width: 44px; height: 24px; padding: 0;
+    border-radius: 999px; border: 1px solid var(--rule); background: var(--panel-2);
+  }
+  .switch span { display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); margin-left: 4px; }
+  .switch.on { background: var(--gain); }
+  .switch.on span { margin-left: 24px; }
+  /* The marks sit in the first track, under the uptime. They are the row's second grid row, so the
+     figures and the switch (row 1) stay exactly where they are when the chips wrap to more lines. */
+  .chips { grid-column: 1; grid-row: 2; margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+  .chips:empty { display: none; }
+  .chipset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: 100%; }
+
+  /* The chip: the sibling's tag (mono 12/16, 2px 8px, 4px radius, panel-2). The origin is a WORD in its
+     own token; the border repeats the token but never carries the information alone. */
+  .chip {
+    display: inline-flex; flex-wrap: nowrap; gap: 0; font-family: var(--font-mono); font-size: 12px; line-height: 16px;
+    padding: 2px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel-2);
+    color: var(--ink); white-space: nowrap; max-width: 100%;
+  }
+  .chip .d { color: var(--ink-3); white-space: pre; }
+  .chip.c-dry { border-color: var(--decision); }
+  .chip.c-mixed { border-color: var(--loss); }
+  .chip.c-unk { border-style: dashed; border-color: var(--rule-strong); }
+  .chip.order { background: transparent; border-style: dashed; }
+  .chip.order.c-dry { border-color: var(--decision); }
+  .chip.venue { background: transparent; border-color: var(--loss); color: var(--loss); }
+  .o-dry { color: var(--decision); }
+  .o-live { color: var(--ink-2); }
+  .o-mixed { color: var(--loss); }
+  .o-unk { color: var(--ink-3); }
+  .vtext { font-size: 12px; color: var(--ink-2); }
+  .vtext a { text-decoration: underline; text-underline-offset: 3px; }
+  .dots { color: var(--ink-3); }
+  .phone .chip { white-space: normal; overflow-wrap: anywhere; }
+
+  /* The phone row: name block full width, then figures and switch, then the chips on their own line. */
+  .phone .slist { display: flex; flex-direction: column; gap: 12px; }
+  .phone .srow { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 8px; }
+  .phone .sname { grid-column: 1 / -1; grid-row: 1; }
+  .phone .figs { grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .phone .sw { grid-column: 2; grid-row: 2; }
+  .phone .chips { grid-column: 1 / -1; grid-row: 3; margin-top: 0; }
+
+  /* ---------- tables: the closed trades table's own classes (TradesTable.tsx) ---------- */
+  .tscroll { overflow-x: auto; }
+  .t { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .t th {
+    padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); font-weight: 500; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); text-align: right; vertical-align: bottom;
+  }
+  .t td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule-soft); text-align: right; color: var(--ink-2); vertical-align: top; }
+  .t .l { text-align: left; }
+  .t th:last-child, .t td:last-child { padding-right: 0; }
+  .t td.pair { color: var(--ink); }
+  .t .blk { display: block; }
+  .t .t3 { color: var(--ink-3); }
+  .t tr.sub td { padding: 0 0 10px; text-align: left; }
+  .otag { display: block; font-family: var(--font-sans); font-size: 11px; line-height: 16px; }
+  .unit { font-family: var(--font-sans); font-size: 11px; color: var(--ink-3); }
+  .aside { display: block; font-family: var(--font-sans); font-size: 11px; color: var(--ink-3); }
+  .notes { display: flex; flex-direction: column; gap: 6px; }
+  .note { font-size: 14px; color: var(--ink-2); max-width: 90ch; }
+  .reason { font-size: 12px; color: var(--ink-2); font-family: var(--font-sans); max-width: 80ch; }
+  .strat-head { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+
+  /* The venue mark: a loss border and loss title; the sentence stays in ink-2. */
+  .vmark {
+    display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--loss);
+    border-radius: 6px; background: var(--panel); text-align: left; font-family: var(--font-sans);
+    font-size: 13px; color: var(--ink-2); white-space: normal;
+  }
+  .vmark .vt { color: var(--loss); font-weight: 600; }
+  .vmark a { text-decoration: underline; text-underline-offset: 3px; align-self: flex-start; }
+
+  /* In-flight order lines (a line under the table) */
+  .olines { display: flex; flex-direction: column; gap: 6px; }
+  .oline {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; padding: 8px 12px; border: 1px dashed var(--rule-strong);
+    border-radius: 6px; background: var(--panel); font-family: var(--font-mono); font-size: 12px; color: var(--ink);
+  }
+  .oline .d { color: var(--ink-3); white-space: pre; }
+
+  /* Phone cards: one per position, stacked */
+  .cards { display: flex; flex-direction: column; gap: 12px; }
+  .pcard { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); min-width: 0; }
+  .pcard-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+  .pcard-head .pr { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
+  .pcard-head .pr .sd { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+  .pcard .otag { display: inline; }
+  .pcard dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .pcard dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+  .pcard dd { color: var(--ink-2); }
+  .pcard dd.full, .pcard dt.full { grid-column: 1 / -1; }
+
+  /* ---------- Overview pool panel (PoolPanel.tsx) ---------- */
+  .pool-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+  .ledger { font-family: var(--font-mono); font-size: 15px; line-height: 1.45; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .ledger .lead { font-size: 26px; font-weight: 600; line-height: 1; color: var(--ink); }
+  .ledger b { font-weight: 600; }
+  .ledger .rs { color: var(--rule); }
+  .chart { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); padding: 12px; }
+  .chart svg { display: block; width: 100%; height: 120px; }
+  .mgrid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+  .mgrid i { display: block; height: 22px; border-radius: 3px; background: var(--rule-soft); }
+  .mgrid i.g2 { background: var(--gain-2); } .mgrid i.g4 { background: var(--gain-4); } .mgrid i.l2 { background: var(--loss-2); }
+  .msum { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+  .rail { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); min-width: 0; }
+  .rail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .rail-head .pend { font-family: var(--font-mono); font-size: 12px; color: var(--decision); }
+  .bcard { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+  .bcard .bs { font-size: 14px; font-weight: 600; }
+  .bcard .bp { font-size: 12px; color: var(--ink-3); }
+  .bcard dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; font-size: 12px; }
+  .bcard dt { color: var(--ink-3); } .bcard dd { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .sumstack { display: flex; flex-direction: column; gap: 14px; }
+  .sumrow { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+
+  @media (max-width: 639px) {
+    .stage { padding: 20px 12px 48px; }
+    .group.separable { padding: 12px; }
+    .topbar { gap: 12px; padding: 0 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="review-bar">
+  <p class="review-tag">Review bar &middot; not part of the product &middot; a still picture, nothing here is sent anywhere</p>
+  <p class="review-note">
+    Open positions (owner decision 65): the mark on each row of the strategies list, the section on a strategy's detail page and,
+    as a separable part, the Overview's list and count. 26 examples, numbered as in section J of the design addendum. Every English text is
+    section I verbatim. Samples: names, amounts, times (UTC) and the pairs. Examples 22 to 24 (Overview) are in their own dashed
+    group at the end, drawn after 25 and 26 so that everything before it stands without it. A dashed outline is a 390 px phone.
+    Links in the pictures point at the example they lead to. Grey type like this is a caption, not product.
+    Drawn without a text in section I (closest panel text used): the Overview list's column headings, the in-flight order line's
+    layout, the Overview rail's card, the units next to sizes, the &ldquo;Not on this list&rdquo; item layout. See the report.
+  </p>
+  <nav class="toc" aria-label="Examples">
+    <a href="#ex1">1</a><a href="#ex2">2</a><a href="#ex3">3</a><a href="#ex4">4</a><a href="#ex5">5</a><a href="#ex6">6</a><a href="#ex7">7</a><a href="#ex8">8</a><a href="#ex9">9</a><a href="#ex10">10</a><a href="#ex11">11</a><a href="#ex12">12</a><a href="#ex13">13</a><a href="#ex14">14</a><a href="#ex15">15</a><a href="#ex16">16</a><a href="#ex17">17</a><a href="#ex18">18</a><a href="#ex19">19</a><a href="#ex20">20</a><a href="#ex21">21</a><a href="#ex25">25</a><a href="#ex26">26</a><a href="#ex22">22</a><a href="#ex23">23</a><a href="#ex24">24</a>
+  </nav>
+</header>
+
+<main class="stage">
+
+<!-- ================================================================== A. the strategies list -->
+<section class="group" aria-label="The strategies list">
+  <h2 class="group-title">A &middot; The Strategies page: the sentence and the marks on each row (examples 1 to 12)</h2>
+
+  <!-- 1 -->
+  <div class="example" id="ex1">
+    <div class="ex-head"><span class="num">1</span><h3 class="ex-title">Nothing open, three rows without a mark</h3></div>
+    <p class="caption">The sentence of an empty answer, above the list. It sits under the title row on this page only; the rows carry no chip.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><nav class="tabs" aria-label="Exchanges"><button type="button" class="tab" aria-pressed="true">binance</button><button type="button" class="tab" aria-pressed="false">bybit</button></nav><span class="spacer"></span><span class="badge live">Live</span><span class="lang">en</span></div>
+      <div class="main">
+        <div class="title-row"><h1 class="pt">Strategies</h1><div class="title-actions"><label class="archtoggle"><span class="box"></span>Show archived</label><button type="button" class="btn primary">New strategy</button></div></div>
+        <div class="osl" role="status"><p class="osl-text"><span>Nothing is open on any exchange. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+        <ul class="slist">
+          <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div></li>
+          <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div></li>
+          <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div></li>
+        </ul>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 2 -->
+  <div class="example" id="ex2">
+    <div class="ex-head"><span class="num">2</span><h3 class="ex-title">One live position</h3></div>
+    <p class="caption">The chip is the pair, the side and the origin as a word. Live is ink-2: a live position in live use is the normal state. Rows of the other strategies are not repeated in 2 to 8.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 3 -->
+  <div class="example" id="ex3">
+    <div class="ex-head"><span class="num">3</span><h3 class="ex-title">One rehearsal position</h3></div>
+    <p class="caption">&ldquo;Dry run&rdquo; in the mode badge's own word and amber token (decision), on the word and on the border.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chip c-dry">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-dry">Dry run</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 4 -->
+  <div class="example" id="ex4">
+    <div class="ex-head"><span class="num">4</span><h3 class="ex-title">A position holding fills of both origins</h3></div>
+    <p class="caption">&ldquo;Dry run and live&rdquo; in loss (ember): neither mode can close it.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of STX 4h - RSI Divergences"><li class="chip c-mixed">STXUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-mixed">Dry run and live</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 5 -->
+  <div class="example" id="ex5">
+    <div class="ex-head"><span class="num">5</span><h3 class="ex-title">A position whose symbol cannot be resolved</h3></div>
+    <p class="caption">The pair, &ldquo;side not readable&rdquo; where the side would be, and the origin. The row exists; only its figures are missing.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT, XYZBTC</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of STX 4h - RSI Divergences"><li class="chip">XYZBTC<span class="d"> &middot; </span>side not readable<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 6 -->
+  <div class="example" id="ex6">
+    <div class="ex-head"><span class="num">6</span><h3 class="ex-title">An order in flight with no fill yet, in its three origins</h3></div>
+    <p class="caption">Dashed chip = an order, not a position. Top to bottom: dry run (amber), live (ink-2), origin unknown (ink-3, nothing claimed: no order id is recorded yet).</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 0 positions and 3 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chip order c-dry">AAVEUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span><span class="o-dry">Dry run</span></li></ul></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chip order">SFPUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of STX 4h - RSI Divergences"><li class="chip order c-unk">STXUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span><span class="o-unk">origin unknown</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 7 -->
+  <div class="example" id="ex7">
+    <div class="ex-head"><span class="num">7</span><h3 class="ex-title">A position the venue disagrees on, two variants</h3></div>
+    <p class="caption">A second chip in loss (a border and words) follows the position's chip. AAVE: a pending proposal names this allocation, so the row links to the decision (the link goes to the Overview's rail, example 24). SFP: no booking is proposed, so the row says so and leads nowhere.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 2 positions and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chipset"><span class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext"><a href="#ex24" aria-label="See the pending decision, AAVEUSDT">See the pending decision</a></span></li></ul></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chipset"><span class="chip">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext">No booking is proposed for it.</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 8 -->
+  <div class="example" id="ex8">
+    <div class="ex-head"><span class="num">8</span><h3 class="ex-title">A disabled strategy that still holds a position</h3></div>
+    <p class="caption">The switch is off and the chip is drawn all the same: the mark does not read the switch.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chip">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 9 -->
+  <div class="example" id="ex9">
+    <div class="ex-head"><span class="num">9</span><h3 class="ex-title">Three positions on three pairs: the chips wrap, the figures and the switch stay</h3></div>
+    <p class="caption">The marks are the row's second grid row, under the first track only. The first row (no chip) is the reference: the three figures and the switch of the AAVE row sit on the same columns, at the same height from the row's top.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 3 positions and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT, LINKUSDT, SUIUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li><li class="chip">LINKUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">Live</span></li><li class="chip">SUIUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 10 -->
+  <div class="example" id="ex10">
+    <div class="ex-head"><span class="num">10</span><h3 class="ex-title">&ldquo;Something is open&rdquo;, and what is not on this list</h3></div>
+    <p class="caption">2 positions and 1 order in flight in the whole system. The order is on a row of this page (SFP). The two positions are not: one on another exchange, one on an archived strategy that the list hides. They are named in the sentence, each with strategy, exchange or &ldquo;archived&rdquo;, pair and origin.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 2 positions and 1 order in flight. Read at 21:40:03 UTC.</span><span>Not on this list: SOL 1h - EMA Cross &middot; bybit &middot; SOLUSDT &middot; Live; LINK 4h - RSI Divergences &middot; archived &middot; LINKUSDT &middot; Dry run.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chip order">SFPUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div></li>
+      </ul>
+    </div></div></div>
+  </div>
+
+  <!-- 11 -->
+  <div class="example" id="ex11">
+    <div class="ex-head"><span class="num">11</span><h3 class="ex-title">The sentence while loading, after a failed first read, and after a failed refresh</h3></div>
+    <p class="caption">None of the failed forms can be read as &ldquo;nothing is open&rdquo;: the first failure says that a row without a mark means nothing; a failed refresh keeps the last answer and says since when in loss (11d: even when that last answer was an empty one). A row's own loading mark is a decorative &ldquo;&hellip;&rdquo; with the translated text for a screen reader.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="sub"><p class="caption">11a &middot; Loading, nothing read yet (role=status, ink-3). The row shows &ldquo;&hellip;&rdquo; where its marks will be.</p>
+        <div class="osl" role="status"><p class="osl-text t3"><span class="t3">Reading open positions&hellip;</span></p></div>
+        <ul class="slist"><li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div><ul class="chips"><li class="dots"><span aria-hidden="true">&hellip;</span><span class="sr-only">Reading open positions&hellip;</span></li></ul></li></ul></div>
+      <div class="sub"><p class="caption">11b &middot; The first read failed (role=alert, loss), with the button. The row has no mark and the sentence says why that means nothing.</p>
+        <div class="osl"><p class="osl-text" role="alert"><span class="loss">Open positions could not be read. A row without a mark does not mean that nothing is open.</span></p><button type="button" class="btn">Read again</button></div>
+        <ul class="slist"><li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div></li></ul></div>
+      <div class="sub"><p class="caption">11c &middot; A good read, then a refresh failed: the last answer stays, and the failure is said in loss.</p>
+        <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:38:12 UTC.</span><span class="loss">Could not be refreshed since 21:38:12 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+        <ul class="slist"><li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips"><li class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li></ul></div>
+      <div class="sub"><p class="caption">11d &middot; The same, when the last good answer was an empty one: still not a bare &ldquo;nothing is open&rdquo;.</p>
+        <div class="osl" role="status"><p class="osl-text"><span>Nothing is open on any exchange. Read at 21:38:12 UTC.</span><span class="loss">Could not be refreshed since 21:38:12 UTC.</span></p><button type="button" class="btn">Read again</button></div></div>
+    </div></div></div>
+  </div>
+
+  <!-- 12 -->
+  <div class="example" id="ex12">
+    <div class="ex-head"><span class="num">12</span><h3 class="ex-title">Examples 2, 7, 9 and 10 at phone width (390 px)</h3></div>
+    <p class="caption">At phone width the sentence wraps and its button stays 44 px tall. A row is: name block, then the figures and the switch, then the chips on their own line, so more chips never move the figures or the switch.</p>
+    <div class="row-of">
+      <div class="sub"><p class="caption">12a &middot; example 2</p>
+        <div class="phone">
+          <h1 class="pt">Strategies</h1>
+          <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+          <ul class="slist"><li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+            <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li></ul>
+        </div></div>
+      <div class="sub"><p class="caption">12b &middot; example 7</p>
+        <div class="phone">
+          <h1 class="pt">Strategies</h1>
+          <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 2 positions and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+          <ul class="slist">
+            <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+              <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chipset"><span class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext"><a href="#ex24" aria-label="See the pending decision, AAVEUSDT">See the pending decision</a></span></li></ul></li>
+            <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+              <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chipset"><span class="chip">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext">No booking is proposed for it.</span></li></ul></li>
+          </ul>
+        </div></div>
+      <div class="sub"><p class="caption">12c &middot; example 9</p>
+        <div class="phone">
+          <h1 class="pt">Strategies</h1>
+          <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 3 positions and 0 orders in flight. Read at 21:40:03 UTC.</span></p><button type="button" class="btn">Read again</button></div>
+          <ul class="slist">
+            <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div></li>
+            <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT, LINKUSDT, SUIUSDT</p><p class="uptime">active 12 days</p></div><dl class="figs"><div><dt>trades</dt><dd>14</dd></div><div><dt>PnL all time</dt><dd class="gain">+12.40 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+3.1%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable AAVE 4h - RSI Divergences"><span></span></button></div>
+              <ul class="chips" aria-label="Open positions of AAVE 4h - RSI Divergences"><li class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li><li class="chip">LINKUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">Live</span></li><li class="chip">SUIUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li>
+          </ul>
+        </div></div>
+      <div class="sub"><p class="caption">12d &middot; example 10</p>
+        <div class="phone">
+          <h1 class="pt">Strategies</h1>
+          <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 2 positions and 1 order in flight. Read at 21:40:03 UTC.</span><span>Not on this list: SOL 1h - EMA Cross &middot; bybit &middot; SOLUSDT &middot; Live; LINK 4h - RSI Divergences &middot; archived &middot; LINKUSDT &middot; Dry run.</span></p><button type="button" class="btn">Read again</button></div>
+          <ul class="slist"><li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">active 31 days</p></div><dl class="figs"><div><dt>trades</dt><dd>22</dd></div><div><dt>PnL all time</dt><dd class="loss-t">-4.85 USDT</dd></div><div><dt>return all time</dt><dd class="loss-t">-1.2%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable SFP 4h - RSI Divergences"><span></span></button></div>
+            <ul class="chips" aria-label="Open positions of SFP 4h - RSI Divergences"><li class="chip order">SFPUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span><span class="o-live">Live</span></li></ul></li></ul>
+        </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== B. the detail page -->
+<section class="group" aria-label="The strategy detail page">
+  <h2 class="group-title">B &middot; The strategy detail page: the section &ldquo;Open positions&rdquo; (examples 13 to 21)</h2>
+
+  <!-- 13 -->
+  <div class="example" id="ex13">
+    <div class="ex-head"><span class="num">13</span><h3 class="ex-title">Detail page, nothing open</h3></div>
+    <p class="caption">The section sits full width between the two-column grid and &ldquo;Closed trades&rdquo;. The grid and the closed trades are existing parts and are not redrawn.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><nav class="tabs" aria-label="Exchanges"><button type="button" class="tab" aria-pressed="true">binance</button><button type="button" class="tab" aria-pressed="false">bybit</button></nav><span class="spacer"></span><span class="badge live">Live</span><span class="lang">en</span></div>
+      <div class="main">
+        <h1 class="pt">AAVE 4h - RSI Divergences</h1>
+        <div class="placeholder">Existing: header, uptime, performance (left) and the settings column (right). Not redrawn.</div>
+        <section class="sect" aria-labelledby="h13"><h2 class="st" id="h13">Open positions</h2><p class="text-sm t3">No open position.</p></section>
+        <div class="placeholder">Existing: &ldquo;Closed trades&rdquo; table, its paging and its notes. Not redrawn.</div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 14 -->
+  <div class="example" id="ex14">
+    <div class="ex-head"><span class="num">14</span><h3 class="ex-title">One live position, every column, and the margin note</h3></div>
+    <p class="caption">Opened, pair (the origin as a word under it, the way the trades table tags a rehearsal row), side, size, entry, fees, margin granted, leverage. Nothing else: no price now, no PnL, no notional. The row does not open anything and has no &ldquo;view fills&rdquo;.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h14"><h2 class="st" id="h14">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h14">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/8/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.82 <span class="unit">AAVE</span></td><td>184.3</td><td>0.17</td><td>75.57</td><td>2x</td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div></div></div>
+  </div>
+
+  <!-- 15 -->
+  <div class="example" id="ex15">
+    <div class="ex-head"><span class="num">15</span><h3 class="ex-title">A rehearsal position at 1x with the dry-run note, and a row whose leverage is empty</h3></div>
+    <p class="caption">SFP: dry run, 1x (the simulated exchange records 1). STX: no leverage was recorded, so the cell is a dash (a screen reader hears &ldquo;not recorded&rdquo;), never 1x. The notes appear because a row on screen makes them true.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h15"><h2 class="st" id="h15">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h15">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">08:00</span></td><td class="l pair">SFPUSDT<span class="otag o-dry">Dry run</span></td><td class="l">SHORT</td><td>300 <span class="unit">SFP</span></td><td>0.4212</td><td>0.07</td><td>126.36</td><td>1x</td></tr>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">20:00</span></td><td class="l pair">STXUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0.812</td><td>0.13</td><td>121.8</td><td><span aria-hidden="true">&mdash;</span><span class="sr-only">not recorded</span></td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.</p><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div></div></div>
+  </div>
+
+  <!-- 16 -->
+  <div class="example" id="ex16">
+    <div class="ex-head"><span class="num">16</span><h3 class="ex-title">A position closed in part, and a position opened by three fills</h3></div>
+    <p class="caption">AAVEUSDT: 0.3 held of 0.5 opened; the entry is still the average of what was opened, and the margin stays the whole grant. LINKUSDT: one row, &ldquo;average of 3 fills&rdquo; under its entry.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h16"><h2 class="st" id="h16">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h16">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/8/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.3 <span class="unit">AAVE</span><span class="aside">of 0.5 opened</span></td><td>184.3</td><td>0.12</td><td>46.08</td><td>2x</td></tr>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">04:00</span></td><td class="l pair">LINKUSDT<span class="otag o-live">Live</span></td><td class="l">SHORT</td><td>12 <span class="unit">LINK</span></td><td>17.43<span class="aside">average of 3 fills</span></td><td>0.21</td><td>69.72</td><td>3x</td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div></div></div>
+  </div>
+
+  <!-- 17 -->
+  <div class="example" id="ex17">
+    <div class="ex-head"><span class="num">17</span><h3 class="ex-title">A mixed position with its note, and an unresolved position with its dashes and its reason</h3></div>
+    <p class="caption">Mixed: the origin in loss, and the note. XYZBTC: the side, size and entry are dashes with their reason for a screen reader (&ldquo;figures not readable&rdquo;); the reason is written under the row; the opening date, fees, margin and leverage that exist are still shown.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h17"><h2 class="st" id="h17">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h17">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/7/2026</span><span class="blk t3">16:00</span></td><td class="l pair">STXUSDT<span class="otag o-mixed">Dry run and live</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0.812</td><td>0.19</td><td>40.6</td><td>3x</td></tr>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">12:00</span></td><td class="l pair">XYZBTC<span class="otag o-live">Live</span></td><td class="l"><span aria-hidden="true">&mdash;</span><span class="sr-only">figures not readable</span></td><td><span aria-hidden="true">&mdash;</span><span class="sr-only">figures not readable</span></td><td><span aria-hidden="true">&mdash;</span><span class="sr-only">figures not readable</span></td><td>0.00</td><td>25</td><td>2x</td></tr>
+            <tr class="sub"><td colspan="8"><span class="reason">The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.</span></td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.</p><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div></div></div>
+  </div>
+
+  <!-- 18 -->
+  <div class="example" id="ex18">
+    <div class="ex-head"><span class="num">18</span><h3 class="ex-title">A position the venue disagrees on: both nets, &ldquo;Last compared&rdquo;, three variants</h3></div>
+    <p class="caption">The mark is a loss-bordered block under its row. 18a: a pending proposal names it, so a link. 18b: no booking is proposed. 18c: the difference is shared by two positions on the pair (a second strategy holds the other one).</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="sub"><p class="caption">18a &middot; with the link</p>
+      <section class="sect" aria-labelledby="h18a"><h2 class="st" id="h18a">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h18a">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/8/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.82 <span class="unit">AAVE</span></td><td>184.3</td><td>0.17</td><td>75.57</td><td>2x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="Venue disagrees, AAVEUSDT"><span class="vt">Venue disagrees</span><span>The exchange reports 0 AAVE and the ledger 0.82 AAVE. Last compared 21:39:12 UTC.</span><a href="#ex24" aria-label="See the pending decision, AAVEUSDT">See the pending decision</a></div></td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section></div>
+      <div class="sub"><p class="caption">18b &middot; no booking is proposed</p>
+      <section class="sect" aria-labelledby="h18b"><h2 class="st" id="h18b">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h18b">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">08:00</span></td><td class="l pair">SFPUSDT<span class="otag o-live">Live</span></td><td class="l">SHORT</td><td>300 <span class="unit">SFP</span></td><td>0.4212</td><td>0.07</td><td>126.36</td><td>1x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="Venue disagrees, SFPUSDT"><span class="vt">Venue disagrees</span><span>The exchange reports 0 SFP and the ledger -300 SFP. Last compared 21:39:12 UTC.</span><span>No booking is proposed for it.</span></div></td></tr>
+          </tbody></table></div>
+      </section></div>
+      <div class="sub"><p class="caption">18c &middot; shared by two positions (with a pending proposal)</p>
+      <section class="sect" aria-labelledby="h18c"><h2 class="st" id="h18c">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h18c">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">20:00</span></td><td class="l pair">STXUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0.812</td><td>0.13</td><td>40.6</td><td>3x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="Venue disagrees, STXUSDT"><span class="vt">Venue disagrees</span><span>The exchange reports 90 STX and the ledger 150 STX. Last compared 21:39:12 UTC.</span><span>The difference is shared by 2 positions on this pair.</span><a href="#ex24" aria-label="See the pending decision, STXUSDT">See the pending decision</a></div></td></tr>
+          </tbody></table></div>
+      </section></div>
+    </div></div></div>
+  </div>
+
+  <!-- 19 -->
+  <div class="example" id="ex19">
+    <div class="ex-head"><span class="num">19</span><h3 class="ex-title">An order in flight as a line under the table, and an order with no position</h3></div>
+    <p class="caption">One line per order: pair, &ldquo;order in flight&rdquo;, opening or closing, origin, and when it was sent. 19b: the table is replaced by &ldquo;No open position.&rdquo; and the order line still shows.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="sub"><p class="caption">19a &middot; a position and an order</p>
+      <section class="sect" aria-labelledby="h19a"><h2 class="st" id="h19a">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h19a">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">08:00</span></td><td class="l pair">SFPUSDT<span class="otag o-dry">Dry run</span></td><td class="l">SHORT</td><td>300 <span class="unit">SFP</span></td><td>0.4212</td><td>0.07</td><td>126.36</td><td>1x</td></tr>
+          </tbody></table></div>
+        <ul class="olines"><li class="oline">SFPUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span>closing<span class="d"> &middot; </span><span class="o-dry">Dry run</span><span class="d"> &middot; </span>sent 21:12 UTC</li></ul>
+        <div class="notes"><p class="note">A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.</p><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section></div>
+      <div class="sub"><p class="caption">19b &middot; an order and no position</p>
+      <section class="sect" aria-labelledby="h19b"><h2 class="st" id="h19b">Open positions</h2>
+        <p class="text-sm t3">No open position.</p>
+        <ul class="olines"><li class="oline">AAVEUSDT<span class="d"> &middot; </span>order in flight<span class="d"> &middot; </span>opening<span class="d"> &middot; </span><span class="o-live">Live</span><span class="d"> &middot; </span>sent 21:36 UTC</li></ul>
+      </section></div>
+    </div></div></div>
+  </div>
+
+  <!-- 20 -->
+  <div class="example" id="ex20">
+    <div class="ex-head"><span class="num">20</span><h3 class="ex-title">Three positions: a table at desktop width, cards at phone width</h3></div>
+    <p class="caption">From md the section is a table; below it, one card per position with the same figures and the same origin word.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h20"><h2 class="st" id="h20">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h20">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/8/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.82 <span class="unit">AAVE</span></td><td>184.3</td><td>0.17</td><td>75.57</td><td>2x</td></tr>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">04:00</span></td><td class="l pair">LINKUSDT<span class="otag o-live">Live</span></td><td class="l">SHORT</td><td>12 <span class="unit">LINK</span></td><td>17.43</td><td>0.21</td><td>69.72</td><td>3x</td></tr>
+            <tr><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">12:00</span></td><td class="l pair">SUIUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>140 <span class="unit">SUI</span></td><td>3.2415</td><td>0.25</td><td>226.9</td><td>2x</td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div></div></div>
+    <p class="caption">Phone (390 px)</p>
+    <div class="phone">
+      <section class="sect" aria-labelledby="h20p"><h2 class="st" id="h20p">Open positions</h2>
+        <div class="cards">
+          <article class="pcard" aria-label="AAVEUSDT LONG"><div class="pcard-head"><span class="pr">AAVEUSDT<span class="sd">LONG</span></span><span class="otag o-live">Live</span></div>
+            <dl><div><dt>Opened (UTC)</dt><dd>10/8/2026 14:00</dd></div><div><dt>Size</dt><dd>0.82 AAVE</dd></div><div><dt>Entry</dt><dd>184.3</dd></div><div><dt>Fees USDT</dt><dd>0.17</dd></div><div><dt>Margin granted USDT</dt><dd>75.57</dd></div><div><dt>Leverage</dt><dd>2x</dd></div></dl></article>
+          <article class="pcard" aria-label="LINKUSDT SHORT"><div class="pcard-head"><span class="pr">LINKUSDT<span class="sd">SHORT</span></span><span class="otag o-live">Live</span></div>
+            <dl><div><dt>Opened (UTC)</dt><dd>10/9/2026 04:00</dd></div><div><dt>Size</dt><dd>12 LINK</dd></div><div><dt>Entry</dt><dd>17.43</dd></div><div><dt>Fees USDT</dt><dd>0.21</dd></div><div><dt>Margin granted USDT</dt><dd>69.72</dd></div><div><dt>Leverage</dt><dd>3x</dd></div></dl></article>
+          <article class="pcard" aria-label="SUIUSDT LONG"><div class="pcard-head"><span class="pr">SUIUSDT<span class="sd">LONG</span></span><span class="otag o-live">Live</span></div>
+            <dl><div><dt>Opened (UTC)</dt><dd>10/10/2026 12:00</dd></div><div><dt>Size</dt><dd>140 SUI</dd></div><div><dt>Entry</dt><dd>3.2415</dd></div><div><dt>Fees USDT</dt><dd>0.25</dd></div><div><dt>Margin granted USDT</dt><dd>226.9</dd></div><div><dt>Leverage</dt><dd>2x</dd></div></dl></article>
+        </div>
+        <div class="notes"><p class="note">Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.</p></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 21 -->
+  <div class="example" id="ex21">
+    <div class="ex-head"><span class="num">21</span><h3 class="ex-title">The section while loading and when the read failed</h3></div>
+    <p class="caption">Loading: the same words as the sentence (role=status). Failed: the error sentence in loss (role=alert) with the button; it never reads as &ldquo;No open position.&rdquo;.</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h21a"><h2 class="st" id="h21a">Open positions</h2><p class="text-sm t3" role="status">Reading open positions&hellip;</p></section>
+      <section class="sect" aria-labelledby="h21b"><h2 class="st" id="h21b">Open positions</h2><div class="cluster"><p class="text-sm err" role="alert">Open positions could not be read. A row without a mark does not mean that nothing is open.</p><button type="button" class="btn">Read again</button></div></section>
+    </div></div></div>
+  </div>
+</section>
+
+<!-- ================================================================== C. Spanish and the unmatched position -->
+<section class="group" aria-label="Spanish and the unmatched position">
+  <h2 class="group-title">C &middot; In Spanish, and a position with no strategy row (examples 25 and 26)</h2>
+
+  <!-- 25 -->
+  <div class="example" id="ex25">
+    <div class="ex-head"><span class="num">25</span><h3 class="ex-title">Examples 3, 7, 10, 14 and 18 in Spanish</h3></div>
+    <p class="caption">Section I's Spanish, verbatim. Column words reused from the closed trades table (Apertura (UTC), Par, Sentido, Tamaño, Entrada, Comisiones). The rest of the page chrome is the panel's existing Spanish.</p>
+    <div class="sub"><p class="caption">25a &middot; example 3</p>
+    <div class="deskframe"><div class="screen" lang="es"><div class="main">
+      <div class="title-row"><h1 class="pt">Estrategias</h1><div class="title-actions"><label class="archtoggle"><span class="box"></span>Mostrar archivadas</label><button type="button" class="btn primary">Nueva estrategia</button></div></div>
+      <div class="osl" role="status"><p class="osl-text"><span>Abierto ahora, en todos los exchanges: 1 posici&oacute;n y 0 &oacute;rdenes en curso. Le&iacute;do a las 21:40:03 UTC.</span></p><button type="button" class="btn">Leer de nuevo</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">activa 31 d&iacute;as</p></div><dl class="figs"><div><dt>operaciones</dt><dd>22</dd></div><div><dt>PnL total</dt><dd class="loss-t">-4,85 USDT</dd></div><div><dt>rendimiento total</dt><dd class="loss-t">-1,2&nbsp;%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Activar SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips"><li class="chip c-dry">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-dry">Simulaci&oacute;n</span></li></ul></li>
+      </ul>
+    </div></div></div></div>
+
+    <div class="sub"><p class="caption">25b &middot; example 7</p>
+    <div class="deskframe"><div class="screen" lang="es"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Abierto ahora, en todos los exchanges: 2 posiciones y 0 &oacute;rdenes en curso. Le&iacute;do a las 21:40:03 UTC.</span></p><button type="button" class="btn">Leer de nuevo</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">AAVE 4h - RSI Divergences</a><p class="pool">usdt-m &middot; AAVEUSDT</p><p class="uptime">activa 12 d&iacute;as</p></div><dl class="figs"><div><dt>operaciones</dt><dd>14</dd></div><div><dt>PnL total</dt><dd class="gain">+12,40 USDT</dd></div><div><dt>rendimiento total</dt><dd class="gain">+3,1&nbsp;%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Activar AAVE 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips"><li class="chipset"><span class="chip">AAVEUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">En vivo</span></span><span class="chip venue">El exchange no coincide</span><span class="vtext"><a href="#ex24" aria-label="Ver la decisi&oacute;n pendiente, AAVEUSDT">Ver la decisi&oacute;n pendiente</a></span></li></ul></li>
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">activa 31 d&iacute;as</p></div><dl class="figs"><div><dt>operaciones</dt><dd>22</dd></div><div><dt>PnL total</dt><dd class="loss-t">-4,85 USDT</dd></div><div><dt>rendimiento total</dt><dd class="loss-t">-1,2&nbsp;%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Activar SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips"><li class="chipset"><span class="chip">SFPUSDT<span class="d"> &middot; </span>SHORT<span class="d"> &middot; </span><span class="o-live">En vivo</span></span><span class="chip venue">El exchange no coincide</span><span class="vtext">No hay un registro propuesto para esta diferencia.</span></li></ul></li>
+      </ul>
+    </div></div></div></div>
+
+    <div class="sub"><p class="caption">25c &middot; example 10</p>
+    <div class="deskframe"><div class="screen" lang="es"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Abierto ahora, en todos los exchanges: 2 posiciones y 1 orden en curso. Le&iacute;do a las 21:40:03 UTC.</span><span>Fuera de esta lista: SOL 1h - EMA Cross &middot; bybit &middot; SOLUSDT &middot; En vivo; LINK 4h - RSI Divergences &middot; archivada &middot; LINKUSDT &middot; Simulaci&oacute;n.</span></p><button type="button" class="btn">Leer de nuevo</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">SFP 4h - RSI Divergences</a><p class="pool">usdt-m &middot; SFPUSDT</p><p class="uptime">activa 31 d&iacute;as</p></div><dl class="figs"><div><dt>operaciones</dt><dd>22</dd></div><div><dt>PnL total</dt><dd class="loss-t">-4,85 USDT</dd></div><div><dt>rendimiento total</dt><dd class="loss-t">-1,2&nbsp;%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Activar SFP 4h - RSI Divergences"><span></span></button></div>
+          <ul class="chips"><li class="chip order">SFPUSDT<span class="d"> &middot; </span>orden en curso<span class="d"> &middot; </span><span class="o-live">En vivo</span></li></ul></li>
+      </ul>
+    </div></div></div></div>
+
+    <div class="sub"><p class="caption">25d &middot; example 14</p>
+    <div class="deskframe"><div class="screen" lang="es"><div class="main">
+      <section class="sect" aria-labelledby="h25d"><h2 class="st" id="h25d">Posiciones abiertas</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h25d">
+          <thead><tr><th scope="col" class="l">Apertura (UTC)</th><th scope="col" class="l">Par</th><th scope="col" class="l">Sentido</th><th scope="col">Tama&ntilde;o</th><th scope="col">Entrada</th><th scope="col">Comisiones USDT</th><th scope="col">Margen otorgado USDT</th><th scope="col">Apalancamiento</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">8/10/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">En vivo</span></td><td class="l">LONG</td><td>0,82 <span class="unit">AAVE</span></td><td>184,3</td><td>0,17</td><td>75,57</td><td>2x</td></tr>
+          </tbody></table></div>
+        <div class="notes"><p class="note">El margen otorgado es lo que la participaci&oacute;n tom&oacute; del pool al abrir la posici&oacute;n. No es lo que el exchange retiene ahora.</p></div>
+      </section>
+    </div></div></div></div>
+
+    <div class="sub"><p class="caption">25e &middot; example 18 (with the link, without a booking, shared)</p>
+    <div class="deskframe"><div class="screen" lang="es"><div class="main">
+      <section class="sect" aria-labelledby="h25e"><h2 class="st" id="h25e">Posiciones abiertas</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h25e">
+          <thead><tr><th scope="col" class="l">Apertura (UTC)</th><th scope="col" class="l">Par</th><th scope="col" class="l">Sentido</th><th scope="col">Tama&ntilde;o</th><th scope="col">Entrada</th><th scope="col">Comisiones USDT</th><th scope="col">Margen otorgado USDT</th><th scope="col">Apalancamiento</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">8/10/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">En vivo</span></td><td class="l">LONG</td><td>0,82 <span class="unit">AAVE</span></td><td>184,3</td><td>0,17</td><td>75,57</td><td>2x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="El exchange no coincide, AAVEUSDT"><span class="vt">El exchange no coincide</span><span>El exchange informa 0 AAVE y el libro mayor 0,82 AAVE. &Uacute;ltima comparaci&oacute;n 21:39:12 UTC.</span><a href="#ex24" aria-label="Ver la decisi&oacute;n pendiente, AAVEUSDT">Ver la decisi&oacute;n pendiente</a></div></td></tr>
+            <tr><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">08:00</span></td><td class="l pair">SFPUSDT<span class="otag o-live">En vivo</span></td><td class="l">SHORT</td><td>300 <span class="unit">SFP</span></td><td>0,4212</td><td>0,07</td><td>126,36</td><td>1x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="El exchange no coincide, SFPUSDT"><span class="vt">El exchange no coincide</span><span>El exchange informa 0 SFP y el libro mayor -300 SFP. &Uacute;ltima comparaci&oacute;n 21:39:12 UTC.</span><span>No hay un registro propuesto para esta diferencia.</span></div></td></tr>
+            <tr><td class="l"><span class="blk">9/10/2026</span><span class="blk t3">20:00</span></td><td class="l pair">STXUSDT<span class="otag o-live">En vivo</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0,812</td><td>0,13</td><td>40,6</td><td>3x</td></tr>
+            <tr class="sub"><td colspan="8"><div class="vmark" role="group" aria-label="El exchange no coincide, STXUSDT"><span class="vt">El exchange no coincide</span><span>El exchange informa 90 STX y el libro mayor 150 STX. &Uacute;ltima comparaci&oacute;n 21:39:12 UTC.</span><span>La diferencia es compartida por 2 posiciones en este par.</span></div></td></tr>
+          </tbody></table></div>
+      </section>
+    </div></div></div></div>
+  </div>
+
+  <!-- 26 -->
+  <div class="example" id="ex26">
+    <div class="ex-head"><span class="num">26</span><h3 class="ex-title">A position the facts could not decorate: no strategy row to sit on</h3></div>
+    <p class="caption">The page's sentence names it (strategy name, exchange, pair, origin, &ldquo;figures not readable&rdquo;) and no row carries a chip; the sentence &ldquo;Nothing is open on any exchange&rdquo; cannot appear. On the detail page, &ldquo;No open position.&rdquo; is replaced by the unmatched sentence.</p>
+    <div class="sub"><p class="caption">26a &middot; Strategies page</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <div class="osl" role="status"><p class="osl-text"><span>Open now, on every exchange: 1 position and 0 orders in flight. Read at 21:40:03 UTC.</span><span>Not on this list: STX 4h - RSI Divergences &middot; binance &middot; XYZBTC &middot; Live &middot; figures not readable.</span></p><button type="button" class="btn">Read again</button></div>
+      <ul class="slist">
+        <li class="srow"><div class="sname"><a class="slink" href="#ex13">STX 4h - RSI Divergences</a><p class="pool">usdt-m &middot; STXUSDT</p><p class="uptime">active at least 58 days</p></div><dl class="figs"><div><dt>trades</dt><dd>9</dd></div><div><dt>PnL all time</dt><dd class="gain">+31.07 USDT</dd></div><div><dt>return all time</dt><dd class="gain">+7.8%</dd></div></dl><div class="sw"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Enable STX 4h - RSI Divergences"><span></span></button></div></li>
+      </ul>
+    </div></div></div></div>
+    <div class="sub"><p class="caption">26b &middot; the detail page of STX 4h - RSI Divergences</p>
+    <div class="deskframe"><div class="screen"><div class="main">
+      <section class="sect" aria-labelledby="h26"><h2 class="st" id="h26">Open positions</h2><p class="text-sm">1 open position could not be matched to a strategy. The Strategies page names it.</p></section>
+    </div></div></div></div>
+  </div>
+</section>
+
+<!-- ================================================================== D. separable -->
+<section class="group separable" aria-label="Separable: the Overview">
+  <h2 class="group-title">Separable: the Overview (the owner's yes or no)</h2>
+  <p class="group-note">Everything before this heading stands without it: if the owner says no, examples 22 to 24 are dropped and nothing above changes.</p>
+
+  <!-- 22 -->
+  <div class="example" id="ex22">
+    <div class="ex-head"><span class="num">22</span><h3 class="ex-title">The Overview pool panel with its list of open positions</h3></div>
+    <p class="caption">Under the month grid and its summary: the pool's positions (three positions of two strategies), the strategy's name a link. Sorted by strategy name, then market. The decision rail beside the panel is not redrawn here (see 24).</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><nav class="tabs" aria-label="Exchanges"><button type="button" class="tab" aria-pressed="true">binance</button><button type="button" class="tab" aria-pressed="false">bybit</button></nav><span class="spacer"></span><span class="badge live">Live</span><span class="lang">en</span></div>
+      <div class="main">
+        <h1 class="pt">Overview</h1>
+        <section class="pool-panel" aria-label="binance · usdt-m · USDT">
+          <p class="eyebrow">binance &middot; usdt-m &middot; USDT</p>
+          <p class="ledger"><span class="lead">1,284.55</span> USDT available<span class="rs"> &middot; </span>PnL 30D <b class="gain">+96.12</b><span class="rs"> &middot; </span>return 30D <b class="gain">+7.5%</b><span class="rs"> &middot; </span>deepest <b class="loss-t">-4.3%</b></p>
+          <div class="chart"><svg viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Chart placeholder"><line x1="0" y1="70" x2="600" y2="70" stroke="#3D4E5C" stroke-width="1" stroke-dasharray="4 4"/><polyline fill="none" stroke="#1FA6B8" stroke-width="2" points="0,70 40,66 80,58 120,62 160,50 200,46 240,52 280,40 320,34 360,42 400,30 440,26 480,32 520,20 560,16 600,12"/></svg></div>
+          <div class="mgrid" aria-hidden="true"><i class="g2"></i><i class="g4"></i><i class="l2"></i><i class="g2"></i><i class="g2"></i><i></i><i class="g4"></i><i class="g2"></i><i class="l2"></i><i class="g4"></i><i class="g2"></i><i class="g2"></i></div>
+          <p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 3 open, 1 of them dry run</p>
+          <section class="sect" aria-labelledby="h22" style="margin-top:8px"><h2 class="st" id="h22">Open positions</h2>
+            <div class="tscroll"><table class="t" aria-labelledby="h22">
+              <thead><tr><th scope="col" class="l">Strategy</th><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+              <tbody>
+                <tr><td class="l"><a href="#ex13">SFP 4h - RSI Divergences</a></td><td class="l"><span class="blk">10/10/2026</span><span class="blk t3">08:00</span></td><td class="l pair">SFPUSDT<span class="otag o-dry">Dry run</span></td><td class="l">SHORT</td><td>300 <span class="unit">SFP</span></td><td>0.4212</td><td>126.36</td><td>1x</td></tr>
+                <tr><td class="l"><a href="#ex13">STX 4h - RSI Divergences</a></td><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">20:00</span></td><td class="l pair">STXUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0.812</td><td>40.6</td><td>3x</td></tr>
+                <tr><td class="l"><a href="#ex13">STX 4h - RSI Divergences</a></td><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">12:00</span></td><td class="l pair">APTUSDT<span class="otag o-live">Live</span></td><td class="l">SHORT</td><td>8.5 <span class="unit">APT</span></td><td>4.862</td><td>20.66</td><td>2x</td></tr>
+              </tbody></table></div>
+          </section>
+        </section>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 23 -->
+  <div class="example" id="ex23">
+    <div class="ex-head"><span class="num">23</span><h3 class="ex-title">The count under the month grid, in its three forms, beside today's sentence</h3></div>
+    <p class="caption">The new part replaces today's live-only &ldquo;N open trade(s) not in the curve&rdquo;, which stays in the API as what the curve leaves out. It is the last part of the summary line, as today's is.</p>
+    <div class="sumstack">
+      <div class="sumrow"><p class="caption">Today (for comparison)</p><p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 1 open trade not in the curve</p></div>
+      <div class="sumrow"><p class="caption">23a &middot; one open</p><p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 1 open</p></div>
+      <div class="sumrow"><p class="caption">23b &middot; two open, one of them dry run</p><p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 2 open, 1 of them dry run</p></div>
+      <div class="sumrow"><p class="caption">23c &middot; nothing open: the part is absent</p><p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1%</p></div>
+    </div>
+  </div>
+
+  <!-- 24 -->
+  <div class="example" id="ex24">
+    <div class="ex-head"><span class="num">24</span><h3 class="ex-title">Example 22 at phone width, with a position the venue disagrees on and the decision rail</h3></div>
+    <p class="caption">Below xl the rail sits between the chart and the month grid. The position that the venue disagrees on links to it (&ldquo;See the pending decision&rdquo;). Positions are cards, the strategy's name a link.</p>
+    <div class="phone">
+      <h1 class="pt">Overview</h1>
+      <section class="pool-panel" aria-label="binance · usdt-m · USDT">
+        <p class="eyebrow">binance &middot; usdt-m &middot; USDT</p>
+        <p class="ledger"><span class="lead">1,284.55</span> USDT available<span class="rs"> &middot; </span>PnL 30D <b class="gain">+96.12</b><span class="rs"> &middot; </span>return 30D <b class="gain">+7.5%</b><span class="rs"> &middot; </span>deepest <b class="loss-t">-4.3%</b></p>
+        <div class="chart"><svg viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label="Chart placeholder"><line x1="0" y1="60" x2="300" y2="60" stroke="#3D4E5C" stroke-width="1" stroke-dasharray="4 4"/><polyline fill="none" stroke="#1FA6B8" stroke-width="2" points="0,60 30,56 60,48 90,52 120,40 150,36 180,42 210,30 240,24 270,16 300,10"/></svg></div>
+        <aside class="rail" id="rail24" aria-labelledby="rail24-t">
+          <div class="rail-head"><h2 class="st" id="rail24-t">Needs your decision</h2><span class="pend">1 pending</span></div>
+          <p class="text-sm" style="font-size:13px">Closes the venue made that the ledger has not recorded. Approving writes them to the ledger for good.</p>
+          <article class="bcard"><div><p class="bs">AAVEUSDT</p><p class="bp">binance &middot; usdt-m &middot; USDT</p></div>
+            <dl><div><dt>Side</dt><dd>SELL</dd></div><div><dt>Quantity</dt><dd>0.82</dd></div><div><dt>Venue net</dt><dd>0</dd></div><div><dt>Ledger net</dt><dd>0.82</dd></div></dl></article>
+        </aside>
+        <div class="mgrid" aria-hidden="true"><i class="g2"></i><i class="g4"></i><i class="l2"></i><i class="g2"></i><i class="g2"></i><i></i><i class="g4"></i><i class="g2"></i><i class="l2"></i><i class="g4"></i><i class="g2"></i><i class="g2"></i></div>
+        <p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 3 open, 1 of them dry run</p>
+        <section class="sect" aria-labelledby="h24" style="margin-top:6px"><h2 class="st" id="h24">Open positions</h2>
+          <div class="cards">
+            <article class="pcard" aria-label="SFPUSDT SHORT"><div class="pcard-head"><span class="pr">SFPUSDT<span class="sd">SHORT</span></span><span class="otag o-dry">Dry run</span></div>
+              <a href="#ex13">SFP 4h - RSI Divergences</a>
+              <dl><div><dt>Opened (UTC)</dt><dd>10/10/2026 08:00</dd></div><div><dt>Size</dt><dd>300 SFP</dd></div><div><dt>Entry</dt><dd>0.4212</dd></div><div><dt>Margin granted USDT</dt><dd>126.36</dd></div><div><dt>Leverage</dt><dd>1x</dd></div></dl></article>
+            <article class="pcard" aria-label="STXUSDT LONG"><div class="pcard-head"><span class="pr">STXUSDT<span class="sd">LONG</span></span><span class="otag o-live">Live</span></div>
+              <a href="#ex13">STX 4h - RSI Divergences</a>
+              <dl><div><dt>Opened (UTC)</dt><dd>10/9/2026 20:00</dd></div><div><dt>Size</dt><dd>150 STX</dd></div><div><dt>Entry</dt><dd>0.812</dd></div><div><dt>Margin granted USDT</dt><dd>40.6</dd></div><div><dt>Leverage</dt><dd>3x</dd></div></dl></article>
+            <article class="pcard" aria-label="AAVEUSDT LONG"><div class="pcard-head"><span class="pr">AAVEUSDT<span class="sd">LONG</span></span><span class="otag o-live">Live</span></div>
+              <a href="#ex13">AAVE 4h - RSI Divergences</a>
+              <dl><div><dt>Opened (UTC)</dt><dd>10/8/2026 14:00</dd></div><div><dt>Size</dt><dd>0.82 AAVE</dd></div><div><dt>Entry</dt><dd>184.3</dd></div><div><dt>Margin granted USDT</dt><dd>75.57</dd></div><div><dt>Leverage</dt><dd>2x</dd></div></dl>
+              <div class="vmark" role="group" aria-label="Venue disagrees, AAVEUSDT"><span class="vt">Venue disagrees</span><span>The exchange reports 0 AAVE and the ledger 0.82 AAVE. Last compared 21:39:12 UTC.</span><a href="#rail24" aria-label="See the pending decision, AAVEUSDT">See the pending decision</a></div></article>
+          </div>
+        </section>
+      </section>
+    </div>
+  </div>
+</section>
+
+</main>
+</body>
+</html>
