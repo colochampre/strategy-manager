@@ -408,6 +408,17 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - What was put to the owner: raise the three existing strategies to 30, or create three new ones. The assistant recommended the first, because nothing changes in TradingView; its cost is that they keep the test period's history, the two operations closed on 2026-09-23 at price 1 among it (decision 56).
     - **The owner chose three new strategies with a clean history.**
     - The assistant's reading of what follows, not the owner's words: the three TradingView alerts are given the new strategies' messages, and the three existing strategies are retired from the panel once they hold nothing.
+65. **The panel shows open positions: a mark on the strategies list and a list of the open positions, read from the ledger** (2026-10-11, owner).
+    - Why it was raised: task pps.10 found that the panel has no mark for an open position, and the owner learned that the three test strategies held nothing only because archiving refuses a strategy that holds something. Two needs were named: before `DRY_RUN` is turned off, to see that no rehearsal position is open anywhere (decision 28); and in live use, to see which strategy is in a position, on which pair and side, and with how much margin.
+    - What the exploration found (Engram `sdd/operator-panel/explore-open-positions`), as told to the owner:
+      - the system already derives open positions from the ledger, and the API serves none of it: every figure of an operation is built for closed ones only;
+      - one rule has five implementations that can disagree (the mode guard, the Overview's count, the archive check, the key delete, the reconciliation);
+      - the Overview's "open trade not in the curve" counts LIVE positions only, so it can read 0 while a rehearsal position refuses the worker's start in live mode;
+      - no current price is stored anywhere; the venue clients read mark price and unrealised PnL and the system discards them; in `DRY_RUN` there is no venue position at all.
+    - Three scopes were put to the owner: (A) a count mark only; (B) the mark plus a list of open positions from the ledger, with pair, side, size, entry price, when it opened, fees, margin and whether it is rehearsal or live; (C) the same plus unrealised figures read from the venue.
+    - **The owner chose B**, the assistant's recommendation. C is left for later: it needs periodic remote reads, has no figure in `DRY_RUN`, and rehearsal trades at 1x (decision 45), so an estimate there would mislead.
+    - The assistant's intent for the design, not the owner's words: "open" is defined once and the panel, the count and the mode guard read that one definition.
+    - What B does not settle, said to the owner: a position the ledger holds open and the venue has already closed. It is among the questions that follow, asked one at a time and recorded below as they are answered.
 
 ## Standing constraints
 
