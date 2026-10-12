@@ -5204,6 +5204,15 @@ the reconciliation has confirmed that the venue disagrees. This addendum settles
 the design. It is design only: it writes no task, no code and no spec file. The unit's identifier
 is for the tasks to choose; "unit op" below is a placeholder.
 
+> **Revised 2026-10-11**, on top of commit `a0ad994`. The owner answered three of § O's five
+> questions the same day, and a fresh-context validation returned "pass with corrections"; the
+> invariant argument of § B held. Both are folded into §§ A to O below. What changed: a position
+> or an order the facts cannot decorate has no strategy id and is always named in the page's
+> sentence (§ C, § F, § H); six served fields that nothing drew are gone (§ F); every WARNING of
+> § K has a test (§ L, T12); the shared formatting helpers move to `shared/` (§ H); the Overview
+> part owns its helper and its text (§ H, § I, § M); each unit has its gate, its first red test and
+> its revert (§ L, § M). Two questions stay open, both for the prototype review (§ O, Q1 and Q2).
+
 **The answer in one paragraph.** The panel reads one new route, `GET /api/positions/open`, which
 answers for the WHOLE system and takes no parameter. Its two lists are built by iterating over the
 output of the mode guard's own reader, `SqlAlchemyModeOriginReader`: the same class, the same two
@@ -5244,15 +5253,29 @@ everything. No migration, no lock, no write.
 | P19 | The closed-trades table always asks for rehearsal rows and marks them with the mode badge's words in the `decision` token. | `performance.ts:177-178`; `TradesTable.tsx:41-45, 100-104`; `DryRunBadge.tsx:30-36` | The origin tag of an open position reuses those words and that token. |
 | P20 | The list is one grid from `lg`; each row is a subgrid of five tracks, and the name, pool line and uptime sit in the first track. The detail page's closed trades are a full-width section under the two-column grid. | `StrategiesPage.tsx:68-76`; `StrategyRow.tsx:99-121`; `StrategyDetailPage.tsx:68-89` | The mark is a fourth line of the first track; the new section sits above `TradesTable`. |
 | P21 | The API's sessions use the engine's default isolation. No file under `backend/src` sets an isolation level. | `shared/db.py:21-28`; grep for `isolation_level`, `REPEATABLE READ`, `SERIALIZABLE`: no match | The snapshot of § G is the first of its kind here. |
-| P22 | The fills of ONE allocation are already served by a route keyed by strategy and allocation; by its docstring it does not require the operation to be closed. The use case's body was not re-read. | `performance_router.py:9-11, 459-487` | An open position could open onto its fills with no backend change (§ O, Q5). |
+| P22 | The fills of one CLOSED operation are served by a route keyed by strategy and allocation. Whether that read also answers for an allocation that is still open is **not verified**: no statement either way was found in `performance_router.py` or in `read_operation_fills.py`. | `performance_router.py:459-487` | Nothing in this design calls that route or depends on it. An open position does not open onto its fills in this delivery (§ O, Q5; § N, follow-up F2). |
 | P23 | Production held 4 `fake-fill-` ledger rows on 2026-09-29. No later count is recorded in the repository. | `tasks.md:151` | The cost figures of § G are stated by statement, not by measured time. |
 
-Not verified, and said so where it matters: the migration numbers are quoted from the ORM models'
-comments, the migrations themselves were not opened; `require_admin_token` was not re-read;
-`holding_guard.py` was not re-read (decision 64 records that it looks at one strategy on one
-symbol); the column that marks a strategy as archived was not re-read on the server side;
-`frontend/vite.fixture.config.ts` was not opened; whether a reservation can be other than `FILLED`
-while the ledger holds its fills was not established (§ K, row 4).
+**Verified since the first writing** (the validation of 2026-10-11, the first two re-read for this
+revision): the archived mark is `strategies.archived_at`
+(`strategies/infrastructure/models.py:62`); `require_admin_token` depends on the settings only, not
+on a session (`shared/infrastructure/admin_auth.py:86-87`), so it issues no statement before the
+snapshot's; the migration files 0011, 0012, 0015, 0020 to 0022, 0024 and 0025 exist;
+`frontend/vite.fixture.config.ts` exists and is excluded from git.
+
+**Still not verified**, and said so where it matters:
+
+- `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY` as the first statement of a
+  session's transaction. No code under `backend/` sets an isolation level; `get_session` yields a
+  plain session (`shared/db.py:26-28`), and `pool_pre_ping=True` pings the connection when it is
+  checked out, outside the session's transaction (§ G; § L, T6).
+- A reservation that is not `FILLED` under a position. It is plausible: `SUBMITTED` may go to
+  `EXPIRED` or `RELEASED`, both terminal, and the sweeper treats `SUBMITTED` as sweepable
+  (`allocation/domain/reservation.py:36-52`). Whether a fill can then still be recorded was not
+  established (§ K, row 4).
+- `holding_guard.py` was not re-read (decision 64 records that it looks at one strategy on one
+  symbol).
+- Whether the fills route answers for an open allocation (P22). Nothing here depends on it.
 
 **Where the inputs were inexact.** (1) "SUBMITTED attempts judged by their order id" leaves out
 the attempt whose order id is still NULL: the guard skips it (P3). (2) Closed rehearsal operations
@@ -5308,8 +5331,10 @@ tests (`tests/execution/domain/test_mode_origin.py`,
 `tests/execution/application/test_assert_mode_matches_ledger.py`, `tests/test_mode_guard_wiring.py`).
 Its observable behaviour is unchanged because its code is unchanged. The reviewer's check is that
 the PR's diff names none of the guard's three source files and none of those four test files, and
-that its only change to `main.py` is the line that registers the new router (§ G). The reader
-gains a second caller, which reads and writes nothing more than the first.
+that its only change to `main.py` is two lines: the import of the new router and the
+`api_router.include_router(...)` call that registers it (§ G). `assert_dry_run_matches_ledger` is
+not among the changed lines. The reader gains a second caller, which reads and writes nothing more
+than the first.
 
 **The alternative not taken: move the fold to a shared module and let both import it.** It would
 change the guard's file to reach the same result, and it would still leave two SQL statements
@@ -5346,6 +5371,19 @@ an `OpenState`: every open position and every in-flight order of the system.
    `in_flight`, decorated from `submitted` by attempt id; then one more per row of `submitted`
    that step 1 did not return.
 
+**A row the facts cannot decorate stays.** Two cases, both possible only if the snapshot is lost or
+the stored data is at fault, and both kept because dropping the row is the failure § B forbids.
+
+- An element of `opened` with no facts: the position is built from the reader's own element (the
+  strategy's NAME, the pool, the symbols, the two origin flags) with `figures_missing = NO_FACTS`
+  and no strategy id.
+- An element of `in_flight` with no row in `submitted`: the order is built from the reader's own
+  element (the attempt id, the strategy's name, the pool, the symbol, the order id that gives its
+  origin) with no strategy id, no `action` and no `submitted_at`.
+
+Each logs one WARNING with its id (§ K, rows 10 and 16) and is pinned (§ L, T12). § H says where a
+row without a strategy id is drawn.
+
 Steps 1 and 2 are in that order on purpose. Should the snapshot ever be lost, an order read as
 in flight at step 1 and filled before step 2 is shown twice for one refresh, never missing (P5).
 
@@ -5353,11 +5391,10 @@ in flight at step 1 and filled before step 2 is shown twice for one refresh, nev
 
 ```sql
 -- submitted_orders: LEFT joins, so no SUBMITTED attempt can be dropped by a missing parent
-SELECT a.id, coalesce(a.reservation_id, a.closes_allocation_id) AS allocation_id,
-       a.reservation_id IS NOT NULL AS opening,
-       a.exchange, a.venue, a.settlement_currency, a.symbol, a.side,
+SELECT a.id, a.reservation_id IS NOT NULL AS opening,
+       a.exchange, a.venue, a.settlement_currency, a.symbol,
        a.exchange_order_id, a.created_at,
-       r.strategy_id, r.amount, s.name, <the strategy's archived mark>
+       r.strategy_id, s.name, s.archived_at IS NOT NULL AS archived
 FROM execution_attempts a
 LEFT JOIN reservations r ON r.id = coalesce(a.reservation_id, a.closes_allocation_id)
 LEFT JOIN strategies s ON s.id = r.strategy_id
@@ -5366,14 +5403,14 @@ WHERE a.status = 'SUBMITTED';
 -- position_facts, 1 of 2: the fills of the open allocations, served by ix_ledger_allocation
 SELECT allocation_id, strategy_id, exchange, venue, settlement_currency, symbol, side,
        upper(fee_currency), sum(quantity), sum(notional), sum(fee),
-       min(filled_at), max(filled_at), count(*)
+       min(filled_at), count(*)
 FROM ledger_entries
 WHERE allocation_id = ANY(:open_ids)
 GROUP BY allocation_id, strategy_id, exchange, venue, settlement_currency, symbol, side,
          upper(fee_currency);
 
 -- position_facts, 2 of 2: the grant, the leverage of the opening order, the strategy
-SELECT r.id, r.strategy_id, s.name, <the strategy's archived mark>,
+SELECT r.id, r.strategy_id, s.name, s.archived_at IS NOT NULL AS archived,
        r.amount, r.status, a.leverage
 FROM reservations r
 JOIN strategies s ON s.id = r.strategy_id
@@ -5391,13 +5428,13 @@ the imports are the standard library, `execution.domain.mode_origin`,
 
 | Type or function | What it is |
 | --- | --- |
-| `OpenPosition` | One open allocation: ids, strategy name and archived mark, pool, `markets`, `origin`, `figures` or the reason they are absent, `opened_at`, `last_fill_at`, `fill_count`, `fees`, `margin_granted`, `leverage`, `reservation_status`, `venue_disagreement`. |
-| `FillAggregate` | One row of the fills statement: `symbol`, `side`, `fee_currency`, `settlement_currency`, summed `quantity`, `notional` and `fee`, first and last `filled_at`, the row count. It is NOT a `FillGroup`: that type requires a `rehearsal` flag, and this read has none to give (the origin is the guard's). |
+| `OpenPosition` | One open allocation: the allocation id, the strategy's id (absent with `NO_FACTS`), name and archived mark, pool, `markets`, `origin`, `figures` or the reason they are absent, `opened_at`, `fill_count`, `fees`, `margin_granted`, `leverage`, `reservation_status`, `venue_disagreement`. |
+| `FillAggregate` | One row of the fills statement: `symbol`, `side`, `fee_currency`, `settlement_currency`, summed `quantity`, `notional` and `fee`, the first `filled_at`, the row count. It is NOT a `FillGroup`: that type requires a `rehearsal` flag, and this read has none to give (the origin is the guard's). |
 | `OpenPositionFigures` | `side`, `base_currency`, `size`, `opened_size`, `entry_price`: derived together or not at all. |
 | `FiguresMissing` | Why they are absent: `UNRESOLVED_SYMBOL`, `SEVERAL_MARKETS`, `FLIPPED`, `NO_FACTS`, `INCONSISTENT`. |
 | `open_position_figures(groups)` | § D. Answers the figures or a `FiguresMissing`; never raises for a row. |
 | `origin_of(open)` | `mode_origin.Origin` from the two flags of an `OpenAllocationOrigin`: both, `MIXED`; rehearsal only, `REHEARSAL`; otherwise `LIVE`. The mapping `find_mismatches` applies at lines 172-177. |
-| `InFlightOrder` | One `SUBMITTED` attempt: ids, strategy, pool, market, `action` (`OPEN` or `CLOSE`), `side`, `origin` (`rehearsal`, `live` or `unknown`), `submitted_at`, `margin_reserved`. |
+| `InFlightOrder` | One `SUBMITTED` attempt: the attempt id, the strategy's id, name and archived mark, pool, market, `action` (`OPEN` or `CLOSE`), `origin` (`rehearsal`, `live` or `unknown`), `submitted_at`. The strategy's id, `action` and `submitted_at` are absent on an order the facts could not decorate. |
 | `VenueDisagreement` | § E. |
 | `OpenState` | `positions`, `orders`. |
 
@@ -5435,7 +5472,6 @@ SHORT.
 | `entry_price` | `Σ notional(held side) / Σ quantity(held side)` | `notional`, `quantity` | settlement currency per unit of base |
 | `base_currency` | `base_currency_of(symbol, settlement_currency)`, upper-cased | `symbol`, `settlement_currency` | the unit of `size` |
 | `opened_at` | the earliest `filled_at` of the allocation | `filled_at` | UTC instant |
-| `last_fill_at` | the latest `filled_at` | `filled_at` | UTC instant |
 | `fill_count` | the number of ledger rows | - | - |
 | `fees` | `Σ fee` of every fill, both sides, charged in the settlement currency | `fee`, `fee_currency` | settlement currency |
 | `other_fees` | one `{currency, amount}` per other fee currency whose sum is above zero | the same | each in its own currency |
@@ -5476,10 +5512,10 @@ SHORT.
 
 | `figures_missing` | When | Still shown |
 | --- | --- | --- |
-| `UNRESOLVED_SYMBOL` | `base_currency_of` refuses a symbol of the allocation | markets, origin, dates, fees by currency, margin, leverage |
+| `UNRESOLVED_SYMBOL` | `base_currency_of` refuses a symbol of the allocation | markets, origin, the opening date, fees by currency, margin, leverage |
 | `SEVERAL_MARKETS` | the fills name more than one market key | the same, with every market |
 | `FLIPPED` | the net's sign is the opposite of the earliest fill's side: the "held side" would be the closes | the same |
-| `NO_FACTS` | the facts read answered nothing for an id the guard's reader returned | markets and origin, from the reader's own element |
+| `NO_FACTS` | the facts read answered nothing for an id the guard's reader returned | the strategy's name, the pool, the markets and the origin, from the reader's own element; no strategy id, no date, no fee, no margin, no leverage |
 | `INCONSISTENT` | the net computed here is zero, or the held side has no quantity or notional above zero | the same as `UNRESOLVED_SYMBOL` |
 
 ### E. The discrepancy mark
@@ -5508,17 +5544,22 @@ row of ITS pool lists ITS allocation id in `open_allocation_ids`. The market is 
   `GET /api/reconciliation/discrepancies`.
 - **A row that is only `OBSERVED`** marks nothing: the owner's decision says CONFIRMED.
 
-**What the mark carries** (`venue_disagreement`, null when there is none): the discrepancy's id and
-kind, the venue's net and the ledger's net as the reconciliation stored them, `allocation_count`,
-`confirmed_at` and `last_observed_at`. The last one is shown: it is what tells a mark of two
-minutes ago from one frozen since the mode was changed.
+**What the mark carries** (`venue_disagreement`, null when there is none), and what draws each:
+the discrepancy's id, which only matches the row to a pending proposal; the venue's net and the
+ledger's net as the reconciliation stored them, drawn in the mark's sentence; `allocation_count`,
+drawn as "shared by N positions" when it is above one; and `last_observed_at`, drawn as "Last
+compared": it is what tells a mark of two minutes ago from one frozen since the mode was changed.
+The discrepancy's kind and the instant it was first confirmed are not served: no text of the panel
+reads them.
 
 **Where it leads.** The panel already holds the pending proposals (P15). The row links to the
 Overview's "Needs your decision" rail when a pending proposal names this allocation and this
 discrepancy; the rail gains an anchor id and nothing else. When no proposal is pending (the kind is
 never proposed, the proposal expired or was rejected, or none is prepared yet), the row states the
-disagreement and that no booking is proposed, and leads nowhere. § O, Q3 asks whether that is
-enough.
+disagreement and that no booking is proposed, and leads nowhere. The owner confirmed this on
+2026-10-11 (§ O, Q3). A view of the confirmed discrepancies is not in this delivery: it is the next
+unit, with a design of its own, and the row's mark will link to it once it exists (§ N, follow-up
+F1).
 
 ### F. The API
 
@@ -5560,8 +5601,9 @@ One element of `positions`:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `allocation_id` | uuid | the position's identity; rows are grouped by it and never by symbol |
-| `strategy_id`, `strategy_name` | uuid, string | the owner of the allocation |
-| `strategy_archived` | boolean | so the client can say why a position is not on the list |
+| `strategy_id` | uuid or null | the owner of the allocation; null only with `NO_FACTS`, because the guard's element names the strategy and carries no id |
+| `strategy_name` | string | never null: the guard's element carries it |
+| `strategy_archived` | boolean or null | so the sentence can say why a position is not on the list; null only with `NO_FACTS` |
 | `pool` | `{exchange, venue, settlement_currency}` | the pool of the fills, as the guard labels it |
 | `currency` | string | the pool's settlement currency: the unit of `entry_price`, `fees`, `margin_granted` |
 | `markets` | list of strings | market keys, sorted; one element unless the data is at fault |
@@ -5572,29 +5614,36 @@ One element of `positions`:
 | `size` | money or null | what is held now |
 | `opened_size` | money or null | what was opened; differs from `size` after a partial close |
 | `entry_price` | price or null | |
-| `opened_at`, `last_fill_at` | instant or null | null only with `NO_FACTS` |
-| `fill_count` | integer | 0 only with `NO_FACTS` |
+| `opened_at` | instant or null | null only with `NO_FACTS` |
+| `fill_count` | integer | 0 only with `NO_FACTS`; above 1, the detail section writes "average of N fills" under the entry price |
 | `fees` | money | in `currency` |
 | `other_fees` | list of `{currency, amount}` | never converted |
 | `margin_granted` | money or null | null only with `NO_FACTS` |
 | `leverage` | plain decimal string or null | null where none was recorded |
-| `reservation_status` | string or null | the reservation's status, as stored |
-| `venue_disagreement` | object or null | § E: `discrepancy_id`, `kind`, `venue_net_base`, `ledger_net_base`, `allocation_count`, `confirmed_at`, `last_observed_at` |
+| `reservation_status` | string or null | the reservation's status, as stored; the detail section writes a note when it is not `FILLED`; null only with `NO_FACTS` |
+| `venue_disagreement` | object or null | § E: `discrepancy_id`, `venue_net_base`, `ledger_net_base`, `allocation_count`, `last_observed_at` |
 
 One element of `orders`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `attempt_id` | uuid | |
-| `allocation_id` | uuid | the reservation it opens or the allocation it closes |
-| `strategy_id`, `strategy_name`, `strategy_archived` | uuid or null, string or null, boolean | null only if the attempt's parent row is missing |
+| `attempt_id` | uuid | the order's identity |
+| `strategy_id`, `strategy_archived` | uuid or null, boolean or null | null on an order the facts could not decorate (§ C), and if the attempt's parent row is missing |
+| `strategy_name` | string or null | null only if the attempt's parent row is missing |
 | `pool` | object | the attempt's own pool columns |
 | `market` | string | `market_key` of the attempt's symbol |
-| `action` | `"OPEN"` or `"CLOSE"` | which of the attempt's two origins is set |
-| `side` | `"BUY"` or `"SELL"` | the order's side, as stored |
+| `action` | `"OPEN"`, `"CLOSE"` or null | which of the attempt's two origins is set; null on an order the facts could not decorate |
 | `origin` | `"rehearsal"`, `"live"` or `"unknown"` | by the order id's prefix; `unknown` when no order id is recorded |
-| `submitted_at` | instant | the attempt's `created_at`: how long it has been in flight |
-| `margin_reserved` | money or null | the reservation's amount, for an `OPEN` only |
+| `submitted_at` | instant or null | the attempt's `created_at`: how long it has been in flight; null on an order the facts could not decorate |
+
+**Nothing is served that the panel does not draw.** Every field above is read by a component of
+§ H: the ids as keys and to match a row to its strategy or to a proposal; the names, the pool and
+`strategy_archived` by the sentence that names what the list does not show; `currency` and
+`base_currency` by the headings and the units; the figures, `opened_at`, `fees`, `other_fees`,
+`margin_granted`, `leverage`, `opened_size`, `fill_count` and `reservation_status` by the detail
+section; `figures_missing` by the reason under a dash. Six fields of the first writing had no
+reader and are not served: a position's `last_fill_at`, the disagreement's `kind` and
+`confirmed_at`, and an order's `allocation_id`, `side` and `margin_reserved`.
 
 **Other answers.** 401 without the token, as on every admin route. No 404: the route has no
 subject. A failure of the read is a 500 with the usual trace; the client shows it as an error and
@@ -5615,7 +5664,7 @@ pool report's 404, which means "no report" (`performance.ts:50-52`).
 | `SqlAlchemyOpenPositionFactsSource` | **infrastructure**/performance | `performance/infrastructure/open_position_facts_source.py` (new) | § C's three statements |
 | `ConfirmedDisagreementSource` | **infrastructure**/performance | `performance/infrastructure/confirmed_disagreement_source.py` (new) | maps `DiscrepancyRecord` to the port's record |
 | the router, its bodies, the snapshot dependency | **infrastructure**/performance | `performance/infrastructure/open_positions_router.py` (new) | § F |
-| `api_router.include_router(...)` | composition root | `main.py` | one line |
+| the router's import and `api_router.include_router(...)` | composition root | `main.py` | two lines, and nothing else in that file |
 | `SqlAlchemyModeOriginReader`, `mode_origin.py`, the guard's use case, the reconciliation, the ledger repository | - | - | **not changed** |
 
 - **`domain/` gains no framework import.** The new module is dataclasses and `Decimal` arithmetic.
@@ -5647,6 +5696,10 @@ cannot delay a settle or an allocation.
 - **Not verified, and the first thing the tasks prove:** that the session opens its transaction
   with this statement first, on this stack (SQLAlchemy's async session over asyncpg). § L, T6 is
   the proof, on real PostgreSQL. It is the first non-default isolation in the code base (P21).
+  What is known: `get_session` yields a plain session (`shared/db.py:26-28`), the router's
+  authentication issues no statement (§ A), and `pool_pre_ping=True` pings the connection when it
+  is checked out, before the session's transaction begins, so it is not "a query" of that
+  transaction. What is not known is whether anything else on this stack issues one first.
 
 **Cost.** With nothing open: four statements (the `SET`, the guard's two, the submitted orders).
 With something open: seven. The count does not grow with the number of positions (§ L, T7).
@@ -5684,24 +5737,37 @@ an empty list; a 404 is an error), and `useOpenPositions()`.
 | Invalidated by | a booking approved or rejected (beside `['bookings','pending']`), and the "Read again" button |
 | Not invalidated by | the enable switch, a share change, an archive: none of them opens or closes anything |
 
-Helpers in the same file select from the one answer: `ofStrategy(state, id)`,
-`ofPool(state, pool)` and `notShown(state, visibleStrategyIds)`.
+Two helpers in the same file select from the one answer: `ofStrategy(state, id)` and
+`notShown(state, visibleStrategyIds)`. An element whose `strategy_id` is null is in no strategy's
+selection and is always in `notShown`. The pool's selection, `ofPool`, is not here: it has one
+caller, the Overview's list, and lives in that component's file, so that dropping the Overview
+part leaves no dead code behind.
 
 **Components.** New files under `frontend/src/features/positions/`; the two pages only place them.
 
 | Component | Where | What it is |
 | --- | --- | --- |
-| `OpenStateLine` | Strategies page, under the title row, above the list | The whole system's answer in one sentence, with its time and a "Read again" button. It does not wait for the exchange scope: its subject is the whole system. |
+| `OpenStateLine` | Strategies page ONLY, under the title row, above the list (owner, 2026-10-11, § O Q4: no variant in the header, on any page) | The whole system's answer in one sentence, with its time and a "Read again" button. It does not wait for the exchange scope: its subject is the whole system. |
 | `OpenMarks` | `StrategyRow`, a fourth line of the first track, under the uptime | One chip per position and per in-flight order of that strategy: pair, side, origin; the venue mark when present. Chips wrap. |
 | `OpenPositionsSection` | Strategy detail, a full-width section between the two-column grid and `TradesTable` | The strategy's positions as a table from `md` and as stacked cards below it, then its in-flight orders as lines, then the notes. |
 | `OriginTag`, `VenueMark` | shared by the three above | The origin's word and token; the disagreement's sentence, time and link. |
-| `PoolOpenPositions` | **separable**: `PoolPanel`, under the month grid | The pool's positions with the strategy's name as a link, and its in-flight orders. |
+| `PoolOpenPositions`, with its own `ofPool` | **separable**: `PoolPanel`, under the month grid | The pool's positions with the strategy's name as a link (plain text when the row has no strategy id), and its in-flight orders. |
 | the count in `MonthlySummary` | **separable** | "N open, M of them dry run", counted from the pool's positions, replacing the live-only count. |
 
-Reused as they are: `amountText`, `parseDecimal`, the `figureText` family and the two-line UTC
-instant of the trades table, the words and the token of the mode badge, `cn`, `Link`. `Absent` and
-`Instant` are local to `TradesTable.tsx` today (lines 51-73); they move to a shared file of the
-feature in a commit of their own that changes no behaviour.
+Reused as they are: the words and the token of the mode badge, `cn`, `Link`, and the formatting
+helpers below.
+
+**The formatting helpers move to `shared/`, in a commit of their own.** `amountText` and
+`parseDecimal` live in `features/overview/format.ts`; `figureText`, `tableFigureText`,
+`compactDateText`, `clockText` and `dateTimeText` live in `features/strategies/format.ts`; `Absent`
+and `Instant` are local to `TradesTable.tsx` (lines 51-73). A new `features/positions` would import
+from two other features, and the Overview part would make `features/overview` import it back.
+These helpers are shared in fact already: fifteen files hold eighteen imports of the two format
+modules, and `features/strategies` reads `features/overview/format` (`StrategyRow.tsx:4`). So the two format
+files move whole to `shared/lib/`, with their tests, and the two cells to `shared/ui/`, as unit
+13.0 moved three shared idioms for Settings: import paths only, no assertion changed, one commit
+that opens op.2. Importing them where they are was the alternative, and was not taken: it would
+add a third feature to a dependency that is already crossed.
 
 **Tokens** (from `frontend/src/index.css` `@theme`; no hex, no `var()` in a class).
 
@@ -5719,7 +5785,7 @@ feature in a commit of their own that changes no behaviour.
 
 | State | `OpenStateLine` | `OpenMarks` (a row) | `OpenPositionsSection` (detail) |
 | --- | --- | --- | --- |
-| Loading, nothing read yet | "Reading open positions…", `role="status"` | "…" | "Reading open positions…" |
+| Loading, nothing read yet | "Reading open positions…", `role="status"` | a decorative "…" with `aria-hidden`, and the translated `positions.state.loading` as its `sr-only` name; the row's figures already draw the same literal while they load (`StrategyRow.tsx:65`) | "Reading open positions…" |
 | Failed, nothing read yet | the error sentence, `role="alert"`, `loss` | nothing, and the line above says why a row without a mark means nothing | the error sentence and "Read again" |
 | Read, then a refresh failed | the last answer and "could not be refreshed since {time}", `loss` | the last answer | the last answer and the same sentence |
 | Nothing open anywhere | "Nothing is open on any exchange. Read at {time} UTC." | nothing | "No open position." |
@@ -5732,12 +5798,22 @@ feature in a commit of their own that changes no behaviour.
 | A disabled strategy holding one | the count sentence | the chip, in a row whose switch is off | as any other |
 | Several positions on one strategy | the count sentence | the chips wrap inside the first track | several rows |
 | Open, and not on this list | names each one: strategy, exchange or "archived", pair, origin | - | - |
+| A position or an order with no strategy id (§ C: the facts could not decorate it) | always named: the strategy's name, the exchange, the pair, the origin and "figures not readable" | - (it cannot be placed on a row) | "N open positions could not be matched to a strategy", in place of "No open position.", which is never drawn while one exists |
 | Phone width | the sentence wraps; the button is 44 px tall | chips wrap under the uptime | cards, one per position |
 
 - **The rule that makes the list page complete.** Every element of the answer is drawn in a row
   that is on screen, or it is named in `OpenStateLine`. A position of another exchange, of an
   archived strategy while archived ones are hidden, or of a strategy whose list failed to load is
   named there. So the list page shows nothing open only when the answer is empty.
+- **A row with no strategy id is always named in the sentence.** A `NO_FACTS` position and an
+  undecorated order (§ C) carry the strategy's name and no id. A name is not matched to a row:
+  it is not an identity, and whether names are unique was not checked. `notShown` returns every element whose id is not on screen, and a
+  null id is never on screen, so such a row is named in `OpenStateLine` on every exchange's view
+  and the sentence "Nothing is open on any exchange" cannot be drawn while it exists. The detail
+  page cannot tell whose it is either: while the answer holds one, a strategy's section never says
+  "No open position."; it says that N open positions could not be matched to a strategy and that
+  the Strategies page names them. On the Overview part it is listed in its pool, which the guard's
+  element does carry.
 - **Disabled is not hidden.** `OpenMarks` does not read `strategy.enabled`.
 - **Accessibility.** Each chip is text, not colour alone: the origin is a word. The venue mark's
   link is a real link with the pair in its name. The dashes carry their reason in `sr-only` text,
@@ -5788,7 +5864,8 @@ cannot drift; their Spanish was not re-read here.
 | `positions.table.notRecorded` | not recorded | no registrado |
 | `positions.table.ofOpened` | of {{opened}} opened | de {{opened}} abiertas |
 | `positions.table.averageOf` | average of {{count}} fills | promedio de {{count}} ejecuciones |
-| `positions.table.strategy` | Strategy | Estrategia |
+| `positions.table.unmatched_one` / `_other` | {{count}} open position could not be matched to a strategy. The Strategies page names it. / {{count}} open positions could not be matched to a strategy. The Strategies page names them. | {{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra. / {{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra. |
+| `positions.state.unreadable` | figures not readable | cifras no legibles |
 | `positions.reason.UNRESOLVED_SYMBOL` | The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived. | La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan. |
 | `positions.reason.SEVERAL_MARKETS` | The fills of this position name more than one pair. | Las ejecuciones de esta posición nombran más de un par. |
 | `positions.reason.FLIPPED` | The fills sold more than was bought, or bought more than was sold. The entry price is not derived. | Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula. |
@@ -5797,6 +5874,7 @@ cannot drift; their Spanish was not re-read here.
 | `positions.note.rehearsal` | A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total. | Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total. |
 | `positions.note.mixed` | This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand. | Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange. |
 | `positions.note.reservation` | Its reservation reads {{status}}, not FILLED. | Su reserva figura como {{status}}, no FILLED. |
+| `overview.open.strategy` (separable; it is the Overview list's only own heading, so it lives in the Overview's group and goes with op.4) | Strategy | Estrategia |
 | `overview.monthlySummary.openAll_one` / `_other` (separable) | {{count}} open / {{count}} open | {{count}} abierta / {{count}} abiertas |
 | `overview.monthlySummary.openWithRehearsal` (separable) | {{count}} open, {{rehearsal}} of them dry run | {{count}} abiertas, {{rehearsal}} de ellas en simulación |
 
@@ -5852,6 +5930,15 @@ others are needed to review the unit.
 24. **Separable:** example 22 at phone width, with a position the venue disagrees on and the
     "Needs your decision" rail under the chart.
 25. Examples 3, 7, 10, 14 and 18 in Spanish.
+26. A position the facts could not decorate, which has no strategy row to sit on: the sentence of
+    example 10 naming it (strategy name, exchange, pair, origin, "figures not readable"), and a
+    detail section that reads "1 open position could not be matched to a strategy. The Strategies
+    page names it." where "No open position." would be.
+
+**After the owner's answers of 2026-10-11 (§ O).** Examples 1 to 25 keep their numbers and their
+content. No example draws the sentence in the header or on another page (Q4), and none draws a
+position opening onto its fills (Q5). The "no booking proposed" variants of examples 7 and 18 stay
+as the form this delivery ships (Q3). Example 26 is added by the validation.
 
 ### K. What fails here without a log line?
 
@@ -5860,23 +5947,25 @@ others are needed to review the unit.
 | 1 | The ledger holds a position the venue already closed (liquidation, a close by hand, a stop) | A row with every figure for a position that does not exist | The venue mark, once the reconciliation has CONFIRMED it. Before that, nothing marks it: the window is the reconciliation's confirmations times its interval (both are settings, not re-read). Under `DRY_RUN` nothing is compared at all. § N. |
 | 2 | The reconciliation's chain has died (its handler's own docstring calls that silent) | Rows with no mark, read as "the venue agrees" | Not solved here. A marked row shows "Last compared"; an unmarked row has nothing to show it. Flagged in § N as work of its own. |
 | 3 | An order sent and not yet filled, or stuck | Nothing: the performance path has no fill to count | A row of its own, with the time it was sent, so an order in flight for hours is visible as such. One with no order id reads "origin unknown". |
-| 4 | A position whose reservation is not `FILLED` (expired or released while its order filled) | A margin shown as granted for capital the pool counts as free | `reservation_status` is served; the row says so and the read logs one WARNING with the allocation id. Whether the system can produce this was not established. |
+| 4 | A position whose reservation is not `FILLED` (expired or released while its order filled) | A margin shown as granted for capital the pool counts as free | `reservation_status` is served; the row says so and the read logs one WARNING with the allocation id. Plausible and not proven: `SUBMITTED` may go to `EXPIRED` or `RELEASED` (`allocation/domain/reservation.py:36-52`). § L, T12. |
 | 5 | A rehearsal position shown as live, or the reverse | The owner changes the mode on a wrong reading | The origin is the guard's own two flags, from the guard's own statement. No second prefix test exists. § L, T3 seeds a live id that only CONTAINS the marker. |
 | 6 | A stale answer | "Nothing is open" from ten minutes ago | The sentence carries its time; the hook refetches every 60 s and on focus; a failed refresh is said in `loss`; "Read again" asks now. |
 | 7 | One position written under two spellings (`STXUSDT.P` opened, `STXUSDT` booked) | Two rows, or one open and one "short" | Rows are per allocation. The fold nets every spelling; `markets` is the set of market keys, so the row says `STXUSDT` once. |
 | 8 | A disabled or archived strategy's position | Nothing, if the view followed the switch or the archived filter | Disabled: the chip is drawn. Archived and hidden, or another exchange: named in the sentence. |
 | 9 | The figures and the fold disagree (the fold says open, the net computed for display is zero) | A row dropped, or a size of 0 | The row stays, `figures_missing` is `INCONSISTENT`, one WARNING names the allocation. § L, T5 is what keeps this from happening. |
-| 10 | An allocation the guard's reader returned and the facts read did not | A row dropped | The row stays with `NO_FACTS`; one WARNING. |
-| 11 | An unresolved symbol | Nothing on the panel today (P8) | The row, with its reason; one WARNING with the allocation id, as the performance reads log it. |
-| 12 | A confirmed row whose market is not among the position's markets | A mark about another market | The mark stays (the allocation id is the key) and one WARNING names both. |
+| 10 | An allocation the guard's reader returned and the facts read did not | A row dropped | The row stays with `NO_FACTS` and no strategy id, named in the page's sentence (§ H); one WARNING with the allocation id. § L, T12. |
+| 11 | An unresolved symbol | Nothing on the panel today (P8) | The row, with its reason; one WARNING with the allocation id, as the performance reads log it. § L, T12. |
+| 12 | A confirmed row whose market is not among the position's markets | A mark about another market | The mark stays (the allocation id is the key) and one WARNING names both. § L, T12. |
 | 13 | A body that is not the expected shape, or a 404 from an older API | An empty list | An error state. The shape check refuses the whole answer; a 404 is a failure here. |
 | 14 | A confirmed disagreement with no proposal to decide | A link that leads to an empty rail | No link: the row says that no booking is proposed. § O, Q3. |
 | 15 | The snapshot is not in force (the statement is not the first of the transaction) | Figures of two instants in one row | PostgreSQL refuses a `SET TRANSACTION` issued after a query: an error, hence a 500 and the error state, not a silent degradation. § L, T6 proves the happy path. |
+| 16 | An order the guard's reader returned and the submitted-orders read did not (possible only if the snapshot is lost) | An order dropped: the one case the guard refuses on and the panel would not show | The row STAYS, built from the reader's element, with no strategy id, action or time; it is named in the page's sentence. One WARNING with the attempt id. § L, T12. |
 
 **Levels**, the ones `performance/application/scope.py:18-24` gives for read models: WARNING with
 the ids for a fault in stored data, nothing when nothing is wrong, never ERROR, because a read
 model fires once per page view and only ERROR reaches the operator's alerts. No price, quantity,
-fee or margin is ever logged. Rows 4, 9, 10, 11 and 12 repeat on every read while the fault exists;
+fee or margin is ever logged. Rows 4, 9, 10, 11, 12 and 16 repeat on every read while the fault
+exists, and each has a test that reads the log record (§ L, T12; T5 keeps row 9 from arising);
 with a 60 s poll that is one line a minute per open tab, which is the accepted cost of a fault that
 is otherwise invisible.
 
@@ -5895,10 +5984,12 @@ say how.
 | T5 | **The net for display agrees with the fold.** Over T2's generated sets: `open_position_figures` answers figures with a size above zero exactly when the fold calls the allocation open and its symbol resolves. | domain | § D, § K row 9. |
 | T6 | **The snapshot.** On real PostgreSQL, a harness holds the read between its first and second statement, a second connection commits a closing fill, and the read is released. Asserted: the answer is the state BEFORE the fill, whole. Then the same harness with the snapshot statement removed must show the mixed state, which proves the test can fail. | infrastructure | § G. It is also the proof that the statement is accepted as the transaction's first. |
 | T7 | **Statement counts.** Four with nothing open, seven with one position and with twenty, in the manner of `test_operations_statement_counts.py`. | infrastructure | No statement per row. |
-| T8 | Domain tables for `open_position_figures` (one fill, several fills, a partial close, a base-currency fee, a flip, two markets, an unresolved symbol, a SHORT), for `origin_of` against the origin `find_mismatches` reports, and for the mark's key (a row naming the allocation, a row of the same market naming another, an `OBSERVED` row, a resolved row, a row of another pool, a row naming two allocations). Router tests for the body, field by field, and for 401. | domain, infrastructure | § D, § E, § F. |
-| T9 | Frontend, the API module: a well-formed body; a body with one bad element refused whole; a 404 as an error; the three selectors. | Vitest | § H, § K row 13. |
-| T10 | Frontend, the components: every state of § H's table for `OpenStateLine`, `OpenMarks` and `OpenPositionsSection`; that a failed read never draws the "nothing is open" sentence; that every element of a fixture answer is drawn in a row or named in the sentence; the link only with a matching pending proposal; a disabled row keeps its chip; the invalidation after a booking is approved. | Vitest, Testing Library | § H. |
+| T8 | Domain tables for `open_position_figures` (one fill, several fills, a partial close, a base-currency fee, a flip, two markets, an unresolved symbol, a SHORT, and the two `INCONSISTENT` cases: a net of exactly zero, and a held side with no quantity or notional above zero), for `origin_of` against the origin `find_mismatches` reports, and for the mark's key (a row naming the allocation, a row of the same market naming another, an `OBSERVED` row, a resolved row, a row of another pool, a row naming two allocations). Router tests for the body, field by field, for a `NO_FACTS` position and an undecorated order (their nullable fields are written as JSON null, never omitted and never a zero), and for 401. | domain, infrastructure | § D, § E, § F. |
+| T9 | Frontend, the API module: a well-formed body; a body with one bad element refused whole; a 404 as an error; the two selectors, and that `notShown` returns an element whose `strategy_id` is null whatever ids are on screen. | Vitest | § H, § K row 13. |
+| T10 | Frontend, the components: every state of § H's table for `OpenStateLine`, `OpenMarks` and `OpenPositionsSection`; that a failed read never draws the "nothing is open" sentence; that every element of a fixture answer is drawn in a row or named in the sentence; the link only with a matching pending proposal; a disabled row keeps its chip; `['positions','open']` is invalidated after a booking is approved AND after one is rejected, one test in each of `ConfirmBookingDialog.test.tsx` and `RejectBookingDialog.test.tsx`; a position with no strategy id is named in the sentence and keeps both "Nothing is open on any exchange" and the detail's "No open position." from being drawn; the loading mark of a row has the translated accessible name. | Vitest, Testing Library | § H. |
 | T11 | Frontend, texts and tokens: every new key exists in both locale files, in the manner of the existing parity tests; no hex and no `var()` in the new files' classes. | Vitest | Conventions. |
+| T12 | **Every WARNING of § K, and the row it must not cost.** With fakes and the log captured, one case each: a position whose reservation reads `EXPIRED` (row 4); the fold calling an allocation open while the display net is zero (row 9); an open allocation the facts read does not answer for (row 10); an unresolved symbol (row 11); a confirmed row that names the allocation under another market (row 12); an in-flight element with no submitted row (row 16). Asserted for each: the row IS in the answer with the fields § C and § F give it; exactly one WARNING is logged; it carries the allocation or attempt id; it carries no price, quantity, fee or margin. And a case with nothing wrong logs nothing. | application, fakes | § K rows 4, 9, 10, 11, 12, 16; § C "a row the facts cannot decorate stays". |
+| T13 | **Separable, with op.4.** `ofPool` selects by the three values of a pool and never by exchange alone; `PoolOpenPositions` draws no position of another pool of the same exchange; the count reads "N open, M of them dry run" from the pool's positions; a row with no strategy id is listed in its pool with its name as plain text. | Vitest, Testing Library | § H, the Overview part; rule 7. |
 
 - **Symbols.** Every test that crosses a boundary uses a different spelling on each side: the
   ledger's fills as `STXUSDT.P`, the discrepancy row as `STXUSDT`, a booked fill as `STXUSDT`, an
@@ -5911,22 +6002,51 @@ say how.
   flight, one with a `venue_disagreement` whose `discrepancy_id` and `allocation_id` match a
   proposal the fixture's bookings handler already serves, and one on another exchange. The tasks
   hand that body over as a JSON file under `openspec/`, ready to paste.
-- **Gate**, after every unit: the backend's `ruff`, `mypy` and `pytest`; the frontend's lint and
-  tests.
+- **Gate.** Each unit has its own, named in § M.
+
+**The first red test of each unit.** Each is seen failing on an ASSERTION, with the code under test
+already importable and returning the wrong thing, never on an import or a constructor error.
+
+| Unit | The test seen failing first | Why it fails before the code exists |
+| --- | --- | --- |
+| op.1 | T6, the snapshot. The route's dependency is first written as a pass-through that yields a plain session, and the use case as a stub that reads the two lists in two statements. | The held read then shows the state AFTER the concurrent fill; the assertion "the state before the fill, whole" fails. It is also the unit's riskiest assumption, so it is settled before anything is built on it. |
+| op.1, next | T1, with `ReadOpenPositions` stubbed to answer an empty state. | The guard's mismatch identifiers are not among the answer's ids. |
+| op.2 | T10: `OpenStateLine` given a FAILED read, with a stub that draws the "nothing is open" sentence whenever it has no data. | The assertion that the sentence is absent fails. This is the panel's version of the invariant, so it is the first thing pinned. |
+| op.3 | T10: `OpenPositionsSection` given one position whose `leverage` is null, with a stub that writes every cell from a default. | The assertion that the cell holds a dash with "not recorded", and not "1x", fails. |
+| op.4 | T13: `PoolOpenPositions` given positions of two pools of one exchange, with a stub that draws all it is given. | The assertion that the other pool's position is absent fails. |
+
+The mechanical move that opens op.2 (§ H) has no red test: it changes import paths only, and its
+proof is that every existing test passes unchanged.
 
 ### M. Delivery
 
 **Before the tasks are written:** the prototype of § J, reviewed by the owner, who also answers the
-two points decision 65 left for it (the Overview's list and the Overview's count) and § O.
+two points decision 65 left for it: the Overview's list and the Overview's count, § O's Q1 and Q2.
+The other three questions of § O are answered.
 
 | Unit | Contents | Forecast, authored lines |
 | --- | --- | --- |
-| op.1 | Backend: the domain module, the ports, `ReadOpenPositions`, the two adapters, the router and its snapshot dependency, the line in `main.py`, T1 to T8 | 1,600 to 2,300 |
-| op.2 | Panel: the API module and hook, `OpenStateLine`, `OpenMarks` in `StrategyRow`, the move of `Absent` and `Instant`, the invalidation, texts, T9 to T11 for them | 1,100 to 1,600 |
+| op.1 | Backend: the domain module, the ports, `ReadOpenPositions`, the two adapters, the router and its snapshot dependency, the two lines in `main.py`, T1 to T8 and T12 | 1,700 to 2,400 |
+| op.2 | Panel: first, in a commit of its own, the move of the two format files and of `Absent` and `Instant` to `shared/` (§ H; renames and about twenty import lines). Then the API module and hook with its two selectors, `OpenStateLine`, `OpenMarks` in `StrategyRow`, the invalidation in the two booking dialogs, the shared texts, T9 to T11 for them | 1,100 to 1,600 |
 | op.3 | Panel: `OpenPositionsSection` on the detail page, the venue mark and its link, the rail's anchor, texts, their tests | 900 to 1,400 |
-| op.4 | **Separable.** Panel: `PoolOpenPositions`, the count in `MonthlySummary`, texts, their tests | 500 to 800 |
+| op.4 | **Separable.** Panel: `PoolOpenPositions` with its `ofPool`, the count in `MonthlySummary`, the `overview.*` texts of § I, T13 | 500 to 800 |
 
-The forecasts assume tests at about twice the production code, as the last units ran.
+The forecasts assume tests at about twice the production code, as the last units ran. Nothing of
+op.4 sits in an earlier unit: its helper, its heading's text and its tests are its own. The rail's
+anchor is op.3's, because the venue mark's link needs it whether or not op.4 is built.
+
+**The gate of each unit**, run after it and before its commits are closed.
+
+| Unit | Gate |
+| --- | --- |
+| op.1 | `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short`. It touches no frontend file. |
+| op.2 | `cd frontend && npm run lint && npm test`, run once after the mechanical move alone (every existing test passes unchanged) and once after the unit. It touches no backend file. |
+| op.3 | `cd frontend && npm run lint && npm test`. |
+| op.4 | `cd frontend && npm run lint && npm test`. |
+| the PR | both gates, on the branch's head, before it is opened. |
+
+pytest prints no summary line in this shell: the backend gate is read from its exit code and from
+the per-file counts of `uv run pytest --co -q`, as the working agreements say.
 
 - **Order.** op.1 first: the panel refuses an answer it cannot read, so the route exists before the
   code that asks for it. Then op.2, then op.3. op.4 last, or not at all.
@@ -5940,7 +6060,7 @@ The forecasts assume tests at about twice the production code, as the last units
   review. If the answer is not yet known when the tasks are written, it is a second PR, cut from
   `main` after the first is merged, and that is the specific reason to split: it may be dropped or
   changed. If the owner says no, it is not built.
-- `Decision needed before apply: Yes` (the prototype review and § O) · `Chained PRs recommended:
+- `Decision needed before apply: Yes` (the prototype review, with § O's Q1 and Q2) · `Chained PRs recommended:
   No` (one PR, or two sequential ones as above, never stacked) · `400-line budget risk: High`.
 
 **Migration: none.** Every column the read uses exists and is populated by code that runs today:
@@ -5967,6 +6087,18 @@ already exist (§ G). So no migration is rehearsed and none runs.
 at the previous release directory. Nothing was written and no schema changed, so there is no data
 to undo. Rolling back only the bundle is also safe: the older panel never asks for the route.
 
+**Reverting op.4 alone.** It is frontend only, so no service is restarted either way.
+
+- If it shipped inside the one PR: revert its own work-unit commits, in reverse order. They touch
+  its two components, the one prop of `PoolPanel`, the sentence in `MonthlySummary`, the
+  `overview.*` keys and T13, and no file of op.1 to op.3. Then the bundle step of pps.6.
+- If it shipped as a second PR: revert that PR's merge commit, then the bundle step.
+- If it was never built: nothing to revert; `excluded.open_trade_count` and today's sentence are
+  untouched by op.1 to op.3.
+
+Either way the Overview returns to today's count and the list, the detail page and the route keep
+working: they do not import anything of op.4.
+
 **Design decisions made here** (not owner decisions; each has its reason above):
 
 | # | Decision | Section |
@@ -5981,11 +6113,15 @@ to undo. Rolling back only the bundle is also safe: the older panel never asks f
 | D8 | Figures that cannot be derived are null with a reason; the row always stays | D, K |
 | D9 | The venue mark is keyed by allocation id inside the pool, on open CONFIRMED rows only; no origin filter | E |
 | D10 | The mark links only when a pending proposal names the allocation and the discrepancy | E |
-| D11 | A sentence on the Strategies page states the whole system's answer and names what the list does not show | H |
+| D11 | A sentence on the Strategies page, and only there (§ O, Q4), states the whole system's answer and names what the list does not show | H |
 | D12 | One query key, 60 s stale time and refetch interval; invalidated by a booking decision | H |
 | D13 | Origin "Dry run" in `decision`, as the mode badge and the trades table; "Live" in neutral ink | H |
 | D14 | The Overview's list and count are files of their own, droppable without touching the rest | H, M |
 | D15 | One PR for op.1 to op.3; op.4 with it only if agreed before the tasks | M |
+| D16 | A row the facts cannot decorate stays, without a strategy id, and is always named in the page's sentence | C, F, H |
+| D17 | The body serves only what a component draws | F |
+| D18 | The formatting helpers and the two cells move to `shared/` in a commit of their own | H |
+| D19 | The Overview part owns its selector, its heading's text and its tests | H, I, M |
 
 **Threat matrix.** N/A: no routing of commands, shell, subprocess, VCS or PR automation,
 executable-file classification or process integration. The new HTTP route is read-only, sits
@@ -6006,13 +6142,24 @@ behind the router-level bearer token and takes no input.
 | The forecast | The last units ran above theirs | It already assumes tests at twice the code. |
 | The `leverage` of an old position may be NULL for a reason other than "spot" | The cell is empty and the reason reads "not recorded" | Correct by the owner's rule: never filled in. |
 
+**Follow-ups, recorded and not designed here.**
+
+| # | Follow-up | Why it is not in this delivery |
+| --- | --- | --- |
+| F1 | A view of the CONFIRMED discrepancies, including those that have no booking to decide. Once it exists, the row's venue mark links to it. | Owner, 2026-10-11 (§ O, Q3): it is the next unit, with a design of its own. Until then the row says "No booking is proposed for it" and links nowhere. |
+| F2 | An open position opening onto its individual fills, as a closed operation does. | Owner, 2026-10-11 (§ O, Q5): not in this delivery. Its design starts by establishing whether the fills read answers for an allocation that is not closed, which is not verified (P22). |
+| F3 | A sign, on a row with NO venue mark, of when its pool was last compared with the venue, so that a dead reconciliation chain is not read as agreement. | It needs a fact the system does not store (§ K, row 2). |
+
 **What was assumed and not verified** is listed at the end of § A. The two that most affect the
 design are the session's behaviour under `SET TRANSACTION` (T6) and whether a reservation can be
 other than `FILLED` under a position (§ K, row 4).
 
-### O. Questions for the owner
+### O. Questions for the owner: two open, three answered (2026-10-11)
 
-Two points are carried from decision 65, which left them for the prototype. Three are new.
+Two points are carried from decision 65, which left them for the prototype review; they are the
+only open ones. The three this addendum raised were answered by the owner on 2026-10-11.
+
+**Open, for the prototype review.**
 
 **Q1 (carried). Does the Overview list every open position of the selected exchange, pool by
 pool?** The prototype draws it (§ J, example 22). The design builds it as a separable part.
@@ -6021,20 +6168,25 @@ pool?** The prototype draws it (§ J, example 22). The design builds it as a sep
 counts live positions only, to "N open, M of them dry run"?** The prototype draws both (§ J,
 example 23).
 
+**Answered.**
+
 **Q3. When the reconciliation has confirmed that the venue disagrees and there is no booking to
-decide, is the row's own statement enough?** That happens when two positions share the pair (it is
-never proposed), and when a proposal was rejected, expired or is not prepared yet. The design then
-says "No booking is proposed for it" and links nowhere. The alternative is for the panel to list
-the confirmed disagreements themselves, which it does not do today and which is a unit of its own.
+decide, is the row's own statement enough?**
+**Answered 2026-10-11: yes, for this delivery.** The row says so and links nowhere: "No booking is
+proposed for it". That happens when two positions share the pair (it is never proposed), and when
+a proposal was rejected, expired or is not prepared yet. A view of the confirmed discrepancies is
+NOT in this delivery: it is the next unit, with a design of its own, and the row's mark will link
+to it once it exists (§ E; § N, follow-up F1).
 
 **Q4. Is the Strategies page the only place for the sentence that answers for the whole system
-("Nothing is open on any exchange" / "Open now, on every exchange: …")?** The design puts it
-there, because that page is the agreed place for the marks. The alternative is to show it on every
-page, beside the mode badge.
+("Nothing is open on any exchange" / "Open now, on every exchange: …")?**
+**Answered 2026-10-11: yes, the Strategies page only.** There is no variant in the header, beside
+the mode badge or on any other page (§ H).
 
-**Q5. Should an open position open onto its individual fills, as a closed operation does?** The
-route that serves them already exists, so it would be a panel-only addition. The design does not
-include it: decision 65 lists the row's fields and no detail view.
+**Q5. Should an open position open onto its individual fills, as a closed operation does?**
+**Answered 2026-10-11: not in this delivery.** It is recorded as a follow-up (§ N, F2). Nothing in
+this design calls the fills route, and the first writing's remark that the route "does not require
+the operation to be closed" is withdrawn: it was not found in the code (P22).
 
 Never asked, because a decision or the code answers it: that in-flight orders are shown (the
 invariant requires it, § B); that rehearsal positions are shown and marked (decision 65); the
