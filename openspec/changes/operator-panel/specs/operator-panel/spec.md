@@ -63,6 +63,24 @@ frontend-design plugin.
 > gains the tab marks by pointing to "The Exchange Tabs Carry The Key State".
 > No API changes. This capability had not been merged to `openspec/specs/` when
 > this revision was written, so the replacement is in place.
+>
+> **Revised 2026-10-12 (owner decision 65, design addendum "open positions, a
+> mark and a list read from the ledger" §§ H and I; visual reference
+> `visual/project/OpenPositions.html`, approved at commit `6603dea`).** The
+> panel shows open positions and orders in flight read from the ledger: a mark
+> on each row of the Strategies list with three labelled figures of the selected
+> exchange above it, a section "Open positions" above the closed trades on the
+> strategy detail page, a list pool by pool and a count on the Overview, and the
+> top bar's "Live" badge in the `gain` colour. Twenty-two requirements are added
+> after "Strategy Detail Shows Stats, Uptime, and Lifecycle Controls";
+> "Shared Layout Shell", "Overview Shows Balance, PnL Ranges, Curve, and Monthly
+> Grid", "Strategies List Excludes Archived By Default" and "Strategy Detail
+> Shows Stats, Uptime, and Lifecycle Controls" each gain a sentence pointing to
+> them, and "Every Panel String Is Localized EN/ES" gains one scenario. The data
+> is served by `GET /api/positions/open` (admin-api). Four owner questions of the
+> addendum (section O, Q6 to Q9) are still open; every requirement or scenario
+> that depends on one is marked "Pending owner answer Q6/Q7/Q8/Q9, written to
+> the default" so that the answer can be patched in one place.
 
 ## Requirements
 
@@ -75,7 +93,11 @@ carry exchange selection on the exchange-scoped views (Overview, Strategies).
 Settings is not exchange-scoped: it lists every exchange and its top bar
 carries no exchange selection (Settings.dc.html). The exchange selection
 MUST carry each exchange's key mark as "The Exchange Tabs Carry The Key State"
-states it (revised 2026-10-10, decisions 20, 22, 55 and 59).
+states it (revised 2026-10-10, decisions 20, 22, 55 and 59). The top bar's mode
+badge MUST read "Live" in the `gain` colour, as "The Top Bar's Live Badge Is
+Drawn In The Gain Colour" states (revised 2026-10-12, decision 65).
+
+(Previously: no mention of the badge's colour.)
 
 #### Scenario: A keyless (DEGRADED) exchange is marked in the exchange bar
 
@@ -140,7 +162,14 @@ settlement currencies (rule 7).
 
 The Overview view MUST show, per pool of the selected exchange: current
 available balance, PnL for 7D/30D/90D/1Y/All, the compounded return curve
-with drawdown from previous peak, and the monthly grid.
+with drawdown from previous peak, and the monthly grid. It MUST also list
+every open position of the selected exchange, pool by pool, and its monthly
+summary MUST count them as "N open, M of them dry run", as "The Overview Lists
+Every Open Position Of The Selected Exchange, Pool By Pool" and "The Overview's
+Count Says How Many Are Open And How Many Of Them Are Dry Run" state (added
+2026-10-12, owner decision 65).
+
+(Previously: no mention of open positions.)
 
 #### Scenario: Overview renders all required elements for a pool with data
 
@@ -184,7 +213,14 @@ panel MUST reflect only bookings relevant to the selected exchange.
 ### Requirement: Strategies List Excludes Archived By Default
 
 The Strategies list view MUST exclude archived strategies by default and
-MUST show each listed strategy's enabled state.
+MUST show each listed strategy's enabled state. It MUST also carry a mark on
+each row for the positions and orders in flight that strategy holds, and the
+three labelled figures of the selected exchange above the list, as the
+requirements added after "Strategy Detail Shows Stats, Uptime, and Lifecycle
+Controls" for open positions state (added 2026-10-12, owner decision 65). A
+disabled strategy that holds a position keeps its mark.
+
+(Previously: no mention of open positions.)
 
 #### Scenario: Archived strategy is absent from the default list
 
@@ -205,6 +241,10 @@ operations, as the six requirements that follow this one describe (added
 pool per trade, and its stats by pair MUST include a win rate, as the
 requirements added for unit 12f describe (unit 12f, 2026-10-06, owner decisions
 44 and 48).
+
+It also lists the strategy's open positions, in a section above the closed
+trades, as the requirements that follow this one state (added 2026-10-12, owner
+decision 65). (Previously: no mention of open positions.)
 
 (Previously: no mention of the operations list, which the requirements below
 now specify. Previously: no mention of the share of the pool per trade or of the
@@ -227,6 +267,1409 @@ win rate by pair.)
 - GIVEN strategy S1 is enabled
 - WHEN the owner attempts to archive S1 from its detail view
 - THEN the panel prevents or refuses the action and states that S1 must be disabled and flat first
+
+### Requirement: The Panel Reads Every Open Position From One Answer
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § F and § H, "The data").**
+
+Every place of the panel that shows an open position or an order in flight (the
+row marks and the figures of the Strategies page, the section of the strategy
+detail page, and the Overview's list and count) MUST be a selection from ONE
+answer of `GET /api/positions/open`, held in one query cache under one key, and
+MUST NOT make a request of its own per row or per page. The answer MUST be
+considered stale after 60 seconds, MUST be read again every 60 seconds, and MUST
+be read again when the browser tab is looked at again after going stale. It
+MUST be read again after a booking is approved or rejected and when the owner
+presses "Read again"; it MUST NOT be read again by the enable switch, a change
+of a share or an archive, none of which opens or closes anything. Selecting a
+different exchange MUST select again from the answer already held and MUST NOT
+make a request.
+
+The panel MUST check the shape of every element. A body that is not that shape
+MUST be an error and never an empty list, and a 404 (an API that predates the
+route) MUST be a failure and never "no report". A pool whose `exchange`,
+`venue` or `settlement_currency` is missing or empty MUST refuse the whole
+answer, so that a position no tab can claim is an error on screen and never a
+row that silently belongs nowhere. A null in `opened_at`, `fees`,
+`margin_granted` or `leverage` MUST be accepted, and a missing field MUST be
+refused. The browser MUST compute no sum of money from this answer: the only
+counts it draws are numbers of positions.
+
+#### Scenario: Three places, one request
+
+- GIVEN the Strategies page with six rows, and then the Overview, are opened in one session
+- WHEN the network is read
+- THEN `GET /api/positions/open` was requested once for the page and not once per row, and the Overview's list used the answer already held
+
+#### Scenario: A change of exchange asks the server nothing
+
+- GIVEN the Strategies page shows Bybit with the answer read
+- WHEN the owner selects Binance
+- THEN the page draws Binance's marks and figures and no request was made
+
+#### Scenario: The answer is read again every 60 seconds and when the tab is looked at again
+
+- GIVEN the answer was read and 60 seconds pass
+- WHEN the interval elapses, and in a second case the browser tab is focused after the answer went stale
+- THEN the route is requested again in each case
+
+#### Scenario: A booking decision reads it again, and a switch does not
+
+- GIVEN the answer is held
+- WHEN a booking is approved, then rejected, then a strategy is enabled, a share is saved and a strategy is archived
+- THEN the route is requested again after the approval and after the rejection and after none of the other three
+
+#### Scenario: "Read again" asks now
+
+- GIVEN the figures are shown
+- WHEN the owner presses "Read again"
+- THEN the route is requested at once
+
+#### Scenario: A malformed body is an error
+
+- GIVEN the route answers 200 with a position that has no `allocation_id`
+- WHEN the panel reads it
+- THEN the open-state views show their error state and none shows an empty list
+
+#### Scenario: A 404 is a failure
+
+- GIVEN an API that answers 404 for the route
+- WHEN the panel reads it
+- THEN the views show their error state, not "No open position."
+
+#### Scenario: An element with an empty pool value refuses the answer
+
+- GIVEN one element whose `pool.exchange` is an empty string
+- WHEN the panel reads it
+- THEN the whole answer is refused and the views show their error state
+
+#### Scenario: A position the facts could not decorate is accepted
+
+- GIVEN a position with `opened_at`, `fees`, `margin_granted` and `leverage` null
+- WHEN the panel reads it
+- THEN the answer is accepted and the position is drawn
+
+### Requirement: The Marks Follow One Rule: The Shape Says What It Is, The Colour Says The Origin, Red Says Something Is Wrong
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12; design addendum "open positions" § H, "The marks: one rule"; prototype key "Reading the marks").**
+
+Every mark of the panel for an open position or an order in flight MUST follow
+one rule. A FILLED mark is a position; a DASHED, UNFILLED mark is an order in
+flight, and dashed MUST mean nothing else. The colour MUST say the origin:
+amber (the palette's `decision` token, as the mode badge) for dry run, and
+cyan (the `gain` token, as the "Live" badge) for live. Red (`loss`) MUST mean
+one thing, that something is wrong and needs the owner, and MUST always be
+beside its words. No mark MUST say a result: `LONG` and `SHORT` stay in ink,
+and a mark holds no number. Each mark MUST say its origin as a WORD, never by
+colour or shape alone. Marks MUST use only the palette's tokens, no hex colour
+and no `var()` in a class.
+
+| Mark | Fill | Border | Words |
+| --- | --- | --- | --- |
+| Position, dry run | filled | solid amber | pair and side in ink, "Dry run" in amber |
+| Position, live | filled | solid cyan | pair and side in ink, "Live" in cyan |
+| Position holding fills of both origins | filled | solid red | pair and side in ink, "Dry run and live" in red |
+| Position, origin unknown | filled | solid neutral | "origin unknown" in the faint ink |
+| Order in flight, dry run | unfilled | dashed amber | pair and "order in flight" in ink, "Dry run" in amber |
+| Order in flight, live | unfilled | dashed cyan | the same, "Live" in cyan |
+| Order in flight, origin unknown | unfilled | dashed neutral | the same, "origin unknown" in the faint ink |
+| Venue disagrees | unfilled | solid red | "Venue disagrees" in red |
+
+A position's chip MUST read its pair, then `LONG` or `SHORT` (or "side not
+readable" when the side is null), then the origin. An order's chip MUST read its
+pair, "order in flight" and the origin; whether it opens or closes is on its
+line on the detail page, not on the chip. Parts of a mark MUST be separated by
+` · ` in the faint ink. The "unknown origin" position is drawn by the key and no
+answer produces it today, since a position's origin is one of three values.
+
+#### Scenario: A live position is filled, solid and cyan
+
+- GIVEN a live position on `AAVEUSDT`, side `LONG`
+- WHEN its mark renders
+- THEN it reads `AAVEUSDT · LONG · Live`, filled, with a solid cyan border and "Live" in cyan
+
+#### Scenario: A dry-run position is amber
+
+- GIVEN a rehearsal position on `SFPUSDT`, side `SHORT`
+- WHEN its mark renders
+- THEN it reads `SFPUSDT · SHORT · Dry run`, filled, with a solid amber border and "Dry run" in amber
+
+#### Scenario: A position of both origins is red, with its words
+
+- GIVEN a position with origin `mixed` on `STXUSDT`, side `LONG`
+- WHEN its mark renders
+- THEN it reads `STXUSDT · LONG · Dry run and live` with a solid red border and "Dry run and live" in red
+
+#### Scenario: Dashed is an order in flight and nothing else
+
+- GIVEN one order in flight of each origin, and positions of every origin
+- WHEN every mark renders
+- THEN the three orders have a dashed border, unfilled, and no position, no venue mark and no other element of the open-position views has a dashed border
+
+#### Scenario: An order of unknown origin is dashed and neutral
+
+- GIVEN an order in flight whose origin is `unknown`
+- WHEN its mark renders
+- THEN it reads `SFPUSDT · order in flight · origin unknown`, dashed, with a neutral border and the words in the faint ink
+
+#### Scenario: A position whose origin is unknown has a solid neutral border
+
+- GIVEN a position mark of origin unknown, as the prototype's key draws it
+- WHEN it renders
+- THEN its border is solid and neutral and it reads "origin unknown"
+
+#### Scenario: Red appears only with its words
+
+- GIVEN a position of both origins, a position the venue disagrees on and a failed read
+- WHEN each renders
+- THEN each red element is beside its words ("Dry run and live", "Venue disagrees", the error sentence), and no red element is without text
+
+#### Scenario: No mark says a result
+
+- GIVEN positions of every side and origin
+- WHEN their marks render
+- THEN `LONG` and `SHORT` are in the ink colour, neither in the gain nor the loss colour, and no mark holds a number
+
+#### Scenario: Only palette tokens
+
+- GIVEN the open-position components
+- WHEN their source is read
+- THEN no class holds a hex colour or a `var()`, and no inline style is used
+
+### Requirement: A Strategy's Row Carries A Mark For Each Position And Each Order It Holds
+
+> **Added 2026-10-12 (owner decision 65, the third question and bullets of 2026-10-12; design addendum "open positions" § H, "The marks" and "Every state"; prototype examples 2 to 9 and 12).**
+
+Each row of the Strategies list MUST carry one chip per open position and per
+order in flight of THAT strategy ON THAT STRATEGY'S EXCHANGE, whatever its
+origin, and nothing at all when there is none. The chips MUST follow the rule of
+"The Marks Follow One Rule" and MUST NOT depend on whether the strategy is
+enabled: a DISABLED strategy that holds a position shows it like any other. A
+position's venue chip, when the reconciliation has confirmed a disagreement,
+MUST follow that position's chip. From `lg` the chips MUST sit in the row's
+second grid row, in its first track only, so that the row's figures and its
+switch stay where they are; below `lg` they MUST be the row's last full-width
+line, and a long pair MUST NOT make the row wider than a phone. The list of a
+row's marks MUST be named "Open positions of {name}". While the answer is
+loading a row MUST draw a decorative placeholder whose accessible name is
+"Reading open positions…"; when the first read failed a row MUST draw nothing
+and the line above the list MUST say why a row without a mark does not mean that
+nothing is open.
+
+#### Scenario: A row with one live position
+
+- GIVEN strategy S1 on Bybit holds a live `AAVEUSDT` position and the selected exchange is Bybit
+- WHEN the Strategies list renders
+- THEN S1's row carries one chip, `AAVEUSDT · LONG · Live`
+
+#### Scenario: A row with a rehearsal position
+
+- GIVEN S1 holds a rehearsal `SFPUSDT` SHORT
+- WHEN the list renders
+- THEN its chip reads `SFPUSDT · SHORT · Dry run`
+
+#### Scenario: A position whose symbol cannot be resolved
+
+- GIVEN S1 holds a position with `figures_missing` `UNRESOLVED_SYMBOL` on `XYZBTC`, live
+- WHEN the list renders
+- THEN its chip reads `XYZBTC · side not readable · Live`
+
+#### Scenario: Three orders in flight, each of one origin
+
+- GIVEN three strategies each with an order in flight on `SFPUSDT`: one dry run, one live, one with no order id
+- WHEN the list renders
+- THEN each row carries a dashed, unfilled chip reading `SFPUSDT · order in flight · Dry run`, `... · Live` and `... · origin unknown`
+
+#### Scenario: A disabled strategy holding a position shows it
+
+- GIVEN strategy S1 is disabled and holds a position
+- WHEN the list renders
+- THEN S1's row carries the chip, beside its switch in the off position
+
+#### Scenario: Several positions wrap in their own grid row
+
+- GIVEN S1 holds three positions on three pairs and S2 holds none
+- WHEN the list renders at a wide viewport
+- THEN S1's three chips wrap in their own grid row, and S1's figures and switch sit at the same height as S2's
+
+#### Scenario: A row with nothing open has no mark
+
+- GIVEN S3 holds nothing
+- WHEN the list renders
+- THEN S3's row has no mark and no empty element
+
+#### Scenario: A position of another strategy is not on this row
+
+- GIVEN S1 holds a position and S2 holds none
+- WHEN the list renders
+- THEN S2's row carries no chip
+
+#### Scenario: Chips are the last line on a phone
+
+- GIVEN a phone viewport of 390 px and S1 with a long pair
+- WHEN the list renders
+- THEN the chips are the row's last full-width line and the row is not wider than the viewport
+
+#### Scenario: While the answer loads a row shows a placeholder with a name
+
+- GIVEN the positions answer has not arrived
+- WHEN the list renders
+- THEN each row shows a decorative "…" and its accessible name is "Reading open positions…"
+
+#### Scenario: When the first read failed a row draws nothing
+
+- GIVEN the first read of the answer failed
+- WHEN the list renders
+- THEN no row draws a mark and the line above the list reads "Open positions could not be read. A row without a mark does not mean that nothing is open."
+
+### Requirement: The Venue Mark Leads To The Pending Decision, Or Says That No Booking Is Proposed
+
+> **Added 2026-10-12 (owner decision 65, the fourth question and the design's Q3 of 2026-10-11; design addendum "open positions" § E and § H, "The rail"; prototype examples 7 and 12b).**
+
+When a position carries a `venue_disagreement`, its row MUST show a second chip,
+"Venue disagrees", directly after that position's chip, followed by ONE of two
+things. When a pending booking proposal names this allocation and this
+discrepancy, the link "See the pending decision" MUST be drawn; it MUST lead to
+the Overview's "Needs your decision" rail, by the path `/` and the hash
+`#decision-rail`. When the proposals were read and none does (the kind is never
+proposed, the proposal expired or was rejected, or none is prepared yet), the
+words "No booking is proposed for it." MUST be drawn and MUST lead nowhere.
+While the proposals are loading, or their read failed, the chip MUST draw
+neither the link nor those words. The chip, and its link or words, MUST wrap
+together as one group. The link MUST be a real link whose accessible name is
+"See the pending decision, {pair}". A view of the confirmed discrepancies is not
+part of this change, so the mark MUST NOT link to one.
+
+The Overview's rail MUST carry the id `decision-rail`. Because the router does
+not scroll to an anchor, the rail MUST bring itself into view once it is mounted
+when the location's hash names it, and again when the hash changes while it is
+on screen.
+
+#### Scenario: A pending proposal gives a link
+
+- GIVEN position A1 carries a disagreement and a pending proposal names A1 and that discrepancy
+- WHEN the row renders
+- THEN the chip "Venue disagrees" follows A1's chip and is followed by the link "See the pending decision"
+
+#### Scenario: No proposal gives the words and no link
+
+- GIVEN position A1 carries a disagreement and the proposals were read with none naming it
+- WHEN the row renders
+- THEN the chip is followed by "No booking is proposed for it." and no link
+
+#### Scenario: While the proposals load, neither is drawn
+
+- GIVEN position A1 carries a disagreement and the pending proposals are still loading
+- WHEN the row renders
+- THEN the chip "Venue disagrees" is drawn with neither the link nor the words
+
+#### Scenario: When the proposals failed, neither is drawn
+
+- GIVEN position A1 carries a disagreement and the proposals' read failed
+- WHEN the row renders
+- THEN the chip is drawn with neither the link nor the words
+
+#### Scenario: The group wraps together
+
+- GIVEN the chip and its link at a narrow width
+- WHEN the row renders
+- THEN the chip and its follow-up wrap as one group
+
+#### Scenario: The link leads to the rail and brings it into view
+
+- GIVEN the link is followed from the Strategies page
+- WHEN the Overview mounts with the hash `#decision-rail`
+- THEN the "Needs your decision" rail has the id `decision-rail` and is scrolled into view
+
+#### Scenario: A hash change on the Overview scrolls again
+
+- GIVEN the Overview is on screen and scrolled away from the rail
+- WHEN the location's hash changes to `#decision-rail`
+- THEN the rail is scrolled into view
+
+#### Scenario: A rehearsal position carries no mark in practice
+
+- GIVEN a rehearsal position and no discrepancy naming it
+- WHEN the row renders
+- THEN it has no venue chip
+
+### Requirement: The Strategies Page Shows Three Labelled Figures For The Selected Exchange Only
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12; design addendum "open positions" § H, "The summary: OpenStateLine"; prototype examples 1 to 12).**
+
+Between the title row and the list, the Strategies page MUST show three labelled
+figures of the SELECTED exchange, in this form: `Open: 2 · Orders in flight: 1 ·
+Last read: 21:40:03 UTC`. "Open" MUST be the number of positions whose
+`pool.exchange` is the selected one, "Orders in flight" the number of its orders,
+and "Last read" the answer's `as_of` with hours, minutes and seconds. They MUST
+count what the exchange holds and not what the list shows: a position of an
+archived strategy is in "Open". The figures MUST name no exchange, since the
+selected tab does. Each label is followed by a colon, and a ` · ` in the faint
+ink separates two figures; below the `sm` width the figures MUST wrap and no
+separator be drawn, so that none starts a line. A bordered button "Read again",
+44 px tall, MUST ask for the answer at once. The two counts and the lines under
+them MUST sit in one live region (`role="status"`); "Last read" MUST sit on the
+same visual line and OUTSIDE that region, so that a time which changes every
+minute is not announced for a state that did not.
+
+Before the scope is known, or when no exchange exists, the figures MUST NOT be
+drawn and MUST NOT ask for anything: the page's own text already says why the
+list is absent.
+
+#### Scenario: Nothing open on the selected exchange
+
+- GIVEN the answer holds nothing whose exchange is the selected one, read at 21:40:03
+- WHEN the Strategies page renders
+- THEN it shows `Open: 0 · Orders in flight: 0 · Last read: 21:40:03 UTC` and the "Read again" button
+
+#### Scenario: The counts are the exchange's, with a position of an archived strategy counted
+
+- GIVEN the selected exchange holds two positions, one of an archived strategy hidden from the list, and one order in flight
+- WHEN the page renders
+- THEN it shows `Open: 2 · Orders in flight: 1`
+
+#### Scenario: Orders count apart from positions
+
+- GIVEN the selected exchange holds three orders in flight and no position
+- WHEN the page renders
+- THEN it shows `Open: 0 · Orders in flight: 3`
+
+#### Scenario: The figures name no exchange
+
+- GIVEN any state
+- WHEN the figures render
+- THEN none of the three labels or values contains an exchange's name
+
+#### Scenario: The time has seconds and UTC
+
+- GIVEN `as_of` is 21:40:03 UTC
+- WHEN the figures render
+- THEN "Last read" reads `21:40:03 UTC`
+
+#### Scenario: The live region holds the counts and not the time
+
+- GIVEN the figures are drawn
+- WHEN the markup is read
+- THEN the two counts are inside an element with `role="status"` and the "Last read" figure is not
+
+#### Scenario: Below the sm width the figures wrap without separators
+
+- GIVEN a phone viewport
+- WHEN the figures render
+- THEN they wrap, no ` · ` is drawn between them, and the button is 44 px tall
+
+#### Scenario: The scope is not known
+
+- GIVEN the pools have not been read, or no exchange exists
+- WHEN the page renders
+- THEN the figures are not drawn and no request for positions is made on their account
+
+#### Scenario: "Read again" asks now
+
+- GIVEN the figures are drawn
+- WHEN the owner presses "Read again"
+- THEN the route is requested at once
+
+### Requirement: "Not On This List" Names Only What The Selected Exchange Holds And Its List Does Not Show
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12; design addendum "open positions" § H, "The summary"; prototype examples 10, 12d and 26a).**
+
+Under the figures, when the selected exchange holds a position or an order that
+no row on screen carries, the page MUST add a second line "Not on this list:
+{items}." and MUST name only what THAT exchange holds. It MUST name: a position
+or an order of an archived strategy while archived strategies are hidden; one
+that could not be matched to a strategy (its strategy id is null); and, by the
+same rule, every element of the exchange when the strategies list failed to
+load. One item MUST be these parts joined by ` · ` in this order: the strategy's
+name; "archived" when the strategy is; the pair (the element's market keys,
+joined by ` / ` when several); "order in flight" for an order; the origin's
+word; and "figures not readable" for a position whose figures are missing. Items
+MUST be joined by `; `, positions first, then orders, each in the answer's
+order. An element MUST NOT be matched to a row by its name, only by its strategy
+id. While the strategies list is loading the line MUST be withheld, since every
+element would otherwise be named for an instant and then move to its row; the
+figures MUST be drawn all the same. The line MUST be drawn only when there is
+something to name.
+
+#### Scenario: Two positions on no row, one order on a row
+
+- GIVEN the selected exchange holds an archived strategy's rehearsal position on `LINKUSDT`, a position with no strategy id on `XYZBTC` (live, figures missing), and an order on a row of the page
+- WHEN the page renders
+- THEN it shows `Open: 2 · Orders in flight: 1` and "Not on this list: LINK 4h - RSI Divergences · archived · LINKUSDT · Dry run; STX 4h - RSI Divergences · XYZBTC · Live · figures not readable."
+
+#### Scenario: A position with no strategy id is named on its own exchange's tab
+
+- GIVEN an undecorated position of the selected exchange, with a null strategy id
+- WHEN the page renders
+- THEN it is counted in "Open" and named under the figures, and no row carries a chip for it
+
+#### Scenario: An order is named by the chip's own words
+
+- GIVEN an order in flight of an archived strategy on `SFPUSDT`, live
+- WHEN the page renders
+- THEN the line names it as `{name} · archived · SFPUSDT · order in flight · Live`
+
+#### Scenario: Positions come before orders
+
+- GIVEN one order and one position, both on no row
+- WHEN the line renders
+- THEN the position is the first item and the order the second
+
+#### Scenario: Nothing to name draws no line
+
+- GIVEN every element of the selected exchange is carried by a row
+- WHEN the page renders
+- THEN no "Not on this list" line is drawn
+
+#### Scenario: The line is withheld while the strategies load
+
+- GIVEN the strategies list is still loading and the exchange holds an element
+- WHEN the page renders
+- THEN the figures are drawn and the "Not on this list" line is not
+
+#### Scenario: When the strategies list failed, every element of the exchange is named
+
+- GIVEN the strategies list failed to load and the exchange holds two positions
+- WHEN the page renders
+- THEN `Open: 2` is drawn and "Not on this list" names both
+
+#### Scenario: Another exchange is never named
+
+- GIVEN Binance is selected and Bybit holds an archived strategy's position
+- WHEN the page renders
+- THEN no item, count or word of Bybit is drawn
+
+### Requirement: The Open-State Figures Never Read As Zero When They Are Not Known
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § H, "Every state"; prototype examples 11a to 11d).**
+
+The figures MUST show each of these states, and no failed or pending state MUST
+read as zero open.
+
+- Loading, nothing read yet: the text "Reading open positions…" in a
+  `role="status"` element, in the faint ink, with no button.
+- The first read failed: the sentence "Open positions could not be read. A row
+  without a mark does not mean that nothing is open." in a `role="alert"` element
+  in red, with "Read again". The failure MUST be shown only after the query
+  client has retried and given up; until then the loading state is shown.
+- A refresh failed after a good read: the LAST figures MUST be kept, "Last read"
+  MUST still be the last good answer's time, and "Could not be refreshed since
+  {time} UTC." MUST be added in red as the last line. This holds also when the
+  last good answer was empty.
+- Nothing open on the selected exchange: `Open: 0 · Orders in flight: 0 · Last
+  read: {time} UTC`, drawn only from a successful read that holds no element of
+  that exchange.
+
+#### Scenario: Loading
+
+- GIVEN the answer has not arrived
+- WHEN the page renders
+- THEN it shows "Reading open positions…" with `role="status"`, no button, and no figure
+
+#### Scenario: The first read fails
+
+- GIVEN the first read failed after its retries
+- WHEN the page renders
+- THEN the red sentence is drawn with `role="alert"` and "Read again", and neither `Open: 0` nor any figure is drawn
+
+#### Scenario: The retries are not an error yet
+
+- GIVEN the first read has failed once and is being retried
+- WHEN the page renders
+- THEN the loading text is shown and the error sentence is not
+
+#### Scenario: A refresh fails after a good read
+
+- GIVEN a good read at 21:38:12 holding two positions, and a later refresh fails
+- WHEN the page renders
+- THEN `Open: 2` and `Last read: 21:38:12 UTC` are kept, and the red line "Could not be refreshed since 21:38:12 UTC." is the last line
+
+#### Scenario: A refresh fails after an empty read
+
+- GIVEN a good read at 21:38:12 that held nothing, and a later refresh fails
+- WHEN the page renders
+- THEN `Open: 0 · Orders in flight: 0 · Last read: 21:38:12 UTC` is kept and the red line is added, so that the zero is not read as current
+
+#### Scenario: Zero is drawn only after a successful read
+
+- GIVEN a successful read that holds nothing of the selected exchange
+- WHEN the page renders
+- THEN `Open: 0 · Orders in flight: 0` is drawn
+
+### Requirement: The Strategies Page Shows Nothing Of Another Exchange
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12, superseding the scope of the Q4 sentence; design addendum "open positions" § B and § H, "The scope rule").**
+
+Everything the Strategies page draws about open positions MUST be selected from
+the elements whose `pool.exchange` is the selected tab's, and from nothing else:
+the two counts are the lengths of that selection; a row's marks are the
+selection of its strategy's elements inside its strategy's exchange; and the
+"Not on this list" line is what that selection holds and no row carries. No
+pair, name, count or word of another exchange MUST reach the page. Changing the
+tab MUST select again from the answer already held. The count "Open" MUST always
+equal the position chips on screen plus the positions named under the figures.
+No text of the panel MUST say that nothing is open anywhere, and none MUST be
+worded as a permission to change the mode: the panel is the view, and the
+worker's start is what refuses a mode that cannot close what the ledger holds.
+
+An element whose exchange is no tab at all (stored data at fault) belongs to NO
+tab. Its strategy's detail page MUST show it when it has a strategy id, because
+that page selects by id.
+
+> **Pending owner answer Q7, written to the default: say nothing.** Under the
+> default no line says that such an item exists. An element with no strategy id
+> and no tab (a position the facts could not decorate, or an undecorated order,
+> on an exchange without a tab) is then drawn by NO page of the panel; its only
+> trace is the server's WARNING. The alternative the owner may choose is one line
+> under the figures, "{N} open items are on no exchange tab", drawn only when N is
+> above zero, naming no exchange, pair or strategy; its Spanish has to be written
+> and agreed. If chosen, this requirement gains that line and one scenario.
+
+#### Scenario: The other exchange's elements are absent
+
+- GIVEN Bybit is selected and the answer holds a position and an order on Binance
+- WHEN the Strategies page renders
+- THEN `Open` and `Orders in flight` count none of them, no row carries them, and "Not on this list" does not name them
+
+#### Scenario: Switching the tab selects again
+
+- GIVEN Bybit holds one position and Binance holds two
+- WHEN the owner selects Binance
+- THEN the page reads `Open: 2` and Bybit's position is nowhere on it
+
+#### Scenario: A strategy whose position sits in another exchange's pool
+
+- GIVEN strategy S1 of Bybit has a position whose pool names Binance (a stored fault)
+- WHEN the page renders for Bybit, and then for Binance
+- THEN on Bybit the position is not on S1's row and is not counted; on Binance it is counted and named under the figures because S1 has no row there
+
+#### Scenario: The count equals the chips plus the named
+
+- GIVEN the selected exchange holds four positions: two on rows, one of an archived strategy and one with no strategy id
+- WHEN the page renders
+- THEN `Open: 4`, two chips and two named items
+
+#### Scenario: No text answers for the whole system
+
+- GIVEN every state of the page
+- WHEN every text is read
+- THEN none says that nothing is open on any exchange, and none says that the mode can be changed
+
+#### Scenario: An element with a strategy id on no tab is shown on its strategy's page
+
+- GIVEN a position with a strategy id whose exchange is no tab
+- WHEN the strategy's detail page renders
+- THEN the position is in its section, and no Strategies tab shows it
+
+#### Scenario: An element with no strategy id on no tab is drawn nowhere (pending Q7, default)
+
+- GIVEN a position with a null strategy id whose exchange is no tab
+- WHEN every page is rendered
+- THEN no page draws it and no line says that it exists
+
+### Requirement: The Strategy Detail Page Lists Its Open Positions Above The Closed Trades
+
+> **Added 2026-10-12 (owner decision 65, the second and third questions; design addendum "open positions" § H, "The detail section"; prototype examples 13 to 17 and 19 to 21).**
+
+The strategy detail page MUST carry a section headed "Open positions", full
+width, between the two-column grid and the closed trades. It MUST show every
+position of the strategy, dry-run ones included, selected by the strategy's id
+over the WHOLE answer: a strategy's page shows its positions wherever the
+ledger put them, and the tabs follow the strategy's exchange. It MUST NOT wait
+for the exchange scope. From `md` the positions MUST be a table with these
+columns, and no other:
+
+| Column | What the cell holds |
+| --- | --- |
+| Opened (UTC) | the date and, under it in the faint ink, the time |
+| Pair | the market keys; under them the origin's word in its token |
+| Side | `LONG` or `SHORT` |
+| Size | the size, with its base currency as a unit; under it "of {opened} opened" when `opened_size` differs from `size` |
+| Entry | the entry price; under it "average of N fills" when `fill_count` is above one |
+| Fees {currency} | the fees, and each fee in another currency beside them, as the closed trades table writes them |
+| Margin granted {currency} | the margin the share took from the pool, not what the exchange holds now |
+| Leverage | the leverage with an `x`, as recorded (`2.00000000` is read `2x`) |
+
+The table MUST have NO notional column: the notional is nearly margin times
+leverage, and the exact figure is the size times the entry price, both on the
+row. The leverage MUST be left empty where none was recorded and MUST NEVER be
+filled in or read as `1x`. A rehearsal position MUST show `1x` because 1 was
+recorded. The column words are those of the closed trades table ("Opened (UTC)",
+"Pair", "Side", "Size", "Entry", "Fees {currency}"), reused.
+
+#### Scenario: A live position with every column
+
+- GIVEN strategy S1 holds a live `AAVEUSDT` LONG of 0.82 AAVE at 184.3 with fees 0.17 USDT, margin 121.80 USDT and leverage `2.00000000`
+- WHEN S1's detail page renders
+- THEN a section "Open positions" appears above "Closed trades" with one row whose cells read the date and time of opening, `AAVEUSDT` with "Live" under it, `LONG`, `0.82` with the unit AAVE, `184.3`, `0.17`, `121.80` and `2x`, and the heading of the Margin column reads "Margin granted USDT"
+
+#### Scenario: No notional column
+
+- GIVEN any open position
+- WHEN the table renders
+- THEN its column headings are exactly Opened (UTC), Pair, Side, Size, Entry, Fees, Margin granted and Leverage
+
+#### Scenario: A rehearsal position reads 1x
+
+- GIVEN a rehearsal position whose recorded leverage is `1.00000000`
+- WHEN it renders
+- THEN its Leverage cell reads `1x`
+
+#### Scenario: A position with no recorded leverage is not read as 1x
+
+- GIVEN a position whose leverage is null
+- WHEN it renders
+- THEN its Leverage cell is a dash, with "not recorded" for a screen reader, and not `1x`
+
+#### Scenario: A position closed in part shows what was opened
+
+- GIVEN `size` `0.3` and `opened_size` `0.5` on AAVE
+- WHEN it renders
+- THEN the Size cell reads `0.3` with "of 0.5 opened" under it
+
+#### Scenario: A position opened by three fills says so
+
+- GIVEN `fill_count` 3
+- WHEN it renders
+- THEN "average of 3 fills" appears under the entry price, and for `fill_count` 1 it does not
+
+#### Scenario: A fee in another currency sits beside the fees
+
+- GIVEN `other_fees` holds `0.001 SOL`
+- WHEN the row renders
+- THEN the Fees cell shows the fees and "+ 0.001 SOL" beside them
+
+#### Scenario: The section selects by strategy id over the whole answer
+
+- GIVEN S1 has a position whose pool names another exchange than S1's
+- WHEN S1's detail page renders
+- THEN the position is in the section
+
+#### Scenario: Dry-run and live positions are listed together
+
+- GIVEN S1 holds a rehearsal position and a live one
+- WHEN the page renders
+- THEN both are rows, each with its origin's word under the pair
+
+#### Scenario: An empty section
+
+- GIVEN S1 holds nothing and the read succeeded
+- WHEN the page renders
+- THEN the section reads "No open position." under its heading
+
+#### Scenario: Loading, a failed first read and a failed refresh
+
+- GIVEN the answer is loading, then the first read failed, then a refresh fails after a good read
+- WHEN the section renders in each state
+- THEN it reads "Reading open positions…", then the error sentence with "Read again", then the last answer with "Could not be refreshed since {time} UTC."
+
+### Requirement: An Absent Figure Of An Open Position Is A Dash With Its Reason
+
+> **Added 2026-10-12 (owner decision 65, "left empty ... never filled in"; design addendum "open positions" § D and § H, "A null is a dash with its reason"; prototype examples 15 and 17).**
+
+Wherever a value of an open position is null (in the detail table, in its cards
+and in the Overview's list) the cell MUST be a dash, with its reason in text for
+a screen reader, and the panel MUST NOT pass a null on to a formatter. The
+reason MUST be "figures not readable" for the side, the size and the entry of
+any position whose figures are missing, and for EVERY empty cell of a position
+the facts could not decorate (Opened, Side, Size, Entry, Fees, Margin granted
+and Leverage). "not recorded" MUST be kept for the one case it is true of: a
+position that has its facts and no leverage. A position whose figures are
+missing MUST show, in a sub-row directly under it, the reason in sans type in the
+secondary ink, one of:
+
+| `figures_missing` | Text |
+| --- | --- |
+| `UNRESOLVED_SYMBOL` | The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived. |
+| `SEVERAL_MARKETS` | The fills of this position name more than one pair. |
+| `FLIPPED` | The fills sold more than was bought, or bought more than was sold. The entry price is not derived. |
+| any other | The figures could not be derived from the fills. |
+
+#### Scenario: An unresolved symbol
+
+- GIVEN a position with `figures_missing` `UNRESOLVED_SYMBOL`, fees, margin and leverage present
+- WHEN it renders
+- THEN the Side, Size and Entry cells are dashes with "figures not readable", a sub-row under the row gives the first reason above, and the fees, margin and leverage are shown
+
+#### Scenario: Each other reason has its text
+
+- GIVEN positions with `SEVERAL_MARKETS`, `FLIPPED` and `INCONSISTENT`
+- WHEN they render
+- THEN each sub-row reads the matching text above, and `INCONSISTENT` reads "The figures could not be derived from the fills."
+
+#### Scenario: A position the facts could not decorate has seven dashes in the detail table
+
+- GIVEN a position with `figures_missing` `NO_FACTS`
+- WHEN it renders in a table that has the Opened and Fees columns
+- THEN every empty cell is a dash whose reason is "figures not readable", and none reads "not recorded"
+
+#### Scenario: A null leverage on a position with facts
+
+- GIVEN a position with facts and a null leverage
+- WHEN it renders
+- THEN the Leverage cell is a dash read as "not recorded"
+
+#### Scenario: The Opened cell of a null is a dash
+
+- GIVEN `opened_at` is null
+- WHEN the row renders
+- THEN the Opened cell is a dash, not a date
+
+### Requirement: An Order In Flight Is A Dashed Line Under The Open Positions
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § H, "One component for the two lines"; prototype example 19).**
+
+The detail page MUST show each order in flight of the strategy as a line in a
+list under the positions table, or under "No open position." when the strategy
+holds no position. The line MUST run the width of its container, wrap, have a
+DASHED border in the origin's colour as on a chip, a transparent fill and mono
+type, and MUST read, separated by ` · `: the pair; "order in flight"; "opening"
+or "closing" (left out when the action is null); the origin's word in its token;
+and "sent {time} UTC" (left out when the instant is null), the time in hours and
+minutes. The order of the Overview is not drawn there (see "The Overview Lists
+Every Open Position Of The Selected Exchange, Pool By Pool").
+
+#### Scenario: A closing dry-run order under a position
+
+- GIVEN S1 holds a position and a closing order sent at 21:12 on `SFPUSDT`, origin dry run
+- WHEN the detail page renders
+- THEN under the table is a dashed line reading `SFPUSDT · order in flight · closing · Dry run · sent 21:12 UTC`
+
+#### Scenario: An order with nothing else
+
+- GIVEN S1 holds no position and one opening live order
+- WHEN the page renders
+- THEN "No open position." is drawn and the dashed line follows it
+
+#### Scenario: An undecorated order leaves its two parts out
+
+- GIVEN an order whose `action` and `submitted_at` are null
+- WHEN its line renders
+- THEN it reads the pair, "order in flight" and the origin, with no "opening", "closing" or "sent"
+
+#### Scenario: An order sent on an earlier day carries its date
+
+- GIVEN an order sent yesterday at 21:12 UTC and an answer read today
+- WHEN its line renders
+- THEN the sent time is written with its date before it
+
+### Requirement: On The Detail Page And The Overview The Venue Mark Is One Solid Red Line Under Its Row
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12, the second review and the third; design addendum "open positions" § E and § H, "One component for the two lines"; prototype examples 18, 24 and 25e).**
+
+On the detail page and in the Overview's list, a position that carries a
+`venue_disagreement` MUST be followed by ONE line directly under its row, across
+the table's width, in the same type and spacing as the line of an order in
+flight, with a SOLID red border. Its parts, separated by ` · `, MUST be: the
+pair; "venue disagrees" in red; "exchange {x}, ledger {y}" with the two nets as
+stored, each followed by the position's base currency when it has one (`exchange
+0 AAVE, ledger 0.82 AAVE`); "last compared {time} UTC", the time with seconds;
+"shared by N positions on this pair", ONLY when N is above one; and then the
+link "See the pending decision" or the words "no booking is proposed", under the
+same rule as the chip (neither while the proposals load or failed). The line
+MUST be a group named "Venue disagrees, {pair}" and its link MUST be named "See
+the pending decision, {pair}". In a card it MUST be the card's last element.
+Sub-rows under a position MUST come in this order: the venue line; the reason
+the figures are missing; the reservation's note, "Its reservation reads
+{status}, not FILLED.", when its status is not `FILLED`.
+
+#### Scenario: The line with a link
+
+- GIVEN `AAVEUSDT` carries a disagreement with venue net 0 and ledger net 0.82, compared at 21:38:12, and a pending proposal names it
+- WHEN the detail page renders
+- THEN under its row is one solid red line reading `AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:38:12 UTC · See the pending decision`
+
+#### Scenario: The line without a proposal
+
+- GIVEN the same disagreement and the proposals were read with none naming it
+- WHEN the line renders
+- THEN it ends with "no booking is proposed" and carries no link
+
+#### Scenario: A shared disagreement says so
+
+- GIVEN two positions on `AAVEUSDT` and `allocation_count` 2
+- WHEN each line renders
+- THEN each includes "shared by 2 positions on this pair" before the link or the words, and for `allocation_count` 1 the part is not drawn
+
+#### Scenario: The line is one component with the order line
+
+- GIVEN a position's venue line and an order's line on the same page
+- WHEN they render
+- THEN they have the same width, type and spacing, the first with a solid red border and the second with a dashed one
+
+#### Scenario: The sub-rows are in order
+
+- GIVEN a position with a venue disagreement, `UNRESOLVED_SYMBOL` and a reservation that reads `EXPIRED`
+- WHEN it renders
+- THEN under the row come the venue line, the reason, and "Its reservation reads EXPIRED, not FILLED."
+
+#### Scenario: A position that is FILLED has no reservation note
+
+- GIVEN a position whose reservation reads `FILLED`
+- WHEN it renders
+- THEN no reservation note is drawn
+
+#### Scenario: The line has its accessible names
+
+- GIVEN a venue line with a link
+- WHEN it is read by assistive technology
+- THEN it is a group named "Venue disagrees, AAVEUSDT" and the link is named "See the pending decision, AAVEUSDT"
+
+#### Scenario: In a card the line is last
+
+- GIVEN a narrow viewport and a position with a disagreement
+- WHEN its card renders
+- THEN the venue line is the card's last element
+
+### Requirement: The Notes And The Unmatched Sentence Of The Section Are Drawn Only When True
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § H, "The detail section" and § I; prototype examples 15, 17, 19a and 26b).**
+
+Under the detail section's table and its order lines, a note MUST be drawn only
+when a row on screen makes it true, in this order: the dry-run note, the note of
+a position of both origins, and the margin note.
+
+- Dry run, for at least one position of origin `rehearsal`: "A dry-run position
+  was filled by the simulated exchange, at 1x. It is not at the exchange and
+  enters no total."
+- Both origins, for at least one position of origin `mixed`: "This position
+  holds dry-run and live fills. Neither mode can close it safely: check it
+  against the exchange by hand."
+- Margin, for at least one position: "Margin granted is what the share took
+  from the pool when the position opened. It is not what the exchange holds
+  now."
+
+While the strategy's OWN EXCHANGE holds an element with no strategy id, the
+section MUST say "{N} open position(s) could not be matched to a strategy. The
+Strategies page names it/them." (singular for one, plural for more, counting
+positions and orders together): in place of "No open position." when the
+strategy has no position of its own, and above the notes otherwise. "No open
+position." MUST NEVER be drawn while such an element exists. An unmatched element
+of another exchange MUST NOT count. The Overview's list MUST draw no notes.
+
+#### Scenario: Only the true notes are drawn
+
+- GIVEN S1 holds one live position
+- WHEN the section renders
+- THEN only the margin note is drawn
+
+#### Scenario: A rehearsal position draws the dry-run note and the margin note
+
+- GIVEN S1 holds one rehearsal position
+- WHEN the section renders
+- THEN the dry-run note is drawn, then the margin note
+
+#### Scenario: A position of both origins draws its note
+
+- GIVEN S1 holds a position with origin `mixed`
+- WHEN the section renders
+- THEN the dry-run note is not drawn, the note of both origins is drawn, then the margin note
+
+#### Scenario: The notes' order
+
+- GIVEN S1 holds a rehearsal position and a `mixed` one
+- WHEN the section renders
+- THEN the notes read dry-run, both origins, margin, in that order
+
+#### Scenario: No position, no note
+
+- GIVEN S1 holds nothing
+- WHEN the section renders
+- THEN no note is drawn
+
+#### Scenario: An unmatched position replaces "No open position."
+
+- GIVEN S1 holds no position and S1's exchange holds one position with no strategy id
+- WHEN the page renders
+- THEN the section reads "1 open position could not be matched to a strategy. The Strategies page names it." and not "No open position."
+
+#### Scenario: Several unmatched elements
+
+- GIVEN S1's exchange holds two unmatched positions and S1 holds one position
+- WHEN the section renders
+- THEN above the notes it reads "2 open positions could not be matched to a strategy. The Strategies page names them."
+
+#### Scenario: An unmatched element of another exchange is not counted
+
+- GIVEN the only unmatched position is on another exchange than S1's
+- WHEN S1's section renders with no position
+- THEN it reads "No open position."
+
+### Requirement: On A Phone Open Positions Are Cards
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § H; prototype examples 20 and 24).**
+
+Below `md` each open position MUST be a card in place of a table row: an
+`article` named by its pair and side (`AAVEUSDT LONG`), the pair and the side in
+the card's head with the origin's word at its right, then the same labelled
+values in two columns, each null a dash with its reason. The card's sub-rows MUST
+be its last elements, in the order of "On The Detail Page And The Overview The
+Venue Mark Is One Solid Red Line Under Its Row". On the Overview the strategy's
+name MUST be under the card's head.
+
+#### Scenario: Three positions at desktop and phone width
+
+- GIVEN S1 holds three positions
+- WHEN the section renders at desktop width and at 390 px
+- THEN it is a table at the first and three cards at the second
+
+#### Scenario: A card is named by its pair and side
+
+- GIVEN a card for `AAVEUSDT` LONG
+- WHEN it is read by assistive technology
+- THEN it is an `article` named "AAVEUSDT LONG"
+
+#### Scenario: A card carries the same values
+
+- GIVEN a position at phone width
+- WHEN its card renders
+- THEN it shows the opened date, size, entry, fees, margin granted and leverage, with the origin's word at the right of its head
+
+### Requirement: The Overview Lists Every Open Position Of The Selected Exchange, Pool By Pool
+
+> **Added 2026-10-12 (owner decision 65, 2026-10-12: "Lo de Overview me parece bien, lo incorporamos"; design addendum "open positions" § H, "The Overview part"; prototype examples 22 to 24).**
+
+Under the month grid and its summary, each pool panel of the Overview MUST list
+the open positions whose pool has exactly that pool's three values (exchange,
+venue and settlement currency), never the exchange alone, so that two pools
+never mix (rule 7). The list MUST be the detail table's: the heading "Open
+positions" and the columns Strategy, Opened (UTC), Pair, Side, Size, Entry,
+Margin granted {currency} and Leverage, with NO Fees column and no notional
+column. The Strategy cell MUST be a link to the strategy's page, or plain text
+when the position has no strategy id (its six empty cells are then dashes). Rows
+MUST follow the route's order. A position the venue disagrees on carries its
+line under the row, or in the card. The list MUST be drawn even when the pool has
+no performance report, since a pool without a report can hold a position, and it
+MUST draw the detail section's three states with its texts: "Reading open
+positions…", the error sentence with "Read again", and "No open position.", with
+the heading always drawn. The list MUST draw no notes.
+
+> **Pending owner answer Q8, written to the default: no.** Orders in flight are
+> NOT drawn on the Overview; a pool whose only open thing is an order reads "No
+> open position.". They stay on the Strategies page and on the strategy's page.
+> If the owner answers yes, this requirement gains the order line and its
+> scenario, and the approved order line needs a place for the strategy's name.
+
+#### Scenario: Three positions of two strategies in one pool
+
+- GIVEN pool `(bybit, usdt-m, USDT)` holds three positions of two strategies
+- WHEN the Overview renders for Bybit
+- THEN under the month grid and its summary is the list "Open positions" with three rows, each with its strategy's name as a link in the first column
+
+#### Scenario: No Fees column
+
+- GIVEN the Overview's list
+- WHEN its headings are read
+- THEN they are Strategy, Opened (UTC), Pair, Side, Size, Entry, Margin granted USDT and Leverage
+
+#### Scenario: Two pools of one exchange never mix
+
+- GIVEN Bybit has pools `(bybit, usdt-m, USDT)` and `(bybit, coin-m, BTC)` each holding a position
+- WHEN the Overview renders
+- THEN each position is listed only in its own pool's panel
+
+#### Scenario: A pool without a report still lists its position
+
+- GIVEN a pool whose performance report is missing and which holds a position
+- WHEN the Overview renders
+- THEN the list's row is drawn
+
+#### Scenario: A position with no strategy id is plain text
+
+- GIVEN a position with a null strategy id in a pool of the selected exchange
+- WHEN the list renders
+- THEN its strategy's name is plain text, not a link, and the six empty cells are dashes
+
+#### Scenario: A position the venue disagrees on carries its line
+
+- GIVEN a position with a disagreement
+- WHEN the list renders, as a table and as a card
+- THEN the venue line is under its row or inside its card
+
+#### Scenario: The list's states
+
+- GIVEN the read is loading, then failed, then empty
+- WHEN the pool panel renders in each state
+- THEN under the heading it reads "Reading open positions…", then the error sentence with "Read again", then "No open position."
+
+#### Scenario: A failed read is not read as zero
+
+- GIVEN the read failed
+- WHEN the pool panel renders
+- THEN no count is drawn and the error sentence is right under the heading
+
+#### Scenario: No notes under the list
+
+- GIVEN a list holding a rehearsal position
+- WHEN it renders
+- THEN no dry-run, both-origins or margin note is drawn under it
+
+#### Scenario: An order in flight is not drawn on the Overview (pending Q8, default)
+
+- GIVEN a pool whose only open thing is an order in flight
+- WHEN the Overview renders
+- THEN the list reads "No open position." and no order line is drawn
+
+#### Scenario: The strategy's name is under the card's head on a phone
+
+- GIVEN a phone viewport
+- WHEN the list renders
+- THEN each card has the strategy's name under its head
+
+#### Scenario: The rail sits between the chart and the grid on a phone
+
+- GIVEN a phone viewport and a pending proposal
+- WHEN the Overview renders
+- THEN the "Needs your decision" rail is between the chart and the month grid, as before, and the positions are cards under the grid
+
+### Requirement: The Overview's Count Says How Many Are Open And How Many Of Them Are Dry Run
+
+> **Added 2026-10-12 (owner decision 65, 2026-10-11 and 2026-10-12; design addendum "open positions" § H, "The Overview's count" and § I; prototype example 23).**
+
+The Overview's monthly summary MUST count the pool's open positions, replacing
+the live-only sentence "N open trades not in the curve" ON THE OVERVIEW. The
+count MUST sit where the live-only part sat, after the worst month. It MUST
+write nothing when no position is open; "N open" when none of them is a dry run;
+and "N open, M of them dry run" otherwise. M counts the positions whose origin
+is `rehearsal`; a position of both origins MUST be in N and not in M, and its
+row says what it is. While the answer is loading or its read failed, the summary
+MUST write no part about open positions, old or new, and the list's error
+sentence stays right under it. The summary is drawn only when the pool has a
+report, so a pool that holds a position and has no report MUST show its list and
+no count. The API's `excluded.open_trade_count` MUST stay, as what the curve
+leaves out.
+
+#### Scenario: Three open, one of them dry run
+
+- GIVEN a pool with three open positions, one of origin `rehearsal`
+- WHEN the summary renders
+- THEN it reads "3 open, 1 of them dry run"
+
+#### Scenario: Two open and none dry run
+
+- GIVEN a pool with two live positions
+- WHEN the summary renders
+- THEN it reads "2 open"
+
+#### Scenario: One open and live
+
+- GIVEN a pool with one live position
+- WHEN the summary renders
+- THEN it reads "1 open"
+
+#### Scenario: One open, a dry run, reads as approved
+
+- GIVEN a pool with one position of origin `rehearsal`
+- WHEN the summary renders
+- THEN it reads "1 open, 1 of them dry run" (the approved form; its oddness for one is a listed risk and not changed here)
+
+#### Scenario: Nothing open writes nothing
+
+- GIVEN a pool with no open position
+- WHEN the summary renders
+- THEN it has no part about open positions
+
+#### Scenario: A position of both origins is in N and not in M
+
+- GIVEN a pool with one `mixed` position and one live one
+- WHEN the summary renders
+- THEN it reads "2 open"
+
+#### Scenario: A rehearsal position counts although the curve leaves it out
+
+- GIVEN a pool whose report's `open_trade_count` is 0 and which holds a rehearsal position
+- WHEN the Overview renders
+- THEN the summary reads "1 open, 1 of them dry run"
+
+#### Scenario: No part while loading or after a failed read
+
+- GIVEN the positions answer is loading, and then its read failed
+- WHEN the summary renders
+- THEN it has no part about open positions in either state
+
+#### Scenario: A pool with no report has a list and no count
+
+- GIVEN a pool that holds a position and whose report is missing
+- WHEN the Overview renders
+- THEN the list shows the row and no count is drawn
+
+#### Scenario: Spanish
+
+- GIVEN the locale is Spanish and three open positions, one of them dry run
+- WHEN the summary renders
+- THEN it reads "3 abiertas, 1 de ellas en simulación", and for a single live position "1 abierta"
+
+### Requirement: The Detail Page's Own Count Of Open Trades Is Left As It Is
+
+> **Added 2026-10-12 (design addendum "open positions" § H, "The Overview's count", P27 and § O, Q6).**
+
+The same summary component is drawn on the strategy detail page's performance
+block, where it writes "N open trades not in the curve" for ONE strategy, live
+positions only. Decision 65 names the Overview's count and says nothing of this
+one, which nobody had seen. The detail page's sentence MUST NOT change.
+
+> **Pending owner answer Q6, written to the default: it stays as it is.** The
+> owner may answer that it should change as the Overview's count does, or go. The
+> section "Open positions" sits a little below it and lists every position, dry
+> run included, so the two can read differently ("1 open trade not in the curve"
+> beside two rows, one of them a dry run); both statements are true as worded.
+
+#### Scenario: The detail page keeps its sentence (pending Q6, default)
+
+- GIVEN the strategy's report says one open trade is not in the curve and the strategy holds a live and a rehearsal position
+- WHEN the detail page renders
+- THEN the performance block reads "1 open trade not in the curve" and the section "Open positions" lists both positions
+
+#### Scenario: The Overview does not write it
+
+- GIVEN the same report on the Overview's pool panel
+- WHEN the summary renders
+- THEN the live-only sentence is not drawn and the new count is
+
+### Requirement: The Top Bar's Live Badge Is Drawn In The Gain Colour
+
+> **Added 2026-10-12 (owner decision 65, bullets of 2026-10-12; design addendum "open positions" § H, "The Live badge").**
+
+The top bar's mode badge, when the API reports `dry_run: false`, MUST read
+"Live" in the `gain` colour (a `gain` border and `gain` text), the colour the
+marks give the origin "Live". The badge states the mode and is not an alarm. The
+badge MUST still be always visible (owner decision 32). It MUST still read "Dry
+run" in amber when the API reports `dry_run: true`. The neutral states MUST stay
+neutral: while the mode is not read, or its read failed, the badge MUST show
+neither mode and MUST NOT use `gain`, amber or the loss colour. Its Spanish
+texts, "En vivo" and "Modo simulación", MUST not change.
+
+(Previously: the "Live" badge was drawn in the loss colour, an implementation
+choice and not an owner decision.)
+
+#### Scenario: Live is cyan
+
+- GIVEN `/health` reports `dry_run: false`
+- WHEN the top bar renders
+- THEN the badge reads "Live" with a `gain` border and `gain` text, and no loss colour
+
+#### Scenario: Dry run stays amber
+
+- GIVEN `/health` reports `dry_run: true`
+- WHEN the top bar renders
+- THEN the badge reads "Dry run" in the amber token
+
+#### Scenario: A pending or failed read stays neutral
+
+- GIVEN the mode has not been read, and in a second case its read failed
+- WHEN the top bar renders
+- THEN the badge shows neither "Live" nor "Dry run" and uses a neutral colour
+
+#### Scenario: The badge and the marks agree
+
+- GIVEN `dry_run: false` and a live position's mark
+- WHEN both render
+- THEN the badge and the word "Live" of the mark use the same colour
+
+#### Scenario: Spanish
+
+- GIVEN the locale is Spanish
+- WHEN the badge renders in each mode
+- THEN it reads "En vivo" and "Modo simulación"
+
+### Requirement: Times And Figures Of Open Positions Are Written One Way
+
+> **Added 2026-10-12 (design addendum "open positions" § H, "Times" and "Figures"; § J, the place where the default departs from the picture).**
+
+Every time MUST have "UTC" written after it. "Last read", "could not be
+refreshed since" and "last compared" MUST be written as hours, minutes and
+seconds; "sent" as hours and minutes; "Opened" as the date and the time on two
+lines. A clock time that is not on the UTC day of the answer's `as_of` MUST be
+written with its date before it, so that an order sent yesterday at 21:12 does
+not read as sent minutes ago and a venue mark frozen since the mode was changed
+does not read as compared today. Prices and sizes MUST be written as the closed
+trades table writes them, the two nets as plain figures, and fees and margin with
+the currency's decimals (`121.80`), so that one page writes a figure one way.
+The leverage MUST be written without its stored zeros and followed by `x`
+(`2.00000000` reads `2x`).
+
+> **Pending owner answer Q9, written to the default: `184.3`.** In Spanish a
+> price and a size MUST read with a decimal POINT (`184.3`, `0.82 AAVE`), as the
+> closed trades table beside them does today, where the approved prototype's
+> example 25 draws a comma (`184,3`, `0,82 AAVE`). Under the default a margin
+> reads `121.80`, with two decimals, where some of the prototype's samples read
+> `121.8`. If the owner chooses the comma, either the closed trades table changes
+> with it or the two tables on that page differ; this requirement and its
+> Spanish scenario are patched.
+
+#### Scenario: Three kinds of time
+
+- GIVEN `as_of` 21:40:03 UTC, an order sent at 21:12 and a position opened on 2026-10-11 at 21:12
+- WHEN they render
+- THEN "Last read" reads `21:40:03 UTC`, the order reads `sent 21:12 UTC`, and the Opened cell shows the date and the time on two lines
+
+#### Scenario: A time of another day carries its date
+
+- GIVEN a venue mark last compared yesterday at 21:12:00 UTC and an answer read today
+- WHEN the venue line renders
+- THEN "last compared" is written with yesterday's date before the time
+
+#### Scenario: A time of the same day has no date
+
+- GIVEN a venue mark last compared today at 21:12:00 UTC
+- WHEN the line renders
+- THEN "last compared" reads the time only
+
+#### Scenario: A margin keeps the currency's decimals
+
+- GIVEN a margin granted of `121.8` USDT
+- WHEN the row renders
+- THEN it reads `121.80`
+
+#### Scenario: Spanish prices follow the table under them (pending Q9, default)
+
+- GIVEN the locale is Spanish and a position with entry price 184.3 and size 0.82 AAVE
+- WHEN the section renders
+- THEN the entry reads `184.3` and the size `0.82`, with a point, as the closed trades table writes them
+
+### Requirement: Open Positions Show No Result, No Current Price And No Notional
+
+> **Added 2026-10-12 (owner decision 65, scope B; design addendum "open positions" § N).**
+
+The open-position views MUST NOT show an unrealised PnL, a current price, a
+return or any figure read from the venue. This change MUST add no new read of
+any venue and no periodic remote read. They MUST NOT show a notional column. They
+MUST NOT show the confirmed discrepancies as a view of their own: the venue mark
+states the disagreement and whether a booking is proposed, and leads nowhere
+else. An open position MUST NOT open onto its fills: a row is a row, not a
+control, and no dialog opens from it. The Strategies page MUST show nothing about
+another exchange. No open position MUST enter any total, and the panel MUST show
+no figure that adds the money of two pools. No mark MUST say a result.
+
+#### Scenario: No price or PnL on any open position
+
+- GIVEN open positions in every view
+- WHEN their text is read
+- THEN none shows a unrealised PnL, a current price, a mark price or a return
+
+#### Scenario: No request to a venue
+
+- GIVEN the open-position views are rendered
+- WHEN the network is read
+- THEN the only request for them is `GET /api/positions/open`
+
+#### Scenario: A row does not open a dialog
+
+- GIVEN an open position's row
+- WHEN the owner clicks it
+- THEN no dialog opens and no fills are shown
+
+#### Scenario: The venue mark does not lead to a discrepancies view
+
+- GIVEN a venue mark with a pending proposal
+- WHEN the link is read
+- THEN it leads to the Overview's rail and to no view of confirmed discrepancies
+
+#### Scenario: No blended total
+
+- GIVEN positions in two pools of different currencies
+- WHEN the Overview renders
+- THEN each pool's count and list stand alone and no figure adds the two
+
+### Requirement: Every Open-Positions Text Exists In English And Spanish
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § I, approved with the prototype).**
+
+Every text of the open-position views MUST exist in `en.json` and `es.json` and
+be resolved through i18n, with no hardcoded display text. The English MUST be the
+approved text of design § I, letter for letter, and so MUST the Spanish for every
+text that example 25 of the prototype draws: "Abiertas", "Órdenes en curso",
+"Última lectura", "Fuera de esta lista: {{items}}.", "archivada", "cifras no
+legibles", "Leer de nuevo", "Simulación", "En vivo", "orden en curso", "El
+exchange no coincide", "No hay un registro propuesto para esta diferencia.",
+"Ver la decisión pendiente", "Posiciones abiertas", "Margen otorgado
+{{currency}}" and "Apalancamiento". The Spanish of the texts the prototype does
+not draw is design § I's. The texts are keyed in the groups `positions.state.*`,
+`positions.marks.*`, `positions.origin.*`, `positions.order.*`,
+`positions.venue.*`, `positions.table.*`, `positions.reason.*`,
+`positions.note.*` and `positions.sideUnreadable`, and, for the Overview,
+`overview.open.strategy`, `overview.monthlySummary.openAll_*` and
+`overview.monthlySummary.openWithRehearsal`. The column headings, the sides
+(`LONG`, `SHORT`) and the fee in another currency MUST be the existing
+`strategies.performance.trades.*` keys, reused unchanged. The key
+`overview.monthlySummary.open_*` MUST remain, because the detail page still
+writes it. The punctuation between parts (the colon after a label, ` · `, `; `)
+is written by the component and is the same in both languages. A text with a
+count MUST have both its singular and plural forms in both files. The two files
+MUST hold the same set of keys. No text MUST say that nothing is open anywhere
+or permit changing the mode.
+
+#### Scenario: Every view reads in Spanish
+
+- GIVEN the locale is Spanish and the Strategies page, a detail page and the Overview show open positions, an order in flight and a venue mark
+- WHEN every visible string is read
+- THEN each is Spanish, sourced from i18n, `LONG` and `SHORT` are unchanged, and no English text of this change remains
+
+#### Scenario: The Spanish of example 25 is exact
+
+- GIVEN the locale is Spanish and the states of examples 25a to 25e
+- WHEN the texts are read
+- THEN they equal design § I's Spanish column letter for letter, including "Fuera de esta lista" and "El exchange no coincide"
+
+#### Scenario: The figures in Spanish
+
+- GIVEN the locale is Spanish
+- WHEN the figures render
+- THEN they read `Abiertas: 2 · Órdenes en curso: 1 · Última lectura: 21:40:03 UTC`
+
+#### Scenario: The English is the approved text
+
+- GIVEN the locale is English
+- WHEN the failure, stale and loading texts render
+- THEN they read exactly "Open positions could not be read. A row without a mark does not mean that nothing is open.", "Could not be refreshed since 21:38:12 UTC." and "Reading open positions…"
+
+#### Scenario: Every new key is in both files
+
+- GIVEN the two locale files
+- WHEN their open-position keys are compared
+- THEN the sets are equal, and each key with a count has its singular and plural forms in both
+
+#### Scenario: Reused keys are unchanged
+
+- GIVEN the locale files before and after the change
+- WHEN `strategies.performance.trades.*` and `overview.monthlySummary.open_*` are compared
+- THEN they are equal
+
+### Requirement: The Open-Positions Views Are Named For Assistive Technology
+
+> **Added 2026-10-12 (design addendum "open positions" § H, "Accessibility").**
+
+Each mark MUST be text, not colour or shape alone: the origin is a word, and so
+are "order in flight" and "venue disagrees". A row's list of marks MUST be named
+"Open positions of {name}". The dashes MUST carry their reason in text for a
+screen reader, as the closed trades table does. The venue line is a group and
+its link a real link, each named with the pair. The loading text is a status and
+the first failure an alert; the figures' live region MUST hold the counts and the
+lines under them and not the time. The "Read again" button MUST be 44 px tall.
+
+#### Scenario: A row's marks have a name
+
+- GIVEN strategy "STX 4h" holds a position
+- WHEN its row is read by assistive technology
+- THEN its list of marks is named "Open positions of STX 4h"
+
+#### Scenario: The origin is a word
+
+- GIVEN a dry-run mark, a live mark and a mark of unknown origin
+- WHEN their text is read with colour ignored
+- THEN each says "Dry run", "Live" or "origin unknown"
+
+#### Scenario: A dash has its reason
+
+- GIVEN a position with a null leverage
+- WHEN its cell is read by a screen reader
+- THEN it reads "not recorded"
+
+#### Scenario: Status and alert roles
+
+- GIVEN the loading state and the first failure
+- WHEN their roles are read
+- THEN the loading text has `role="status"` and the error sentence `role="alert"`
 
 ### Requirement: The Closed Trades Table Shows Each Operation's Figures
 
@@ -3247,6 +4690,14 @@ i18n mechanism (English and Spanish) and MUST NOT be hardcoded display text.
 - GIVEN the locale is Spanish and a strategy detail view shows the share control with both information buttons open, a Save button that reads "Saved", the webhook block with both Copy buttons and a "By pair" table
 - WHEN every visible string is read
 - THEN each is the Spanish text of "The Detail Page's Follow-Up Texts Are Exactly These, In English And Spanish", sourced from i18n, with no leftover English
+
+#### Scenario: The open-position views are localized
+
+> **Added 2026-10-12 (owner decision 65).**
+
+- GIVEN the locale is Spanish and the Strategies page, a strategy detail page and the Overview show open positions, an order in flight and a venue mark
+- WHEN every visible string is read
+- THEN each is the Spanish text of "Every Open-Positions Text Exists In English And Spanish", sourced from i18n, and `LONG` and `SHORT` are unchanged
 
 ### Requirement: Empty States Everywhere Data May Be Absent
 
