@@ -114,6 +114,9 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.performance.infrastructure.open_positions_router import (
+    router as open_positions_router,
+)
 from strategy_manager.performance.infrastructure.performance_router import (
     router as performance_router,
 )
@@ -1877,6 +1880,7 @@ def create_app() -> FastAPI:
     api_router.include_router(reconciliation_router)
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
+    api_router.include_router(open_positions_router)
     api_router.include_router(webhook_secret_router)
     api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
