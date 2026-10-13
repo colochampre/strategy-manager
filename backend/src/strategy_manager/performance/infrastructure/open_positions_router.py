@@ -14,6 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.execution.infrastructure.mode_origin_reader import (
@@ -34,7 +35,14 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def get_snapshot_session(session: SessionDep) -> AsyncIterator[AsyncSession]:
-    """The session of ONE request. Task op.1.1: a pass-through."""
+    """The session of ONE request, in a read-only ``REPEATABLE READ`` transaction.
+
+    The statement must be the transaction's FIRST: PostgreSQL refuses to change
+    the isolation level after a query ("must be called before any query"), and
+    that refusal propagates as a 500 and the panel's error state. A snapshot that
+    is not in force is never silently dropped (design K row 15). The use case and
+    the ports know nothing of this."""
+    await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
     yield session
 
 
