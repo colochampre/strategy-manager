@@ -172,6 +172,129 @@ describe("a row's marks", () => {
   });
 });
 
+const ALLOCATION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DISCREPANCY = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+function disagreeing() {
+  return openPosition({
+    allocation_id: ALLOCATION,
+    strategy_id: ALPHA,
+    markets: ["AAVEUSDT"],
+    side: "LONG",
+    venue_disagreement: {
+      discrepancy_id: DISCREPANCY,
+      venue_net_base: "0",
+      ledger_net_base: "0.82",
+      allocation_count: 1,
+      last_observed_at: "2026-10-12T21:39:12Z",
+    },
+  });
+}
+
+function proposal(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
+    discrepancy_id: DISCREPANCY,
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    symbol: "STXUSDT.P",
+    kind: "ATTRIBUTABLE_FULL_CLOSE",
+    allocation_id: ALLOCATION,
+    strategy_id: ALPHA,
+    side: "SELL",
+    quantity: "0.82",
+    observed_venue_net_base: "0",
+    observed_ledger_net_base: "0.82",
+    observed_allocation_ids: [ALLOCATION],
+    fills: [],
+    client_order_id: "vnu:bybit:order-1",
+    expires_at: "2026-10-14T01:02:03+00:00",
+    prepared_by_job_id: "55555555-5555-4555-8555-555555555555",
+    created_at: "2026-10-13T01:02:03+00:00",
+    state: "PENDING",
+    decided_at: null,
+    decided_by: null,
+    decision_reason: null,
+    execution_attempt_id: null,
+    ...overrides,
+  };
+}
+
+type BookingsAnswer = { kind: "ok"; body: unknown[] } | { kind: "pending" } | { kind: "status"; status: number };
+
+/** Mounts the marks over one positions answer and one answer to the pending bookings. */
+async function mountVenue(position: ReturnType<typeof disagreeing>, bookings: BookingsAnswer) {
+  const route = (url: string) => {
+    if (url.includes("/reconciliation/bookings")) {
+      if (bookings.kind === "pending") return new Promise<Response>(() => undefined);
+      if (bookings.kind === "status") return Promise.resolve(jsonResponse({ detail: "down" }, bookings.status));
+      return Promise.resolve(jsonResponse(bookings.body));
+    }
+    return rowRoutes(url);
+  };
+  const api = stubApi(HEALTH, [], undefined, {}, route, {}, undefined, answering([position]));
+  renderAt(<OpenMarks strategy={strategy()} />);
+  await settle();
+  await waitFor(() => expect(chips()).toHaveLength(1));
+  return api;
+}
+
+const LINK = "See the pending decision";
+const WORDS = "No booking is proposed for it.";
+
+describe("the venue chip, with the link or the words (T19, the chip's half)", () => {
+  it("follows its position's chip in the same item, with the red chip and its words", async () => {
+    await mountVenue(disagreeing(), { kind: "ok", body: [] });
+
+    await waitFor(() => expect(screen.queryByText("Venue disagrees")).toBeInTheDocument());
+    const item = screen.getByRole("listitem");
+    const [position, venue] = [...item.children];
+    expect(position).toHaveTextContent("AAVEUSDT · LONG · Live");
+    expect(venue).toHaveTextContent("Venue disagrees");
+    expect(venue).toHaveClass("border-loss", "text-loss", "bg-transparent");
+  });
+
+  it("draws the link, named with the pair, when a pending proposal names this allocation and this discrepancy", async () => {
+    await mountVenue(disagreeing(), { kind: "ok", body: [proposal()] });
+
+    await waitFor(() => expect(screen.queryByRole("link", { name: `${LINK}, AAVEUSDT` })).toBeInTheDocument());
+    const link = screen.getByRole("link", { name: `${LINK}, AAVEUSDT` });
+    expect(link).toHaveTextContent(LINK);
+    expect(link).toHaveAttribute("href", "/#decision-rail");
+    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["no proposal is pending", []],
+    ["the proposal names another discrepancy", [proposal({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })]],
+    ["the proposal names another allocation", [proposal({ allocation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })]],
+    ["the proposal is not pending", [proposal({ state: "REJECTED" })]],
+  ])("says that no booking is proposed, and links nowhere, when %s", async (_label, body) => {
+    await mountVenue(disagreeing(), { kind: "ok", body });
+
+    await waitFor(() => expect(screen.queryByText(WORDS)).toBeInTheDocument());
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText(WORDS)).toHaveClass("text-ink-2", "text-xs");
+  });
+
+  it("draws neither the link nor the words while the proposals load", async () => {
+    await mountVenue(disagreeing(), { kind: "pending" });
+
+    expect(screen.queryByText("Venue disagrees")).toBeInTheDocument();
+    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("draws neither when the read of the proposals failed", async () => {
+    await mountVenue(disagreeing(), { kind: "status", status: 500 });
+
+    expect(screen.queryByText("Venue disagrees")).toBeInTheDocument();
+    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
 describe("a row that has nothing to show", () => {
   it("draws no mark and no empty element when its strategy holds nothing", async () => {
     const { view } = await mount(answering([openPosition({ strategy_id: BETA })], [openOrder({ strategy_id: BETA })]));
