@@ -22,14 +22,18 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
     SqlAlchemyModeOriginReader,
 )
 from strategy_manager.performance.application.ports import (
+    ConfirmedDisagreementSourcePort,
+    OpenPositionFactsSourcePort,
     OpenStateSourcePort,
     PositionFacts,
     SubmittedOrder,
 )
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
 from strategy_manager.performance.domain.open_position import DiscrepancyRow
+from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
+from strategy_manager.shared.infrastructure.clock import SystemClock
 
 router = APIRouter(
     prefix="/positions",
@@ -77,15 +81,33 @@ class _NoFactsYet:
         return []
 
 
+def get_facts_source(session: SnapshotSessionDep) -> OpenPositionFactsSourcePort:
+    return _NoFactsYet()
+
+
+def get_disagreement_source(session: SnapshotSessionDep) -> ConfirmedDisagreementSourcePort:
+    return _NoFactsYet()
+
+
+def get_clock() -> ClockPort:
+    return SystemClock()
+
+
+FactsDep = Annotated[OpenPositionFactsSourcePort, Depends(get_facts_source)]
+DisagreementDep = Annotated[ConfirmedDisagreementSourcePort, Depends(get_disagreement_source)]
+ClockDep = Annotated[ClockPort, Depends(get_clock)]
+
+
 class OpenPositionsBody(BaseModel):
     positions: list[UUID]
     orders: list[UUID]
 
 
 @router.get("/open", response_model=OpenPositionsBody)
-async def read_open_positions(state: OpenStateDep) -> OpenPositionsBody:
-    placeholder = _NoFactsYet()
-    answer = await ReadOpenPositions(state, placeholder, placeholder).read()
+async def read_open_positions(
+    state: OpenStateDep, facts: FactsDep, disagreements: DisagreementDep, clock: ClockDep
+) -> OpenPositionsBody:
+    answer = await ReadOpenPositions(state, facts, disagreements).read()
     return OpenPositionsBody(
         positions=[position.allocation_id for position in answer.positions],
         orders=[order.attempt_id for order in answer.orders],
