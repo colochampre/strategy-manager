@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { OpenMarks } from "@/features/positions/OpenMarks";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import { useSetStrategyEnabled } from "@/shared/api/strategies";
@@ -147,6 +148,7 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
           </p>
         )}
       </div>
+      <OpenMarks strategy={strategy} />
     </li>
   );
 }
