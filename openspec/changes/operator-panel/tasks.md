@@ -5526,7 +5526,7 @@ Not a unit: no code is written here. Rules R6, R8 and R9 apply.
 - op.f1 A view of the CONFIRMED discrepancies, including those with no booking to decide. The next unit, with a design of its own (owner, 2026-10-11, Q3; design § N, F1). Once it exists, the venue mark links to it; until then the row says "No booking is proposed for it" and links nowhere.
 - op.f2 An open position opening onto its individual fills, as a closed operation does (owner, 2026-10-11, Q5; F2). Its design starts by establishing whether the fills read answers for an allocation that is not closed, which is not verified (P22).
 - op.f3 A sign, on a row with no venue mark, of when its pool was last compared with the venue, so that a dead reconciliation chain is not read as agreement (F3; K row 2). It needs a fact the system does not store.
-- op.f4 The singular in Spanish of the count with a dry run: "1 abiertas, 1 de ellas en simulación" is the approved text and is ungrammatical; a singular form is a text the owner has not seen (design § I, § N). It can be added as its own key without touching anything else.
+- op.f4 The singular in Spanish of the count with a dry run: "1 abiertas, 1 de ellas en simulación" is the approved text and is ungrammatical; a singular form is a text the owner has not seen (design § I, § N). It can be added as its own key without touching anything else. Done 2026-10-13, 51f6699.
 - op.f5 Unrealised PnL read from the venue (scope C of decision 65): left for later; it needs periodic remote reads and has no figure in `DRY_RUN`.
 - op.f6 A level above WARNING for the two cases the panel shows nowhere (K rows 25 and 26): "never ERROR" is kept, so the only trace is a log line; the count-only line that would have answered row 25 on the panel was declined by the owner on 2026-10-13 (Q7).
 - op.f7 A retry policy for the one query: the first failure reads after about 7 s of the loading text (the query client keeps TanStack's three retries); a choice nobody asked for (K row 27).
@@ -5535,6 +5535,10 @@ Not a unit: no code is written here. Rules R6, R8 and R9 apply.
 - op.f11 The alert tests of `frontend/src/features/strategies/StrategiesPage.test.tsx` (a failed and a malformed list) use `findByRole("alert")`, which resolves on the first alert and would pass with two. They should assert, once the page has settled, that there is exactly one. Found in the review of op.4 (task op.4.12); the behaviour is right today.
 - op.f12 The link "See the pending decision" clicked a second time, with the hash already `#decision-rail`, scrolls nothing: the rail's effect runs when the hash changes. Found in the review of op.2 (task op.2.31).
 - op.f10 Consolidating the readers of the "open" rule: five implementations became six readers of two definitions (design § N); each feeds a write or a refusal with its own tests, so this is out of scope.
+- op.f13 The phone card's `aria-label` in `PositionsTable.tsx` writes the raw side `LONG` / `SHORT`, where the cells use the translated direction. Found in the final review.
+- op.f14 The dry-run note `positions.note.rehearsal` says the simulated exchange fills "at 1x": confirm that against the simulated exchange's code, or drop the claim. Found in the final review.
+- op.f15 `usePendingBookings` has no stale time or interval, so a venue mark's link or "no booking is proposed" can be out of date until the window regains focus. Found in the final review.
+- op.f16 The Spanish `positions.table.ofOpened`, "de {{opened}} abiertas", is feminine where it speaks of a size. Found in the final review.
 
 ---
 

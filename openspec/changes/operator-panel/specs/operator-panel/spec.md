@@ -752,6 +752,11 @@ read as zero open.
   without a mark does not mean that nothing is open." in a `role="alert"` element
   in red, with "Read again". The failure MUST be shown only after the query
   client has retried and given up; until then the loading state is shown.
+- Reading again after a failed first read (added 2026-10-13, after the final
+  review): the "Read again" button MUST stay in the document, in the same place
+  and with the focus, marked `aria-disabled="true"` (not `disabled`) and ignoring
+  presses, beside the loading text. It MUST be drawn only after a read has failed,
+  never on a first load.
 - A refresh failed after a good read: the LAST figures MUST be kept, "Last read"
   MUST still be the last good answer's time, and "Could not be refreshed since
   {time} UTC." MUST be added in red as the last line. This holds also when the
@@ -771,6 +776,14 @@ read as zero open.
 - GIVEN the first read failed after its retries
 - WHEN the page renders
 - THEN the red sentence is drawn with `role="alert"` and "Read again", and neither `Open: 0` nor any figure is drawn
+
+#### Scenario: "Read again" stays in place while the panel reads again after a failed first read
+
+- GIVEN the first read failed, the red sentence and "Read again" are drawn, and the button has the focus
+- WHEN the button is pressed
+- THEN the same button is still in the document, it still has the focus and it is marked `aria-disabled="true"`, beside "Reading open positions…" with `role="status"`
+- AND pressing it again starts no second request
+- AND when the read succeeds the content is drawn and the button is gone, and when it fails again the red sentence and the enabled button are drawn again
 
 #### Scenario: The retries are not an error yet
 
@@ -1178,13 +1191,20 @@ of another exchange MUST NOT count. The Overview's list MUST draw no notes.
 
 - GIVEN S1 holds no position and S1's exchange holds one position with no strategy id
 - WHEN the page renders
-- THEN the section reads "1 open position could not be matched to a strategy. The Strategies page names it." and not "No open position."
+- THEN the section reads "1 open position or order could not be matched to a strategy. The Strategies page names it." and not "No open position."
+
+#### Scenario: One unmatched order and no position is not called a position
+
+- GIVEN S1 holds no position and S1's exchange holds one order in flight with no strategy id and no position with none
+- WHEN the section renders
+- THEN it reads "1 open position or order could not be matched to a strategy. The Strategies page names it." and not "No open position."
+- AND in Spanish it reads "1 posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra."
 
 #### Scenario: Several unmatched elements
 
 - GIVEN S1's exchange holds two unmatched positions and S1 holds one position
 - WHEN the section renders
-- THEN above the notes it reads "2 open positions could not be matched to a strategy. The Strategies page names them."
+- THEN above the notes it reads "2 open positions or orders could not be matched to a strategy. The Strategies page names them."
 
 #### Scenario: An unmatched element of another exchange is not counted
 
@@ -1352,11 +1372,17 @@ leaves out.
 - WHEN the summary renders
 - THEN it reads "1 open"
 
-#### Scenario: One open, a dry run, reads as approved
+#### Scenario: One open, a dry run, reads in the singular
 
 - GIVEN a pool with one position of origin `rehearsal`
 - WHEN the summary renders
-- THEN it reads "1 open, 1 of them dry run" (the approved form; its oddness for one is a listed risk and not changed here)
+- THEN it reads "1 open, dry run", and in Spanish "1 abierta, en simulación" (corrected after the final review, 2026-10-13, with the owner's agreement)
+
+#### Scenario: Two or more open, some of them a dry run, read as approved
+
+- GIVEN a pool with two positions, one of them of origin `rehearsal`, or with three that are all of origin `rehearsal`
+- WHEN the summary renders
+- THEN it reads "2 open, 1 of them dry run" or "3 open, 3 of them dry run", and in Spanish "2 abiertas, 1 de ellas en simulación" or "3 abiertas, 3 de ellas en simulación"
 
 #### Scenario: Nothing open writes nothing
 
@@ -1374,7 +1400,7 @@ leaves out.
 
 - GIVEN a pool whose report's `open_trade_count` is 0 and which holds a rehearsal position
 - WHEN the Overview renders
-- THEN the summary reads "1 open, 1 of them dry run"
+- THEN the summary reads "1 open, dry run"
 
 #### Scenario: No part while loading or after a failed read
 

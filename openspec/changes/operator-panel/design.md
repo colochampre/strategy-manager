@@ -5244,6 +5244,8 @@ Never asked, because a decision or the spec answers it: the plain delete button 
 > - **Three points of the tasks answered by the orchestrator** (§ H, § F): the names of the two
 >   `format.ts` files after their move, the item for an order whose strategy name is null, and
 >   where a null `submitted_at` sorts.
+> - **Corrected after the final review, 2026-10-13:** the count for one dry-run position, the
+>   unmatched sentence, the Read again button, with the owner's agreement (§ H, § I, § K, § N).
 >
 > Rewritten: §§ H, I, J and O. Amended: the two paragraphs below, § A (P8, P18 and P20, and P24 to
 > P35 added), § B (point 4 and the two blocks after it), § C (two statements and two blocks), § D
@@ -6180,8 +6182,8 @@ positions". It selects `ofStrategy(state, strategy.id)` over the whole answer.
   The margin note is true of any position. Examples 18b and 18c leave it out; that is the
   picture's shorthand, not a rule.
 - **Unmatched elements.** While `unmatched(ofExchange(state, strategy.exchange))` is not empty,
-  the section says "N open positions could not be matched to a strategy. The Strategies page
-  names them.": in place of "No open position." when the strategy has no position of its own
+  the section says "N open positions or orders could not be matched to a strategy. The Strategies
+  page names them." (corrected 2026-10-13: the count adds orders to positions): in place of "No open position." when the strategy has no position of its own
   (example 26b), and above the notes otherwise. See "A row with no strategy id" below for why the
   strategy's exchange bounds it.
 - **Figures.** Prices and sizes are written by `tableFigureText`, the two nets by `figureText`,
@@ -6223,7 +6225,7 @@ rest.
 | --- | --- | --- |
 | absent | the strategy detail page, unchanged | today's part, "N open trades not in the curve", from `excluded.open_trade_count` |
 | null | the Overview, while the read is loading or failed | no part about open positions, old or new |
-| `{total, rehearsal}` | the Overview, from `ofPool`'s positions | nothing when `total` is zero; "N open" when `rehearsal` is zero; otherwise "N open, M of them dry run" |
+| `{total, rehearsal}` | the Overview, from `ofPool`'s positions | nothing when `total` is zero; "N open" when `rehearsal` is zero; "1 open, dry run" for exactly one position that is a dry run; otherwise "N open, M of them dry run" |
 
 `rehearsal` counts the positions whose origin is `rehearsal`. A position of both origins is in
 `total` and not in `rehearsal`; its row says what it is. The part sits where today's sits, after
@@ -6316,7 +6318,7 @@ adds none.
 | Read, then a refresh failed | the last figures and "Could not be refreshed since {time} UTC." in `text-loss` | the last answer | the last answer and the same sentence | the last answer and the same sentence |
 | Nothing open on the selected exchange | `Open: 0 · Orders in flight: 0 · Last read: {time} UTC` | nothing | "No open position." | "No open position."; no count |
 | One live | `Open: 1` | `AAVEUSDT · LONG · Live`, cyan | one row, every figure, the margin note | one row; "1 open" |
-| One rehearsal | `Open: 1` | `SFPUSDT · SHORT · Dry run`, amber | one row, 1x, the dry-run note | one row; "1 open, 1 of them dry run" |
+| One rehearsal | `Open: 1` | `SFPUSDT · SHORT · Dry run`, amber | one row, 1x, the dry-run note | one row; "1 open, dry run" (corrected 2026-10-13) |
 | Both origins | `Open: 1` | `STXUSDT · LONG · Dry run and live`, red | one row and its note | one row; counted in N, not in M |
 | Unresolved symbol | `Open: 1` | `XYZBTC · side not readable · Live` | one row, the side, size and entry as dashes, the reason under it | the same row |
 | Order in flight | `Orders in flight: 1` | `SFPUSDT · order in flight · Live`, dashed and unfilled | a dashed line under the table, with its time | not drawn (§ O, Q8) |
@@ -6324,7 +6326,7 @@ adds none.
 | A disabled strategy holding one | counted | the chip, in a row whose switch is off | as any other | as any other |
 | Several positions on one strategy | `Open: 3` | the chips wrap in their own grid row; the figures and the switch do not move | several rows | several rows |
 | An archived strategy's, while archived ones are hidden | counted, and named under the figures with "archived" | no row to sit on | its own page shows it | listed in its pool |
-| A position or an order with no strategy id (§ C: the facts could not decorate it) | counted on the tab of its own exchange, and named there: the strategy's name, the pair, the origin and, for a position, "figures not readable" | it cannot be placed on a row | "N open positions could not be matched to a strategy", on the pages of that exchange's strategies; "No open position." is never drawn while one exists | a position is listed in its pool, its strategy's name as plain text and its six empty cells as dashes |
+| A position or an order with no strategy id (§ C: the facts could not decorate it) | counted on the tab of its own exchange, and named there: the strategy's name, the pair, the origin and, for a position, "figures not readable" | it cannot be placed on a row | "N open positions or orders could not be matched to a strategy", on the pages of that exchange's strategies; "No open position." is never drawn while one exists | a position is listed in its pool, its strategy's name as plain text and its six empty cells as dashes |
 | An element of another exchange | nothing: not counted, not named | nothing | - | nothing |
 | An element whose exchange has no tab, WITH a strategy id | on no tab (§ O, Q7, answered 2026-10-13) | nothing | shown on its strategy's page, which selects by id | nothing. Logged by the read at WARNING, at every request (§ C) |
 | An element whose exchange has no tab, with NO strategy id (a `NO_FACTS` position, an undecorated order) | on no tab | nothing | on no strategy's page: the unmatched sentence counts only the strategy's own exchange | nothing. **The panel shows it NOWHERE, by the owner's decision of 2026-10-13.** Logged at WARNING at every request (§ K, rows 10, 16 and 25), which reaches no alert. § O, Q7 |
@@ -6470,7 +6472,7 @@ plural for it.
 | `positions.table.notRecorded` | not recorded | no registrado | 15, for a screen reader; - |
 | `positions.table.ofOpened` | of {{opened}} opened | de {{opened}} abiertas | 16; - |
 | `positions.table.averageOf` | average of {{fills}} fills | promedio de {{fills}} ejecuciones | 16; - |
-| `positions.table.unmatched_one` / `_other` | {{count}} open position could not be matched to a strategy. The Strategies page names it. / {{count}} open positions could not be matched to a strategy. The Strategies page names them. | {{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra. / {{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra. | 26b; - |
+| `positions.table.unmatched_one` / `_other` | {{count}} open position or order could not be matched to a strategy. The Strategies page names it. / {{count}} open positions or orders could not be matched to a strategy. The Strategies page names them. | {{count}} posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra. / {{count}} posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra. (Corrected 2026-10-13: the count adds orders to positions, so the words say both.) | 26b; - |
 | `positions.reason.UNRESOLVED_SYMBOL` | The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived. | La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan. | 17; - |
 | `positions.reason.SEVERAL_MARKETS` | The fills of this position name more than one pair. | Las ejecuciones de esta posición nombran más de un par. | -; - |
 | `positions.reason.FLIPPED` | The fills sold more than was bought, or bought more than was sold. The entry price is not derived. | Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula. | -; - |
@@ -6486,12 +6488,13 @@ plural for it.
 | --- | --- | --- | --- |
 | `overview.open.strategy` | Strategy | Estrategia | 22; - |
 | `overview.monthlySummary.openAll_one` / `_other` | {{count}} open / {{count}} open | {{count}} abierta / {{count}} abiertas | 23a; - |
-| `overview.monthlySummary.openWithRehearsal` | {{total}} open, {{rehearsal}} of them dry run | {{total}} abiertas, {{rehearsal}} de ellas en simulación | 22, 23b, 24; - |
+| `overview.monthlySummary.openWithRehearsal_one` / `_other` | {{count}} open, dry run / {{count}} open, {{rehearsal}} of them dry run | {{count}} abierta, en simulación / {{count}} abiertas, {{rehearsal}} de ellas en simulación | 22, 23b, 24; - |
 
-`openWithRehearsal` names its variable `total`, not `count` (corrected after validation). With
-`count` and no suffixed forms it would have leaned on the i18next fallback that § A lists as not
-verified. The words on screen are the approved ones, unchanged. `openAll` keeps `count` and has
-both of its forms.
+Corrected after the final review, 2026-10-13, with the owner's agreement: `openWithRehearsal` has
+the two plural forms, with `count` set to the total and `rehearsal` kept as a variable, so that
+exactly one open position that is a dry run reads "1 open, dry run" / "1 abierta, en simulación".
+Two or more read as approved. (The first writing named the variable `total` and had no suffixed
+forms, which wrote "1 abiertas" in Spanish.) `openAll` keeps `count` and has both of its forms.
 
 **Existing keys the prototype draws, reused and not changed.** Each was read in both locale files
 on 2026-10-12 and matches the picture.
@@ -6537,12 +6540,11 @@ the strategy detail page still writes it, by the owner's decision of 2026-10-13 
   attribute for. The owner's "the Spanish is fine" was said of what example 25 draws.
 - **English that the prototype does not draw**: three of the four reasons and the reservation's
   note. They are the first writing's.
-- **One oddity in the count.** With one open position that is a dry run, the approved form reads
-  "1 open, 1 of them dry run" and "1 abiertas, 1 de ellas en simulación". The prototype draws it
-  for two and for three. Plural forms were weighed and not added: an `_one` form could write
-  "1 abierta", but "1 de ellas" would stay, and a sentence that is right for one ("1 open, in dry
-  run") is a different text from the approved one, which the owner has not seen. It stays a
-  listed risk (§ N).
+- **One oddity in the count (corrected 2026-10-13).** With one open position that is a dry run, the
+  approved form read "1 open, 1 of them dry run" and "1 abiertas, 1 de ellas en simulación". The
+  prototype draws it for two and for three. The owner has since agreed to the singular form, and
+  `openWithRehearsal` has `_one` and `_other` forms: "1 open, dry run" and "1 abierta, en
+  simulación" for exactly one, the approved text for two or more (§ N).
 - **Numbers are not texts.** The prototype's Spanish draws every number with a decimal comma. The
   panel's helpers do not all do that (P30; § H). Prices and sizes of open positions are written with
   a point in Spanish, by the owner's decision of 2026-10-13 (§ O, Q9).
@@ -6644,8 +6646,8 @@ rule under them. It is where the marks' rule of § H can be checked at a glance.
 25. Examples 3, 7, 10, 14 and 18 in Spanish (25a to 25e).
 26. A position the facts could not decorate: 26a the Strategies page, `Open: 1` and "Not on this
     list: STX 4h - RSI Divergences · XYZBTC · Live · figures not readable.", with no chip on any
-    row; 26b the detail section reading "1 open position could not be matched to a strategy. The
-    Strategies page names it." where "No open position." would be.
+    row; 26b the detail section reading "1 open position or order could not be matched to a
+    strategy. The Strategies page names it." where "No open position." would be.
 
 **What the prototype does not draw, and where this design says what is built instead.** None of
 these is a disagreement with the picture; each is a case it has no example for.
@@ -6968,7 +6970,7 @@ behind the router-level bearer token and takes no input.
 | An open position or order on an exchange that has no tab | No tab shows it, and the owner has nowhere to look | It needs stored data at fault (P25, P26). The read logs it at every request (§ K, row 17), its strategy's page shows it, and the guard still refuses on it. Whether the Strategies page should name it was answered on 2026-10-13: it does not (§ O, Q7). |
 | The detail page writes a live-only count above a section that lists every position | "1 open trade not in the curve" beside two rows, one of them a dry run | Not changed: decision 65 names the Overview's count, this second caller was found on 2026-10-12 (P27), and the owner chose on 2026-10-13 to leave it live-only. The two statements are both true as worded. § O, Q6. |
 | In Spanish, numbers do not all read as the prototype draws them | Example 25 draws a comma in prices and sizes; the helpers write a point there and a comma in fees, as the closed trades table does today | The open positions follow the table under them, so one page is consistent; the owner chose this on 2026-10-13. § O, Q9. |
-| "1 open, 1 of them dry run" | The approved form is awkward for one position, and ungrammatical in Spanish ("1 abiertas") | Left as approved: a singular form would be a text the owner has not seen. It shows for exactly one case, and can be added as its own key without touching anything else. |
+| "1 open, 1 of them dry run" | The approved form was awkward for one position, and ungrammatical in Spanish ("1 abiertas") | Corrected after the final review, 2026-10-13, with the owner's agreement: `openWithRehearsal` has `_one` and `_other` forms, and one dry-run position reads "1 open, dry run" / "1 abierta, en simulación". |
 | The Overview shows no order in flight | A pool whose only open thing is an order reads "No open position." | True as worded, and the Strategies page counts and marks the order. § O, Q8. |
 | The API and the worker could disagree about `DRY_RUN` | The panel shows the mode from `/health`, the API's own setting | Not changed here. The read does not depend on the mode at all. |
 | A strategy with many pairs open draws many chips | The row grows taller | Bounded by its allowed pairs; the chips wrap inside the first track (§ J, example 9). |
