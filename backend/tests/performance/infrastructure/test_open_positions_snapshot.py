@@ -150,7 +150,12 @@ async def _read_held_across_a_fill(
     assert response.status_code == 200, response.text
     body = response.json()
     assert isinstance(body, dict)
-    return body
+    # The whole body is pinned in ``test_open_positions_router``; what this test
+    # is about is WHICH rows the one snapshot shows.
+    return {
+        "positions": [position["allocation_id"] for position in body["positions"]],
+        "orders": [order["attempt_id"] for order in body["orders"]],
+    }
 
 
 async def _plain_session(
