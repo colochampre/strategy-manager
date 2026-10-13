@@ -132,6 +132,17 @@ describe("the order line (example 19)", () => {
     expect(line).toHaveTextContent("AAVEUSDT · order in flight · opening · Live · sent 21:36 UTC");
   });
 
+  it("writes 'sent' with its date when the instant is of the day before the answer's (T18)", () => {
+    const line = mountOrder({ action: "OPEN", origin: "live", submitted_at: "2026-10-11T21:12:00Z" });
+    expect(line.textContent).toBe("SOLUSDT · order in flight · opening · Live · sent 10/11/2026 21:12 UTC");
+  });
+
+  it("writes the date of a 'sent' of another day in the panel's language (T18)", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    const line = mountOrder({ action: "CLOSE", origin: "live", submitted_at: "2026-10-11T21:12:00Z" });
+    expect(line.textContent).toBe("SOLUSDT · orden en curso · cierre · En vivo · enviada 11/10/2026 21:12 UTC");
+  });
+
   it("leaves 'opening' or 'closing' out, with its separator, when the action is null", () => {
     const line = mountOrder({ action: null, origin: "live", submitted_at: "2026-10-12T21:12:00Z" });
     expect(line.textContent).toBe("SOLUSDT · order in flight · Live · sent 21:12 UTC");

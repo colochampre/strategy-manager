@@ -5,7 +5,7 @@ import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection"
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { lock, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
 
 /**
@@ -266,6 +266,205 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
 
     const pairs = positionRows(theTable()).map((row) => cellsOf(row)[COLUMN.pair]?.textContent);
     expect(pairs).toEqual(["SFPUSDTDry run", "AAVEUSDTLive"]);
+  });
+});
+
+const ALLOCATION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DISCREPANCY = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+function proposal(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
+    discrepancy_id: DISCREPANCY,
+    allocation_id: ALLOCATION,
+    state: "PENDING",
+    ...overrides,
+  };
+}
+
+/** AAVEUSDT, which the venue disagrees on: it holds 0.82 in the ledger and 0 at the exchange. */
+function disagreeing(overrides: Partial<OpenPosition> = {}): OpenPosition {
+  return aave({
+    allocation_id: ALLOCATION,
+    venue_disagreement: {
+      discrepancy_id: DISCREPANCY,
+      venue_net_base: "0",
+      ledger_net_base: "0.82000000",
+      allocation_count: 1,
+      last_observed_at: "2026-10-12T21:39:12Z",
+    },
+    ...overrides,
+  });
+}
+
+type BookingsAnswer = { kind: "ok"; body: unknown[] } | { kind: "pending" } | { kind: "status"; status: number };
+
+/** Mounts the section over one positions answer and one answer to the pending bookings. */
+async function mountWithBookings(position: OpenPosition, bookings: BookingsAnswer, asOf = "2026-10-12T21:40:03Z") {
+  const route = (url: string) => {
+    if (!url.includes("/reconciliation/bookings")) return undefined;
+    if (bookings.kind === "pending") return new Promise<Response>(() => undefined);
+    if (bookings.kind === "status") return Promise.resolve(jsonResponse({ detail: "down" }, bookings.status));
+    return Promise.resolve(jsonResponse(bookings.body));
+  };
+  stubApi(HEALTH, [], undefined, {}, route, {}, undefined, answering([position], [], asOf));
+  const view = renderAt(<OpenPositionsSection strategy={strategy()} />);
+  await settle();
+  return view;
+}
+
+/** What follows a position's row: every row up to the next position's, as its cells. */
+function subRowsOf(table: HTMLElement, index = 0): HTMLElement[] {
+  const rows = within(table).getAllByRole("row");
+  const own = positionRows(table)[index] as HTMLElement;
+  const after = rows.slice(rows.indexOf(own) + 1);
+  const next = after.findIndex((row) => row.querySelectorAll("td").length === 8);
+  return next === -1 ? after : after.slice(0, next);
+}
+
+/** The first sub-row of the first position, asserted to exist before it is returned. */
+function firstSubRow(table: HTMLElement, index = 0): HTMLElement {
+  const subs = subRowsOf(table, index);
+  expect(subs.length).toBeGreaterThan(0);
+  return subs[0] as HTMLElement;
+}
+
+const LINK = "See the pending decision";
+const WORDS = "no booking is proposed";
+
+describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
+  it("is a real row of one cell across the eight columns, directly under its position's row", async () => {
+    await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
+
+    const table = theTable();
+    const rows = within(table).getAllByRole("row");
+    const own = positionRows(table)[0] as HTMLElement;
+    const sub = rows[rows.indexOf(own) + 1] as HTMLElement;
+    expect(sub).toBeDefined();
+    expect(sub.tagName).toBe("TR");
+    expect(sub.parentElement).toBe(own.parentElement);
+    expect(sub.querySelectorAll("td")).toHaveLength(1);
+    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(8);
+    expect(sub.className).not.toMatch(/\bflex\b/);
+  });
+
+  it("gives the reason the figures are missing, in the sans type, small, in the secondary ink", async () => {
+    await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
+
+    const sub = firstSubRow(theTable());
+    expect(sub).toHaveTextContent(
+      "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
+    );
+    const reason = within(sub as HTMLElement).getByText(/base currency cannot be told/);
+    expect(reason).toHaveClass("font-sans", "text-xs", "text-ink-2");
+  });
+
+  it.each([
+    ["SEVERAL_MARKETS", "The fills of this position name more than one pair."],
+    ["FLIPPED", "The fills sold more than was bought, or bought more than was sold. The entry price is not derived."],
+    ["INCONSISTENT", "The figures could not be derived from the fills."],
+    ["NO_FACTS", "The figures could not be derived from the fills."],
+    ["SOMETHING_NEW", "The figures could not be derived from the fills."],
+  ])("gives %s its own text, and any other reason the generic one", async (code, text) => {
+    await mountSection(answering([aave({ figures_missing: code })]));
+
+    const subs = subRowsOf(theTable());
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toHaveTextContent(text);
+  });
+
+  it("draws no sub-row for a position whose figures are all there", async () => {
+    await mountSection(answering([aave()]));
+
+    expect(subRowsOf(theTable())).toEqual([]);
+  });
+
+  it("draws the reservation's note when its status is not FILLED, and none when it is FILLED", async () => {
+    await mountSection(
+      answering([aave({ reservation_status: "EXPIRED" }), aave({ markets: ["LINKUSDT"], reservation_status: "FILLED" })]),
+    );
+
+    const table = theTable();
+    const first = firstSubRow(table, 0);
+    expect(first).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    expect(subRowsOf(table, 1)).toEqual([]);
+  });
+
+  it("puts the venue line first, then the reason, then the reservation's note", async () => {
+    await mountWithBookings(
+      disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
+      { kind: "ok", body: [proposal()] },
+    );
+
+    const subs = subRowsOf(theTable());
+    expect(subs).toHaveLength(3);
+    expect(within(subs[0] as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
+    expect(subs[1]).toHaveTextContent("The pair's base currency cannot be told");
+    expect(subs[2]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    for (const sub of subs) expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(8);
+  });
+
+  it("draws the venue line, solid red, across the table's width under its row", async () => {
+    await mountWithBookings(disagreeing(), { kind: "ok", body: [proposal()] });
+
+    const sub = firstSubRow(theTable());
+    const line = within(sub as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" });
+    expect(line).toHaveClass("border-loss", "w-full");
+    expect(line).not.toHaveClass("border-dashed");
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · See the pending decision",
+    );
+  });
+
+  it("draws the link when a pending proposal names this allocation and this discrepancy", async () => {
+    await mountWithBookings(disagreeing(), { kind: "ok", body: [proposal()] });
+
+    const link = await screen.findByRole("link", { name: `${LINK}, AAVEUSDT` });
+    expect(link).toHaveAttribute("href", "/#decision-rail");
+    expect(screen.queryByText(WORDS, { exact: false })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["no proposal is pending", []],
+    ["the proposal names another discrepancy", [proposal({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })]],
+    ["the proposal names another allocation", [proposal({ allocation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })]],
+    ["the proposal is not pending", [proposal({ state: "REJECTED" })]],
+  ])("says that no booking is proposed, and links nowhere, when %s", async (_label, body) => {
+    await mountWithBookings(disagreeing(), { kind: "ok", body });
+
+    const sub = firstSubRow(theTable());
+    expect(sub).toHaveTextContent(WORDS);
+    expect(within(sub as HTMLElement).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["the proposals are loading", { kind: "pending" } as BookingsAnswer],
+    ["their read failed", { kind: "status", status: 500 } as BookingsAnswer],
+  ])("draws neither the link nor the words while %s", async (_label, answer) => {
+    await mountWithBookings(disagreeing(), answer);
+
+    const sub = firstSubRow(theTable());
+    expect(sub).toHaveTextContent("AAVEUSDT · venue disagrees");
+    expect(sub).not.toHaveTextContent(WORDS);
+    expect(within(sub as HTMLElement).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("writes 'last compared' with its date when the instant is of the day before the answer's", async () => {
+    await mountWithBookings(
+      disagreeing({
+        venue_disagreement: {
+          discrepancy_id: DISCREPANCY,
+          venue_net_base: "0",
+          ledger_net_base: "0.82",
+          allocation_count: 1,
+          last_observed_at: "2026-10-11T21:12:00Z",
+        },
+      }),
+      { kind: "ok", body: [] },
+    );
+
+    const sub = firstSubRow(theTable());
+    expect(sub).toHaveTextContent("last compared 10/11/2026 21:12:00 UTC");
   });
 });
 
