@@ -381,6 +381,42 @@
       }
     }
   },
+  "positions": {
+    "state": {
+      "figures": {
+        "open": "Open",
+        "orders": "Orders in flight",
+        "lastRead": "Last read",
+        "time": "{{time}} UTC"
+      },
+      "notShown": "Not on this list: {{items}}.",
+      "archived": "archived",
+      "unreadable": "figures not readable",
+      "refresh": "Read again",
+      "loading": "Reading open positions…",
+      "error": "Open positions could not be read. A row without a mark does not mean that nothing is open.",
+      "stale": "Could not be refreshed since {{time}} UTC."
+    },
+    "marks": {
+      "name": "Open positions of {{name}}"
+    },
+    "origin": {
+      "rehearsal": "Dry run",
+      "live": "Live",
+      "mixed": "Dry run and live",
+      "unknown": "origin unknown"
+    },
+    "sideUnreadable": "side not readable",
+    "order": {
+      "inFlight": "order in flight"
+    },
+    "venue": {
+      "disagrees": "Venue disagrees",
+      "noProposal": "No booking is proposed for it.",
+      "link": "See the pending decision",
+      "linkName": "See the pending decision, {{pair}}"
+    }
+  },
   "exchanges": {
     "bybit": "Bybit",
     "binance": "Binance",

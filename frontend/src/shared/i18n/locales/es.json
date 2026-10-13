@@ -381,6 +381,42 @@
       }
     }
   },
+  "positions": {
+    "state": {
+      "figures": {
+        "open": "Abiertas",
+        "orders": "Órdenes en curso",
+        "lastRead": "Última lectura",
+        "time": "{{time}} UTC"
+      },
+      "notShown": "Fuera de esta lista: {{items}}.",
+      "archived": "archivada",
+      "unreadable": "cifras no legibles",
+      "refresh": "Leer de nuevo",
+      "loading": "Leyendo posiciones abiertas…",
+      "error": "No se pudieron leer las posiciones abiertas. Una fila sin marca no significa que no haya nada abierto.",
+      "stale": "No se pudo actualizar desde las {{time}} UTC."
+    },
+    "marks": {
+      "name": "Posiciones abiertas de {{name}}"
+    },
+    "origin": {
+      "rehearsal": "Simulación",
+      "live": "En vivo",
+      "mixed": "Simulación y en vivo",
+      "unknown": "origen desconocido"
+    },
+    "sideUnreadable": "lado no legible",
+    "order": {
+      "inFlight": "orden en curso"
+    },
+    "venue": {
+      "disagrees": "El exchange no coincide",
+      "noProposal": "No hay un registro propuesto para esta diferencia.",
+      "link": "Ver la decisión pendiente",
+      "linkName": "Ver la decisión pendiente, {{pair}}"
+    }
+  },
   "exchanges": {
     "bybit": "Bybit",
     "binance": "Binance",
