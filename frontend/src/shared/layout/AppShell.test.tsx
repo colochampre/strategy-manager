@@ -114,12 +114,15 @@ describe("DryRunBadge", () => {
     expect(new Headers(call?.[1]?.headers).has("Authorization")).toBe(false);
   });
 
-  it("says Live, in the loss colour, when the server reports dry_run false", async () => {
+  it("says Live, in the gain colour, when the server reports dry_run false", async () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: false } });
     renderShell();
 
     const badge = await screen.findByText("Live");
-    expect(badge).toHaveClass("text-loss");
+    expect(badge).toHaveClass("text-gain");
+    expect(badge).toHaveClass("border-gain");
+    expect(badge).not.toHaveClass("text-loss");
+    expect(badge).not.toHaveClass("border-loss");
     expect(screen.queryByText("Dry run")).not.toBeInTheDocument();
   });
 
