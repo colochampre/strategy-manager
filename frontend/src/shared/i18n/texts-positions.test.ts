@@ -138,7 +138,22 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "Its reservation reads {{status}}, not FILLED.",
     "Su reserva figura como {{status}}, no FILLED.",
   ],
+  // op.4: the Overview's own three (section I). `openWithRehearsal` names its variable `total`, not `count`.
+  ["overview.open.strategy", "Strategy", "Estrategia"],
+  ["overview.monthlySummary.openAll_one", "{{count}} open", "{{count}} abierta"],
+  ["overview.monthlySummary.openAll_other", "{{count}} open", "{{count}} abiertas"],
+  [
+    "overview.monthlySummary.openWithRehearsal",
+    "{{total}} open, {{rehearsal}} of them dry run",
+    "{{total}} abiertas, {{rehearsal}} de ellas en simulación",
+  ],
 ];
+
+/** The detail page still writes today's live-only count, so these two are NOT removed (section I, § O Q6). */
+const KEPT = [
+  ["overview.monthlySummary.open_one", "{{count}} open trade not in the curve", "{{count}} operación abierta fuera de la curva"],
+  ["overview.monthlySummary.open_other", "{{count}} open trades not in the curve", "{{count}} operaciones abiertas fuera de la curva"],
+] as const;
 
 /**
  * The closed trades table's words the open-positions section REUSES (design addendum section H): they must
@@ -180,6 +195,22 @@ describe("the open-positions texts of the Strategies page exist in both language
   it.each(REUSED)("%s, which the section reuses, is present and unchanged in both files", (key, english, spanish) => {
     expect(lookup(en, key)).toBe(english);
     expect(lookup(es, key)).toBe(spanish);
+  });
+
+  it.each(KEPT)("%s, which the detail page still writes, is kept as it was in both files", (key, english, spanish) => {
+    expect(lookup(en, key)).toBe(english);
+    expect(lookup(es, key)).toBe(spanish);
+  });
+
+  it("names the Overview's variable `total` in the dry-run form, and `count` in the plural ones", () => {
+    for (const locale of [en, es]) {
+      const withRehearsal = lookup(locale, "overview.monthlySummary.openWithRehearsal");
+      expect(withRehearsal).toEqual(expect.stringContaining("{{total}}"));
+      expect(withRehearsal).toEqual(expect.not.stringContaining("{{count}}"));
+      for (const key of ["overview.monthlySummary.openAll_one", "overview.monthlySummary.openAll_other"]) {
+        expect(lookup(locale, key), key).toEqual(expect.stringContaining("{{count}}"));
+      }
+    }
   });
 
   it("writes the unmatched sentence in the singular for one and the plural for more, in agreement, in Spanish", () => {
