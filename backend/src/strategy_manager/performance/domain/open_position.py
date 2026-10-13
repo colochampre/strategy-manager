@@ -11,10 +11,6 @@ nothing sums two pools (CLAUDE.md rule 7).
 (``fold_open_allocations``) says which allocations are open; this module only
 derives what a row SHOWS. Everything below answers a reason instead of raising,
 and no function of it can remove a row (design section B, point 3).
-
-THIS FILE IS THE STUB of task op.1.7: every type is final, and the three
-functions answer wrongly on purpose, so that the tests that follow fail on an
-assertion and not on a missing name.
 """
 
 from collections.abc import Sequence
@@ -24,6 +20,7 @@ from decimal import Decimal, localcontext
 from enum import StrEnum
 from uuid import UUID
 
+from strategy_manager.execution.domain.fill import REHEARSAL_ORDER_ID_PREFIX
 from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
 from strategy_manager.execution.domain.mode_origin import OpenAllocationOrigin, Origin
 from strategy_manager.performance.domain.closed_trade import Direction
@@ -264,8 +261,16 @@ def origin_of(allocation: OpenAllocationOrigin) -> Origin:
 
 
 def order_origin(exchange_order_id: str | None) -> OrderOrigin:
-    """STUB (op.1.7): answers wrongly. Replaced by task op.1.17."""
-    return OrderOrigin.UNKNOWN
+    """The origin of an order from its order id: the simulated exchange's prefix
+    is a rehearsal order, any other id is live, and no id yet is ``UNKNOWN`` (the
+    id is written after the order is sent, so that is a normal short state and a
+    lasting one after a crash in between). The test is the guard's own
+    (``InFlightAttemptOrigin.rehearsal``): a prefix, not a substring."""
+    if exchange_order_id is None:
+        return OrderOrigin.UNKNOWN
+    if exchange_order_id.startswith(REHEARSAL_ORDER_ID_PREFIX):
+        return OrderOrigin.REHEARSAL
+    return OrderOrigin.LIVE
 
 
 def venue_disagreement_for(
