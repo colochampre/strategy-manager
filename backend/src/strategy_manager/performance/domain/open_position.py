@@ -32,6 +32,9 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 
 _ZERO = Decimal(0)
 _BUY = "BUY"
+# The status of the reconciliation's discrepancy that marks a position (the
+# owner's decision says CONFIRMED; an OBSERVED row marks nothing).
+CONFIRMED = "CONFIRMED"
 
 
 class FiguresMissing(StrEnum):
@@ -248,7 +251,15 @@ def open_position_figures(
 
 
 def origin_of(allocation: OpenAllocationOrigin) -> Origin:
-    """STUB (op.1.7): answers wrongly. Replaced by task op.1.15."""
+    """The guard's origin of an open allocation, from its two flags: both,
+    ``MIXED``; rehearsal only, ``REHEARSAL``; otherwise ``LIVE``. This is the
+    mapping ``find_mismatches`` applies (``mode_origin.py``), so the panel and the
+    guard's refusal name an origin alike. It is the ONLY place the panel decides
+    an origin: no second test of the rehearsal prefix exists (K row 5)."""
+    if allocation.holds_rehearsal_fill and allocation.holds_live_fill:
+        return Origin.MIXED
+    if allocation.holds_rehearsal_fill:
+        return Origin.REHEARSAL
     return Origin.LIVE
 
 
@@ -260,5 +271,34 @@ def order_origin(exchange_order_id: str | None) -> OrderOrigin:
 def venue_disagreement_for(
     allocation_id: UUID, pool: PoolLabel, rows: Sequence[DiscrepancyRow]
 ) -> VenueDisagreement | None:
-    """STUB (op.1.7): answers wrongly. Replaced by task op.1.15."""
-    return None
+    """The mark of a position the venue disagrees on, or ``None``.
+
+    The KEY is the allocation id inside the pool: a row marks a position when it
+    is an open ``CONFIRMED`` row of the position's pool that lists the position's
+    allocation id. The market is not the key, and no origin filter exists. A
+    confirmed row can outlive the allocation it named (rows are not resolved
+    while ``DRY_RUN`` is on), and a later position on the same market would
+    inherit a mark that was never about it; an allocation id cannot be inherited
+    (K row 1).
+
+    When more than one such row lists the allocation (stored data at fault), the
+    most recently observed one is used, the id breaking a tie, so that the answer
+    does not depend on the order the rows arrive in."""
+    matching = [
+        row
+        for row in rows
+        if row.status == CONFIRMED
+        and row.resolved_at is None
+        and row.pool == pool
+        and allocation_id in row.open_allocation_ids
+    ]
+    if not matching:
+        return None
+    row = max(matching, key=lambda r: (r.last_observed_at, r.discrepancy_id))
+    return VenueDisagreement(
+        discrepancy_id=row.discrepancy_id,
+        venue_net_base=row.venue_net_base,
+        ledger_net_base=row.ledger_net_base,
+        allocation_count=len(set(row.open_allocation_ids)),
+        last_observed_at=row.last_observed_at,
+    )
