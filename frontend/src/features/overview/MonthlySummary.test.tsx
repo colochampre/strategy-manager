@@ -112,14 +112,19 @@ describe("MonthlySummary", () => {
       expect(text()).toBe(`${LEAD} · 2 open, 1 of them dry run`);
     });
 
-    it("keeps the approved wording for one position that is dry run: '1 open, 1 of them dry run'", () => {
+    it("writes '1 open, dry run' for exactly one position that is dry run", () => {
       render(<MonthlySummary monthly={MONTHS} excluded={excluded()} open={{ total: 1, rehearsal: 1 }} />);
-      expect(text()).toBe(`${LEAD} · 1 open, 1 of them dry run`);
+      expect(text()).toBe(`${LEAD} · 1 open, dry run`);
+    });
+
+    it("writes 'N open, M of them dry run' when all of several are dry run", () => {
+      render(<MonthlySummary monthly={MONTHS} excluded={excluded()} open={{ total: 3, rehearsal: 3 }} />);
+      expect(text()).toBe(`${LEAD} · 3 open, 3 of them dry run`);
     });
 
     it("counts a dry-run position although the curve leaves it out: the count does not read `excluded`", () => {
       render(<MonthlySummary monthly={MONTHS} excluded={excluded(0)} open={{ total: 1, rehearsal: 1 }} />);
-      expect(text()).toContain("1 open, 1 of them dry run");
+      expect(text()).toContain("1 open, dry run");
     });
 
     it("sits after the worst month and before the trades without capital", () => {
@@ -141,7 +146,8 @@ describe("MonthlySummary", () => {
       ["a single position", { total: 1, rehearsal: 0 }, "1 abierta"],
       ["several positions", { total: 3, rehearsal: 0 }, "3 abiertas"],
       ["some dry run", { total: 2, rehearsal: 1 }, "2 abiertas, 1 de ellas en simulación"],
-      ["one that is dry run, whose approved text is kept as it is", { total: 1, rehearsal: 1 }, "1 abiertas, 1 de ellas en simulación"],
+      ["one that is dry run", { total: 1, rehearsal: 1 }, "1 abierta, en simulación"],
+      ["several, all dry run", { total: 3, rehearsal: 3 }, "3 abiertas, 3 de ellas en simulación"],
     ])("reads in Spanish for %s", async (_label, open, expected) => {
       await act(() => i18n.changeLanguage("es"));
       render(<MonthlySummary monthly={MONTHS} excluded={excluded()} open={open} />);

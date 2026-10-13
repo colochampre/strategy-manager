@@ -64,7 +64,7 @@ export function MonthlySummary({ monthly, excluded, open }: MonthlySummaryProps)
     parts.push(
       open.rehearsal === 0
         ? t("overview.monthlySummary.openAll", { count: open.total })
-        : t("overview.monthlySummary.openWithRehearsal", { total: open.total, rehearsal: open.rehearsal }),
+        : t("overview.monthlySummary.openWithRehearsal", { count: open.total, rehearsal: open.rehearsal }),
     );
   }
   if (excluded.no_capital_at_open > 0) {

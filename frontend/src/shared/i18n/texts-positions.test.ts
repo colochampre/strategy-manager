@@ -138,14 +138,15 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "Its reservation reads {{status}}, not FILLED.",
     "Su reserva figura como {{status}}, no FILLED.",
   ],
-  // op.4: the Overview's own three (section I). `openWithRehearsal` names its variable `total`, not `count`.
+  // op.4: the Overview's own (section I). `openWithRehearsal` has plural forms on the total: one position that is dry run reads "1 open, dry run".
   ["overview.open.strategy", "Strategy", "Estrategia"],
   ["overview.monthlySummary.openAll_one", "{{count}} open", "{{count}} abierta"],
   ["overview.monthlySummary.openAll_other", "{{count}} open", "{{count}} abiertas"],
+  ["overview.monthlySummary.openWithRehearsal_one", "{{count}} open, dry run", "{{count}} abierta, en simulación"],
   [
-    "overview.monthlySummary.openWithRehearsal",
-    "{{total}} open, {{rehearsal}} of them dry run",
-    "{{total}} abiertas, {{rehearsal}} de ellas en simulación",
+    "overview.monthlySummary.openWithRehearsal_other",
+    "{{count}} open, {{rehearsal}} of them dry run",
+    "{{count}} abiertas, {{rehearsal}} de ellas en simulación",
   ],
 ];
 
@@ -202,12 +203,18 @@ describe("the open-positions texts of the Strategies page exist in both language
     expect(lookup(es, key)).toBe(spanish);
   });
 
-  it("names the Overview's variable `total` in the dry-run form, and `count` in the plural ones", () => {
+  it("names `count` in every plural form of the Overview's count, and keeps `rehearsal` in the plural dry-run one", () => {
     for (const locale of [en, es]) {
-      const withRehearsal = lookup(locale, "overview.monthlySummary.openWithRehearsal");
-      expect(withRehearsal).toEqual(expect.stringContaining("{{total}}"));
-      expect(withRehearsal).toEqual(expect.not.stringContaining("{{count}}"));
-      for (const key of ["overview.monthlySummary.openAll_one", "overview.monthlySummary.openAll_other"]) {
+      expect(lookup(locale, "overview.monthlySummary.openWithRehearsal")).toBeUndefined();
+      expect(lookup(locale, "overview.monthlySummary.openWithRehearsal_other")).toEqual(
+        expect.stringContaining("{{rehearsal}}"),
+      );
+      for (const key of [
+        "overview.monthlySummary.openAll_one",
+        "overview.monthlySummary.openAll_other",
+        "overview.monthlySummary.openWithRehearsal_one",
+        "overview.monthlySummary.openWithRehearsal_other",
+      ]) {
         expect(lookup(locale, key), key).toEqual(expect.stringContaining("{{count}}"));
       }
     }

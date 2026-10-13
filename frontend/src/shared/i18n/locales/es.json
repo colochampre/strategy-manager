@@ -82,7 +82,8 @@
       "noCapital_other": "{{count}} operaciones sin capital al abrir",
       "openAll_one": "{{count}} abierta",
       "openAll_other": "{{count}} abiertas",
-      "openWithRehearsal": "{{total}} abiertas, {{rehearsal}} de ellas en simulación"
+      "openWithRehearsal_one": "{{count}} abierta, en simulación",
+      "openWithRehearsal_other": "{{count}} abiertas, {{rehearsal}} de ellas en simulación"
     },
     "open": {
       "strategy": "Estrategia"

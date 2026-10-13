@@ -167,7 +167,7 @@ describe("the count in the summary line (T13; spec 'The Overview's Count Says Ho
   it("counts a dry-run position although the curve leaves nothing out", async () => {
     const text = await summaryOf(answering([held("SFPUSDT", USDT_POOL, { origin: "rehearsal" })]), report());
 
-    expect(text).toContain("1 open, 1 of them dry run");
+    expect(text).toContain("1 open, dry run");
   });
 
   it("writes no part about open positions when the pool holds none, whatever the curve leaves out", async () => {

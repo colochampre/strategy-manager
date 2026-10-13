@@ -82,7 +82,8 @@
       "noCapital_other": "{{count}} trades without capital at open",
       "openAll_one": "{{count}} open",
       "openAll_other": "{{count}} open",
-      "openWithRehearsal": "{{total}} open, {{rehearsal}} of them dry run"
+      "openWithRehearsal_one": "{{count}} open, dry run",
+      "openWithRehearsal_other": "{{count}} open, {{rehearsal}} of them dry run"
     },
     "open": {
       "strategy": "Strategy"
