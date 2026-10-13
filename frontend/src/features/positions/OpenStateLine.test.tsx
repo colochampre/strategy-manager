@@ -41,8 +41,8 @@ function answering(state: OpenState): OpenPositionsStub {
 
 /** The text of each figure (label and value) of the summary, in order. */
 function figures(): string[] {
-  const list = document.querySelector("dl");
-  return list === null ? [] : [...list.querySelectorAll(":scope > div")].map((figure) => figure.textContent ?? "");
+  // The counts sit in the status region and the time beside it, outside: two lists, one visual line.
+  return [...document.querySelectorAll("dl > div")].map((figure) => figure.textContent ?? "");
 }
 
 async function settled(api: ReturnType<typeof stubApi>) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OpenStateLine } from "@/features/positions/OpenStateLine";
 import { ArchivedToggle } from "@/features/strategies/ArchivedToggle";
 import { NewStrategyDialog } from "@/features/strategies/NewStrategyDialog";
 import { StrategyRow } from "@/features/strategies/StrategyRow";
@@ -31,6 +32,16 @@ export function StrategiesPage() {
     exchange === null || pools.data === undefined
       ? []
       : pools.data.filter((pool) => pool.exchange === exchange && pool.enabled);
+
+  // The ids of the rows on screen: null while the list loads, so the line under the figures is withheld; empty
+  // when it failed, so every element of the exchange is named; and otherwise the rows of the selected exchange.
+  let visibleStrategyIds: ReadonlySet<string> | null = null;
+  if (strategies.status === "error") visibleStrategyIds = new Set();
+  else if (strategies.status === "success" && exchange !== null) {
+    visibleStrategyIds = new Set(
+      strategies.data.filter((strategy) => strategy.exchange === exchange).map((strategy) => strategy.id),
+    );
+  }
 
   let body: ReactNode;
   if (scope.status === "loading") {
@@ -92,6 +103,7 @@ export function StrategiesPage() {
           </button>
         </div>
       </div>
+      {exchange !== null && <OpenStateLine exchange={exchange} visibleStrategyIds={visibleStrategyIds} />}
       {body}
       {creating && exchange !== null && (
         <NewStrategyDialog exchange={exchange} pools={registrable} onClose={() => setCreating(false)} />
