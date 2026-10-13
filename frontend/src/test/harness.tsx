@@ -22,6 +22,7 @@ export type PoolsStub =
 export type CredentialsStub = PoolsStub;
 export type PerformanceStub = PoolsStub;
 export type AvailablePairsStub = PoolsStub;
+export type OpenPositionsStub = PoolsStub;
 
 /** What `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` answers for a pool, in the API's shape. */
 export function availablePairs(exchange: string, venue: string, currency: string, pairs: readonly string[]) {
@@ -202,7 +203,10 @@ export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> 
  * overrides a pool's available pairs, keyed `exchange/venue/ccy`; a pool without
  * an entry lists `AAVEUSDT`, `SFPUSDT` and `STXUSDT`. `credentials` overrides the
  * answer to `GET /credentials` (see `defaultCredentials`). Every URL it rejects is
- * recorded in the returned mock's `unexpected` array.
+ * recorded in the returned mock's `unexpected` array. `openPositions` overrides
+ * the answer to `GET /positions/open`; by default it is a well-formed empty
+ * body, `{as_of, positions: [], orders: []}`, so a page that asks for it reads
+ * nothing open rather than a rejected request.
  */
 export function stubApi(
   health: HealthStub,
@@ -212,6 +216,7 @@ export function stubApi(
   extra?: ExtraRoute,
   available: Record<string, AvailablePairsStub> = {},
   credentials?: CredentialsStub,
+  openPositions?: OpenPositionsStub,
 ) {
   const unexpected: string[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -254,6 +259,17 @@ export function stubApi(
     // GET only: a PUT or a DELETE to `/credentials/...` is never answered, so no test can save or delete a key by accident.
     if (url.endsWith("/credentials") && (init?.method ?? "GET") === "GET") {
       const stub = credentials ?? defaultCredentials(pools);
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
+    }
+    // GET only, like the credentials: nothing is written to the positions route.
+    if (url.endsWith("/positions/open") && (init?.method ?? "GET") === "GET") {
+      const stub: OpenPositionsStub = openPositions ?? {
+        kind: "ok",
+        body: { as_of: "2026-10-13T12:00:00Z", positions: [], orders: [] },
+      };
       if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (stub.kind === "pending") return new Promise<Response>(() => undefined);
       if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
