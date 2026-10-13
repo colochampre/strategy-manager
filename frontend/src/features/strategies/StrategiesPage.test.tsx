@@ -393,6 +393,46 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
   });
 });
 
+describe("the open-state figures on the page", () => {
+  const positionsCalls = (api: ReturnType<typeof stubApi>) =>
+    api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+
+  it("sits between the title row and the list", async () => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    await screen.findByTestId("strategy-row");
+    await waitFor(() => expect(screen.queryByText(en.positions.state.figures.open + ":")).toBeInTheDocument());
+    const figures = screen.getByText(en.positions.state.figures.open + ":").closest("dl") as HTMLElement;
+    const title = screen.getByRole("heading", { level: 1 });
+    const list = screen.getByTestId("strategy-row").closest("ul") as HTMLElement;
+    expect(title.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(figures.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("is not drawn, and asks for nothing, before the exchange scope is known", async () => {
+    const api = strategiesApi([strategy()]);
+    const fetchMock = stubApi(HEALTH, [], { kind: "pending" }, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    expect(await screen.findByText(en.strategies.scopeLoading)).toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.loading)).not.toBeInTheDocument();
+    expect(positionsCalls(fetchMock)).toBe(0);
+  });
+
+  it("is not drawn, and asks for nothing, when no exchange exists", async () => {
+    const api = strategiesApi([]);
+    const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [] }, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    expect(await screen.findByText(en.strategies.noExchanges)).toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
+    expect(positionsCalls(fetchMock)).toBe(0);
+  });
+});
+
 describe("copy", () => {
   it("has the list's messages in English and Spanish", () => {
     for (const locale of [en, es]) {
