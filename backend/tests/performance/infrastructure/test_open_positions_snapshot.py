@@ -153,6 +153,33 @@ async def _read_held_across_a_fill(
     return body
 
 
+async def _plain_session(
+    session: Annotated[AsyncSession, Depends(shared_db.get_session)],
+) -> AsyncIterator[AsyncSession]:
+    """The pass-through: a plain session, with no snapshot statement."""
+    yield session
+
+
+async def test_the_same_harness_without_the_snapshot_shows_the_mixed_state(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The harness can fail (rule R2): with the snapshot dependency replaced by the
+    pass-through, the SAME held read shows the order AND its position. That is
+    what makes the test above not vacuous."""
+    ids = await _seed_order_in_flight(pg_session_factory)
+    _, allocation_id, attempt_id = ids
+    held_slot: list[HeldOpenStateSource] = []
+
+    body = await _read_held_across_a_fill(
+        _held_app(pg_session_factory, held_slot, snapshot=_plain_session),
+        held_slot,
+        pg_session_factory,
+        ids,
+    )
+
+    assert body == {"positions": [str(allocation_id)], "orders": [str(attempt_id)]}
+
+
 async def test_a_fill_committed_during_the_read_is_not_seen_by_it(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
