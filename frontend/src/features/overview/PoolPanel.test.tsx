@@ -119,6 +119,27 @@ describe("a pool with a report (T13)", () => {
   });
 });
 
+describe("the Overview asks for the open positions once (T22)", () => {
+  it("shares one request between the panel's count and its list", async () => {
+    const api = stubApi(
+      HEALTH,
+      [],
+      { kind: "ok", body: [pool("bybit", "usdt-m", "USDT", BALANCE)] },
+      { [KEY]: report() },
+      undefined,
+      {},
+      undefined,
+      answering([held("AAVEUSDT")]),
+    );
+    renderAt(<PoolPanel pool={pool("bybit", "usdt-m", "USDT", BALANCE)} />);
+    await settle();
+
+    expect(await screen.findByTestId("monthly-summary")).toHaveTextContent("1 open");
+    expect(api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open"))).toHaveLength(1);
+    expect(api.unexpected).toEqual([]);
+  });
+});
+
 describe("the count in the summary line (T13; spec 'The Overview's Count Says How Many Are Open And How Many Of Them Are Dry Run')", () => {
   const LEFT_OUT = { excluded: { ...emptyPerformance("bybit", "usdt-m", "USDT").excluded, open_trade_count: 4 } };
 
