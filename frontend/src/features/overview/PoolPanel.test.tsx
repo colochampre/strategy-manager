@@ -163,6 +163,14 @@ describe("the count in the summary line (T13; spec 'The Overview's Count Says Ho
     expect(text).not.toContain("2 open");
   });
 
+  it("reads in Spanish, with the fixed Spanish of section I", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    const text = await summaryOf(answering([held("AAVEUSDT"), held("SFPUSDT", USDT_POOL, { origin: "rehearsal" })]));
+
+    expect(text).toContain("2 abiertas, 1 de ellas en simulación");
+    expect(text).not.toContain("fuera de la curva");
+  });
+
   it("writes no part about open positions while the read is loading", async () => {
     const text = await summaryOf({ kind: "pending" });
 

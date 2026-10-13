@@ -2,9 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
+import { ORIGIN_STYLE } from "@/features/positions/origin";
 import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { OpenPool, OpenPosition } from "@/shared/api/positions";
+import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, setViewport, stubApi, unlock } from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
@@ -39,6 +42,23 @@ afterEach(async () => {
 /** Lets the stubbed answers reach the components. */
 async function settle() {
   for (let turn = 0; turn < 3; turn += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
+/** A strategy of the same pool, for the detail section that shares the request. */
+function strategy(): Strategy {
+  return {
+    id: SFP,
+    name: "SFP 4h - RSI Divergences",
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    fill_mode: "SKIP",
+    allocation_percent: "100",
+    enabled: true,
+    archived_at: null,
+    allowed_pairs: ["SFPUSDT"],
+    uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+  };
 }
 
 /** A button that asks the open positions again, as the window focus or the 60 s poll does. */
@@ -95,7 +115,7 @@ function pairsOfTable(): string[] {
 }
 
 /** A position of a strategy in a pool, with a pair of its own. */
-function held(pair: string, pool: OpenPool, overrides: Partial<OpenPosition> = {}): OpenPosition {
+function held(pair: string, pool: OpenPool = USDT_POOL, overrides: Partial<OpenPosition> = {}): OpenPosition {
   return openPosition({
     strategy_id: SFP,
     strategy_name: "SFP 4h - RSI Divergences",
@@ -447,5 +467,158 @@ describe("below md the positions are cards (T13; N2)", () => {
     const [card] = screen.queryAllByRole("article") as [HTMLElement];
     expect(card).toHaveTextContent("Unattributed");
     expect(within(card).queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("the origin's tag comes from origin.ts (T21, the Overview's half)", () => {
+  it.each(["rehearsal", "live", "mixed"] as const)("draws a %s position's tag with the table's text key and class", async (origin) => {
+    await mountList(answering([held("AAVEUSDT", USDT_POOL, { origin })]));
+
+    const cell = onlyRow()[COLUMN.pair] as HTMLElement;
+    const style = ORIGIN_STYLE[origin];
+    const tag = within(cell).getByText(String(i18n.t(style.textKey)));
+    expect(tag).toHaveClass(style.text);
+    // A dry-run tag is amber, a live one cyan, and a position of both origins red: three different words and colours.
+    expect(new Set([ORIGIN_STYLE.rehearsal.text, ORIGIN_STYLE.live.text, ORIGIN_STYLE.mixed.text]).size).toBe(3);
+  });
+
+  it("draws the card's tag the same way", async () => {
+    setViewport("narrow");
+    await mountList(answering([held("SFPUSDT", USDT_POOL, { origin: "rehearsal" })]));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    expect(within(card).getByText("Dry run")).toHaveClass(ORIGIN_STYLE.rehearsal.text);
+  });
+});
+
+describe("it shares one request with the other places (T22, the Overview's half)", () => {
+  function requestsFor(api: ReturnType<typeof stubApi>): number {
+    return api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+  }
+
+  it("asks once for two pools of the Overview", async () => {
+    const api = stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, answering([held("AAVEUSDT"), held("BTCUSD", BTC_POOL)]));
+    renderAt(
+      <>
+        <PoolOpenPositions pool={USDT_POOL} />
+        <PoolOpenPositions pool={BTC_POOL} />
+      </>,
+    );
+    await settle();
+
+    expect(requestsFor(api)).toBe(1);
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it("asks once when the Overview's list and the detail page's section are both on screen", async () => {
+    const api = stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, answering([held("AAVEUSDT")]));
+    renderAt(
+      <>
+        <PoolOpenPositions pool={USDT_POOL} />
+        <OpenPositionsSection strategy={strategy()} />
+      </>,
+    );
+    await settle();
+
+    expect(requestsFor(api)).toBe(1);
+  });
+});
+
+describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
+  beforeEach(async () => {
+    await act(() => i18n.changeLanguage("es"));
+  });
+
+  it("writes the headings, the list's name and the fixed Spanish of section I", async () => {
+    await mountList(answering([aave()]));
+
+    expect(screen.queryByRole("heading", { level: 2, name: "Posiciones abiertas" })).toBeInTheDocument();
+    const headings = within(screen.getByRole("table", { name: "Posiciones abiertas" }))
+      .getAllByRole("columnheader")
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      "Estrategia",
+      "Apertura (UTC)",
+      "Par",
+      "Sentido",
+      "Tamaño",
+      "Entrada",
+      "Margen otorgado USDT",
+      "Apalancamiento",
+    ]);
+  });
+
+  it("writes a price and a size with a POINT and money with the language's separator, as the detail section does", async () => {
+    await mountList(answering([aave()]));
+
+    const cells = onlyRow();
+    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
+    expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(cells[COLUMN.margin]?.textContent).toBe("121,80");
+    expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
+    expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDTEn vivo");
+  });
+
+  it("writes the card's labels and values in Spanish, the strategy's name under the head", async () => {
+    setViewport("narrow");
+    await mountList(answering([aave()]));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    const values = Object.fromEntries(
+      [...card.querySelectorAll("dl > div")].map((pair) => [pair.querySelector("dt")?.textContent ?? "", pair.querySelector("dd")?.textContent ?? ""]),
+    );
+    expect(values).toEqual({
+      "Apertura (UTC)": "11/10/2026 14:05",
+      Tamaño: "0.82 AAVE",
+      Entrada: "184.3",
+      "Margen otorgado USDT": "121,80",
+      Apalancamiento: "2x",
+    });
+    expect(card.children[1]).toHaveTextContent("STX 4h - RSI Divergences");
+  });
+
+  it("reads its states in Spanish", async () => {
+    await mountList(answering([]));
+    expect(screen.queryByText("Sin posiciones abiertas.")).toBeInTheDocument();
+  });
+
+  it("reads the loading and the failed states in Spanish, with 'Leer de nuevo'", async () => {
+    await mountList({ kind: "status", status: 500, body: { detail: "down" } });
+
+    expect(screen.queryByRole("alert")).toHaveTextContent("No se pudieron leer las posiciones abiertas.");
+    expect(screen.queryByRole("button", { name: "Leer de nuevo" })).toBeInTheDocument();
+  });
+
+  it("writes the dash's reason in Spanish, in the sr-only text of each cell", async () => {
+    await mountList(answering([noFacts()]));
+
+    const cell = onlyRow()[COLUMN.size] as HTMLElement;
+    expect(cell.textContent).toBe("—cifras no legibles");
+    expect(within(cell).getByText("—")).toHaveAttribute("aria-hidden", "true");
+    expect(within(cell).getByText("cifras no legibles")).toHaveClass("sr-only");
+  });
+});
+
+describe("the dashes carry their reason for a screen reader (T13)", () => {
+  it("hides the dash itself and gives the reason in sr-only text, in the table and in the card", async () => {
+    await mountList(answering([noFacts()]));
+
+    for (const column of ["opened", "side", "size", "entry", "margin", "leverage"] as const) {
+      const cell = onlyRow()[COLUMN[column]] as HTMLElement;
+      expect(within(cell).getByText("—"), column).toHaveAttribute("aria-hidden", "true");
+      expect(within(cell).getByText("figures not readable"), column).toHaveClass("sr-only");
+    }
+  });
+
+  it("does the same in the card", async () => {
+    setViewport("narrow");
+    await mountList(answering([noFacts()]));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    expect(card.getAttribute("aria-label")).toBe("STXUSDT side not readable");
+    const reasons = within(card).getAllByText("figures not readable");
+    // The side in the head and the five labelled values.
+    expect(reasons).toHaveLength(6);
+    for (const reason of reasons) expect(reason).toHaveClass("sr-only");
   });
 });
