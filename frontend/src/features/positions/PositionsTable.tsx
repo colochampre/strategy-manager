@@ -7,7 +7,8 @@ import { OriginTag } from "@/features/positions/OriginTag";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
-import { figureText, tableFigureText } from "@/shared/lib/figure-text";
+import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
+import { useIsWide } from "@/shared/layout/useIsWide";
 import { Absent } from "@/shared/ui/Absent";
 import { Instant } from "@/shared/ui/Instant";
 
@@ -44,7 +45,7 @@ const ASIDE = "block font-sans text-[11px] text-ink-3";
  * this section, so that one page writes a figure one way (prices and sizes by `tableFigureText`, fees and
  * margin by `amountText` in the currency's decimals, the leverage by `figureText` and an `x`).
  */
-function cellsOf(position: OpenPosition, locale: string, t: Translate): ReactNode[] {
+function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpened = false): ReactNode[] {
   const unreadable = reasonOf(position, t, "other");
   const unreadableFigure = t("positions.state.unreadable");
   const nullable = (value: string | null, write: (value: string) => ReactNode): ReactNode =>
@@ -57,7 +58,14 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate): ReactNod
   const held = position.size === null ? null : tableFigureText(position.size);
 
   return [
-    position.opened_at === null ? <Absent reason={unreadable} /> : <Instant iso={position.opened_at} locale={locale} />,
+    position.opened_at === null ? (
+      <Absent reason={unreadable} />
+    ) : inlineOpened ? (
+      // A card has room for the date and the time on one line (example 20).
+      [compactDateText(position.opened_at, locale), clockText(position.opened_at)].filter((part) => part !== null).join(" ")
+    ) : (
+      <Instant iso={position.opened_at} locale={locale} />
+    ),
     <>
       {position.markets.join(" / ")}
       <span className="block font-sans text-[11px] leading-4">
@@ -106,6 +114,8 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate): ReactNod
 }
 
 const COLUMNS = 8;
+/** Tailwind's `md`: the width at which the cards become a table. */
+const MD_QUERY = "(min-width: 768px)";
 /** A sub-row is a real row with one cell across the table; it is never a flex wrapper (it would collapse into the first column). */
 const SUB_CELL = "border-b border-rule-soft pb-2.5 pt-1.5 text-left";
 const SUB_TEXT = "font-sans text-xs text-ink-2";
@@ -142,8 +152,10 @@ export function subRowsOf(position: OpenPosition, asOf: string, t: Translate): S
   return rows;
 }
 
-/** The table of a strategy's open positions, from `md` upward (design addendum § H). */
-export function PositionsTable({ positions, asOf, currency, labelledBy }: PositionsTableProps) {
+type TableProps = Omit<PositionsTableProps, "variant">;
+
+/** The table, from `md` upward (design addendum § H). */
+function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const left = "text-left";
@@ -211,6 +223,69 @@ export function PositionsTable({ positions, asOf, currency, labelledBy }: Positi
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const LABEL = "text-[10px] uppercase tracking-[0.09em] text-ink-3";
+
+/** One card of the phone layout: the pair and the side in the head, the origin's word at its right, the six labelled values in two columns, then the sub-rows. */
+function PositionCard({ position, asOf, currency, locale }: { position: OpenPosition; asOf: string; currency: string; locale: string }) {
+  const { t } = useTranslation();
+  const cells = cellsOf(position, locale, t, true);
+  const pair = position.markets.join(" / ");
+  const side = position.side === null ? t("positions.sideUnreadable") : position.side;
+  const labelled: ReadonlyArray<readonly [string, ReactNode]> = [
+    [t("strategies.performance.trades.opened"), cells[0]],
+    [t("strategies.performance.trades.size"), cells[3]],
+    [t("strategies.performance.trades.entry"), cells[4]],
+    [t("strategies.performance.trades.fees", { currency }), cells[5]],
+    [t("positions.table.margin", { currency }), cells[6]],
+    [t("positions.table.leverage"), cells[7]],
+  ];
+
+  return (
+    <article
+      aria-label={`${pair} ${side}`}
+      className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-rule bg-panel p-3.5"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-sans text-[11px] leading-4">
+        <span className="font-display text-base font-semibold text-ink">
+          {pair}
+          <span className="ml-1.5 font-mono text-xs font-normal text-ink-2">{cells[2]}</span>
+        </span>
+        <OriginTag origin={position.origin} />
+      </div>
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 font-mono text-xs tabular-nums">
+        {labelled.map(([label, value]) => (
+          <div key={label}>
+            <dt className={LABEL}>{label}</dt>
+            <dd className="text-ink-2">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {subRowsOf(position, asOf, t).map((sub) => (
+        <div key={sub.key}>{sub.content}</div>
+      ))}
+    </article>
+  );
+}
+
+/**
+ * The open positions of a strategy: a table from `md` upward and, below it, one card per position (the
+ * prototype's example 20 decides, N2). It renders ONE of the two, never both hidden by CSS, so that the venue
+ * line, the links and the accessible names exist once.
+ */
+export function PositionsTable({ variant: _variant, ...props }: PositionsTableProps) {
+  const { i18n } = useTranslation();
+  const table = useIsWide(MD_QUERY);
+  if (table) return <DesktopTable {...props} />;
+  const locale = i18n.resolvedLanguage ?? "en";
+  return (
+    <div className="flex flex-col gap-3">
+      {props.positions.map((position) => (
+        <PositionCard key={position.allocation_id} position={position} asOf={props.asOf} currency={props.currency} locale={locale} />
+      ))}
     </div>
   );
 }

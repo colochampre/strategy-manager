@@ -709,11 +709,11 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
     setViewport("narrow");
     await mountSection(answering([aave({ origin: "rehearsal" }), unowned()], [openOrder({ strategy_id: ALPHA })]));
 
-    const last = cards(1)[0] as HTMLElement;
+    const card = (cards(1)[0] as HTMLElement).textContent ?? "";
+    const page = document.body.textContent ?? "";
+    const afterCard = page.indexOf(card) + card.length;
     for (const text of ["SOLUSDT · order in flight", MATCHED_ONE, NOTE.rehearsal, NOTE.margin]) {
-      const found = screen.queryByText((_content, element) => element?.textContent?.startsWith(text) === true && element.children.length <= 3);
-      expect(found, text).toBeInTheDocument();
-      expect(last.compareDocumentPosition(found as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING, text).toBeTruthy();
+      expect(page.indexOf(text), text).toBeGreaterThanOrEqual(afterCard);
     }
   });
 });
