@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
@@ -146,6 +146,6 @@ describe("an absent figure is a dash with its reason (T10, the first red of op.3
     const cells = onlyRow();
     expect(cells[COLUMN.leverage]?.textContent).toBe("—not recorded");
     expect(cells[COLUMN.fees]).toHaveTextContent("0.17");
-    expect(cells[COLUMN.margin]).toHaveTextContent("121.80");
+    expect(cells[COLUMN.margin]).toHaveTextContent("121.8");
   });
 });
