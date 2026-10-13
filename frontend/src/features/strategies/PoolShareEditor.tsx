@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { StatusButton } from "@/shared/ui/StatusButton";
-import { clockText } from "@/features/strategies/format";
+import { clockText } from "@/shared/lib/figure-text";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import type { ShareAmountView } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";

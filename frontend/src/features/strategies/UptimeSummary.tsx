@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { dayText } from "@/features/strategies/format";
+import { dayText } from "@/shared/lib/figure-text";
 import type { StrategyUptime } from "@/shared/api/types";
 
 const DAY_SECONDS = 86_400;

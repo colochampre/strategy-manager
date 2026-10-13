@@ -7,7 +7,7 @@ import {
   figureText,
   rateText,
   tableFigureText,
-} from "@/features/strategies/format";
+} from "@/shared/lib/figure-text";
 
 // `cutAmountText` writes a served amount of the share's pool in its settlement currency. The digits are
 // cut at the currency's decimals as text, never rounded, and only then given to `Intl` (design § C2, § O):

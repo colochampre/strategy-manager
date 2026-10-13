@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { parseDecimal, percentText } from "@/features/overview/format";
+import { parseDecimal, percentText } from "@/shared/lib/amount-text";
 import type { Excluded, MonthReturn } from "@/shared/api/types";
 
 interface MonthlySummaryProps {

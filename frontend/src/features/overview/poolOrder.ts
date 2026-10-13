@@ -1,4 +1,4 @@
-import { parseDecimal } from "@/features/overview/format";
+import { parseDecimal } from "@/shared/lib/amount-text";
 import type { Pool } from "@/shared/api/types";
 
 /** Settlement currencies that are worth one US dollar each, so their balances are comparable. */

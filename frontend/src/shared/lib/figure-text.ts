@@ -1,4 +1,4 @@
-import { amountDecimals, amountText } from "@/features/overview/format";
+import { amountDecimals, amountText } from "@/shared/lib/amount-text";
 
 const SIGNIFICANT_DIGITS = 8;
 /** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */

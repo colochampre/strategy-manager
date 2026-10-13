@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
-import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import { useSetStrategyEnabled } from "@/shared/api/strategies";
 import type { Strategy, StrategyPerformance } from "@/shared/api/types";
