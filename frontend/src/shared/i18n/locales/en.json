@@ -79,7 +79,13 @@
       "open_one": "{{count}} open trade not in the curve",
       "open_other": "{{count}} open trades not in the curve",
       "noCapital_one": "{{count}} trade without capital at open",
-      "noCapital_other": "{{count}} trades without capital at open"
+      "noCapital_other": "{{count}} trades without capital at open",
+      "openAll_one": "{{count}} open",
+      "openAll_other": "{{count}} open",
+      "openWithRehearsal": "{{total}} open, {{rehearsal}} of them dry run"
+    },
+    "open": {
+      "strategy": "Strategy"
     },
     "pool": {
       "loading": "Loading this pool's performance…",

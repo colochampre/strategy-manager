@@ -79,7 +79,13 @@
       "open_one": "{{count}} operación abierta fuera de la curva",
       "open_other": "{{count}} operaciones abiertas fuera de la curva",
       "noCapital_one": "{{count}} operación sin capital al abrir",
-      "noCapital_other": "{{count}} operaciones sin capital al abrir"
+      "noCapital_other": "{{count}} operaciones sin capital al abrir",
+      "openAll_one": "{{count}} abierta",
+      "openAll_other": "{{count}} abiertas",
+      "openWithRehearsal": "{{total}} abiertas, {{rehearsal}} de ellas en simulación"
+    },
+    "open": {
+      "strategy": "Estrategia"
     },
     "pool": {
       "loading": "Cargando el rendimiento de este pool…",

@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 
 import { VenueLine } from "@/features/positions/MarkLine";
 import { OriginTag } from "@/features/positions/OriginTag";
@@ -113,7 +114,30 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
   ];
 }
 
+/** Eight columns in both variants: the strategy variant has Fees, the pool variant has the strategy's name first instead. */
 const COLUMNS = 8;
+/** Where Fees sits among the cells of `cellsOf`. */
+const FEES_INDEX = 5;
+
+/**
+ * The strategy's name, the pool variant's first column: a link to the strategy's page when the row has a
+ * strategy id, plain text when it has none (a position the facts could not decorate). Never matched by name.
+ */
+function StrategyName({ position }: { position: OpenPosition }) {
+  if (position.strategy_id === null) return <span className="font-sans">{position.strategy_name}</span>;
+  return (
+    <Link to={`/strategies/${position.strategy_id}`} className="font-sans text-gain hover:text-gain-bright">
+      {position.strategy_name}
+    </Link>
+  );
+}
+
+/** The pool variant's cells: the strategy first and no Fees (the sixth cell of the strategy variant's). */
+function poolCellsOf(position: OpenPosition, locale: string, t: Translate): ReactNode[] {
+  const cells = cellsOf(position, locale, t);
+  return [<StrategyName key="strategy" position={position} />, ...cells.filter((_, index) => index !== FEES_INDEX)];
+}
+
 /** Tailwind's `md`: the width at which the cards become a table. */
 const MD_QUERY = "(min-width: 768px)";
 /** A sub-row is a real row with one cell across the table; it is never a flex wrapper (it would collapse into the first column). */
@@ -152,19 +176,28 @@ export function subRowsOf(position: OpenPosition, asOf: string, t: Translate): S
   return rows;
 }
 
-type TableProps = Omit<PositionsTableProps, "variant">;
+type TableProps = PositionsTableProps;
 
 /** The table, from `md` upward (design addendum § H). */
-function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
+function DesktopTable({ positions, asOf, currency, labelledBy, variant }: TableProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const left = "text-left";
+  const pool = variant === "pool";
+  // The columns that read left-aligned, and the one (the pair) that reads in the full ink.
+  const leftColumns = pool ? 4 : 3;
+  const pairColumn = pool ? 2 : 1;
 
   return (
     <div className="overflow-x-auto">
       <table aria-labelledby={labelledBy} className="w-full border-collapse font-mono text-[13px] tabular-nums">
         <thead>
           <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
+            {pool && (
+              <th scope="col" className={cn(HEADER, left)}>
+                {t("overview.open.strategy")}
+              </th>
+            )}
             <th scope="col" className={cn(HEADER, left)}>
               {t("strategies.performance.trades.opened")}
             </th>
@@ -180,9 +213,11 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
             <th scope="col" className={HEADER}>
               {t("strategies.performance.trades.entry")}
             </th>
-            <th scope="col" className={HEADER}>
-              {t("strategies.performance.trades.fees", { currency })}
-            </th>
+            {!pool && (
+              <th scope="col" className={HEADER}>
+                {t("strategies.performance.trades.fees", { currency })}
+              </th>
+            )}
             <th scope="col" className={HEADER}>
               {t("positions.table.margin", { currency })}
             </th>
@@ -193,7 +228,7 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
         </thead>
         <tbody className="text-right text-ink-2">
           {positions.map((position) => {
-            const cells = cellsOf(position, locale, t);
+            const cells = pool ? poolCellsOf(position, locale, t) : cellsOf(position, locale, t);
             return (
               <Fragment key={position.allocation_id}>
                 <tr>
@@ -202,8 +237,8 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
                       key={index}
                       className={cn(
                         CELL,
-                        index < 3 && "text-left",
-                        index === 1 && "text-ink",
+                        index < leftColumns && "text-left",
+                        index === pairColumn && "text-ink",
                         index === cells.length - 1 && "pr-0",
                       )}
                     >
@@ -230,16 +265,29 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
 const LABEL = "text-[10px] uppercase tracking-[0.09em] text-ink-3";
 
 /** One card of the phone layout: the pair and the side in the head, the origin's word at its right, the six labelled values in two columns, then the sub-rows. */
-function PositionCard({ position, asOf, currency, locale }: { position: OpenPosition; asOf: string; currency: string; locale: string }) {
+function PositionCard({
+  position,
+  asOf,
+  currency,
+  locale,
+  variant,
+}: {
+  position: OpenPosition;
+  asOf: string;
+  currency: string;
+  locale: string;
+  variant: PositionsTableProps["variant"];
+}) {
   const { t } = useTranslation();
   const cells = cellsOf(position, locale, t, true);
   const pair = position.markets.join(" / ");
   const side = position.side === null ? t("positions.sideUnreadable") : position.side;
+  const pool = variant === "pool";
   const labelled: ReadonlyArray<readonly [string, ReactNode]> = [
     [t("strategies.performance.trades.opened"), cells[0]],
     [t("strategies.performance.trades.size"), cells[3]],
     [t("strategies.performance.trades.entry"), cells[4]],
-    [t("strategies.performance.trades.fees", { currency }), cells[5]],
+    ...(pool ? [] : ([[t("strategies.performance.trades.fees", { currency }), cells[5]]] as const)),
     [t("positions.table.margin", { currency }), cells[6]],
     [t("positions.table.leverage"), cells[7]],
   ];
@@ -256,6 +304,11 @@ function PositionCard({ position, asOf, currency, locale }: { position: OpenPosi
         </span>
         <OriginTag origin={position.origin} />
       </div>
+      {pool && (
+        <div className="text-sm">
+          <StrategyName position={position} />
+        </div>
+      )}
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 font-mono text-xs tabular-nums">
         {labelled.map(([label, value]) => (
           <div key={label}>
@@ -272,11 +325,12 @@ function PositionCard({ position, asOf, currency, locale }: { position: OpenPosi
 }
 
 /**
- * The open positions of a strategy: a table from `md` upward and, below it, one card per position (the
- * prototype's example 20 decides, N2). It renders ONE of the two, never both hidden by CSS, so that the venue
+ * Open positions, in the strategy variant (a strategy's page) or the pool variant (the Overview: the strategy's
+ * name first, no Fees): a table from `md` upward and, below it, one card per position (the prototype's
+ * example 20 decides, N2). It renders ONE of the two, never both hidden by CSS, so that the venue
  * line, the links and the accessible names exist once.
  */
-export function PositionsTable({ variant: _variant, ...props }: PositionsTableProps) {
+export function PositionsTable(props: PositionsTableProps) {
   const { i18n } = useTranslation();
   const table = useIsWide(MD_QUERY);
   if (table) return <DesktopTable {...props} />;
@@ -284,7 +338,14 @@ export function PositionsTable({ variant: _variant, ...props }: PositionsTablePr
   return (
     <div className="flex flex-col gap-3">
       {props.positions.map((position) => (
-        <PositionCard key={position.allocation_id} position={position} asOf={props.asOf} currency={props.currency} locale={locale} />
+        <PositionCard
+          key={position.allocation_id}
+          position={position}
+          asOf={props.asOf}
+          currency={props.currency}
+          locale={locale}
+          variant={props.variant}
+        />
       ))}
     </div>
   );
