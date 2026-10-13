@@ -4,11 +4,20 @@ infrastructure adapter implements it (same direction as ``FillRecorderPort``).
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.open_position import (
+    DiscrepancyRow,
+    FillAggregate,
+    InFlightAttemptElement,
+    OpenAllocationElement,
+    PoolLabel,
+)
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
 
@@ -75,3 +84,69 @@ class RehearsalPricingSourcePort(Protocol):
     async def pricing_facts(
         self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PricingFacts]: ...
+
+
+class OpenStateSourcePort(Protocol):
+    """The mode guard's own two reads, whole-system, in the order the open
+    positions read issues them (design addendum "open positions", section C,
+    steps 1 and 2). Implemented by ``SqlAlchemyModeOriginReader``; the read
+    never filters, so what it shows is what the guard refuses on."""
+
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptElement]: ...
+
+    async def open_allocations(self) -> Sequence[OpenAllocationElement]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PositionFacts:
+    """What the facts read says about ONE open allocation: the reservation (its
+    strategy, grant, status, pool and the opening attempt's leverage) and every
+    group of the allocation's fills. Built from the two statements of
+    ``position_facts`` (design section C)."""
+
+    allocation_id: UUID
+    strategy_id: UUID
+    strategy_name: str
+    strategy_archived: bool
+    margin_granted: Decimal
+    reservation_status: str
+    leverage: Decimal | None
+    reservation_pool: PoolLabel
+    groups: tuple[FillAggregate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SubmittedOrder:
+    """One ``SUBMITTED`` attempt, with or without an order id. The parent
+    columns are ``None`` when the LEFT joins found no reservation or strategy:
+    no attempt is dropped by a missing parent."""
+
+    attempt_id: UUID
+    opening: bool
+    pool: PoolLabel
+    symbol: str
+    exchange_order_id: str | None
+    created_at: datetime
+    strategy_id: UUID | None
+    strategy_name: str | None
+    strategy_archived: bool | None
+    reservation_pool: PoolLabel | None
+
+
+class OpenPositionFactsSourcePort(Protocol):
+    """The facts the guard's reader does not carry. Each method is ONE statement
+    group, never one per row; an allocation it knows nothing about is absent from
+    ``position_facts``' answer, and the caller keeps its row."""
+
+    async def position_facts(
+        self, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, PositionFacts]: ...
+
+    async def submitted_orders(self) -> Sequence[SubmittedOrder]: ...
+
+
+class ConfirmedDisagreementSourcePort(Protocol):
+    """The open ``CONFIRMED`` rows of the reconciliation's discrepancies, read
+    once. It reads no venue and writes nothing."""
+
+    async def confirmed_open(self) -> Sequence[DiscrepancyRow]: ...

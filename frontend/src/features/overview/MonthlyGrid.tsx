@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import type { MonthReturn } from "@/shared/api/types";
 import { gridBand } from "@/shared/charts/scale";
 import { cn } from "@/shared/lib/cn";

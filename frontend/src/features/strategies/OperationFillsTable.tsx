@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { dateTimeText, figureText } from "@/features/strategies/format";
+import { dateTimeText, figureText } from "@/shared/lib/figure-text";
 import { useOperationFills } from "@/shared/api/performance";
 
 /** The route serves at most this many fills and says so with `truncated` (design § D). */

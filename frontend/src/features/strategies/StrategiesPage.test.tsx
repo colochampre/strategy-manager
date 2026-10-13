@@ -8,6 +8,9 @@ import {
   emptyPerformance,
   jsonResponse,
   lock,
+  openOrder,
+  openPosition,
+  openState,
   pool,
   renderAt,
   resetExchangeScope,
@@ -389,6 +392,174 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
       const toggle = within(row).getByRole("switch");
       expect(link.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
       expect(figures.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    }
+  });
+});
+
+describe("the open-state figures on the page", () => {
+  const positionsCalls = (api: ReturnType<typeof stubApi>) =>
+    api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+
+  it("sits between the title row and the list", async () => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    await screen.findByTestId("strategy-row");
+    await waitFor(() => expect(screen.queryByText(en.positions.state.figures.open + ":")).toBeInTheDocument());
+    const figures = screen.getByText(en.positions.state.figures.open + ":").closest("dl") as HTMLElement;
+    const title = screen.getByRole("heading", { level: 1 });
+    const list = screen.getByTestId("strategy-row").closest("ul") as HTMLElement;
+    expect(title.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(figures.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("is not drawn, and asks for nothing, before the exchange scope is known", async () => {
+    const api = strategiesApi([strategy()]);
+    const fetchMock = stubApi(HEALTH, [], { kind: "pending" }, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    expect(await screen.findByText(en.strategies.scopeLoading)).toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.loading)).not.toBeInTheDocument();
+    expect(positionsCalls(fetchMock)).toBe(0);
+  });
+
+  it("is not drawn, and asks for nothing, when no exchange exists", async () => {
+    const api = strategiesApi([]);
+    const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [] }, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+
+    expect(await screen.findByText(en.strategies.noExchanges)).toBeInTheDocument();
+    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
+    expect(positionsCalls(fetchMock)).toBe(0);
+  });
+});
+
+/** T15 (spec "The Strategies Page Shows Nothing Of Another Exchange"): what the page selects, per exchange. */
+describe("the Strategies page shows nothing of another exchange", () => {
+  const BINANCE_ID = "b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1";
+  const BYBIT_ID = "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2";
+  const HIDDEN_ID = "a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1";
+  const BINANCE_POOL = { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" };
+  const BYBIT_POOL = { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" };
+
+  const binanceStrategy = strategy({ id: BINANCE_ID, name: "Binance Strat", exchange: "binance", allowed_pairs: ["ONEUSDT"] });
+  const bybitStrategy = strategy({ id: BYBIT_ID, name: "Bybit Strat", exchange: "bybit", allowed_pairs: ["TWOUSDT"] });
+
+  /** One answer: one position on binance, four on bybit (one the stored fault) and one order in flight on bybit. */
+  const ANSWER = openState(
+    [
+      openPosition({ strategy_id: BINANCE_ID, strategy_name: "Binance Strat", pool: BINANCE_POOL, markets: ["ONEUSDT"] }),
+      openPosition({ strategy_id: BYBIT_ID, strategy_name: "Bybit Strat", pool: BYBIT_POOL, markets: ["TWOUSDT"] }),
+      openPosition({
+        strategy_id: HIDDEN_ID,
+        strategy_name: "Hidden Archived",
+        strategy_archived: true,
+        pool: BYBIT_POOL,
+        markets: ["THREEUSDT"],
+        origin: "rehearsal",
+      }),
+      openPosition({
+        strategy_id: null,
+        strategy_archived: null,
+        strategy_name: "Unmatched Name",
+        pool: BYBIT_POOL,
+        markets: ["FOURUSDT"],
+        figures_missing: "NO_FACTS",
+      }),
+      // The stored fault: the visible binance strategy's position, in a bybit pool.
+      openPosition({ strategy_id: BINANCE_ID, strategy_name: "Binance Strat", pool: BYBIT_POOL, markets: ["SIXUSDT"] }),
+    ],
+    [
+      openOrder({
+        strategy_id: HIDDEN_ID,
+        strategy_name: "Order Strat",
+        strategy_archived: true,
+        pool: BYBIT_POOL,
+        market: "FIVEUSDT",
+      }),
+    ],
+  );
+
+  const BYBIT_ONLY = ["TWOUSDT", "THREEUSDT", "FOURUSDT", "FIVEUSDT", "SIXUSDT", "Hidden Archived", "Unmatched Name", "Order Strat", "Bybit Strat"];
+
+  const figure = (label: string) =>
+    (screen.getByText(`${label}:`).parentElement as HTMLElement).querySelector("dd")?.textContent;
+
+  async function mountPage(body: unknown) {
+    const api = strategiesApi([binanceStrategy, bybitStrategy]);
+    const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route, {}, undefined, { kind: "ok", body });
+    renderAt(<AppRoutes />, "/strategies");
+    // The scope starts on the first exchange (bybit); the owner moves to binance first.
+    await screen.findByText("Bybit Strat");
+    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+    await screen.findByText("Binance Strat");
+    return fetchMock;
+  }
+
+  const positionsCalls = (api: ReturnType<typeof stubApi>) =>
+    api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+
+  it("counts and draws only binance's elements on the binance tab, then only bybit's with no new request", async () => {
+    const fetchMock = await mountPage(ANSWER);
+
+    await waitFor(() => expect(screen.queryByText("Open:")).toBeInTheDocument());
+    expect(figure("Open")).toBe("1");
+    expect(figure("Orders in flight")).toBe("0");
+    const row = screen.getByTestId("strategy-row");
+    expect(within(row).getByRole("link", { name: "Binance Strat" })).toBeInTheDocument();
+    expect(within(row).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["ONEUSDT · LONG · Live"]);
+    expect(screen.queryByText(/Not on this list/)).not.toBeInTheDocument();
+    for (const text of BYBIT_ONLY) expect(document.body.textContent ?? "", text).not.toContain(text);
+
+    const before = positionsCalls(fetchMock);
+    fireEvent.click(screen.getAllByRole("button", { name: "bybit" })[0] as HTMLElement);
+    await screen.findByText("Bybit Strat");
+
+    expect(figure("Open")).toBe("4");
+    expect(figure("Orders in flight")).toBe("1");
+    const bybitRow = screen.getByTestId("strategy-row");
+    expect(within(bybitRow).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["TWOUSDT · LONG · Live"]);
+    expect(screen.getByText(/^Not on this list:/)).toHaveTextContent(
+      "Not on this list: Hidden Archived · archived · THREEUSDT · Dry run; Unmatched Name · FOURUSDT · Live · figures not readable; Binance Strat · SIXUSDT · Live; Order Strat · archived · FIVEUSDT · order in flight · Live.",
+    );
+    expect(document.body.textContent ?? "").not.toContain("ONEUSDT");
+    expect(positionsCalls(fetchMock)).toBe(before);
+  });
+
+  it("draws an element on no tab nowhere, and no line says that it exists (owner decision Q7, 2026-10-13)", async () => {
+    const orphans = openState(
+      [
+        openPosition({
+          strategy_id: null,
+          strategy_archived: null,
+          strategy_name: "Nowhere Name",
+          pool: { exchange: "kraken", venue: "usdt-m", settlement_currency: "USDT" },
+          markets: ["NOWHEREUSDT"],
+          figures_missing: "NO_FACTS",
+        }),
+      ],
+      [
+        openOrder({
+          strategy_id: null,
+          strategy_name: "Orphan Order",
+          pool: { exchange: "kraken", venue: "usdt-m", settlement_currency: "USDT" },
+          market: "ORPHANUSDT",
+        }),
+      ],
+    );
+    await mountPage(orphans);
+
+    await waitFor(() => expect(screen.queryByText("Open:")).toBeInTheDocument());
+    for (const tab of ["binance", "bybit"]) {
+      fireEvent.click(screen.getAllByRole("button", { name: tab })[0] as HTMLElement);
+      await screen.findByText(tab === "binance" ? "Binance Strat" : "Bybit Strat");
+      expect(figure("Open")).toBe("0");
+      expect(figure("Orders in flight")).toBe("0");
+      const text = document.body.textContent ?? "";
+      for (const hidden of ["Nowhere Name", "NOWHEREUSDT", "Orphan Order", "ORPHANUSDT", "kraken"]) expect(text).not.toContain(hidden);
+      expect(screen.queryByText(/Not on this list/)).not.toBeInTheDocument();
     }
   });
 });

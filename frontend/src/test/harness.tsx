@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 
+import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
 import { useTokenStore } from "@/shared/auth/token-store";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
 
@@ -22,6 +23,7 @@ export type PoolsStub =
 export type CredentialsStub = PoolsStub;
 export type PerformanceStub = PoolsStub;
 export type AvailablePairsStub = PoolsStub;
+export type OpenPositionsStub = PoolsStub;
 
 /** What `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` answers for a pool, in the API's shape. */
 export function availablePairs(exchange: string, venue: string, currency: string, pairs: readonly string[]) {
@@ -47,6 +49,71 @@ export function pool(
     reserved: "0",
     allocatable: balance === null ? null : balance.available,
   };
+}
+
+let elementSequence = 0;
+
+/** A fresh id in the shape of a UUID, so two builders never collide on a key. */
+function nextElementId(): string {
+  elementSequence += 1;
+  return `00000000-0000-4000-8000-${String(elementSequence).padStart(12, "0")}`;
+}
+
+/**
+ * One position of `GET /positions/open`, in the route's shape: a live LONG on `SOLUSDT` of the strategy
+ * "Alpha" in the Bybit USDT-M pool, every figure present. The overrides replace any field.
+ */
+export function openPosition(overrides: Partial<OpenPosition> = {}): OpenPosition {
+  return {
+    allocation_id: nextElementId(),
+    strategy_id: "11111111-1111-4111-8111-111111111111",
+    strategy_name: "Alpha",
+    strategy_archived: false,
+    pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" },
+    currency: "USDT",
+    markets: ["SOLUSDT"],
+    origin: "live",
+    figures_missing: null,
+    side: "LONG",
+    base_currency: "SOL",
+    size: "0.5",
+    opened_size: "0.5",
+    entry_price: "184.300000000000000000",
+    opened_at: "2026-10-12T14:05:11Z",
+    fill_count: 1,
+    fees: "0.25",
+    other_fees: [],
+    margin_granted: "30.00",
+    leverage: "3.00000000",
+    reservation_status: "FILLED",
+    venue_disagreement: null,
+    ...overrides,
+  };
+}
+
+/** One order in flight of `GET /positions/open`: a live opening order of "Alpha" on `SOLUSDT`, sent at 21:12 UTC. */
+export function openOrder(overrides: Partial<InFlightOrder> = {}): InFlightOrder {
+  return {
+    attempt_id: nextElementId(),
+    strategy_id: "11111111-1111-4111-8111-111111111111",
+    strategy_archived: false,
+    strategy_name: "Alpha",
+    pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" },
+    market: "SOLUSDT",
+    action: "OPEN",
+    origin: "live",
+    submitted_at: "2026-10-12T21:12:00Z",
+    ...overrides,
+  };
+}
+
+/** The whole body of `GET /positions/open`, read at 21:40:03 UTC unless a test says otherwise. */
+export function openState(
+  positions: OpenPosition[] = [],
+  orders: InFlightOrder[] = [],
+  asOf = "2026-10-12T21:40:03Z",
+): OpenState {
+  return { as_of: asOf, positions, orders };
 }
 
 /** One `STORED` row of `GET /credentials`, in the API's shape; the overrides replace any of its fields. */
@@ -196,13 +263,39 @@ export function jsonResponse(body: unknown, status = 200): Response {
 export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> | undefined;
 
 /**
+ * A `GET /positions/open` that fails with a 500 the first time and holds every later request until `release`
+ * answers all of them with `answer`. `requests` counts the calls, so a test can tell a second press that
+ * started a request from one that did not.
+ */
+export function failsOnceThenHolds(answer: unknown) {
+  const waiting: Array<() => void> = [];
+  let requests = 0;
+  const route: ExtraRoute = (url) => {
+    if (!url.endsWith("/positions/open")) return undefined;
+    requests += 1;
+    if (requests === 1) return Promise.resolve(jsonResponse({ detail: "down" }, 500));
+    return new Promise<Response>((resolve) => {
+      waiting.push(() => resolve(jsonResponse(answer)));
+    });
+  };
+  return {
+    route,
+    requests: () => requests,
+    release: () => waiting.splice(0).forEach((answerNow) => answerNow()),
+  };
+}
+
+/**
  * Routes the endpoints the shell touches; everything else is a loud failure.
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
  * without an entry answers an empty ledger. `extra` is asked first. `available`
  * overrides a pool's available pairs, keyed `exchange/venue/ccy`; a pool without
  * an entry lists `AAVEUSDT`, `SFPUSDT` and `STXUSDT`. `credentials` overrides the
  * answer to `GET /credentials` (see `defaultCredentials`). Every URL it rejects is
- * recorded in the returned mock's `unexpected` array.
+ * recorded in the returned mock's `unexpected` array. `openPositions` overrides
+ * the answer to `GET /positions/open`; by default it is a well-formed empty
+ * body, `{as_of, positions: [], orders: []}`, so a page that asks for it reads
+ * nothing open rather than a rejected request.
  */
 export function stubApi(
   health: HealthStub,
@@ -212,6 +305,7 @@ export function stubApi(
   extra?: ExtraRoute,
   available: Record<string, AvailablePairsStub> = {},
   credentials?: CredentialsStub,
+  openPositions?: OpenPositionsStub,
 ) {
   const unexpected: string[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -254,6 +348,17 @@ export function stubApi(
     // GET only: a PUT or a DELETE to `/credentials/...` is never answered, so no test can save or delete a key by accident.
     if (url.endsWith("/credentials") && (init?.method ?? "GET") === "GET") {
       const stub = credentials ?? defaultCredentials(pools);
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
+    }
+    // GET only, like the credentials: nothing is written to the positions route.
+    if (url.endsWith("/positions/open") && (init?.method ?? "GET") === "GET") {
+      const stub: OpenPositionsStub = openPositions ?? {
+        kind: "ok",
+        body: { as_of: "2026-10-13T12:00:00Z", positions: [], orders: [] },
+      };
       if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (stub.kind === "pending") return new Promise<Response>(() => undefined);
       if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));

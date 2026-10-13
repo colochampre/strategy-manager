@@ -1,4 +1,4 @@
-import { amountDecimals, amountText } from "@/features/overview/format";
+import { amountDecimals, amountText } from "@/shared/lib/amount-text";
 
 const SIGNIFICANT_DIGITS = 8;
 /** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */
@@ -136,6 +136,43 @@ export function clockText(iso: string): string | null {
   const instant = new Date(iso);
   if (Number.isNaN(instant.getTime())) return null;
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(instant);
+}
+
+/**
+ * An instant as a 24-hour `HH:mm:ss` time in UTC, for "Last read", "could not be refreshed since" and "last
+ * compared"; `null` for an instant that cannot be read. Like `clockText`, a fixed 24-hour locale.
+ */
+export function clockSecondsText(iso: string): string | null {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return null;
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: "UTC",
+  }).format(instant);
+}
+
+/** The UTC calendar day of an instant, as `YYYY-MM-DD`, read from the instant and never from a zone. */
+function utcDay(instant: Date): string {
+  return instant.toISOString().slice(0, 10);
+}
+
+/**
+ * A time of an answer written for the line that reports it (`UTC` is added by the caller's text). A time on
+ * the UTC day of the answer's `as_of` is the clock alone, with seconds or without; any other day is written
+ * with its date BEFORE it, through `compactDateText`. Without the date an order sent yesterday at 21:12 would
+ * read as sent minutes ago, and a venue mark frozen since the mode changed as compared today (design § H,
+ * "Times"; § K row 20). `null` when either instant cannot be read.
+ */
+export function timeOfAnswerText(iso: string, asOf: string, locale: string, withSeconds: boolean): string | null {
+  const instant = new Date(iso);
+  const reference = new Date(asOf);
+  if (Number.isNaN(instant.getTime()) || Number.isNaN(reference.getTime())) return null;
+  const clock = withSeconds ? clockSecondsText(iso) : clockText(iso);
+  if (clock === null) return null;
+  return utcDay(instant) === utcDay(reference) ? clock : `${compactDateText(iso, locale)} ${clock}`;
 }
 
 /** A timestamp as a calendar day in UTC; it moved to `shared/lib` for the Settings card and is re-exported here. */

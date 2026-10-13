@@ -14,7 +14,7 @@
   --color-ink-2: #A9B8C3;        /* secondary text */
   --color-ink-3: #7A8C99;        /* captions, ticks, eyebrows */
 
-  --color-gain: #1FA6B8;         /* teal: gains, the equity curve, primary action, links */
+  --color-gain: #1FA6B8;         /* teal: gains, the equity curve, the Live mode, primary action, links */
   --color-gain-bright: #6FD0DC;  /* link hover */
   --color-loss: #E0644B;         /* ember: losses, drawdown, refusals */
   --color-decision: #CE8018;     /* amber: ONLY "needs your decision" */

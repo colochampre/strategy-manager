@@ -187,6 +187,31 @@ describe("ConfirmBookingDialog", () => {
     },
   );
 
+  it.each([
+    ["an approval (200)", fakeResponse({ outcome: "APPROVED", execution_attempt_id: null, ledger_entries_written: 1 }, 200)],
+    ["a 409 (someone else decided)", fakeResponse({ outcome: "ALREADY_DECIDED", detail: "x" }, 409, false)],
+  ])("reads the open positions again after %s, beside the pending bookings", async (_label, response) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const { queryClient } = renderWithQueryClient(<ConfirmBookingDialog proposal={PROPOSAL} onClose={vi.fn()} />);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    fireEvent.click(screen.getByRole("button", { name: en.bookings.dialogs.confirm.confirm }));
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["positions", "open"] }));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["bookings", "pending"] });
+  });
+
+  it("does not read the open positions again after a 503, which wrote nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ outcome: "DRY_RUN_REFUSED", detail: "x" }, 503, false)));
+    const { queryClient } = renderWithQueryClient(<ConfirmBookingDialog proposal={PROPOSAL} onClose={vi.fn()} />);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    fireEvent.click(screen.getByRole("button", { name: en.bookings.dialogs.confirm.confirm }));
+
+    await screen.findByRole("alert");
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ["positions", "open"] });
+  });
+
   it("shows the DRY_RUN message on a 503, never success, and does not invalidate the query", async () => {
     const fetchMock = vi
       .fn()

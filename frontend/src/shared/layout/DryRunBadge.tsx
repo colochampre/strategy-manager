@@ -11,7 +11,9 @@ const NEUTRAL = "border-rule text-ink-3";
  * be mistaken for either mode, and never for "live":
  *
  * - `dry_run: true`  -> "Dry run", amber (one of the four "needs your decision" places).
- * - `dry_run: false` -> "Live", in the loss colour, because real money moves.
+ * - `dry_run: false` -> "Live", in the gain colour: the badge and the open-position marks
+ *   share the colour of "live", and the badge states the mode, it is not an alarm. Red is
+ *   kept for what is wrong.
  * - loading          -> "Checking mode", neutral.
  * - error            -> "Mode unknown", neutral.
  */
@@ -32,7 +34,7 @@ export function DryRunBadge() {
     tone = "border-decision text-decision";
   } else {
     label = t("status.live");
-    tone = "border-loss text-loss";
+    tone = "border-gain text-gain";
   }
 
   return (

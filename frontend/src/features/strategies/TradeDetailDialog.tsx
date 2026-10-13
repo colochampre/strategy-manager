@@ -1,9 +1,9 @@
 import { type KeyboardEvent, type ReactNode, type SyntheticEvent, useId, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
-import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { OperationFillsTable } from "@/features/strategies/OperationFillsTable";
-import { dateTimeText, figureText } from "@/features/strategies/format";
+import { dateTimeText, figureText } from "@/shared/lib/figure-text";
 import type { StrategyTrade } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 

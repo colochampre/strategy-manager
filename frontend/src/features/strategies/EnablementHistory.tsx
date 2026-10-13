@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { dayText } from "@/features/strategies/format";
+import { dayText } from "@/shared/lib/figure-text";
 import { useStrategyEvents } from "@/shared/api/strategies";
 
 interface EnablementHistoryProps {

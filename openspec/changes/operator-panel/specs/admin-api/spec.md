@@ -38,6 +38,17 @@ unaffected by it.
 > reads and the new fields are covered by "Every Admin Route Requires the
 > Bearer Token" and "The Webhook Shared Secret Is Returned Only By Its Own
 > Endpoint" as written.
+>
+> **Revised 2026-10-12 (owner decision 65, design addendum "open positions, a
+> mark and a list read from the ledger" §§ B to G).** A new read, `GET
+> /api/positions/open`, serves every open position and every order in flight of
+> the whole system, built on the mode guard's own reader. Ten requirements
+> are added after "The API Process Writes Its Own Log Lines"; no existing
+> requirement of this file is changed. The route is covered by "Every Admin
+> Route Is Mounted Under /api" and "Every Admin Route Requires the Bearer
+> Token" as written. It adds no migration and changes no guard file. Four
+> owner questions of that addendum (Q6 to Q9) concern the panel only, so none
+> of them is marked in this file.
 
 ## Requirements
 
@@ -1098,3 +1109,626 @@ signature; their WARNING lines MUST be.
 - GIVEN the API starts
 - WHEN `operator_alerts` is about to install its bridge
 - THEN the root logger is already at INFO and holds the API's own handler
+
+### Requirement: The Open Positions Route Answers For The Whole System
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § F).**
+
+`GET /api/positions/open` MUST answer 200 with a body of exactly three fields:
+`as_of` (the server's clock when the snapshot was read, a UTC instant),
+`positions` (one element per open allocation) and `orders` (one element per
+order in flight). It MUST take no path parameter and no query parameter and
+MUST answer for the WHOLE system: every pool, enabled or not, and every
+strategy, archived or not. It MUST NOT filter by exchange, by strategy or by
+pool. It MUST require the bearer token of every `/api` route. Money,
+quantities and the leverage MUST be JSON strings in plain notation, prices MUST
+be rounded to 18 places, and instants MUST be UTC, as `wire.py` writes them.
+
+`positions` MUST be sorted by strategy name, pool, market and allocation id;
+`orders` by the instant they were sent and attempt id. Each element MUST carry
+its own pool (`exchange`, `venue`, `settlement_currency`, three non-empty
+strings, always) and its own currency. The body MUST carry no count and no
+total, and no field MUST add the money of two positions (rules 5 and 7). The
+route has no subject, so it MUST NOT answer 404. A failure of the read MUST
+answer 500, never an empty list.
+
+#### Scenario: The route serves the three fields
+
+- GIVEN an empty ledger and no attempt in flight
+- WHEN `GET /api/positions/open` is called with a valid bearer token
+- THEN it answers 200 with `positions` and `orders` both empty lists and an `as_of` instant in UTC, and no other field
+
+#### Scenario: Two pools of two exchanges are served in one answer, each with its own pool
+
+- GIVEN an open position in pool `(bybit, usdt-m, USDT)` and another in pool `(binance, usdt-m, USDT)`
+- WHEN the route is called
+- THEN `positions` holds both, each with its own `pool` and `currency`, and the body holds no count, no total and no field that adds the two
+
+#### Scenario: No parameter narrows the answer
+
+- GIVEN open positions on two exchanges
+- WHEN the route is called with `?exchange=bybit`, and again without it
+- THEN both answers hold the positions of both exchanges
+
+#### Scenario: A disabled pool and an archived strategy are served
+
+- GIVEN an open position of an archived strategy in a pool that is disabled
+- WHEN the route is called
+- THEN the position is in `positions`
+
+#### Scenario: Positions and orders are sorted
+
+- GIVEN positions of strategies "B" and "A", and two positions of "A" on `SOLUSDT` and `AAVEUSDT`, and two orders sent at different times
+- WHEN the route is called
+- THEN `positions` lists "A" before "B", "A"'s `AAVEUSDT` before its `SOLUSDT`, and `orders` lists the earlier-sent first
+
+#### Scenario: Plain notation and UTC
+
+- GIVEN a position with a leverage stored as `2.00000000` and a fee of `0.00000001`
+- WHEN the route is called
+- THEN the leverage and the fee are JSON strings without an exponent, every price has at most 18 decimal places, and every instant carries a UTC offset
+
+#### Scenario: The route requires the bearer token
+
+- GIVEN no bearer token, and in a second case a wrong one
+- WHEN `GET /api/positions/open` is called
+- THEN the request is refused before handler logic executes
+
+#### Scenario: A failed read is an error, never an empty list
+
+- GIVEN a database failure while the route reads
+- WHEN the route is called
+- THEN it answers 500 and not 200 with empty lists, and no 404 is ever answered by this route
+
+### Requirement: An Empty Answer Means The Mode Guard's Two Inputs Were Empty
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § B, the invariant).**
+
+The route MUST be built on the mode guard's own reader
+(`SqlAlchemyModeOriginReader`): the same class, the same statements and the
+same domain fold that decide whether the worker may start. It MUST emit exactly
+one element per element of the reader's open allocations (kind position) and
+one per element of its in-flight attempts (kind order), unconditionally. The
+figures, the margin, the leverage and the venue mark only decorate an element
+and MUST NEVER remove one. No branch of the route MAY filter, group or merge
+the two sequences. The answer MUST NOT depend on `DRY_RUN`.
+
+The invariant: when the answer has an empty `positions` and an empty `orders`,
+then on the same database state `assert_mode_matches_ledger` MUST raise for
+neither value of `DRY_RUN`.
+
+| What the tables hold | Guard, `DRY_RUN=false` | Guard, `DRY_RUN=true` | The route |
+| --- | --- | --- | --- |
+| Open allocation, rehearsal fills only | refuses | starts | a position, origin `rehearsal` |
+| Open allocation, live fills only | starts | refuses | a position, origin `live` |
+| Open allocation holding fills of both | refuses | refuses | a position, origin `mixed` |
+| Allocation with a symbol that cannot be split, any net | as its fills' origin says | as its fills' origin says | a position, figures absent with the reason |
+| Allocation whose net is exactly zero | not seen | not seen | not served |
+| `SUBMITTED` attempt, order id `fake-order-...` | refuses | starts | an order, origin `rehearsal` |
+| `SUBMITTED` attempt, any other order id | starts | refuses | an order, origin `live` |
+| `SUBMITTED` attempt, order id NULL | not seen | not seen | an order, origin `unknown` |
+| A reservation with no attempt yet | not seen | not seen | not served |
+
+#### Scenario: Each case of the table is served as the table says
+
+- GIVEN one database state holding one case of each row of the table
+- WHEN the route is called
+- THEN `positions` and `orders` hold exactly the elements the last column names, and none for the rows that say "not served"
+
+#### Scenario: The positions are the reader's open allocations, one for one
+
+- GIVEN a database state with three open allocations, two of which share a strategy
+- WHEN the route is called and, on the same state, the guard's reader is asked for its open allocations
+- THEN `positions` has the same allocation ids, no more and no fewer
+
+#### Scenario: The orders are the reader's in-flight attempts, plus the ones it cannot judge
+
+- GIVEN two `SUBMITTED` attempts with an order id and one with a NULL order id
+- WHEN the route is called
+- THEN `orders` holds all three, and the one with no order id has origin `unknown`
+
+#### Scenario: An empty answer is a state the guard accepts in both modes
+
+- GIVEN the route answers empty lists
+- WHEN `assert_mode_matches_ledger` is run on the same state for `DRY_RUN=true` and for `DRY_RUN=false`
+- THEN it raises for neither
+
+#### Scenario: A rehearsal position is served in either mode
+
+- GIVEN an open allocation filled by the simulated exchange
+- WHEN the route is called with `DRY_RUN=true`, and again with `DRY_RUN=false`
+- THEN the position is in both answers, with origin `rehearsal`
+
+#### Scenario: A live fill id that only contains the rehearsal marker is live
+
+- GIVEN an open allocation whose fill id contains `fake-fill-` but does not start with it
+- WHEN the route is called
+- THEN its origin is `live`, the same origin the guard gives it
+
+#### Scenario: A position that decoration cannot reach is still served
+
+- GIVEN the facts read answers nothing for an allocation the guard's reader returned
+- WHEN the route is called
+- THEN the allocation is in `positions` (see "A Position Or An Order The Facts Cannot Decorate Keeps Its Row")
+
+### Requirement: A Position Element Carries Its Identity, Its Pool, Its Origin And Its Figures
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" §§ D and F).**
+
+Each element of `positions` MUST carry these fields, and no other:
+
+| Field | Value |
+| --- | --- |
+| `allocation_id` | the position's identity |
+| `strategy_id` | the reservation's strategy, or null only for a position the facts cannot decorate |
+| `strategy_name` | never null |
+| `strategy_archived` | boolean, or null only with `strategy_id` null |
+| `pool` | the pool of the allocation's fills, as the guard labels it |
+| `currency` | the pool's settlement currency, the unit of `entry_price`, `fees` and `margin_granted` |
+| `markets` | market keys, sorted, one market written once |
+| `origin` | `"rehearsal"`, `"live"` or `"mixed"` |
+| `figures_missing` | a reason or null |
+| `side` | `"LONG"`, `"SHORT"` or null |
+| `base_currency`, `size`, `opened_size`, `entry_price` | the figures, or null |
+| `opened_at` | the earliest fill instant, or null only for a position the facts cannot decorate |
+| `fill_count` | the number of ledger rows of the allocation |
+| `fees`, `other_fees` | the fees paid so far |
+| `margin_granted` | the reservation's amount, as stored |
+| `leverage` | the opening order's leverage, as stored, or null |
+| `reservation_status` | the reservation's status as stored, or null only for a position the facts cannot decorate |
+| `venue_disagreement` | an object or null |
+
+The route MUST NOT serve a position's last fill time, the kind of a
+discrepancy, the instant it was first confirmed, or an order's allocation id,
+side or margin reserved. A position MUST be identified and grouped by its
+allocation id and never by symbol. A position's `markets` MUST be market keys:
+one market opened as `STXUSDT.P` and booked as `STXUSDT` MUST read
+`["STXUSDT"]`. The route MUST NOT convert any amount to another currency.
+
+#### Scenario: A live futures position carries every field
+
+- GIVEN allocation A1 of strategy S1 in pool `(bybit, usdt-m, USDT)`, opened by one live fill of 0.5 SOL on `SOLUSDT` at 100, reserved at 20 with an opening order at leverage 3
+- WHEN the route is called
+- THEN the element carries `allocation_id` A1, `strategy_id` S1, the strategy's name, `strategy_archived` false, the pool, `currency` `USDT`, `markets` `["SOLUSDT"]`, `origin` `live`, `figures_missing` null, `side` `LONG`, `base_currency` `SOL`, `size` `0.5`, `opened_size` `0.5`, `entry_price` `100`, `fill_count` 1, `margin_granted` `20`, `leverage` `3`, `reservation_status` `FILLED` and `venue_disagreement` null
+
+#### Scenario: One market under two spellings is one market
+
+- GIVEN an allocation opened as `STXUSDT.P` and booked as `STXUSDT`
+- WHEN the route is called
+- THEN `markets` is `["STXUSDT"]` and there is one element
+
+#### Scenario: A position is identified by its allocation, not by its symbol
+
+- GIVEN strategy S1 holds allocation A1 and strategy S2 holds allocation A2, both on `SOLUSDT` in one pool
+- WHEN the route is called
+- THEN `positions` holds two elements, one per allocation id
+
+#### Scenario: Every pool is a label of the element
+
+- GIVEN a position whose fills name pool `(bybit, usdt-m, USDT)`
+- WHEN the route is called
+- THEN its `pool` is that pool, with three non-empty strings, and `currency` is `USDT`
+
+#### Scenario: The six unread fields are not served
+
+- GIVEN any open position and any order in flight
+- WHEN the route is called
+- THEN no element carries a position's last fill time, the discrepancy's kind or first-confirmed instant, or an order's allocation id, side or margin reserved
+
+#### Scenario: A position of an archived strategy says so
+
+- GIVEN an open position of an archived strategy
+- WHEN the route is called
+- THEN its `strategy_archived` is true
+
+#### Scenario: A reservation that is not FILLED is served as stored
+
+- GIVEN an open allocation whose reservation status is `EXPIRED`
+- WHEN the route is called
+- THEN `reservation_status` is `EXPIRED`, the element is in `positions`, and one WARNING names the allocation id
+
+### Requirement: The Figures Of A Position Are Derived From Its Fills, And Are Absent Together Or Not At All
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § D).**
+
+The five figures `side`, `base_currency`, `size`, `opened_size` and
+`entry_price` MUST be derived together from the fills of ONE allocation, or be
+null together with `figures_missing` naming the reason. The net is the base
+quantity bought, minus the base quantity sold, minus every fee charged in the
+base currency; it is the arithmetic of the guard's fold, written for display.
+
+- `side` is `LONG` when the net is above zero and `SHORT` when below.
+- `size` is the absolute net, in the base currency; `opened_size` is the sum of
+  the quantities of the held side (BUY for a LONG, SELL for a SHORT).
+- `entry_price` is the quantity-weighted average of the held side's fills
+  (sum of notional over sum of quantity), in the settlement currency per unit
+  of base. A close does not change what the position was opened at.
+- `fees` is the sum of every fill's fee charged in the settlement currency, both
+  sides, as the closed operations count it; a fee in any other currency MUST be
+  listed in `other_fees` as `{currency, amount}`, one per currency whose sum is
+  above zero, and MUST NOT be converted. A fee in the base currency is listed
+  there and is already inside `size`.
+- `margin_granted` MUST be the reservation's amount as stored, never recomputed
+  and never compared with the venue. `leverage` MUST be the opening attempt's
+  leverage as stored: null for a spot order or where none was recorded, never
+  defaulted. A rehearsal position reads 1 because the simulated exchange
+  records 1.
+- A position opened by several fills is ONE element; `opened_at` is the first
+  fill's instant.
+
+`figures_missing` MUST be one of: `UNRESOLVED_SYMBOL` (the base currency cannot
+be told from the pool's currency), `SEVERAL_MARKETS` (the fills name more than
+one market key), `FLIPPED` (the net's sign is the opposite of the earliest
+fill's side), `INCONSISTENT` (the net computed here is zero, or the held side
+has no quantity or notional above zero) or `NO_FACTS` (see the next
+requirement). With any reason other than `NO_FACTS` the element MUST still
+carry its markets, origin, `opened_at`, `fill_count`, `fees`, `other_fees`,
+`margin_granted` and `leverage`. The derivation MUST NOT raise for a row.
+
+#### Scenario: A long position from one fill
+
+- GIVEN one BUY fill of 0.5 SOL at 100 with a fee of 0.02 USDT, in a USDT pool
+- WHEN the route is called
+- THEN `side` is `LONG`, `size` and `opened_size` are `0.5`, `entry_price` is `100`, `fees` is `0.02` and `other_fees` is empty
+
+#### Scenario: A short position
+
+- GIVEN one SELL fill of 0.3 AAVE at 200 and nothing else
+- WHEN the route is called
+- THEN `side` is `SHORT`, `size` and `opened_size` are `0.3` and `entry_price` is `200`
+
+#### Scenario: Several fills average, and the position is one element
+
+- GIVEN three BUY fills of 0.1 at 100, 0.1 at 110 and 0.3 at 120
+- WHEN the route is called
+- THEN there is one element with `fill_count` 3, `opened_size` `0.5`, `entry_price` `114` and `opened_at` the earliest fill's instant
+
+#### Scenario: A position closed in part keeps what it was opened at
+
+- GIVEN a BUY of 0.5 AAVE at 100 and a SELL of 0.2 AAVE at 120
+- WHEN the route is called
+- THEN `size` is `0.3`, `opened_size` is `0.5`, `entry_price` is `100`, and `fees` includes the SELL's fee
+
+#### Scenario: A fee in the base currency shrinks the size and is listed apart
+
+- GIVEN a BUY of 1 SOL whose fee of 0.001 was charged in SOL, in a USDT pool
+- WHEN the route is called
+- THEN `size` is `0.999`, `opened_size` is `1`, `fees` does not include it, and `other_fees` holds `{currency: "SOL", amount: "0.001"}`
+
+#### Scenario: The margin is the reservation's amount, not recomputed
+
+- GIVEN a reservation of 20 USDT and an opening order at leverage 3 that filled 0.5 SOL at 100
+- WHEN the route is called
+- THEN `margin_granted` is `20`, not 50 and not the fill's notional
+
+#### Scenario: A spot order has no leverage, and a rehearsal one has 1
+
+- GIVEN one open spot allocation whose opening attempt has no leverage, and one rehearsal allocation whose opening attempt recorded 1
+- WHEN the route is called
+- THEN the first element's `leverage` is null and the second's is `1`
+
+#### Scenario: A symbol that cannot be split keeps the row and says why
+
+- GIVEN an allocation on `XYZBTC` in a USDT pool, with a net other than zero
+- WHEN the route is called
+- THEN the element is served with `figures_missing` `UNRESOLVED_SYMBOL`, `side`, `base_currency`, `size`, `opened_size` and `entry_price` null, and `markets`, `origin`, `opened_at`, `fees`, `margin_granted` and `leverage` present, and one WARNING names the allocation id
+
+#### Scenario: Fills that name two markets keep the row
+
+- GIVEN an allocation whose fills name `SOLUSDT` and `AAVEUSDT`
+- WHEN the route is called
+- THEN `figures_missing` is `SEVERAL_MARKETS` and `markets` holds both
+
+#### Scenario: A net that flipped has no entry price
+
+- GIVEN an allocation whose first fill is a BUY and whose net is below zero
+- WHEN the route is called
+- THEN `figures_missing` is `FLIPPED` and the five figures are null
+
+#### Scenario: A net of zero where the fold says open
+
+- GIVEN a state in which the net computed for display is zero while the fold counts the allocation open
+- WHEN the route is called
+- THEN the element is served with `figures_missing` `INCONSISTENT`, never dropped and never with a size of 0, and one WARNING names the allocation id
+
+### Requirement: A Position Or An Order The Facts Cannot Decorate Keeps Its Row
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § C and § F).**
+
+When the facts read answers nothing for an allocation the guard's reader
+returned, the element MUST be built from the reader's own element with
+`figures_missing` `NO_FACTS`: `strategy_name`, `pool`, `markets` and `origin`
+present; `strategy_id`, `strategy_archived`, `opened_at`, `fees`,
+`margin_granted`, `leverage` and `reservation_status` null (never a zero, since
+a zero fee would say the position paid none); `fill_count` 0; `other_fees` an
+empty list. Its `markets` MUST be market keys: the reader joins the raw
+spellings with ` / `, so the route MUST split on that separator, normalise each
+piece, drop duplicates and sort.
+
+When an order the reader returned has no row in the submitted-orders read, the
+order MUST be served from the reader's element with `strategy_id`,
+`strategy_archived`, `action` and `submitted_at` null. An order's `market` MUST
+be the market key of its symbol from either source. Each such element MUST log
+one WARNING with its id on every read, and no price, quantity, fee or margin.
+
+#### Scenario: A position with no facts is served with nulls
+
+- GIVEN the facts read answers nothing for allocation A1
+- WHEN the route is called
+- THEN A1's element has `figures_missing` `NO_FACTS`, `strategy_id`, `strategy_archived`, `opened_at`, `fees`, `margin_granted`, `leverage` and `reservation_status` null, `fill_count` 0 and `other_fees` `[]`, and its name, pool, markets and origin are present
+
+#### Scenario: Its markets are normalised
+
+- GIVEN the reader's element for A1 reads `STXUSDT / STXUSDT.P`
+- WHEN the route is called
+- THEN `markets` is `["STXUSDT"]`
+
+#### Scenario: An undecorated order keeps its row
+
+- GIVEN the submitted-orders read has no row for an attempt the reader returned
+- WHEN the route is called
+- THEN the order is in `orders` with `strategy_id`, `strategy_archived`, `action` and `submitted_at` null, and its pool, market and origin present
+
+#### Scenario: Each such element logs one WARNING with its id
+
+- GIVEN one position with no facts and one undecorated order
+- WHEN the route is called
+- THEN one WARNING names the allocation id and one names the attempt id, and no log record contains a price, quantity, fee or margin
+
+### Requirement: An Order In Flight Is Served With Its Origin, Including An Unknown One
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" §§ B, C and F).**
+
+Each element of `orders` MUST carry `attempt_id`, `strategy_id`,
+`strategy_archived`, `strategy_name`, `pool` (the attempt's own pool columns,
+three non-empty strings), `market` (the market key of its symbol), `action`,
+`origin` and `submitted_at`. `action` MUST be `OPEN` when the attempt belongs to
+a reservation and `CLOSE` when it closes an allocation, or null on an order the
+facts could not decorate. `origin` MUST be `rehearsal` for an order id with the
+simulated exchange's prefix, `live` for any other order id, and `unknown` when
+no order id is recorded. `submitted_at` MUST be the attempt's creation instant,
+so that an order in flight for hours is visible as such. An attempt that is
+not `SUBMITTED` MUST NOT be served. An attempt with no order id is a normal
+short state, since the id is written after the order is sent, and a lasting one
+after a crash in between.
+
+#### Scenario: An opening order with a live order id
+
+- GIVEN a `SUBMITTED` opening attempt with order id `1234567`
+- WHEN the route is called
+- THEN the order has `action` `OPEN`, `origin` `live` and `submitted_at` the attempt's creation instant
+
+#### Scenario: A closing order with a rehearsal order id
+
+- GIVEN a `SUBMITTED` closing attempt with order id `fake-order-9`
+- WHEN the route is called
+- THEN the order has `action` `CLOSE` and `origin` `rehearsal`
+
+#### Scenario: An order with no order id is unknown
+
+- GIVEN a `SUBMITTED` attempt whose order id is NULL
+- WHEN the route is called
+- THEN the order is served with `origin` `unknown`
+
+#### Scenario: A filled attempt is not an order in flight
+
+- GIVEN an attempt whose status is `FILLED`
+- WHEN the route is called
+- THEN it is not in `orders`
+
+#### Scenario: The market is a market key
+
+- GIVEN a `SUBMITTED` attempt on the symbol `STXUSDT.P`
+- WHEN the route is called
+- THEN the order's `market` is `STXUSDT`
+
+### Requirement: A Position The Venue Disagrees On Carries The Reconciliation's Finding
+
+> **Added 2026-10-12 (owner decision 65, 2026-10-11 fourth question; design addendum "open positions" § E).**
+
+A position's `venue_disagreement` MUST be non-null exactly when an open
+`CONFIRMED` row of `reconciliation_discrepancies`, of THE POSITION'S POOL, lists
+THE POSITION'S ALLOCATION ID among its open allocation ids; the market is not
+the key. When set it MUST carry `discrepancy_id`, `venue_net_base`,
+`ledger_net_base`, `allocation_count` (the number of allocations the row lists)
+and `last_observed_at`. A row that is only `OBSERVED`, a resolved row, a row of
+another pool, and a row that lists no allocation of the position MUST mark
+nothing. When two or more positions share the pair, every one of them MUST
+carry the mark, and `allocation_count` MUST say so. A confirmed disagreement on
+a market the ledger holds nothing on has no position to mark and MUST NOT
+create an element. The mark MUST use what the reconciliation already found: the
+route MUST NOT read any venue and MUST NOT write.
+
+#### Scenario: A confirmed row names the allocation
+
+- GIVEN an open `CONFIRMED` discrepancy in the position's pool listing A1, with venue net `0` and ledger net `0.82`
+- WHEN the route is called
+- THEN A1's `venue_disagreement` carries that discrepancy's id, venue net `0`, ledger net `0.82`, `allocation_count` 1 and its `last_observed_at`
+
+#### Scenario: An observed row marks nothing
+
+- GIVEN a discrepancy that is `OBSERVED` and lists A1
+- WHEN the route is called
+- THEN A1's `venue_disagreement` is null
+
+#### Scenario: A resolved row marks nothing
+
+- GIVEN a `CONFIRMED` discrepancy listing A1 whose `resolved_at` is set
+- WHEN the route is called
+- THEN A1's `venue_disagreement` is null
+
+#### Scenario: A stale row cannot mark a later position on the same market
+
+- GIVEN an open `CONFIRMED` row for `SOLUSDT` that lists allocation A0, which is no longer open, and a new rehearsal allocation A1 on `SOLUSDT`
+- WHEN the route is called
+- THEN A1's `venue_disagreement` is null
+
+#### Scenario: A row of another pool marks nothing
+
+- GIVEN an open `CONFIRMED` row of pool `(binance, usdt-m, USDT)` listing A1, whose pool is `(bybit, usdt-m, USDT)`
+- WHEN the route is called
+- THEN A1's `venue_disagreement` is null
+
+#### Scenario: Two positions on one pair share the mark
+
+- GIVEN an open `CONFIRMED` row listing A1 and A2, two allocations open on `AAVEUSDT` in one pool
+- WHEN the route is called
+- THEN both elements carry the mark, each with `allocation_count` 2
+
+#### Scenario: A confirmed row on a market the ledger holds nothing on adds no element
+
+- GIVEN an open `CONFIRMED` row of kind "no matching allocation" and no open allocation in that pool
+- WHEN the route is called
+- THEN `positions` is empty
+
+#### Scenario: The mark reads no venue
+
+- GIVEN a venue client that fails the test if it is called
+- WHEN the route is called with a confirmed row present
+- THEN the client is never called and no row of any table is written
+
+### Requirement: A Difference Between Pools Is Logged And Never Changes The Answer
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § C, the check added on 2026-10-12, and § K rows 4, 9 to 12 and 16 to 17).**
+
+An element's `pool` is the guard's own label; it decides which exchange tab
+shows the element, so a wrong one hides it. The route MUST therefore compare it
+with the reservation's pool, and for a position it MUST compare EVERY group of
+its fills with two things: the element's own pool and the reservation's pool (a
+group naming another pool is a difference), and the reservation's strategy (a
+group whose fills belong to another strategy is a difference). An order has one
+attempt and one reservation, so its pools are compared; a `SUBMITTED` attempt
+that joins to no reservation is a difference too. The route MUST log ONE
+WARNING per allocation or attempt with a difference, naming its id and the pools
+(and, for a position, the strategy ids) found, and nothing else. It MUST change
+NOTHING in the answer: the row stays, its `pool` stays the guard's element's and
+its `strategy_id` stays the reservation's. The log level MUST be WARNING, never
+ERROR, and no price, quantity, fee or margin MAY be logged. The WARNINGs repeat
+on every read while the fault exists.
+
+#### Scenario: An allocation whose fills name another pool than its reservation
+
+- GIVEN allocation A1 whose reservation is in pool `(bybit, usdt-m, USDT)` and whose fills name `(binance, usdt-m, USDT)`
+- WHEN the route is called
+- THEN A1 is served with the pool the guard labels it with, and one WARNING names A1 and both pools
+
+#### Scenario: Fills of an allocation name two pools
+
+- GIVEN allocation A1 with one group of fills in pool P1 and one in pool P2
+- WHEN the route is called
+- THEN one WARNING names A1 and both pools found, and the answer is the same as it would be without the check
+
+#### Scenario: Fills that belong to another strategy
+
+- GIVEN allocation A1 whose reservation belongs to S1 and one of whose groups of fills belongs to S2
+- WHEN the route is called
+- THEN one WARNING names A1 and both strategy ids, and the element's `strategy_id` is S1
+
+#### Scenario: An order whose attempt names another pool than its reservation
+
+- GIVEN a `SUBMITTED` attempt whose pool is not its reservation's
+- WHEN the route is called
+- THEN the order is served with the attempt's own pool and one WARNING names the attempt id and both pools
+
+#### Scenario: A submitted attempt with no reservation at all
+
+- GIVEN a `SUBMITTED` attempt with neither a reservation nor a closed allocation
+- WHEN the route is called
+- THEN the order is served and one WARNING names the attempt id
+
+#### Scenario: Nothing is logged when nothing is wrong
+
+- GIVEN every element's pool and strategy equal its reservation's, and every position has facts, a splittable symbol and a FILLED reservation
+- WHEN the route is called
+- THEN no WARNING is written by the read, and no ERROR is ever written by it
+
+#### Scenario: The check repeats on every read
+
+- GIVEN a standing difference
+- WHEN the route is called twice
+- THEN one WARNING is written per call
+
+### Requirement: One Request Reads One Database State And Writes Nothing
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § G).**
+
+All the statements of one request MUST see one database state, as of the first
+read, inside a read-only transaction. The route MUST write nothing, MUST take no
+advisory lock and no row lock, and MUST NOT delay a settle or an allocation.
+The number of statements MUST NOT grow with the number of positions. Under
+that snapshot the answer is the state of one instant, whole: an order is in
+flight and its position is not yet there, or the position is there and the
+order is gone; never both, never neither. The read MUST need no credential and MUST work
+the same in both values of `DRY_RUN`.
+
+#### Scenario: A fill committed during the read does not show two states
+
+- GIVEN an order in flight whose fills and `FILLED` status are committed in one transaction while the route is reading
+- WHEN the route is called
+- THEN the answer holds the order and not its position, or the position and not its order, and never neither
+
+#### Scenario: The route does not wait for the allocation lock
+
+- GIVEN another transaction holds `pg_advisory_xact_lock` for the pool `(bybit, usdt-m, USDT)`
+- WHEN the route is called
+- THEN it answers without waiting for that transaction to end
+
+#### Scenario: A settle is not delayed by the route
+
+- GIVEN the route is mid-read
+- WHEN a settle writes fills and the attempt's status
+- THEN the settle completes without waiting for the route, and the route raises no serialization error
+
+#### Scenario: The statement count does not grow with the positions
+
+- GIVEN the same database with 1 open position and with 20
+- WHEN the route is called on each
+- THEN it issues the same number of statements
+
+#### Scenario: A read writes no row
+
+- GIVEN any database state
+- WHEN the route is called
+- THEN no table changes
+
+#### Scenario: No credential is needed
+
+- GIVEN `DRY_RUN=true` and no exchange credential in the vault
+- WHEN the route is called
+- THEN it answers 200
+
+### Requirement: The Unit Changes No Guard File And Adds No Migration
+
+> **Added 2026-10-12 (owner decision 65; design addendum "open positions" § B and § G).**
+
+The route MUST add no migration and no table, column, constraint or trigger.
+The mode guard (`mode_origin.py`, `mode_origin_reader.py`,
+`assert_mode_matches_ledger.py` and `main.assert_dry_run_matches_ledger`) and
+its four test files MUST be unchanged, so that its tests keep pinning it as they
+do today. The only change to `main.py` MUST be the import of the new router and
+its registration beside the other admin routers. The reader gains a second
+caller and MUST read and write nothing more than for the first.
+
+#### Scenario: The migration head is unchanged
+
+- GIVEN the change is applied
+- WHEN `alembic heads` is read
+- THEN it names the same revision as before the change
+
+#### Scenario: The guard's tests pass unchanged
+
+- GIVEN the guard's domain tests, its reader's integration tests, its use case's tests and its wiring tests, with no line edited
+- WHEN they run
+- THEN they pass
+
+#### Scenario: The diff touches none of the guard's files
+
+- GIVEN the change's diff
+- WHEN its file names are read
+- THEN none is a guard source file or one of its four test files, and `main.py` changes only by the router's import and registration
+
+#### Scenario: The reader's second caller changes nothing
+
+- GIVEN the guard is run before and after the route is called
+- WHEN the two guard results are compared
+- THEN they are equal

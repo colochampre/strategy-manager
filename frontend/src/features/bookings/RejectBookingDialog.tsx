@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { outcomeMessageKey } from "@/features/bookings/outcomeMessage";
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { BookingProposal, RejectResponse } from "@/shared/api/types";
 
 interface RejectBookingDialogProps {
@@ -34,12 +35,15 @@ export function RejectBookingDialog({ proposal, onClose }: RejectBookingDialogPr
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["bookings", "pending"] });
+      // A decided booking changes what the exchange is said to hold: the marks read it again.
+      void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY });
     },
     onError: (error) => {
       // Same reasoning as ConfirmBookingDialog: only success and a 409
       // (ALREADY_DECIDED) mean the backend's state actually moved.
       if (error instanceof ApiError && error.status === 409) {
         void queryClient.invalidateQueries({ queryKey: ["bookings", "pending"] });
+        void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY });
       }
     },
   });

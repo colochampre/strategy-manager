@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
+import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import type { RangeName } from "@/features/overview/RangeSelector";
 import { cn } from "@/shared/lib/cn";
 

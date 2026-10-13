@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, localcontext
 from enum import StrEnum
+from typing import Protocol
 
 from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
 from strategy_manager.performance.domain.closed_trade import Direction, FillGroup
@@ -118,7 +119,22 @@ def classify_rehearsal_pricing(direction: Direction, facts: PricingFacts) -> Reh
     return RehearsalPricing.UNDETERMINED
 
 
-def operation_fees(groups: Sequence[FillGroup]) -> OperationFees:
+class FeeCharged(Protocol):
+    """The three attributes ``operation_fees`` reads of a fill group. ``FillGroup``
+    satisfies it, and so does the open positions' fill aggregate, which has no
+    ``rehearsal`` flag to give (design addendum "open positions", section D)."""
+
+    @property
+    def settlement_currency(self) -> str: ...
+
+    @property
+    def fee_currency(self) -> str: ...
+
+    @property
+    def fee(self) -> Decimal: ...
+
+
+def operation_fees(groups: Sequence[FeeCharged]) -> OperationFees:
     """The fees of ONE allocation: plain sums, nothing converted.
 
     ``fees`` is every fee charged in the pool's settlement currency, on both

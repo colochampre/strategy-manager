@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { formatUtcTimestamp } from "@/features/bookings/format";
 import { outcomeMessageKey } from "@/features/bookings/outcomeMessage";
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { ApproveResponse, BookingProposal } from "@/shared/api/types";
 
 interface ConfirmBookingDialogProps {
@@ -33,6 +34,8 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["bookings", "pending"] });
+      // A decided booking changes what the exchange is said to hold: the marks read it again.
+      void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY });
     },
     onError: (error) => {
       // Only success and a 409 mean the backend committed a state change
@@ -41,6 +44,7 @@ export function ConfirmBookingDialog({ proposal, onClose }: ConfirmBookingDialog
       // nothing, so the pending list is still accurate as-is.
       if (error instanceof ApiError && error.status === 409) {
         void queryClient.invalidateQueries({ queryKey: ["bookings", "pending"] });
+        void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY });
       }
     },
   });

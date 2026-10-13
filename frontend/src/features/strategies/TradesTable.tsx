@@ -1,14 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { amountText, parseDecimal, percentText, toneClass } from "@/features/overview/format";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
-import { clockText, compactDateText, dateTimeText, figureText, tableFigureText } from "@/features/strategies/format";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
+import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
-
-const DASH = "—";
+import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-text";
+import { Absent } from "@/shared/ui/Absent";
+import { Instant } from "@/shared/ui/Instant";
 
 interface TradesTableProps {
   strategyId: string;
@@ -42,34 +42,6 @@ function rehearsalTagKey(fillPrice: string | null): string {
   if (fillPrice === "FIXED_ONE") return "strategies.performance.trades.rehearsalFixed";
   if (fillPrice === "ALERT") return "strategies.performance.trades.rehearsalAlert";
   return "strategies.performance.trades.rehearsal";
-}
-
-/**
- * A figure that is absent (null) is an em dash with its reason for a screen
- * reader; one that is present but cannot be read says so. Neither is a zero.
- */
-function Absent({ reason }: { reason: string }) {
-  return (
-    <>
-      <span aria-hidden="true">{DASH}</span>
-      <span className="sr-only">{reason}</span>
-    </>
-  );
-}
-
-/**
- * An Opened or Closed instant on two lines (owner decision 46): the numeric UTC date in the panel's
- * language, then the 24-hour UTC time in ink-3. An instant that cannot be read shows as the server
- * wrote it, with no time line.
- */
-function Instant({ iso, locale }: { iso: string; locale: string }) {
-  const time = clockText(iso);
-  return (
-    <>
-      <span className="block">{compactDateText(iso, locale)}</span>
-      {time !== null && <span className="block text-ink-3">{time}</span>}
-    </>
-  );
 }
 
 function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {

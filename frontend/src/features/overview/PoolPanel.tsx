@@ -5,11 +5,15 @@ import { useTranslation } from "react-i18next";
 import { LedgerLine } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
+import type { OpenCount } from "@/features/overview/MonthlySummary";
 import { PoolEyebrow } from "@/features/overview/PoolEyebrow";
 import { DEFAULT_RANGE, RangeSelector } from "@/features/overview/RangeSelector";
 import type { RangeName } from "@/features/overview/RangeSelector";
 import { ReturnChart } from "@/features/overview/ReturnChart";
+import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { usePoolPerformance } from "@/shared/api/performance";
+import { ofPool, useOpenPositions } from "@/shared/api/positions";
+import type { OpenState } from "@/shared/api/positions";
 import type { Pool, PoolPerformance } from "@/shared/api/types";
 
 interface PoolPanelProps {
@@ -28,6 +32,12 @@ function observedAtText(observedAt: string, locale: string): string {
     timeZone: "UTC",
   }).format(instant);
   return `${text} UTC`;
+}
+
+/** The pool's own positions and how many are dry run; a position of both origins is counted in the first only. */
+function openCountOf(answer: OpenState, pool: Pool): OpenCount {
+  const mine = ofPool(answer, pool).positions;
+  return { total: mine.length, rehearsal: mine.filter((position) => position.origin === "rehearsal").length };
 }
 
 interface ReportTopProps {
@@ -90,6 +100,10 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
   const [range, setRange] = useState<RangeName>(DEFAULT_RANGE);
   const staleBalance = pool.balance !== null && pool.balance.stale ? pool.balance : null;
   const report = performance.status === "success" ? performance.data : null;
+  // The same query as the list's (one request): null while the first read is loading or has failed, so the
+  // summary writes no part about open positions; the pool's own positions only (rule 7).
+  const answer = useOpenPositions().data;
+  const openCount = answer === undefined ? null : openCountOf(answer, pool);
 
   let top: ReactNode;
   if (performance.status === "pending") {
@@ -143,9 +157,11 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
       {report !== null && (
         <div className="flex flex-col gap-1.5">
           <MonthlyGrid monthly={report.monthly} />
-          <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
+          <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
         </div>
       )}
+      {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
+      <PoolOpenPositions pool={pool} />
     </section>
   );
 }

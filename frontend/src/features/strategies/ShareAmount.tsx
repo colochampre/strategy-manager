@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { clockText, cutAmountText } from "@/features/strategies/format";
+import { clockText, cutAmountText } from "@/shared/lib/figure-text";
 import { cn } from "@/shared/lib/cn";
 
 /** A figure the server served for the value in the field. `staleAt` is the balance's read time when stale. */

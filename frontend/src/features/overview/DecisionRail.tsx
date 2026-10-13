@@ -1,8 +1,13 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router";
 
 import { BookingsListView } from "@/features/bookings/BookingsListView";
 import { usePendingBookings } from "@/features/bookings/usePendingBookings";
 import type { ExchangeScope } from "@/shared/scope/exchange-store";
+
+/** The anchor the venue mark on a position links to. */
+const RAIL_ID = "decision-rail";
 
 export type RailPlacement = "right-rail" | "in-flow";
 
@@ -61,9 +66,20 @@ function ReadyRail({ exchange }: { exchange: string }) {
 export function DecisionRail({ scope, placement }: DecisionRailProps) {
   const { t } = useTranslation();
   const exchange = scope.status === "ready" ? scope.exchange : null;
+  const { hash } = useLocation();
+  const rail = useRef<HTMLElement>(null);
+
+  // The router does nothing with a hash, so a link to "#decision-rail" would seem to lead nowhere on a phone,
+  // where the rail sits below the chart. When the hash names the rail, bring it into view: once it is mounted,
+  // and again whenever the hash changes while it is on screen.
+  useEffect(() => {
+    if (hash === `#${RAIL_ID}`) rail.current?.scrollIntoView();
+  }, [hash]);
 
   return (
     <aside
+      id={RAIL_ID}
+      ref={rail}
       aria-labelledby="decision-rail-title"
       data-placement={placement}
       className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-rule bg-panel p-4 lg:p-6"

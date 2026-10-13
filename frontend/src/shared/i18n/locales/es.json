@@ -79,7 +79,14 @@
       "open_one": "{{count}} operación abierta fuera de la curva",
       "open_other": "{{count}} operaciones abiertas fuera de la curva",
       "noCapital_one": "{{count}} operación sin capital al abrir",
-      "noCapital_other": "{{count}} operaciones sin capital al abrir"
+      "noCapital_other": "{{count}} operaciones sin capital al abrir",
+      "openAll_one": "{{count}} abierta",
+      "openAll_other": "{{count}} abiertas",
+      "openWithRehearsal_one": "{{count}} abierta, en simulación",
+      "openWithRehearsal_other": "{{count}} abiertas, {{rehearsal}} de ellas en simulación"
+    },
+    "open": {
+      "strategy": "Estrategia"
     },
     "pool": {
       "loading": "Cargando el rendimiento de este pool…",
@@ -379,6 +386,77 @@
         "bookingProposals_one": "{{count}} propuesta de registro",
         "bookingProposals_other": "{{count}} propuestas de registro"
       }
+    }
+  },
+  "positions": {
+    "state": {
+      "figures": {
+        "open": "Abiertas",
+        "orders": "Órdenes en curso",
+        "lastRead": "Última lectura",
+        "time": "{{time}} UTC"
+      },
+      "notShown": "Fuera de esta lista: {{items}}.",
+      "archived": "archivada",
+      "unreadable": "cifras no legibles",
+      "refresh": "Leer de nuevo",
+      "loading": "Leyendo posiciones abiertas…",
+      "error": "No se pudieron leer las posiciones abiertas. Una fila sin marca no significa que no haya nada abierto.",
+      "stale": "No se pudo actualizar desde las {{time}} UTC."
+    },
+    "marks": {
+      "name": "Posiciones abiertas de {{name}}"
+    },
+    "origin": {
+      "rehearsal": "Simulación",
+      "live": "En vivo",
+      "mixed": "Simulación y en vivo",
+      "unknown": "origen desconocido"
+    },
+    "sideUnreadable": "lado no legible",
+    "order": {
+      "inFlight": "orden en curso",
+      "open": "apertura",
+      "close": "cierre",
+      "sent": "enviada {{time}} UTC"
+    },
+    "venue": {
+      "disagrees": "El exchange no coincide",
+      "noProposal": "No hay un registro propuesto para esta diferencia.",
+      "link": "Ver la decisión pendiente",
+      "linkName": "Ver la decisión pendiente, {{pair}}",
+      "groupName": "El exchange no coincide, {{pair}}",
+      "line": {
+        "disagrees": "el exchange no coincide",
+        "nets": "exchange {{venue}}, libro mayor {{ledger}}",
+        "compared": "última comparación {{time}} UTC",
+        "shared": "compartida por {{positions}} posiciones en este par",
+        "noProposal": "no hay un registro propuesto para esta diferencia"
+      }
+    },
+    "table": {
+      "title": "Posiciones abiertas",
+      "empty": "Sin posiciones abiertas.",
+      "margin": "Margen otorgado {{currency}}",
+      "leverage": "Apalancamiento",
+      "leverageValue": "{{value}}x",
+      "notRecorded": "no registrado",
+      "ofOpened": "de {{opened}} abiertas",
+      "averageOf": "promedio de {{fills}} ejecuciones",
+      "unmatched_one": "{{count}} posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+      "unmatched_other": "{{count}} posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra."
+    },
+    "reason": {
+      "UNRESOLVED_SYMBOL": "La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan.",
+      "SEVERAL_MARKETS": "Las ejecuciones de esta posición nombran más de un par.",
+      "FLIPPED": "Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula.",
+      "other": "Las cifras no se pudieron calcular a partir de las ejecuciones."
+    },
+    "note": {
+      "margin": "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
+      "rehearsal": "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
+      "mixed": "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
+      "reservation": "Su reserva figura como {{status}}, no FILLED."
     }
   },
   "exchanges": {

@@ -79,7 +79,14 @@
       "open_one": "{{count}} open trade not in the curve",
       "open_other": "{{count}} open trades not in the curve",
       "noCapital_one": "{{count}} trade without capital at open",
-      "noCapital_other": "{{count}} trades without capital at open"
+      "noCapital_other": "{{count}} trades without capital at open",
+      "openAll_one": "{{count}} open",
+      "openAll_other": "{{count}} open",
+      "openWithRehearsal_one": "{{count}} open, dry run",
+      "openWithRehearsal_other": "{{count}} open, {{rehearsal}} of them dry run"
+    },
+    "open": {
+      "strategy": "Strategy"
     },
     "pool": {
       "loading": "Loading this pool's performance…",
@@ -379,6 +386,77 @@
         "bookingProposals_one": "{{count}} booking proposal",
         "bookingProposals_other": "{{count}} booking proposals"
       }
+    }
+  },
+  "positions": {
+    "state": {
+      "figures": {
+        "open": "Open",
+        "orders": "Orders in flight",
+        "lastRead": "Last read",
+        "time": "{{time}} UTC"
+      },
+      "notShown": "Not on this list: {{items}}.",
+      "archived": "archived",
+      "unreadable": "figures not readable",
+      "refresh": "Read again",
+      "loading": "Reading open positions…",
+      "error": "Open positions could not be read. A row without a mark does not mean that nothing is open.",
+      "stale": "Could not be refreshed since {{time}} UTC."
+    },
+    "marks": {
+      "name": "Open positions of {{name}}"
+    },
+    "origin": {
+      "rehearsal": "Dry run",
+      "live": "Live",
+      "mixed": "Dry run and live",
+      "unknown": "origin unknown"
+    },
+    "sideUnreadable": "side not readable",
+    "order": {
+      "inFlight": "order in flight",
+      "open": "opening",
+      "close": "closing",
+      "sent": "sent {{time}} UTC"
+    },
+    "venue": {
+      "disagrees": "Venue disagrees",
+      "noProposal": "No booking is proposed for it.",
+      "link": "See the pending decision",
+      "linkName": "See the pending decision, {{pair}}",
+      "groupName": "Venue disagrees, {{pair}}",
+      "line": {
+        "disagrees": "venue disagrees",
+        "nets": "exchange {{venue}}, ledger {{ledger}}",
+        "compared": "last compared {{time}} UTC",
+        "shared": "shared by {{positions}} positions on this pair",
+        "noProposal": "no booking is proposed"
+      }
+    },
+    "table": {
+      "title": "Open positions",
+      "empty": "No open position.",
+      "margin": "Margin granted {{currency}}",
+      "leverage": "Leverage",
+      "leverageValue": "{{value}}x",
+      "notRecorded": "not recorded",
+      "ofOpened": "of {{opened}} opened",
+      "averageOf": "average of {{fills}} fills",
+      "unmatched_one": "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
+      "unmatched_other": "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them."
+    },
+    "reason": {
+      "UNRESOLVED_SYMBOL": "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
+      "SEVERAL_MARKETS": "The fills of this position name more than one pair.",
+      "FLIPPED": "The fills sold more than was bought, or bought more than was sold. The entry price is not derived.",
+      "other": "The figures could not be derived from the fills."
+    },
+    "note": {
+      "margin": "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
+      "rehearsal": "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
+      "mixed": "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
+      "reservation": "Its reservation reads {{status}}, not FILLED."
     }
   },
   "exchanges": {
