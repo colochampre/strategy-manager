@@ -138,6 +138,16 @@ export function clockText(iso: string): string | null {
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(instant);
 }
 
+/** Stub (RED step): hours, minutes and seconds in UTC. */
+export function clockSecondsText(_iso: string): string | null {
+  return null;
+}
+
+/** Stub (RED step): a time of the answer, with its date when it is not on the UTC day of `asOf`. */
+export function timeOfAnswerText(_iso: string, _asOf: string, _locale: string, _withSeconds: boolean): string | null {
+  return null;
+}
+
 /** A timestamp as a calendar day in UTC; it moved to `shared/lib` for the Settings card and is re-exported here. */
 export { dayText } from "@/shared/lib/day-text";
 
