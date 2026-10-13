@@ -20,13 +20,18 @@ assertion and not on a missing name.
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from enum import StrEnum
 from uuid import UUID
 
+from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
 from strategy_manager.execution.domain.mode_origin import OpenAllocationOrigin, Origin
 from strategy_manager.performance.domain.closed_trade import Direction
-from strategy_manager.performance.domain.operation import FeeAmount
+from strategy_manager.performance.domain.operation import QUOTIENT_DIGITS, FeeAmount
+from strategy_manager.shared.domain.errors import InvariantViolation
+
+_ZERO = Decimal(0)
+_BUY = "BUY"
 
 
 class FiguresMissing(StrEnum):
@@ -183,8 +188,63 @@ class OpenState:
 def open_position_figures(
     groups: Sequence[FillAggregate],
 ) -> OpenPositionFigures | FiguresMissing:
-    """STUB (op.1.7): answers wrongly. Replaced by task op.1.12."""
-    return FiguresMissing.INCONSISTENT
+    """The five figures of ONE allocation, or the reason they cannot be derived.
+    Never raises for a row: a figure that cannot be derived is a reason, and the
+    row stays (design section D; section K row 9).
+
+    The net is the guard's arithmetic, written a second time for display only:
+    the base quantity bought, minus the base quantity sold, minus every fee
+    charged in the base currency (compared upper-cased). The DECISION that a row
+    exists is the fold's; ``FiguresMissing.INCONSISTENT`` is what a row shows if
+    the two ever disagree.
+
+    The reasons are tried in this order, so that each is true when it is given:
+    no groups at all (``INCONSISTENT``), a symbol that cannot be split
+    (``UNRESOLVED_SYMBOL``, since the base-fee rule needs it), several market
+    keys (``SEVERAL_MARKETS``), a net of exactly zero (``INCONSISTENT``), a net
+    whose sign is the opposite of the earliest fill's side (``FLIPPED``), and a
+    held side with no quantity or notional above zero (``INCONSISTENT``). The
+    entry price divides only after that last check.
+    """
+    if not groups:
+        return FiguresMissing.INCONSISTENT
+
+    try:
+        bases = [base_currency_of(g.symbol, g.settlement_currency).upper() for g in groups]
+    except InvariantViolation:
+        return FiguresMissing.UNRESOLVED_SYMBOL
+    if len({market_key(g.symbol) for g in groups}) > 1:
+        return FiguresMissing.SEVERAL_MARKETS
+
+    net = _ZERO
+    for group, base in zip(groups, bases, strict=True):
+        net += group.quantity if group.side == _BUY else -group.quantity
+        if group.fee_currency.upper() == base:
+            net -= group.fee
+    if net == _ZERO:
+        return FiguresMissing.INCONSISTENT
+
+    long = net > _ZERO
+    earliest = min(groups, key=lambda g: (g.first_filled_at, g.side != _BUY))
+    if (earliest.side == _BUY) != long:
+        return FiguresMissing.FLIPPED
+
+    held = [g for g in groups if (g.side == _BUY) == long]
+    opened_size = sum((g.quantity for g in held), _ZERO)
+    notional = sum((g.notional for g in held), _ZERO)
+    if opened_size <= _ZERO or notional <= _ZERO:
+        return FiguresMissing.INCONSISTENT
+
+    with localcontext() as context:
+        context.prec = QUOTIENT_DIGITS
+        entry_price = notional / opened_size
+    return OpenPositionFigures(
+        side=Direction.LONG if long else Direction.SHORT,
+        base_currency=bases[0],
+        size=abs(net),
+        opened_size=opened_size,
+        entry_price=entry_price,
+    )
 
 
 def origin_of(allocation: OpenAllocationOrigin) -> Origin:
