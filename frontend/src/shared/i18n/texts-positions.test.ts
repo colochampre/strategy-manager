@@ -58,6 +58,102 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "See the pending decision, {{pair}}",
     "Ver la decisión pendiente, {{pair}}",
   ],
+  // op.3: the order line, the venue line, the table, its reasons and its notes (section I).
+  ["positions.order.open", "opening", "apertura"],
+  ["positions.order.close", "closing", "cierre"],
+  ["positions.order.sent", "sent {{time}} UTC", "enviada {{time}} UTC"],
+  ["positions.venue.groupName", "Venue disagrees, {{pair}}", "El exchange no coincide, {{pair}}"],
+  ["positions.venue.line.disagrees", "venue disagrees", "el exchange no coincide"],
+  [
+    "positions.venue.line.nets",
+    "exchange {{venue}}, ledger {{ledger}}",
+    "exchange {{venue}}, libro mayor {{ledger}}",
+  ],
+  ["positions.venue.line.compared", "last compared {{time}} UTC", "última comparación {{time}} UTC"],
+  [
+    "positions.venue.line.shared",
+    "shared by {{positions}} positions on this pair",
+    "compartida por {{positions}} posiciones en este par",
+  ],
+  [
+    "positions.venue.line.noProposal",
+    "no booking is proposed",
+    "no hay un registro propuesto para esta diferencia",
+  ],
+  ["positions.table.title", "Open positions", "Posiciones abiertas"],
+  ["positions.table.empty", "No open position.", "Sin posiciones abiertas."],
+  ["positions.table.margin", "Margin granted {{currency}}", "Margen otorgado {{currency}}"],
+  ["positions.table.leverage", "Leverage", "Apalancamiento"],
+  ["positions.table.leverageValue", "{{value}}x", "{{value}}x"],
+  ["positions.table.notRecorded", "not recorded", "no registrado"],
+  ["positions.table.ofOpened", "of {{opened}} opened", "de {{opened}} abiertas"],
+  ["positions.table.averageOf", "average of {{fills}} fills", "promedio de {{fills}} ejecuciones"],
+  [
+    "positions.table.unmatched_one",
+    "{{count}} open position could not be matched to a strategy. The Strategies page names it.",
+    "{{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+  ],
+  [
+    "positions.table.unmatched_other",
+    "{{count}} open positions could not be matched to a strategy. The Strategies page names them.",
+    "{{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.",
+  ],
+  [
+    "positions.reason.UNRESOLVED_SYMBOL",
+    "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
+    "La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan.",
+  ],
+  [
+    "positions.reason.SEVERAL_MARKETS",
+    "The fills of this position name more than one pair.",
+    "Las ejecuciones de esta posición nombran más de un par.",
+  ],
+  [
+    "positions.reason.FLIPPED",
+    "The fills sold more than was bought, or bought more than was sold. The entry price is not derived.",
+    "Las ejecuciones vendieron más de lo comprado, o compraron más de lo vendido. El precio de entrada no se calcula.",
+  ],
+  [
+    "positions.reason.other",
+    "The figures could not be derived from the fills.",
+    "Las cifras no se pudieron calcular a partir de las ejecuciones.",
+  ],
+  [
+    "positions.note.margin",
+    "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
+    "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
+  ],
+  [
+    "positions.note.rehearsal",
+    "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
+    "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
+  ],
+  [
+    "positions.note.mixed",
+    "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
+    "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
+  ],
+  [
+    "positions.note.reservation",
+    "Its reservation reads {{status}}, not FILLED.",
+    "Su reserva figura como {{status}}, no FILLED.",
+  ],
+];
+
+/**
+ * The closed trades table's words the open-positions section REUSES (design addendum section H): they must
+ * exist and must not change, because the section and the table under it have to write one page in one voice.
+ */
+const REUSED: ReadonlyArray<readonly [string, string, string]> = [
+  ["strategies.performance.trades.opened", "Opened (UTC)", "Apertura (UTC)"],
+  ["strategies.performance.trades.pair", "Pair", "Par"],
+  ["strategies.performance.trades.side", "Side", "Sentido"],
+  ["strategies.performance.trades.size", "Size", "Tamaño"],
+  ["strategies.performance.trades.entry", "Entry", "Entrada"],
+  ["strategies.performance.trades.fees", "Fees {{currency}}", "Comisiones {{currency}}"],
+  ["strategies.performance.trades.direction.LONG", "LONG", "LONG"],
+  ["strategies.performance.trades.direction.SHORT", "SHORT", "SHORT"],
+  ["strategies.performance.trades.otherFee", "+ {{amount}} {{currency}}", "+ {{amount}} {{currency}}"],
 ];
 
 /** Keys of the first writing of the design that never existed in a locale file and must not (section I). */
@@ -79,6 +175,20 @@ describe("the open-positions texts of the Strategies page exist in both language
 
   it.each(TEXTS)("%s is in es.json as approved", (key, _english, spanish) => {
     expect(lookup(es, key)).toBe(spanish);
+  });
+
+  it.each(REUSED)("%s, which the section reuses, is present and unchanged in both files", (key, english, spanish) => {
+    expect(lookup(en, key)).toBe(english);
+    expect(lookup(es, key)).toBe(spanish);
+  });
+
+  it("writes the unmatched sentence in the singular for one and the plural for more, in agreement, in Spanish", () => {
+    const one = lookup(es, "positions.table.unmatched_one");
+    const other = lookup(es, "positions.table.unmatched_other");
+    expect(one).toContain("posición abierta no se pudo asociar");
+    expect(one).toContain("la nombra");
+    expect(other).toContain("posiciones abiertas no se pudieron asociar");
+    expect(other).toContain("las nombra");
   });
 
   it("holds a non-empty text for every key, in both files", () => {
