@@ -10,8 +10,14 @@ from strategy_manager.execution.domain.mode_origin import (
     InFlightAttemptOrigin,
     OpenAllocationOrigin,
 )
-from strategy_manager.performance.application.ports import OpenStateSourcePort, PoolFills
+from strategy_manager.performance.application.ports import (
+    OpenStateSourcePort,
+    PoolFills,
+    PositionFacts,
+    SubmittedOrder,
+)
 from strategy_manager.performance.domain.closed_trade import FillGroup
+from strategy_manager.performance.domain.open_position import DiscrepancyRow
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
 
@@ -98,6 +104,75 @@ class FixedClock:
 
     def now(self) -> datetime:
         return self._now
+
+
+class FakeOpenStateReader:
+    """The guard's reader as a case table: it holds the two sequences it is told
+    to hold and answers them unchanged, whoever asks. The SAME instance can be
+    given to ``find_mismatches``' callers and to ``ReadOpenPositions``.
+
+    ``calls`` is where the call order is recorded; hand several fakes ONE list
+    and the order of statements across them is visible."""
+
+    def __init__(
+        self,
+        opened: Sequence[OpenAllocationOrigin] = (),
+        in_flight: Sequence[InFlightAttemptOrigin] = (),
+        *,
+        calls: list[str] | None = None,
+    ) -> None:
+        self._opened = tuple(opened)
+        self._in_flight = tuple(in_flight)
+        self.calls: list[str] = calls if calls is not None else []
+
+    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+        self.calls.append("open")
+        return self._opened
+
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
+        self.calls.append("in_flight")
+        return self._in_flight
+
+
+class FakeFactsSource:
+    """The facts read as a table: ``facts`` by allocation id, ``submitted`` as
+    the submitted-orders read. An id it holds nothing for is absent from the
+    answer, as a source with no row for it would leave it."""
+
+    def __init__(
+        self,
+        facts: Mapping[UUID, PositionFacts] | None = None,
+        submitted: Sequence[SubmittedOrder] = (),
+        *,
+        calls: list[str] | None = None,
+    ) -> None:
+        self._facts = dict(facts or {})
+        self._submitted = tuple(submitted)
+        self.calls: list[str] = calls if calls is not None else []
+        self.asked_ids: list[list[UUID]] = []
+
+    async def position_facts(self, allocation_ids: Sequence[UUID]) -> Mapping[UUID, PositionFacts]:
+        self.calls.append("facts")
+        self.asked_ids.append(list(allocation_ids))
+        return {i: self._facts[i] for i in allocation_ids if i in self._facts}
+
+    async def submitted_orders(self) -> Sequence[SubmittedOrder]:
+        self.calls.append("submitted")
+        return self._submitted
+
+
+class FakeDisagreementSource:
+    """The confirmed-disagreement read as a table of rows."""
+
+    def __init__(
+        self, rows: Sequence[DiscrepancyRow] = (), *, calls: list[str] | None = None
+    ) -> None:
+        self._rows = tuple(rows)
+        self.calls: list[str] = calls if calls is not None else []
+
+    async def confirmed_open(self) -> Sequence[DiscrepancyRow]:
+        self.calls.append("disagreements")
+        return self._rows
 
 
 class HeldOpenStateSource:
