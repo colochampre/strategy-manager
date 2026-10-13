@@ -105,6 +105,170 @@ function noFacts(overrides: Partial<OpenPosition> = {}): OpenPosition {
   });
 }
 
+/** The spec's live AAVEUSDT LONG of 0.82 at 184.3, fees 0.17, margin 121.80 and leverage 2.00000000. */
+function aave(overrides: Partial<OpenPosition> = {}): OpenPosition {
+  return openPosition({
+    strategy_id: ALPHA,
+    markets: ["AAVEUSDT"],
+    base_currency: "AAVE",
+    side: "LONG",
+    origin: "live",
+    size: "0.82000000",
+    opened_size: "0.82000000",
+    entry_price: "184.300000000000000000",
+    opened_at: "2026-10-11T14:05:11Z",
+    fill_count: 1,
+    fees: "0.17000000",
+    other_fees: [],
+    margin_granted: "121.8",
+    leverage: "2.00000000",
+    ...overrides,
+  });
+}
+
+describe("the cells of a position (T10; spec 'Times And Figures Of Open Positions Are Written One Way')", () => {
+  it("lists a live position with every column, the heading of the margin naming the currency", async () => {
+    await mountSection(answering([aave()]));
+
+    const table = theTable();
+    const headings = within(table)
+      .getAllByRole("columnheader")
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      "Opened (UTC)",
+      "Pair",
+      "Side",
+      "Size",
+      "Entry",
+      "Fees USDT",
+      "Margin granted USDT",
+      "Leverage",
+    ]);
+
+    const cells = onlyRow();
+    const date = cells[COLUMN.opened]?.querySelectorAll(".block");
+    expect([...(date ?? [])].map((part) => part.textContent)).toEqual(["10/11/2026", "14:05"]);
+    expect(date?.[1]).toHaveClass("text-ink-3");
+    expect(cells[COLUMN.pair]?.textContent).toBe("AAVEUSDTLive");
+    expect(cells[COLUMN.side]?.textContent).toBe("LONG");
+    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
+    expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(cells[COLUMN.fees]?.textContent).toBe("0.17");
+    expect(cells[COLUMN.margin]?.textContent).toBe("121.80");
+    expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
+  });
+
+  it("writes the origin's word under the pair, in the sans type, in the origin's token", async () => {
+    await mountSection(
+      answering([aave({ origin: "rehearsal" }), aave({ origin: "live", markets: ["LINKUSDT"] }), aave({ origin: "mixed", markets: ["STXUSDT"] })]),
+    );
+
+    const rows = positionRows(theTable());
+    const words = rows.map((row) => {
+      const word = cellsOf(row)[COLUMN.pair]?.querySelector(".block") as HTMLElement;
+      return [word.textContent, word.className, word.firstElementChild?.className];
+    });
+    expect(words).toEqual([
+      ["Dry run", expect.stringContaining("font-sans"), expect.stringContaining("text-decision")],
+      ["Live", expect.stringContaining("font-sans"), expect.stringContaining("text-gain")],
+      ["Dry run and live", expect.stringContaining("font-sans"), expect.stringContaining("text-loss")],
+    ]);
+    for (const row of rows) expect(cellsOf(row)[COLUMN.pair]?.querySelector(".block")).toHaveClass("text-[11px]");
+  });
+
+  it("writes the base currency as a unit, in the sans type and the faint ink", async () => {
+    await mountSection(answering([aave()]));
+
+    const unit = onlyRow()[COLUMN.size]?.querySelector(".font-sans") as HTMLElement;
+    expect(unit).toHaveTextContent("AAVE");
+    expect(unit).toHaveClass("text-[11px]", "text-ink-3");
+  });
+
+  it("says what was opened under the size, only when it differs from the size", async () => {
+    await mountSection(
+      answering([aave({ size: "0.3", opened_size: "0.5" }), aave({ markets: ["LINKUSDT"], size: "0.5", opened_size: "0.50000000" })]),
+    );
+
+    const [partial, whole] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
+    expect(partial[COLUMN.size]).toHaveTextContent("0.3 AAVE");
+    expect(within(partial[COLUMN.size] as HTMLElement).getByText("of 0.5 opened")).toHaveClass("block", "font-sans", "text-[11px]", "text-ink-3");
+    expect(whole[COLUMN.size]?.textContent).not.toContain("opened");
+  });
+
+  it("says that the entry is an average only above one fill", async () => {
+    await mountSection(answering([aave({ fill_count: 3 }), aave({ markets: ["LINKUSDT"], fill_count: 1 })]));
+
+    const [three, one] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
+    expect(three[COLUMN.entry]).toHaveTextContent("184.3");
+    expect(within(three[COLUMN.entry] as HTMLElement).getByText("average of 3 fills")).toBeInTheDocument();
+    expect(one[COLUMN.entry]?.textContent).toBe("184.3");
+  });
+
+  it("writes a fee in another currency beside the fees, as the closed trades table does", async () => {
+    await mountSection(answering([aave({ other_fees: [{ currency: "SOL", amount: "0.00100000" }] })]));
+
+    const fees = onlyRow()[COLUMN.fees] as HTMLElement;
+    expect(fees.textContent).toBe("0.17+ 0.001 SOL");
+    expect(within(fees).getByText("+ 0.001 SOL")).toHaveClass("ml-2", "font-sans", "text-[11px]", "text-ink-3");
+  });
+
+  it("writes the margin with the currency's decimals: two for USDT, eight for BTC", async () => {
+    await mountSection(
+      answering([
+        aave({ margin_granted: "121.8" }),
+        aave({ markets: ["BTCUSD"], currency: "BTC", margin_granted: "0.0012345678", fees: "0.0000123" }),
+      ]),
+    );
+
+    const [usdt, btc] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
+    expect(usdt[COLUMN.margin]?.textContent).toBe("121.80");
+    expect(btc[COLUMN.margin]?.textContent).toBe("0.00123457");
+    expect(btc[COLUMN.fees]?.textContent).toBe("0.00001230");
+  });
+
+  it.each([
+    ["2.00000000", "2x"],
+    ["1.00000000", "1x"],
+    ["2.50000000", "2.5x"],
+    ["10.00000000", "10x"],
+  ])("writes the served leverage %s as %s, never the served string", async (served, written) => {
+    await mountSection(answering([aave({ leverage: served })]));
+
+    expect(onlyRow()[COLUMN.leverage]?.textContent).toBe(written);
+  });
+
+  it("reads 1x for a rehearsal position, because 1 was recorded", async () => {
+    await mountSection(answering([aave({ origin: "rehearsal", leverage: "1.00000000" })]));
+
+    expect(onlyRow()[COLUMN.leverage]?.textContent).toBe("1x");
+  });
+
+  it("draws no notional, no unrealised PnL and no current price anywhere in the section", async () => {
+    const { view } = await mountSection(answering([aave()]));
+
+    const text = (view.container.textContent ?? "").toLowerCase();
+    for (const word of ["notional", "unrealised", "unrealized", "pnl", "current price", "mark price"]) expect(text).not.toContain(word);
+    expect(within(theTable()).getAllByRole("columnheader")).toHaveLength(8);
+  });
+
+  it("selects the strategy's positions over the WHOLE answer, wherever the ledger put them", async () => {
+    const elsewhere = aave({ markets: ["ELSEUSDT"], pool: { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" } });
+    const another = aave({ markets: ["OTHERUSDT"], strategy_id: "22222222-2222-4222-8222-222222222222" });
+    const nobody = aave({ markets: ["NOBODYUSDT"], strategy_id: null, figures_missing: "NO_FACTS" });
+    await mountSection(answering([aave({ markets: ["HEREUSDT"] }), elsewhere, another, nobody]));
+
+    const pairs = positionRows(theTable()).map((row) => cellsOf(row)[COLUMN.pair]?.textContent);
+    expect(pairs).toEqual(["HEREUSDTLive", "ELSEUSDTLive"]);
+  });
+
+  it("lists dry-run and live positions together, each with its origin's word", async () => {
+    await mountSection(answering([aave({ origin: "rehearsal", markets: ["SFPUSDT"] }), aave({ origin: "live", markets: ["AAVEUSDT"] })]));
+
+    const pairs = positionRows(theTable()).map((row) => cellsOf(row)[COLUMN.pair]?.textContent);
+    expect(pairs).toEqual(["SFPUSDTDry run", "AAVEUSDTLive"]);
+  });
+});
+
 describe("an absent figure is a dash with its reason (T10, the first red of op.3)", () => {
   it("draws a dash named 'not recorded' for a null leverage on a position that has its facts, and never 1x", async () => {
     await mountSection(answering([openPosition({ strategy_id: ALPHA, leverage: null })]));
