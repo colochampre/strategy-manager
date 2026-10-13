@@ -7,6 +7,7 @@ import { usePendingBookings } from "@/features/bookings/usePendingBookings";
 import { ORIGIN_STYLE } from "@/features/positions/origin";
 import type { Origin } from "@/features/positions/origin";
 import { OriginTag } from "@/features/positions/OriginTag";
+import { pendingProposalNames } from "@/features/positions/pendingProposal";
 import type { InFlightOrder, OpenPosition } from "@/shared/api/positions";
 import { cn } from "@/shared/lib/cn";
 import { figureText, timeOfAnswerText } from "@/shared/lib/figure-text";
@@ -113,12 +114,7 @@ export function VenueLine({ position, asOf }: VenueLineProps) {
 
   let followUp: ReactNode = null;
   if (pending.data !== undefined) {
-    const named = pending.data.some(
-      (proposal) =>
-        proposal.state === "PENDING" &&
-        proposal.allocation_id === position.allocation_id &&
-        proposal.discrepancy_id === disagreement.discrepancy_id,
-    );
+    const named = pendingProposalNames(pending.data, position.allocation_id, disagreement.discrepancy_id);
     followUp = named ? (
       <Link
         to={{ pathname: "/", hash: "#decision-rail" }}

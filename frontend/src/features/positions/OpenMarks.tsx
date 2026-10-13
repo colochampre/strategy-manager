@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { usePendingBookings } from "@/features/bookings/usePendingBookings";
 import { Mark } from "@/features/positions/Mark";
+import { pendingProposalNames } from "@/features/positions/pendingProposal";
 import { ofExchange, ofStrategy, useOpenPositions } from "@/shared/api/positions";
 import type { OpenPosition, OpenState } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
@@ -36,10 +37,7 @@ function VenueNote({ position, discrepancyId }: VenueNoteProps) {
 
   let after: ReactNode = null;
   if (pending.data !== undefined) {
-    const named = pending.data.some(
-      (proposal) =>
-        proposal.state === "PENDING" && proposal.allocation_id === position.allocation_id && proposal.discrepancy_id === discrepancyId,
-    );
+    const named = pendingProposalNames(pending.data, position.allocation_id, discrepancyId);
     after = named ? (
       <Link
         to={{ pathname: "/", hash: "#decision-rail" }}
