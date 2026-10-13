@@ -443,8 +443,8 @@
       "notRecorded": "no registrado",
       "ofOpened": "de {{opened}} abiertas",
       "averageOf": "promedio de {{fills}} ejecuciones",
-      "unmatched_one": "{{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
-      "unmatched_other": "{{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra."
+      "unmatched_one": "{{count}} posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+      "unmatched_other": "{{count}} posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra."
     },
     "reason": {
       "UNRESOLVED_SYMBOL": "La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan.",

@@ -443,8 +443,8 @@
       "notRecorded": "not recorded",
       "ofOpened": "of {{opened}} opened",
       "averageOf": "average of {{fills}} fills",
-      "unmatched_one": "{{count}} open position could not be matched to a strategy. The Strategies page names it.",
-      "unmatched_other": "{{count}} open positions could not be matched to a strategy. The Strategies page names them."
+      "unmatched_one": "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
+      "unmatched_other": "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them."
     },
     "reason": {
       "UNRESOLVED_SYMBOL": "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",

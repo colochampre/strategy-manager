@@ -503,8 +503,9 @@ function unowned(overrides: Partial<OpenPosition> = {}): OpenPosition {
   return noFacts({ strategy_id: null, strategy_archived: null, strategy_name: "Nobody", markets: ["XYZBTC"], ...overrides });
 }
 
-const MATCHED_ONE = "1 open position could not be matched to a strategy. The Strategies page names it.";
-const MATCHED_TWO = "2 open positions could not be matched to a strategy. The Strategies page names them.";
+const MATCHED_ONE = "1 open position or order could not be matched to a strategy. The Strategies page names it.";
+const MATCHED_TWO = "2 open positions or orders could not be matched to a strategy. The Strategies page names them.";
+const MATCHED_ONE_ES = "1 posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.";
 
 describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True')", () => {
   it("draws only the margin note for one live position", async () => {
@@ -548,6 +549,13 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
 
   it("says that one element could not be matched, in place of 'No open position.', when the strategy holds none", async () => {
     await mountSection(answering([unowned()]));
+
+    expect(screen.queryByText(MATCHED_ONE)).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("says 'position or order' for one in-flight order that no strategy owns and no position at all", async () => {
+    await mountSection(answering([], [{ ...openOrder(), strategy_id: null, strategy_name: null }]));
 
     expect(screen.queryByText(MATCHED_ONE)).toBeInTheDocument();
     expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
@@ -684,7 +692,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
       "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
       "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
-      "1 posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+      MATCHED_ONE_ES,
     ]) {
       expect(text, spanish).toContain(spanish);
     }
@@ -694,7 +702,14 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     await act(() => i18n.changeLanguage("es"));
     await mountSection(answering([unowned(), unowned({ markets: ["ABCBTC"] })]));
 
-    expect(screen.queryByText("2 posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.")).toBeInTheDocument();
+    expect(screen.queryByText("2 posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.")).toBeInTheDocument();
+  });
+
+  it("reads the sentence for one unmatched order and no position in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountSection(answering([], [{ ...openOrder(), strategy_id: null, strategy_name: null }]));
+
+    expect(screen.queryByText(MATCHED_ONE_ES)).toBeInTheDocument();
   });
 
   it("reads 'Sin posiciones abiertas.' for an empty section", async () => {

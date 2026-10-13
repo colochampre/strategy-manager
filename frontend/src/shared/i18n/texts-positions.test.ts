@@ -90,13 +90,13 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   ["positions.table.averageOf", "average of {{fills}} fills", "promedio de {{fills}} ejecuciones"],
   [
     "positions.table.unmatched_one",
-    "{{count}} open position could not be matched to a strategy. The Strategies page names it.",
-    "{{count}} posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+    "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
+    "{{count}} posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
   ],
   [
     "positions.table.unmatched_other",
-    "{{count}} open positions could not be matched to a strategy. The Strategies page names them.",
-    "{{count}} posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.",
+    "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them.",
+    "{{count}} posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.",
   ],
   [
     "positions.reason.UNRESOLVED_SYMBOL",
@@ -223,9 +223,9 @@ describe("the open-positions texts of the Strategies page exist in both language
   it("writes the unmatched sentence in the singular for one and the plural for more, in agreement, in Spanish", () => {
     const one = lookup(es, "positions.table.unmatched_one");
     const other = lookup(es, "positions.table.unmatched_other");
-    expect(one).toContain("posición abierta no se pudo asociar");
+    expect(one).toContain("posición u orden abierta no se pudo asociar");
     expect(one).toContain("la nombra");
-    expect(other).toContain("posiciones abiertas no se pudieron asociar");
+    expect(other).toContain("posiciones u órdenes abiertas no se pudieron asociar");
     expect(other).toContain("las nombra");
   });
 
