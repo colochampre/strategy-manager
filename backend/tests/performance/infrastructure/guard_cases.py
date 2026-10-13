@@ -70,6 +70,7 @@ class GuardCases:
     order_terminal: UUID
     order_without_id: UUID
     order_without_id_closing: UUID
+    order_parentless: UUID
 
     @property
     def open_ids(self) -> set[UUID]:
@@ -331,6 +332,13 @@ async def seed_guard_cases(factory: async_sessionmaker[AsyncSession]) -> GuardCa
         factory, status="SUBMITTED", exchange_order_id=None, closing=True
     )
 
+    # a SUBMITTED attempt with neither parent (the schema of the test database
+    # allows it): no LEFT join may drop it
+    order_parentless = uuid4()
+    await seed_execution_attempt(
+        factory, attempt_id=order_parentless, symbol="ETHUSDT.P", exchange_order_id=None
+    )
+
     return GuardCases(
         open_rehearsal=rehearsal.allocation_id,
         open_live=live.allocation_id,
@@ -351,4 +359,5 @@ async def seed_guard_cases(factory: async_sessionmaker[AsyncSession]) -> GuardCa
         order_terminal=order_terminal,
         order_without_id=order_without_id,
         order_without_id_closing=order_without_id_closing,
+        order_parentless=order_parentless,
     )

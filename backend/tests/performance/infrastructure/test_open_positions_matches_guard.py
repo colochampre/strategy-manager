@@ -119,6 +119,13 @@ async def test_the_route_holds_exactly_the_elements_of_the_guards_two_reads(
             else "live"
         )
         assert position["origin"] == expected_origin
+        # Every seeded allocation has its reservation and its fills: a row that
+        # fell back to the reader's own values means a facts statement lost it.
+        assert position["figures_missing"] != "NO_FACTS", (
+            f"allocation {element.allocation_id} was not decorated by the facts"
+        )
+        assert position["strategy_id"] is not None
+        assert position["margin_granted"] is not None
 
     # Orders: a superset. The guard's elements are all there, with the guard's
     # origin; the extras are exactly the SUBMITTED attempts with no order id.
@@ -129,11 +136,23 @@ async def test_the_route_holds_exactly_the_elements_of_the_guards_two_reads(
         order = served[str(element.attempt_id)]
         assert order["origin"] == ("rehearsal" if element.rehearsal else "live")
         assert order["strategy_name"] == element.strategy_name
+        assert order["action"] is not None and order["submitted_at"] is not None, (
+            f"attempt {element.attempt_id} was not decorated by the submitted-orders read"
+        )
     extras = set(served) - {str(e.attempt_id) for e in in_flight}
-    assert extras == {str(cases.order_without_id), str(cases.order_without_id_closing)}
+    assert extras == {
+        str(cases.order_without_id),
+        str(cases.order_without_id_closing),
+        str(cases.order_parentless),
+    }
     assert {served[i]["origin"] for i in extras} == {"unknown"}
     assert served[str(cases.order_without_id)]["action"] == "OPEN"
     assert served[str(cases.order_without_id_closing)]["action"] == "CLOSE"
+    # An attempt with no reservation and no strategy keeps its row, with nulls.
+    parentless = served[str(cases.order_parentless)]
+    assert (parentless["strategy_id"], parentless["strategy_name"]) == (None, None)
+    assert parentless["strategy_archived"] is None
+    assert parentless["market"] == "ETHUSDT"
     assert str(cases.order_terminal) not in served
 
 
