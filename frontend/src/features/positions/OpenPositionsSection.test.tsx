@@ -1,13 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
+import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, strategyRoute, stubApi, unlock } from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
 
 /**
@@ -566,6 +568,27 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
 
     expect(screen.queryByText("No open position.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("could not be matched");
+  });
+});
+
+describe("its place on the detail page (T10)", () => {
+  it("is a full-width block between the two-column grid and the closed trades", async () => {
+    stubApi(HEALTH, [], undefined, {}, strategyRoute(ALPHA, "Alpha"), {}, undefined, answering([aave()]));
+    renderAt(
+      <Routes>
+        <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
+      </Routes>,
+      `/strategies/${ALPHA}`,
+    );
+
+    const open = await screen.findByRole("heading", { level: 2, name: "Open positions" });
+    const closed = await screen.findByRole("heading", { level: 2, name: "Closed trades" });
+    const settings = await screen.findByRole("complementary");
+    expect(settings.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(open.compareDocumentPosition(closed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const section = open.closest("section") as HTMLElement;
+    expect(section.parentElement).toBe(settings.parentElement?.parentElement);
+    expect(await within(section).findByRole("table", { name: "Open positions" })).toBeInTheDocument();
   });
 });
 

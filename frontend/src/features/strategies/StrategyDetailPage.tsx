@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 
+import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
 import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
 import { ArchiveControl } from "@/features/strategies/ArchiveControl";
 import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyControl";
@@ -85,6 +86,7 @@ export function StrategyDetailPage() {
           </div>
         </aside>
       </div>
+      <OpenPositionsSection strategy={subject} />
       <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
       <DeleteStrategyControl strategy={subject} />
     </div>
