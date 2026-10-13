@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { ORIGIN_STYLE } from "@/features/positions/origin";
-import { OPEN_POSITIONS_KEY, notShown, useOpenPositions } from "@/shared/api/positions";
+import { OPEN_POSITIONS_KEY, notShown, ofExchange, useOpenPositions } from "@/shared/api/positions";
 import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
 import { cn } from "@/shared/lib/cn";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
@@ -77,7 +77,7 @@ const FIGURES = "tabular flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-xs text
  * It names no exchange. A failed first read draws no figure at all, so a failure is never read as zero open;
  * a failed refresh keeps the last figures and says since when.
  */
-export function OpenStateLine({ exchange: _exchange, visibleStrategyIds }: OpenStateLineProps) {
+export function OpenStateLine({ exchange, visibleStrategyIds }: OpenStateLineProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const open = useOpenPositions();
@@ -111,7 +111,8 @@ export function OpenStateLine({ exchange: _exchange, visibleStrategyIds }: OpenS
     );
   }
 
-  const scoped: OpenState = held;
+  // Everything this page draws is selected from the selected exchange's elements, and from nothing else.
+  const scoped: OpenState = ofExchange(held, exchange);
   const named = visibleStrategyIds === null ? null : notShown(scoped, visibleStrategyIds);
   const items =
     named === null

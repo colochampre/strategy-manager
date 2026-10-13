@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { Mark } from "@/features/positions/Mark";
-import { ofStrategy, useOpenPositions } from "@/shared/api/positions";
+import { ofExchange, ofStrategy, useOpenPositions } from "@/shared/api/positions";
 import type { OpenState } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 
@@ -37,7 +37,10 @@ export function OpenMarks({ strategy }: OpenMarksProps) {
     );
   }
 
-  const mine: OpenState = ofStrategy(open.data, strategy.id);
+  // A row is on screen only when its strategy's exchange is the selected one, so this is the page's own
+  // selection written from what the row has. Never `ofStrategy` alone: a strategy's position whose pool names
+  // another exchange (a stored fault) belongs to that exchange's tab, not to this row.
+  const mine: OpenState = ofStrategy(ofExchange(open.data, strategy.exchange), strategy.id);
   if (mine.positions.length === 0 && mine.orders.length === 0) return null;
 
   return (
