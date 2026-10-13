@@ -9,7 +9,18 @@ import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, strategyRoute, stubApi, unlock } from "@/test/harness";
+import {
+  jsonResponse,
+  lock,
+  openOrder,
+  openPosition,
+  openState,
+  renderAt,
+  setViewport,
+  strategyRoute,
+  stubApi,
+  unlock,
+} from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
 
 /**
@@ -568,6 +579,142 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
 
     expect(screen.queryByText("No open position.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("could not be matched");
+  });
+});
+
+const MD = "(min-width: 768px)";
+
+/** The cards on screen, asserted to exist before they are returned. */
+function cards(count: number): HTMLElement[] {
+  const found = screen.queryAllByRole("article");
+  expect(found).toHaveLength(count);
+  return found;
+}
+
+/** The labelled values of a card, as label to value. */
+function valuesOf(card: HTMLElement): Record<string, string> {
+  return Object.fromEntries(
+    [...card.querySelectorAll("dl > div")].map((pair) => [pair.querySelector("dt")?.textContent ?? "", pair.querySelector("dd")?.textContent ?? ""]),
+  );
+}
+
+describe("on a phone the positions are cards (T10; N2: the prototype's example 20 decides)", () => {
+  const THREE = [
+    aave(),
+    aave({ markets: ["LINKUSDT"], base_currency: "LINK", side: "SHORT", size: "12", opened_size: "12", entry_price: "17.43", fees: "0.21", margin_granted: "69.72", leverage: "3.00000000", opened_at: "2026-10-09T04:00:00Z" }),
+    aave({ markets: ["SUIUSDT"], base_currency: "SUI", origin: "rehearsal", size: "140", opened_size: "140", entry_price: "3.2415", fees: "0.25", margin_granted: "226.9", leverage: "1.00000000", opened_at: "2026-10-10T12:00:00Z" }),
+  ];
+
+  it("renders a table at desktop width and no card", async () => {
+    setViewport("wide");
+    await mountSection(answering(THREE));
+
+    expect(positionRows(theTable())).toHaveLength(3);
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+  });
+
+  it("renders one article per position below md and no table", async () => {
+    setViewport("narrow");
+    await mountSection(answering(THREE));
+
+    cards(3);
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("chooses between the two at md (768 px), not at lg", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal("matchMedia", (query: string) => {
+      asked.push(query);
+      return { matches: true, media: query, addEventListener: () => undefined, removeEventListener: () => undefined };
+    });
+    await mountSection(answering(THREE));
+
+    expect(asked).toContain(MD);
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+  });
+
+  it("names each card by its pair and side, composed in the component", async () => {
+    setViewport("narrow");
+    await mountSection(answering(THREE));
+
+    expect(cards(3).map((card) => card.getAttribute("aria-label"))).toEqual(["AAVEUSDT LONG", "LINKUSDT SHORT", "SUIUSDT LONG"]);
+    expect(screen.queryByRole("article", { name: "AAVEUSDT LONG" })).toBeInTheDocument();
+  });
+
+  it("puts the pair and the side in the head, with the origin's word at its right", async () => {
+    setViewport("narrow");
+    await mountSection(answering(THREE));
+
+    const [live, , dry] = cards(3) as [HTMLElement, HTMLElement, HTMLElement];
+    const head = live.firstElementChild as HTMLElement;
+    expect([...head.children].map((part) => part.textContent)).toEqual(["AAVEUSDTLONG", "Live"]);
+    expect(head.lastElementChild).toHaveClass("text-gain");
+    expect((dry.firstElementChild as HTMLElement).lastElementChild).toHaveTextContent("Dry run");
+  });
+
+  it("carries the same six labels and values in two columns", async () => {
+    setViewport("narrow");
+    await mountSection(answering(THREE));
+
+    const [aaveCard, linkCard] = cards(3) as [HTMLElement, HTMLElement, HTMLElement];
+    expect(valuesOf(aaveCard)).toEqual({
+      "Opened (UTC)": "10/11/2026 14:05",
+      Size: "0.82 AAVE",
+      Entry: "184.3",
+      "Fees USDT": "0.17",
+      "Margin granted USDT": "121.80",
+      Leverage: "2x",
+    });
+    expect(valuesOf(linkCard)).toMatchObject({ Size: "12 LINK", Entry: "17.43", "Margin granted USDT": "69.72", Leverage: "3x" });
+    expect(aaveCard.querySelector("dl")).toHaveClass("grid", "grid-cols-2");
+  });
+
+  it("writes each null as a dash with its reason, in the card as in the table", async () => {
+    setViewport("narrow");
+    await mountSection(answering([noFacts({ strategy_id: ALPHA })]));
+
+    const [card] = cards(1) as [HTMLElement];
+    expect(card.getAttribute("aria-label")).toBe("STXUSDT side not readable");
+    const values = valuesOf(card);
+    for (const label of ["Opened (UTC)", "Size", "Entry", "Fees USDT", "Margin granted USDT", "Leverage"]) {
+      expect(values[label], label).toBe("—figures not readable");
+    }
+  });
+
+  it("names the leverage of a position that has its facts and none recorded 'not recorded'", async () => {
+    setViewport("narrow");
+    await mountSection(answering([aave({ leverage: null })]));
+
+    expect(valuesOf(cards(1)[0] as HTMLElement).Leverage).toBe("—not recorded");
+  });
+
+  it("makes the sub-rows the card's last elements, in the order of the table's: venue line, reason, reservation", async () => {
+    setViewport("narrow");
+    await mountWithBookings(
+      disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
+      { kind: "ok", body: [proposal()] },
+    );
+
+    const [card] = cards(1) as [HTMLElement];
+    const parts = [...card.children];
+    expect(parts).toHaveLength(5);
+    expect(parts[0]).toHaveTextContent("AAVEUSDT");
+    expect(parts[1]?.tagName).toBe("DL");
+    expect(within(parts[2] as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
+    expect(parts[3]).toHaveTextContent("The pair's base currency cannot be told");
+    expect(parts[4]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+  });
+
+  it("draws the orders, the unmatched sentence and the notes under the cards", async () => {
+    setViewport("narrow");
+    await mountSection(answering([aave({ origin: "rehearsal" }), unowned()], [openOrder({ strategy_id: ALPHA })]));
+
+    const last = cards(1)[0] as HTMLElement;
+    for (const text of ["SOLUSDT · order in flight", MATCHED_ONE, NOTE.rehearsal, NOTE.margin]) {
+      const found = screen.queryByText((_content, element) => element?.textContent?.startsWith(text) === true && element.children.length <= 3);
+      expect(found, text).toBeInTheDocument();
+      expect(last.compareDocumentPosition(found as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING, text).toBeTruthy();
+    }
   });
 });
 
