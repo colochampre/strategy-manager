@@ -217,6 +217,71 @@ describe("a failed refresh", () => {
   });
 });
 
+/** The nearest element holding both nodes. */
+function commonAncestor(a: Element, b: Element): Element {
+  let node: Element | null = a;
+  while (node !== null && !node.contains(b)) node = node.parentElement;
+  if (node === null) throw new Error("no common ancestor");
+  return node;
+}
+
+function liveAncestor(node: Element): Element | null {
+  return node.closest("[role='status'], [role='alert'], [aria-live]");
+}
+
+describe("the layout: the figures on one row, the lines under it (example 10)", () => {
+  const HIDDEN = openState([openPosition({ strategy_id: ALPHA }), openPosition({ strategy_id: ARCHIVED, strategy_archived: true })]);
+
+  it("holds the counts and Last read in one row that does not contain the Not on this list line", async () => {
+    const { api } = mount(answering(HIDDEN), new Set([ALPHA]));
+    await settled(api);
+    await waitFor(() => expect(screen.queryByText(/^Not on this list:/)).toBeInTheDocument());
+
+    const row = commonAncestor(screen.getByText("Open:"), screen.getByText("Last read:"));
+    expect(row.contains(screen.getByText("Orders in flight:"))).toBe(true);
+    expect(row.contains(screen.getByText(/^Not on this list:/))).toBe(false);
+  });
+
+  it("puts Last read before the Not on this list line in the document", async () => {
+    const { api } = mount(answering(HIDDEN), new Set([ALPHA]));
+    await settled(api);
+    await waitFor(() => expect(screen.queryByText(/^Not on this list:/)).toBeInTheDocument());
+
+    const lastRead = screen.getByText("Last read:");
+    const line = screen.getByText(/^Not on this list:/);
+    expect(lastRead.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the time outside every live region and the lines inside one", async () => {
+    const { api } = mount(answering(HIDDEN), new Set([ALPHA]));
+    await settled(api);
+    await waitFor(() => expect(screen.queryByText(/^Not on this list:/)).toBeInTheDocument());
+
+    expect(liveAncestor(screen.getByText("21:40:03 UTC"))).toBeNull();
+    expect(liveAncestor(screen.getByText("Last read:"))).toBeNull();
+    expect(liveAncestor(screen.getByText("Open:"))).not.toBeNull();
+    expect(liveAncestor(screen.getByText(/^Not on this list:/))).not.toBeNull();
+  });
+
+  it("draws the stale line after the row, in a live region, and the time still outside one", async () => {
+    const first = openState([openPosition({ strategy_id: ALPHA })], [], "2026-10-12T21:38:12Z");
+    const { current, api } = switchable(first);
+    renderAt(<OpenStateLine exchange="bybit" visibleStrategyIds={new Set([ALPHA])} />);
+    await settled(api);
+    await waitFor(() => expect(figures()).toHaveLength(3));
+    current.status = 500;
+    current.body = { detail: "down" };
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+    const stale = await screen.findByText("Could not be refreshed since 21:38:12 UTC.");
+
+    const row = commonAncestor(screen.getByText("Open:"), screen.getByText("Last read:"));
+    expect(row.contains(stale)).toBe(false);
+    expect(screen.getByText("Last read:").compareDocumentPosition(stale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(liveAncestor(stale)).not.toBeNull();
+    expect(liveAncestor(screen.getByText("21:38:12 UTC", { selector: "dd" }))).toBeNull();
+  });
+});
+
 describe("what the exchange holds and the list does not show", () => {
   const SFP = openOrder({ strategy_id: BETA, strategy_name: "SFP 4h - RSI Divergences", market: "SFPUSDT" });
   const STATE = openState(
