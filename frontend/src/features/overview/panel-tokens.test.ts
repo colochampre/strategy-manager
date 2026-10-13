@@ -58,9 +58,12 @@ function sourceFiles(dir: string): string[] {
  * (design § F) adds the dry-run tag of a rehearsal row of the trades table, written in
  * the words and the amber of the mode badge, and the same tag on a fill of the fills table
  * whose flag differs from its operation's, and the tag in the title of the detail dialog.
+ * Decision 65 adds the origin "Dry run" of an open position, written in the words and the amber
+ * of the mode badge, in `features/positions/origin.ts`, the one positions file that names the class.
  */
 const AMBER_ALLOWED = [
   "features/overview/DecisionRail.tsx",
+  "features/positions/origin.ts",
   "features/settings/ExchangeKeyCard.tsx",
   "features/strategies/OperationFillsTable.tsx",
   "features/strategies/TradeDetailDialog.tsx",
