@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clockSecondsText,
   clockText,
   compactDateText,
   cutAmountText,
   figureText,
   rateText,
   tableFigureText,
+  timeOfAnswerText,
 } from "@/shared/lib/figure-text";
 
 // `cutAmountText` writes a served amount of the share's pool in its settlement currency. The digits are
@@ -111,6 +113,54 @@ describe("clockText", () => {
 
   it("gives null for an instant it cannot read", () => {
     expect(clockText("not a date")).toBeNull();
+  });
+});
+
+describe("clockSecondsText", () => {
+  it.each([
+    ["2026-10-05T09:07:03Z", "09:07:03"],
+    ["2026-10-05T00:00:00Z", "00:00:00"],
+    ["2026-10-12T21:40:03Z", "21:40:03"],
+    ["2026-09-30T23:59:59.999999Z", "23:59:59"],
+  ])("writes %s as the 24-hour UTC time %s, with seconds", (instant, expected) => {
+    expect(clockSecondsText(instant)).toBe(expected);
+  });
+
+  it("gives null for an instant it cannot read", () => {
+    expect(clockSecondsText("not a date")).toBeNull();
+  });
+});
+
+// A time that is not on the UTC day of the answer's `as_of` carries its date (T18, design § K row 20): an order
+// sent yesterday at 21:12 must not read as sent minutes ago, nor a venue mark frozen since the mode changed as
+// compared today. The day is the UTC one, whatever the zone of the machine that reads it.
+describe("timeOfAnswerText", () => {
+  const AS_OF = "2026-10-12T21:40:03Z";
+
+  it("writes a time of the same UTC day with no date, with or without seconds", () => {
+    expect(timeOfAnswerText("2026-10-12T21:12:00Z", AS_OF, "en", true)).toBe("21:12:00");
+    expect(timeOfAnswerText("2026-10-12T21:12:00Z", AS_OF, "en", false)).toBe("21:12");
+    expect(timeOfAnswerText(AS_OF, AS_OF, "en", true)).toBe("21:40:03");
+  });
+
+  it("writes the date before the time when the time is on the day before the answer", () => {
+    expect(timeOfAnswerText("2026-10-11T21:12:00Z", AS_OF, "en", true)).toBe("10/11/2026 21:12:00");
+    expect(timeOfAnswerText("2026-10-11T21:12:00Z", AS_OF, "en", false)).toBe("10/11/2026 21:12");
+    expect(timeOfAnswerText("2026-10-11T21:12:00Z", AS_OF, "es", false)).toBe("11/10/2026 21:12");
+  });
+
+  it("writes the date for a time on any other day, earlier or later", () => {
+    expect(timeOfAnswerText("2026-09-01T08:00:00Z", AS_OF, "en", false)).toBe("9/1/2026 08:00");
+    expect(timeOfAnswerText("2026-10-13T00:00:00Z", AS_OF, "en", true)).toBe("10/13/2026 00:00:00");
+  });
+
+  it("compares UTC days at their edges, not the days of the machine's zone", () => {
+    expect(timeOfAnswerText("2026-10-12T23:59:59Z", "2026-10-12T00:00:01Z", "en", true)).toBe("23:59:59");
+    expect(timeOfAnswerText("2026-10-11T23:59:59Z", "2026-10-12T00:00:01Z", "en", true)).toBe("10/11/2026 23:59:59");
+  });
+
+  it("gives null for a time it cannot read", () => {
+    expect(timeOfAnswerText("not a date", AS_OF, "en", true)).toBeNull();
   });
 });
 
