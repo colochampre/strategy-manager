@@ -1,7 +1,9 @@
-import { act, screen, within } from "@testing-library/react";
+import { useQueryClient } from "@tanstack/react-query";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
+import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
@@ -564,6 +566,161 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
 
     expect(screen.queryByText("No open position.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("could not be matched");
+  });
+});
+
+/** A button that asks for the answer again, as the Strategies page's "Read again" does; the section draws none after a good read. */
+function AskAgain() {
+  const queryClient = useQueryClient();
+  return (
+    <button type="button" onClick={() => void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY })}>
+      ask now
+    </button>
+  );
+}
+
+function positionsRequests(api: ReturnType<typeof stubApi>): number {
+  return api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+}
+
+describe("the states and the orders (T10; spec 'An Order In Flight Is A Dashed Line Under The Open Positions')", () => {
+  it("is headed 'Open positions' and the table is named by that heading", async () => {
+    await mountSection(answering([aave()]));
+
+    expect(screen.queryByRole("heading", { level: 2, name: "Open positions" })).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Open positions" })).toBeInTheDocument();
+  });
+
+  it("reads 'Reading open positions…' while loading, under its heading, and never 'No open position.'", async () => {
+    await mountSection({ kind: "pending" });
+
+    expect(screen.queryByRole("heading", { name: "Open positions" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toHaveTextContent("Reading open positions…");
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("says that the first read failed, in an alert, with 'Read again', and never 'No open position.'", async () => {
+    const { api } = await mountSection({ kind: "status", status: 500, body: { detail: "down" } });
+
+    const alert = screen.queryByRole("alert");
+    expect(alert).toHaveTextContent("Open positions could not be read. A row without a mark does not mean that nothing is open.");
+    expect(alert).toHaveClass("text-loss");
+    expect(screen.queryByRole("button", { name: "Read again" })).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+    await waitFor(() => expect(positionsRequests(api)).toBe(2));
+  });
+
+  it("refuses a body that is not the answer's shape as an error, never as an empty list", async () => {
+    await mountSection({ kind: "ok", body: { positions: [] } });
+
+    expect(screen.queryByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the last answer on screen when a refresh fails, and adds the red sentence", async () => {
+    const current: { status: number; body: unknown } = { status: 200, body: openState([aave()], [], "2026-10-12T21:38:12Z") };
+    const route = (url: string) =>
+      url.endsWith("/positions/open") ? Promise.resolve(jsonResponse(current.body, current.status)) : undefined;
+    stubApi(HEALTH, [], undefined, {}, route);
+    renderAt(
+      <>
+        <AskAgain />
+        <OpenPositionsSection strategy={strategy()} />
+      </>,
+    );
+    await settle();
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+
+    current.status = 500;
+    current.body = { detail: "down" };
+    fireEvent.click(screen.getByRole("button", { name: "ask now" }));
+
+    await waitFor(() => expect(screen.queryByText("Could not be refreshed since 21:38:12 UTC.")).toBeInTheDocument());
+    expect(screen.getByText("Could not be refreshed since 21:38:12 UTC.")).toHaveClass("text-loss");
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("reads 'No open position.' when the read succeeded and the strategy holds nothing", async () => {
+    await mountSection(answering([]));
+
+    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("draws the strategy's orders as lines in a list under the table, and not another strategy's", async () => {
+    await mountSection(
+      answering(
+        [aave({ markets: ["SFPUSDT"], origin: "rehearsal" })],
+        [
+          openOrder({ strategy_id: ALPHA, market: "SFPUSDT", action: "CLOSE", origin: "rehearsal", submitted_at: "2026-10-12T21:12:00Z" }),
+          openOrder({ strategy_id: "22222222-2222-4222-8222-222222222222", market: "OTHERUSDT" }),
+          openOrder({ strategy_id: null, market: "NOBODYUSDT" }),
+        ],
+      ),
+    );
+
+    const list = screen.queryByRole("list");
+    expect(list).toBeInTheDocument();
+    const items = within(list as HTMLElement).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual(["SFPUSDT · order in flight · closing · Dry run · sent 21:12 UTC"]);
+    expect(theTable().compareDocumentPosition(list as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(items[0]?.firstElementChild).toHaveClass("border-dashed", "border-decision");
+  });
+
+  it("draws the order under 'No open position.' when the strategy holds no position (example 19b)", async () => {
+    await mountSection(
+      answering([], [openOrder({ strategy_id: ALPHA, market: "AAVEUSDT", action: "OPEN", origin: "live", submitted_at: "2026-10-12T21:36:00Z" })]),
+    );
+
+    const empty = screen.queryByText("No open position.");
+    expect(empty).toBeInTheDocument();
+    const list = screen.queryByRole("list");
+    expect(list).toHaveTextContent("AAVEUSDT · order in flight · opening · Live · sent 21:36 UTC");
+    expect((empty as HTMLElement).compareDocumentPosition(list as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("leaves 'opening'/'closing' and 'sent' out of an undecorated order's line", async () => {
+    await mountSection(answering([], [openOrder({ strategy_id: ALPHA, market: "AAVEUSDT", action: null, submitted_at: null, origin: "unknown" })]));
+
+    expect(screen.queryByRole("list")).toHaveTextContent(/^AAVEUSDT · order in flight · origin unknown$/);
+  });
+
+  it("writes the sent time of an order of the day before with its date", async () => {
+    await mountSection(
+      answering([], [openOrder({ strategy_id: ALPHA, market: "AAVEUSDT", action: "OPEN", origin: "live", submitted_at: "2026-10-11T21:12:00Z" })]),
+    );
+
+    expect(screen.queryByRole("list")).toHaveTextContent("sent 10/11/2026 21:12 UTC");
+  });
+
+  it("draws the orders above the notes and the sentence of the unmatched", async () => {
+    await mountSection(answering([aave(), unowned()], [openOrder({ strategy_id: ALPHA })]));
+
+    const list = screen.queryByRole("list") as HTMLElement;
+    expect(list).toBeInTheDocument();
+    expect(list.compareDocumentPosition(screen.getByText(MATCHED_ONE)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.compareDocumentPosition(screen.getByText(NOTE.margin)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not wait for the exchange scope: it draws while the pools are still loading", async () => {
+    stubApi(HEALTH, [], { kind: "pending" }, {}, undefined, {}, undefined, answering([aave()]));
+    renderAt(<OpenPositionsSection strategy={strategy()} />);
+    await settle();
+
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+  });
+
+  it("asks for the open positions once, and for nothing of a venue", async () => {
+    const { api } = await mountSection(answering([aave()]));
+
+    expect(positionsRequests(api)).toBe(1);
+    expect(api.unexpected).toEqual([]);
   });
 });
 
