@@ -119,6 +119,64 @@ describe("a pool with a report (T13)", () => {
   });
 });
 
+describe("the count in the summary line (T13; spec 'The Overview's Count Says How Many Are Open And How Many Of Them Are Dry Run')", () => {
+  const LEFT_OUT = { excluded: { ...emptyPerformance("bybit", "usdt-m", "USDT").excluded, open_trade_count: 4 } };
+
+  async function summaryOf(positions: OpenPositionsStub, performance: PerformanceStub = report(LEFT_OUT)): Promise<string> {
+    await mountPanel(positions, performance);
+    const summary = await screen.findByTestId("monthly-summary");
+    return summary.textContent ?? "";
+  }
+
+  it("counts every position of the pool, a position of both origins in the total and not among the dry run", async () => {
+    const text = await summaryOf(
+      answering([held("AAVEUSDT", USDT_POOL, { origin: "live" }), held("SFPUSDT", USDT_POOL, { origin: "rehearsal" }), held("STXUSDT", USDT_POOL, { origin: "mixed" })]),
+    );
+
+    expect(text).toContain("3 open, 1 of them dry run");
+    expect(text).not.toContain("not in the curve");
+  });
+
+  it("writes 'N open' when no position is dry run", async () => {
+    const text = await summaryOf(answering([held("AAVEUSDT"), held("STXUSDT")]));
+
+    expect(text.endsWith("2 open")).toBe(true);
+  });
+
+  it("counts a dry-run position although the curve leaves nothing out", async () => {
+    const text = await summaryOf(answering([held("SFPUSDT", USDT_POOL, { origin: "rehearsal" })]), report());
+
+    expect(text).toContain("1 open, 1 of them dry run");
+  });
+
+  it("writes no part about open positions when the pool holds none, whatever the curve leaves out", async () => {
+    const text = await summaryOf(answering([]));
+
+    expect(text).not.toContain("open");
+  });
+
+  it("counts the pool's own positions only: another pool's, even of the same exchange, are not in it (rule 7)", async () => {
+    const text = await summaryOf(answering([held("AAVEUSDT"), held("BTCUSD", BTC_POOL), held("ETHUSDT", { ...USDT_POOL, settlement_currency: "USDC" })]));
+
+    expect(text.endsWith("1 open")).toBe(true);
+    expect(text).not.toContain("3 open");
+    expect(text).not.toContain("2 open");
+  });
+
+  it("writes no part about open positions while the read is loading", async () => {
+    const text = await summaryOf({ kind: "pending" });
+
+    expect(text).not.toContain("open");
+  });
+
+  it("writes no part about open positions when the read failed, old or new", async () => {
+    const text = await summaryOf({ kind: "status", status: 500, body: { detail: "down" } });
+
+    expect(text).not.toContain("open");
+    expect(text).not.toContain("not in the curve");
+  });
+});
+
 describe("a position in no panel's pool (T13; K row 26; owner decision Q7, 2026-10-13)", () => {
   it("is in no list: the Overview draws nothing for it and no line says so", async () => {
     stubApi(
