@@ -9,6 +9,7 @@ import { PoolEyebrow } from "@/features/overview/PoolEyebrow";
 import { DEFAULT_RANGE, RangeSelector } from "@/features/overview/RangeSelector";
 import type { RangeName } from "@/features/overview/RangeSelector";
 import { ReturnChart } from "@/features/overview/ReturnChart";
+import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { usePoolPerformance } from "@/shared/api/performance";
 import type { Pool, PoolPerformance } from "@/shared/api/types";
 
@@ -146,6 +147,8 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
           <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
         </div>
       )}
+      {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
+      <PoolOpenPositions pool={pool} />
     </section>
   );
 }

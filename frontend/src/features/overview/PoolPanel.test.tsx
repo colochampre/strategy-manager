@@ -74,7 +74,7 @@ describe("a pool with a position and no report (T13; K row 24)", () => {
     await mountPanel(answering([held("AAVEUSDT")]), NO_REPORT);
 
     const panel = await screen.findByTestId("pool-panel");
-    expect(within(panel).findByText("No performance report exists for this pool yet.")).toBeInTheDocument();
+    expect(await within(panel).findByText("No performance report exists for this pool yet.")).toBeInTheDocument();
     expect(within(panel).queryByRole("table", { name: "Open positions" })).toBeInTheDocument();
     expect(within(panel).queryByText("AAVEUSDT")).toBeInTheDocument();
     expect(within(panel).queryByTestId("monthly-summary")).not.toBeInTheDocument();
