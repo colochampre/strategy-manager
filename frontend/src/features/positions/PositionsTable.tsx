@@ -20,7 +20,7 @@ interface PositionsTableProps {
   currency: string;
   /** The id of the heading that names the table. */
   labelledBy: string;
-  variant: "strategy";
+  variant: "strategy" | "pool";
 }
 
 type Translate = ReturnType<typeof useTranslation>["t"];

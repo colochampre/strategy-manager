@@ -3,9 +3,17 @@ import { useTranslation } from "react-i18next";
 import { parseDecimal, percentText } from "@/shared/lib/amount-text";
 import type { Excluded, MonthReturn } from "@/shared/api/types";
 
+/** How many positions a pool holds, and how many of them are dry run (a stub's shape, task op.4.1). */
+export interface OpenCount {
+  total: number;
+  rehearsal: number;
+}
+
 interface MonthlySummaryProps {
   monthly: readonly MonthReturn[];
   excluded: Excluded;
+  /** Absent: today's live-only part. Null: no part about open positions. A count: the Overview's. A stub ignores it. */
+  open?: OpenCount | null;
 }
 
 /**
