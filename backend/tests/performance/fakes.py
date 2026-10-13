@@ -1,11 +1,16 @@
 """In-memory stand-ins for ``performance`` ports."""
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.performance.application.ports import PoolFills
+from strategy_manager.execution.domain.mode_origin import (
+    InFlightAttemptOrigin,
+    OpenAllocationOrigin,
+)
+from strategy_manager.performance.application.ports import OpenStateSourcePort, PoolFills
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
@@ -93,3 +98,27 @@ class FixedClock:
 
     def now(self) -> datetime:
         return self._now
+
+
+class HeldOpenStateSource:
+    """The held-read harness of rule R13: wraps the REAL open-state reader and
+    parks the read between its first statement (the in-flight read) and its
+    second (the open-allocations read).
+
+    ``first_done`` is set once the first statement has returned; the second does
+    not start until the test sets ``release``. Both are events the test controls,
+    so ordering is proven by what the test does between them, never by a sleep."""
+
+    def __init__(self, inner: OpenStateSourcePort) -> None:
+        self._inner = inner
+        self.first_done = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
+        answer = await self._inner.in_flight_attempts()
+        self.first_done.set()
+        return answer
+
+    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+        await self.release.wait()
+        return await self._inner.open_allocations()

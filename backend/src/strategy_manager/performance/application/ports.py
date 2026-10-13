@@ -8,6 +8,10 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
+from strategy_manager.execution.domain.mode_origin import (
+    InFlightAttemptOrigin,
+    OpenAllocationOrigin,
+)
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 
@@ -75,3 +79,14 @@ class RehearsalPricingSourcePort(Protocol):
     async def pricing_facts(
         self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PricingFacts]: ...
+
+
+class OpenStateSourcePort(Protocol):
+    """The mode guard's own two reads, whole-system, in the order the open
+    positions read issues them (design addendum "open positions", section C,
+    steps 1 and 2). Implemented by ``SqlAlchemyModeOriginReader``; the read
+    never filters, so what it shows is what the guard refuses on."""
+
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]: ...
+
+    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]: ...
