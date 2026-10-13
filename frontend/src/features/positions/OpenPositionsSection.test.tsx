@@ -5,7 +5,7 @@ import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection"
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
 
 /**
@@ -465,6 +465,105 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
 
     const sub = firstSubRow(theTable());
     expect(sub).toHaveTextContent("last compared 10/11/2026 21:12:00 UTC");
+  });
+});
+
+const NOTE = {
+  rehearsal: "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
+  mixed: "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
+  margin: "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
+} as const;
+
+/** The notes on screen, in document order, as their keys. */
+function notesOnScreen(container: HTMLElement): string[] {
+  const names = Object.entries(NOTE);
+  return [...container.querySelectorAll("p")].flatMap((paragraph) => {
+    const found = names.find(([, text]) => paragraph.textContent === text);
+    return found === undefined ? [] : [found[0]];
+  });
+}
+
+/** An element no strategy owns, on the strategy's own exchange. */
+function unowned(overrides: Partial<OpenPosition> = {}): OpenPosition {
+  return noFacts({ strategy_id: null, strategy_archived: null, strategy_name: "Nobody", markets: ["XYZBTC"], ...overrides });
+}
+
+const MATCHED_ONE = "1 open position could not be matched to a strategy. The Strategies page names it.";
+const MATCHED_TWO = "2 open positions could not be matched to a strategy. The Strategies page names them.";
+
+describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True')", () => {
+  it("draws only the margin note for one live position", async () => {
+    const { view } = await mountSection(answering([aave()]));
+
+    expect(notesOnScreen(view.container)).toEqual(["margin"]);
+  });
+
+  it("draws the dry-run note, then the margin note, for a rehearsal position", async () => {
+    const { view } = await mountSection(answering([aave({ origin: "rehearsal" })]));
+
+    expect(notesOnScreen(view.container)).toEqual(["rehearsal", "margin"]);
+  });
+
+  it("draws the note of both origins, not the dry-run note, then the margin note, for a mixed position", async () => {
+    const { view } = await mountSection(answering([aave({ origin: "mixed" })]));
+
+    expect(notesOnScreen(view.container)).toEqual(["mixed", "margin"]);
+  });
+
+  it("orders the notes dry-run, both origins, margin", async () => {
+    const { view } = await mountSection(
+      answering([aave({ origin: "mixed", markets: ["STXUSDT"] }), aave({ origin: "rehearsal", markets: ["SFPUSDT"] })]),
+    );
+
+    expect(notesOnScreen(view.container)).toEqual(["rehearsal", "mixed", "margin"]);
+  });
+
+  it("draws the margin note once, whatever the number of positions", async () => {
+    const { view } = await mountSection(answering([aave(), aave({ markets: ["LINKUSDT"] }), aave({ markets: ["SUIUSDT"] })]));
+
+    expect(notesOnScreen(view.container)).toEqual(["margin"]);
+  });
+
+  it("draws no note when the strategy holds no position", async () => {
+    const { view } = await mountSection(answering([]));
+
+    expect(notesOnScreen(view.container)).toEqual([]);
+    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+  });
+
+  it("says that one element could not be matched, in place of 'No open position.', when the strategy holds none", async () => {
+    await mountSection(answering([unowned()]));
+
+    expect(screen.queryByText(MATCHED_ONE)).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("counts positions and orders together, in the plural", async () => {
+    await mountSection(answering([unowned()], [{ ...openOrder(), strategy_id: null, strategy_name: null }]));
+
+    expect(screen.queryByText(MATCHED_TWO)).toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
+  });
+
+  it("says it above the notes, under the table, when the strategy holds a position of its own", async () => {
+    const { view } = await mountSection(answering([aave(), unowned(), unowned({ markets: ["ABCBTC"] })]));
+
+    expect(screen.queryByText(MATCHED_TWO)).toBeInTheDocument();
+    const sentence = screen.getByText(MATCHED_TWO);
+    const table = theTable();
+    const margin = screen.getByText(NOTE.margin);
+    expect(table.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sentence.compareDocumentPosition(margin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.container.textContent).not.toContain("No open position.");
+  });
+
+  it("does not count an unmatched element of ANOTHER exchange, and still says 'No open position.'", async () => {
+    await mountSection(
+      answering([unowned({ pool: { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" } })]),
+    );
+
+    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("could not be matched");
   });
 });
 
