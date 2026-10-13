@@ -12,6 +12,8 @@ import {
   replaceAllowedPairs,
   useArchiveStrategy,
   useReplaceAllowedPairs,
+  useSetAllocationPercent,
+  useSetStrategyEnabled,
   useStrategy,
 } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
@@ -183,5 +185,48 @@ describe("the detail mutations", () => {
       expect(keys).toContainEqual(["strategies"]);
       expect(keys).toContainEqual(["strategy", ID]);
     }
+  });
+});
+
+describe("what does not read the open positions again (T10)", () => {
+  async function invalidatedKeys(run: (wrapper: ReturnType<typeof clientWrapper>["wrapper"]) => Promise<void>) {
+    stubFetch(jsonResponse(strategy()));
+    const { client, wrapper } = clientWrapper();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await run(wrapper);
+    return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+  }
+
+  it("the enable switch invalidates no ['positions','open']", async () => {
+    const keys = await invalidatedKeys(async (wrapper) => {
+      const { result } = renderHook(() => useSetStrategyEnabled(ID), { wrapper });
+      result.current.mutate(true);
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    });
+
+    expect(keys).toContainEqual(["strategies"]);
+    expect(keys).not.toContainEqual(["positions", "open"]);
+  });
+
+  it("a share change invalidates no ['positions','open']", async () => {
+    const keys = await invalidatedKeys(async (wrapper) => {
+      const { result } = renderHook(() => useSetAllocationPercent(ID), { wrapper });
+      result.current.mutate("50");
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    });
+
+    expect(keys).toContainEqual(["strategies"]);
+    expect(keys).not.toContainEqual(["positions", "open"]);
+  });
+
+  it("an archive invalidates no ['positions','open']", async () => {
+    const keys = await invalidatedKeys(async (wrapper) => {
+      const { result } = renderHook(() => useArchiveStrategy(ID), { wrapper });
+      result.current.mutate();
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    });
+
+    expect(keys).toContainEqual(["strategies"]);
+    expect(keys).not.toContainEqual(["positions", "open"]);
   });
 });
