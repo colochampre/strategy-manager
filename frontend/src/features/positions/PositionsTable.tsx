@@ -1,6 +1,8 @@
+import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { VenueLine } from "@/features/positions/MarkLine";
 import { OriginTag } from "@/features/positions/OriginTag";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal } from "@/shared/lib/amount-text";
@@ -103,8 +105,45 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate): ReactNod
   ];
 }
 
+const COLUMNS = 8;
+/** A sub-row is a real row with one cell across the table; it is never a flex wrapper (it would collapse into the first column). */
+const SUB_CELL = "border-b border-rule-soft pb-2.5 pt-1.5 text-left";
+const SUB_TEXT = "font-sans text-xs text-ink-2";
+
+interface SubRow {
+  key: string;
+  content: ReactNode;
+}
+
+/** The reason a position's figures are missing: its own text for the three codes the server names, the generic one for any other. */
+function reasonText(code: string, t: Translate): string {
+  return t(code === "UNRESOLVED_SYMBOL" || code === "SEVERAL_MARKETS" || code === "FLIPPED" ? `positions.reason.${code}` : "positions.reason.other");
+}
+
+/**
+ * What goes under a position's row, in this order: the venue line, the reason its figures are missing, and the
+ * reservation's note when its status is not FILLED. A position the venue disagrees on is a red line, and an
+ * unresolved or unreserved one says so: none of them reads as a clean row (design § K rows 2, 4, 14, 22).
+ */
+export function subRowsOf(position: OpenPosition, asOf: string, t: Translate): SubRow[] {
+  const rows: SubRow[] = [];
+  if (position.venue_disagreement !== null) {
+    rows.push({ key: "venue", content: <VenueLine position={position} asOf={asOf} /> });
+  }
+  if (position.figures_missing !== null) {
+    rows.push({ key: "reason", content: <p className={SUB_TEXT}>{reasonText(position.figures_missing, t)}</p> });
+  }
+  if (position.reservation_status !== null && position.reservation_status !== "FILLED") {
+    rows.push({
+      key: "reservation",
+      content: <p className={SUB_TEXT}>{t("positions.note.reservation", { status: position.reservation_status })}</p>,
+    });
+  }
+  return rows;
+}
+
 /** The table of a strategy's open positions, from `md` upward (design addendum § H). */
-export function PositionsTable({ positions, currency, labelledBy }: PositionsTableProps) {
+export function PositionsTable({ positions, asOf, currency, labelledBy }: PositionsTableProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const left = "text-left";
@@ -144,21 +183,30 @@ export function PositionsTable({ positions, currency, labelledBy }: PositionsTab
           {positions.map((position) => {
             const cells = cellsOf(position, locale, t);
             return (
-              <tr key={position.allocation_id}>
-                {cells.map((cell, index) => (
-                  <td
-                    key={index}
-                    className={cn(
-                      CELL,
-                      index < 3 && "text-left",
-                      index === 1 && "text-ink",
-                      index === cells.length - 1 && "pr-0",
-                    )}
-                  >
-                    {cell}
-                  </td>
+              <Fragment key={position.allocation_id}>
+                <tr>
+                  {cells.map((cell, index) => (
+                    <td
+                      key={index}
+                      className={cn(
+                        CELL,
+                        index < 3 && "text-left",
+                        index === 1 && "text-ink",
+                        index === cells.length - 1 && "pr-0",
+                      )}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+                {subRowsOf(position, asOf, t).map((sub) => (
+                  <tr key={sub.key}>
+                    <td colSpan={COLUMNS} className={SUB_CELL}>
+                      {sub.content}
+                    </td>
+                  </tr>
                 ))}
-              </tr>
+              </Fragment>
             );
           })}
         </tbody>
