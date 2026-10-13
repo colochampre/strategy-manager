@@ -246,7 +246,7 @@ def _position(
     )
 
 
-def _position_from_facts(element: OpenAllocationElement,facts: PositionFacts) -> OpenPosition:
+def _position_from_facts(element: OpenAllocationElement, facts: PositionFacts) -> OpenPosition:
     groups = facts.groups
     figures = open_position_figures(groups)
     fees = operation_fees(groups)
@@ -296,7 +296,7 @@ def _position_from_reader(element: OpenAllocationElement) -> OpenPosition:
     )
 
 
-def _order(element: InFlightAttemptElement,row: SubmittedOrder | None) -> InFlightOrder:
+def _order(element: InFlightAttemptElement, row: SubmittedOrder | None) -> InFlightOrder:
     order = _order_from_reader(element)
     if row is None:
         return order
