@@ -16,9 +16,11 @@ The app is built here, not by ``create_app()``: the route is not registered in
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -37,6 +39,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
     get_open_state_source,
     get_snapshot_session,
 )
+from strategy_manager.reconciliation.infrastructure.models import ReconciliationDiscrepancyRow
 from strategy_manager.shared import db as shared_db
 from tests.performance.fakes import HeldOpenStateSource
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -156,6 +159,101 @@ async def _read_held_across_a_fill(
         "positions": [position["allocation_id"] for position in body["positions"]],
         "orders": [order["attempt_id"] for order in body["orders"]],
     }
+
+
+async def _read_held_across(
+    app: FastAPI,
+    held_slot: list[HeldOpenStateSource],
+    concurrent: Callable[[], Awaitable[None]],
+) -> dict[str, Any]:
+    """The same hold as above, with ``concurrent`` run on connections of its own
+    while the read is parked; the WHOLE body is returned."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        request = asyncio.create_task(client.get("/api/positions/open", headers=_auth()))
+        while not held_slot:
+            await asyncio.sleep(0)
+            assert not request.done(), "the request ended before the read started"
+        held = held_slot[0]
+        await asyncio.wait_for(held.first_done.wait(), WAIT)
+        assert not request.done(), "the read was not held between its two statements"
+
+        await concurrent()
+
+        assert not request.done(), "the held read finished without being released"
+        held.release.set()
+        response = await asyncio.wait_for(request, WAIT)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, dict)
+    return body
+
+
+async def test_the_facts_and_the_disagreements_are_read_in_the_same_snapshot_as_the_guards_reader(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """EVERY source the use case is given is built on the snapshot's session. While
+    the read is parked after its first statement, other connections commit a
+    second fill of the open allocation, a new SUBMITTED attempt and a CONFIRMED
+    discrepancy naming the allocation. None of them may show: a facts source or a
+    disagreement source on a session of its own would read them."""
+    factory = pg_session_factory
+    strategy_id, allocation_id, attempt_id = await _seed_order_in_flight(factory)
+    async with factory() as session:
+        await session.execute(
+            text("UPDATE execution_attempts SET status = 'FILLED' WHERE id = :id"),
+            {"id": attempt_id},
+        )
+        await session.execute(text("DELETE FROM reconciliation_discrepancies"))
+        await session.commit()
+    await _fill_the_order(factory, strategy_id, allocation_id, attempt_id)  # one fill: open
+    held_slot: list[HeldOpenStateSource] = []
+
+    async def _commit_from_elsewhere() -> None:
+        async with factory() as session:
+            await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+                _fill(
+                    strategy_id=strategy_id,
+                    allocation_id=allocation_id,
+                    attempt_id=attempt_id,
+                    side="BUY",
+                    quantity="1",
+                    price="100",
+                )
+            )
+            await session.commit()
+        await _seed_order_in_flight(factory)
+        async with factory() as session:
+            session.add(
+                ReconciliationDiscrepancyRow(
+                    id=uuid4(),
+                    exchange="bybit",
+                    venue="usdt-m",
+                    settlement_currency="USDT",
+                    symbol="SOLUSDT",
+                    kind="ATTRIBUTABLE_SINGLE_ALLOCATION",
+                    venue_net_base=Decimal("0"),
+                    ledger_net_base=Decimal("1"),
+                    open_allocation_ids=[allocation_id],
+                    consecutive_scans=3,
+                    status="CONFIRMED",
+                    confirmed_at=datetime.now(UTC),
+                    first_scan_id=uuid4(),
+                    last_scan_id=uuid4(),
+                )
+            )
+            await session.commit()
+
+    body = await _read_held_across(
+        _held_app(factory, held_slot), held_slot, _commit_from_elsewhere
+    )
+
+    (position,) = body["positions"]
+    assert position["allocation_id"] == str(allocation_id)
+    assert position["fill_count"] == 1, "the facts read a fill committed after the snapshot"
+    assert position["venue_disagreement"] is None, (
+        "the disagreements read a row committed after the snapshot"
+    )
+    assert body["orders"] == [], "the submitted-orders read an attempt created after the snapshot"
 
 
 async def _plain_session(
