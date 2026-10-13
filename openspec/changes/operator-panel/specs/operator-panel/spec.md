@@ -78,9 +78,9 @@ frontend-design plugin.
 > Shows Stats, Uptime, and Lifecycle Controls" each gain a sentence pointing to
 > them, and "Every Panel String Is Localized EN/ES" gains one scenario. The data
 > is served by `GET /api/positions/open` (admin-api). Four owner questions of the
-> addendum (section O, Q6 to Q9) are still open; every requirement or scenario
-> that depends on one is marked "Pending owner answer Q6/Q7/Q8/Q9, written to
-> the default" so that the answer can be patched in one place.
+> addendum (section O, Q6 to Q9) were answered by the owner on 2026-10-13, each
+> as its default; every requirement or scenario that depends on one carries a
+> note "decided by the owner on 2026-10-13 (Qn)". Nothing is pending.
 
 ## Requirements
 
@@ -816,14 +816,11 @@ An element whose exchange is no tab at all (stored data at fault) belongs to NO
 tab. Its strategy's detail page MUST show it when it has a strategy id, because
 that page selects by id.
 
-> **Pending owner answer Q7, written to the default: say nothing.** Under the
-> default no line says that such an item exists. An element with no strategy id
-> and no tab (a position the facts could not decorate, or an undecorated order,
-> on an exchange without a tab) is then drawn by NO page of the panel; its only
-> trace is the server's WARNING. The alternative the owner may choose is one line
-> under the figures, "{N} open items are on no exchange tab", drawn only when N is
-> above zero, naming no exchange, pair or strategy; its Spanish has to be written
-> and agreed. If chosen, this requirement gains that line and one scenario.
+> **Decided by the owner on 2026-10-13 (Q7): say nothing.** No line says that
+> such an item exists. An element with no strategy id and no tab (a position the
+> facts could not decorate, or an undecorated order, on an exchange without a
+> tab) is drawn by NO page of the panel; its only trace is the server's WARNING.
+> A count-only line under the figures was proposed and declined.
 
 #### Scenario: The other exchange's elements are absent
 
@@ -861,7 +858,7 @@ that page selects by id.
 - WHEN the strategy's detail page renders
 - THEN the position is in its section, and no Strategies tab shows it
 
-#### Scenario: An element with no strategy id on no tab is drawn nowhere (pending Q7, default)
+#### Scenario: An element with no strategy id on no tab is drawn nowhere
 
 - GIVEN a position with a null strategy id whose exchange is no tab
 - WHEN every page is rendered
@@ -1244,11 +1241,9 @@ MUST draw the detail section's three states with its texts: "Reading open
 positions…", the error sentence with "Read again", and "No open position.", with
 the heading always drawn. The list MUST draw no notes.
 
-> **Pending owner answer Q8, written to the default: no.** Orders in flight are
-> NOT drawn on the Overview; a pool whose only open thing is an order reads "No
-> open position.". They stay on the Strategies page and on the strategy's page.
-> If the owner answers yes, this requirement gains the order line and its
-> scenario, and the approved order line needs a place for the strategy's name.
+> **Decided by the owner on 2026-10-13 (Q8): no.** Orders in flight are NOT drawn
+> on the Overview; a pool whose only open thing is an order reads "No open
+> position.". They stay on the Strategies page and on the strategy's page.
 
 #### Scenario: Three positions of two strategies in one pool
 
@@ -1304,7 +1299,7 @@ the heading always drawn. The list MUST draw no notes.
 - WHEN it renders
 - THEN no dry-run, both-origins or margin note is drawn under it
 
-#### Scenario: An order in flight is not drawn on the Overview (pending Q8, default)
+#### Scenario: An order in flight is not drawn on the Overview
 
 - GIVEN a pool whose only open thing is an order in flight
 - WHEN the Overview renders
@@ -1408,13 +1403,14 @@ block, where it writes "N open trades not in the curve" for ONE strategy, live
 positions only. Decision 65 names the Overview's count and says nothing of this
 one, which nobody had seen. The detail page's sentence MUST NOT change.
 
-> **Pending owner answer Q6, written to the default: it stays as it is.** The
-> owner may answer that it should change as the Overview's count does, or go. The
-> section "Open positions" sits a little below it and lists every position, dry
-> run included, so the two can read differently ("1 open trade not in the curve"
-> beside two rows, one of them a dry run); both statements are true as worded.
+> **Decided by the owner on 2026-10-13 (Q6): it stays as it is.** The sentence
+> keeps counting live positions only and does not take the Overview's new form.
+> The section "Open positions" sits a little below it and lists every position,
+> dry run included, so the two can read differently ("1 open trade not in the
+> curve" beside two rows, one of them a dry run); both statements are true as
+> worded.
 
-#### Scenario: The detail page keeps its sentence (pending Q6, default)
+#### Scenario: The detail page keeps its sentence
 
 - GIVEN the strategy's report says one open trade is not in the curve and the strategy holds a live and a rehearsal position
 - WHEN the detail page renders
@@ -1474,7 +1470,7 @@ choice and not an owner decision.)
 
 ### Requirement: Times And Figures Of Open Positions Are Written One Way
 
-> **Added 2026-10-12 (design addendum "open positions" § H, "Times" and "Figures"; § J, the place where the default departs from the picture).**
+> **Added 2026-10-12 (design addendum "open positions" § H, "Times" and "Figures"; § J, the place where what is built departs from the picture, decided by the owner on 2026-10-13, Q9).**
 
 Every time MUST have "UTC" written after it. "Last read", "could not be
 refreshed since" and "last compared" MUST be written as hours, minutes and
@@ -1488,14 +1484,12 @@ the currency's decimals (`121.80`), so that one page writes a figure one way.
 The leverage MUST be written without its stored zeros and followed by `x`
 (`2.00000000` reads `2x`).
 
-> **Pending owner answer Q9, written to the default: `184.3`.** In Spanish a
-> price and a size MUST read with a decimal POINT (`184.3`, `0.82 AAVE`), as the
-> closed trades table beside them does today, where the approved prototype's
-> example 25 draws a comma (`184,3`, `0,82 AAVE`). Under the default a margin
-> reads `121.80`, with two decimals, where some of the prototype's samples read
-> `121.8`. If the owner chooses the comma, either the closed trades table changes
-> with it or the two tables on that page differ; this requirement and its
-> Spanish scenario are patched.
+> **Decided by the owner on 2026-10-13 (Q9): `184.3`.** In Spanish a price and a
+> size MUST read with a decimal POINT (`184.3`, `0.82 AAVE`), as the closed
+> trades table beside them does today, where the approved prototype's example 25
+> draws a comma (`184,3`, `0,82 AAVE`). A money amount keeps the language's
+> separator (`0,17`) and a margin reads `121.80`, with the currency's two
+> decimals, where some of the prototype's samples read `121.8`.
 
 #### Scenario: Three kinds of time
 
@@ -1521,7 +1515,7 @@ The leverage MUST be written without its stored zeros and followed by `x`
 - WHEN the row renders
 - THEN it reads `121.80`
 
-#### Scenario: Spanish prices follow the table under them (pending Q9, default)
+#### Scenario: Spanish prices follow the table under them
 
 - GIVEN the locale is Spanish and a position with entry price 184.3 and size 0.82 AAVE
 - WHEN the section renders
