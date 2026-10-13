@@ -582,6 +582,157 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
   });
 });
 
+/** Every English text of the section (section I), which a Spanish render must not contain. */
+const ENGLISH_OF_THE_SECTION = [
+  "Open positions",
+  "No open position",
+  "Reading open positions",
+  "Opened (UTC)",
+  "Margin granted",
+  "Leverage",
+  "not recorded",
+  "figures not readable",
+  "of 0.5 opened",
+  "average of",
+  "order in flight",
+  "opening",
+  "closing",
+  "sent ",
+  "Dry run",
+  "Live",
+  "venue disagrees",
+  "last compared",
+  "shared by",
+  "no booking is proposed",
+  "See the pending decision",
+  "A dry-run position was filled",
+  "This position holds dry-run",
+  "Margin granted is what the share took",
+  "Its reservation reads",
+  "The pair's base currency cannot be told",
+  "could not be matched to a strategy",
+  "Fees ",
+];
+
+describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
+  async function spanishSection() {
+    await act(() => i18n.changeLanguage("es"));
+    const wholeRow = disagreeing({
+      markets: ["AAVEUSDT"],
+      size: "0.3",
+      opened_size: "0.5",
+      fill_count: 3,
+      figures_missing: "UNRESOLVED_SYMBOL",
+      reservation_status: "EXPIRED",
+      venue_disagreement: {
+        discrepancy_id: DISCREPANCY,
+        venue_net_base: "0",
+        ledger_net_base: "0.82",
+        allocation_count: 2,
+        last_observed_at: "2026-10-12T21:39:12Z",
+      },
+    });
+    const route = (url: string) =>
+      url.includes("/reconciliation/bookings") ? Promise.resolve(jsonResponse([proposal()])) : undefined;
+    stubApi(
+      HEALTH,
+      [],
+      undefined,
+      {},
+      route,
+      {},
+      undefined,
+      answering(
+        [wholeRow, aave({ origin: "rehearsal", markets: ["SFPUSDT"], leverage: null }), aave({ origin: "mixed", markets: ["STXUSDT"] }), unowned()],
+        [openOrder({ strategy_id: ALPHA, action: "CLOSE", origin: "rehearsal" })],
+      ),
+    );
+    const view = renderAt(<OpenPositionsSection strategy={strategy()} />);
+    await settle();
+    await screen.findByRole("link", { name: "Ver la decisión pendiente, AAVEUSDT" });
+    return view;
+  }
+
+  it("finds none of section I's English anywhere in the section", async () => {
+    const view = await spanishSection();
+
+    const text = view.container.textContent ?? "";
+    for (const english of ENGLISH_OF_THE_SECTION) expect(text, english).not.toContain(english);
+  });
+
+  it("writes the fixed Spanish of section I, letter for letter", async () => {
+    const view = await spanishSection();
+
+    const text = view.container.textContent ?? "";
+    for (const spanish of [
+      "Posiciones abiertas",
+      "Apertura (UTC)",
+      "Margen otorgado USDT",
+      "Apalancamiento",
+      "Comisiones USDT",
+      "de 0.5 abiertas",
+      "promedio de 3 ejecuciones",
+      "no registrado",
+      "orden en curso · cierre · Simulación · enviada 21:12 UTC",
+      "el exchange no coincide",
+      "exchange 0 AAVE, libro mayor 0.82 AAVE",
+      "última comparación 21:39:12 UTC",
+      "compartida por 2 posiciones en este par",
+      "Ver la decisión pendiente",
+      "La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan.",
+      "Su reserva figura como EXPIRED, no FILLED.",
+      "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
+      "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
+      "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
+      "1 posición abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
+    ]) {
+      expect(text, spanish).toContain(spanish);
+    }
+  });
+
+  it("reads the plural sentence of the unmatched in Spanish, in agreement", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountSection(answering([unowned(), unowned({ markets: ["ABCBTC"] })]));
+
+    expect(screen.queryByText("2 posiciones abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra.")).toBeInTheDocument();
+  });
+
+  it("reads 'Sin posiciones abiertas.' for an empty section", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountSection(answering([]));
+
+    expect(screen.queryByText("Sin posiciones abiertas.")).toBeInTheDocument();
+  });
+
+  it("writes a price and a size with a POINT, as the closed trades table does, and money with the language's separator", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountSection(answering([aave()]));
+
+    const cells = onlyRow();
+    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
+    expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(cells[COLUMN.fees]?.textContent).toBe("0,17");
+    expect(cells[COLUMN.margin]?.textContent).toBe("121,80");
+    expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
+    expect(cells[COLUMN.opened]?.textContent).toBe("11/10/202614:05");
+  });
+
+  it("writes the same figures in a card", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    setViewport("narrow");
+    await mountSection(answering([aave()]));
+
+    expect(valuesOf(cards(1)[0] as HTMLElement)).toEqual({
+      "Apertura (UTC)": "11/10/2026 14:05",
+      Tamaño: "0.82 AAVE",
+      Entrada: "184.3",
+      "Comisiones USDT": "0,17",
+      "Margen otorgado USDT": "121,80",
+      Apalancamiento: "2x",
+    });
+  });
+});
+
 const MD = "(min-width: 768px)";
 
 /** The cards on screen, asserted to exist before they are returned. */
