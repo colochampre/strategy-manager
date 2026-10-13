@@ -19,6 +19,7 @@ never one per row.
 A row the facts cannot decorate stays, built from the reader's own element.
 """
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from uuid import UUID
@@ -38,6 +39,7 @@ from strategy_manager.performance.application.ports import (
 from strategy_manager.performance.domain.open_position import (
     DiscrepancyRow,
     FiguresMissing,
+    FillAggregate,
     InFlightOrder,
     OpenPosition,
     OpenPositionFigures,
@@ -52,9 +54,13 @@ from strategy_manager.performance.domain.open_position import (
 )
 from strategy_manager.performance.domain.operation import operation_fees
 
+logger = logging.getLogger(__name__)
+
 # ``fold_open_allocations`` joins the RAW spellings of an allocation's symbols
 # with this separator (``mode_origin.py``).
 _READER_SEPARATOR = " / "
+# The only status of a reservation that backs a position the pool counts as used.
+_FILLED = "FILLED"
 
 
 class ReadOpenPositions:
@@ -94,7 +100,137 @@ class ReadOpenPositions:
         extra = tuple(
             _order_from_submitted(row) for row in submitted if row.attempt_id not in returned
         )
-        return OpenState(positions=positions, orders=orders + extra)
+        answer = OpenState(positions=positions, orders=orders + extra)
+
+        # The faults of stored data are told in the log and nowhere else: these
+        # calls read the answer and change nothing in it.
+        _log_position_faults(opened, answer.positions, facts, rows)
+        _log_order_faults(answer.orders, submitted_by_attempt)
+        return answer
+
+
+def _log_position_faults(
+    opened: Sequence[OpenAllocationOrigin],
+    positions: Sequence[OpenPosition],
+    facts: Mapping[UUID, PositionFacts],
+    rows: Sequence[DiscrepancyRow],
+) -> None:
+    """One WARNING per fault of a position (design section K rows 4, 9, 10, 11, 12
+    and 17), with the allocation id and the pools, strategies or markets involved,
+    and never a price, quantity, fee or margin. It changes nothing in the answer.
+
+    The faults repeat on every read while they exist: a read model fires once per
+    page view and only ERROR reaches the operator's alerts, so this is WARNING,
+    never ERROR (``scope.py``)."""
+    rows_by_id = {row.discrepancy_id: row for row in rows}
+    for element, position in zip(opened, positions, strict=True):
+        allocation = element.allocation_id
+        decorating = facts.get(allocation)
+
+        if position.figures_missing is FiguresMissing.NO_FACTS or decorating is None:
+            logger.warning(
+                "open positions: allocation %s is open for the mode guard but the facts "
+                "read answered nothing for it; it is served with the reader's own values",
+                allocation,
+            )
+        else:
+            if decorating.reservation_status != _FILLED:
+                logger.warning(
+                    "open positions: allocation %s is open and its reservation reads %s, "
+                    "not %s",
+                    allocation,
+                    decorating.reservation_status,
+                    _FILLED,
+                )
+            if position.figures_missing is FiguresMissing.INCONSISTENT:
+                logger.warning(
+                    "open positions: allocation %s is open for the mode guard but the net "
+                    "computed for display is not above zero; its figures are not shown",
+                    allocation,
+                )
+            elif position.figures_missing is FiguresMissing.UNRESOLVED_SYMBOL:
+                logger.warning(
+                    "open positions: allocation %s names a symbol whose base currency "
+                    "cannot be told from the pool's settlement currency; its figures are "
+                    "not shown",
+                    allocation,
+                )
+            _log_pool_and_strategy(allocation, position.pool, decorating)
+
+        mark = position.venue_disagreement
+        if mark is not None:
+            row = rows_by_id.get(mark.discrepancy_id)
+            if row is not None and market_key(row.symbol) not in position.markets:
+                logger.warning(
+                    "open positions: discrepancy %s marks allocation %s under market %s, "
+                    "but the allocation's markets are %s",
+                    row.discrepancy_id,
+                    allocation,
+                    market_key(row.symbol),
+                    ", ".join(position.markets),
+                )
+
+
+def _log_pool_and_strategy(allocation: UUID, pool: PoolLabel, facts: PositionFacts) -> None:
+    """The check added on 2026-10-12 (section C): EVERY group of the allocation's
+    fills is compared with the element's pool, the reservation's pool and the
+    reservation's strategy, because the guard's element takes its pool from one
+    group, whichever the database returned first."""
+    pools = {pool, facts.reservation_pool, *(_pool_of_group(group) for group in facts.groups)}
+    strategies = {facts.strategy_id, *(group.strategy_id for group in facts.groups)}
+    if len(pools) == 1 and len(strategies) == 1:
+        return
+    logger.warning(
+        "open positions: allocation %s: its pool is %s, its reservation's pool is %s, "
+        "its fills name the pools [%s]; its reservation's strategy is %s, its fills "
+        "name the strategies [%s]",
+        allocation,
+        _label(pool),
+        _label(facts.reservation_pool),
+        ", ".join(sorted(_label(p) for p in pools)),
+        facts.strategy_id,
+        ", ".join(sorted(str(s) for s in strategies)),
+    )
+
+
+def _log_order_faults(
+    orders: Sequence[InFlightOrder], submitted_by_attempt: Mapping[UUID, SubmittedOrder]
+) -> None:
+    """One WARNING per order the facts cannot decorate (row 16), whose attempt
+    joins to no reservation, or whose pool is not its reservation's (row 17)."""
+    for order in orders:
+        row = submitted_by_attempt.get(order.attempt_id)
+        if row is None:
+            logger.warning(
+                "open positions: attempt %s is in flight for the mode guard but the "
+                "submitted-orders read has no row for it; it is served with the reader's "
+                "own values",
+                order.attempt_id,
+            )
+        elif row.reservation_pool is None:
+            logger.warning(
+                "open positions: attempt %s joins to no reservation, so its pool %s "
+                "cannot be checked",
+                order.attempt_id,
+                _label(order.pool),
+            )
+        elif row.reservation_pool != order.pool:
+            logger.warning(
+                "open positions: attempt %s: its pool is %s, its reservation's pool is %s",
+                order.attempt_id,
+                _label(order.pool),
+                _label(row.reservation_pool),
+            )
+
+
+def _pool_of_group(group: FillAggregate) -> PoolLabel:
+    return PoolLabel(group.exchange, group.venue, group.settlement_currency)
+
+
+def _label(pool: PoolLabel) -> str:
+    """The guard's own label (``_pool_label`` in ``mode_origin.py``), so the log,
+    the panel and the refusal name a pool alike."""
+    return f"{pool.exchange}/{pool.venue}/{pool.settlement_currency}"
 
 
 def _position(
