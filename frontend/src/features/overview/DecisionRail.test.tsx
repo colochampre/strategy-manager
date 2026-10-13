@@ -1,7 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
+import { DecisionRail } from "@/features/overview/DecisionRail";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { lock, pool, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
@@ -215,6 +217,69 @@ describe("the booking actions", () => {
     ];
     expect(buttons).toHaveLength(4);
     for (const button of buttons) expect(button.className).toContain("min-h-11");
+  });
+});
+
+describe("the anchor the venue mark links to (T19)", () => {
+  const scrollIntoView = vi.fn();
+
+  beforeEach(() => {
+    scrollIntoView.mockClear();
+    // jsdom has no layout and no scrollIntoView: the stub records the element it was called on.
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: scrollIntoView });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+
+  function Go({ to }: { to: string }) {
+    const navigate = useNavigate();
+    return (
+      <button type="button" onClick={() => void navigate(to)}>
+        go {to}
+      </button>
+    );
+  }
+
+  function mountRail(path: string) {
+    stubApi(HEALTH, [], POOLS);
+    return renderAt(
+      <>
+        <Go to="/#decision-rail" />
+        <Go to="/#elsewhere" />
+        <DecisionRail scope={{ status: "loading" }} placement="in-flow" />
+      </>,
+      path,
+    );
+  }
+
+  it("gives the aside the id the link names", () => {
+    mountRail("/");
+    expect(screen.getByRole("complementary")).toHaveAttribute("id", "decision-rail");
+  });
+
+  it("scrolls itself into view once mounted at a location whose hash is its id", () => {
+    mountRail("/#decision-rail");
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("complementary"));
+  });
+
+  it.each([["/"], ["/#elsewhere"]])("does not scroll when mounted at %s", (path) => {
+    mountRail(path);
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("scrolls again when the hash changes to its id while on screen, and not when it changes to another", () => {
+    mountRail("/");
+
+    fireEvent.click(screen.getByRole("button", { name: "go /#elsewhere" }));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "go /#decision-rail" }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("complementary"));
   });
 });
 
