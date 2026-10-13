@@ -263,6 +263,29 @@ export function jsonResponse(body: unknown, status = 200): Response {
 export type ExtraRoute = (url: string, init?: RequestInit) => Promise<Response> | undefined;
 
 /**
+ * A `GET /positions/open` that fails with a 500 the first time and holds every later request until `release`
+ * answers all of them with `answer`. `requests` counts the calls, so a test can tell a second press that
+ * started a request from one that did not.
+ */
+export function failsOnceThenHolds(answer: unknown) {
+  const waiting: Array<() => void> = [];
+  let requests = 0;
+  const route: ExtraRoute = (url) => {
+    if (!url.endsWith("/positions/open")) return undefined;
+    requests += 1;
+    if (requests === 1) return Promise.resolve(jsonResponse({ detail: "down" }, 500));
+    return new Promise<Response>((resolve) => {
+      waiting.push(() => resolve(jsonResponse(answer)));
+    });
+  };
+  return {
+    route,
+    requests: () => requests,
+    release: () => waiting.splice(0).forEach((answerNow) => answerNow()),
+  };
+}
+
+/**
  * Routes the endpoints the shell touches; everything else is a loud failure.
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
  * without an entry answers an empty ledger. `extra` is asked first. `available`

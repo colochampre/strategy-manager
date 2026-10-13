@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
+import { OpenReadState } from "@/features/positions/OpenReadState";
 import { ORIGIN_STYLE } from "@/features/positions/origin";
 import { OPEN_POSITIONS_KEY, notShown, ofExchange, useOpenPositions } from "@/shared/api/positions";
 import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
@@ -94,21 +95,7 @@ export function OpenStateLine({ exchange, visibleStrategyIds }: OpenStateLinePro
 
   const held = open.data;
   if (held === undefined) {
-    if (open.status === "error") {
-      return (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <p role="alert" className="min-w-0 flex-1 basis-96 text-sm text-loss">
-            {t("positions.state.error")}
-          </p>
-          {refresh}
-        </div>
-      );
-    }
-    return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("positions.state.loading")}
-      </p>
-    );
+    return <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />;
   }
 
   // Everything this page draws is selected from the selected exchange's elements, and from nothing else.

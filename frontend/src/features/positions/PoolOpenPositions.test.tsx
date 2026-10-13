@@ -9,7 +9,7 @@ import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { OpenPool, OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, setViewport, stubApi, unlock } from "@/test/harness";
+import { failsOnceThenHolds, jsonResponse, lock, openOrder, openPosition, openState, renderAt, setViewport, stubApi, unlock } from "@/test/harness";
 import type { OpenPositionsStub } from "@/test/harness";
 
 /**
@@ -360,6 +360,33 @@ describe("the states (T13; K row 21)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Read again" }));
     await waitFor(() => expect(api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open"))).toHaveLength(2));
+  });
+
+  it("keeps 'Read again' in place and focused, disabled for the screen reader, while it reads again after a failure", async () => {
+    const route = failsOnceThenHolds(openState([held("SFPUSDT")]));
+    stubApi(HEALTH, [], undefined, {}, route.route);
+    renderAt(<PoolOpenPositions pool={USDT_POOL} />);
+    await settle();
+    const button = screen.getByRole("button", { name: "Read again" });
+    button.focus();
+
+    fireEvent.click(button);
+    await waitFor(() => expect(route.requests()).toBe(2));
+
+    expect(button).toBeInTheDocument();
+    expect(document.activeElement).toBe(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("status")).toHaveTextContent("Reading open positions…");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    await settle();
+    expect(route.requests()).toBe(2);
+
+    await act(async () => route.release());
+    await settle();
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Read again" })).not.toBeInTheDocument();
   });
 
   it("reads a body that is not the answer's shape as a failure, never as an empty list", async () => {

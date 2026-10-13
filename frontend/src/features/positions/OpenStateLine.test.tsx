@@ -5,7 +5,7 @@ import { OpenStateLine } from "@/features/positions/OpenStateLine";
 import type { OpenState } from "@/shared/api/positions";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
+import { failsOnceThenHolds, jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
 import type { ExtraRoute, OpenPositionsStub } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
@@ -83,6 +83,31 @@ describe("a failed first read draws no figure at all", () => {
     fireEvent.click(screen.getByRole("button", { name: en.positions.state.refresh }));
 
     await waitFor(() => expect(positionsRequests(api)).toBe(2));
+  });
+
+  it("keeps Read again in place and focused, disabled for the screen reader, while it reads again after a failure", async () => {
+    const route = failsOnceThenHolds(openState([openPosition({ strategy_id: ALPHA })]));
+    stubApi(HEALTH, [], undefined, {}, route.route);
+    renderAt(<OpenStateLine exchange="bybit" visibleStrategyIds={new Set([ALPHA])} />);
+    const button = await screen.findByRole("button", { name: en.positions.state.refresh });
+    button.focus();
+
+    fireEvent.click(button);
+    await waitFor(() => expect(route.requests()).toBe(2));
+
+    expect(button).toBeInTheDocument();
+    expect(document.activeElement).toBe(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("status")).toHaveTextContent(en.positions.state.loading);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(route.requests()).toBe(2);
+
+    await act(async () => route.release());
+    await waitFor(() => expect(figures()).not.toEqual([]));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

@@ -10,6 +10,7 @@ import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import {
+  failsOnceThenHolds,
   jsonResponse,
   lock,
   openOrder,
@@ -947,6 +948,33 @@ describe("the states and the orders (T10; spec 'An Order In Flight Is A Dashed L
 
     fireEvent.click(screen.getByRole("button", { name: "Read again" }));
     await waitFor(() => expect(positionsRequests(api)).toBe(2));
+  });
+
+  it("keeps 'Read again' in place and focused, disabled for the screen reader, while it reads again after a failure", async () => {
+    const held = failsOnceThenHolds(openState([aave()]));
+    stubApi(HEALTH, [], undefined, {}, held.route);
+    renderAt(<OpenPositionsSection strategy={strategy()} />);
+    await settle();
+    const button = screen.getByRole("button", { name: "Read again" });
+    button.focus();
+
+    fireEvent.click(button);
+    await waitFor(() => expect(held.requests()).toBe(2));
+
+    expect(button).toBeInTheDocument();
+    expect(document.activeElement).toBe(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("status")).toHaveTextContent("Reading open positions…");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    await settle();
+    expect(held.requests()).toBe(2);
+
+    await act(async () => held.release());
+    await settle();
+    expect(screen.queryByRole("table")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Read again" })).not.toBeInTheDocument();
   });
 
   it("refuses a body that is not the answer's shape as an error, never as an empty list", async () => {

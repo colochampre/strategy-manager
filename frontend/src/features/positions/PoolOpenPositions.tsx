@@ -1,9 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OpenReadState } from "@/features/positions/OpenReadState";
 import { PositionsTable } from "@/features/positions/PositionsTable";
-import { OPEN_POSITIONS_KEY, ofPool, useOpenPositions } from "@/shared/api/positions";
+import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenPool } from "@/shared/api/positions";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
 
@@ -24,7 +24,6 @@ interface PoolOpenPositionsProps {
 export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
-  const queryClient = useQueryClient();
   const open = useOpenPositions();
   const locale = i18n.resolvedLanguage ?? "en";
 
@@ -38,24 +37,7 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {heading}
-        {open.status === "error" ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <p role="alert" className="min-w-0 flex-1 basis-96 text-sm text-loss">
-              {t("positions.state.error")}
-            </p>
-            <button
-              type="button"
-              onClick={() => void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY })}
-              className="min-h-11 flex-none rounded-md border border-rule px-4 text-sm text-ink hover:bg-panel-2"
-            >
-              {t("positions.state.refresh")}
-            </button>
-          </div>
-        ) : (
-          <p role="status" className="text-sm text-ink-3">
-            {t("positions.state.loading")}
-          </p>
-        )}
+        <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
       </section>
     );
   }
