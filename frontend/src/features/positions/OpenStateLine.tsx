@@ -123,18 +123,24 @@ export function OpenStateLine({ exchange, visibleStrategyIds }: OpenStateLinePro
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div className="flex min-w-0 flex-1 basis-96 flex-wrap items-start gap-x-2 gap-y-1 text-sm text-ink-2">
-        <div role="status" className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 basis-96 flex-col gap-1 text-sm text-ink-2">
+        {/* One row: the two counts (announced) and the time (never announced: it changes at every refresh). */}
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 sm:gap-x-2">
+          <div role="status">
+            <dl className={FIGURES}>
+              <Figure first label={t("positions.state.figures.open")} value={String(scoped.positions.length)} />
+              <Figure label={t("positions.state.figures.orders")} value={String(scoped.orders.length)} />
+            </dl>
+          </div>
           <dl className={FIGURES}>
-            <Figure first label={t("positions.state.figures.open")} value={String(scoped.positions.length)} />
-            <Figure label={t("positions.state.figures.orders")} value={String(scoped.orders.length)} />
+            <Figure label={t("positions.state.figures.lastRead")} value={t("positions.state.figures.time", { time: lastRead })} />
           </dl>
+        </div>
+        {/* Under the row, each on its own line, in a live region of their own (always mounted, so a line added later is announced). */}
+        <div aria-live="polite" className="flex min-w-0 flex-col gap-1">
           {items.length > 0 && <p>{t("positions.state.notShown", { items: items.join("; ") })}</p>}
           {stale && <p className="text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
         </div>
-        <dl className={FIGURES}>
-          <Figure label={t("positions.state.figures.lastRead")} value={t("positions.state.figures.time", { time: lastRead })} />
-        </dl>
       </div>
       {refresh}
     </div>

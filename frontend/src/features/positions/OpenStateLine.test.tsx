@@ -195,8 +195,9 @@ describe("a failed refresh", () => {
     expect(figures()[2]).toBe("Last read:21:38:12 UTC");
     const sentence = screen.getByText("Could not be refreshed since 21:38:12 UTC.");
     expect(sentence.className).toContain("text-loss");
-    const region = screen.getByRole("status");
-    expect(region.lastElementChild).toBe(sentence);
+    const notes = sentence.parentElement;
+    expect(notes).toHaveAttribute("aria-live", "polite");
+    expect(notes?.lastElementChild).toBe(sentence);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -315,7 +316,7 @@ describe("what the exchange holds and the list does not show", () => {
     await waitFor(() => expect(figures()).toHaveLength(3));
 
     expect(figures().slice(0, 2)).toEqual(["Open:3", "Orders in flight:1"]);
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(screen.getByText(/^Not on this list:/)).toHaveTextContent(
       "Not on this list: LINK 4h - RSI Divergences · archived · LINKUSDT · Dry run; STX 4h - RSI Divergences · XYZBTC · Live · figures not readable.",
     );
   });
@@ -385,7 +386,7 @@ describe("what the exchange holds and the list does not show", () => {
     await settled(api);
     await waitFor(() => expect(figures()).toHaveLength(3));
 
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(screen.getByText(/^Fuera de esta lista:/)).toHaveTextContent(
       "Fuera de esta lista: LINK 4h - RSI Divergences · archivada · LINKUSDT · Simulación; STX 4h - RSI Divergences · XYZBTC · En vivo · cifras no legibles.",
     );
   });
