@@ -25,10 +25,6 @@ from dataclasses import replace
 from uuid import UUID
 
 from strategy_manager.execution.domain.market_symbol import market_key
-from strategy_manager.execution.domain.mode_origin import (
-    InFlightAttemptOrigin,
-    OpenAllocationOrigin,
-)
 from strategy_manager.performance.application.ports import (
     ConfirmedDisagreementSourcePort,
     OpenPositionFactsSourcePort,
@@ -40,7 +36,9 @@ from strategy_manager.performance.domain.open_position import (
     DiscrepancyRow,
     FiguresMissing,
     FillAggregate,
+    InFlightAttemptElement,
     InFlightOrder,
+    OpenAllocationElement,
     OpenPosition,
     OpenPositionFigures,
     OpenState,
@@ -110,7 +108,7 @@ class ReadOpenPositions:
 
 
 def _log_position_faults(
-    opened: Sequence[OpenAllocationOrigin],
+    opened: Sequence[OpenAllocationElement],
     positions: Sequence[OpenPosition],
     facts: Mapping[UUID, PositionFacts],
     rows: Sequence[DiscrepancyRow],
@@ -234,7 +232,7 @@ def _label(pool: PoolLabel) -> str:
 
 
 def _position(
-    element: OpenAllocationOrigin,
+    element: OpenAllocationElement,
     facts: PositionFacts | None,
     rows: Sequence[DiscrepancyRow],
 ) -> OpenPosition:
@@ -248,7 +246,7 @@ def _position(
     )
 
 
-def _position_from_facts(element: OpenAllocationOrigin, facts: PositionFacts) -> OpenPosition:
+def _position_from_facts(element: OpenAllocationElement,facts: PositionFacts) -> OpenPosition:
     groups = facts.groups
     figures = open_position_figures(groups)
     fees = operation_fees(groups)
@@ -273,7 +271,7 @@ def _position_from_facts(element: OpenAllocationOrigin, facts: PositionFacts) ->
     )
 
 
-def _position_from_reader(element: OpenAllocationOrigin) -> OpenPosition:
+def _position_from_reader(element: OpenAllocationElement) -> OpenPosition:
     """The shape of a position the facts cannot decorate (``NO_FACTS``): its
     name, pool, markets and origin are the reader's own; everything the facts
     would have said is null, never a zero."""
@@ -298,7 +296,7 @@ def _position_from_reader(element: OpenAllocationOrigin) -> OpenPosition:
     )
 
 
-def _order(element: InFlightAttemptOrigin, row: SubmittedOrder | None) -> InFlightOrder:
+def _order(element: InFlightAttemptElement,row: SubmittedOrder | None) -> InFlightOrder:
     order = _order_from_reader(element)
     if row is None:
         return order
@@ -311,7 +309,7 @@ def _order(element: InFlightAttemptOrigin, row: SubmittedOrder | None) -> InFlig
     )
 
 
-def _order_from_reader(element: InFlightAttemptOrigin) -> InFlightOrder:
+def _order_from_reader(element: InFlightAttemptElement) -> InFlightOrder:
     """The shape of an order the submitted-orders read has no row for: the
     reader's own attempt id, name, pool, symbol and order id; no strategy id,
     action or time."""
@@ -342,7 +340,7 @@ def _order_from_submitted(row: SubmittedOrder) -> InFlightOrder:
     )
 
 
-def _pool_of(element: OpenAllocationOrigin | InFlightAttemptOrigin) -> PoolLabel:
+def _pool_of(element: OpenAllocationElement | InFlightAttemptElement) -> PoolLabel:
     """The guard's own pool label of an element. Never replaced by the
     reservation's (design section C)."""
     return PoolLabel(element.exchange, element.venue, element.settlement_currency)

@@ -10,14 +10,12 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.execution.domain.mode_origin import (
-    InFlightAttemptOrigin,
-    OpenAllocationOrigin,
-)
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.open_position import (
     DiscrepancyRow,
     FillAggregate,
+    InFlightAttemptElement,
+    OpenAllocationElement,
     PoolLabel,
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
@@ -94,9 +92,9 @@ class OpenStateSourcePort(Protocol):
     steps 1 and 2). Implemented by ``SqlAlchemyModeOriginReader``; the read
     never filters, so what it shows is what the guard refuses on."""
 
-    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]: ...
+    async def in_flight_attempts(self) -> Sequence[InFlightAttemptElement]: ...
 
-    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]: ...
+    async def open_allocations(self) -> Sequence[OpenAllocationElement]: ...
 
 
 @dataclass(frozen=True, slots=True)

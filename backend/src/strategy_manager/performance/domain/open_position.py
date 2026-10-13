@@ -18,11 +18,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, localcontext
 from enum import StrEnum
+from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.execution.domain.fill import REHEARSAL_ORDER_ID_PREFIX
 from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
-from strategy_manager.execution.domain.mode_origin import OpenAllocationOrigin, Origin
+from strategy_manager.execution.domain.mode_origin import Origin
 from strategy_manager.performance.domain.closed_trade import Direction
 from strategy_manager.performance.domain.operation import QUOTIENT_DIGITS, FeeAmount
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -32,6 +33,63 @@ _BUY = "BUY"
 # The status of the reconciliation's discrepancy that marks a position (the
 # owner's decision says CONFIRMED; an OBSERVED row marks nothing).
 CONFIRMED = "CONFIRMED"
+
+
+class OpenAllocationElement(Protocol):
+    """One open allocation, as the open-positions read uses it: exactly the
+    members it reads. Owned by ``performance`` (the consumer names what it needs);
+    the mode guard's own record satisfies it structurally. Read-only properties,
+    so a frozen dataclass is accepted."""
+
+    @property
+    def allocation_id(self) -> UUID: ...
+
+    @property
+    def strategy_name(self) -> str: ...
+
+    @property
+    def exchange(self) -> str: ...
+
+    @property
+    def venue(self) -> str: ...
+
+    @property
+    def settlement_currency(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def holds_rehearsal_fill(self) -> bool: ...
+
+    @property
+    def holds_live_fill(self) -> bool: ...
+
+
+class InFlightAttemptElement(Protocol):
+    """One in-flight attempt, as the open-positions read uses it. ``rehearsal`` is
+    the guard's own test of the order id's prefix."""
+
+    @property
+    def attempt_id(self) -> UUID: ...
+
+    @property
+    def strategy_name(self) -> str: ...
+
+    @property
+    def exchange(self) -> str: ...
+
+    @property
+    def venue(self) -> str: ...
+
+    @property
+    def settlement_currency(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def rehearsal(self) -> bool: ...
 
 
 class FiguresMissing(StrEnum):
@@ -247,7 +305,7 @@ def open_position_figures(
     )
 
 
-def origin_of(allocation: OpenAllocationOrigin) -> Origin:
+def origin_of(allocation: OpenAllocationElement) -> Origin:
     """The guard's origin of an open allocation, from its two flags: both,
     ``MIXED``; rehearsal only, ``REHEARSAL``; otherwise ``LIVE``. This is the
     mapping ``find_mismatches`` applies (``mode_origin.py``), so the panel and the
