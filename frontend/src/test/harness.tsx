@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 
+import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
 import { useTokenStore } from "@/shared/auth/token-store";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
 
@@ -48,6 +49,71 @@ export function pool(
     reserved: "0",
     allocatable: balance === null ? null : balance.available,
   };
+}
+
+let elementSequence = 0;
+
+/** A fresh id in the shape of a UUID, so two builders never collide on a key. */
+function nextElementId(): string {
+  elementSequence += 1;
+  return `00000000-0000-4000-8000-${String(elementSequence).padStart(12, "0")}`;
+}
+
+/**
+ * One position of `GET /positions/open`, in the route's shape: a live LONG on `SOLUSDT` of the strategy
+ * "Alpha" in the Bybit USDT-M pool, every figure present. The overrides replace any field.
+ */
+export function openPosition(overrides: Partial<OpenPosition> = {}): OpenPosition {
+  return {
+    allocation_id: nextElementId(),
+    strategy_id: "11111111-1111-4111-8111-111111111111",
+    strategy_name: "Alpha",
+    strategy_archived: false,
+    pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" },
+    currency: "USDT",
+    markets: ["SOLUSDT"],
+    origin: "live",
+    figures_missing: null,
+    side: "LONG",
+    base_currency: "SOL",
+    size: "0.5",
+    opened_size: "0.5",
+    entry_price: "184.300000000000000000",
+    opened_at: "2026-10-12T14:05:11Z",
+    fill_count: 1,
+    fees: "0.25",
+    other_fees: [],
+    margin_granted: "30.00",
+    leverage: "3.00000000",
+    reservation_status: "FILLED",
+    venue_disagreement: null,
+    ...overrides,
+  };
+}
+
+/** One order in flight of `GET /positions/open`: a live opening order of "Alpha" on `SOLUSDT`, sent at 21:12 UTC. */
+export function openOrder(overrides: Partial<InFlightOrder> = {}): InFlightOrder {
+  return {
+    attempt_id: nextElementId(),
+    strategy_id: "11111111-1111-4111-8111-111111111111",
+    strategy_archived: false,
+    strategy_name: "Alpha",
+    pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" },
+    market: "SOLUSDT",
+    action: "OPEN",
+    origin: "live",
+    submitted_at: "2026-10-12T21:12:00Z",
+    ...overrides,
+  };
+}
+
+/** The whole body of `GET /positions/open`, read at 21:40:03 UTC unless a test says otherwise. */
+export function openState(
+  positions: OpenPosition[] = [],
+  orders: InFlightOrder[] = [],
+  asOf = "2026-10-12T21:40:03Z",
+): OpenState {
+  return { as_of: asOf, positions, orders };
 }
 
 /** One `STORED` row of `GET /credentials`, in the API's shape; the overrides replace any of its fields. */
