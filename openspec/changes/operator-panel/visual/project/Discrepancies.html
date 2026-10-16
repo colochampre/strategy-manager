@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discrepancies - prototype</title>
+<!--
+  Design prototype for owner decision 66 (design.md, "Addendum: PR 15 - Confirmed discrepancies", sections D, G, H and I).
+  Sibling of OpenPositions.html: same scaffolding, same tokens, same captions. Not product code: it is never imported by
+  the app. One file, no script, no network, no web font. Every text that section I gives is used verbatim; every other
+  text is a proposal of this prototype and is listed in the review bar.
+
+  Tokens used, with the Tailwind name the build maps each one to (frontend/src/index.css, @theme):
+    ground -> bg-ground         panel -> bg-panel         panel-2 -> bg-panel-2
+    rule -> border-rule         rule-soft -> border-rule-soft   rule-strong -> border-rule-strong
+    ink / ink-2 / ink-3 -> text-ink / text-ink-2 / text-ink-3
+    gain -> teal (links, primary action, the origin "Live")
+    loss -> ember: in this unit, exactly three places, each with its words: a "Needs you" item, the nav badge
+            (its words are its accessible name) and the venue mark of an open position.
+    decision -> amber: the "Dry run" badge and the dry-run mark ONLY. Nothing in this unit joins the amber allow-list.
+    font-display -> Archivo, font-sans -> IBM Plex Sans, font-mono -> IBM Plex Mono (fallbacks below)
+-->
+<style>
+  :root {
+    --ground: #0C1116;
+    --panel: #141B22;
+    --panel-2: #1B242C;
+    --rule: #28333C;
+    --rule-soft: #1E272F;
+    --rule-strong: #3D4E5C;
+    --ink: #E7EDF1;
+    --ink-2: #A9B8C3;
+    --ink-3: #7A8C99;
+    --gain: #1FA6B8;
+    --gain-bright: #6FD0DC;
+    --loss: #E0644B;
+    --decision: #CE8018;
+    --gain-2: color-mix(in srgb, #1FA6B8 32%, #1E272F);
+    --gain-4: color-mix(in srgb, #1FA6B8 56%, #1E272F);
+    --loss-2: color-mix(in srgb, #E0644B 32%, #1E272F);
+    /* Fallbacks only: no web font is requested (see SettingsKeys.html). */
+    --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    cursor: default;
+  }
+  h1, h2, h3, h4, p, ul, ol, dl, dd, figure { margin: 0; padding: 0; }
+  ul, ol { list-style: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  a { color: var(--gain); text-decoration: none; cursor: pointer; }
+  a:hover { color: var(--gain-bright); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+
+  /* ---------- review bar, captions and example scaffolding: NOT part of the product ---------- */
+  .review-bar {
+    border-bottom: 1px dashed var(--rule-strong);
+    background: var(--panel);
+    padding: 14px 20px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .review-tag, .caption, .review-note, .toc {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-3);
+  }
+  .review-tag { text-transform: uppercase; letter-spacing: 0.12em; }
+  .review-note { max-width: 120ch; }
+  .review-list { display: flex; flex-direction: column; gap: 3px; max-width: 120ch; }
+  .review-list li { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-3); }
+  .review-list b { color: var(--ink-2); font-weight: 500; }
+  .toc { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .toc a { color: var(--ink-2); }
+  .stage { padding: 28px 20px 64px; display: flex; flex-direction: column; gap: 44px; max-width: 1180px; }
+  .group { display: flex; flex-direction: column; gap: 32px; }
+  .group-title {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-2); padding-bottom: 8px; border-bottom: 1px dashed var(--rule-strong);
+  }
+  .group-note { font-size: 13px; color: var(--ink-2); max-width: 90ch; }
+  .example { display: flex; flex-direction: column; gap: 10px; scroll-margin-top: 16px; }
+  .ex-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .num {
+    font-family: var(--font-mono); font-size: 12px; padding: 1px 8px; border: 1px solid var(--rule-strong);
+    border-radius: 4px; color: var(--ink-2);
+  }
+  .ex-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--ink); }
+  .caption { max-width: 120ch; }
+  .sub { display: flex; flex-direction: column; gap: 8px; }
+  .row-of { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  .placeholder {
+    border: 1px dashed var(--rule-strong); border-radius: 8px; padding: 18px 20px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  }
+  /* A desktop frame is the whole shell: top bar, side nav (lg and up) and the page area. */
+  .deskframe { overflow-x: auto; }
+  .screen {
+    position: relative; min-width: 980px; border: 1px solid var(--rule); background: var(--ground);
+    display: flex; flex-direction: column;
+  }
+  .screen.narrow { min-width: 760px; }
+  .screen > .main { padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+
+  /* ---------- top bar (TopBar.tsx): brand, exchange tabs on scoped routes only, mode badge, language ---------- */
+  .topbar { display: flex; align-items: center; gap: 32px; height: 64px; padding: 0 28px; border-bottom: 1px solid var(--rule); background: var(--panel); flex: none; }
+  .brand { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+  .tabs { display: flex; align-items: center; gap: 4px; }
+  .tab { padding: 0 14px; min-height: 40px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; color: var(--ink-3); }
+  .tab[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  .spacer { flex: 1; }
+  .badge {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--decision); border: 1px solid var(--decision); padding: 4px 8px; border-radius: 2px; white-space: nowrap;
+  }
+  .badge.live { color: var(--gain); border-color: var(--gain); }
+  .lang { font-size: 12px; text-transform: uppercase; color: var(--ink-3); }
+
+  /* ---------- the shell's body: SideNav (w-52, px-3 py-6, gap-1) beside main (lg:px-9 lg:py-7) ---------- */
+  .shellbody { display: flex; min-height: 0; }
+  .sidenav {
+    flex: none; width: 208px; display: flex; flex-direction: column; gap: 4px;
+    border-right: 1px solid var(--rule); background: var(--panel); padding: 24px 12px;
+  }
+  .sidenav.tile { border: 1px solid var(--rule); border-radius: 0; }
+  /* An item: rounded-md px-3.5 py-3 text-sm. With a badge, the label stays left and the badge sits at the item's end. */
+  .navlink {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; position: relative;
+    border-radius: 6px; padding: 12px 14px; font-size: 14px; line-height: 20px; color: var(--ink-2);
+  }
+  .navlink:hover { background: var(--panel-2); color: var(--ink); }
+  .navlink[aria-current="page"] { background: var(--panel-2); font-weight: 600; color: var(--ink); }
+  /* NavBadge: red (loss) with its number, filled so it reads at a glance; the words are its accessible name. */
+  .nbadge {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px;
+    background: var(--loss); color: var(--ground);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .shellbody > .main { flex: 1; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 24px; }
+
+  /* ---------- BottomNav (below lg): four flex-1 cells, min-h-11, text-xs ---------- */
+  .bottomnav { display: flex; border-top: 1px solid var(--rule); background: var(--panel); width: 100%; }
+  /* At 375 px a cell is 93.75 px; "Discrepancias" takes about 80 of them, so the badge cannot sit inline.
+     Every label sits on one line 8 px above the bar's bottom edge (not centred), in all four cells, so the
+     labels stay level; the badge takes the free band above its label, at the cell's top-right corner. */
+  .bnlink {
+    flex: 1 1 0; min-width: 0; min-height: 44px; position: relative;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px;
+    font-size: 12px; line-height: 16px; color: var(--ink-3); white-space: nowrap;
+  }
+  .bnlink[aria-current="page"] { background: var(--panel-2); font-weight: 600; color: var(--ink); }
+  .bnlink .nbadge { position: absolute; top: 3px; right: 4px; height: 16px; min-width: 18px; padding: 0 5px; font-size: 10px; }
+  .strip { width: 375px; max-width: 100%; outline: 1px dashed var(--rule-strong); }
+
+  /* ---------- a phone, 375 px: top bar (h-14, px-4), main (p-4), bottom nav ---------- */
+  .phone {
+    width: 375px; max-width: 100%; outline: 1px dashed var(--rule-strong); background: var(--ground);
+    display: flex; flex-direction: column; position: relative; min-width: 0;
+  }
+  .ptop { height: 56px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--rule); background: var(--panel); }
+  .pmain { padding: 16px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+
+  /* ---------- page furniture ---------- */
+  h1.pt { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--ink); }
+  h2.st { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
+  .btn {
+    min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--rule);
+    background: transparent; font-size: 14px; color: var(--ink); white-space: nowrap;
+  }
+  .btn:hover { background: var(--panel-2); }
+  .text-sm { font-size: 14px; color: var(--ink-2); }
+  .text-sm.t3 { color: var(--ink-3); }
+  .text-sm.err { color: var(--loss); }
+  .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .gain { color: var(--gain); }
+  .loss-t { color: var(--loss); }
+
+  /* The page head: title, one sentence of what the page is, then the read line (as OpenStateLine). */
+  .phead { display: flex; flex-direction: column; gap: 8px; }
+  .lede { font-size: 14px; color: var(--ink-2); max-width: 72ch; }
+  .osl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+  .osl-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14px; color: var(--ink-2); flex: 1 1 18rem; }
+  .osl-text .loss { color: var(--loss); }
+  .osl-figs {
+    display: flex; flex-wrap: wrap; gap: 2px 8px; font-family: var(--font-mono); font-size: 12px;
+    color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  .osl-figs > div { display: flex; gap: 6px; }
+  .osl-figs dt { color: var(--ink-3); }
+  .osl-figs dt::after { content: ":"; }
+  .osl .btn { flex: none; }
+
+  /* A list of the page: heading, an optional one-line note, then the exchange groups. */
+  .dsect { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .dsect-head { display: flex; flex-direction: column; gap: 4px; }
+  .dsect-note { font-size: 13px; color: var(--ink-3); max-width: 80ch; }
+  /* One exchange: its name as an eyebrow with a hairline to the right, then its items. */
+  .xg { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .xg-name {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3);
+  }
+  .xg-name::after { content: ""; flex: 1; border-top: 1px solid var(--rule); }
+  .xg-items { display: flex; flex-direction: column; gap: 10px; }
+
+  /* The discrepancy item. Needs you: solid red border, and the red sentence that says why.
+     Being booked: the same card with the ordinary border and no red at all. */
+  .ditem {
+    display: flex; flex-direction: column; gap: 12px; min-width: 0;
+    padding: 16px; border: 1px solid var(--loss); border-radius: 8px; background: var(--panel); scroll-margin-top: 16px;
+  }
+  .ditem.calm { border-color: var(--rule); }
+  .dhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 16px; }
+  .dpair { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--ink); }
+  .dpool { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+  .dwhy { display: flex; flex-direction: column; gap: 2px; }
+  .dsay { font-size: 14px; font-weight: 500; color: var(--loss); }
+  .dsay.calm { color: var(--ink); font-weight: 400; }
+  .dkind { font-size: 14px; color: var(--ink-2); }
+  /* The two books side by side: the comparison the whole page is about. */
+  .nets {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 560px;
+    border: 1px solid var(--rule); border-radius: 6px; background: var(--ground);
+  }
+  .nets > div { padding: 8px 12px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .nets > div + div { border-left: 1px solid var(--rule-soft); }
+  .nets dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+  .nets dd { font-family: var(--font-mono); font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .nets dd .u { font-family: var(--font-sans); font-size: 11px; color: var(--ink-3); margin-left: 4px; }
+  .nets .diff dd { color: var(--ink-2); }
+  .dmeta { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 13px; }
+  .dmeta > div { display: flex; flex-wrap: wrap; gap: 0 8px; min-width: 0; }
+  .dmeta dt { color: var(--ink-3); }
+  .dmeta dd { color: var(--ink-2); }
+  .dmeta .mono { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .dmeta .names a { white-space: nowrap; }
+  /* The bookings table: one table, one row group per exchange, so the columns line up across exchanges. */
+  .bt td { white-space: nowrap; }
+  .bt td.wrap { white-space: normal; }
+  .bt tr.xrow th {
+    padding: 16px 0 6px; text-align: left; border-bottom: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 400; letter-spacing: 0.14em; color: var(--ink-3);
+  }
+  .dact { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--rule-soft); }
+  .dact dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+  .dact dd { font-size: 14px; color: var(--ink); }
+  .idnote { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.04em; }
+
+  /* The dry-run statement: neutral, boxed, never an all-clear (and never amber: see the head comment). */
+  .stmt { padding: 16px; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--panel); font-size: 14px; color: var(--ink); max-width: 72ch; }
+
+  /* ---------- tables: the closed trades table's own classes (TradesTable.tsx) ---------- */
+  .tscroll { overflow-x: auto; }
+  .t { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .t th {
+    padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); font-weight: 500; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); text-align: right; vertical-align: bottom;
+  }
+  .t td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule-soft); text-align: right; color: var(--ink-2); vertical-align: top; }
+  .t .l { text-align: left; }
+  .t th:last-child, .t td:last-child { padding-right: 0; }
+  .t td.pair { color: var(--ink); }
+  .t .blk { display: block; }
+  .t .t3 { color: var(--ink-3); }
+  .t td.sans { font-family: var(--font-sans); font-size: 13px; }
+  .t tr.subrow td { padding: 6px 0 10px; text-align: left; }
+  .otag { display: block; font-family: var(--font-sans); font-size: 11px; line-height: 16px; }
+  .o-dry { color: var(--decision); }
+  .o-live { color: var(--gain); }
+  .unit { font-family: var(--font-sans); font-size: 11px; color: var(--ink-3); }
+
+  /* Phone cards for the bookings */
+  .cards { display: flex; flex-direction: column; gap: 10px; }
+  .pcard { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); min-width: 0; }
+  .pcard-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+  .pcard-head .pr { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
+  .pcard-head .pr .sd { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+  .pcard dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .pcard dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+  .pcard dd { color: var(--ink-2); }
+  .pcard dd.sans { font-family: var(--font-sans); }
+  .pcard .full { grid-column: 1 / -1; }
+
+  /* ---------- the venue mark: the line under a position (MarkLine.tsx) and the chip on a strategy row (OpenMarks.tsx) ---------- */
+  .mline {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; width: 100%; min-width: 0; padding: 8px 12px;
+    border: 1px solid var(--rule-strong); border-radius: 6px; background: transparent;
+    font-family: var(--font-mono); font-size: 12px; text-align: left; color: var(--ink);
+  }
+  .mline .d { color: var(--ink-3); white-space: pre; }
+  .vline { border-style: solid; border-color: var(--loss); }
+  .vline .vt { color: var(--loss); }
+  .vline a { text-decoration: underline; text-underline-offset: 3px; }
+  .chipset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: 100%; }
+  .chip {
+    display: inline-flex; flex-wrap: nowrap; font-family: var(--font-mono); font-size: 12px; line-height: 16px;
+    padding: 2px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel-2);
+    color: var(--ink); white-space: nowrap; max-width: 100%;
+  }
+  .chip .d { color: var(--ink-3); white-space: pre; }
+  .chip.c-live { border-color: var(--gain); }
+  .chip.venue { background: transparent; border-color: var(--loss); color: var(--loss); }
+  .vtext { font-size: 12px; color: var(--ink-2); }
+  .vtext a { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- Overview pool panel (PoolPanel.tsx), now one column ---------- */
+  .pool-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+  .ledger { font-family: var(--font-mono); font-size: 15px; line-height: 1.45; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .ledger .lead { font-size: 26px; font-weight: 600; line-height: 1; color: var(--ink); }
+  .ledger b { font-weight: 600; }
+  .ledger .rs { color: var(--rule); }
+  .chart { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); padding: 12px; }
+  .chart svg { display: block; width: 100%; height: 120px; }
+  .mgrid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+  .mgrid i { display: block; height: 22px; border-radius: 3px; background: var(--rule-soft); }
+  .mgrid i.g2 { background: var(--gain-2); } .mgrid i.g4 { background: var(--gain-4); } .mgrid i.l2 { background: var(--loss-2); }
+  .msum { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+  .scopebox { border: 1px solid var(--loss); border-radius: 6px; background: var(--panel); padding: 16px; font-size: 14px; color: var(--ink-2); max-width: 72ch; }
+  .sect { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+  /* Phone overrides for the view */
+  .phone .nets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .phone .nets .diff { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--rule-soft); flex-direction: row; justify-content: space-between; align-items: baseline; }
+  .phone .ditem { padding: 14px; }
+  .phone h1.pt { font-size: 24px; }
+
+  @media (max-width: 639px) {
+    .stage { padding: 20px 12px 48px; }
+    .topbar { gap: 12px; padding: 0 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="review-bar">
+  <p class="review-tag">Review bar &middot; not part of the product &middot; a still picture, nothing here is sent anywhere</p>
+  <p class="review-note">
+    Confirmed discrepancies (owner decision 66): the fourth navigation item and its badge, the view of the whole system grouped by
+    exchange, the Overview without &ldquo;Needs your decision&rdquo;, and the venue mark of an open position, which now links to the view.
+    16 examples. Samples: names, amounts, times (UTC) and pairs. Links in the pictures point at the example they lead to. A dashed
+    outline is a 375 px phone. Grey mono type like this is a caption, not product.
+  </p>
+  <p class="review-note">
+    Red appears in three places only, each with its words: an item under &ldquo;Needs you&rdquo; (solid red border and a red sentence),
+    the nav badge (its words are its accessible name), and the venue mark of a position. An item being booked and a booking are never red.
+    Amber stays the dry-run badge's alone. The view is not exchange-scoped: the top bar shows no exchange tabs on it.
+  </p>
+  <p class="review-tag">Texts this prototype had to choose (section I gives none for them)</p>
+  <ul class="review-list">
+    <li><b>Page sentence:</b> &ldquo;Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.&rdquo;</li>
+    <li><b>Headings:</b> Needs you &middot; Being booked &middot; Booked automatically. <b>Notes:</b> &ldquo;Nothing here needs you. If it cannot be booked, it moves to Needs you.&rdquo; &middot; &ldquo;The last 30 days, newest first, at most 100.&rdquo; &middot; empty: &ldquo;Nothing needs you.&rdquo; (when something is being booked) &middot; &ldquo;No booking in the last 30 days.&rdquo;</li>
+    <li><b>Item labels:</b> Exchange &middot; Ledger &middot; Difference &middot; Strategy / Strategies &middot; No strategy &middot; Confirmed &middot; Last compared &middot; What you can do</li>
+    <li><b>Kinds without a section-I text:</b> ATTRIBUTABLE_FULL_CLOSE &ldquo;The venue closed a position the ledger holds open.&rdquo; &middot; ATTRIBUTABLE_SINGLE_ALLOCATION &ldquo;The venue reduced a position only one strategy holds.&rdquo;</li>
+    <li><b>What you can do:</b> NO_MATCHING_ALLOCATION &ldquo;Close it on the exchange by hand. The next comparison resolves it.&rdquo; &middot; the rest &ldquo;Ask for a manual reconciliation. Nothing in this panel can book it.&rdquo;</li>
+    <li><b>Read states:</b> &ldquo;Discrepancies could not be read, so this page cannot say whether anything needs you.&rdquo; &middot; the read line reuses Last read / Read again / &ldquo;Could not be refreshed since &hellip; UTC.&rdquo;</li>
+    <li><b>Bookings table:</b> Booked (UTC) &middot; Pair &middot; Side &middot; Quantity &middot; Strategy &middot; Fills &middot; By &middot; Now; values &ldquo;automatically&rdquo;, &ldquo;by hand&rdquo;, &ldquo;the venue agrees again&rdquo; (section H), &ldquo;waiting for the next comparison&rdquo;.</li>
+    <li><b>Venue mark, NEEDS_OWNER words:</b> &ldquo;could not be booked automatically&rdquo; &middot; &ldquo;one booking cannot split it&rdquo; &middot; &ldquo;which strategy it reduced cannot be told&rdquo;.</li>
+    <li><b>Overview scope messages, reworded</b> (they named pending bookings): &ldquo;Loading exchanges&hellip;&rdquo; (kept) &middot; &ldquo;The pools are hidden because the exchanges could not be loaded, so they cannot be filtered.&rdquo; &middot; &ldquo;No exchange is configured, so there are no pools to show.&rdquo;</li>
+    <li><b>Spanish:</b> all of it, examples 3, 10, 13 and 15.</li>
+  </ul>
+  <nav class="toc" aria-label="Examples">
+    <a href="#ex1">1</a><a href="#ex2">2</a><a href="#ex3">3</a><a href="#ex4">4</a><a href="#ex5">5</a><a href="#ex6">6</a><a href="#ex7">7</a><a href="#ex8">8</a><a href="#ex9">9</a><a href="#ex10">10</a><a href="#ex11">11</a><a href="#ex12">12</a><a href="#ex13">13</a><a href="#ex14">14</a><a href="#ex15">15</a><a href="#ex16">16</a>
+  </nav>
+</header>
+
+<main class="stage">
+
+<!-- ================================================================== A. navigation -->
+<section class="group" aria-label="The navigation">
+  <h2 class="group-title">A &middot; The navigation: a fourth item and its badge (examples 1 to 3)</h2>
+
+  <!-- 1 -->
+  <div class="example" id="ex1">
+    <div class="ex-head"><span class="num">1</span><h3 class="ex-title">The side nav with four items, nothing needs the owner: no badge</h3></div>
+    <p class="caption">Order: Overview, Strategies, Discrepancies, Settings. At zero the item is a plain link, exactly like the others; it also draws nothing while the read is loading and nothing when it failed (example 8). Accessible name of the item: &ldquo;Discrepancies&rdquo;.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><nav class="tabs" aria-label="Exchanges"><button type="button" class="tab" aria-pressed="true">bybit</button><button type="button" class="tab" aria-pressed="false">binance</button></nav><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12" aria-current="page">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex4">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main"><h1 class="pt">Overview</h1><div class="placeholder">The Overview, as in example 12.</div></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 2 -->
+  <div class="example" id="ex2">
+    <div class="ex-head"><span class="num">2</span><h3 class="ex-title">The badge: 1, 12, on the active item, and in Spanish</h3></div>
+    <p class="caption">Red (loss) with its number, at the item's end. The number is decorative (aria-hidden); a visually hidden span carries the words. Accessible name of the item: 2a &ldquo;Discrepancies, 1 discrepancy needs you&rdquo;; 2b and 2c &ldquo;Discrepancies, 12 discrepancies need you&rdquo;; 2d &ldquo;Discrepancias, 12 discrepancias requieren tu atención&rdquo;. It counts &ldquo;Needs you&rdquo; only: an item being booked and a booking never count.</p>
+    <div class="row-of">
+      <div class="sub"><p class="caption">2a &middot; one, Overview active</p>
+        <nav class="sidenav tile" aria-label="Sections"><a class="navlink" href="#ex12" aria-current="page">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex5"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">1</span><span class="sr-only">1 discrepancy needs you</span></a><a class="navlink" href="#ex1">Settings</a></nav></div>
+      <div class="sub"><p class="caption">2b &middot; twelve, Strategies active</p>
+        <nav class="sidenav tile" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1" aria-current="page">Strategies</a><a class="navlink" href="#ex5"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">12</span><span class="sr-only">12 discrepancies need you</span></a><a class="navlink" href="#ex1">Settings</a></nav></div>
+      <div class="sub"><p class="caption">2c &middot; twelve, on the active item</p>
+        <nav class="sidenav tile" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex5" aria-current="page"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">12</span><span class="sr-only">12 discrepancies need you</span></a><a class="navlink" href="#ex1">Settings</a></nav></div>
+      <div class="sub" lang="es"><p class="caption">2d &middot; doce, en espa&ntilde;ol</p>
+        <nav class="sidenav tile" aria-label="Secciones"><a class="navlink" href="#ex12">Resumen</a><a class="navlink" href="#ex1">Estrategias</a><a class="navlink" href="#ex10" aria-current="page"><span>Discrepancias</span><span class="nbadge" aria-hidden="true">12</span><span class="sr-only">12 discrepancias requieren tu atención</span></a><a class="navlink" href="#ex1">Configuración</a></nav></div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="example" id="ex3">
+    <div class="ex-head"><span class="num">3</span><h3 class="ex-title">The bottom bar at 375 px: four cells, the badge, and the Spanish label</h3></div>
+    <p class="caption">Four flex-1 cells of 93.75 px. &ldquo;Discrepancias&rdquo; (about 80 px at text-xs) leaves no room for a badge beside it, so on the phone the badge is lifted to the cell's top-right corner. To leave it that band, every label of the bar sits 8 px above the bottom edge instead of centred, so the four labels stay level whether or not a badge is drawn. The accessible names are those of example 2. 3e is the narrowest case: Spanish, two digits, active.</p>
+    <div class="sub"><p class="caption">3a &middot; nothing needs the owner</p>
+      <nav class="bottomnav strip" aria-label="Sections"><a class="bnlink" href="#ex12" aria-current="page">Overview</a><a class="bnlink" href="#ex1">Strategies</a><a class="bnlink" href="#ex4">Discrepancies</a><a class="bnlink" href="#ex1">Settings</a></nav></div>
+    <div class="sub"><p class="caption">3b &middot; one</p>
+      <nav class="bottomnav strip" aria-label="Sections"><a class="bnlink" href="#ex12" aria-current="page">Overview</a><a class="bnlink" href="#ex1">Strategies</a><a class="bnlink has-badge" href="#ex11"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">1</span><span class="sr-only">1 discrepancy needs you</span></a><a class="bnlink" href="#ex1">Settings</a></nav></div>
+    <div class="sub"><p class="caption">3c &middot; twelve, on the active item</p>
+      <nav class="bottomnav strip" aria-label="Sections"><a class="bnlink" href="#ex12">Overview</a><a class="bnlink" href="#ex1">Strategies</a><a class="bnlink has-badge" href="#ex11" aria-current="page"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">12</span><span class="sr-only">12 discrepancies need you</span></a><a class="bnlink" href="#ex1">Settings</a></nav></div>
+    <div class="sub" lang="es"><p class="caption">3d &middot; en espa&ntilde;ol, uno</p>
+      <nav class="bottomnav strip" aria-label="Secciones"><a class="bnlink" href="#ex12" aria-current="page">Resumen</a><a class="bnlink" href="#ex1">Estrategias</a><a class="bnlink has-badge" href="#ex10"><span>Discrepancias</span><span class="nbadge" aria-hidden="true">1</span><span class="sr-only">1 discrepancia requiere tu atención</span></a><a class="bnlink" href="#ex1">Configuración</a></nav></div>
+    <div class="sub" lang="es"><p class="caption">3e &middot; en espa&ntilde;ol, doce, activo</p>
+      <nav class="bottomnav strip" aria-label="Secciones"><a class="bnlink" href="#ex12">Resumen</a><a class="bnlink" href="#ex1">Estrategias</a><a class="bnlink has-badge" href="#ex10" aria-current="page"><span>Discrepancias</span><span class="nbadge" aria-hidden="true">12</span><span class="sr-only">12 discrepancias requieren tu atención</span></a><a class="bnlink" href="#ex1">Configuración</a></nav></div>
+  </div>
+</section>
+
+<!-- ================================================================== B. the view -->
+<section class="group" aria-label="The discrepancies view">
+  <h2 class="group-title">B &middot; The view: the whole system, grouped by exchange (examples 4 to 11)</h2>
+  <p class="group-note">In this order: the read state, &ldquo;Needs you&rdquo;, &ldquo;Being booked&rdquo; (only when not empty), &ldquo;Booked automatically&rdquo;. Each list is grouped by exchange whatever tab was last selected, so a badge of 2 can never sit above an empty page.</p>
+
+  <!-- 4 -->
+  <div class="example" id="ex4">
+    <div class="ex-head"><span class="num">4</span><h3 class="ex-title">Nothing needs the owner, nothing is being booked, no booking in 30 days</h3></div>
+    <p class="caption">Section H's &ldquo;Nothing at all&rdquo; sentence under &ldquo;Needs you&rdquo;. &ldquo;Being booked&rdquo; is absent. The bookings list says it is empty rather than disappearing, so the page shows that it was looked at. No exchange tabs: the view is not scoped.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex4" aria-current="page">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <div class="phead"><h1 class="pt">Discrepancies</h1><p class="lede">Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.</p></div>
+          <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Read again</button></div>
+          <section class="dsect" aria-labelledby="h4a"><h2 class="st" id="h4a">Needs you</h2><p class="text-sm">Nothing needs you. The venue agrees with the ledger on every confirmed comparison.</p></section>
+          <section class="dsect" aria-labelledby="h4b"><div class="dsect-head"><h2 class="st" id="h4b">Booked automatically</h2><p class="dsect-note">The last 30 days, newest first, at most 100.</p></div><p class="text-sm t3">No booking in the last 30 days.</p></section>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 5 -->
+  <div class="example" id="ex5">
+    <div class="ex-head"><span class="num">5</span><h3 class="ex-title">Needs you: every reason, on two exchanges</h3></div>
+    <p class="caption">Four items, so the badge says 4. Each item: pair, pool, the red sentence (the reason, or for NOT_BOOKABLE the kind), the kind in words when the red sentence is not already it, both nets and their difference, the strategies (each a link), confirmed since, last compared, and what the owner can do. bybit: 5a NOT_BOOKED on a full close (after the 5-minute grace), 5b SEVERAL_ALLOCATIONS (Q9), 5c AMBIGUOUS_PARTIAL_REDUCE. binance: 5d NO_MATCHING_ALLOCATION. Each item has id=&ldquo;discrepancy-&lt;discrepancy_id&gt;&rdquo; and scrolls into view when the hash names it.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex5" aria-current="page"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">4</span><span class="sr-only">4 discrepancies need you</span></a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <div class="phead"><h1 class="pt">Discrepancies</h1><p class="lede">Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.</p></div>
+          <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Read again</button></div>
+          <section class="dsect" aria-labelledby="h5a"><h2 class="st" id="h5a">Needs you</h2>
+            <section class="xg" aria-labelledby="h5x1"><h3 class="xg-name" id="h5x1">bybit</h3>
+              <div class="xg-items">
+                <article class="ditem" id="discrepancy-41" aria-labelledby="d41">
+                  <div class="dhead"><h4 class="dpair" id="d41">SOLUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">Could not be booked automatically.</p><p class="dkind">The venue closed a position the ledger holds open.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0<span class="u">SOL</span></dd></div><div><dt>Ledger</dt><dd>0.5<span class="u">SOL</span></dd></div><div class="diff"><dt>Difference</dt><dd>-0.5<span class="u">SOL</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Strategy</dt><dd><a href="#ex1">SOL 4h - RSI Divergences</a></dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 21:31 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                  <dl class="dact"><dt>What you can do</dt><dd>Ask for a manual reconciliation. Nothing in this panel can book it.</dd></dl>
+                </article>
+                <article class="ditem" id="discrepancy-38" aria-labelledby="d38">
+                  <div class="dhead"><h4 class="dpair" id="d38">STXUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">The venue closed a position several strategies share; one booking cannot split it.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0<span class="u">STX</span></dd></div><div><dt>Ledger</dt><dd>450<span class="u">STX</span></dd></div><div class="diff"><dt>Difference</dt><dd>-450<span class="u">STX</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Strategies</dt><dd class="names"><a href="#ex1">STX 4h - RSI Divergences</a>, <a href="#ex1">STX 1h - Breakout</a></dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 19:02 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                  <dl class="dact"><dt>What you can do</dt><dd>Ask for a manual reconciliation. Nothing in this panel can book it.</dd></dl>
+                </article>
+                <article class="ditem" id="discrepancy-36" aria-labelledby="d36">
+                  <div class="dhead"><h4 class="dpair" id="d36">AAVEUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">The venue reduced a position several strategies share; which one cannot be told.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0.5<span class="u">AAVE</span></dd></div><div><dt>Ledger</dt><dd>1.32<span class="u">AAVE</span></dd></div><div class="diff"><dt>Difference</dt><dd>-0.82<span class="u">AAVE</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Strategies</dt><dd class="names"><a href="#ex1">AAVE 4h - RSI Divergences</a>, <a href="#ex1">AAVE 1h - Breakout</a></dd></div><div><dt>Confirmed</dt><dd class="mono">10/15/2026 08:14 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                  <dl class="dact"><dt>What you can do</dt><dd>Ask for a manual reconciliation. Nothing in this panel can book it.</dd></dl>
+                </article>
+              </div>
+            </section>
+            <section class="xg" aria-labelledby="h5x2"><h3 class="xg-name" id="h5x2">binance</h3>
+              <div class="xg-items">
+                <article class="ditem" id="discrepancy-44" aria-labelledby="d44">
+                  <div class="dhead"><h4 class="dpair" id="d44">LINKUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">The venue holds a position no strategy opened.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>12<span class="u">LINK</span></dd></div><div><dt>Ledger</dt><dd>0<span class="u">LINK</span></dd></div><div class="diff"><dt>Difference</dt><dd>+12<span class="u">LINK</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Strategy</dt><dd>No strategy</dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 21:20 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:51 UTC</dd></div></dl>
+                  <dl class="dact"><dt>What you can do</dt><dd>Close it on the exchange by hand. The next comparison resolves it.</dd></dl>
+                </article>
+              </div>
+            </section>
+          </section>
+          <section class="dsect" aria-labelledby="h5b"><div class="dsect-head"><h2 class="st" id="h5b">Booked automatically</h2><p class="dsect-note">The last 30 days, newest first, at most 100.</p></div><p class="text-sm t3">No booking in the last 30 days.</p></section>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 6 -->
+  <div class="example" id="ex6">
+    <div class="ex-head"><span class="num">6</span><h3 class="ex-title">An item being booked automatically, nothing needs the owner</h3></div>
+    <p class="caption">Neutral: the ordinary border, no red anywhere in the view, and no badge (it does not count). The item says &ldquo;Being booked automatically.&rdquo; where a Needs-you item puts its red sentence, and has no &ldquo;What you can do&rdquo;. Meanwhile the position's venue mark stays red (example 14a, Q8). &ldquo;Needs you&rdquo; says only &ldquo;Nothing needs you.&rdquo;: section H's second sentence would be false while a booking is under way.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex6" aria-current="page">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <div class="phead"><h1 class="pt">Discrepancies</h1><p class="lede">Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.</p></div>
+          <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Read again</button></div>
+          <section class="dsect" aria-labelledby="h6a"><h2 class="st" id="h6a">Needs you</h2><p class="text-sm">Nothing needs you.</p></section>
+          <section class="dsect" aria-labelledby="h6b"><div class="dsect-head"><h2 class="st" id="h6b">Being booked</h2><p class="dsect-note">Nothing here needs you. If it cannot be booked, it moves to Needs you.</p></div>
+            <section class="xg" aria-labelledby="h6x1"><h3 class="xg-name" id="h6x1">bybit</h3>
+              <div class="xg-items">
+                <article class="ditem calm" id="discrepancy-47" aria-labelledby="d47">
+                  <div class="dhead"><h4 class="dpair" id="d47">SOLUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay calm">Being booked automatically.</p><p class="dkind">The venue closed a position the ledger holds open.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0<span class="u">SOL</span></dd></div><div><dt>Ledger</dt><dd>0.5<span class="u">SOL</span></dd></div><div class="diff"><dt>Difference</dt><dd>-0.5<span class="u">SOL</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Strategy</dt><dd><a href="#ex1">SOL 4h - RSI Divergences</a></dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 21:38 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                </article>
+              </div>
+            </section>
+          </section>
+          <section class="dsect" aria-labelledby="h6c"><div class="dsect-head"><h2 class="st" id="h6c">Booked automatically</h2><p class="dsect-note">The last 30 days, newest first, at most 100.</p></div><p class="text-sm t3">No booking in the last 30 days.</p></section>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 7 -->
+  <div class="example" id="ex7">
+    <div class="ex-head"><span class="num">7</span><h3 class="ex-title">The automatic bookings of the last 30 days</h3></div>
+    <p class="caption">Neutral rows in one table, a row group per exchange so the columns line up, newest first (Q5). Side and quantity are the booked fills'. &ldquo;Now&rdquo; reads discrepancy_open: &ldquo;waiting for the next comparison&rdquo; while the scan has not yet resolved it, &ldquo;the venue agrees again&rdquo; once it has. The binance row shows decided_by &ldquo;owner&rdquo; (&ldquo;by hand&rdquo;), the only way such a row can exist: a proposal approved before this unit is deployed. A booking is a result and is never red. The list above it is example 4's.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex7" aria-current="page">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <section class="dsect" aria-labelledby="h7a"><h2 class="st" id="h7a">Needs you</h2><p class="text-sm">Nothing needs you. The venue agrees with the ledger on every confirmed comparison.</p></section>
+          <section class="dsect" aria-labelledby="h7b"><div class="dsect-head"><h2 class="st" id="h7b">Booked automatically</h2><p class="dsect-note">The last 30 days, newest first, at most 100.</p></div>
+            <div class="tscroll"><table class="t bt" aria-labelledby="h7b">
+              <thead><tr><th scope="col" class="l">Booked (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Quantity</th><th scope="col" class="l">Strategy</th><th scope="col">Fills</th><th scope="col" class="l">By</th><th scope="col" class="l">Now</th></tr></thead>
+              <tbody>
+                <tr class="xrow"><th colspan="8" scope="rowgroup">BYBIT</th></tr>
+                <tr><td class="l"><span class="blk">10/16/2026</span><span class="blk t3">21:33</span></td><td class="l pair">SOLUSDT</td><td class="l">SELL</td><td>0.5 <span class="unit">SOL</span></td><td class="l sans"><a href="#ex1">SOL 4h - RSI Divergences</a></td><td>1</td><td class="l sans">automatically</td><td class="l sans t3 wrap">waiting for the next comparison</td></tr>
+                <tr><td class="l"><span class="blk">10/14/2026</span><span class="blk t3">03:12</span></td><td class="l pair">AAVEUSDT</td><td class="l">SELL</td><td>0.82 <span class="unit">AAVE</span></td><td class="l sans"><a href="#ex1">AAVE 4h - RSI Divergences</a></td><td>2</td><td class="l sans">automatically</td><td class="l sans wrap">the venue agrees again</td></tr>
+                <tr><td class="l"><span class="blk">9/29/2026</span><span class="blk t3">16:47</span></td><td class="l pair">SUIUSDT</td><td class="l">BUY</td><td>140 <span class="unit">SUI</span></td><td class="l sans"><a href="#ex1">SUI 4h - RSI Divergences</a></td><td>1</td><td class="l sans">automatically</td><td class="l sans wrap">the venue agrees again</td></tr>
+              </tbody>
+              <tbody>
+                <tr class="xrow"><th colspan="8" scope="rowgroup">BINANCE</th></tr>
+                <tr><td class="l"><span class="blk">10/2/2026</span><span class="blk t3">11:05</span></td><td class="l pair">LINKUSDT</td><td class="l">BUY</td><td>12 <span class="unit">LINK</span></td><td class="l sans"><a href="#ex1">LINK 4h - RSI Divergences</a></td><td>3</td><td class="l sans">by hand</td><td class="l sans wrap">the venue agrees again</td></tr>
+              </tbody></table></div>
+          </section>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 8 -->
+  <div class="example" id="ex8">
+    <div class="ex-head"><span class="num">8</span><h3 class="ex-title">Loading, a failed first read, and a failed refresh</h3></div>
+    <p class="caption">8a and 8b: no list at all, and no badge on the nav item (it draws nothing while loading or after a failure): never &ldquo;Nothing needs you&rdquo;. The button stays where the read line puts it. 8c: the last lists stay, with &ldquo;Last read&rdquo; and since when in red, as PR 14's example 11d; the badge keeps the last count. Only the page area is drawn.</p>
+    <div class="deskframe"><div class="screen narrow"><div class="main">
+      <div class="sub"><p class="caption">8a &middot; first read loading (role=status)</p>
+        <div class="phead"><h1 class="pt">Discrepancies</h1></div>
+        <p class="text-sm t3" role="status">Reading discrepancies&hellip;</p></div>
+      <div class="sub"><p class="caption">8b &middot; first read failed (role=alert, loss), with the button</p>
+        <div class="phead"><h1 class="pt">Discrepancies</h1></div>
+        <div class="osl"><p class="osl-text" role="alert"><span class="loss">Discrepancies could not be read, so this page cannot say whether anything needs you.</span></p><button type="button" class="btn">Read again</button></div></div>
+      <div class="sub"><p class="caption">8c &middot; a good read, then a refresh failed</p>
+        <div class="phead"><h1 class="pt">Discrepancies</h1></div>
+        <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:38:12 UTC</dd></div></dl><span class="loss">Could not be refreshed since 21:38:12 UTC.</span></div><button type="button" class="btn">Read again</button></div>
+        <section class="dsect" aria-labelledby="h8c" style="margin-top:14px"><h2 class="st" id="h8c">Needs you</h2>
+          <section class="xg" aria-labelledby="h8x"><h3 class="xg-name" id="h8x">binance</h3>
+            <div class="xg-items">
+              <article class="ditem" aria-labelledby="d8">
+                <div class="dhead"><h4 class="dpair" id="d8">LINKUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                <div class="dwhy"><p class="dsay">The venue holds a position no strategy opened.</p></div>
+                <dl class="nets"><div><dt>Exchange</dt><dd>12<span class="u">LINK</span></dd></div><div><dt>Ledger</dt><dd>0<span class="u">LINK</span></dd></div><div class="diff"><dt>Difference</dt><dd>+12<span class="u">LINK</span></dd></div></dl>
+                <dl class="dmeta"><div><dt>Strategy</dt><dd>No strategy</dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 21:20 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:37:51 UTC</dd></div></dl>
+                <dl class="dact"><dt>What you can do</dt><dd>Close it on the exchange by hand. The next comparison resolves it.</dd></dl>
+              </article>
+            </div>
+          </section>
+        </section></div>
+    </div></div></div>
+  </div>
+
+  <!-- 9 -->
+  <div class="example" id="ex9">
+    <div class="ex-head"><span class="num">9</span><h3 class="ex-title">Dry run: the comparison does not run, and the page says so</h3></div>
+    <p class="caption">dry_run true: section H's sentence, boxed in the neutral strong rule, and no list under it, not even an empty one: an empty &ldquo;Needs you&rdquo; would read as all-clear. The box is not amber (the amber allow-list gains nothing); the top bar's amber badge already says the mode. No badge on the nav item.</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge">Dry run</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex9" aria-current="page">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <div class="phead"><h1 class="pt">Discrepancies</h1><p class="lede">Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.</p></div>
+          <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Read again</button></div>
+          <p class="stmt" role="status">The comparison with the venue does not run in dry run, so nothing is checked here.</p>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 10 -->
+  <div class="example" id="ex10">
+    <div class="ex-head"><span class="num">10</span><h3 class="ex-title">In Spanish: needs you, being booked and booked</h3></div>
+    <p class="caption">The Spanish of every text of the view, in one page: two items needing the owner (NOT_BOOKED, NO_MATCHING_ALLOCATION), one being booked, two bookings. &ldquo;Booking&rdquo; is &ldquo;registro&rdquo;, as the panel's existing Spanish already says (&ldquo;No hay un registro propuesto&rdquo;); &ldquo;tú&rdquo;, as &ldquo;Nada requiere tu decisión&rdquo;. Numbers with a decimal comma.</p>
+    <div class="deskframe"><div class="screen" lang="es">
+      <div class="topbar"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">En vivo</span><span class="lang">en</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Secciones"><a class="navlink" href="#ex12">Resumen</a><a class="navlink" href="#ex1">Estrategias</a><a class="navlink" href="#ex10" aria-current="page"><span>Discrepancias</span><span class="nbadge" aria-hidden="true">2</span><span class="sr-only">2 discrepancias requieren tu atención</span></a><a class="navlink" href="#ex1">Configuración</a></nav>
+        <div class="main">
+          <div class="phead"><h1 class="pt">Discrepancias</h1><p class="lede">Donde el exchange y el libro mayor siguen sin coincidir tras comparaciones repetidas. Un cierre que el sistema puede atribuir a una estrategia se registra automáticamente; el resto aparece en Requiere tu atención.</p></div>
+          <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Última lectura</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Leer de nuevo</button></div>
+          <section class="dsect" aria-labelledby="h10a"><h2 class="st" id="h10a">Requiere tu atención</h2>
+            <section class="xg" aria-labelledby="h10x1"><h3 class="xg-name" id="h10x1">bybit</h3>
+              <div class="xg-items">
+                <article class="ditem" aria-labelledby="d10a">
+                  <div class="dhead"><h4 class="dpair" id="d10a">SOLUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">No se pudo registrar automáticamente.</p><p class="dkind">El exchange cerró una posición que el libro mayor tiene abierta.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0<span class="u">SOL</span></dd></div><div><dt>Libro mayor</dt><dd>0,5<span class="u">SOL</span></dd></div><div class="diff"><dt>Diferencia</dt><dd>-0,5<span class="u">SOL</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Estrategia</dt><dd><a href="#ex1">SOL 4h - RSI Divergences</a></dd></div><div><dt>Confirmada</dt><dd class="mono">16/10/2026 21:31 UTC</dd></div><div><dt>Última comparación</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                  <dl class="dact"><dt>Qué puedes hacer</dt><dd>Pide una conciliación manual. Nada en este panel puede registrarla.</dd></dl>
+                </article>
+              </div>
+            </section>
+            <section class="xg" aria-labelledby="h10x2"><h3 class="xg-name" id="h10x2">binance</h3>
+              <div class="xg-items">
+                <article class="ditem" aria-labelledby="d10b">
+                  <div class="dhead"><h4 class="dpair" id="d10b">LINKUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay">El exchange tiene una posición que ninguna estrategia abrió.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>12<span class="u">LINK</span></dd></div><div><dt>Libro mayor</dt><dd>0<span class="u">LINK</span></dd></div><div class="diff"><dt>Diferencia</dt><dd>+12<span class="u">LINK</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Estrategia</dt><dd>Ninguna estrategia</dd></div><div><dt>Confirmada</dt><dd class="mono">16/10/2026 21:20 UTC</dd></div><div><dt>Última comparación</dt><dd class="mono">21:39:51 UTC</dd></div></dl>
+                  <dl class="dact"><dt>Qué puedes hacer</dt><dd>Ciérrala a mano en el exchange. La próxima comparación la resuelve.</dd></dl>
+                </article>
+              </div>
+            </section>
+          </section>
+          <section class="dsect" aria-labelledby="h10b"><div class="dsect-head"><h2 class="st" id="h10b">Registrándose</h2><p class="dsect-note">Nada de esto requiere tu atención. Si no se puede registrar, pasa a Requiere tu atención.</p></div>
+            <section class="xg" aria-labelledby="h10x3"><h3 class="xg-name" id="h10x3">bybit</h3>
+              <div class="xg-items">
+                <article class="ditem calm" aria-labelledby="d10c">
+                  <div class="dhead"><h4 class="dpair" id="d10c">AAVEUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                  <div class="dwhy"><p class="dsay calm">Se está registrando automáticamente.</p><p class="dkind">El exchange redujo una posición que solo tiene una estrategia.</p></div>
+                  <dl class="nets"><div><dt>Exchange</dt><dd>0,5<span class="u">AAVE</span></dd></div><div><dt>Libro mayor</dt><dd>0,82<span class="u">AAVE</span></dd></div><div class="diff"><dt>Diferencia</dt><dd>-0,32<span class="u">AAVE</span></dd></div></dl>
+                  <dl class="dmeta"><div><dt>Estrategia</dt><dd><a href="#ex1">AAVE 4h - RSI Divergences</a></dd></div><div><dt>Confirmada</dt><dd class="mono">16/10/2026 21:37 UTC</dd></div><div><dt>Última comparación</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                </article>
+              </div>
+            </section>
+          </section>
+          <section class="dsect" aria-labelledby="h10c"><div class="dsect-head"><h2 class="st" id="h10c">Registradas automáticamente</h2><p class="dsect-note">Los últimos 30 días, de la más reciente a la más antigua, hasta 100.</p></div>
+            <div class="tscroll"><table class="t bt" aria-labelledby="h10c">
+              <thead><tr><th scope="col" class="l">Registrada (UTC)</th><th scope="col" class="l">Par</th><th scope="col" class="l">Sentido</th><th scope="col">Cantidad</th><th scope="col" class="l">Estrategia</th><th scope="col">Ejecuciones</th><th scope="col" class="l">Por</th><th scope="col" class="l">Ahora</th></tr></thead>
+              <tbody>
+                <tr class="xrow"><th colspan="8" scope="rowgroup">BYBIT</th></tr>
+                <tr><td class="l"><span class="blk">16/10/2026</span><span class="blk t3">21:33</span></td><td class="l pair">SOLUSDT</td><td class="l">SELL</td><td>0,5 <span class="unit">SOL</span></td><td class="l sans"><a href="#ex1">SOL 4h - RSI Divergences</a></td><td>1</td><td class="l sans">automáticamente</td><td class="l sans t3 wrap">a la espera de la próxima comparación</td></tr>
+                <tr><td class="l"><span class="blk">14/10/2026</span><span class="blk t3">03:12</span></td><td class="l pair">AAVEUSDT</td><td class="l">SELL</td><td>0,82 <span class="unit">AAVE</span></td><td class="l sans"><a href="#ex1">AAVE 4h - RSI Divergences</a></td><td>2</td><td class="l sans">automáticamente</td><td class="l sans wrap">el exchange vuelve a coincidir</td></tr>
+              </tbody></table></div>
+          </section>
+          <div class="sub"><p class="caption">The other texts in Spanish: loading &ldquo;Leyendo discrepancias&hellip;&rdquo; &middot; failed &ldquo;No se pudieron leer las discrepancias, así que esta página no puede decir si algo requiere tu atención.&rdquo; &middot; stale &ldquo;No se pudo actualizar desde las 21:38:12 UTC.&rdquo; (existing) &middot; nothing at all &ldquo;Nada requiere tu atención. El exchange coincide con el libro mayor en cada comparación confirmada.&rdquo; &middot; only the first sentence when something is being booked &middot; empty bookings &ldquo;Ningún registro en los últimos 30 días.&rdquo; &middot; dry run &ldquo;La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada.&rdquo; &middot; kinds &ldquo;El exchange redujo una posición que comparten varias estrategias; no se puede saber cuál.&rdquo; &middot; &ldquo;El exchange cerró una posición que comparten varias estrategias; un solo registro no puede repartirla.&rdquo; &middot; &ldquo;Por&rdquo; values automáticamente / a mano &middot; &ldquo;Estrategias&rdquo; when several.</p></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 11 -->
+  <div class="example" id="ex11">
+    <div class="ex-head"><span class="num">11</span><h3 class="ex-title">The view on a phone (375 px)</h3></div>
+    <p class="caption">One column. The items keep their order and their red border; the three nets become two over one (Difference on its own row). The bookings become cards. The bottom bar carries the badge (example 3). No exchange tabs row: the view is not scoped.</p>
+    <div class="phone">
+      <div class="ptop"><span class="brand">Strategy Manager</span><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="pmain">
+        <div class="phead"><h1 class="pt">Discrepancies</h1><p class="lede">Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.</p></div>
+        <div class="osl" role="status"><div class="osl-text"><dl class="osl-figs"><div><dt>Last read</dt><dd>21:40:03 UTC</dd></div></dl></div><button type="button" class="btn">Read again</button></div>
+        <section class="dsect" aria-labelledby="h11a"><h2 class="st" id="h11a">Needs you</h2>
+          <section class="xg" aria-labelledby="h11x1"><h3 class="xg-name" id="h11x1">bybit</h3>
+            <div class="xg-items">
+              <article class="ditem" aria-labelledby="d11a">
+                <div class="dhead"><h4 class="dpair" id="d11a">STXUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                <div class="dwhy"><p class="dsay">The venue closed a position several strategies share; one booking cannot split it.</p></div>
+                <dl class="nets"><div><dt>Exchange</dt><dd>0<span class="u">STX</span></dd></div><div><dt>Ledger</dt><dd>450<span class="u">STX</span></dd></div><div class="diff"><dt>Difference</dt><dd>-450<span class="u">STX</span></dd></div></dl>
+                <dl class="dmeta"><div><dt>Strategies</dt><dd class="names"><a href="#ex1">STX 4h - RSI Divergences</a>, <a href="#ex1">STX 1h - Breakout</a></dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 19:02 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:42 UTC</dd></div></dl>
+                <dl class="dact"><dt>What you can do</dt><dd>Ask for a manual reconciliation. Nothing in this panel can book it.</dd></dl>
+              </article>
+            </div>
+          </section>
+          <section class="xg" aria-labelledby="h11x2"><h3 class="xg-name" id="h11x2">binance</h3>
+            <div class="xg-items">
+              <article class="ditem" aria-labelledby="d11b">
+                <div class="dhead"><h4 class="dpair" id="d11b">LINKUSDT</h4><span class="dpool">usdt-m &middot; USDT</span></div>
+                <div class="dwhy"><p class="dsay">The venue holds a position no strategy opened.</p></div>
+                <dl class="nets"><div><dt>Exchange</dt><dd>12<span class="u">LINK</span></dd></div><div><dt>Ledger</dt><dd>0<span class="u">LINK</span></dd></div><div class="diff"><dt>Difference</dt><dd>+12<span class="u">LINK</span></dd></div></dl>
+                <dl class="dmeta"><div><dt>Strategy</dt><dd>No strategy</dd></div><div><dt>Confirmed</dt><dd class="mono">10/16/2026 21:20 UTC</dd></div><div><dt>Last compared</dt><dd class="mono">21:39:51 UTC</dd></div></dl>
+                <dl class="dact"><dt>What you can do</dt><dd>Close it on the exchange by hand. The next comparison resolves it.</dd></dl>
+              </article>
+            </div>
+          </section>
+        </section>
+        <section class="dsect" aria-labelledby="h11c"><div class="dsect-head"><h2 class="st" id="h11c">Booked automatically</h2><p class="dsect-note">The last 30 days, newest first, at most 100.</p></div>
+          <section class="xg" aria-labelledby="h11x3"><h3 class="xg-name" id="h11x3">bybit</h3>
+            <div class="cards">
+              <article class="pcard" aria-label="SOLUSDT SELL"><div class="pcard-head"><span class="pr">SOLUSDT<span class="sd">SELL</span></span><span class="vtext">automatically</span></div>
+                <dl><div><dt>Booked (UTC)</dt><dd>10/16/2026 21:33</dd></div><div><dt>Quantity</dt><dd>0.5 SOL</dd></div><div class="full"><dt>Strategy</dt><dd class="sans"><a href="#ex1">SOL 4h - RSI Divergences</a></dd></div><div><dt>Fills</dt><dd>1</dd></div><div><dt>Now</dt><dd class="sans">waiting for the next comparison</dd></div></dl></article>
+              <article class="pcard" aria-label="AAVEUSDT SELL"><div class="pcard-head"><span class="pr">AAVEUSDT<span class="sd">SELL</span></span><span class="vtext">automatically</span></div>
+                <dl><div><dt>Booked (UTC)</dt><dd>10/14/2026 03:12</dd></div><div><dt>Quantity</dt><dd>0.82 AAVE</dd></div><div class="full"><dt>Strategy</dt><dd class="sans"><a href="#ex1">AAVE 4h - RSI Divergences</a></dd></div><div><dt>Fills</dt><dd>2</dd></div><div><dt>Now</dt><dd class="sans">the venue agrees again</dd></div></dl></article>
+            </div>
+          </section>
+        </section>
+      </div>
+      <nav class="bottomnav" aria-label="Sections"><a class="bnlink" href="#ex12">Overview</a><a class="bnlink" href="#ex1">Strategies</a><a class="bnlink has-badge" href="#ex11" aria-current="page"><span>Discrepancies</span><span class="nbadge" aria-hidden="true">2</span><span class="sr-only">2 discrepancies need you</span></a><a class="bnlink" href="#ex1">Settings</a></nav>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== C. the Overview -->
+<section class="group" aria-label="The Overview">
+  <h2 class="group-title">C &middot; The Overview without &ldquo;Needs your decision&rdquo; (examples 12 and 13)</h2>
+
+  <!-- 12 -->
+  <div class="example" id="ex12">
+    <div class="ex-head"><span class="num">12</span><h3 class="ex-title">One column: the pool panels take the whole width</h3></div>
+    <p class="caption">The rail and its slot are gone, on every width: no column beside the panels from xl, nothing between the chart and the month grid below it. A position the venue disagrees on links to the view; this one is being booked, so its line is red and says so, while the nav shows no badge (it does not count, Q8).</p>
+    <div class="deskframe"><div class="screen">
+      <div class="topbar"><span class="brand">Strategy Manager</span><nav class="tabs" aria-label="Exchanges"><button type="button" class="tab" aria-pressed="true">bybit</button><button type="button" class="tab" aria-pressed="false">binance</button></nav><span class="spacer"></span><span class="badge live">Live</span><span class="lang">es</span></div>
+      <div class="shellbody">
+        <nav class="sidenav" aria-label="Sections"><a class="navlink" href="#ex12" aria-current="page">Overview</a><a class="navlink" href="#ex1">Strategies</a><a class="navlink" href="#ex6">Discrepancies</a><a class="navlink" href="#ex1">Settings</a></nav>
+        <div class="main">
+          <h1 class="pt">Overview</h1>
+          <section class="pool-panel" aria-label="bybit · usdt-m · USDT">
+            <p class="eyebrow">bybit &middot; usdt-m &middot; USDT</p>
+            <p class="ledger"><span class="lead">1,284.55</span> USDT available<span class="rs"> &middot; </span>PnL 30D <b class="gain">+96.12</b><span class="rs"> &middot; </span>return 30D <b class="gain">+7.5%</b><span class="rs"> &middot; </span>deepest <b class="loss-t">-4.3%</b></p>
+            <div class="chart"><svg viewBox="0 0 700 120" preserveAspectRatio="none" role="img" aria-label="Chart placeholder"><line x1="0" y1="70" x2="700" y2="70" style="stroke:var(--rule-strong)" stroke-width="1" stroke-dasharray="4 4"/><polyline fill="none" style="stroke:var(--gain)" stroke-width="2" points="0,70 50,66 100,58 150,62 200,50 250,46 300,52 350,40 400,34 450,42 500,30 550,26 600,32 650,20 700,14"/></svg></div>
+            <div class="mgrid" aria-hidden="true"><i class="g2"></i><i class="g4"></i><i class="l2"></i><i class="g2"></i><i class="g2"></i><i></i><i class="g4"></i><i class="g2"></i><i class="l2"></i><i class="g4"></i><i class="g2"></i><i class="g2"></i></div>
+            <p class="msum">7 of 9 months positive &middot; best +9.4% &middot; worst -6.1% &middot; 2 open</p>
+            <section class="sect" aria-labelledby="h12" style="margin-top:8px"><h2 class="st" id="h12">Open positions</h2>
+              <div class="tscroll"><table class="t" aria-labelledby="h12">
+                <thead><tr><th scope="col" class="l">Strategy</th><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+                <tbody>
+                  <tr><td class="l"><a href="#ex1">AAVE 4h - RSI Divergences</a></td><td class="l"><span class="blk">10/8/2026</span><span class="blk t3">14:00</span></td><td class="l pair">AAVEUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.82 <span class="unit">AAVE</span></td><td>184.3</td><td>75.57</td><td>2x</td></tr>
+                  <tr><td class="l"><a href="#ex1">SOL 4h - RSI Divergences</a></td><td class="l"><span class="blk">10/15/2026</span><span class="blk t3">20:00</span></td><td class="l pair">SOLUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.5 <span class="unit">SOL</span></td><td>148.62</td><td>24.77</td><td>3x</td></tr>
+                  <tr class="subrow"><td colspan="8"><div class="mline vline" role="group" aria-label="Venue disagrees, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 SOL, ledger 0.5 SOL<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>being booked automatically<span class="d"> &middot; </span><a href="#ex6" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></div></td></tr>
+                </tbody></table></div>
+            </section>
+          </section>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 13 -->
+  <div class="example" id="ex13">
+    <div class="ex-head"><span class="num">13</span><h3 class="ex-title">The three scope messages, now the page's own</h3></div>
+    <p class="caption">Where the panels would be, under the title: the same three states the rail carried, with the same roles and look (loading role=status in ink-3; failed role=alert in a box with a red border; no exchanges in ink-3). Reworded: they spoke of pending bookings, which no longer exist on this page. EN, then ES.</p>
+    <div class="row-of">
+      <div class="deskframe"><div class="screen narrow" style="min-width:520px"><div class="main">
+        <div class="sub"><p class="caption">13a &middot; scope loading</p><h1 class="pt">Overview</h1><p class="text-sm t3" role="status">Loading exchanges&hellip;</p></div>
+        <div class="sub"><p class="caption">13b &middot; scope failed</p><h1 class="pt">Overview</h1><p class="scopebox" role="alert">The pools are hidden because the exchanges could not be loaded, so they cannot be filtered.</p></div>
+        <div class="sub"><p class="caption">13c &middot; no exchange configured</p><h1 class="pt">Overview</h1><p class="text-sm t3">No exchange is configured, so there are no pools to show.</p></div>
+      </div></div></div>
+      <div class="deskframe"><div class="screen narrow" style="min-width:520px" lang="es"><div class="main">
+        <div class="sub"><p class="caption">13a &middot; ES</p><h1 class="pt">Resumen</h1><p class="text-sm t3" role="status">Cargando exchanges&hellip;</p></div>
+        <div class="sub"><p class="caption">13b &middot; ES</p><h1 class="pt">Resumen</h1><p class="scopebox" role="alert">Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.</p></div>
+        <div class="sub"><p class="caption">13c &middot; ES</p><h1 class="pt">Resumen</h1><p class="text-sm t3">No hay ningún exchange configurado, por lo que no hay pools que mostrar.</p></div>
+      </div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== D. the venue mark -->
+<section class="group" aria-label="The venue mark">
+  <h2 class="group-title">D &middot; The venue mark of an open position (examples 14 to 16)</h2>
+
+  <!-- 14 -->
+  <div class="example" id="ex14">
+    <div class="ex-head"><span class="num">14</span><h3 class="ex-title">The line under a position, in its four states</h3></div>
+    <p class="caption">Always red (solid border, red &ldquo;venue disagrees&rdquo;), because the row shows open a position the venue no longer holds. After the nets and &ldquo;last compared&rdquo; (and &ldquo;shared by N positions&rdquo; when more than one): 14a being booked; 14b and 14c needing the owner, with the words of its reason; each then links to the view's item (&ldquo;See the discrepancy&rdquo;, to /discrepancies#discrepancy-&lt;id&gt;). 14d: while the query loads, after it failed, or when the id is in neither list: no claim and no link, only the red line and its nets.</p>
+    <div class="deskframe"><div class="screen narrow"><div class="main">
+      <section class="sect" aria-labelledby="h14"><h2 class="st" id="h14">Open positions</h2>
+        <div class="tscroll"><table class="t" aria-labelledby="h14">
+          <thead><tr><th scope="col" class="l">Opened (UTC)</th><th scope="col" class="l">Pair</th><th scope="col" class="l">Side</th><th scope="col">Size</th><th scope="col">Entry</th><th scope="col">Fees USDT</th><th scope="col">Margin granted USDT</th><th scope="col">Leverage</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><span class="blk">10/15/2026</span><span class="blk t3">20:00</span></td><td class="l pair">SOLUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>0.5 <span class="unit">SOL</span></td><td>148.62</td><td>0.04</td><td>24.77</td><td>3x</td></tr>
+            <tr class="subrow"><td colspan="8"><p class="caption" style="padding-bottom:4px">14a &middot; being booked (Q8)</p><div class="mline vline" role="group" aria-label="Venue disagrees, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 SOL, ledger 0.5 SOL<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>being booked automatically<span class="d"> &middot; </span><a href="#ex6" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></div></td></tr>
+            <tr class="subrow"><td colspan="8"><p class="caption" style="padding-bottom:4px">14b &middot; needs the owner, NOT_BOOKED (the same position after the grace)</p><div class="mline vline" role="group" aria-label="Venue disagrees, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 SOL, ledger 0.5 SOL<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>could not be booked automatically<span class="d"> &middot; </span><a href="#discrepancy-41" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></div></td></tr>
+            <tr><td class="l"><span class="blk">10/9/2026</span><span class="blk t3">20:00</span></td><td class="l pair">STXUSDT<span class="otag o-live">Live</span></td><td class="l">LONG</td><td>150 <span class="unit">STX</span></td><td>0.812</td><td>0.13</td><td>40.6</td><td>3x</td></tr>
+            <tr class="subrow"><td colspan="8"><p class="caption" style="padding-bottom:4px">14c &middot; needs the owner, SEVERAL_ALLOCATIONS and AMBIGUOUS_PARTIAL_REDUCE (two pairs drawn on one row for the comparison)</p><div class="olines" style="display:flex;flex-direction:column;gap:6px"><div class="mline vline" role="group" aria-label="Venue disagrees, STXUSDT">STXUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 STX, ledger 450 STX<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>shared by 2 positions on this pair<span class="d"> &middot; </span>one booking cannot split it<span class="d"> &middot; </span><a href="#discrepancy-38" aria-label="See the discrepancy, STXUSDT">See the discrepancy</a></div><div class="mline vline" role="group" aria-label="Venue disagrees, AAVEUSDT">AAVEUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0.5 AAVE, ledger 1.32 AAVE<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>shared by 2 positions on this pair<span class="d"> &middot; </span>which strategy it reduced cannot be told<span class="d"> &middot; </span><a href="#discrepancy-36" aria-label="See the discrepancy, AAVEUSDT">See the discrepancy</a></div></div></td></tr>
+            <tr class="subrow"><td colspan="8"><p class="caption" style="padding-bottom:4px">14d &middot; query loading, failed, or the id in neither list: no claim, no link</p><div class="mline vline" role="group" aria-label="Venue disagrees, STXUSDT">STXUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 STX, ledger 450 STX<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>shared by 2 positions on this pair</div></td></tr>
+          </tbody></table></div>
+      </section>
+    </div></div></div>
+  </div>
+
+  <!-- 15 -->
+  <div class="example" id="ex15">
+    <div class="ex-head"><span class="num">15</span><h3 class="ex-title">The same line in Spanish</h3></div>
+    <p class="caption">positions.venue.link becomes &ldquo;Ver la discrepancia&rdquo;; the rest of the line is the panel's existing Spanish.</p>
+    <div class="deskframe"><div class="screen narrow" lang="es"><div class="main">
+      <div class="sub"><p class="caption">15a &middot; registrándose</p><div class="mline vline" role="group" aria-label="El exchange no coincide, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">el exchange no coincide</span><span class="d"> &middot; </span>exchange 0 SOL, libro mayor 0,5 SOL<span class="d"> &middot; </span>última comparación 21:39:42 UTC<span class="d"> &middot; </span>se está registrando automáticamente<span class="d"> &middot; </span><a href="#ex10" aria-label="Ver la discrepancia, SOLUSDT">Ver la discrepancia</a></div></div>
+      <div class="sub"><p class="caption">15b &middot; NOT_BOOKED</p><div class="mline vline" role="group" aria-label="El exchange no coincide, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">el exchange no coincide</span><span class="d"> &middot; </span>exchange 0 SOL, libro mayor 0,5 SOL<span class="d"> &middot; </span>última comparación 21:39:42 UTC<span class="d"> &middot; </span>no se pudo registrar automáticamente<span class="d"> &middot; </span><a href="#ex10" aria-label="Ver la discrepancia, SOLUSDT">Ver la discrepancia</a></div></div>
+      <div class="sub"><p class="caption">15c &middot; SEVERAL_ALLOCATIONS, AMBIGUOUS_PARTIAL_REDUCE</p>
+        <div class="mline vline" role="group" aria-label="El exchange no coincide, STXUSDT">STXUSDT<span class="d"> &middot; </span><span class="vt">el exchange no coincide</span><span class="d"> &middot; </span>exchange 0 STX, libro mayor 450 STX<span class="d"> &middot; </span>última comparación 21:39:42 UTC<span class="d"> &middot; </span>compartida por 2 posiciones en este par<span class="d"> &middot; </span>un solo registro no puede repartirla<span class="d"> &middot; </span><a href="#ex10" aria-label="Ver la discrepancia, STXUSDT">Ver la discrepancia</a></div>
+        <div class="mline vline" role="group" aria-label="El exchange no coincide, AAVEUSDT">AAVEUSDT<span class="d"> &middot; </span><span class="vt">el exchange no coincide</span><span class="d"> &middot; </span>exchange 0,5 AAVE, libro mayor 1,32 AAVE<span class="d"> &middot; </span>última comparación 21:39:42 UTC<span class="d"> &middot; </span>compartida por 2 posiciones en este par<span class="d"> &middot; </span>no se puede saber a qué estrategia redujo<span class="d"> &middot; </span><a href="#ex10" aria-label="Ver la discrepancia, AAVEUSDT">Ver la discrepancia</a></div></div>
+    </div></div></div>
+  </div>
+
+  <!-- 16 -->
+  <div class="example" id="ex16">
+    <div class="ex-head"><span class="num">16</span><h3 class="ex-title">The chip on a strategy's row, and the line on a phone card</h3></div>
+    <p class="caption">16a: the strategies list's venue chip (OpenMarks.tsx VenueNote) reads the same query: the red chip, then the sentence of its state and the link; while loading or failed, the chip alone. 16b: the line on a phone position card, wrapping.</p>
+    <div class="row-of">
+      <div class="sub"><p class="caption">16a &middot; strategy row chips: being booked, NOT_BOOKED, no claim</p>
+        <div class="chipset"><span class="chip c-live">SOLUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext">Being booked automatically. <a href="#ex6" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></span></div>
+        <div class="chipset"><span class="chip c-live">SOLUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span><span class="vtext">Could not be booked automatically. <a href="#discrepancy-41" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></span></div>
+        <div class="chipset"><span class="chip c-live">SOLUSDT<span class="d"> &middot; </span>LONG<span class="d"> &middot; </span><span class="o-live">Live</span></span><span class="chip venue">Venue disagrees</span></div>
+      </div>
+      <div class="sub"><p class="caption">16b &middot; phone card, being booked</p>
+        <div class="phone" style="padding:16px">
+          <article class="pcard" aria-label="SOLUSDT LONG"><div class="pcard-head"><span class="pr">SOLUSDT<span class="sd">LONG</span></span><span class="otag o-live">Live</span></div>
+            <a href="#ex1">SOL 4h - RSI Divergences</a>
+            <dl><div><dt>Opened (UTC)</dt><dd>10/15/2026 20:00</dd></div><div><dt>Size</dt><dd>0.5 SOL</dd></div><div><dt>Entry</dt><dd>148.62</dd></div><div><dt>Margin granted USDT</dt><dd>24.77</dd></div><div><dt>Leverage</dt><dd>3x</dd></div></dl>
+            <div class="mline vline" role="group" aria-label="Venue disagrees, SOLUSDT">SOLUSDT<span class="d"> &middot; </span><span class="vt">venue disagrees</span><span class="d"> &middot; </span>exchange 0 SOL, ledger 0.5 SOL<span class="d"> &middot; </span>last compared 21:39:42 UTC<span class="d"> &middot; </span>being booked automatically<span class="d"> &middot; </span><a href="#ex6" aria-label="See the discrepancy, SOLUSDT">See the discrepancy</a></div></article>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+</body>
+</html>
