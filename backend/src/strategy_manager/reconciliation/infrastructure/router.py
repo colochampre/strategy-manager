@@ -72,6 +72,7 @@ from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.wire import plain
 
 # See this module's docstring and ``strategies/infrastructure/router.py``:
 # deliberately no ``Depends(require_admin_token)`` on the route itself.
@@ -241,8 +242,8 @@ def _discrepancy_body(item: ConfirmedDiscrepancy) -> ConfirmedDiscrepancyBody:
         symbol=item.symbol,
         kind=item.kind,
         reason=item.reason,
-        venue_net_base=str(item.venue_net_base),
-        ledger_net_base=str(item.ledger_net_base),
+        venue_net_base=plain(item.venue_net_base),
+        ledger_net_base=plain(item.ledger_net_base),
         allocations=[
             AllocationBody(
                 allocation_id=a.allocation_id,
@@ -291,7 +292,7 @@ async def read_confirmed(
                 strategy_name=b.strategy_name,
                 allocation_id=b.allocation_id,
                 side=b.side,
-                quantity=str(b.quantity),
+                quantity=plain(b.quantity),
                 fill_count=b.fill_count,
                 decided_at=b.decided_at,
                 decided_by=b.decided_by,

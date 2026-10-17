@@ -326,6 +326,39 @@ async def test_money_and_quantities_are_strings(
     assert Decimal(booking["quantity"]) == Decimal("0.5")
 
 
+async def test_quantities_read_back_at_scale_18_are_written_in_plain_notation(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """``Numeric(38, 18)`` reads a zero back as ``Decimal("0E-18")``, whose
+    ``str`` is ``"0E-18"``: a full close (venue net 0) must not reach the wire so."""
+    strategy_id, allocation_id = await _strategy_and_allocation(pg_session_factory)
+    await _discrepancy(
+        pg_session_factory,
+        symbol="FFFUSDT",
+        kind=DiscrepancyKind.NO_MATCHING_ALLOCATION,
+        venue_net_base=Decimal("0"),
+        ledger_net_base=Decimal("0"),
+    )
+    booked = await _discrepancy(pg_session_factory, symbol="GGGUSDT")
+    await _approved_proposal(
+        pg_session_factory,
+        discrepancy_id=booked,
+        strategy_id=strategy_id,
+        allocation_id=allocation_id,
+        symbol="GGGUSDT",
+    )
+
+    body = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+
+    [need] = body["needs_owner"]
+    [booking] = body["booked"]
+    for text_value in (need["venue_net_base"], need["ledger_net_base"], booking["quantity"]):
+        assert "E" not in text_value
+    assert need["venue_net_base"] == "0.000000000000000000"
+    assert need["ledger_net_base"] == "0.000000000000000000"
+    assert booking["quantity"] == "0.500000000000000000"
+
+
 @pytest.mark.parametrize("dry_run", [True, False])
 async def test_dry_run_is_the_setting_and_the_lists_are_what_the_database_holds(
     client: AsyncClient,
