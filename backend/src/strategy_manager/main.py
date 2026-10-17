@@ -120,6 +120,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 from strategy_manager.performance.infrastructure.performance_router import (
     router as performance_router,
 )
+from strategy_manager.reconciliation.application.announce_needs_owner import AnnounceNeedsOwner
 from strategy_manager.reconciliation.application.approve_booking import ApproveBooking
 from strategy_manager.reconciliation.application.auto_book_pending import AutoBookPending
 from strategy_manager.reconciliation.application.booking_prepare_handler import (
@@ -1730,6 +1731,14 @@ def build_worker_runner(
                             commit=session,
                             dry_run=settings.dry_run,
                         ),
+                    ),
+                    # Owner decision 66 Q3 and Q4: reads, logs, writes nothing.
+                    announce_needs_owner=AnnounceNeedsOwner(
+                        discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                        approved=SqlAlchemyBookingProposalRepository(session),
+                        clock=SystemClock(),
+                        grace_seconds=settings.reconciliation_auto_booking_grace_seconds,
+                        reminder_seconds=settings.reconciliation_needs_owner_reminder_seconds,
                     ),
                     queue=_job_queue(session, settings),
                     clock=SystemClock(),

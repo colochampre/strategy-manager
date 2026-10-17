@@ -39,7 +39,11 @@ from strategy_manager.reconciliation.domain.attention import (
     sort_confirmed,
 )
 from strategy_manager.reconciliation.domain.booking import BOOKING_REFUSAL_PHRASES, BookingRefusal
-from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyStatus, Observation
+from strategy_manager.reconciliation.domain.discrepancy import (
+    DiscrepancyKind,
+    DiscrepancyStatus,
+    Observation,
+)
 from strategy_manager.shared.application.ports import ClockPort
 
 logger = logging.getLogger(__name__)
@@ -78,12 +82,14 @@ class _Item:
 def _reason(
     reason: NeedsOwnerReason,
     discrepancy_id: UUID,
+    kind: DiscrepancyKind,
     known: MutableMapping[UUID, BookingRefusal],
 ) -> tuple[str, str]:
     """The code and the fixed English phrase of one NEEDS_OWNER item."""
 
     if reason is NeedsOwnerReason.NOT_BOOKABLE:
-        return NeedsOwnerReason.NOT_BOOKABLE.value, _NOT_BOOKABLE_PHRASE
+        # Design § E: "NOT_BOOKABLE with the kind".
+        return NeedsOwnerReason.NOT_BOOKABLE.value, f"{_NOT_BOOKABLE_PHRASE}: {kind.value}"
     if reason is NeedsOwnerReason.SEVERAL_ALLOCATIONS:
         return (
             BookingRefusal.SEVERAL_ALLOCATIONS.value,
@@ -98,7 +104,7 @@ def _reason(
 def _item(
     row: DiscrepancyRecord, reason: NeedsOwnerReason, known: MutableMapping[UUID, BookingRefusal]
 ) -> _Item:
-    code, phrase = _reason(reason, row.id, known)
+    code, phrase = _reason(reason, row.id, row.kind, known)
     text = (
         f"{row.exchange}/{row.venue}/{row.settlement_currency} {row.symbol} {row.kind.value}: "
         f"{code} ({phrase}) [{row.id}]"

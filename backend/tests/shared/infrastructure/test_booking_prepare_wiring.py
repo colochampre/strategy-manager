@@ -131,6 +131,18 @@ def test_the_automatic_step_approves_with_the_use_case_the_route_built() -> None
     assert "dry_run=settings.dry_run" in approve
 
 
+def test_the_announcement_is_wired_with_the_grace_and_the_reminder_settings() -> None:
+    body = "".join(_prepare_booking_body().split())
+
+    assert "announce_needs_owner=AnnounceNeedsOwner(" in body
+    announce = body[body.index("AnnounceNeedsOwner(") :]
+    assert "discrepancies=SqlAlchemyDiscrepancyRepository(session)" in announce
+    assert "approved=SqlAlchemyBookingProposalRepository(session)" in announce
+    assert "clock=SystemClock()" in announce
+    assert "grace_seconds=settings.reconciliation_auto_booking_grace_seconds" in announce
+    assert "reminder_seconds=settings.reconciliation_needs_owner_reminder_seconds" in announce
+
+
 def test_prepare_booking_receives_the_system_order_ids_adapter() -> None:
     """Owner decision 66 Q2: the refusal of a fill of an order this system
     placed must never be skipped, so the adapter is always passed."""

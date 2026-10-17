@@ -158,6 +158,22 @@ async def test_two_new_items_are_announced_in_one_error_with_reason_phrase_and_i
     assert "NOT_BOOKABLE" in message
 
 
+async def test_not_bookable_names_the_kind_inside_its_own_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Design § E: "``NOT_BOOKABLE`` with the kind"."""
+
+    row = _row(kind=DiscrepancyKind.AMBIGUOUS_PARTIAL_REDUCE)
+
+    with caplog.at_level(logging.DEBUG):
+        await Harness([row]).run()
+
+    assert (
+        "NOT_BOOKABLE (the venue difference is of a kind this system never books: "
+        "AMBIGUOUS_PARTIAL_REDUCE)"
+    ) in _errors(caplog)[0].getMessage()
+
+
 async def test_a_row_with_several_allocations_carries_its_own_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
