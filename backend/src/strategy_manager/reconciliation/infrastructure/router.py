@@ -64,7 +64,12 @@ from strategy_manager.reconciliation.application.ports import (
     DiscrepancyRecord,
     ProposedFillSnapshot,
 )
+from strategy_manager.reconciliation.application.read_confirmed import (
+    ConfirmedDiscrepancy,
+    ReadConfirmed,
+)
 from strategy_manager.reconciliation.application.reject_booking import RejectBooking, RejectOutcome
+from strategy_manager.reconciliation.domain.attention import NeedsOwnerReason
 from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyKind,
     DiscrepancyStatus,
@@ -78,6 +83,9 @@ from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter impo
 )
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
+)
+from strategy_manager.reconciliation.infrastructure.strategy_name_adapter import (
+    StrategyNameAdapter,
 )
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
@@ -197,6 +205,130 @@ async def list_discrepancies(
         records = [record for record in records if market_key(record.symbol) == wanted]
 
     return [DiscrepancyView.of(record) for record in records[:limit]]
+
+
+class AllocationBody(BaseModel):
+    allocation_id: UUID
+    strategy_id: UUID | None
+    strategy_name: str | None
+
+
+class ConfirmedDiscrepancyBody(BaseModel):
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    kind: DiscrepancyKind
+    reason: NeedsOwnerReason | None
+    venue_net_base: str
+    ledger_net_base: str
+    allocations: list[AllocationBody]
+    confirmed_at: datetime | None
+    last_observed_at: datetime
+
+
+class BookedBody(BaseModel):
+    proposal_id: UUID
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    kind: DiscrepancyKind
+    strategy_id: UUID
+    strategy_name: str | None
+    allocation_id: UUID
+    side: str
+    quantity: str
+    fill_count: int
+    decided_at: datetime
+    decided_by: Literal["automatic", "owner"]
+    execution_attempt_id: UUID | None
+    discrepancy_open: bool
+
+
+class ConfirmedBody(BaseModel):
+    """``GET /reconciliation/confirmed`` (design PR 15 addendum § G). Every
+    quantity is a STRING, for the reason ``BookingProposalView`` states."""
+
+    read_at: datetime
+    dry_run: bool
+    needs_owner_count: int
+    needs_owner: list[ConfirmedDiscrepancyBody]
+    being_booked: list[ConfirmedDiscrepancyBody]
+    booked: list[BookedBody]
+
+
+def _discrepancy_body(item: ConfirmedDiscrepancy) -> ConfirmedDiscrepancyBody:
+    return ConfirmedDiscrepancyBody(
+        discrepancy_id=item.discrepancy_id,
+        exchange=item.exchange,
+        venue=item.venue,
+        settlement_currency=item.settlement_currency,
+        symbol=item.symbol,
+        kind=item.kind,
+        reason=item.reason,
+        venue_net_base=str(item.venue_net_base),
+        ledger_net_base=str(item.ledger_net_base),
+        allocations=[
+            AllocationBody(
+                allocation_id=a.allocation_id,
+                strategy_id=a.strategy_id,
+                strategy_name=a.strategy_name,
+            )
+            for a in item.allocations
+        ],
+        confirmed_at=item.confirmed_at,
+        last_observed_at=item.last_observed_at,
+    )
+
+
+@router.get("/confirmed", response_model=ConfirmedBody)
+async def read_confirmed(
+    session: SessionDep, settings: Annotated[Settings, Depends(get_settings)]
+) -> ConfirmedBody:
+    """Read-only, whole-system, no parameter (owner decision 66 Q6). Serves
+    what the database holds with ``dry_run`` beside it (note N3); the panel
+    decides what to draw under ``DRY_RUN``."""
+
+    reading = await ReadConfirmed(
+        discrepancies=SqlAlchemyDiscrepancyRepository(session),
+        proposals=SqlAlchemyBookingProposalRepository(session),
+        names=StrategyNameAdapter(session),
+        clock=SystemClock(),
+        grace_seconds=settings.reconciliation_auto_booking_grace_seconds,
+        dry_run=settings.dry_run,
+    ).read()
+    return ConfirmedBody(
+        read_at=reading.read_at,
+        dry_run=reading.dry_run,
+        needs_owner_count=reading.needs_owner_count,
+        needs_owner=[_discrepancy_body(i) for i in reading.needs_owner],
+        being_booked=[_discrepancy_body(i) for i in reading.being_booked],
+        booked=[
+            BookedBody(
+                proposal_id=b.proposal_id,
+                discrepancy_id=b.discrepancy_id,
+                exchange=b.exchange,
+                venue=b.venue,
+                settlement_currency=b.settlement_currency,
+                symbol=b.symbol,
+                kind=b.kind,
+                strategy_id=b.strategy_id,
+                strategy_name=b.strategy_name,
+                allocation_id=b.allocation_id,
+                side=b.side,
+                quantity=str(b.quantity),
+                fill_count=b.fill_count,
+                decided_at=b.decided_at,
+                decided_by=b.decided_by,
+                execution_attempt_id=b.execution_attempt_id,
+                discrepancy_open=b.discrepancy_open,
+            )
+            for b in reading.booked
+        ],
+    )
 
 
 # --------------------------------------------------------------------------
