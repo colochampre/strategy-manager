@@ -303,6 +303,25 @@ describe("the venue line reads the confirmed discrepancies (owner decision 66 Q8
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
+  it("makes no claim for a being_booked id that belongs to ANOTHER position of the same symbol", async () => {
+    const otherPositionsId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const otherBeingBooked: ConfirmedStub = {
+      kind: "ok",
+      body: confirmedBody({
+        being_booked: [confirmedItem({ discrepancy_id: otherPositionsId, reason: null, kind: "ATTRIBUTABLE_FULL_CLOSE" })],
+      }),
+    };
+    await mountVenue(disagreeing(), otherBeingBooked);
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(line).toHaveClass("border-loss");
+    expect(line.textContent).not.toContain("being booked");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it.each([
     ["the query is loading", { kind: "pending" } as ConfirmedStub],
     ["the read failed", { kind: "status", status: 500, body: { detail: "down" } } as ConfirmedStub],
