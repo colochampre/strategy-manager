@@ -548,6 +548,18 @@ class SystemOrderIdsPort(Protocol):
     async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool: ...
 
 
+class ApprovedObservationsPort(Protocol):
+    """The observations frozen by every APPROVED proposal of each discrepancy
+    in ``discrepancy_ids`` (design § D rule 2: an APPROVED proposal that froze
+    the row's CURRENT observation means the discrepancy is booked and waits
+    for the next scan). One question for the whole set, never one per id; an
+    id with no APPROVED proposal is absent from the answer."""
+
+    async def approved_observations(
+        self, discrepancy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[Observation]]: ...
+
+
 class StrategyNamesPort(Protocol):
     """The display name of each strategy id, for the confirmed-discrepancies
     read. An id with no row is absent from the answer, never invented."""
