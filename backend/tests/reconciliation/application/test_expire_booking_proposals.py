@@ -73,6 +73,9 @@ from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter impo
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
+    SystemOrderIdsAdapter,
+)
 from strategy_manager.shared.config import get_settings
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
@@ -471,6 +474,7 @@ async def test_pending_past_24h_expires_and_is_reproposable(
             max_span_seconds=604_800,
             proposal_expiry_seconds=86_400,
             dry_run=False,
+            system_order_ids=SystemOrderIdsAdapter(session),
         )
         sweep_result = await prepare.sweep(uuid4())
 
