@@ -25,6 +25,7 @@ identical reasoning for ``SqlAlchemyBookingWriter``'s two named
 ``IntegrityError`` translations).
 """
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -47,6 +48,7 @@ PENDING_PER_DISCREPANCY_CONSTRAINT = "ux_booking_proposals_pending_per_discrepan
 
 _PENDING = "PENDING"
 _REJECTED = "REJECTED"
+_APPROVED = "APPROVED"
 
 _Row = BookingProposalRow
 
@@ -253,6 +255,38 @@ class SqlAlchemyBookingProposalRepository:
         result = cast(CursorResult[Any], await self._session.execute(stmt))
         await self._session.flush()
         return result.rowcount
+
+    async def count_pending(self) -> int:
+        """Read-only: how many PENDING rows exist (design § C6: the exact
+        count of what the automatic step's limit left)."""
+        result = await self._session.execute(
+            select(func.count()).select_from(_Row).where(_Row.state == _PENDING)
+        )
+        return result.scalar_one()
+
+    async def approved_observations(
+        self, discrepancy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[Observation]]:
+        """Read-only, ONE statement for the whole set: the observation frozen
+        by every APPROVED proposal of each discrepancy (design § D rule 2). An
+        empty set answers ``{}`` without touching the database; a discrepancy
+        with no APPROVED proposal is absent from the answer."""
+        if not discrepancy_ids:
+            return {}
+        stmt = select(
+            _Row.discrepancy_id,
+            _Row.kind,
+            _Row.observed_venue_net_base,
+            _Row.observed_ledger_net_base,
+        ).where(_Row.discrepancy_id.in_(list(discrepancy_ids)), _Row.state == _APPROVED)
+        answer: dict[UUID, list[Observation]] = {}
+        for discrepancy_id, kind, venue_net, ledger_net in (
+            await self._session.execute(stmt)
+        ).all():
+            answer.setdefault(discrepancy_id, []).append(
+                Observation(DiscrepancyKind(kind), venue_net, ledger_net)
+            )
+        return answer
 
     async def count_for_strategy(self, strategy_id: UUID) -> int:
         """How many booking proposals name this strategy, in ANY state

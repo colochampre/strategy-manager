@@ -451,6 +451,12 @@ class BookingProposalRepositoryPort(Protocol):
         non-PENDING row (migration ``0023``'s own index docstring)."""
         ...
 
+    async def count_pending(self) -> int:
+        """How many PENDING rows exist right now -- read-only. What
+        ``AutoBookPending`` counts after its loop to name EXACTLY how many
+        the limit left for the next run (design § C6)."""
+        ...
+
     async def has_matching_rejection(
         self, discrepancy_id: UUID, observation: Observation
     ) -> bool:
