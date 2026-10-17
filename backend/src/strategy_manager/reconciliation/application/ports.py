@@ -9,12 +9,12 @@ Phase 3 declares every port ``ScanPools`` needs; the concrete adapters
 SQLAlchemy-backed discrepancy repository) are Phase 4.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from strategy_manager.execution.application.ports import FillRecord
@@ -26,6 +26,11 @@ from strategy_manager.reconciliation.domain.discrepancy import (
 )
 from strategy_manager.reconciliation.domain.positions import LedgerPosition, VenuePosition
 from strategy_manager.shared.domain.errors import DomainError
+
+if TYPE_CHECKING:
+    # ``approve_booking`` imports this module, so the result type is named
+    # only for the type checker.
+    from strategy_manager.reconciliation.application.approve_booking import ApproveResult
 
 PoolKey = tuple[str, str, str]
 """A pool's identity: ``(exchange, venue, settlement_currency)``. Mirrors
@@ -520,6 +525,34 @@ class InFlightClosePort(Protocol):
     """
 
     async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...
+
+
+class ApprovePort(Protocol):
+    """``ApproveBooking.approve``'s signature, so ``AutoBookPending`` depends
+    on a ``Protocol`` and not on the class (design.md PR 15 addendum § C1,
+    the way the prepare handler depends on ``PrepareBookingPort``)."""
+
+    async def approve(self, proposal_id: UUID, decided_by: str) -> "ApproveResult": ...
+
+
+class SystemOrderIdsPort(Protocol):
+    """Owner decision 66 Q2 (2026-10-16): whether any of a set of venue order
+    ids is the ``exchange_order_id`` of an ``execution_attempts`` row of the
+    SAME pool ``(exchange, venue, settlement_currency)`` -- a fill of an order
+    this system placed. One question for the whole set, never one per id.
+
+    Implemented by ``SystemOrderIdsAdapter`` over
+    ``SqlAlchemyExecutionAttemptRepository``; the consumer (this module)
+    declares the port, the provider owns the adapter."""
+
+    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool: ...
+
+
+class StrategyNamesPort(Protocol):
+    """The display name of each strategy id, for the confirmed-discrepancies
+    read. An id with no row is absent from the answer, never invented."""
+
+    async def names_for(self, strategy_ids: Sequence[UUID]) -> Mapping[UUID, str]: ...
 
 
 class BookingWriteOutcome(StrEnum):

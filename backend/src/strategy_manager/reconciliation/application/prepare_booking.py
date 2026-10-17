@@ -40,8 +40,8 @@ to the delta.
 """
 
 import logging
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
 from uuid import UUID
 
@@ -56,12 +56,14 @@ from strategy_manager.reconciliation.application.ports import (
     PoolKey,
     ProposedFillSnapshot,
     RecordedFillIdsPort,
+    SystemOrderIdsPort,
     VenueFill,
     VenueFillReaderRegistryPort,
     VenueFillReadError,
 )
 from strategy_manager.reconciliation.domain.booking import (
     BOOKABLE_KINDS,
+    BookingRefusal,
     MatchRefused,
     ProposedFill,
     build_client_order_id,
@@ -80,6 +82,9 @@ class PrepareBookingResult:
     proposals_prepared: int
     proposals_skipped: int
     proposals_suppressed: int
+    refusals: Mapping[UUID, BookingRefusal] = field(default_factory=dict)
+    """Discrepancy id -> the code of the refusal that kept it from being
+    prepared this sweep (owner decision 66, 2026-10-16)."""
 
 
 class PrepareBooking:
@@ -96,6 +101,7 @@ class PrepareBooking:
         max_span_seconds: int,
         proposal_expiry_seconds: int,
         dry_run: bool,
+        system_order_ids: SystemOrderIdsPort | None = None,
     ) -> None:
         self._discrepancies = discrepancies
         self._proposals = proposals
@@ -108,6 +114,10 @@ class PrepareBooking:
         self._max_span = timedelta(seconds=max_span_seconds)
         self._proposal_expiry = timedelta(seconds=proposal_expiry_seconds)
         self._dry_run = dry_run
+        # Owner decision 66 Q2: optional ONLY until ``main.py`` wires it
+        # (cd.1.23); ``None`` means the "fill of a system order" refusal is
+        # not applied, and that default is removed with the wiring.
+        self._system_order_ids = system_order_ids
 
     async def sweep(self, job_id: UUID) -> PrepareBookingResult:
         if self._dry_run:

@@ -95,6 +95,10 @@ logger = logging.getLogger(__name__)
 #: invents a per-request identity that does not exist.
 ADMIN_ACTOR = "admin"  # the holder of ADMIN_API_TOKEN
 
+#: The ``decided_by`` actor of a booking the worker approves on its own
+#: (owner decision 66 Q1, 2026-10-16), defined once beside ``ADMIN_ACTOR``.
+AUTO_BOOKING_ACTOR = "system:auto-booking"
+
 # See this module's docstring and ``strategies/infrastructure/router.py``:
 # deliberately no ``Depends(require_admin_token)`` on the route itself.
 router = APIRouter(
