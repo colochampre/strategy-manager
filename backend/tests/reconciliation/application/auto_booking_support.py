@@ -303,10 +303,13 @@ def build_handler(
     *,
     at: datetime = NOW,
     dry_run: bool = False,
+    approve_at: datetime | None = None,
 ) -> BookingPrepareHandler:
     """``BookingPrepareHandler`` with the object graph of ``main.py``'s
     ``handle_reconciliation_prepare_booking``: one session, the production
-    adapters, the clock frozen at ``at``."""
+    adapters, the clock frozen at ``at``. ``approve_at`` moves only the
+    approval's clock later, which models a proposal that goes stale between
+    the expiry step and the automatic step of one job."""
 
     return BookingPrepareHandler(
         prepare_booking=build_prepare_booking(session, reader, at=at),
@@ -317,7 +320,7 @@ def build_handler(
         ),
         auto_book=AutoBookPending(
             proposals=SqlAlchemyBookingProposalRepository(session),
-            approver=build_approve_booking(session, at=at, dry_run=dry_run),
+            approver=build_approve_booking(session, at=approve_at or at, dry_run=dry_run),
         ),
         announce_needs_owner=AnnounceNeedsOwner(
             discrepancies=SqlAlchemyDiscrepancyRepository(session),
@@ -340,12 +343,15 @@ async def run_job(
     *,
     at: datetime = NOW,
     dry_run: bool = False,
+    approve_at: datetime | None = None,
 ) -> None:
     """One claimed job, the way the worker runs it: one session, the handler,
     a final commit."""
 
     async with session_factory() as session:
-        handler = build_handler(session, reader, queue, at=at, dry_run=dry_run)
+        handler = build_handler(
+            session, reader, queue, at=at, dry_run=dry_run, approve_at=approve_at
+        )
         await handler.handle(claimed_job())
         await session.commit()
 
@@ -503,9 +509,12 @@ async def insert_pending_proposal(
     ledger_net: str = "0.5",
     quantity: str = "0.5",
     expires_at: datetime | None = None,
+    without_order_id: bool = False,
 ) -> BookingProposalRecord:
     """A PENDING proposal frozen the way a sweep freezes it, for a test that
-    needs one "left behind" without running a sweep."""
+    needs one "left behind" without running a sweep. ``without_order_id``
+    freezes a fill the venue gave no order id, which approval refuses with an
+    ``InvariantViolation`` (the ledger column is NOT NULL)."""
 
     fill_id = f"VFILL-{uuid4()}"
     async with session_factory() as session:
@@ -527,7 +536,7 @@ async def insert_pending_proposal(
                 fills=[
                     ProposedFillSnapshot(
                         exchange_fill_id=fill_id,
-                        exchange_order_id=f"VORD-{fill_id}",
+                        exchange_order_id=None if without_order_id else f"VORD-{fill_id}",
                         side="SELL",
                         quantity=Decimal(quantity),
                         price=Decimal("2.6"),
