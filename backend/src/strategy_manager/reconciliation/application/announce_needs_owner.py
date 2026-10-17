@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from strategy_manager.reconciliation.application.confirmed_row import to_confirmed_row
 from strategy_manager.reconciliation.application.ports import (
     ApprovedObservationsPort,
     DiscrepancyRecord,
@@ -34,7 +35,6 @@ from strategy_manager.reconciliation.application.ports import (
 )
 from strategy_manager.reconciliation.domain.attention import (
     AttentionGroup,
-    ConfirmedRow,
     NeedsOwnerReason,
     sort_confirmed,
 )
@@ -42,7 +42,6 @@ from strategy_manager.reconciliation.domain.booking import BOOKING_REFUSAL_PHRAS
 from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyKind,
     DiscrepancyStatus,
-    Observation,
 )
 from strategy_manager.shared.application.ports import ClockPort
 
@@ -142,16 +141,7 @@ class AnnounceNeedsOwner:
         needing: list[_Item] = []
         for row in rows:
             attention = sort_confirmed(
-                ConfirmedRow(
-                    status=row.status,
-                    resolved=row.resolved_at is not None,
-                    observation=Observation(row.kind, row.venue_net_base, row.ledger_net_base),
-                    open_allocation_count=len(row.open_allocation_ids),
-                    confirmed_at=row.confirmed_at,
-                    approved_observations=approved.get(row.id, ()),
-                ),
-                now,
-                self._grace,
+                to_confirmed_row(row, approved.get(row.id, ())), now, self._grace
             )
             if (
                 attention is None

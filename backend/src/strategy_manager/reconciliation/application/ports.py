@@ -566,11 +566,58 @@ class ApprovedObservationsPort(Protocol):
     ) -> Mapping[UUID, Sequence[Observation]]: ...
 
 
-class StrategyNamesPort(Protocol):
-    """The display name of each strategy id, for the confirmed-discrepancies
-    read. An id with no row is absent from the answer, never invented."""
+@dataclass(frozen=True, slots=True)
+class AllocationStrategy:
+    """The strategy an allocation belongs to, with its display name."""
 
-    async def names_for(self, strategy_ids: Sequence[UUID]) -> Mapping[UUID, str]: ...
+    strategy_id: UUID
+    name: str
+
+
+class StrategyNamesPort(Protocol):
+    """The strategy (id and display name) behind each allocation id, for the
+    confirmed-discrepancies read (design PR 15 addendum § G: "strategy names
+    by allocation id"). One question for the whole set, never one per id. An
+    allocation whose reservation or strategy row is missing is ABSENT from the
+    answer, never invented."""
+
+    async def strategies_for(
+        self, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, AllocationStrategy]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedProposalSummary:
+    """What the confirmed-discrepancies view reads of one APPROVED proposal:
+    no frozen fills, only how many there were."""
+
+    proposal_id: UUID
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    kind: DiscrepancyKind
+    strategy_id: UUID
+    allocation_id: UUID
+    side: str
+    quantity: Decimal
+    observed_venue_net_base: Decimal
+    observed_ledger_net_base: Decimal
+    fill_count: int
+    decided_at: datetime
+    decided_by: str | None
+    execution_attempt_id: UUID | None
+    discrepancy_open: bool
+    """Whether the scan has not yet resolved the proposal's discrepancy."""
+
+
+class ApprovedProposalsPort(Protocol):
+    """Every APPROVED proposal decided at or after ``since``, plus every
+    APPROVED proposal whose discrepancy is still open however old (note N8).
+    One statement, read-only."""
+
+    async def approved_since(self, since: datetime) -> Sequence[ApprovedProposalSummary]: ...
 
 
 class BookingWriteOutcome(StrEnum):
