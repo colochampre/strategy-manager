@@ -5,7 +5,7 @@ become a caller-visible outcome, NEVER ignored").
 
 ``mark_state`` follows ``get_for_update`` in the same transaction, under the
 row's own ``FOR UPDATE`` lock, in every use case that calls it
-(``ApproveBooking``, ``RejectBooking``). A ``False`` return in that gap is
+(``ApproveBooking``). A ``False`` return in that gap is
 therefore impossible -- nothing else in this same transaction can move the
 row out of ``PENDING`` between the two calls -- and is raised loudly rather
 than silently accepted, exactly the shape ``ApproveBooking``'s own RED
@@ -14,9 +14,8 @@ UPDATE`` let a losing concurrent caller's ``mark_state`` genuinely return
 ``False`` under this same lock, and this guard is what turned that into a
 loud, caller-visible bug instead of a swallowed race).
 
-Both ``ApproveBooking`` and ``RejectBooking`` call THIS one function rather
-than each keeping their own copy, per this unit's own binding instruction
-not to duplicate a pattern that can be shared cleanly.
+``ApproveBooking`` calls THIS one function rather than keeping its own copy
+(``RejectBooking``, its former sibling, was removed by owner decision 66 Q1).
 """
 
 from uuid import UUID

@@ -12,8 +12,8 @@ observed delta (``domain.booking.match_fills``), and FREEZES one
 either, and its only mutating call to ``BookingProposalRepositoryPort`` is
 ``insert``. ``mark_state`` (the ONLY method that can move a proposal past
 PENDING or attach an ``execution_attempt_id``, per that port's own
-docstring) belongs entirely to ``ApproveBooking``/``RejectBooking`` (Units
-6a/6b) and is never called here.
+docstring) belongs to ``ApproveBooking`` (Unit 6a; ``RejectBooking`` was
+removed by owner decision 66 Q1) and is never called here.
 
 **Deviation from design.md § 1/§ 16, flagged for the orchestrator.** Design
 decision 11 describes the ``DRY_RUN`` hard skip as living "INSIDE the
@@ -25,7 +25,7 @@ THIS use-case level too, with fakes only. ``PrepareBooking`` therefore takes
 a required ``dry_run: bool`` constructor argument and refuses before any
 read at all -- the same "refuse at BOTH the endpoint/handler AND the use
 case" shape design decision 16 already prescribes for
-``ApproveBooking``/``RejectBooking``. This does not remove Unit 5's own
+``ApproveBooking`` (and, until its removal, ``RejectBooking``). This does not remove Unit 5's own
 handler-level skip; it is defense in depth, not a replacement.
 
 Every symbol this module hands to a port or freezes onto a proposal is
@@ -356,8 +356,8 @@ class PrepareBooking:
                 continue
             prepared += 1
             # Deliberately nothing further: the proposal is frozen PENDING
-            # and stays that way until a human approves or rejects it
-            # (``ApproveBooking``/``RejectBooking``, Units 6a/6b). Calling
+            # and stays that way until the worker approves it
+            # (``AutoBookPending`` -> ``ApproveBooking``). Calling
             # ``mark_state`` here would be exactly the accidental
             # auto-approval the money-critical test in this unit exists to
             # catch.

@@ -9,7 +9,7 @@ still refused by approval (binding requirement 5: 6a's own branch (h)).
 Only the clock is faked. Every write path exercised here --
 ``SqlAlchemyBookingProposalRepository``, and for the re-proposability half,
 ``PrepareBooking`` with the same production adapters
-``test_reject_booking.py``/``test_booking_prepare_integration.py`` already
+``test_booking_prepare_integration.py`` already
 prove -- is real.
 """
 
@@ -179,7 +179,7 @@ class _RealClock:
     DATABASE's own ``now()`` (migration ``0020``), so ``PrepareBooking``'s
     clock must read close to that same real wall-clock instant for its
     window-span check not to refuse -- same reasoning as
-    ``test_reject_booking.py``'s own ``_RealClock``."""
+    the removed ``RejectBooking`` test's own real clock."""
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -221,7 +221,7 @@ class _FakeVenueFillReaderRegistry:
         return self._reader
 
 
-# --- Scenario builder (mirrors test_reject_booking.py) ---------------------
+# --- Scenario builder ---------------------
 
 
 @dataclass(frozen=True, slots=True)

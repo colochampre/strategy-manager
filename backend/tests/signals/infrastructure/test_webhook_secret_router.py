@@ -154,7 +154,6 @@ class _SweepPairCatalog:
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
-    ("POST", "/api/reconciliation/bookings/{proposal_id}/reject"): {"reason": "seeded"},
     # A REAL body, so the route answers 200 with facts and not an empty refusal (W2).
     ("PUT", "/api/credentials/{exchange}"): {
         "api_key": "SWEEP-FAKE-KEY-abcd",
@@ -167,7 +166,6 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
 #: booking proposal). They are still requested and inspected; they are only
 #: allowed to answer an empty list. Every other GET must answer real data.
 _MAY_BE_EMPTY = {
-    ("GET", "/api/reconciliation/bookings"),
     ("GET", "/api/reconciliation/discrepancies"),
 }
 
@@ -202,7 +200,11 @@ def test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover() -> None:
         "GET",
         "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
     ) in OTHER_API_ROUTES
-    assert ("POST", "/api/reconciliation/bookings/{proposal_id}/approve") in OTHER_API_ROUTES
+    # The confirmed-discrepancies read joins the sweep; the three booking
+    # routes left it (owner decision 66 Q1, cd.1.33).
+    assert ("GET", "/api/reconciliation/confirmed") in OTHER_API_ROUTES
+    assert ("GET", "/api/reconciliation/discrepancies") in OTHER_API_ROUTES
+    assert not [route for route in OTHER_API_ROUTES if "/reconciliation/bookings" in route[1]]
     assert ("GET", "/api/webhook-origin") in OTHER_API_ROUTES
     assert ("GET", "/api/strategies/{strategy_id}/share-preview") in OTHER_API_ROUTES
     assert ("GET", SECRET_PATH) not in OTHER_API_ROUTES
