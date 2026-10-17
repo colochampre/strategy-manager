@@ -62,20 +62,33 @@ class FakeProposals:
 
     def __init__(self, pending: list[BookingProposalRecord]) -> None:
         self._pending = pending
+        self.decided: set[UUID] = set()
         self.limits_asked: list[int] = []
+
+    def _still_pending(self) -> list[BookingProposalRecord]:
+        return [p for p in self._pending if p.id not in self.decided]
 
     async def list_pending(self, limit: int = 100) -> list[BookingProposalRecord]:
         self.limits_asked.append(limit)
-        return self._pending[:limit]
+        return self._still_pending()[:limit]
+
+    async def count_pending(self) -> int:
+        return len(self._still_pending())
 
 
 class FakeApprover:
+    """Decides a proposal the way ``ApproveBooking`` does: whatever the
+    outcome, the row leaves PENDING (when ``proposals`` is given)."""
+
     def __init__(self, outcomes: dict[UUID, ApproveOutcome] | None = None) -> None:
         self._outcomes = outcomes or {}
         self.calls: list[tuple[UUID, str]] = []
+        self.proposals: FakeProposals | None = None
 
     async def approve(self, proposal_id: UUID, decided_by: str) -> ApproveResult:
         self.calls.append((proposal_id, decided_by))
+        if self.proposals is not None:
+            self.proposals.decided.add(proposal_id)
         return ApproveResult(
             outcome=self._outcomes.get(proposal_id, ApproveOutcome.APPROVED),
             proposal_id=proposal_id,
@@ -88,6 +101,7 @@ def _use_case(
     limit: int = 100,
 ) -> tuple[AutoBookPending, FakeProposals]:
     proposals = FakeProposals(pending)
+    approver.proposals = proposals
     use_case = AutoBookPending(
         proposals=proposals,  # type: ignore[arg-type]
         approver=approver,
@@ -161,13 +175,14 @@ async def test_a_proposal_someone_else_already_decided_is_counted_but_not_called
 async def test_the_limit_is_honoured_and_the_rest_is_reported() -> None:
     pending = [_proposal() for _ in range(5)]
     approver = FakeApprover()
-    use_case, _ = _use_case(pending, approver, limit=3)
+    use_case, proposals = _use_case(pending, approver, limit=3)
 
     result = await use_case.run()
 
     assert [call[0] for call in approver.calls] == [p.id for p in pending[:3]]
     assert result.outcomes == {"APPROVED": 3}
-    assert result.left_for_next_run >= 1, "proposals past the limit are reported, not dropped"
+    assert result.left_for_next_run == 2, "the EXACT number past the limit (design § C6)"
+    assert proposals.limits_asked == [3], "exactly `limit` rows are read, none extra"
 
 
 async def test_exactly_the_limit_leaves_nothing_for_the_next_run() -> None:

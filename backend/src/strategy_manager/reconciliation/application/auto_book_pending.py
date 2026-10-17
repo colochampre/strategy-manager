@@ -52,13 +52,7 @@ class AutoBookPending:
         self._limit = limit
 
     async def run(self) -> AutoBookResult:
-        # One row more than the limit is read, and never approved: its
-        # presence is the only way to know the limit cut the list short, since
-        # ``list_pending`` answers at most ``limit`` rows and offers no count.
-        # So ``left_for_next_run`` is a lower bound (0 or 1), enough for the
-        # handler's summary to say that the rest waits (design § C6).
-        listed = await self._proposals.list_pending(limit=self._limit + 1)
-        to_approve = listed[: self._limit]
+        to_approve = await self._proposals.list_pending(limit=self._limit)
 
         outcomes: dict[str, int] = {}
         not_approved: dict[UUID, BookingRefusal] = {}
@@ -79,5 +73,7 @@ class AutoBookPending:
             outcomes=outcomes,
             not_approved=not_approved,
             approved=tuple(approved),
-            left_for_next_run=len(listed) - len(to_approve),
+            # The EXACT number the limit left (design § C6: the summary names
+            # the count): what is still PENDING once the loop is done.
+            left_for_next_run=await self._proposals.count_pending(),
         )
