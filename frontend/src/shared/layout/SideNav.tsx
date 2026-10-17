@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router";
 
 import { cn } from "@/shared/lib/cn";
+import { NavBadge } from "@/shared/layout/NavBadge";
 import { NAV_ITEMS } from "@/shared/layout/navItems";
 
 /** The left rail: hidden below `lg`, where `BottomNav` takes over. */
@@ -20,14 +21,15 @@ export function SideNav() {
           end={item.end}
           className={({ isActive }) =>
             cn(
-              "rounded-md px-3.5 py-3 text-sm transition-colors",
+              "flex items-center justify-between gap-2 rounded-md px-3.5 py-3 text-sm transition-colors",
               isActive
                 ? "bg-panel-2 font-semibold text-ink"
                 : "text-ink-2 hover:bg-panel-2 hover:text-ink",
             )
           }
         >
-          {t(`nav.${item.labelKey}`)}
+          <span>{t(`nav.${item.labelKey}`)}</span>
+          {item.badge && <NavBadge />}
         </NavLink>
       ))}
     </nav>

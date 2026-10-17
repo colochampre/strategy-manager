@@ -1,12 +1,14 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
+import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { AppShell } from "@/shared/layout/AppShell";
-import { lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
+import { booking, confirmedBody, discrepancy, lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
+import type { ConfirmedStub } from "@/test/harness";
 
 function renderShell(path = "/") {
   return renderAt(
@@ -272,6 +274,161 @@ describe("layout contract", () => {
       expect(locale.notFound.title).toBeTruthy();
       expect(locale.notFound.back).toBeTruthy();
     }
+  });
+});
+
+describe("the Discrepancies item and its badge", () => {
+  const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
+
+  function stubConfirmed(confirmed: ConfirmedStub) {
+    return stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, undefined, confirmed);
+  }
+
+  function needing(count: number) {
+    return confirmedBody({ needs_owner: Array.from({ length: count }, () => discrepancy()) });
+  }
+
+  /**
+   * The item's accessible name is its label, then the badge's words after a comma. The markup keeps them in two
+   * elements, which the name computation joins with a space: "Discrepancies , 12 ...". The space is dropped.
+   */
+  const named = (expected: string) => (name: string) => name.replace(/\s+,/g, ",") === expected;
+
+  afterEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("lists four sections in order, in the side navigation and in the bottom bar", () => {
+    stubConfirmed({ kind: "ok", body: needing(0) });
+    renderShell();
+
+    const navs = screen.getAllByRole("navigation", { name: "Sections" });
+    expect(navs).toHaveLength(2);
+    for (const nav of navs) {
+      const links = within(nav).getAllByRole("link");
+      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Settings"]);
+      expect(links.map((link) => link.getAttribute("href"))).toEqual(["/", "/strategies", "/discrepancies", "/settings"]);
+    }
+  });
+
+  it("names the item plainly, and draws no badge, while nothing needs the owner", async () => {
+    const fetchMock = stubConfirmed({ kind: "ok", body: needing(0) });
+    renderShell();
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reconciliation/confirmed"))).toBe(true),
+    );
+    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [12, "Discrepancies, 12 discrepancies need you"],
+    [1, "Discrepancies, 1 discrepancy needs you"],
+  ])("gives the item the accessible name of %i in both surfaces, with the number hidden from the tree", async (count, name) => {
+    stubConfirmed({ kind: "ok", body: needing(count) });
+    renderShell();
+
+    const links = await screen.findAllByRole("link", { name: named(name) });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(within(link).getByText(String(count))).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("draws the same badge in both surfaces", async () => {
+    stubConfirmed({ kind: "ok", body: needing(12) });
+    renderShell();
+
+    const [side, bottom] = screen.getAllByRole("navigation", { name: "Sections" }) as [HTMLElement, HTMLElement];
+    const sideBadge = await within(side).findByText("12");
+    const bottomBadge = await within(bottom).findByText("12");
+    expect(sideBadge).toHaveClass("bg-loss", "text-ground");
+    expect(bottomBadge).toHaveClass("bg-loss", "text-ground");
+    expect(sideBadge.tagName).toBe(bottomBadge.tagName);
+    expect(within(side).getByText(/12 discrepancies need you/).textContent).toBe(
+      within(bottom).getByText(/12 discrepancies need you/).textContent,
+    );
+  });
+
+  it("says its name in Spanish, to usted", async () => {
+    stubConfirmed({ kind: "ok", body: needing(12) });
+    renderShell();
+    await screen.findAllByRole("link", { name: named("Discrepancies, 12 discrepancies need you") });
+
+    fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
+
+    expect(
+      await screen.findAllByRole("link", { name: named("Discrepancias, 12 discrepancias requieren su atención") }),
+    ).toHaveLength(2);
+  });
+
+  it("draws no badge when dry_run is true, and none while loading or after a first failed read", async () => {
+    stubConfirmed({ kind: "ok", body: { ...needing(2), dry_run: true } });
+    const dry = renderShell();
+    await screen.findAllByRole("link", { name: "Discrepancies" });
+    await waitFor(() => expect(screen.queryByText("2")).not.toBeInTheDocument());
+    dry.unmount();
+
+    stubConfirmed({ kind: "pending" });
+    const loading = renderShell();
+    expect(screen.queryByText("2")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    loading.unmount();
+
+    stubConfirmed({ kind: "status", status: 500, body: { detail: "down" } });
+    renderShell();
+    await screen.findAllByRole("link", { name: "Discrepancies" });
+    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+  });
+
+  it("draws no badge for an item being booked or for bookings", async () => {
+    const fetchMock = stubConfirmed({
+      kind: "ok",
+      body: confirmedBody({ being_booked: [discrepancy({ reason: null })], booked: [booking(), booking()] }),
+    });
+    renderShell();
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reconciliation/confirmed"))).toBe(true),
+    );
+    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+  });
+
+  it("serves the side navigation and the bottom bar with ONE request", async () => {
+    const fetchMock = stubConfirmed({ kind: "ok", body: needing(3) });
+    renderShell();
+
+    await screen.findAllByRole("link", { name: named("Discrepancies, 3 discrepancies need you") });
+    const requests = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/reconciliation/confirmed"));
+    expect(requests).toHaveLength(1);
+  });
+
+  it("gives the bottom bar four equal cells whose labels sit level whether or not a badge is drawn", async () => {
+    stubConfirmed({ kind: "ok", body: needing(12) });
+    renderShell();
+    const bottom = screen.getAllByRole("navigation", { name: "Sections" })[1] as HTMLElement;
+    await within(bottom).findByText("12");
+
+    const cells = within(bottom).getAllByRole("link");
+    expect(cells).toHaveLength(4);
+    for (const cell of cells) {
+      expect(cell).toHaveClass("flex-1", "min-w-0", "items-end", "pb-2", "relative");
+      expect(cell).not.toHaveClass("items-center");
+    }
+    // The badge sits in the corner of its cell, out of the label's line.
+    expect(within(bottom).getByText("12")).toHaveClass("absolute", "top-1", "right-1");
+  });
+
+  it("keeps the side rail's badge in the line of its label", async () => {
+    stubConfirmed({ kind: "ok", body: needing(12) });
+    renderShell();
+    const side = screen.getAllByRole("navigation", { name: "Sections" })[0] as HTMLElement;
+
+    const badge = await within(side).findByText("12");
+
+    expect(badge).not.toHaveClass("absolute");
+    expect(within(side).getByRole("link", { name: /^Discrepancies/ })).toHaveClass("justify-between");
   });
 });
 

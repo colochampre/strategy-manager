@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router";
 
+import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
@@ -19,6 +20,7 @@ export function AppRoutes() {
         <Route index element={<OverviewPage />} />
         <Route path="strategies" element={<StrategiesPage />} />
         <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
+        <Route path="discrepancies" element={<DiscrepanciesPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

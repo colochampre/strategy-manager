@@ -22,6 +22,7 @@ describe("route map", () => {
       ["/", "Overview"],
       ["/strategies", "Strategies"],
       [`/strategies/${STRATEGY_ID}`, "Strategy"],
+      ["/discrepancies", "Discrepancies"],
       ["/settings", "Settings"],
     ];
     for (const [path, title] of cases) {
