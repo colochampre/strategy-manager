@@ -1,5 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
+import { Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusButton } from "@/shared/ui/StatusButton";
@@ -68,6 +69,7 @@ function CopyAction({
       tone={result === "failed" ? "failure" : "neutral"}
       onClick={onCopy}
       disabled={disabled}
+      icon={Copy}
       className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
     />
   );

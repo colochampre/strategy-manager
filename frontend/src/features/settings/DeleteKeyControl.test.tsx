@@ -169,6 +169,19 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(button).toBeEnabled();
   });
 
+  it("draws an aria-hidden Trash left of the text and keeps its explicit name", async () => {
+    deletePage();
+    await cardsDrawn();
+
+    const button = present(deleteButton());
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(button).toHaveAccessibleName("Delete key Bybit");
+  });
+
   it("is disabled while that card's form is open, and only that card's", async () => {
     deletePage({ credentials: [storedKey("bybit", { last4: OLD_LAST4 }), storedKey("binance")], poolsBefore: [pool("bybit"), pool("binance")] });
     await cardsDrawn();

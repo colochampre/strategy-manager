@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Trash } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
@@ -43,8 +44,9 @@ export function DeleteStrategyControl({ strategy }: DeleteStrategyControlProps) 
           disabled={strategy.enabled}
           aria-describedby={strategy.enabled ? hintId : undefined}
           onClick={() => setOpen(true)}
-          className="rounded-md border border-loss px-3 py-1.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-loss px-3 py-1.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50"
         >
+          <Trash aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.delete.button")}
         </button>
         {strategy.enabled && (

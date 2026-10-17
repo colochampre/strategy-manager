@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { OpenStateLine } from "@/features/positions/OpenStateLine";
@@ -97,8 +98,9 @@ export function StrategiesPage() {
             type="button"
             disabled={exchange === null}
             onClick={() => setCreating(true)}
-            className="min-h-11 rounded-md bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
+            <Plus aria-hidden="true" className="size-4 shrink-0" />
             {t("strategies.new.open")}
           </button>
         </div>

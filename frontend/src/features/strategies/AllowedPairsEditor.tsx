@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PairSelector } from "@/features/strategies/PairSelector";
@@ -132,6 +133,7 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
             onClick={handleSave}
             // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
             disabled={archived || !changed || empty || save.isPending}
+            icon={Save}
             className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           />
         </div>

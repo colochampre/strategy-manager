@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import { type ReactNode, type Ref, useId } from "react";
+import { ArrowLeftRight, KeyRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { exchangeName } from "@/features/settings/exchange-name";
@@ -313,12 +314,17 @@ export function ExchangeKeyCard({
             disabled={busy}
             onClick={onToggle}
             className={cn(
-              "min-h-11 rounded-md border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+              "inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
               holdsKey
                 ? "border-rule text-ink hover:bg-panel-2 aria-expanded:bg-panel-2"
                 : "border-gain bg-gain font-medium text-ground",
             )}
           >
+            {holdsKey ? (
+              <ArrowLeftRight aria-hidden="true" className="size-4 shrink-0" />
+            ) : (
+              <KeyRound aria-hidden="true" className="size-4 shrink-0" />
+            )}
             {holdsKey ? t("settings.card.replace") : t("settings.card.add")}
           </button>
         )}

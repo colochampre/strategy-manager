@@ -178,6 +178,28 @@ describe("DeleteStrategyDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(i18n.t("strategies.delete.errors.generic"));
   });
 
+  it("draws an aria-hidden Trash on the confirm, kept while its text says pending, the name unchanged", () => {
+    const view = render(
+      <DeleteStrategyDialog name={NAME} pending={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const svg = confirmButton().querySelector("svg");
+    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(confirmButton().firstElementChild).toBe(svg);
+    expect(confirmButton()).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(confirmButton()).toHaveAccessibleName(i18n.t("strategies.delete.confirm"));
+    // The cancel button stays as it was.
+    expect(screen.getByRole("button", { name: i18n.t("strategies.delete.cancel") }).querySelector("svg")).toBeNull();
+
+    view.rerender(
+      <DeleteStrategyDialog name={NAME} pending={true} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const pending = screen.getByRole("button", { name: i18n.t("strategies.delete.pending") });
+    expect(pending.querySelector("svg")).toHaveClass("lucide-trash");
+  });
+
   it("disables both buttons while pending", () => {
     renderDialog({ pending: true });
     typeName(NAME);

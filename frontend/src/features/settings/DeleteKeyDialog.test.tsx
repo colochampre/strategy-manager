@@ -232,6 +232,22 @@ describe("what sends the request, and what never does", () => {
     expect(onFocusFallback).not.toHaveBeenCalled();
   });
 
+  it("draws an aria-hidden Trash on the confirm, kept while it says Deleting…, and none on Cancel", async () => {
+    mount(never);
+    openDialog();
+
+    const svg = confirmButton().querySelector("svg");
+    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(confirmButton().firstElementChild).toBe(svg);
+    expect(confirmButton()).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(cancelButton().querySelector("svg")).toBeNull();
+
+    await confirm();
+
+    expect(confirmButton("Deleting…").querySelector("svg")).toHaveClass("lucide-trash");
+  });
+
   it("test_the_dialog_cannot_be_dismissed_mid_request: Deleting…, both buttons off, Escape and cancel do nothing, one request", async () => {
     const { fetchMock } = mount(never);
     const dialog = openDialog();

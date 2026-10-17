@@ -299,6 +299,21 @@ describe("the toggle (design § D Buttons, task 13.5.8)", () => {
     expect(button).not.toHaveClass("bg-gain");
   });
 
+  it.each([
+    ["Add key Binance", "binance", "empty", "lucide-key-round"],
+    ["Replace key Bybit", "bybit", "stored", "lucide-arrow-left-right"],
+  ] as const)("draws an aria-hidden icon left of the text of %s, its name unchanged", (name, exchange, kind, iconClass) => {
+    renderCard({ exchange, entry: kind === "empty" ? empty(exchange) : stored(exchange) });
+
+    const button = toggle() as HTMLButtonElement;
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass(iconClass, "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(button).toHaveAccessibleName(name);
+  });
+
   it("names the two buttons of two cards differently, never `Replace key` twice", () => {
     render(
       <>
