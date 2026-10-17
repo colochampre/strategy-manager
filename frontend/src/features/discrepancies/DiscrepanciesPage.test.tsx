@@ -276,6 +276,15 @@ describe("the lists, grouped by exchange whatever tab was selected (owner decisi
     expect(within(being).queryByText("What you can do")).not.toBeInTheDocument();
   });
 
+  it("draws the bookings in a table named by the section, with the sentence, and not the empty sentence", async () => {
+    mountPage({ kind: "ok", body: confirmedBody({ booked: [booking(), booking({ exchange: "binance", symbol: "LINKUSDT" })] }) });
+
+    const table = await screen.findByRole("table", { name: "Booked automatically" });
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(8);
+    expect(screen.getByText("The last 30 days, newest first, at most 100.")).toBeInTheDocument();
+    expect(screen.queryByText(NO_BOOKING)).not.toBeInTheDocument();
+  });
+
   it("draws the Being booked section only when it holds an item", async () => {
     mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE] }) });
 

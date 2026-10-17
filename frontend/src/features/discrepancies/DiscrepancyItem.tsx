@@ -1,10 +1,10 @@
 import { useId } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 
+import { StrategyLink } from "@/features/discrepancies/StrategyLink";
 import { baseCurrencyOf, netDifference, quantityText, signedQuantityText } from "@/features/discrepancies/figures";
-import type { AllocationRef, ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
+import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import { cn } from "@/shared/lib/cn";
 import { clockText, compactDateText, timeOfAnswerText } from "@/shared/lib/figure-text";
 
@@ -78,16 +78,6 @@ function Net({ label, value, unit, className }: NetProps) {
   );
 }
 
-function StrategyName({ allocation, t }: { allocation: AllocationRef; t: Translate }) {
-  if (allocation.strategy_name === null) return <>{t("discrepancies.label.unknownStrategy")}</>;
-  if (allocation.strategy_id === null) return <>{allocation.strategy_name}</>;
-  return (
-    <Link to={`/strategies/${allocation.strategy_id}`} className="text-gain hover:text-gain-bright">
-      {allocation.strategy_name}
-    </Link>
-  );
-}
-
 /**
  * One confirmed discrepancy (owner decision 66; prototype examples 5, 6, 8c, 10 and 11): the pair and its pool,
  * what is wrong in words, both nets and their signed difference, the strategies involved, when it was confirmed
@@ -146,7 +136,7 @@ export function DiscrepancyItem({ item, variant, readAt }: DiscrepancyItemProps)
             : item.allocations.map((allocation, index) => (
                 <span key={allocation.allocation_id}>
                   {index > 0 && ", "}
-                  <StrategyName allocation={allocation} t={t} />
+                  <StrategyLink id={allocation.strategy_id} name={allocation.strategy_name} />
                 </span>
               ))}
         </Fact>
