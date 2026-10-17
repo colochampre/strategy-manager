@@ -365,9 +365,13 @@ describe("the Discrepancies item and its badge", () => {
 
   it("draws no badge when dry_run is true, and none while loading or after a first failed read", async () => {
     stubConfirmed({ kind: "ok", body: { ...needing(2), dry_run: true } });
-    const dry = renderShell();
-    await screen.findAllByRole("link", { name: "Discrepancies" });
-    await waitFor(() => expect(screen.queryByText("2")).not.toBeInTheDocument());
+    // The page draws its dry-run sentence only once the read has resolved, so waiting for it proves the badge
+    // saw the same answer: a badge that ignored `dry_run` would be drawn by now.
+    const dry = renderAt(<AppRoutes />, "/discrepancies");
+    expect(await screen.findByText(en.discrepancies.read.dryRun)).toBeInTheDocument();
+    expect(screen.queryByText("2")).not.toBeInTheDocument();
+    expect(screen.queryByText(/discrepancies need you/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
     dry.unmount();
 
     stubConfirmed({ kind: "pending" });

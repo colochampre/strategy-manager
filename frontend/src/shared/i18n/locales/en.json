@@ -53,6 +53,7 @@
       "loading": "Reading discrepancies…",
       "failed": "Discrepancies could not be read, so this page cannot say whether anything needs you.",
       "lastRead": "Last read",
+      "time": "{{time}} UTC",
       "refresh": "Read again",
       "stale": "Could not be refreshed since {{time}} UTC.",
       "dryRun": "The comparison with the venue does not run in dry run, so nothing is checked here."

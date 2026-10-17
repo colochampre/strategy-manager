@@ -83,6 +83,7 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "No se pudieron leer las discrepancias, así que esta página no puede decir si algo requiere su atención.",
   ],
   ["discrepancies.read.lastRead", "Last read", "Última lectura"],
+  ["discrepancies.read.time", "{{time}} UTC", "{{time}} UTC"],
   ["discrepancies.read.refresh", "Read again", "Leer de nuevo"],
   [
     "discrepancies.read.stale",

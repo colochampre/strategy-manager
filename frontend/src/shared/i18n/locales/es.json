@@ -53,6 +53,7 @@
       "loading": "Leyendo discrepancias…",
       "failed": "No se pudieron leer las discrepancias, así que esta página no puede decir si algo requiere su atención.",
       "lastRead": "Última lectura",
+      "time": "{{time}} UTC",
       "refresh": "Leer de nuevo",
       "stale": "No se pudo actualizar desde las {{time}} UTC.",
       "dryRun": "La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada."
