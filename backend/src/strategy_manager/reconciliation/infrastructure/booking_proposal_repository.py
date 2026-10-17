@@ -25,28 +25,34 @@ identical reasoning for ``SqlAlchemyBookingWriter``'s two named
 ``IntegrityError`` translations).
 """
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import CursorResult, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.reconciliation.application.ports import (
+    ApprovedProposalSummary,
     BookingProposalNotFound,
     BookingProposalRecord,
     NewBookingProposal,
     ProposedFillSnapshot,
 )
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind, Observation
-from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
+from strategy_manager.reconciliation.infrastructure.models import (
+    BookingProposalRow,
+    ReconciliationDiscrepancyRow,
+)
 
 PENDING_PER_DISCREPANCY_CONSTRAINT = "ux_booking_proposals_pending_per_discrepancy"
 
 _PENDING = "PENDING"
 _REJECTED = "REJECTED"
+_APPROVED = "APPROVED"
 
 _Row = BookingProposalRow
 
@@ -253,6 +259,115 @@ class SqlAlchemyBookingProposalRepository:
         result = cast(CursorResult[Any], await self._session.execute(stmt))
         await self._session.flush()
         return result.rowcount
+
+    async def count_pending(self) -> int:
+        """Read-only: how many PENDING rows exist (design § C6: the exact
+        count of what the automatic step's limit left)."""
+        result = await self._session.execute(
+            select(func.count()).select_from(_Row).where(_Row.state == _PENDING)
+        )
+        return result.scalar_one()
+
+    async def approved_observations(
+        self, discrepancy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[Observation]]:
+        """Read-only, ONE statement for the whole set: the observation frozen
+        by every APPROVED proposal of each discrepancy (design § D rule 2). An
+        empty set answers ``{}`` without touching the database; a discrepancy
+        with no APPROVED proposal is absent from the answer."""
+        if not discrepancy_ids:
+            return {}
+        stmt = select(
+            _Row.discrepancy_id,
+            _Row.kind,
+            _Row.observed_venue_net_base,
+            _Row.observed_ledger_net_base,
+        ).where(_Row.discrepancy_id.in_(list(discrepancy_ids)), _Row.state == _APPROVED)
+        answer: dict[UUID, list[Observation]] = {}
+        for discrepancy_id, kind, venue_net, ledger_net in (
+            await self._session.execute(stmt)
+        ).all():
+            answer.setdefault(discrepancy_id, []).append(
+                Observation(DiscrepancyKind(kind), venue_net, ledger_net)
+            )
+        return answer
+
+    async def approved_since(self, since: datetime) -> Sequence[ApprovedProposalSummary]:
+        """Read-only, ONE statement: every APPROVED proposal decided at or
+        after ``since``, plus every APPROVED proposal whose discrepancy is
+        still open however old (note N8: a booking still waiting for the scan
+        is not history yet)."""
+        _require_aware(since, "since")
+        is_open = ReconciliationDiscrepancyRow.resolved_at.is_(None)
+        stmt = (
+            select(
+                _Row.id,
+                _Row.discrepancy_id,
+                _Row.exchange,
+                _Row.venue,
+                _Row.settlement_currency,
+                _Row.symbol,
+                _Row.kind,
+                _Row.strategy_id,
+                _Row.allocation_id,
+                _Row.side,
+                _Row.quantity,
+                _Row.observed_venue_net_base,
+                _Row.observed_ledger_net_base,
+                func.jsonb_array_length(_Row.fills),
+                _Row.decided_at,
+                _Row.decided_by,
+                _Row.execution_attempt_id,
+                is_open,
+            )
+            .join(
+                ReconciliationDiscrepancyRow,
+                ReconciliationDiscrepancyRow.id == _Row.discrepancy_id,
+            )
+            .where(_Row.state == _APPROVED, or_(_Row.decided_at >= since, is_open))
+        )
+        return [
+            ApprovedProposalSummary(
+                proposal_id=proposal_id,
+                discrepancy_id=discrepancy_id,
+                exchange=exchange,
+                venue=venue,
+                settlement_currency=settlement_currency,
+                symbol=symbol,
+                kind=DiscrepancyKind(kind),
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                side=side,
+                quantity=quantity,
+                observed_venue_net_base=observed_venue,
+                observed_ledger_net_base=observed_ledger,
+                fill_count=fill_count,
+                decided_at=decided_at,
+                decided_by=decided_by,
+                execution_attempt_id=execution_attempt_id,
+                discrepancy_open=discrepancy_open,
+            )
+            for (
+                proposal_id,
+                discrepancy_id,
+                exchange,
+                venue,
+                settlement_currency,
+                symbol,
+                kind,
+                strategy_id,
+                allocation_id,
+                side,
+                quantity,
+                observed_venue,
+                observed_ledger,
+                fill_count,
+                decided_at,
+                decided_by,
+                execution_attempt_id,
+                discrepancy_open,
+            ) in (await self._session.execute(stmt)).all()
+        ]
 
     async def count_for_strategy(self, strategy_id: UUID) -> int:
         """How many booking proposals name this strategy, in ANY state

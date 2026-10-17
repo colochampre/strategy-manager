@@ -349,6 +349,21 @@ class Settings(BaseSettings):
     # default (spec: "24h, configurable"), not a venue limit.
     reconciliation_booking_proposal_expiry_seconds: int = Field(default=86400)
 
+    # Owner decision 66 (2026-10-16): venue closes are booked by the worker,
+    # and what it cannot book reaches the owner.
+    #
+    # How long a CONFIRMED, attributable discrepancy may stay unbooked before
+    # it counts as needing the owner (Q3, answered (a): 5 minutes -- five
+    # prepare intervals). A deploy-time behaviour: the default is the safe
+    # value, and zero or less is refused because it would announce every
+    # discrepancy the moment it is confirmed.
+    reconciliation_auto_booking_grace_seconds: int = Field(default=300, gt=0)
+
+    # How often the worker repeats the list of what still needs the owner
+    # (Q4, answered (b): a daily reminder), timed from its last announcement
+    # or reminder.
+    reconciliation_needs_owner_reminder_seconds: int = Field(default=86400, gt=0)
+
     # --- Operator alerting --------------------------------------------------
     #
     # Every ERROR this process logs is forwarded to a Telegram chat. It exists

@@ -1732,3 +1732,69 @@ caller and MUST read and write nothing more than for the first.
 - GIVEN the guard is run before and after the route is called
 - WHEN the two guard results are compared
 - THEN they are equal
+
+### Requirement: The Confirmed Discrepancies Route Is An Admin Route Under /api
+
+> **Added 2026-10-16 (owner decision 66; design addendum "PR 15" § G; the route's contract is in the `venue-reconciliation` delta, "Confirmed Discrepancy Read Endpoint").**
+
+`GET /api/reconciliation/confirmed` MUST be mounted on the existing reconciliation router, so that "Every Admin Route Is Mounted Under /api" and "Every Admin Route Requires the Bearer Token" apply to it by the router's own mounting. It MUST take no parameter and MUST NOT write.
+
+#### Scenario: The route is mounted under /api with the bearer
+
+- GIVEN the application
+- WHEN the route table is read
+- THEN `/api/reconciliation/confirmed` is registered with the admin bearer dependency and no unprefixed twin exists
+
+#### Scenario: Without the bearer it is refused
+
+- GIVEN no bearer token
+- WHEN the route is called
+- THEN the answer is 401 before any handler logic
+
+### Requirement: The Booking Routes Are Removed
+
+> **Added 2026-10-16 (owner decision 66, Q1 answered (a); design addendum "PR 15" § F).**
+
+`GET /api/reconciliation/bookings`, `POST /api/reconciliation/bookings/{id}/approve` and `POST /api/reconciliation/bookings/{id}/reject` MUST NOT exist. A request to any of them MUST be answered 404 or 405 and MUST reach no use case. `RejectBooking` and its route-only code MUST be removed; `ApproveBooking` MUST remain, called by the worker, and `GET /api/reconciliation/discrepancies` MUST remain unchanged.
+
+#### Scenario: The list route is gone
+
+- GIVEN a valid bearer
+- WHEN `GET /api/reconciliation/bookings` is called
+- THEN the answer is 404 or 405
+
+#### Scenario: The approve route is gone
+
+- GIVEN a valid bearer and an existing PENDING proposal
+- WHEN `POST /api/reconciliation/bookings/{id}/approve` is called
+- THEN the answer is 404 or 405 and the proposal is still PENDING
+
+#### Scenario: The reject route is gone
+
+- GIVEN a valid bearer and an existing PENDING proposal
+- WHEN `POST /api/reconciliation/bookings/{id}/reject` is called
+- THEN the answer is 404 or 405 and the proposal is still PENDING
+
+#### Scenario: The approval use case is still called by the worker
+
+- GIVEN the router module
+- WHEN its imports are read
+- THEN it imports neither `ApproveBooking` nor `RejectBooking`, and the worker's wiring still builds `ApproveBooking`
+
+### Requirement: The Confirmed-Discrepancies Unit Adds No Migration And Changes No Guard File
+
+> **Added 2026-10-16 (owner decision 66; design addendum "PR 15" § F and § J).**
+
+The unit MUST add no migration and the Alembic head MUST be unchanged. No module outside `reconciliation` changes on the backend except `main.py`'s wiring and the two new settings, `reconciliation_auto_booking_grace_seconds` and `reconciliation_needs_owner_reminder_seconds`. The mode guard's files and tests MUST be unchanged.
+
+#### Scenario: The migration head is unchanged
+
+- GIVEN the change is applied
+- WHEN `alembic heads` is read
+- THEN it names the same revision as before the change
+
+#### Scenario: The diff stays inside reconciliation, main.py and config
+
+- GIVEN the unit's backend diff
+- WHEN its file names are read
+- THEN each is under `reconciliation/`, or is `main.py`, `shared/config.py` or a test

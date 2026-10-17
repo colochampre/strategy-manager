@@ -10,14 +10,17 @@ every log level.
 """
 
 import logging
+from collections.abc import MutableMapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
 
+from strategy_manager.reconciliation.application.auto_book_pending import AutoBookResult
 from strategy_manager.reconciliation.application.booking_prepare_handler import (
     BookingPrepareHandler,
     dry_run_skip_announcement,
+    last_reason_by_discrepancy,
 )
 from strategy_manager.reconciliation.application.expire_booking_proposals import (
     ExpireBookingProposalsResult,
@@ -26,6 +29,7 @@ from strategy_manager.reconciliation.application.prepare_booking import PrepareB
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     dry_run_skip_announcement as scan_dry_run_skip_announcement,
 )
+from strategy_manager.reconciliation.domain.booking import BookingRefusal
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 
 NOW = datetime(2026, 9, 23, 12, 0, 0, tzinfo=UTC)
@@ -99,15 +103,53 @@ def _claimed_job() -> ClaimedJob:
     )
 
 
+class StubAutoBook:
+    """Records its place in the call order and answers a configured result."""
+
+    def __init__(
+        self,
+        result: AutoBookResult | None = None,
+        raises: Exception | None = None,
+        events: list[str] | None = None,
+    ) -> None:
+        self._result = result or AutoBookResult()
+        self._raises = raises
+        self._events = events if events is not None else []
+        self.calls = 0
+
+    async def run(self) -> AutoBookResult:
+        self.calls += 1
+        self._events.append("auto_book")
+        if self._raises is not None:
+            raise self._raises
+        return self._result
+
+
+class StubAnnounce:
+    def __init__(self, events: list[str] | None = None) -> None:
+        self._events = events if events is not None else []
+        self.calls = 0
+        self.memory_seen: dict[UUID, BookingRefusal] = {}
+
+    async def run(self, last_reason_by_discrepancy: MutableMapping[UUID, BookingRefusal]) -> None:
+        self.calls += 1
+        self._events.append("announce")
+        self.memory_seen = dict(last_reason_by_discrepancy)
+
+
 def _build(
     prepare: StubPrepareBooking,
     dry_run: bool = False,
     expire: StubExpireBookingProposals | None = None,
+    auto_book: StubAutoBook | None = None,
+    announce: StubAnnounce | None = None,
 ) -> tuple[BookingPrepareHandler, SpyQueue]:
     queue = SpyQueue()
     handler = BookingPrepareHandler(
         prepare_booking=prepare,  # type: ignore[arg-type]
         expire_booking_proposals=expire or StubExpireBookingProposals(),  # type: ignore[arg-type]
+        auto_book=auto_book or StubAutoBook(),
+        announce_needs_owner=announce or StubAnnounce(),
         queue=queue,
         clock=FrozenClock(),
         interval_seconds=INTERVAL,
@@ -119,10 +161,12 @@ def _build(
 @pytest.fixture(autouse=True)
 def _unannounced() -> None:
     """No test may inherit another test's process-scoped announcement --
-    from EITHER handler's singleton, since this file exercises both."""
+    from EITHER handler's singleton, since this file exercises both -- nor
+    another test's memory of refusal reasons."""
 
     dry_run_skip_announcement.reset()
     scan_dry_run_skip_announcement.reset()
+    last_reason_by_discrepancy.clear()
 
 
 async def test_the_handler_sweeps_using_the_jobs_own_id() -> None:
@@ -366,6 +410,165 @@ async def test_a_sweep_that_only_suppressed_still_logs_the_summary(
     ]
     assert len(summaries) == 1
     assert "suppressed=1" in summaries[0].message
+
+
+# --- PR 15, cd.1.15: the automatic step and the announcement (design § C1, C5, C6)
+
+
+def _wired(
+    events: list[str],
+    sweep_result: PrepareBookingResult | None = None,
+    auto_result: AutoBookResult | None = None,
+    auto_raises: Exception | None = None,
+    dry_run: bool = False,
+) -> tuple[BookingPrepareHandler, SpyQueue, StubAnnounce, StubAutoBook]:
+    announce = StubAnnounce(events=events)
+    auto_book = StubAutoBook(result=auto_result, raises=auto_raises, events=events)
+    handler, queue = _build(
+        StubPrepareBooking(result=sweep_result, events=events),
+        dry_run=dry_run,
+        expire=StubExpireBookingProposals(events=events),
+        auto_book=auto_book,
+        announce=announce,
+    )
+    return handler, queue, announce, auto_book
+
+
+async def test_the_order_is_expire_sweep_auto_book_announce_then_the_successor() -> None:
+    events: list[str] = []
+    handler, queue, _, _ = _wired(events)
+
+    await handler.handle(_claimed_job())
+
+    assert events == ["expire", "sweep", "auto_book", "announce"]
+    assert len(queue.enqueued) == 1
+
+
+async def test_under_dry_run_none_of_the_four_runs_and_the_successor_is_enqueued() -> None:
+    events: list[str] = []
+    handler, queue, announce, auto_book = _wired(events, dry_run=True)
+
+    await handler.handle(_claimed_job())
+
+    assert events == []
+    assert auto_book.calls == 0
+    assert announce.calls == 0
+    assert len(queue.enqueued) == 1
+
+
+async def test_an_exception_from_the_automatic_step_propagates_and_enqueues_no_successor() -> None:
+    events: list[str] = []
+    handler, queue, announce, _ = _wired(events, auto_raises=RuntimeError("ledger writer fault"))
+
+    with pytest.raises(RuntimeError, match="ledger writer fault"):
+        await handler.handle(_claimed_job())
+
+    assert queue.enqueued == []
+    assert announce.calls == 0, "nothing is announced past a faulted approval"
+
+
+async def test_refusals_and_stale_outcomes_land_in_the_memory_the_announcement_reads() -> None:
+    refused, stale = uuid4(), uuid4()
+    events: list[str] = []
+    handler, _, announce, _ = _wired(
+        events,
+        sweep_result=PrepareBookingResult(
+            discrepancies_considered=1,
+            proposals_prepared=0,
+            proposals_skipped=1,
+            proposals_suppressed=0,
+            refusals={refused: BookingRefusal.SUM_MISMATCH},
+        ),
+        auto_result=AutoBookResult(
+            outcomes={"SUPERSEDED": 1},
+            not_approved={stale: BookingRefusal.STALE_AT_APPROVAL},
+        ),
+    )
+
+    await handler.handle(_claimed_job())
+
+    assert announce.memory_seen == {
+        refused: BookingRefusal.SUM_MISMATCH,
+        stale: BookingRefusal.STALE_AT_APPROVAL,
+    }
+    assert last_reason_by_discrepancy == announce.memory_seen, "module-level, outlives the handler"
+
+
+async def test_an_id_that_was_booked_is_dropped_from_the_memory() -> None:
+    booked, still_refused = uuid4(), uuid4()
+    last_reason_by_discrepancy[booked] = BookingRefusal.STALE_AT_APPROVAL
+    last_reason_by_discrepancy[still_refused] = BookingRefusal.SUM_MISMATCH
+    events: list[str] = []
+    handler, _, announce, _ = _wired(
+        events, auto_result=AutoBookResult(outcomes={"APPROVED": 1}, approved=(booked,))
+    )
+
+    await handler.handle(_claimed_job())
+
+    assert announce.memory_seen == {still_refused: BookingRefusal.SUM_MISMATCH}
+
+
+async def test_the_memory_survives_from_one_job_to_the_next() -> None:
+    refused = uuid4()
+    handler, _, _, _ = _wired(
+        [],
+        sweep_result=PrepareBookingResult(
+            discrepancies_considered=1,
+            proposals_prepared=0,
+            proposals_skipped=1,
+            proposals_suppressed=0,
+            refusals={refused: BookingRefusal.GROWS_OR_FLIPS},
+        ),
+    )
+    await handler.handle(_claimed_job())
+
+    second, _, announce, _ = _wired([])
+    await second.handle(_claimed_job())
+
+    assert announce.memory_seen == {refused: BookingRefusal.GROWS_OR_FLIPS}
+
+
+async def test_an_approval_alone_logs_one_info_summary(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    handler, _, _, _ = _wired(
+        [], auto_result=AutoBookResult(outcomes={"APPROVED": 2}, approved=(uuid4(), uuid4()))
+    )
+
+    with caplog.at_level("INFO"):
+        await handler.handle(_claimed_job())
+
+    summaries = [
+        r for r in caplog.records if r.levelname == "INFO" and "prepare booking" in r.message
+    ]
+    assert len(summaries) == 1
+    assert "approved=2" in summaries[0].message
+
+
+async def test_a_run_where_the_limit_cut_the_list_names_it_in_the_summary(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    handler, _, _, _ = _wired([], auto_result=AutoBookResult(left_for_next_run=1))
+
+    with caplog.at_level("INFO"):
+        await handler.handle(_claimed_job())
+
+    summaries = [
+        r for r in caplog.records if r.levelname == "INFO" and "prepare booking" in r.message
+    ]
+    assert len(summaries) == 1
+    assert "left_for_next_run=1" in summaries[0].message
+
+
+async def test_a_run_where_nothing_moved_logs_nothing_above_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    handler, _, _, _ = _wired([])
+
+    with caplog.at_level("INFO"):
+        await handler.handle(_claimed_job())
+
+    assert caplog.records == []
 
 
 async def test_PrepareBooking_satisfies_the_handler_port() -> None:

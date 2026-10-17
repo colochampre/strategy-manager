@@ -924,3 +924,126 @@ async def test_expire_pending_refuses_a_naive_now(
     async with session_factory() as session:
         with pytest.raises(ValueError, match="now"):
             await SqlAlchemyBookingProposalRepository(session).expire_pending(_NAIVE)
+
+
+# --------------------------------------------------------------------------
+# PR 15: approved_observations and count_pending (owner decision 66, 2026-10-16)
+# --------------------------------------------------------------------------
+
+
+async def _insert_in_state(
+    session: AsyncSession,
+    repo: SqlAlchemyBookingProposalRepository,
+    seed: tuple[UUID, UUID, UUID],
+    state: str,
+    **overrides: object,
+) -> None:
+    """Inserts a proposal and moves it to ``state`` through ``mark_state``
+    (the only writer), leaving PENDING when ``state`` is PENDING."""
+    discrepancy_id, strategy_id, allocation_id = seed
+    record = await repo.insert(
+        _proposal(
+            discrepancy_id=discrepancy_id,
+            strategy_id=strategy_id,
+            allocation_id=allocation_id,
+            **overrides,
+        )
+    )
+    assert record is not None
+    if state != "PENDING":
+        assert await repo.mark_state(
+            record.id, state, NOW, decided_by="t", decision_reason="reason"
+        )
+    await session.commit()
+
+
+async def test_approved_observations_returns_only_approved_rows_per_discrepancy(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        repo = SqlAlchemyBookingProposalRepository(session)
+        mixed = await _seed_discrepancy(session)
+        other = await _seed_discrepancy(session)
+        pending_only = await _seed_discrepancy(session)
+        for state in ("REJECTED", "EXPIRED", "SUPERSEDED"):
+            await _insert_in_state(session, repo, mixed, state)
+        await _insert_in_state(
+            session,
+            repo,
+            mixed,
+            "APPROVED",
+            observed_venue_net_base=Decimal("0.10"),
+            observed_ledger_net_base=Decimal("0.50"),
+        )
+        await _insert_in_state(session, repo, mixed, "PENDING")
+        await _insert_in_state(session, repo, other, "APPROVED")
+        await _insert_in_state(session, repo, pending_only, "PENDING")
+
+        answer = await repo.approved_observations([mixed[0], pending_only[0]])
+
+    assert answer == {
+        mixed[0]: [
+            Observation(
+                DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE, Decimal("0.10"), Decimal("0.50")
+            )
+        ]
+    }, "one APPROVED row of the asked discrepancy; none for a PENDING-only one or an unasked one"
+
+
+async def test_approved_observations_of_an_empty_set_is_empty_and_runs_no_statement(
+    session_factory: async_sessionmaker[AsyncSession], engine: AsyncEngine
+) -> None:
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def _record(conn: object, cursor: object, statement: str, *args: object) -> None:
+        statements.append(statement)
+
+    async with session_factory() as session:
+        event.listen(engine.sync_engine, "before_cursor_execute", _record)
+        try:
+            answer = await SqlAlchemyBookingProposalRepository(session).approved_observations([])
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", _record)
+
+    assert answer == {}
+    assert statements == []
+
+
+async def test_approved_observations_is_one_statement_for_several_ids(
+    session_factory: async_sessionmaker[AsyncSession], engine: AsyncEngine
+) -> None:
+    from sqlalchemy import event
+
+    async with session_factory() as session:
+        repo = SqlAlchemyBookingProposalRepository(session)
+        seeds = [await _seed_discrepancy(session) for _ in range(3)]
+        for seed in seeds:
+            await _insert_in_state(session, repo, seed, "APPROVED")
+
+        statements: list[str] = []
+
+        def _record(conn: object, cursor: object, statement: str, *args: object) -> None:
+            statements.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", _record)
+        try:
+            answer = await repo.approved_observations([seed[0] for seed in seeds])
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", _record)
+
+    assert set(answer) == {seed[0] for seed in seeds}
+    assert len(statements) == 1
+
+
+async def test_count_pending_counts_only_pending_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        repo = SqlAlchemyBookingProposalRepository(session)
+        assert await repo.count_pending() == 0
+        for state in ("PENDING", "PENDING", "APPROVED", "REJECTED", "EXPIRED", "SUPERSEDED"):
+            await _insert_in_state(session, repo, await _seed_discrepancy(session), state)
+
+        assert await repo.count_pending() == 2

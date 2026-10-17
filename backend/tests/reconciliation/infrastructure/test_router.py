@@ -410,8 +410,9 @@ async def test_the_symbol_filter_finds_a_market_under_any_of_its_spellings(
 
 
 # --------------------------------------------------------------------------
-# Unit 7 -- admin endpoints for booking proposals
+# Seeding for the removed booking routes' pins (below). The routes
 # (``GET /reconciliation/bookings``, ``POST .../approve``, ``POST .../reject``)
+# were Unit 7's admin endpoints; owner decision 66 Q1 removed them.
 # --------------------------------------------------------------------------
 
 
@@ -533,69 +534,54 @@ async def _seed_pending_proposal(
     return record.id
 
 
-async def test_list_pending_requires_bearer_token(client: AsyncClient) -> None:
-    response = await client.get("/reconciliation/bookings")
-
-    assert response.status_code == 401
+# --- The booking routes are removed (cd.1.32; owner decision 66 Q1; R18) ------
 
 
-async def test_approve_requires_bearer_token(client: AsyncClient) -> None:
-    response = await client.post(f"/reconciliation/bookings/{uuid4()}/approve")
-
-    assert response.status_code == 401
-
-
-async def test_reject_requires_bearer_token(client: AsyncClient) -> None:
-    response = await client.post(
-        f"/reconciliation/bookings/{uuid4()}/reject", json={"reason": "duplicate"}
-    )
-
-    assert response.status_code == 401
-
-
-async def test_approve_returns_503_under_dry_run(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(get_settings(), "dry_run", True)
+async def _a_pending_proposal(session_factory: async_sessionmaker[AsyncSession]) -> UUID:
     discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
+        session_factory
     )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
+    return await _seed_pending_proposal(
+        session_factory,
         discrepancy_id=discrepancy_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
     )
+
+
+async def _state_of(session_factory: async_sessionmaker[AsyncSession], proposal_id: UUID) -> str:
+    async with session_factory() as session:
+        return (
+            await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
+        ).state
+
+
+async def test_the_bookings_list_route_is_gone(authenticated_client: AsyncClient) -> None:
+    response = await authenticated_client.get(
+        "/reconciliation/bookings", headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+
+    assert response.status_code in (404, 405)
+
+
+async def test_the_approve_route_is_gone_and_the_proposal_stays_pending(
+    pg_session_factory: async_sessionmaker[AsyncSession], authenticated_client: AsyncClient
+) -> None:
+    proposal_id = await _a_pending_proposal(pg_session_factory)
 
     response = await authenticated_client.post(
         f"/reconciliation/bookings/{proposal_id}/approve",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
 
-    assert response.status_code == 503
-    assert response.json()["outcome"] == "DRY_RUN_REFUSED"
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "PENDING"
+    assert response.status_code in (404, 405)
+    assert await _state_of(pg_session_factory, proposal_id) == "PENDING"
 
 
-async def test_reject_returns_503_under_dry_run(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_the_reject_route_is_gone_and_the_proposal_stays_pending(
+    pg_session_factory: async_sessionmaker[AsyncSession], authenticated_client: AsyncClient
 ) -> None:
-    monkeypatch.setattr(get_settings(), "dry_run", True)
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
+    proposal_id = await _a_pending_proposal(pg_session_factory)
 
     response = await authenticated_client.post(
         f"/reconciliation/bookings/{proposal_id}/reject",
@@ -603,303 +589,20 @@ async def test_reject_returns_503_under_dry_run(
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
 
-    assert response.status_code == 503
-    assert response.json()["outcome"] == "DRY_RUN_REFUSED"
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "PENDING"
+    assert response.status_code in (404, 405)
+    assert await _state_of(pg_session_factory, proposal_id) == "PENDING"
 
 
-async def test_approve_unknown_id_404(authenticated_client: AsyncClient) -> None:
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{uuid4()}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
+def test_the_router_module_imports_neither_approve_nor_reject_booking() -> None:
+    from strategy_manager.reconciliation.infrastructure import router as router_module
 
-    assert response.status_code == 404
+    assert not hasattr(router_module, "ApproveBooking")
+    assert not hasattr(router_module, "RejectBooking")
 
 
-async def test_approve_not_pending_409(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
-    async with pg_session_factory() as session:
-        repo = SqlAlchemyBookingProposalRepository(session)
-        await repo.get_for_update(proposal_id)
-        await repo.mark_state(
-            proposal_id,
-            "REJECTED",
-            NOW,
-            decided_by="admin",
-            decision_reason="pre-decided for test",
-        )
-        await session.commit()
+def test_reject_booking_does_not_exist() -> None:
+    from pathlib import Path
 
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
+    import strategy_manager.reconciliation.application as application
 
-    assert response.status_code == 409
-    body = response.json()
-    assert body["outcome"] == "ALREADY_DECIDED"
-    assert "detail" in body
-
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    # Unchanged: the refusal found an already-REJECTED row, it did not
-    # overwrite it -- the commit persisted the READ, not a new write.
-    assert record.state == "REJECTED"
-
-
-async def test_reject_empty_reason_422(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
-
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/reject",
-        json={"reason": "   "},
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["outcome"] == "REASON_REQUIRED"
-
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "PENDING"
-
-
-async def test_list_pending_symbol_filter_normalises_spelling(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    """The scan stores the market key (``STXUSDT.P``); an operator reading a
-    TradingView alert types a different case. Both find the row
-    (design.md § 13's spelling-normalisation rule, applied to this endpoint
-    too)."""
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory, symbol="STXUSDT.P"
-    )
-    await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-        symbol="STXUSDT.P",
-    )
-
-    response = await authenticated_client.get(
-        "/reconciliation/bookings",
-        params={"symbol": "stxusdt.p"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 200
-    assert [row["symbol"] for row in response.json()] == ["STXUSDT.P"]
-
-
-async def test_list_pending_money_values_are_json_strings_and_round_trip_exact_precision(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    """FastAPI's default ``Decimal`` encoder (``fastapi.encoders.decimal_encoder``)
-    turns a fractional value into a ``float`` on the wire, silently losing
-    precision -- exactly the trap design decision 12 exists to avoid for an
-    append-only ledger. A value with all 18 of ``NUMERIC(38, 18)``'s
-    fractional digits must round-trip byte for byte, as a JSON STRING."""
-    exact = Decimal("0.100000000000000001")
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-        quantity=exact,
-        venue_net_base=exact,
-        ledger_net_base=exact,
-        fills=[_fill(quantity=exact, price=exact, fee=exact)],
-    )
-
-    response = await authenticated_client.get(
-        "/reconciliation/bookings", headers={"Authorization": f"Bearer {TOKEN}"}
-    )
-
-    assert response.status_code == 200
-    row = response.json()[0]
-    for field in ("quantity", "observed_venue_net_base", "observed_ledger_net_base"):
-        assert isinstance(row[field], str), f"{field} was not encoded as a JSON string"
-        assert row[field] == "0.100000000000000001"
-        assert Decimal(row[field]) == exact
-    fill = row["fills"][0]
-    for field in ("quantity", "price", "fee"):
-        assert isinstance(fill[field], str), f"fill {field} was not encoded as a JSON string"
-        assert fill[field] == "0.100000000000000001"
-
-
-async def test_approve_marks_superseded_and_persists_when_discrepancy_moved(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
-    # Move the discrepancy since freezing -- resolve it, exactly the (a)
-    # freshness mismatch ``ApproveBooking._freshness_mismatches`` checks.
-    async with pg_session_factory() as session:
-        await SqlAlchemyDiscrepancyRepository(session).resolve_absent(
-            _BOOKING_POOL, ["STXUSDT.P"], uuid4(), NOW
-        )
-        await session.commit()
-
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["outcome"] == "SUPERSEDED"
-
-    # The silent trap this unit exists to close: the state change
-    # (PENDING -> SUPERSEDED) MUST commit even though the HTTP response is a
-    # refusal. A rollback here would leave a stale proposal re-approvable.
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "SUPERSEDED"
-
-
-async def test_approve_marks_expired_and_persists_when_past_expiry(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-        expires_at=datetime.now(UTC) - timedelta(hours=1),
-    )
-
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["outcome"] == "EXPIRED"
-
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "EXPIRED"
-
-
-async def test_reject_persists_rejected_and_returns_200(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
-
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/reject",
-        json={"reason": "attribution disputed"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["outcome"] == "REJECTED"
-
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-    assert record.state == "REJECTED"
-    assert record.decided_by == "admin"
-
-
-async def test_approve_writes_ledger_and_persists_approved(
-    pg_session_factory: async_sessionmaker[AsyncSession],
-    authenticated_client: AsyncClient,
-) -> None:
-    discrepancy_id, strategy_id, allocation_id = await _seed_bookable_discrepancy(
-        pg_session_factory
-    )
-    proposal_id = await _seed_pending_proposal(
-        pg_session_factory,
-        discrepancy_id=discrepancy_id,
-        strategy_id=strategy_id,
-        allocation_id=allocation_id,
-    )
-
-    response = await authenticated_client.post(
-        f"/reconciliation/bookings/{proposal_id}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["outcome"] == "APPROVED"
-    assert body["ledger_entries_written"] == 1
-    execution_attempt_id = body["execution_attempt_id"]
-    assert execution_attempt_id is not None
-
-    async with pg_session_factory() as session:
-        record = await SqlAlchemyBookingProposalRepository(session).get_for_update(proposal_id)
-        assert record.state == "APPROVED"
-        assert str(record.execution_attempt_id) == execution_attempt_id
-
-        attempt_row = (
-            await session.execute(
-                text(
-                    "SELECT origin, status, closes_allocation_id FROM execution_attempts "
-                    "WHERE id = :id"
-                ),
-                {"id": execution_attempt_id},
-            )
-        ).mappings().one()
-        assert attempt_row["origin"] == "VENUE"
-        assert attempt_row["status"] == "FILLED"
-        assert str(attempt_row["closes_allocation_id"]) == str(allocation_id)
-
-        ledger_rows = (
-            await session.execute(
-                text("SELECT quantity FROM ledger_entries WHERE execution_attempt_id = :id"),
-                {"id": execution_attempt_id},
-            )
-        ).scalars().all()
-        assert len(ledger_rows) == 1
+    assert not (Path(application.__path__[0]) / "reject_booking.py").exists()

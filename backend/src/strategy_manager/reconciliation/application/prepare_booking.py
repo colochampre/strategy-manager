@@ -12,8 +12,8 @@ observed delta (``domain.booking.match_fills``), and FREEZES one
 either, and its only mutating call to ``BookingProposalRepositoryPort`` is
 ``insert``. ``mark_state`` (the ONLY method that can move a proposal past
 PENDING or attach an ``execution_attempt_id``, per that port's own
-docstring) belongs entirely to ``ApproveBooking``/``RejectBooking`` (Units
-6a/6b) and is never called here.
+docstring) belongs to ``ApproveBooking`` (Unit 6a; ``RejectBooking`` was
+removed by owner decision 66 Q1) and is never called here.
 
 **Deviation from design.md § 1/§ 16, flagged for the orchestrator.** Design
 decision 11 describes the ``DRY_RUN`` hard skip as living "INSIDE the
@@ -25,7 +25,7 @@ THIS use-case level too, with fakes only. ``PrepareBooking`` therefore takes
 a required ``dry_run: bool`` constructor argument and refuses before any
 read at all -- the same "refuse at BOTH the endpoint/handler AND the use
 case" shape design decision 16 already prescribes for
-``ApproveBooking``/``RejectBooking``. This does not remove Unit 5's own
+``ApproveBooking`` (and, until its removal, ``RejectBooking``). This does not remove Unit 5's own
 handler-level skip; it is defense in depth, not a replacement.
 
 Every symbol this module hands to a port or freezes onto a proposal is
@@ -40,8 +40,8 @@ to the delta.
 """
 
 import logging
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
 from uuid import UUID
 
@@ -56,16 +56,19 @@ from strategy_manager.reconciliation.application.ports import (
     PoolKey,
     ProposedFillSnapshot,
     RecordedFillIdsPort,
+    SystemOrderIdsPort,
     VenueFill,
     VenueFillReaderRegistryPort,
     VenueFillReadError,
 )
 from strategy_manager.reconciliation.domain.booking import (
     BOOKABLE_KINDS,
+    BookingRefusal,
     MatchRefused,
     ProposedFill,
     build_client_order_id,
     match_fills,
+    reduces_position,
 )
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyStatus, Observation
 from strategy_manager.shared.application.ports import ClockPort
@@ -80,6 +83,9 @@ class PrepareBookingResult:
     proposals_prepared: int
     proposals_skipped: int
     proposals_suppressed: int
+    refusals: Mapping[UUID, BookingRefusal] = field(default_factory=dict)
+    """Discrepancy id -> the code of the refusal that kept it from being
+    prepared this sweep (owner decision 66, 2026-10-16)."""
 
 
 class PrepareBooking:
@@ -96,6 +102,7 @@ class PrepareBooking:
         max_span_seconds: int,
         proposal_expiry_seconds: int,
         dry_run: bool,
+        system_order_ids: SystemOrderIdsPort,
     ) -> None:
         self._discrepancies = discrepancies
         self._proposals = proposals
@@ -108,6 +115,10 @@ class PrepareBooking:
         self._max_span = timedelta(seconds=max_span_seconds)
         self._proposal_expiry = timedelta(seconds=proposal_expiry_seconds)
         self._dry_run = dry_run
+        # Owner decision 66 Q2: required, never optional -- an optional port
+        # would let a forgotten wiring skip the "fill of a system order"
+        # refusal without a word.
+        self._system_order_ids = system_order_ids
 
     async def sweep(self, job_id: UUID) -> PrepareBookingResult:
         if self._dry_run:
@@ -126,6 +137,7 @@ class PrepareBooking:
         skipped = 0
         suppressed = 0
         considered = 0
+        refusals: dict[UUID, BookingRefusal] = {}
 
         for discrepancy in confirmed:
             if discrepancy.kind not in BOOKABLE_KINDS:
@@ -148,6 +160,25 @@ class PrepareBooking:
                     discrepancy.id,
                 )
                 suppressed += 1
+                refusals[discrepancy.id] = BookingRefusal.SUPPRESSED_BY_REJECTION
+                continue
+
+            if not reduces_position(discrepancy.ledger_net_base, discrepancy.venue_net_base):
+                # Owner decision 66 Q2 (2026-10-16): a liquidation, a stop or a
+                # close by hand only ever REDUCES a position. An increase or a
+                # flip is a fill this system cannot explain, so it is never
+                # booked automatically. Needs no venue read, so it comes first
+                # (tasks.md note N2).
+                logger.warning(
+                    "prepare booking: discrepancy %s grows or flips the position "
+                    "(ledger net %s, venue net %s), which is not a close; needs "
+                    "manual reconciliation",
+                    discrepancy.id,
+                    discrepancy.ledger_net_base,
+                    discrepancy.venue_net_base,
+                )
+                skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.GROWS_OR_FLIPS
                 continue
 
             expected_market = market_key(discrepancy.symbol)
@@ -163,6 +194,7 @@ class PrepareBooking:
                     self._max_span,
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.WINDOW_TOO_LONG
                 continue
 
             pool: PoolKey = (
@@ -182,6 +214,7 @@ class PrepareBooking:
                     exc,
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.VENUE_READ_FAILED
                 continue
 
             mismatched = {
@@ -199,6 +232,7 @@ class PrepareBooking:
                     sorted(mismatched),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.MARKET_MISMATCH
                 continue
 
             recorded_ids = await self._recorded_fill_ids.recorded_fill_ids(
@@ -220,6 +254,9 @@ class PrepareBooking:
                     matched.detail,
                 )
                 skipped += 1
+                # ``BookingRefusal`` repeats the four ``MatchRefusalReason``
+                # values by name, so the mapping is by value.
+                refusals[discrepancy.id] = BookingRefusal(matched.reason.value)
                 continue
 
             without_order_id = [
@@ -239,6 +276,7 @@ class PrepareBooking:
                     sorted(without_order_id),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.NO_ORDER_ID
                 continue
 
             if not discrepancy.open_allocation_ids:
@@ -260,6 +298,25 @@ class PrepareBooking:
                     len(discrepancy.open_allocation_ids),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.SEVERAL_ALLOCATIONS
+                continue
+
+            # Owner decision 66 Q2: a fill of an order THIS system placed is
+            # recorded by ``SettleExecution`` or its recovery, never as a
+            # venue-originated close (closes P8's example). One question for
+            # the whole set of matched order ids.
+            order_ids = sorted(
+                {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
+            )
+            if await self._system_order_ids.holds_any(pool, order_ids):
+                logger.warning(
+                    "prepare booking: discrepancy %s matched fills of an order "
+                    "this system placed, which is not a venue-originated "
+                    "close; needs manual reconciliation",
+                    discrepancy.id,
+                )
+                skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
                 continue
             allocation_id = discrepancy.open_allocation_ids[0]
             strategy_id = await self._allocation_owner.strategy_for(allocation_id)
@@ -299,14 +356,14 @@ class PrepareBooking:
                 continue
             prepared += 1
             # Deliberately nothing further: the proposal is frozen PENDING
-            # and stays that way until a human approves or rejects it
-            # (``ApproveBooking``/``RejectBooking``, Units 6a/6b). Calling
+            # and stays that way until the worker approves it
+            # (``AutoBookPending`` -> ``ApproveBooking``). Calling
             # ``mark_state`` here would be exactly the accidental
             # auto-approval the money-critical test in this unit exists to
             # catch.
 
         await self._commit.commit()
-        return PrepareBookingResult(considered, prepared, skipped, suppressed)
+        return PrepareBookingResult(considered, prepared, skipped, suppressed, refusals)
 
 
 def _to_proposed_fill(fill: VenueFill) -> ProposedFill:

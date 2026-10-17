@@ -3,11 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
 import { StrategyRow } from "@/features/strategies/StrategyRow";
+import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
-import type { OpenPositionsStub } from "@/test/harness";
+import {
+  confirmedBody,
+  discrepancy,
+  jsonResponse,
+  lock,
+  openOrder,
+  openPosition,
+  openState,
+  renderAt,
+  stubApi,
+  unlock,
+} from "@/test/harness";
+import type { ConfirmedStub, OpenPositionsStub } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
 
@@ -191,61 +203,35 @@ function disagreeing() {
   });
 }
 
-function proposal(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
-    discrepancy_id: DISCREPANCY,
-    exchange: "bybit",
-    venue: "usdt-m",
-    settlement_currency: "USDT",
-    symbol: "STXUSDT.P",
-    kind: "ATTRIBUTABLE_FULL_CLOSE",
-    allocation_id: ALLOCATION,
-    strategy_id: ALPHA,
-    side: "SELL",
-    quantity: "0.82",
-    observed_venue_net_base: "0",
-    observed_ledger_net_base: "0.82",
-    observed_allocation_ids: [ALLOCATION],
-    fills: [],
-    client_order_id: "vnu:bybit:order-1",
-    expires_at: "2026-10-14T01:02:03+00:00",
-    prepared_by_job_id: "55555555-5555-4555-8555-555555555555",
-    created_at: "2026-10-13T01:02:03+00:00",
-    state: "PENDING",
-    decided_at: null,
-    decided_by: null,
-    decision_reason: null,
-    execution_attempt_id: null,
-    ...overrides,
-  };
+/** The discrepancy the position's disagreement names; its symbol is the TradingView spelling, the position's is the venue's (R21). */
+function confirmedItem(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedDiscrepancy {
+  return discrepancy({ discrepancy_id: DISCREPANCY, symbol: "AAVEUSDT.P", ...overrides });
 }
 
-type BookingsAnswer = { kind: "ok"; body: unknown[] } | { kind: "pending" } | { kind: "status"; status: number };
+const BEING_BOOKED: ConfirmedStub = {
+  kind: "ok",
+  body: confirmedBody({ being_booked: [confirmedItem({ reason: null })] }),
+};
 
-/** Mounts the marks over one positions answer and one answer to the pending bookings. */
-async function mountVenue(position: ReturnType<typeof disagreeing>, bookings: BookingsAnswer) {
-  const route = (url: string) => {
-    if (url.includes("/reconciliation/bookings")) {
-      if (bookings.kind === "pending") return new Promise<Response>(() => undefined);
-      if (bookings.kind === "status") return Promise.resolve(jsonResponse({ detail: "down" }, bookings.status));
-      return Promise.resolve(jsonResponse(bookings.body));
-    }
-    return rowRoutes(url);
-  };
-  const api = stubApi(HEALTH, [], undefined, {}, route, {}, undefined, answering([position]));
+function needsOwner(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedStub {
+  return { kind: "ok", body: confirmedBody({ needs_owner: [confirmedItem(overrides)] }) };
+}
+
+/** Mounts the marks over one positions answer and one answer to the confirmed discrepancies. */
+async function mountVenue(position: ReturnType<typeof disagreeing>, confirmed: ConfirmedStub) {
+  const api = stubApi(HEALTH, [], undefined, {}, rowRoutes, {}, undefined, answering([position]), confirmed);
   renderAt(<OpenMarks strategy={strategy()} />);
   await settle();
   await waitFor(() => expect(chips()).toHaveLength(1));
   return api;
 }
 
-const LINK = "See the pending decision";
-const WORDS = "No booking is proposed for it.";
+const LINK = "See the discrepancy";
+const ITEM_HREF = `/discrepancies#discrepancy-${DISCREPANCY}`;
 
-describe("the venue chip, with the link or the words (T19, the chip's half)", () => {
-  it("follows its position's chip in the same item, with the red chip and its words", async () => {
-    await mountVenue(disagreeing(), { kind: "ok", body: [] });
+describe("the venue chip, with the words and the link (T19, the chip's half; example 16a)", () => {
+  it("follows its position's chip in the same item, with the red chip", async () => {
+    await mountVenue(disagreeing(), BEING_BOOKED);
 
     await waitFor(() => expect(screen.queryByText("Venue disagrees")).toBeInTheDocument());
     const item = screen.getByRole("listitem");
@@ -255,43 +241,63 @@ describe("the venue chip, with the link or the words (T19, the chip's half)", ()
     expect(venue).toHaveClass("border-loss", "text-loss", "bg-transparent");
   });
 
-  it("draws the link, named with the pair, when a pending proposal names this allocation and this discrepancy", async () => {
-    await mountVenue(disagreeing(), { kind: "ok", body: [proposal()] });
+  it("says 'being booked automatically' and draws the link to the item for an id in being_booked", async () => {
+    await mountVenue(disagreeing(), BEING_BOOKED);
 
     await waitFor(() => expect(screen.queryByRole("link", { name: `${LINK}, AAVEUSDT` })).toBeInTheDocument());
     const link = screen.getByRole("link", { name: `${LINK}, AAVEUSDT` });
     expect(link).toHaveTextContent(LINK);
-    expect(link).toHaveAttribute("href", "/#decision-rail");
-    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+    expect(link).toHaveAttribute("href", ITEM_HREF);
+    const words = screen.getByText(/being booked automatically/i);
+    expect(words).toHaveClass("text-ink-2", "text-xs");
+    expect(words).toContainElement(link);
+    expect(screen.getByText("Venue disagrees")).toHaveClass("border-loss");
   });
 
   it.each([
-    ["no proposal is pending", []],
-    ["the proposal names another discrepancy", [proposal({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })]],
-    ["the proposal names another allocation", [proposal({ allocation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })]],
-    ["the proposal is not pending", [proposal({ state: "REJECTED" })]],
-  ])("says that no booking is proposed, and links nowhere, when %s", async (_label, body) => {
-    await mountVenue(disagreeing(), { kind: "ok", body });
+    ["NOT_BOOKED", { reason: "NOT_BOOKED" as const, kind: "ATTRIBUTABLE_FULL_CLOSE" as const }, /could not be booked automatically/i],
+    ["SEVERAL_ALLOCATIONS", { reason: "SEVERAL_ALLOCATIONS" as const, kind: "ATTRIBUTABLE_FULL_CLOSE" as const }, /one booking cannot split it/i],
+    [
+      "AMBIGUOUS_PARTIAL_REDUCE",
+      { reason: "NOT_BOOKABLE" as const, kind: "AMBIGUOUS_PARTIAL_REDUCE" as const },
+      /which strategy it reduced cannot be told/i,
+    ],
+  ])("says the words of a %s discrepancy in needs_owner, and links to the item", async (_name, overrides, words) => {
+    await mountVenue(disagreeing(), needsOwner(overrides));
 
-    await waitFor(() => expect(screen.queryByText(WORDS)).toBeInTheDocument());
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.getByText(WORDS)).toHaveClass("text-ink-2", "text-xs");
+    await waitFor(() => expect(screen.queryByRole("link", { name: `${LINK}, AAVEUSDT` })).toBeInTheDocument());
+    expect(screen.getByText(words)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: `${LINK}, AAVEUSDT` })).toHaveAttribute("href", ITEM_HREF);
+    expect(screen.getByText("Venue disagrees")).toHaveClass("border-loss");
   });
 
-  it("draws neither the link nor the words while the proposals load", async () => {
-    await mountVenue(disagreeing(), { kind: "pending" });
+  it("joins by the discrepancy's id: another id with the same pair makes no claim and draws no link", async () => {
+    await mountVenue(disagreeing(), needsOwner({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }));
 
     expect(screen.queryByText("Venue disagrees")).toBeInTheDocument();
-    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+    expect(screen.queryByText(/booked automatically/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("draws neither when the read of the proposals failed", async () => {
-    await mountVenue(disagreeing(), { kind: "status", status: 500 });
+  it.each([
+    ["the query loads", { kind: "pending" } as ConfirmedStub],
+    ["the read failed", { kind: "status", status: 500, body: { detail: "down" } } as ConfirmedStub],
+    ["the id is in neither list", { kind: "ok", body: confirmedBody() } as ConfirmedStub],
+  ])("draws the red chip alone, with no words and no link, when %s", async (_label, confirmed) => {
+    await mountVenue(disagreeing(), confirmed);
 
     expect(screen.queryByText("Venue disagrees")).toBeInTheDocument();
-    expect(screen.queryByText(WORDS)).not.toBeInTheDocument();
+    expect(screen.getByRole("listitem")).toHaveTextContent("AAVEUSDT · LONG · LiveVenue disagrees");
+    expect(screen.getByText("Venue disagrees")).toHaveClass("border-loss");
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("asks for no booking proposal", async () => {
+    const api = await mountVenue(disagreeing(), BEING_BOOKED);
+
+    const urls = api.mock.calls.map(([url]) => String(url));
+    expect(urls.filter((url) => url.includes("bookings"))).toEqual([]);
+    expect(urls.filter((url) => url.endsWith("/reconciliation/confirmed"))).toHaveLength(1);
   });
 });
 

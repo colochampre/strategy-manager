@@ -120,6 +120,9 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 from strategy_manager.performance.infrastructure.performance_router import (
     router as performance_router,
 )
+from strategy_manager.reconciliation.application.announce_needs_owner import AnnounceNeedsOwner
+from strategy_manager.reconciliation.application.approve_booking import ApproveBooking
+from strategy_manager.reconciliation.application.auto_book_pending import AutoBookPending
 from strategy_manager.reconciliation.application.booking_prepare_handler import (
     BookingPrepareHandler,
 )
@@ -151,6 +154,7 @@ from strategy_manager.reconciliation.infrastructure.binance_venue_position_reade
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
+from strategy_manager.reconciliation.infrastructure.booking_writer import SqlAlchemyBookingWriter
 from strategy_manager.reconciliation.infrastructure.bybit_venue_fill_reader import (
     BybitVenueFillReader,
 )
@@ -160,6 +164,9 @@ from strategy_manager.reconciliation.infrastructure.bybit_venue_position_reader 
 from strategy_manager.reconciliation.infrastructure.fake_venue_position_reader import (
     FakeVenuePositionReader,
 )
+from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter import (
+    InFlightCloseAdapter,
+)
 from strategy_manager.reconciliation.infrastructure.lazy_venue_position_reader import (
     LazyVenuePositionReader,
 )
@@ -168,6 +175,9 @@ from strategy_manager.reconciliation.infrastructure.repository import (
 )
 from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
+)
+from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
+    SystemOrderIdsAdapter,
 )
 from strategy_manager.reconciliation.infrastructure.venue_fill_reader_registry import (
     VenueFillReaderRegistry,
@@ -1694,11 +1704,41 @@ def build_worker_runner(
                             settings.reconciliation_booking_proposal_expiry_seconds
                         ),
                         dry_run=settings.dry_run,
+                        # Owner decision 66 Q2: never optional.
+                        system_order_ids=SystemOrderIdsAdapter(session),
                     ),
                     expire_booking_proposals=ExpireBookingProposals(
                         proposals=SqlAlchemyBookingProposalRepository(session),
                         clock=SystemClock(),
                         commit=session,
+                    ),
+                    # Owner decision 66 Q1: the worker approves what it prepared,
+                    # with the use case the admin route used to build (design
+                    # C2): the same adapters, the same fixed USD rate, the same
+                    # DRY_RUN refusal. One transaction per proposal, committed
+                    # by ``ApproveBooking`` itself.
+                    auto_book=AutoBookPending(
+                        proposals=SqlAlchemyBookingProposalRepository(session),
+                        approver=ApproveBooking(
+                            proposals=SqlAlchemyBookingProposalRepository(session),
+                            discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                            in_flight_close=InFlightCloseAdapter(
+                                SqlAlchemyExecutionAttemptRepository(session)
+                            ),
+                            writer=SqlAlchemyBookingWriter(session),
+                            usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
+                            clock=SystemClock(),
+                            commit=session,
+                            dry_run=settings.dry_run,
+                        ),
+                    ),
+                    # Owner decision 66 Q3 and Q4: reads, logs, writes nothing.
+                    announce_needs_owner=AnnounceNeedsOwner(
+                        discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                        approved=SqlAlchemyBookingProposalRepository(session),
+                        clock=SystemClock(),
+                        grace_seconds=settings.reconciliation_auto_booking_grace_seconds,
+                        reminder_seconds=settings.reconciliation_needs_owner_reminder_seconds,
                     ),
                     queue=_job_queue(session, settings),
                     clock=SystemClock(),

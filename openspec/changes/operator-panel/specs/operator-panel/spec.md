@@ -87,8 +87,11 @@ frontend-design plugin.
 ### Requirement: Shared Layout Shell
 
 The panel MUST present a shared layout shell consisting of a top bar, a
-sidebar navigation for Overview, Strategies, and Settings on wide viewports,
-and the same navigation as a bottom bar on small viewports. The top bar MUST
+sidebar navigation for Overview, Strategies, Discrepancies, and Settings, in
+that order, on wide viewports, and the same navigation as a bottom bar on small
+viewports (revised 2026-10-16, owner decision 66: a fourth item, with a badge,
+as "The Navigation Has A Fourth Item, Discrepancies, With A Badge Of What Needs
+The Owner" states). The top bar MUST
 carry exchange selection on the exchange-scoped views (Overview, Strategies).
 Settings is not exchange-scoped: it lists every exchange and its top bar
 carries no exchange selection (Settings.dc.html). The exchange selection
@@ -112,13 +115,13 @@ Drawn In The Gain Colour" states (revised 2026-10-12, decision 65).
 
 - GIVEN the panel is open on a wide viewport
 - WHEN the shell renders
-- THEN Overview, Strategies, and Settings are reachable from a sidebar
+- THEN Overview, Strategies, Discrepancies, and Settings are reachable from a sidebar, in that order
 
 #### Scenario: Bottom bar navigation on a small viewport
 
 - GIVEN the panel is open on a small viewport
 - WHEN the shell renders
-- THEN Overview, Strategies, and Settings are reachable from a bottom bar instead of a sidebar
+- THEN Overview, Strategies, Discrepancies, and Settings are reachable from a bottom bar instead of a sidebar, in four cells
 
 #### Scenario: Exchange bar is present on exchange-scoped views
 
@@ -183,32 +186,55 @@ Count Says How Many Are Open And How Many Of Them Are Dry Run" state (added
 - WHEN Overview renders
 - THEN it shows a defined empty state for the curve, monthly grid, and PnL ranges, with no error
 
-### Requirement: Pending-Bookings Panel On Overview
+### Requirement: The Overview Has No Decision Rail And Carries Its Own Scope Messages
 
-The Overview view MUST show a pending-bookings panel on the right side on
-wide viewports. On small viewports it MUST become an in-flow block of the
-Overview column, placed after the return chart and before the monthly grid,
-as in the approved Mobile.dc.html (revised 2026-09-24: decision 3 assumed
-"below the dashboard"; the approved mockup of decision 19 places it here). The
-panel MUST reflect only bookings relevant to the selected exchange.
+> **Replaces, on 2026-10-16, the requirement "Pending-Bookings Panel On Overview" (owner decision 66, "Needs your decision leaves the Overview"; design addendum "PR 15" § H; prototype examples 12 and 13).**
 
-#### Scenario: Pending bookings appear beside Overview on a wide viewport
+(Previously: the Overview MUST show a pending-bookings panel, the "Needs your decision" rail, beside the dashboard on wide viewports and between the return chart and the monthly grid on a phone, reflecting only the selected exchange's bookings. With automatic booking nothing is pending for a human, and the rail would always be empty.)
 
-- GIVEN pending booking proposals exist for the selected exchange
-- WHEN Overview renders on a wide viewport
-- THEN the pending-bookings panel appears to the right of the dashboard content
+The Overview MUST NOT draw the decision rail or its slot, on any width: no column beside the pool panels from `xl`, and nothing between the return chart and the month grid. The pool panels MUST take the whole width. The three states of the exchange scope that the rail also carried MUST move into the Overview page, drawn where the panels would be, under the title, with the same roles and look: loading (`role="status"`, ink-3), failed (`role="alert"`, a box with a red border) and no exchanges (ink-3). Their texts are reworded, because they spoke of pending bookings:
 
-#### Scenario: Pending bookings appear between the chart and the grid on a small viewport
+- loading: "Loading exchanges…" / "Cargando exchanges…" (the English is the unchanged existing text);
+- failed: "The pools are hidden because the exchanges could not be loaded, so they cannot be filtered." / "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.";
+- none: "No exchange is configured, so there are no pools to show." / "No hay ningún exchange configurado, por lo que no hay pools que mostrar.".
 
-- GIVEN pending booking proposals exist for the selected exchange
-- WHEN Overview renders on a small viewport
-- THEN the pending-bookings panel appears as a block after the return chart and before the monthly grid
+The `betweenChartAndGrid` prop of `PoolPanel` MUST be removed, since nothing else passes it. The keys `overview.decisionRail.*` MUST be deleted, except that the three messages MUST live under `overview.scope.*` in both locales.
 
-#### Scenario: No pending bookings shows an empty state
+#### Scenario: No rail on a wide viewport
 
-- GIVEN no pending booking proposals exist for the selected exchange
-- WHEN Overview renders
-- THEN the pending-bookings panel shows a defined empty state, not an error or a blank area
+- GIVEN the Overview on a wide viewport
+- WHEN it renders
+- THEN no "Needs your decision" rail and no column beside the pool panels is drawn, and the panels take the whole width
+
+#### Scenario: No rail between the chart and the grid on a phone
+
+- GIVEN the Overview on a phone viewport
+- WHEN it renders
+- THEN nothing sits between the return chart and the month grid, and the positions are cards under the grid
+
+#### Scenario: The scope is loading
+
+- GIVEN the exchanges are still loading
+- WHEN the Overview renders
+- THEN a `role="status"` message "Loading exchanges…" in ink-3 is drawn under the title where the panels would be
+
+#### Scenario: The scope failed
+
+- GIVEN the exchanges failed to load
+- WHEN the Overview renders
+- THEN a `role="alert"` box with a red border reads "The pools are hidden because the exchanges could not be loaded, so they cannot be filtered." and the page is not left with its title alone
+
+#### Scenario: No exchange is configured
+
+- GIVEN the exchanges loaded and the list is empty
+- WHEN the Overview renders
+- THEN "No exchange is configured, so there are no pools to show." is drawn in ink-3
+
+#### Scenario: The three messages exist in Spanish
+
+- GIVEN the language is Spanish
+- WHEN each of the three states renders
+- THEN it reads the Spanish text above, exactly
 
 ### Requirement: Strategies List Excludes Archived By Default
 
@@ -522,52 +548,55 @@ nothing is open.
 - WHEN the list renders
 - THEN no row draws a mark and the line above the list reads "Open positions could not be read. A row without a mark does not mean that nothing is open."
 
-### Requirement: The Venue Mark Leads To The Pending Decision, Or Says That No Booking Is Proposed
+### Requirement: The Venue Mark Reads The Confirmed Discrepancies, Says What Is Happening To It, And Leads To Its Item
 
-> **Added 2026-10-12 (owner decision 65, the fourth question and the design's Q3 of 2026-10-11; design addendum "open positions" § E and § H, "The rail"; prototype examples 7 and 12b).**
+> **Revised 2026-10-16 (owner decision 66 and its Q8; design addendum "PR 15" § H; prototype examples 14 to 16). Added 2026-10-12 as "The Venue Mark Leads To The Pending Decision, Or Says That No Booking Is Proposed" (owner decision 65).**
 
-When a position carries a `venue_disagreement`, its row MUST show a second chip,
-"Venue disagrees", directly after that position's chip, followed by ONE of two
-things. When a pending booking proposal names this allocation and this
-discrepancy, the link "See the pending decision" MUST be drawn; it MUST lead to
-the Overview's "Needs your decision" rail, by the path `/` and the hash
-`#decision-rail`. When the proposals were read and none does (the kind is never
-proposed, the proposal expired or was rejected, or none is prepared yet), the
-words "No booking is proposed for it." MUST be drawn and MUST lead nowhere.
-While the proposals are loading, or their read failed, the chip MUST draw
-neither the link nor those words. The chip, and its link or words, MUST wrap
-together as one group. The link MUST be a real link whose accessible name is
-"See the pending decision, {pair}". A view of the confirmed discrepancies is not
-part of this change, so the mark MUST NOT link to one.
+(Previously: the chip was followed by the link "See the pending decision", leading to the Overview's rail `/#decision-rail`, or by the words "No booking is proposed for it." and no link, from the pending proposals. Proposals no longer exist for a human, so both the link and the words are replaced, and the chip reads the confirmed discrepancies instead of the proposals.)
 
-The Overview's rail MUST carry the id `decision-rail`. Because the router does
-not scroll to an anchor, the rail MUST bring itself into view once it is mounted
-when the location's hash names it, and again when the hash changes while it is
-on screen.
+When a position carries a `venue_disagreement`, its row MUST show a second chip, "Venue disagrees", directly after that position's chip, and the chip MUST stay red in every state below, because the row still shows open a position the venue no longer holds. The chip and the venue line MUST find their discrepancy by the `discrepancy_id` of the position's `venue_disagreement` in the lists `being_booked` or `needs_owner` of the one query `useConfirmedDiscrepancies`. Then, after the chip, ONE of three things:
 
-#### Scenario: A pending proposal gives a link
+- the id is in `being_booked`: the words "being booked automatically" (owner decision 66, Q8). When the booking lands, the position leaves the list;
+- the id is in `needs_owner`: the words of its reason ("could not be booked automatically" for `NOT_BOOKED`, "one booking cannot split it" for `SEVERAL_ALLOCATIONS`, "which strategy it reduced cannot be told" for `AMBIGUOUS_PARTIAL_REDUCE`), and the mark is already red, so nothing else changes when the discrepancy starts counting in the badge;
+- while the query is loading, after it failed, or when the id is in neither list (for instance one the scan resolved between the two reads): no claim and no link, only the red chip or line and its nets. PR 14's rule "until it is read, neither the link nor the words" stays, applied to this query.
 
-- GIVEN position A1 carries a disagreement and a pending proposal names A1 and that discrepancy
+When the id is found in either list, the link "See the discrepancy" MUST be drawn; it MUST lead to `/discrepancies` with the hash `#discrepancy-<discrepancy_id>`. The chip, and its words and link, MUST wrap together as one group. The link MUST be a real link whose accessible name is "See the discrepancy, {pair}". The chip and the line MUST read no booking proposal.
+
+#### Scenario: A booking under way says so and links to its item
+
+- GIVEN position A1 carries a disagreement whose id is in `being_booked`
 - WHEN the row renders
-- THEN the chip "Venue disagrees" follows A1's chip and is followed by the link "See the pending decision"
+- THEN the chip "Venue disagrees" is red, follows A1's chip, and is followed by "being booked automatically" and the link "See the discrepancy" leading to `/discrepancies#discrepancy-<id>`
 
-#### Scenario: No proposal gives the words and no link
+#### Scenario: A discrepancy that needs the owner says why
 
-- GIVEN position A1 carries a disagreement and the proposals were read with none naming it
+- GIVEN position A1 carries a disagreement whose id is in `needs_owner` with the reason `NOT_BOOKED`
 - WHEN the row renders
-- THEN the chip is followed by "No booking is proposed for it." and no link
+- THEN the chip is followed by "could not be booked automatically" and the link "See the discrepancy"
 
-#### Scenario: While the proposals load, neither is drawn
+#### Scenario: While the query loads, no claim is made
 
-- GIVEN position A1 carries a disagreement and the pending proposals are still loading
+- GIVEN position A1 carries a disagreement and the confirmed-discrepancies query is still loading
 - WHEN the row renders
-- THEN the chip "Venue disagrees" is drawn with neither the link nor the words
+- THEN the chip is drawn red with neither the words nor the link
 
-#### Scenario: When the proposals failed, neither is drawn
+#### Scenario: When the query failed, no claim is made
 
-- GIVEN position A1 carries a disagreement and the proposals' read failed
+- GIVEN position A1 carries a disagreement and the query failed
 - WHEN the row renders
-- THEN the chip is drawn with neither the link nor the words
+- THEN the chip is drawn red with neither the words nor the link
+
+#### Scenario: An id in neither list makes no claim
+
+- GIVEN position A1 carries a disagreement whose id is in neither list
+- WHEN the row renders
+- THEN the chip is drawn red with neither the words nor the link
+
+#### Scenario: No proposal is read
+
+- GIVEN the chip and the line
+- WHEN their network requests are read
+- THEN none is a request for booking proposals
 
 #### Scenario: The group wraps together
 
@@ -575,17 +604,17 @@ on screen.
 - WHEN the row renders
 - THEN the chip and its follow-up wrap as one group
 
-#### Scenario: The link leads to the rail and brings it into view
+#### Scenario: The link leads to the item and brings it into view
 
 - GIVEN the link is followed from the Strategies page
-- WHEN the Overview mounts with the hash `#decision-rail`
-- THEN the "Needs your decision" rail has the id `decision-rail` and is scrolled into view
+- WHEN the Discrepancies page mounts with the hash `#discrepancy-<id>`
+- THEN the item with that id is scrolled into view
 
-#### Scenario: A hash change on the Overview scrolls again
+#### Scenario: A hash change on the page scrolls again
 
-- GIVEN the Overview is on screen and scrolled away from the rail
-- WHEN the location's hash changes to `#decision-rail`
-- THEN the rail is scrolled into view
+- GIVEN the Discrepancies page is on screen and scrolled away from the item
+- WHEN the location's hash changes to `#discrepancy-<id>`
+- THEN the item is scrolled into view
 
 #### Scenario: A rehearsal position carries no mark in practice
 
@@ -1075,25 +1104,29 @@ pair; "venue disagrees" in red; "exchange {x}, ledger {y}" with the two nets as
 stored, each followed by the position's base currency when it has one (`exchange
 0 AAVE, ledger 0.82 AAVE`); "last compared {time} UTC", the time with seconds;
 "shared by N positions on this pair", ONLY when N is above one; and then the
-link "See the pending decision" or the words "no booking is proposed", under the
-same rule as the chip (neither while the proposals load or failed). The line
+words of the discrepancy's state and the link "See the discrepancy", under the
+same rule as the chip (revised 2026-10-16, owner decision 66: "being booked
+automatically", or the words of the reason, and no claim while the
+confirmed-discrepancies query loads or failed or when the id is in neither of
+its lists; previously the link "See the pending decision" or the words "no
+booking is proposed", from the proposals). The line
 MUST be a group named "Venue disagrees, {pair}" and its link MUST be named "See
-the pending decision, {pair}". In a card it MUST be the card's last element.
+the discrepancy, {pair}". In a card it MUST be the card's last element.
 Sub-rows under a position MUST come in this order: the venue line; the reason
 the figures are missing; the reservation's note, "Its reservation reads
 {status}, not FILLED.", when its status is not `FILLED`.
 
 #### Scenario: The line with a link
 
-- GIVEN `AAVEUSDT` carries a disagreement with venue net 0 and ledger net 0.82, compared at 21:38:12, and a pending proposal names it
+- GIVEN `AAVEUSDT` carries a disagreement with venue net 0 and ledger net 0.82, compared at 21:38:12, whose id is in `being_booked`
 - WHEN the detail page renders
-- THEN under its row is one solid red line reading `AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:38:12 UTC · See the pending decision`
+- THEN under its row is one solid red line reading `AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:38:12 UTC · being booked automatically · See the discrepancy`
 
-#### Scenario: The line without a proposal
+#### Scenario: The line without a claim
 
-- GIVEN the same disagreement and the proposals were read with none naming it
+- GIVEN the same disagreement and the confirmed-discrepancies query loading, failed, or the id in neither list
 - WHEN the line renders
-- THEN it ends with "no booking is proposed" and carries no link
+- THEN it ends after the nets and the time, with no words about booking and no link
 
 #### Scenario: A shared disagreement says so
 
@@ -1123,7 +1156,7 @@ the figures are missing; the reservation's note, "Its reservation reads
 
 - GIVEN a venue line with a link
 - WHEN it is read by assistive technology
-- THEN it is a group named "Venue disagrees, AAVEUSDT" and the link is named "See the pending decision, AAVEUSDT"
+- THEN it is a group named "Venue disagrees, AAVEUSDT" and the link is named "See the discrepancy, AAVEUSDT"
 
 #### Scenario: In a card the line is last
 
@@ -1331,11 +1364,11 @@ the heading always drawn. The list MUST draw no notes.
 - WHEN the list renders
 - THEN each card has the strategy's name under its head
 
-#### Scenario: The rail sits between the chart and the grid on a phone
+#### Scenario: Nothing sits between the chart and the grid on a phone
 
-- GIVEN a phone viewport and a pending proposal
+- GIVEN a phone viewport
 - WHEN the Overview renders
-- THEN the "Needs your decision" rail is between the chart and the month grid, as before, and the positions are cards under the grid
+- THEN nothing is between the chart and the month grid (the rail is gone, owner decision 66), and the positions are cards under the grid
 
 ### Requirement: The Overview's Count Says How Many Are Open And How Many Of Them Are Dry Run
 
@@ -1554,9 +1587,11 @@ The leverage MUST be written without its stored zeros and followed by `x`
 The open-position views MUST NOT show an unrealised PnL, a current price, a
 return or any figure read from the venue. This change MUST add no new read of
 any venue and no periodic remote read. They MUST NOT show a notional column. They
-MUST NOT show the confirmed discrepancies as a view of their own: the venue mark
-states the disagreement and whether a booking is proposed, and leads nowhere
-else. An open position MUST NOT open onto its fills: a row is a row, not a
+MUST NOT show the confirmed discrepancies themselves: the venue mark states the
+disagreement and what is happening to it, and leads only to its item in the
+Discrepancies view (revised 2026-10-16, owner decision 66; previously "and
+whether a booking is proposed, and leads nowhere else", the view being then
+left for later). An open position MUST NOT open onto its fills: a row is a row, not a
 control, and no dialog opens from it. The Strategies page MUST show nothing about
 another exchange. No open position MUST enter any total, and the panel MUST show
 no figure that adds the money of two pools. No mark MUST say a result.
@@ -1579,11 +1614,11 @@ no figure that adds the money of two pools. No mark MUST say a result.
 - WHEN the owner clicks it
 - THEN no dialog opens and no fills are shown
 
-#### Scenario: The venue mark does not lead to a discrepancies view
+#### Scenario: The venue mark leads only to its item in the Discrepancies view
 
-- GIVEN a venue mark with a pending proposal
+- GIVEN a venue mark whose id is in `being_booked`
 - WHEN the link is read
-- THEN it leads to the Overview's rail and to no view of confirmed discrepancies
+- THEN it leads to `/discrepancies` with the hash `#discrepancy-<id>` and to no other place
 
 #### Scenario: No blended total
 
@@ -4735,11 +4770,373 @@ than a blank area or an error.
 ### Requirement: Admin-Gated Views Require the Bearer Token
 
 Every panel view that reads or writes through `/api` MUST be gated behind the
-existing admin token entry mechanism, consistent with how the bookings view
-is gated today.
+existing admin token entry mechanism, consistent with how the panel's other
+admin views are gated (revised 2026-10-16: the bookings view no longer exists).
 
 #### Scenario: An ungated session cannot load panel data
 
 - GIVEN no admin token has been entered in the current session
 - WHEN a gated view attempts to load its data
 - THEN the request is refused and the panel prompts for the token rather than showing partial data
+
+### Requirement: The Navigation Has A Fourth Item, Discrepancies, With A Badge Of What Needs The Owner
+
+> **Added 2026-10-16 (owner decision 66, "se le podria poner un badge de notificacion a su boton de la barra de navegacion cuando requiera revisarse"; Q7 answered (a); design addendum "PR 15" § H; prototype examples 1 to 3).**
+
+The navigation MUST have a fourth item, `{ to: "/discrepancies", labelKey: "discrepancies", end: false }`, in the order Overview, Strategies, Discrepancies, Settings, in the side navigation and in the bottom bar. The route `discrepancies` MUST be registered inside the shell. The item MUST carry a badge beside its label, drawn by one `NavBadge` component used by both navs, that shows the count of the confirmed discrepancies that need the owner: red (`loss`) with its number, at the item's end, and nothing at zero. The number MUST be `aria-hidden` and a visually hidden span MUST carry the words, so that the item's accessible name is "Discrepancies, 1 discrepancy needs you" or "Discrepancies, 12 discrepancies need you" (Spanish: "Discrepancias, 12 discrepancias requieren su atención"). On a phone the bar MUST have four equal cells; the badge MUST be lifted to the cell's top-right corner; and every label of the bar MUST sit 8 px above the bottom edge, in all four cells, so the labels stay level whether or not a badge is drawn. "Discrepancias" at 375 px with two digits and the item active MUST fit. Amber MUST NOT be used (it already means dry run).
+
+#### Scenario: Four items in order, no badge at zero
+
+- GIVEN nothing needs the owner
+- WHEN the side navigation renders
+- THEN it lists Overview, Strategies, Discrepancies, Settings in that order, the Discrepancies item is a plain link with the accessible name "Discrepancies", and no badge is drawn
+
+#### Scenario: The badge shows the count, red, with its words
+
+- GIVEN 12 discrepancies need the owner
+- WHEN either navigation renders
+- THEN a red badge reads 12, and the item's accessible name is "Discrepancies, 12 discrepancies need you"
+
+#### Scenario: One discrepancy uses the singular
+
+- GIVEN 1 discrepancy needs the owner
+- WHEN the navigation renders
+- THEN the accessible name is "Discrepancies, 1 discrepancy needs you"
+
+#### Scenario: The badge is the same in both navigations
+
+- GIVEN a count above zero
+- WHEN the side navigation and the bottom bar render
+- THEN both draw the same `NavBadge` with the same count and name
+
+#### Scenario: The bottom bar at 375 px keeps four cells and level labels
+
+- GIVEN a phone viewport of 375 px, the Spanish language and 12 discrepancies needing the owner, the Discrepancies item active
+- WHEN the bottom bar renders
+- THEN four equal cells are drawn, the badge sits at the top-right corner of its cell, the label "Discrepancias" is not clipped, and the four labels sit at the same height whether or not a badge is drawn
+
+#### Scenario: The badge is not amber
+
+- GIVEN the badge is drawn
+- WHEN its classes are read
+- THEN it uses the `loss` colour token and no amber utility
+
+### Requirement: The Badge Draws Nothing Unless It Can Say How Many Need The Owner
+
+> **Added 2026-10-16 (owner decision 66; design addendum "PR 15" § H and § K rows 8 and 14; prototype examples 2, 8 and 9).**
+
+The badge MUST count the items of `needs_owner` and NOTHING else: an item being booked and an automatic booking never count. It MUST read the same query as the page (`useConfirmedDiscrepancies`), so that the two cannot disagree. It MUST draw nothing while the query is loading and nothing when the first read failed (the nav cannot say "failed" without becoming a permanent alarm: the page says it, and Telegram does not depend on the panel). After a failed refresh it MUST keep the last count. It MUST draw nothing when `dry_run` is true.
+
+#### Scenario: Nothing while loading
+
+- GIVEN the query has not answered
+- WHEN the navigation renders
+- THEN no badge is drawn
+
+#### Scenario: Nothing when the first read failed
+
+- GIVEN the first read failed
+- WHEN the navigation renders
+- THEN no badge is drawn
+
+#### Scenario: Being booked and bookings never count
+
+- GIVEN one item in `being_booked`, two bookings and none in `needs_owner`
+- WHEN the navigation renders
+- THEN no badge is drawn
+
+#### Scenario: The count equals the page's list
+
+- GIVEN three items in `needs_owner`
+- WHEN the navigation and the page render
+- THEN the badge reads 3 and the page's "Needs you" list holds three items
+
+#### Scenario: A failed refresh keeps the last count
+
+- GIVEN a good read of two items and then a failed refresh
+- WHEN the navigation renders
+- THEN the badge still reads 2
+
+#### Scenario: Dry run draws no badge
+
+- GIVEN `dry_run` is true
+- WHEN the navigation renders
+- THEN no badge is drawn
+
+### Requirement: The Discrepancies Page Reads One Query, Is Not Scoped To An Exchange And Groups By Exchange
+
+> **Added 2026-10-16 (owner decision 66, Q6 answered (a); design addendum "PR 15" § H; prototype examples 4 to 7 and 11).**
+
+`shared/api/discrepancies.ts` MUST fetch `GET /api/reconciliation/confirmed`, MUST check the shape of the whole body and refuse it whole if any element is malformed (the rule of the former `usePendingBookings` and of PR 14), and MUST expose `useConfirmedDiscrepancies` under the query key `["reconciliation", "confirmed"]`, refetched every 60 s and on focus like the open positions. The page `features/discrepancies/DiscrepanciesPage.tsx` MUST draw, in this order: the title "Discrepancies" and its sentence ("Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you."); the read line ("Last read {time} UTC" and the button "Read again"); the "Needs you" list; "Being booked", only when not empty; "Booked automatically". The page MUST read no exchange scope and the top bar MUST show no exchange tabs on it, so that a badge of 2 can never sit above an empty page. Within each list, items MUST be grouped by exchange, whatever exchange tab was last selected. Each discrepancy item MUST carry `id="discrepancy-<discrepancy_id>"`.
+
+#### Scenario: A well-formed body is read
+
+- GIVEN a well-formed body
+- WHEN the module reads it
+- THEN the three lists and the counts are available to the page and the badge
+
+#### Scenario: One malformed element refuses the whole body
+
+- GIVEN a body with one malformed element in `booked`
+- WHEN the module reads it
+- THEN the whole body is refused and the page shows its failed state
+
+#### Scenario: A 404 is an error
+
+- GIVEN the route answers 404
+- WHEN the module reads it
+- THEN it is an error, not an empty answer
+
+#### Scenario: The page ignores the exchange tab
+
+- GIVEN items on bybit and binance and the bybit tab last selected
+- WHEN the page renders
+- THEN items of both exchanges are drawn, each list grouped under an exchange name, and no exchange tabs are on the page
+
+#### Scenario: The sections are in order
+
+- GIVEN items in all three lists
+- WHEN the page renders
+- THEN the headings read "Needs you", "Being booked", "Booked automatically" in that order
+
+#### Scenario: Each item can be reached by its hash
+
+- GIVEN the location's hash is `#discrepancy-<id>`
+- WHEN the page renders and when the hash changes
+- THEN the item with that id is scrolled into view
+
+#### Scenario: The badge and the page share one request
+
+- GIVEN the navigation and the page are both mounted
+- WHEN the network is read
+- THEN one request to the route answers both
+
+### Requirement: The Discrepancies Page States Its Read And Never Reads As An All-Clear Without Having Looked
+
+> **Added 2026-10-16 (owner decision 66; design addendum "PR 15" § H and § K rows 8 and 14; prototype examples 4, 6, 8 and 9).**
+
+The page MUST say its read state in these exact words:
+
+- first read loading: "Reading discrepancies…" (`role="status"`), and no list;
+- first read failed: "Discrepancies could not be read, so this page cannot say whether anything needs you." (`role="alert"`, `loss`) with the button "Read again", and no list: never "Nothing needs you";
+- a later refresh failed: the last lists stay, with "Last read" and the time in `loss` and "Could not be refreshed since {time} UTC.", as PR 14's example 11d;
+- `dry_run` true: "The comparison with the venue does not run in dry run, so nothing is checked here.", in the neutral strong rule, not amber, and NO list under it, not even an empty one;
+- nothing in any list: under "Needs you", "Nothing needs you. The venue agrees with the ledger on every confirmed comparison.", and under "Booked automatically", "No booking in the last 30 days." so that the page shows it was looked at;
+- something being booked and nothing needing the owner: under "Needs you" only "Nothing needs you.", because the second sentence would be false while a booking is under way; "Being booked" reads "Nothing here needs you. If it cannot be booked, it moves to Needs you.".
+
+#### Scenario: Loading
+
+- GIVEN the first read has not answered
+- WHEN the page renders
+- THEN "Reading discrepancies…" is drawn with `role="status"` and no list and no all-clear
+
+#### Scenario: A failed first read never says nothing needs the owner
+
+- GIVEN the first read failed
+- WHEN the page renders
+- THEN the alert sentence and "Read again" are drawn, no list is drawn, and the words "Nothing needs you" are absent
+
+#### Scenario: A failed refresh keeps the lists
+
+- GIVEN a good read and then a failed refresh
+- WHEN the page renders
+- THEN the last lists stay, "Last read" and its time are in `loss`, and "Could not be refreshed since 21:38:12 UTC." is drawn
+
+#### Scenario: Dry run says the comparison does not run
+
+- GIVEN `dry_run` is true
+- WHEN the page renders
+- THEN the sentence above is drawn in a neutral box and no list, empty or not, is drawn
+
+#### Scenario: Nothing at all
+
+- GIVEN all three lists are empty and `dry_run` is false
+- WHEN the page renders
+- THEN "Nothing needs you. The venue agrees with the ledger on every confirmed comparison." and "No booking in the last 30 days." are drawn
+
+#### Scenario: A booking under way does not claim the venue agrees
+
+- GIVEN one item in `being_booked` and none in `needs_owner`
+- WHEN the page renders
+- THEN "Needs you" says only "Nothing needs you."
+
+### Requirement: A Needs-You Item Says What Is Wrong In Red, With Its Words, And What The Owner Can Do
+
+> **Added 2026-10-16 (owner decision 66, Q3, Q7 and Q9; design addendum "PR 15" § H and § I; prototype examples 5, 8c and 10).**
+
+Each "Needs you" item MUST show: the pair and the pool (`usdt-m · USDT`); a red sentence, with a red border on the item, being the reason's sentence or, for `NOT_BOOKABLE`, the kind's sentence; the kind in words when the red sentence is not already it; "Exchange", "Ledger" and "Difference" with the base currency and the signed difference (`-0.5`, `+12`); "Strategy" or "Strategies" with each name a link to the strategy, or "No strategy"; "Confirmed" with the date and time in UTC; "Last compared" with the time in UTC; and "What you can do". The sentences MUST be exactly:
+
+- `NOT_BOOKED`: "Could not be booked automatically." and under it "The venue closed a position the ledger holds open.";
+- `SEVERAL_ALLOCATIONS`: "The venue closed a position several strategies share; one booking cannot split it.";
+- `AMBIGUOUS_PARTIAL_REDUCE`: "The venue reduced a position several strategies share; which one cannot be told.";
+- `NO_MATCHING_ALLOCATION`: "The venue holds a position no strategy opened.".
+
+"What you can do" MUST read, for `NO_MATCHING_ALLOCATION`, "Close it on the exchange by hand. The next comparison resolves it.", and for every other reason, "Ask for a manual reconciliation. Nothing in this panel can book it." The latter wording stands as the owner approved it; how a manual reconciliation is asked for is left for later (owner decision 66, left for later; follow-up cd.f1). The exact reason MUST NOT be requested from anywhere but the alert, since it is not stored.
+
+#### Scenario: Every reason shows its sentence
+
+- GIVEN four items, one per reason above
+- WHEN the page renders
+- THEN each shows its sentence in red and its "What you can do" text, and the item has a red border
+
+#### Scenario: The nets and the difference are shown signed
+
+- GIVEN a ledger of 0.5 SOL and an exchange of 0 SOL
+- WHEN the item renders
+- THEN it reads Exchange 0 SOL, Ledger 0.5 SOL, Difference -0.5 SOL
+
+#### Scenario: Several strategies are links
+
+- GIVEN an item with two allocations
+- WHEN it renders
+- THEN the label is "Strategies" and each name links to its strategy
+
+#### Scenario: A null strategy name reads as unknown
+
+- GIVEN an allocation with `strategy_name` null
+- WHEN the item renders
+- THEN it reads "unknown strategy" and is not a link to nothing
+
+#### Scenario: No strategy
+
+- GIVEN an item with no allocations
+- WHEN it renders
+- THEN it reads "No strategy"
+
+#### Scenario: The red always has words
+
+- GIVEN any red item
+- WHEN it is read by assistive technology
+- THEN its sentence is text on the page, not a colour alone
+
+### Requirement: A Being-Booked Item Is Neutral And Says So
+
+> **Added 2026-10-16 (owner decision 66; design addendum "PR 15" § H; prototype example 6).**
+
+A "Being booked" item MUST be neutral, with the ordinary border and no red anywhere in the view. It MUST read "Being booked automatically." where a "Needs you" item puts its red sentence, and the kind's sentence under it, and MUST have no "What you can do". It MUST NOT count in the badge. The position's venue mark stays red meanwhile (see the venue mark requirement).
+
+#### Scenario: Neutral and counted nowhere
+
+- GIVEN one item in `being_booked`
+- WHEN the page and the navigation render
+- THEN the item says "Being booked automatically.", has no red border and no "What you can do", and no badge is drawn
+
+### Requirement: The Booked-Automatically List Shows The Last 30 Days And A Booking Is Never Red
+
+> **Added 2026-10-16 (owner decision 66, Q5 answered (a); design addendum "PR 15" § G and § H; prototype examples 7 and 11).**
+
+"Booked automatically" MUST say "The last 30 days, newest first, at most 100." and list the route's `booked` as a table of neutral rows, one row group per exchange so the columns line up, with the headings "Booked (UTC)", "Pair", "Side", "Quantity", "Strategy", "Fills", "By" and "Now". "By" MUST read "automatically" for `decided_by` `automatic` and "by hand" for `owner` (a proposal approved before this unit was deployed). "Now" MUST read "waiting for the next comparison" while `discrepancy_open` is true and "the venue agrees again" once it is false. There is nothing to mark as seen. A booking is a result and MUST NEVER be red. On a phone the bookings MUST become cards.
+
+#### Scenario: The rows and their columns
+
+- GIVEN three bookings on bybit and one on binance
+- WHEN the page renders
+- THEN a table with the eight headings is drawn with a BYBIT group of three rows and a BINANCE group of one, newest first within each
+
+#### Scenario: A hand booking says so
+
+- GIVEN a booking whose `decided_by` is `owner`
+- WHEN its row renders
+- THEN "By" reads "by hand"
+
+#### Scenario: A booking waiting for the scan
+
+- GIVEN a booking whose `discrepancy_open` is true
+- WHEN its row renders
+- THEN "Now" reads "waiting for the next comparison"
+
+#### Scenario: A booking is never red
+
+- GIVEN any booking
+- WHEN its classes are read
+- THEN it uses no `loss` and no amber class
+
+#### Scenario: A phone shows cards
+
+- GIVEN a phone viewport
+- WHEN the bookings render
+- THEN each is a card and no table is drawn
+
+### Requirement: The Bookings Feature Is Removed From The Panel
+
+> **Added 2026-10-16 (owner decision 66, Q1 answered (a); design addendum "PR 15" § F and § H).**
+
+Nothing in the panel MUST propose, approve or reject a booking. `features/bookings/` (`BookingsListView`, `BookingCard`, both dialogs, `usePendingBookings`, `format.ts`, `outcomeMessage.ts` and their tests), `features/positions/pendingProposal.ts`, `features/overview/DecisionRail.tsx` and its test, and the `BookingProposal` types the panel no longer reads MUST be removed, and nothing MUST import them. The keys `positions.venue.noProposal` and `positions.venue.line.noProposal` and the `overview.decisionRail.*` keys MUST be deleted from both locales.
+
+#### Scenario: No source file reaches the removed code
+
+- GIVEN the panel's sources
+- WHEN every import and every string is searched
+- THEN none names `usePendingBookings`, `BookingsListView`, `pendingProposalNames`, `DecisionRail` or `/reconciliation/bookings`
+
+#### Scenario: No request for proposals
+
+- GIVEN any page of the panel is rendered
+- WHEN the network is read
+- THEN no request is made to a booking route
+
+#### Scenario: The removed keys are gone
+
+- GIVEN both locale files
+- WHEN their keys are read
+- THEN `overview.decisionRail.*` and the two `noProposal` keys are absent
+
+### Requirement: Every Discrepancies Text Exists In English And Spanish
+
+> **Added 2026-10-16 (owner decision 66; the owner approved the prototype on 2026-10-16, "Esta muy bien", to be confirmed again on the implementation; design addendum "PR 15" § I).**
+
+Every text above MUST be a key under `nav.discrepancies` or `discrepancies.*` in both `en.json` and `es.json`, and MUST NOT be hard-coded. The Spanish MUST be copied exactly from the approved prototype `visual/project/Discrepancies.html` (examples 10, 12 and 13, 15), including: the item "Discrepancias"; the title "Discrepancias"; the sections "Requiere su atención", "Registrándose" and "Registradas automáticamente"; "No se pudo registrar automáticamente."; "Se está registrando automáticamente."; "Nada requiere su atención. El exchange coincide con el libro mayor en cada comparación confirmada."; "Leyendo discrepancias…"; "La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada."; "Ningún registro en los últimos 30 días."; the "By" values "automáticamente" and "a mano"; the positions line "Ver la discrepancia". The plurals of the badge's name MUST exist as `_one` and `_other`. The word "booking" is "registro" in Spanish, as the panel's existing Spanish already says.
+
+#### Scenario: Every key exists in both locales
+
+- GIVEN every key the page, the navigation and the venue mark reference
+- WHEN both locale files are read
+- THEN each key exists in both and none is empty
+
+#### Scenario: The Spanish reads as approved
+
+- GIVEN the language is Spanish
+- WHEN the page renders the states of examples 10 and 13
+- THEN the texts equal the prototype's, character for character
+
+#### Scenario: Numbers use the Spanish decimal comma
+
+- GIVEN the language is Spanish and a net of 0.5 SOL
+- WHEN the item renders
+- THEN it reads 0,5 SOL
+
+### Requirement: Red Appears In Three Places Of This Unit, Each With Its Words, And The Amber Allow-List Gains Nothing
+
+> **Added 2026-10-16 (owner decision 66, Q7; design addendum "PR 15" § H; decision 65's rule that red says something is wrong and needs the owner, always with words).**
+
+Red (`loss`) MUST appear in this unit only on a "Needs you" item, on the nav badge (its words are its accessible name) and on the venue mark of an open position (decision 65). A booking, a result, MUST never be red. `DecisionRail.tsx` MUST leave the list of files allowed to use amber (`AMBER_ALLOWED` in `panel-tokens.test.ts`) and nothing MUST join it. Styling MUST use palette tokens only: no hex and no `var()` inside a `className`, and no `style` prop in non-test source.
+
+#### Scenario: The allow-list lost one entry and gained none
+
+- GIVEN `panel-tokens.test.ts`
+- WHEN its list of amber files is read
+- THEN `DecisionRail.tsx` is absent and no new file is present
+
+#### Scenario: No palette bypass in the new files
+
+- GIVEN the new frontend files
+- WHEN the theme test scans them
+- THEN none has a hex colour, a `var()` in a `className` or a `style` prop
+
+### Requirement: The Discrepancies View Is Operable By Keyboard And Named For Assistive Technology
+
+> **Added 2026-10-16 (design addendum "PR 15" § H; prototype examples 1 to 3 and 11).**
+
+The Discrepancies item MUST be reachable by keyboard like the other items. Each list MUST be a section named by its heading. Each item MUST be named by its pair, and each strategy name MUST be a real link. The read line's button MUST be a button named "Read again". The first-read failure MUST be `role="alert"` and the loading line `role="status"`.
+
+#### Scenario: Lists are named by their headings
+
+- GIVEN the page with items
+- WHEN it is read by assistive technology
+- THEN each list is a region named "Needs you", "Being booked" or "Booked automatically"
+
+#### Scenario: The button is reachable
+
+- GIVEN the read line
+- WHEN the Tab key is pressed from the title
+- THEN focus reaches the "Read again" button and Enter reads again

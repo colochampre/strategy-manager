@@ -9,12 +9,12 @@ Phase 3 declares every port ``ScanPools`` needs; the concrete adapters
 SQLAlchemy-backed discrepancy repository) are Phase 4.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from strategy_manager.execution.application.ports import FillRecord
@@ -26,6 +26,11 @@ from strategy_manager.reconciliation.domain.discrepancy import (
 )
 from strategy_manager.reconciliation.domain.positions import LedgerPosition, VenuePosition
 from strategy_manager.shared.domain.errors import DomainError
+
+if TYPE_CHECKING:
+    # ``approve_booking`` imports this module, so the result type is named
+    # only for the type checker.
+    from strategy_manager.reconciliation.application.approve_booking import ApproveResult
 
 PoolKey = tuple[str, str, str]
 """A pool's identity: ``(exchange, venue, settlement_currency)``. Mirrors
@@ -446,6 +451,12 @@ class BookingProposalRepositoryPort(Protocol):
         non-PENDING row (migration ``0023``'s own index docstring)."""
         ...
 
+    async def count_pending(self) -> int:
+        """How many PENDING rows exist right now -- read-only. What
+        ``AutoBookPending`` counts after its loop to name EXACTLY how many
+        the limit left for the next run (design § C6)."""
+        ...
+
     async def has_matching_rejection(
         self, discrepancy_id: UUID, observation: Observation
     ) -> bool:
@@ -520,6 +531,93 @@ class InFlightClosePort(Protocol):
     """
 
     async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...
+
+
+class ApprovePort(Protocol):
+    """``ApproveBooking.approve``'s signature, so ``AutoBookPending`` depends
+    on a ``Protocol`` and not on the class (design.md PR 15 addendum § C1,
+    the way the prepare handler depends on ``PrepareBookingPort``)."""
+
+    async def approve(self, proposal_id: UUID, decided_by: str) -> "ApproveResult": ...
+
+
+class SystemOrderIdsPort(Protocol):
+    """Owner decision 66 Q2 (2026-10-16): whether any of a set of venue order
+    ids is the ``exchange_order_id`` of an ``execution_attempts`` row of the
+    SAME pool ``(exchange, venue, settlement_currency)`` -- a fill of an order
+    this system placed. One question for the whole set, never one per id.
+
+    Implemented by ``SystemOrderIdsAdapter`` over
+    ``SqlAlchemyExecutionAttemptRepository``; the consumer (this module)
+    declares the port, the provider owns the adapter."""
+
+    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool: ...
+
+
+class ApprovedObservationsPort(Protocol):
+    """The observations frozen by every APPROVED proposal of each discrepancy
+    in ``discrepancy_ids`` (design § D rule 2: an APPROVED proposal that froze
+    the row's CURRENT observation means the discrepancy is booked and waits
+    for the next scan). One question for the whole set, never one per id; an
+    id with no APPROVED proposal is absent from the answer."""
+
+    async def approved_observations(
+        self, discrepancy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[Observation]]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationStrategy:
+    """The strategy an allocation belongs to, with its display name."""
+
+    strategy_id: UUID
+    name: str
+
+
+class StrategyNamesPort(Protocol):
+    """The strategy (id and display name) behind each allocation id, for the
+    confirmed-discrepancies read (design PR 15 addendum § G: "strategy names
+    by allocation id"). One question for the whole set, never one per id. An
+    allocation whose reservation or strategy row is missing is ABSENT from the
+    answer, never invented."""
+
+    async def strategies_for(
+        self, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, AllocationStrategy]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedProposalSummary:
+    """What the confirmed-discrepancies view reads of one APPROVED proposal:
+    no frozen fills, only how many there were."""
+
+    proposal_id: UUID
+    discrepancy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    kind: DiscrepancyKind
+    strategy_id: UUID
+    allocation_id: UUID
+    side: str
+    quantity: Decimal
+    observed_venue_net_base: Decimal
+    observed_ledger_net_base: Decimal
+    fill_count: int
+    decided_at: datetime
+    decided_by: str | None
+    execution_attempt_id: UUID | None
+    discrepancy_open: bool
+    """Whether the scan has not yet resolved the proposal's discrepancy."""
+
+
+class ApprovedProposalsPort(Protocol):
+    """Every APPROVED proposal decided at or after ``since``, plus every
+    APPROVED proposal whose discrepancy is still open however old (note N8).
+    One statement, read-only."""
+
+    async def approved_since(self, since: datetime) -> Sequence[ApprovedProposalSummary]: ...
 
 
 class BookingWriteOutcome(StrEnum):

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router";
 
 import { cn } from "@/shared/lib/cn";
+import { NavBadge } from "@/shared/layout/NavBadge";
 import { NAV_ITEMS } from "@/shared/layout/navItems";
 
 /**
@@ -24,12 +25,13 @@ export function BottomNav() {
           end={item.end}
           className={({ isActive }) =>
             cn(
-              "flex min-h-11 flex-1 items-center justify-center text-xs transition-colors",
+              "relative flex min-h-11 min-w-0 flex-1 items-end justify-center whitespace-nowrap pb-2 text-xs transition-colors",
               isActive ? "bg-panel-2 font-semibold text-ink" : "text-ink-3",
             )
           }
         >
-          {t(`nav.${item.labelKey}`)}
+          <span>{t(`nav.${item.labelKey}`)}</span>
+          {item.badge && <NavBadge corner />}
         </NavLink>
       ))}
     </nav>

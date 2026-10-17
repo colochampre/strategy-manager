@@ -20,8 +20,9 @@ decision 13's testing rule) — a test using one spelling everywhere proves
 nothing.
 """
 
+import inspect
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -38,6 +39,7 @@ from strategy_manager.reconciliation.application.ports import (
     VenueFillReadError,
 )
 from strategy_manager.reconciliation.application.prepare_booking import PrepareBooking
+from strategy_manager.reconciliation.domain.booking import BookingRefusal
 from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyKind,
     DiscrepancyStatus,
@@ -206,6 +208,19 @@ class FakeAllocationOwner:
         return self._owners[allocation_id]
 
 
+class FakeSystemOrderIds:
+    """Models ``SystemOrderIdsPort``: whether any of a set of venue order ids
+    is the order id of an attempt this system placed in the SAME pool."""
+
+    def __init__(self, held: dict[PoolKey, frozenset[str]] | None = None) -> None:
+        self._held = held or {}
+        self.calls: list[tuple[PoolKey, tuple[str, ...]]] = []
+
+    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool:
+        self.calls.append((pool, tuple(exchange_order_ids)))
+        return bool(self._held.get(pool, frozenset()) & set(exchange_order_ids))
+
+
 class FrozenClock:
     def __init__(self, at: datetime) -> None:
         self._at = at
@@ -293,6 +308,7 @@ def _build(
     window_pad_seconds: int = WINDOW_PAD_SECONDS,
     max_span_seconds: int = MAX_SPAN_SECONDS,
     proposal_expiry_seconds: int = PROPOSAL_EXPIRY_SECONDS,
+    system_order_ids: FakeSystemOrderIds | None = None,
 ) -> tuple[
     PrepareBooking,
     FakeDiscrepancyRepository,
@@ -319,6 +335,7 @@ def _build(
         max_span_seconds=max_span_seconds,
         proposal_expiry_seconds=proposal_expiry_seconds,
         dry_run=dry_run,
+        system_order_ids=system_order_ids or FakeSystemOrderIds(),
     )
     return use_case, discrepancy_repo, proposals, registry, recorded_ids, commit
 
@@ -837,3 +854,386 @@ async def test_fill_without_an_order_id_is_refused_at_prepare(
         and "no venue order id" in r.getMessage()
         for r in caplog.records
     )
+
+
+# --- R17: the previous behaviour of the branches this unit touches ----------
+#
+# Pinned before the refusal codes and the two new conditions go in. Each of
+# these passed against the code as it was.
+
+
+async def test_a_refused_match_still_logs_its_reason_and_writes_no_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    reader = FakeVenueFillReader([_fill(quantity=Decimal("0.4"))])
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.proposals_skipped == 1
+    assert any(
+        r.levelno == logging.WARNING
+        and str(discrepancy.id) in r.getMessage()
+        and "match refused (SUM_MISMATCH)" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+async def test_a_failed_venue_read_still_logs_its_warning_and_writes_no_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    reader = FakeVenueFillReader(raises=VenueFillReadError("bybit unreachable"))
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert any(
+        r.levelno == logging.WARNING
+        and str(discrepancy.id) in r.getMessage()
+        and "venue fill fetch failed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+async def test_an_overlong_window_still_logs_its_warning_and_writes_no_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(
+        open_allocation_ids=(allocation_id,),
+        first_observed_at=NOW - timedelta(seconds=MAX_SPAN_SECONDS + 1),
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): FakeVenueFillReader([_fill()])},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert any(
+        r.levelno == logging.WARNING
+        and str(discrepancy.id) in r.getMessage()
+        and "exceeds the accepted maximum" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+async def test_a_suppressed_discrepancy_still_logs_at_info_and_writes_no_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): FakeVenueFillReader([_fill()])},
+        owners={allocation_id: uuid4()},
+    )
+    proposals.configure_matching_rejection(
+        discrepancy.id,
+        Observation(
+            kind=discrepancy.kind,
+            venue_net_base=discrepancy.venue_net_base,
+            ledger_net_base=discrepancy.ledger_net_base,
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert any(
+        r.levelno == logging.INFO
+        and str(discrepancy.id) in r.getMessage()
+        and "a rejected proposal already covers this exact observation" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+async def test_a_reducing_difference_on_a_single_allocation_is_still_prepared() -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(
+        kind=DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        venue_net_base=Decimal("0.2"),
+        ledger_net_base=Decimal("0.5"),
+        open_allocation_ids=(allocation_id,),
+    )
+    reader = FakeVenueFillReader([_fill(quantity=Decimal("0.3"))])
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    result = await use_case.sweep(uuid4())
+
+    assert len(proposals.inserted) == 1
+    assert proposals.inserted[0].quantity == Decimal("0.3")
+    assert result.refusals == {}
+
+
+# --- Owner decision 66 Q2 (2026-10-16): the automatic boundary -------------
+
+
+def _one_warning_naming(caplog: pytest.LogCaptureFixture, discrepancy: DiscrepancyRecord) -> None:
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert str(discrepancy.id) in warnings[0].getMessage()
+
+
+async def test_an_increase_is_refused_with_one_warning_no_row_and_its_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(
+        kind=DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        venue_net_base=Decimal("0.8"),
+        ledger_net_base=Decimal("0.5"),
+        open_allocation_ids=(allocation_id,),
+    )
+    reader = FakeVenueFillReader([_fill(side="BUY", quantity=Decimal("0.3"))])
+    use_case, _, proposals, _, _, commit = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.refusals == {discrepancy.id: BookingRefusal.GROWS_OR_FLIPS}
+    assert result.proposals_skipped == 1
+    assert commit.commits == 1
+    _one_warning_naming(caplog, discrepancy)
+
+
+async def test_a_flip_is_refused_with_one_warning_no_row_and_its_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(
+        kind=DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        venue_net_base=Decimal("-0.2"),
+        ledger_net_base=Decimal("0.5"),
+        open_allocation_ids=(allocation_id,),
+    )
+    reader = FakeVenueFillReader([_fill(side="SELL", quantity=Decimal("0.7"))])
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.refusals == {discrepancy.id: BookingRefusal.GROWS_OR_FLIPS}
+    _one_warning_naming(caplog, discrepancy)
+
+
+async def test_a_fill_of_an_order_this_system_placed_is_refused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(symbol="STXUSDT.P", open_allocation_ids=(allocation_id,))
+    reader = FakeVenueFillReader([_fill(exchange_order_id="sys-order", symbol="STXUSDT")])
+    system_orders = FakeSystemOrderIds({POOL_A: frozenset({"sys-order"})})
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+        system_order_ids=system_orders,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.refusals == {discrepancy.id: BookingRefusal.SYSTEM_ORDER_FILL}
+    assert system_orders.calls == [(POOL_A, ("sys-order",))]
+    _one_warning_naming(caplog, discrepancy)
+
+
+async def test_a_fill_of_another_pools_order_is_not_refused() -> None:
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    reader = FakeVenueFillReader([_fill(exchange_order_id="o1")])
+    other_pool: PoolKey = ("binance", "usdt-m", "USDT")
+    system_orders = FakeSystemOrderIds({other_pool: frozenset({"o1"})})
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+        system_order_ids=system_orders,
+    )
+
+    result = await use_case.sweep(uuid4())
+
+    assert len(proposals.inserted) == 1
+    assert result.refusals == {}
+
+
+async def test_when_two_refusals_apply_the_first_in_the_documented_order_is_the_code() -> None:
+    """Tasks.md note N2: ``GROWS_OR_FLIPS`` before ``SYSTEM_ORDER_FILL``. A
+    system order's fills that also grow the position."""
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(
+        kind=DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+        venue_net_base=Decimal("0.8"),
+        ledger_net_base=Decimal("0.5"),
+        open_allocation_ids=(allocation_id,),
+    )
+    reader = FakeVenueFillReader(
+        [_fill(side="BUY", quantity=Decimal("0.3"), exchange_order_id="sys-order")]
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners={allocation_id: uuid4()},
+        system_order_ids=FakeSystemOrderIds({POOL_A: frozenset({"sys-order"})}),
+    )
+
+    result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.refusals == {discrepancy.id: BookingRefusal.GROWS_OR_FLIPS}
+
+
+# --- Every old refusal branch returns its code -------------------------------
+
+
+def _sum_mismatch() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([_fill(quantity=Decimal("0.4"))]), False
+
+
+def _mixed_sides() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    fills = [
+        _fill(exchange_fill_id="f1", side="SELL", quantity=Decimal("0.5")),
+        _fill(exchange_fill_id="f2", side="BUY", quantity=Decimal("0.1")),
+    ]
+    return discrepancy, FakeVenueFillReader(fills), False
+
+
+def _zero_unrecorded() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([]), False
+
+
+def _nonpositive_quantity() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([_fill(quantity=Decimal("0"))]), False
+
+
+def _window_too_long() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(
+        open_allocation_ids=(uuid4(),),
+        first_observed_at=NOW - timedelta(seconds=MAX_SPAN_SECONDS + 1),
+    )
+    return discrepancy, FakeVenueFillReader([_fill()]), False
+
+
+def _market_mismatch() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(symbol="STXUSDT.P", open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([_fill(symbol="ETHUSDT")]), False
+
+
+def _venue_read_failed() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader(raises=VenueFillReadError("unreachable")), False
+
+
+def _no_order_id() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([_fill(exchange_order_id=None)]), False
+
+
+def _several_allocations() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(), uuid4()))
+    return discrepancy, FakeVenueFillReader([_fill()]), False
+
+
+def _suppressed_by_rejection() -> tuple[DiscrepancyRecord, FakeVenueFillReader, bool]:
+    discrepancy = _discrepancy(open_allocation_ids=(uuid4(),))
+    return discrepancy, FakeVenueFillReader([_fill()]), True
+
+
+@pytest.mark.parametrize(
+    ("scenario", "code"),
+    [
+        pytest.param(_sum_mismatch, BookingRefusal.SUM_MISMATCH, id="sum-mismatch"),
+        pytest.param(_mixed_sides, BookingRefusal.MIXED_SIDES, id="mixed-sides"),
+        pytest.param(_zero_unrecorded, BookingRefusal.ZERO_UNRECORDED, id="zero-unrecorded"),
+        pytest.param(
+            _nonpositive_quantity, BookingRefusal.NONPOSITIVE_QUANTITY, id="nonpositive-quantity"
+        ),
+        pytest.param(_window_too_long, BookingRefusal.WINDOW_TOO_LONG, id="window-too-long"),
+        pytest.param(_market_mismatch, BookingRefusal.MARKET_MISMATCH, id="market-mismatch"),
+        pytest.param(_venue_read_failed, BookingRefusal.VENUE_READ_FAILED, id="venue-read-failed"),
+        pytest.param(_no_order_id, BookingRefusal.NO_ORDER_ID, id="no-order-id"),
+        pytest.param(
+            _several_allocations, BookingRefusal.SEVERAL_ALLOCATIONS, id="several-allocations"
+        ),
+        pytest.param(
+            _suppressed_by_rejection,
+            BookingRefusal.SUPPRESSED_BY_REJECTION,
+            id="suppressed-by-rejection",
+        ),
+    ],
+)
+async def test_every_old_refusal_branch_puts_its_code_in_the_result(
+    scenario: Callable[[], tuple[DiscrepancyRecord, FakeVenueFillReader, bool]],
+    code: BookingRefusal,
+) -> None:
+    discrepancy, reader, rejected = scenario()
+    owners = {allocation_id: uuid4() for allocation_id in discrepancy.open_allocation_ids}
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): reader},
+        owners=owners,
+    )
+    if rejected:
+        proposals.configure_matching_rejection(
+            discrepancy.id,
+            Observation(
+                kind=discrepancy.kind,
+                venue_net_base=discrepancy.venue_net_base,
+                ledger_net_base=discrepancy.ledger_net_base,
+            ),
+        )
+
+    result = await use_case.sweep(uuid4())
+
+    assert proposals.inserted == []
+    assert result.refusals == {discrepancy.id: code}
+
+
+def test_the_system_order_port_is_required_so_the_q2_refusal_can_never_be_skipped() -> None:
+    """Owner decision 66 Q2 (2026-10-16): until ``main.py`` wired the port it
+    defaulted to ``None`` and the refusal of a fill of a system order was not
+    applied; with a default, forgetting to wire it fails open (cd.1.23)."""
+
+    parameter = inspect.signature(PrepareBooking.__init__).parameters["system_order_ids"]
+
+    assert parameter.default is inspect.Parameter.empty

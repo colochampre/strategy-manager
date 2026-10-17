@@ -6,10 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
+import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import {
+  confirmedBody,
+  discrepancy,
   failsOnceThenHolds,
   jsonResponse,
   lock,
@@ -22,7 +25,7 @@ import {
   stubApi,
   unlock,
 } from "@/test/harness";
-import type { OpenPositionsStub } from "@/test/harness";
+import type { ConfirmedStub, OpenPositionsStub } from "@/test/harness";
 
 /**
  * T10, the detail section: the table, its cells, its sub-rows, its notes, its states and its orders, and the
@@ -288,15 +291,19 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
 const ALLOCATION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DISCREPANCY = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
-function proposal(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
-    discrepancy_id: DISCREPANCY,
-    allocation_id: ALLOCATION,
-    state: "PENDING",
-    ...overrides,
-  };
+/** The discrepancy the position's disagreement names; its symbol is the TradingView spelling, the position's is the venue's (R21). */
+function confirmedItem(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedDiscrepancy {
+  return discrepancy({ discrepancy_id: DISCREPANCY, symbol: "AAVEUSDT.P", ...overrides });
 }
+
+const BEING_BOOKED: ConfirmedStub = {
+  kind: "ok",
+  body: confirmedBody({ being_booked: [confirmedItem({ reason: null })] }),
+};
+const NEEDS_OWNER: ConfirmedStub = {
+  kind: "ok",
+  body: confirmedBody({ needs_owner: [confirmedItem({ reason: "NOT_BOOKED" })] }),
+};
 
 /** AAVEUSDT, which the venue disagrees on: it holds 0.82 in the ledger and 0 at the exchange. */
 function disagreeing(overrides: Partial<OpenPosition> = {}): OpenPosition {
@@ -313,17 +320,9 @@ function disagreeing(overrides: Partial<OpenPosition> = {}): OpenPosition {
   });
 }
 
-type BookingsAnswer = { kind: "ok"; body: unknown[] } | { kind: "pending" } | { kind: "status"; status: number };
-
-/** Mounts the section over one positions answer and one answer to the pending bookings. */
-async function mountWithBookings(position: OpenPosition, bookings: BookingsAnswer, asOf = "2026-10-12T21:40:03Z") {
-  const route = (url: string) => {
-    if (!url.includes("/reconciliation/bookings")) return undefined;
-    if (bookings.kind === "pending") return new Promise<Response>(() => undefined);
-    if (bookings.kind === "status") return Promise.resolve(jsonResponse({ detail: "down" }, bookings.status));
-    return Promise.resolve(jsonResponse(bookings.body));
-  };
-  stubApi(HEALTH, [], undefined, {}, route, {}, undefined, answering([position], [], asOf));
+/** Mounts the section over one positions answer and one answer to the confirmed discrepancies. */
+async function mountWithConfirmed(position: OpenPosition, confirmed: ConfirmedStub, asOf = "2026-10-12T21:40:03Z") {
+  stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, answering([position], [], asOf), confirmed);
   const view = renderAt(<OpenPositionsSection strategy={strategy()} />);
   await settle();
   return view;
@@ -345,8 +344,8 @@ function firstSubRow(table: HTMLElement, index = 0): HTMLElement {
   return subs[0] as HTMLElement;
 }
 
-const LINK = "See the pending decision";
-const WORDS = "no booking is proposed";
+const LINK = "See the discrepancy";
+const WORDS = "being booked automatically";
 
 describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
   it("is a real row of one cell across the eight columns, directly under its position's row", async () => {
@@ -407,9 +406,9 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
   });
 
   it("puts the venue line first, then the reason, then the reservation's note", async () => {
-    await mountWithBookings(
+    await mountWithConfirmed(
       disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
-      { kind: "ok", body: [proposal()] },
+      BEING_BOOKED,
     );
 
     const subs = subRowsOf(theTable());
@@ -421,52 +420,52 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
   });
 
   it("draws the venue line, solid red, across the table's width under its row", async () => {
-    await mountWithBookings(disagreeing(), { kind: "ok", body: [proposal()] });
+    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
 
     const sub = firstSubRow(theTable());
     const line = within(sub as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" });
     expect(line).toHaveClass("border-loss", "w-full");
     expect(line).not.toHaveClass("border-dashed");
     expect(line.textContent).toBe(
-      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · See the pending decision",
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · being booked automatically · See the discrepancy",
     );
   });
 
-  it("draws the link when a pending proposal names this allocation and this discrepancy", async () => {
-    await mountWithBookings(disagreeing(), { kind: "ok", body: [proposal()] });
+  it("draws the link to the item on the discrepancies page when the id is in being_booked", async () => {
+    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
 
     const link = await screen.findByRole("link", { name: `${LINK}, AAVEUSDT` });
-    expect(link).toHaveAttribute("href", "/#decision-rail");
-    expect(screen.queryByText(WORDS, { exact: false })).not.toBeInTheDocument();
+    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
+    expect(firstSubRow(theTable())).toHaveTextContent(WORDS);
   });
 
-  it.each([
-    ["no proposal is pending", []],
-    ["the proposal names another discrepancy", [proposal({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })]],
-    ["the proposal names another allocation", [proposal({ allocation_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })]],
-    ["the proposal is not pending", [proposal({ state: "REJECTED" })]],
-  ])("says that no booking is proposed, and links nowhere, when %s", async (_label, body) => {
-    await mountWithBookings(disagreeing(), { kind: "ok", body });
+  it("says the words of the reason, and keeps the line red, when the id is in needs_owner", async () => {
+    await mountWithConfirmed(disagreeing(), NEEDS_OWNER);
 
+    const link = await screen.findByRole("link", { name: `${LINK}, AAVEUSDT` });
+    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
     const sub = firstSubRow(theTable());
-    expect(sub).toHaveTextContent(WORDS);
-    expect(within(sub as HTMLElement).queryByRole("link")).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["the proposals are loading", { kind: "pending" } as BookingsAnswer],
-    ["their read failed", { kind: "status", status: 500 } as BookingsAnswer],
-  ])("draws neither the link nor the words while %s", async (_label, answer) => {
-    await mountWithBookings(disagreeing(), answer);
-
-    const sub = firstSubRow(theTable());
-    expect(sub).toHaveTextContent("AAVEUSDT · venue disagrees");
+    expect(sub).toHaveTextContent("could not be booked automatically");
     expect(sub).not.toHaveTextContent(WORDS);
+    expect(within(sub as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toHaveClass("border-loss");
+  });
+
+  it.each([
+    ["the discrepancies are loading", { kind: "pending" } as ConfirmedStub],
+    ["their read failed", { kind: "status", status: 500, body: { detail: "down" } } as ConfirmedStub],
+    ["the id is in neither list", { kind: "ok", body: confirmedBody() } as ConfirmedStub],
+  ])("draws neither the link nor the words while %s", async (_label, answer) => {
+    await mountWithConfirmed(disagreeing(), answer);
+
+    const sub = firstSubRow(theTable());
+    expect(sub.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
     expect(within(sub as HTMLElement).queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("writes 'last compared' with its date when the instant is of the day before the answer's", async () => {
-    await mountWithBookings(
+    await mountWithConfirmed(
       disagreeing({
         venue_disagreement: {
           discrepancy_id: DISCREPANCY,
@@ -476,7 +475,7 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
           last_observed_at: "2026-10-11T21:12:00Z",
         },
       }),
-      { kind: "ok", body: [] },
+      BEING_BOOKED,
     );
 
     const sub = firstSubRow(theTable());
@@ -612,8 +611,8 @@ const ENGLISH_OF_THE_SECTION = [
   "venue disagrees",
   "last compared",
   "shared by",
-  "no booking is proposed",
-  "See the pending decision",
+  "being booked automatically",
+  "See the discrepancy",
   "A dry-run position was filled",
   "This position holds dry-run",
   "Margin granted is what the share took",
@@ -641,24 +640,23 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
         last_observed_at: "2026-10-12T21:39:12Z",
       },
     });
-    const route = (url: string) =>
-      url.includes("/reconciliation/bookings") ? Promise.resolve(jsonResponse([proposal()])) : undefined;
     stubApi(
       HEALTH,
       [],
       undefined,
       {},
-      route,
+      undefined,
       {},
       undefined,
       answering(
         [wholeRow, aave({ origin: "rehearsal", markets: ["SFPUSDT"], leverage: null }), aave({ origin: "mixed", markets: ["STXUSDT"] }), unowned()],
         [openOrder({ strategy_id: ALPHA, action: "CLOSE", origin: "rehearsal" })],
       ),
+      BEING_BOOKED,
     );
     const view = renderAt(<OpenPositionsSection strategy={strategy()} />);
     await settle();
-    await screen.findByRole("link", { name: "Ver la decisión pendiente, AAVEUSDT" });
+    await screen.findByRole("link", { name: "Ver la discrepancia, AAVEUSDT" });
     return view;
   }
 
@@ -687,7 +685,8 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "exchange 0 AAVE, libro mayor 0.82 AAVE",
       "última comparación 21:39:12 UTC",
       "compartida por 2 posiciones en este par",
-      "Ver la decisión pendiente",
+      "se está registrando automáticamente",
+      "Ver la discrepancia",
       "La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan.",
       "Su reserva figura como EXPIRED, no FILLED.",
       "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
@@ -857,9 +856,9 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
 
   it("makes the sub-rows the card's last elements, in the order of the table's: venue line, reason, reservation", async () => {
     setViewport("narrow");
-    await mountWithBookings(
+    await mountWithConfirmed(
       disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
-      { kind: "ok", body: [proposal()] },
+      BEING_BOOKED,
     );
 
     const [card] = cards(1) as [HTMLElement];

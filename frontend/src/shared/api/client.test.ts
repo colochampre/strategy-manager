@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
-import type { BookingProposal, ProposedFill } from "@/shared/api/types";
 import { useTokenStore } from "@/shared/auth/token-store";
 
 function fakeResponse(body: unknown, status: number, ok: boolean = status >= 200 && status < 300): Response {
@@ -27,10 +26,10 @@ describe("apiFetch", () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true }, 200));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/reconciliation/bookings");
+    await apiFetch("/reconciliation/confirmed");
 
     const call = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(call[0]).toBe(`${API_BASE_URL}/api/reconciliation/bookings`);
+    expect(call[0]).toBe(`${API_BASE_URL}/api/reconciliation/confirmed`);
   });
 
   it("sends the stored token as a Bearer Authorization header", async () => {
@@ -38,7 +37,7 @@ describe("apiFetch", () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true }, 200));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/reconciliation/bookings");
+    await apiFetch("/reconciliation/confirmed");
 
     const call = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = new Headers(call[1].headers);
@@ -52,7 +51,7 @@ describe("apiFetch", () => {
       .mockResolvedValue(fakeResponse({ detail: "Not authenticated" }, 401, false));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch("/reconciliation/bookings")).rejects.toBeInstanceOf(ApiError);
+    await expect(apiFetch("/reconciliation/confirmed")).rejects.toBeInstanceOf(ApiError);
 
     expect(useTokenStore.getState().token).toBeNull();
   });
@@ -65,7 +64,7 @@ describe("apiFetch", () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse(body, status, false));
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = (await apiFetch("/reconciliation/bookings/id/approve", { method: "POST" }).catch(
+    const error = (await apiFetch("/strategies/id/enable", { method: "POST" }).catch(
       (caught: unknown) => caught,
     )) as ApiError;
 
@@ -342,16 +341,16 @@ describe("apiFetch", () => {
   it("throws a typed ApiError for a plain FastAPI 404 body, never a resolved value", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(fakeResponse({ detail: "no such booking proposal" }, 404, false));
+      .mockResolvedValue(fakeResponse({ detail: "no such strategy" }, 404, false));
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = (await apiFetch("/reconciliation/bookings/unknown").catch(
+    const error = (await apiFetch("/strategies/unknown").catch(
       (caught: unknown) => caught,
     )) as ApiError;
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(404);
-    expect(error.detail).toBe("no such booking proposal");
+    expect(error.detail).toBe("no such strategy");
   });
 
   it("throws a typed ApiError for a 500 with a non-JSON error body", async () => {
@@ -362,7 +361,7 @@ describe("apiFetch", () => {
     } as unknown as Response);
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = (await apiFetch("/reconciliation/bookings").catch((caught: unknown) => caught)) as ApiError;
+    const error = (await apiFetch("/reconciliation/confirmed").catch((caught: unknown) => caught)) as ApiError;
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(500);
@@ -372,38 +371,27 @@ describe("apiFetch", () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ outcome: "SUPERSEDED", detail: "x" }, 409, false));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch("/reconciliation/bookings/id/approve", { method: "POST" })).rejects.toBeInstanceOf(
-      ApiError,
-    );
+    await expect(apiFetch("/strategies/id/enable", { method: "POST" })).rejects.toBeInstanceOf(ApiError);
   });
 
   it("throws a typed ApiError on a network failure, never undefined", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const error = await apiFetch("/reconciliation/bookings").catch((caught: unknown) => caught);
+    const error = await apiFetch("/reconciliation/confirmed").catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).not.toBeUndefined();
   });
 
   it("resolves the parsed JSON body on a 2xx response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ outcome: "APPROVED" }, 200));
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ outcome: "ENABLED" }, 200));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await apiFetch<{ outcome: string }>("/reconciliation/bookings/id/approve", {
+    const result = await apiFetch<{ outcome: string }>("/strategies/id/enable", {
       method: "POST",
     });
 
-    expect(result).toEqual({ outcome: "APPROVED" });
-  });
-
-  it("types every money field on the proposal shape as string, never number", () => {
-    expectTypeOf<BookingProposal["quantity"]>().toEqualTypeOf<string>();
-    expectTypeOf<BookingProposal["observed_venue_net_base"]>().toEqualTypeOf<string>();
-    expectTypeOf<BookingProposal["observed_ledger_net_base"]>().toEqualTypeOf<string>();
-    expectTypeOf<ProposedFill["quantity"]>().toEqualTypeOf<string>();
-    expectTypeOf<ProposedFill["price"]>().toEqualTypeOf<string>();
-    expectTypeOf<ProposedFill["fee"]>().toEqualTypeOf<string>();
+    expect(result).toEqual({ outcome: "ENABLED" });
   });
 });

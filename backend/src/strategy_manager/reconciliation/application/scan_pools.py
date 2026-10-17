@@ -161,6 +161,10 @@ class ScanPools:
         from both the venue and the ledger still resolve (spec's automatic
         resolution requirement), rather than being silently skipped because
         neither side mentions it any more.
+
+        A pool that resolves any discrepancy logs one INFO line saying how
+        many (owner decision 66, 2026-10-17); a pool that resolves none logs
+        nothing.
         """
         # Every side is keyed by ``market_key``, never by the raw symbol: the
         # ledger holds TradingView's spelling (``STXUSDT.P``) and the venue its
@@ -243,6 +247,17 @@ class ScanPools:
             resolved = await self._discrepancies.resolve_absent(
                 pool, resolved_symbols, scan_id, at
             )
+            if resolved > 0:
+                exchange, venue, settlement_currency = pool
+                logger.info(
+                    "reconciliation scan: resolved %s discrepancies in %s/%s/%s "
+                    "(scan %s)",
+                    resolved,
+                    exchange,
+                    venue,
+                    settlement_currency,
+                    scan_id,
+                )
 
         return opened, resolved
 

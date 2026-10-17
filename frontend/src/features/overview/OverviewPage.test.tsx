@@ -1,139 +1,145 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
+import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
-import { emptyPerformance, lock, pool, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { emptyPerformance, lock, pool, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
 const TWO_EXCHANGES = { kind: "ok", body: [pool("bybit", "linear"), pool("binance")] } as const;
-
-function proposal(exchange: string, symbol: string) {
-  return {
-    id: `id-${symbol}`,
-    discrepancy_id: "d",
-    exchange,
-    venue: "usdt-m",
-    settlement_currency: "USDT",
-    symbol,
-    kind: "ATTRIBUTABLE_FULL_CLOSE",
-    allocation_id: "a",
-    strategy_id: "s",
-    side: "SELL",
-    quantity: "1",
-    observed_venue_net_base: "0",
-    observed_ledger_net_base: "-1",
-    observed_allocation_ids: [],
-    fills: [],
-    client_order_id: "c",
-    expires_at: "2026-09-24T01:02:03+00:00",
-    prepared_by_job_id: "j",
-    created_at: "2026-09-23T01:02:03+00:00",
-    state: "PENDING",
-    decided_at: null,
-    decided_by: null,
-    decision_reason: null,
-    execution_attempt_id: null,
-  };
-}
-
-const BOOKINGS = [proposal("bybit", "SOLUSDT.P"), proposal("binance", "ETHUSDT.P")];
 
 beforeEach(() => {
   unlock();
   resetExchangeScope();
 });
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
+  await act(() => i18n.changeLanguage("en"));
 });
 
-describe("decision rail scoped to the exchange", () => {
-  it("shows only the default exchange's pending bookings at first", async () => {
-    stubApi(HEALTH, BOOKINGS, TWO_EXCHANGES);
+/** The page's own content: the shell's tabs say "Loading exchanges…" too, so a message is looked for inside `main`. */
+async function inPage() {
+  return within(await screen.findByRole("main"));
+}
+
+/** The page's title, asserted to exist before it is returned. */
+async function title(): Promise<HTMLElement> {
+  return screen.findByRole("heading", { level: 1, name: /^(Overview|Resumen)$/ });
+}
+
+describe("the Overview has no decision rail (spec: no rail, on any width; prototype example 12)", () => {
+  it.each([["wide"], ["narrow"]] as const)("draws no rail, no slot and no column beside the panels on a %s viewport", async (width) => {
+    setViewport(width);
+    stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findByText("SOLUSDT.P")).toBeInTheDocument();
-    expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
+    await screen.findAllByTestId("pool-panel");
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rail-slot")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /decision/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("overview-layout").className).not.toMatch(/xl:flex-row/);
   });
 
-  it("switches the rail to the other exchange when its tab is clicked", async () => {
-    stubApi(HEALTH, BOOKINGS, TWO_EXCHANGES);
-    renderAt(<AppRoutes />, "/");
-    await screen.findByText("SOLUSDT.P");
+  it.each([["wide"], ["narrow"]] as const)(
+    "puts nothing between the return chart and the month grid on a %s viewport",
+    async (width) => {
+      setViewport(width);
+      stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+        "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+      });
+      renderAt(<AppRoutes />, "/");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
-
-    expect(await screen.findByText("ETHUSDT.P")).toBeInTheDocument();
-    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
-  });
-
-  it("shows the empty state for an exchange with nothing pending", async () => {
-    stubApi(HEALTH, [proposal("bybit", "SOLUSDT.P")], TWO_EXCHANGES);
-    renderAt(<AppRoutes />, "/");
-    await screen.findByText("SOLUSDT.P");
-
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
-
-    expect(await screen.findByText(en.overview.decisionRail.empty)).toBeInTheDocument();
-    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
-  });
+      const panel = await screen.findByTestId("pool-panel");
+      const grid = await within(panel).findByTestId("month-2026-9");
+      const figure = within(panel).getByRole("img").closest("figure") as HTMLElement;
+      const top = figure.parentElement as HTMLElement;
+      expect(top.nextElementSibling).toContainElement(grid);
+    },
+  );
 });
 
-describe("while the exchange scope is not known", () => {
-  it("shows no bookings while pools load", async () => {
-    stubApi(HEALTH, BOOKINGS, { kind: "pending" });
+describe("the Overview carries its own scope messages (spec; prototype example 13; design K row 7)", () => {
+  const MESSAGES = {
+    en: {
+      loading: "Loading exchanges…",
+      error: "The pools are hidden because the exchanges could not be loaded, so they cannot be filtered.",
+      none: "No exchange is configured, so there are no pools to show.",
+      title: "Overview",
+    },
+    es: {
+      loading: "Cargando exchanges…",
+      error: "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.",
+      none: "No hay ningún exchange configurado, por lo que no hay pools que mostrar.",
+      title: "Resumen",
+    },
+  } as const;
+
+  it.each([["en"], ["es"]] as const)("draws the loading message as a status in ink-3, under the title, in %s", async (language) => {
+    await act(() => i18n.changeLanguage(language));
+    stubApi(HEALTH, [], { kind: "pending" });
     renderAt(<AppRoutes />, "/");
 
-    const rail = await screen.findByRole("complementary");
-    expect(rail).toHaveTextContent(en.overview.decisionRail.scopeLoading);
-    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText(en.overview.decisionRail.empty)).not.toBeInTheDocument();
+    const message = await (await inPage()).findByText(MESSAGES[language].loading);
+    expect(message).toHaveAttribute("role", "status");
+    expect(message).toHaveClass("text-ink-3");
+    expect(message.previousElementSibling).toBe(await title());
+    expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
   });
 
   it.each([
-    ["a 500", { kind: "status", status: 500, body: { detail: "boom" } }],
-    ["a network failure", { kind: "network-error" }],
-    ["a malformed body", { kind: "ok", body: { items: [] } }],
-  ] as const)("never shows unfiltered bookings when pools fail with %s", async (_label, stub) => {
-    stubApi(HEALTH, BOOKINGS, stub);
+    ["en", "a 500", { kind: "status", status: 500, body: { detail: "boom" } }],
+    ["es", "a network failure", { kind: "network-error" }],
+    ["en", "a malformed body", { kind: "ok", body: { items: [] } }],
+  ] as const)("draws the failed message as an alert in a red-bordered box, in %s, for %s", async (language, _label, stub) => {
+    await act(() => i18n.changeLanguage(language));
+    stubApi(HEALTH, [], stub);
     renderAt(<AppRoutes />, "/");
 
-    const rail = await screen.findByRole("complementary");
-    await waitFor(() => expect(rail).toHaveTextContent(en.overview.decisionRail.scopeError));
-    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText(en.overview.decisionRail.empty)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: en.bookings.actions.approve })).not.toBeInTheDocument();
+    const message = await (await inPage()).findByText(MESSAGES[language].error);
+    expect(message).toHaveAttribute("role", "alert");
+    expect(message).toHaveClass("border", "border-loss");
+    expect(message.previousElementSibling).toBe(await title());
+    expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
   });
 
-  it("says no exchange is configured, and shows no bookings, when there are no pools", async () => {
-    stubApi(HEALTH, BOOKINGS, { kind: "ok", body: [] });
+  it.each([["en"], ["es"]] as const)("draws the no-exchange message in ink-3 when there are no pools, in %s", async (language) => {
+    await act(() => i18n.changeLanguage(language));
+    stubApi(HEALTH, [], { kind: "ok", body: [] });
     renderAt(<AppRoutes />, "/");
 
-    const rail = await screen.findByRole("complementary");
-    await waitFor(() => expect(rail).toHaveTextContent(en.overview.decisionRail.noExchanges));
-    expect(screen.queryByText("SOLUSDT.P")).not.toBeInTheDocument();
-    expect(screen.queryByText("ETHUSDT.P")).not.toBeInTheDocument();
+    const message = await (await inPage()).findByText(MESSAGES[language].none);
+    expect(message).toHaveClass("text-ink-3");
+    expect(message).not.toHaveAttribute("role", "alert");
+    expect(message.previousElementSibling).toBe(await title());
+    expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
   });
 
-  it("keeps the rail heading and the page title in every state", async () => {
-    stubApi(HEALTH, BOOKINGS, { kind: "network-error" });
+  it("draws none of the three messages once the scope is known", async () => {
+    stubApi(HEALTH, [], TWO_EXCHANGES);
+    renderAt(<AppRoutes />, "/");
+    await screen.findAllByTestId("pool-panel");
+
+    for (const text of [MESSAGES.en.loading, MESSAGES.en.error, MESSAGES.en.none]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+  });
+
+  it("keeps the page title in every state", async () => {
+    stubApi(HEALTH, [], { kind: "network-error" });
     renderAt(<AppRoutes />, "/");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: en.overview.decisionRail.title })).toBeInTheDocument();
   });
-});
 
-describe("copy", () => {
-  it("has the rail's scope messages in English and Spanish", () => {
+  it("has the messages under overview.scope in both locales", () => {
     for (const locale of [en, es]) {
-      expect(locale.overview.decisionRail.scopeLoading).toBeTruthy();
-      expect(locale.overview.decisionRail.scopeError).toBeTruthy();
-      expect(locale.overview.decisionRail.noExchanges).toBeTruthy();
+      expect(locale.overview.scope.loading).toBeTruthy();
+      expect(locale.overview.scope.error).toBeTruthy();
+      expect(locale.overview.scope.noExchanges).toBeTruthy();
     }
   });
 });
@@ -249,7 +255,7 @@ describe("one panel per pool of the exchange", () => {
   it("requests no report and shows no panel until the exchange is known", async () => {
     const fetchMock = stubApi(HEALTH, [], { kind: "pending" });
     renderAt(<AppRoutes />, "/");
-    await screen.findByRole("complementary");
+    await (await inPage()).findByText(en.overview.scope.loading);
 
     expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
     expect(performanceCalls(fetchMock)).toEqual([]);
@@ -258,8 +264,7 @@ describe("one panel per pool of the exchange", () => {
   it("requests no report and shows no panel when the pools failed", async () => {
     const fetchMock = stubApi(HEALTH, [], { kind: "status", status: 500, body: { detail: "boom" } });
     renderAt(<AppRoutes />, "/");
-    const rail = await screen.findByRole("complementary");
-    await waitFor(() => expect(rail).toHaveTextContent(en.overview.decisionRail.scopeError));
+    await (await inPage()).findByText(en.overview.scope.error);
 
     expect(screen.queryByTestId("pool-panel")).not.toBeInTheDocument();
     expect(performanceCalls(fetchMock)).toEqual([]);
@@ -329,7 +334,7 @@ describe("one pool failing", () => {
     expect(await within(healthy).findByTestId("ledger-line")).toBeInTheDocument();
     expect(within(healthy).queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
 });
 
@@ -510,32 +515,27 @@ describe("the overview sizing (decisions 35 and 36)", () => {
   it("fills the available width: neither the panel nor its column has a maximum width", async () => {
     const panel = await renderOne();
     expect(panel.className).not.toMatch(/max-w-/);
-    const column = screen.getByTestId("overview-layout").firstElementChild as HTMLElement;
+    const column = screen.getByTestId("overview-layout");
     expect(column.className).not.toMatch(/max-w-/);
-    expect(column).toHaveClass("xl:flex-1", "min-w-0");
+    expect(column).toHaveClass("flex-col", "min-w-0");
     expect(panel).toHaveClass("w-full", "min-w-0");
   });
 
-  it("lets the rail shrink with the window instead of holding 22.5 rem", async () => {
+  it("is one column on every width: the panels stack and nothing sits beside them", async () => {
     await renderOne();
-    const slot = screen.getByTestId("rail-slot");
-    expect(slot).toHaveClass("xl:w-[clamp(15rem,25%,22.5rem)]", "xl:shrink-0");
     const layout = screen.getByTestId("overview-layout");
-    expect(layout.className).not.toMatch(/grid-cols|22.5rem/);
-    // Side by side, packed from the left: the rail sits next to the panel.
-    expect(layout).toHaveClass("xl:flex-row", "xl:items-start");
-    expect(layout.className).not.toMatch(/justify-between/);
+    expect(layout.className).not.toMatch(/grid-cols|22.5rem|flex-row|xl:items-start/);
+    expect(layout.parentElement?.querySelectorAll("aside, [data-testid='rail-slot']")).toHaveLength(0);
   });
 
-  it("asks for the side rail from 1280 px, where the panel still has room for the grid", async () => {
+  it("asks for no side rail: the 1280 px query of the rail is gone", async () => {
     const queries: string[] = [];
     vi.stubGlobal("matchMedia", (query: string) => {
       queries.push(query);
       return { matches: true, media: query, addEventListener: () => undefined, removeEventListener: () => undefined };
     });
     await renderOne();
-    expect(queries).toContain("(min-width: 1280px)");
-    expect(queries).not.toContain("(min-width: 1024px)");
+    expect(queries).not.toContain("(min-width: 1280px)");
   });
 
   it("draws the chart at a fixed height that does not depend on the panel's width", async () => {

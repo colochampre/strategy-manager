@@ -7073,3 +7073,619 @@ words "Dry run" and "Live" (the mode badge's, decision 32); that no notional is 
 1x (it is what is recorded, P12); UTC for every time (decision 16 allows local time for trade
 times, and the trades table shows UTC).
 
+## Addendum: PR 15 — Confirmed discrepancies (owner decision 66)
+
+HEAD `14ef3b9`, branch `feat/operator-panel-discrepancies`, written 2026-10-16. Decision 66 is
+binding and is not reopened here: a view of the CONFIRMED discrepancies as an item of the
+navigation bar, with a badge counting those that need the owner and nothing at zero; automatic
+booking of `ATTRIBUTABLE_FULL_CLOSE` and `ATTRIBUTABLE_SINGLE_ALLOCATION` when the venue fills sum
+exactly to the observed difference, each listed in the view; no booking of any kind for
+`AMBIGUOUS_PARTIAL_REDUCE` and `NO_MATCHING_ALLOCATION`, shown in the view and told to the owner;
+"Needs your decision" out of the Overview, and the open position's venue line linking to the new
+view. The owner's goal, verbatim: "Prefiero que el sistema no me pida intervención si la idea es
+dejarlo correr indefinidamente sin necesidad de monitorearlo a diario." This addendum is design
+only: it writes no task, no code and no spec file. "Unit dc" below is a placeholder for the
+tasks to name.
+
+> **Revised 2026-10-16 after the owner's answers.** The owner answered all ten questions of § O
+> the same day, each as its recommended option, and Q3 with one addition (decision 66, the
+> sub-list "The design's questions (design.md, PR 15 addendum), answered 2026-10-16"). Every
+> "pending" mark is resolved in place. Four answers changed the design beyond removing a mark:
+>
+> - **Q3: the alert carries the reason.** The reason is still not stored, so there is no
+>   migration. Instead the sweep returns each refusal's CODE in memory, and the announcement
+>   writes it into the message as an argument, so the message template stays the same and so
+>   does the throttle key (§ C6, § E, § J; § K row 2; § L, T2 and T7).
+> - **Q4: a daily reminder**, logged under its own template so that the throttle cannot fold it
+>   into an announcement; and a check before the deploy, run by the owner, that prints only a
+>   count to show whether alerts are on in production (§ E, § M, § N).
+> - **Q8: the venue mark says "being booked automatically"** while a booking is under way. The
+>   venue line and chip therefore read the confirmed-discrepancies query, and PR 14's rule
+>   "until it is read, neither the link nor the words" stays, applied to that query (§ H; § K
+>   row 15; § L, T11).
+> - **Q10: the first automatic booking is a deliberate live test**, recorded as the first step
+>   once the owner decides to go live (decision 63, not taken) (§ M, § N).
+
+**The answer in one paragraph.** Automatic booking adds no second writer. The existing
+`reconciliation.prepare_booking` job, after `PrepareBooking.sweep` has committed its proposals,
+calls the existing `ApproveBooking.approve` for every proposal still `PENDING`, with a fixed
+actor, one transaction per proposal: the same code the approve route runs today. So every guard
+of the manual path still holds because it is the same code: the exact sum, the single
+allocation, the venue order id, the freshness re-check, the in-flight close, both UNIQUEs, and
+`DRY_RUN` refused at the handler and in the use case. The only lock is the proposal's row lock;
+no pool advisory lock is taken, for the reasons `book-venue-closes` gave, which still hold now
+that no human sits between prepare and approve, so no lock order can be broken. No migration: an
+automatic booking is an `APPROVED` proposal whose `decided_by` names the system. One pure
+predicate, `needs_owner`, decides which confirmed discrepancies need the owner. The nav badge,
+the view's first list and a new Telegram announcement all use it, so they cannot disagree.
+Nothing alerts on a confirmed discrepancy today (§ B). The view reads one new admin route,
+`GET /reconciliation/confirmed`. The decision rail leaves the Overview, and so do the three
+scope messages it also carried, which must move into the page (P14).
+
+### A. Findings from the code (verified at HEAD `14ef3b9`)
+
+| # | Finding | Where | Consequence |
+| --- | --- | --- | --- |
+| P1 | Booking is two steps today: a worker job prepares a `PENDING` proposal every 60 s, and a human approves it through an API route. | `reconciliation/application/prepare_booking.py:112-309`; `booking_prepare_handler.py:179-208`; `reconciliation/infrastructure/router.py:396-442`; `shared/config.py:315` | Automation only needs to join the two steps in the worker. Nothing about how proposals are matched or written has to change. |
+| P2 | `PrepareBooking` only ever inserts. Its comment "Deliberately nothing further" says calling `mark_state` there "would be exactly the accidental auto-approval the money-critical test in this unit exists to catch". | `prepare_booking.py:288-306` | Approval stays OUT of the sweep. It becomes a separate step after the sweep's commit (§ C1), so that test and the spec's "prepare writes nothing to the ledger" stay true. |
+| P3 | `ApproveBooking.approve(proposal_id, decided_by)` is one transaction: `FOR UPDATE`, not-PENDING → `ALREADY_DECIDED`, `DRY_RUN` refusal, expiry, freshness (a)-(g) plus the single-allocation re-check, the writer's SAVEPOINT, `mark_state`, commit. Every outcome except `APPROVED` logs a WARNING. | `approve_booking.py:111-268` | It is reused unchanged. `decided_by` is already a parameter, so the automatic actor is just a value. |
+| P4 | The proposal row lock lives in `get_for_update`. Its own comment says the lock protects the caller's freshness-and-write gap. There is already a real-PostgreSQL concurrent double-approval test. | `booking_proposal_repository.py:171-192`; `tests/reconciliation/application/test_approve_booking_integration.py:935` | The automatic step's concurrency test reuses that harness (§ L, T6). |
+| P5 | Booking takes no pool advisory lock, by design: it reads no availability and writes no reservation, the race is between two writers of one fill, which the UNIQUEs settle, and `SettleExecution` takes no lock either. The pool lock is taken by `AllocateCapital`, archive, delete strategy and delete credential. | archived `book-venue-closes/design.md:227-234`; `allocation/application/allocate_capital.py:169`; `strategies/application/archive_strategy.py:163`; `delete_strategy.py:118`; `accounts/application/delete_credential.py:123` | Kept (§ C3). Of the four reasons, only item 3 (approval was human-paced) no longer applies. The other three still do. |
+| P6 | Prepare refuses an `ATTRIBUTABLE_FULL_CLOSE` over more than one open allocation, with a WARNING, and the database refuses such a row too. | `prepare_booking.py:248-263`; `migrations/versions/0023_booking_proposals.py:112` | Decision 66's "a full liquidation is `ATTRIBUTABLE_FULL_CLOSE` whatever the number of allocations" is true of the VERDICT, not of the booking. A full liquidation of two strategies on one pair is booked neither automatically nor by hand. It needs the owner, with its alert (§ D rule 3; Q9, answered (a): this corrects what the owner was told before the design). |
+| P7 | Prepare skips `AMBIGUOUS_PARTIAL_REDUCE` and `NO_MATCHING_ALLOCATION` with a bare `continue`, without a log line. | `prepare_booking.py:131-136` | Nothing on the booking path says such a discrepancy exists. |
+| P8 | `match_fills` takes every UNRECORDED venue fill in `[first_observed_at - 300 s, now]`. It requires one side and an exact signed sum. It does not check whether the difference moves the allocation toward zero, nor whether a fill belongs to an order this system placed. | `reconciliation/domain/booking.py:136-219`; `prepare_booking.py:153-213`; `shared/config.py:325` | An exact sum can still be the wrong attribution. Example: strategy B opens 0.3 and its settle exhausts its retries, so B's fills are unrecorded and B has no open allocation. Strategy A holds 0.5. The venue reads 0.8 and the verdict is `ATTRIBUTABLE_SINGLE_ALLOCATION` for A, with delta +0.3. B's fills sum exactly and would be booked to A permanently. Check (g) looks at A's strategy only (`approve_booking.py:260-267`). Today a human reads the fills first; automatic booking removes that read. Hence Q2's two refusals (answered (a), § C8). |
+| P9 | The scan writes a confirmation without a log line. Its only log line is the WARNING for a failed venue read. The scan handler logs only its `DRY_RUN` skip. | `scan_pools.py:227-239`, `:117`; `reconciliation_scan_handler.py:110-118` | A discrepancy can reach `CONFIRMED` with no line in the journal. |
+| P10 | Operator alerts forward ERROR and above only, from the root logger, to Telegram. They are opt-in (`ALERTS_ENABLED`, default `False`) and throttled to one per (logger, message template) per 900 s. A misconfigured channel says so once at WARNING. | `shared/infrastructure/alert_log_bridge.py:114`, `:207`, `:227-231`; `alerting.py:40-60`, `:87-100`; `shared/config.py:365`, `:389`; owner-decisions.md:67, :142 (ERRORs reach Telegram in production) | An alert for a discrepancy has to be an ERROR record. Two different discrepancies announced with the same template inside 900 s become ONE alert plus a "+1 suppressed" note, and that note arrives only with the next admitted alert (§ E, § N). |
+| P11 | `HoldingGuard` refuses a GHOST or AMBIGUOUS holding at WARNING. | `signals/application/holding_guard.py:195-204` | A strategy blocked by an unbooked close is not alerted either. |
+| P12 | The watchdog logs ERROR for FAILED jobs and for recurring kinds with no live job, and `RECONCILIATION_PREPARE_BOOKING` is one of those kinds. | `shared/application/watchdog.py:283-310`; `shared/infrastructure/recurring_jobs.py:55-61` | A dead booking chain is already loud. The automatic step adds no new chain. |
+| P13 | `booking_proposals.decided_by` is nullable free text. `state` takes five values, `APPROVED` requires `decided_at`, and only `APPROVED` carries an `execution_attempt_id`. | `0023_booking_proposals.py:93-106`, `:163` | An automatic booking needs no migration (§ F). |
+| P14 | The decision rail is also where the Overview says the exchange scope is loading, failed, or has no exchanges. The page's docstring says "The rail says why". | `features/overview/DecisionRail.tsx:93-105`; `OverviewPage.tsx:30-33`, `:45-67` | Removing the rail without moving those three messages would leave an Overview that shows only its title when pools fail to load: a silent failure (§ H, § K row 7). |
+| P15 | Only the rail mounts `BookingsListView` and the two dialogs. The venue line and the venue chip read `usePendingBookings` for one purpose: choosing between "See the pending decision" and "no booking is proposed". `DecisionRail.tsx` is on the amber allow-list. | `DecisionRail.tsx:5`, `:49`; `features/positions/MarkLine.tsx:106-130`; `OpenMarks.tsx:35-50`; `features/overview/panel-tokens.test.ts:64-65` | Once the rail goes, the bookings feature has no other caller and is removed (Q1, answered (a)). Both links point to the new view and read the confirmed discrepancies instead of proposals (Q8, § H). |
+| P16 | The navigation has three items, typed by a `labelKey` union. `SideNav` and `BottomNav` draw them with no badge. The routes live in one file. | `shared/layout/navItems.ts:1-13`; `SideNav.tsx`; `BottomNav.tsx`; `app/router.tsx:15-27` | One more item and one badge component, drawn in both navs. |
+| P17 | Production has always run in dry run, and under `DRY_RUN` both the scan and the prepare job skip. | owner-decisions.md:449; `reconciliation_scan_handler.py:110-118`; `booking_prepare_handler.py:180-187` | No discrepancy and no proposal is expected in production. This was NOT verified on the VPS; § M hands the owner a read-only count. |
+| P18 | The approve route builds `ApproveBooking` with `FixedUsdRateProvider({USDT: 1})`. | `router.py:348-365` | The worker's automatic step uses the same provider, so a booking's `usd_rate_at_fill` does not depend on which process wrote it. |
+| P19 | `GET /reconciliation/discrepancies` reads every open row and filters in Python. The open set is small by construction: one row per disagreeing pool and symbol. | `router.py:162-199` | The new read route can use the same `list_discrepancies(status=CONFIRMED, open_only=True)` call that `PrepareBooking` and `ConfirmedDisagreementSource` already make. |
+
+### B. Does anything alert on a confirmed discrepancy today? No.
+
+Nothing does: no Telegram message, no ERROR, not even a WARNING. Followed end to end:
+
+1. The scan writes `CONFIRMED` without a log line (P9).
+2. Prepare logs nothing for the two kinds it never books (P7). For a bookable kind it refuses, it
+   logs a WARNING on every sweep, once a minute.
+3. The guard that then refuses the strategy's signals logs a WARNING too (P11).
+4. Only ERROR reaches the bridge, and alerting itself is opt-in (P10). The watchdog's ERRORs
+   cover a dead chain or a FAILED job (P12), never the data those chains find.
+
+So today a confirmed `NO_MATCHING_ALLOCATION` stays a journal-only fact, unless the owner
+happens to read `GET /reconciliation/discrepancies` or sees the red venue mark on a position.
+`NO_MATCHING_ALLOCATION` has no position row to carry that mark. What is added is described in
+§ E (Q4, answered (b)).
+
+### C. Automatic booking
+
+**C1. Where it runs.** In the `reconciliation.prepare_booking` handler, in this order:
+
+```
+handle(job):
+  if dry_run: skip, as today (no expire, no sweep, no auto-book, no announcement)
+  else:
+    expire()              # unchanged
+    sweep(job.id)         # plus Q2's two refusals and refusal codes; commits once
+    auto_book.run()       # NEW: ApproveBooking.approve for every PENDING proposal
+    announce.run()        # NEW: § E, with this run's refusal codes and approval outcomes
+  enqueue the successor   # unchanged
+```
+
+`AutoBookPending`, a new use case in `reconciliation/application/auto_book_pending.py`, lists
+`PENDING` proposals with the existing `list_pending(limit=...)` (`booking_proposal_repository.py:222`).
+For each one, in list order, it calls `approve(proposal.id, decided_by=AUTO_BOOKING_ACTOR)`, where
+`AUTO_BOOKING_ACTOR = "system:auto-booking"` is defined once, beside the route's `ADMIN_ACTOR`
+(`router.py:96`). It depends on a `Protocol` with `approve`'s signature, not on the class, the
+same way the handler depends on `PrepareBookingPort` (`booking_prepare_handler.py:112-116`). It
+returns counts per outcome, and the handler logs one INFO summary when anything moved, otherwise
+DEBUG, following the existing `_log_summary` (`booking_prepare_handler.py:137-159`).
+
+Why approval is not done inside `sweep`: `sweep` commits once, at its end
+(`prepare_booking.py:308`), while `approve` commits on every outcome. Approving inside the loop
+would commit half a sweep, and it would make prepare a ledger writer, which P2 forbids.
+
+Why EVERY `PENDING` proposal, not only those this job prepared: a crash between the sweep's
+commit and the approvals leaves rows `PENDING`, and the next run must pick them up. Proposals
+left from the manual era are also caught (Q1, answered (a)). An unbounded list is impossible: the
+partial unique index keeps at most one `PENDING` proposal per discrepancy (`0023`,
+`ux_booking_proposals_pending_per_discrepancy`).
+
+**C2. Transaction boundaries.** The handler keeps the one session it has today
+(`main.py:1604-1715`). The worker builds `ApproveBooking` the way `_approve_use_case` does
+(`router.py:348-365`): the same session, `SqlAlchemyBookingWriter`, `InFlightCloseAdapter`, the
+same fixed USD rate (P18), `SystemClock`, and `dry_run=settings.dry_run`.
+
+| Step | Transaction | Committed by |
+| --- | --- | --- |
+| expire | one | `ExpireBookingProposals` (unchanged) |
+| sweep | one for the whole sweep | `PrepareBooking.sweep` (`prepare_booking.py:308`) |
+| each automatic approval | one per proposal: row lock, freshness, SAVEPOINT write, `mark_state` | `ApproveBooking.approve` (every return path commits, `approve_booking.py:121-212`) |
+| announcement | none (it reads, logs and writes nothing) | — |
+| successor | the handler's final enqueue | `main.py`'s `await session.commit()` |
+
+**C3. Locks and their order.** The only lock is the proposal row's `FOR UPDATE`, held from
+`get_for_update` to the commit of the same proposal's approval. No pool advisory lock is taken,
+and that keeps P5's reasoning. A booking reads no availability and writes no reservation, so rule
+4 does not govern it. The race that matters, two writers recording one venue fill, is settled
+by `ux_ledger_exchange_fill` and `execution_attempts_client_order_id_key`, and a pool lock would
+not remove it, because `SettleExecution` records fills without a lock. The one reason that no
+longer applies is that approval used to wait for a human.
+
+Since only a row lock is taken, the rule "pool advisory lock first, then row locks" has nothing
+to order. A system close racing a booking of the same allocation needs no lock either: the fills
+are distinct, the venue order is `reduceOnly`, and the two leave the ledger net where the venue
+is, in either order. The freshness check (g) is a best-effort early refusal, not the guarantee.
+If a later change makes booking write a reservation or move availability, it takes the pool lock
+FIRST, before `get_for_update`. That is the order every other path uses, and the change's tests
+would then need the pool-lock harness of `test_archive_vs_allocate_concurrency.py`.
+
+**C4. Idempotency.**
+
+| Replay | What happens |
+| --- | --- |
+| The job runs twice (a retry after a crash, or two live jobs of the kind) | Prepare inserts at most one `PENDING` row per discrepancy; a second insert is `ON CONFLICT DO NOTHING` and logs INFO (`prepare_booking.py:288-299`). The second approver waits on the row lock, then reads `APPROVED` and returns `ALREADY_DECIDED` with a WARNING, writing nothing (`approve_booking.py:114-122`). |
+| Crash after the sweep's commit, before approval | The row stays `PENDING`; the next run approves it if it is still fresh, otherwise `SUPERSEDED` or `EXPIRED`. |
+| Crash after an approval's commit | It is `APPROVED`; `list_pending` no longer returns it. |
+| The same fills reach the ledger by another path first | The writer's SAVEPOINT catches the named collision, and the proposal becomes `SUPERSEDED` with a WARNING (`approve_booking.py:198-213`; `booking_writer.py:73-90`). |
+
+**C5. `DRY_RUN`.** Refused at three layers, as today plus one: the handler skips everything
+(`booking_prepare_handler.py:180-187`), `PrepareBooking` refuses (`prepare_booking.py:113-118`),
+and `ApproveBooking` refuses with `DRY_RUN_REFUSED` and a WARNING (`approve_booking.py:124-131`).
+The automatic step adds no `DRY_RUN` check of its own: the handler never reaches it under
+`DRY_RUN`, and if it ever did, the use case refuses.
+
+**C6. Every failure branch, and its line.**
+
+| Branch | Outcome | Log line |
+| --- | --- | --- |
+| A refusal at prepare (sum, sides, zero unrecorded, window, market, fetch, several allocations, no order id, and Q2's two) | No row; retried next sweep. The refusal's CODE is returned in `PrepareBookingResult.refusals` (§ E). | WARNING per discrepancy per sweep (existing, spec "Refusal Logging"). After the grace, also the one ERROR of § E, carrying that code (Q3). |
+| `ALREADY_DECIDED`, `SUPERSEDED`, `EXPIRED`, `DRY_RUN_REFUSED` at approval | State committed as today | WARNING (existing, `approve_booking.py:115`, `:125`, `:144`, `:161`, `:206`), plus the handler's INFO summary |
+| `APPROVED` | One attempt and N ledger rows | INFO (existing, `approve_booking.py:184-189`), plus the summary |
+| `BookingProposalNotFound`, `InvariantViolation`, an unexpected `IntegrityError`, any other exception | It propagates. The session is discarded, the job fails and is retried by the queue, and no successor is enqueued for that run. | The queue records the failure. An exhausted job reaches the watchdog's ERRORs, "ended FAILED" and "nothing scheduled" (P12), which reach Telegram. Deliberately NOT caught per proposal: an unexpected fault in a ledger writer stops the writer rather than continuing past it, the rule this handler already follows (`booking_prepare_handler.py:45-53`). The cost is that one poisoned proposal halts every booking until it is fixed, and it does so loudly. |
+| The approval loop is cut by `list_pending`'s limit | The rest are approved on the next run | INFO summary names the count |
+
+**C7. How long the GHOST refusal lasts now.** It lasts from the venue's close to two equal
+scans 30 s apart (`shared/config.py:300`, `:307`), then up to one prepare interval of 60 s, then
+the approval itself: typically under two and a half minutes, against "until the owner approves"
+today. A signal arriving in that window is still refused GHOST, as it is today.
+
+**C8. Narrowing the automatic boundary (Q2, answered (a)).** Two more refusal conditions in
+`PrepareBooking`, each with one WARNING and no row, as the spec's "Refusal Logging" requires of
+every condition. Either one leaves the discrepancy unbooked, so after the grace it needs the
+owner, with its alert and its reason code (§ D rule 4, § E). The cost, said to the owner: adding
+to a position by hand is never booked automatically.
+
+- **The difference reduces the position.** `venue_net_base` lies between zero and
+  `ledger_net_base`, inclusive of zero: same sign or flat, and smaller in size. A liquidation, a
+  stop or a close by hand only ever reduces. An increase or a flip is a fill this system cannot
+  explain. `ATTRIBUTABLE_FULL_CLOSE` always passes this test.
+- **No matched fill belongs to an order this system placed.** No matched `exchange_order_id`
+  equals the `exchange_order_id` of an `execution_attempts` row of the same pool, read through a
+  new read port over `SqlAlchemyExecutionAttemptRepository`. Such fills are the system's own and
+  are recorded by `SettleExecution` or its recovery, never as a venue-originated close. This
+  closes P8's example.
+
+Both go in prepare, not in the automatic step, so `PENDING` keeps meaning "approvable". A
+proposal that the automatic step would refuse to touch would sit for 24 h, expire, and be
+prepared again forever.
+
+### D. The `needs_owner` rule
+
+One pure function in `reconciliation/domain/attention.py` (no framework). It sorts every open
+`CONFIRMED` discrepancy into exactly one of three groups; an `OBSERVED` or resolved row belongs
+to none. It reads the confirmation STATE, never the presence of `confirmed_at`, as the
+venue-reconciliation spec requires. Its inputs are the row, `now`, the grace, and whether an
+`APPROVED` proposal for that discrepancy froze the row's CURRENT observation (kind and both nets,
+by `Decimal` value).
+
+| # | Condition, first match wins | Group | Reason code |
+| --- | --- | --- | --- |
+| 1 | `kind` is `AMBIGUOUS_PARTIAL_REDUCE` or `NO_MATCHING_ALLOCATION` | NEEDS_OWNER | `NOT_BOOKABLE` |
+| 2 | An `APPROVED` proposal froze the current observation | BOOKED (waiting for the next scan to resolve it) | — |
+| 3 | More than one open allocation (P6) | NEEDS_OWNER (Q9, answered (a)) | `SEVERAL_ALLOCATIONS` |
+| 4 | `now - confirmed_at` is more than the grace | NEEDS_OWNER (Q3, answered (a)) | `NOT_BOOKED` |
+| 5 | otherwise | BEING_BOOKED | — |
+
+Rule 2 compares the observation rather than only asking whether a booking exists. If a booking
+was written and the venue moved again afterwards, the row's observation changes and the earlier
+booking no longer hides it (§ K row 12). `confirmed_at` survives a demotion (spec "Confirmation
+State And Its Timestamp Are Not The Same Question"), so a row confirmed long ago, demoted and
+confirmed again counts at once. That is intended: it has been unbooked that long.
+
+The grace is a new setting, `reconciliation_auto_booking_grace_seconds`, with a
+default of 300 s (five prepare intervals; Q3, answered (a): 5 minutes). Rule 4 covers every
+way a bookable discrepancy can stay unbooked: the fills did not sum, the venue read failed,
+either refusal of Q2, a stale approval. The view shows each of them as "Could not be booked
+automatically" (`NOT_BOOKED`), and the reason is not stored. The badge counts NEEDS_OWNER and nothing
+else. Automatic bookings never count, as decision 66 says.
+
+### E. Telling the owner (Q4, answered (b); Q3's addition)
+
+A new use case, `AnnounceNeedsOwner`, runs after the automatic step. It reads the open
+`CONFIRMED` rows and the `APPROVED` proposals of those discrepancies, and applies § D. A
+discrepancy that is NEEDS_OWNER and was not yet announced in this process is collected. If any
+were collected, ONE ERROR record is logged, naming each one by pool, symbol, kind, reason code
+with its fixed English phrase, and discrepancy id. It contains no quantity, price or fee. The
+bridge carries it to Telegram (P10).
+
+**Where the reason comes from (Q3's addition: "the alert that announces it carries the reason").**
+The reason is not stored, so the announcement can only know the reasons of the run it belongs
+to.
+
+- **The codes.** One closed vocabulary, `BookingRefusal`, a `StrEnum` in
+  `reconciliation/domain/booking.py`:
+  - from `MatchRefusalReason`: `SUM_MISMATCH`, `MIXED_SIDES`, `ZERO_UNRECORDED`,
+    `NONPOSITIVE_QUANTITY`;
+  - from prepare's other refusals: `WINDOW_TOO_LONG`, `MARKET_MISMATCH`, `VENUE_READ_FAILED`,
+    `NO_ORDER_ID`, `SEVERAL_ALLOCATIONS`, `SUPPRESSED_BY_REJECTION`;
+  - from Q2: `GROWS_OR_FLIPS`, `SYSTEM_ORDER_FILL`;
+  - from approval: `STALE_AT_APPROVAL` for `SUPERSEDED`, `EXPIRED`.
+- **Collecting them.** `PrepareBookingResult` gains `refusals: Mapping[UUID, BookingRefusal]`,
+  keyed by discrepancy id and filled by every refusal branch next to its existing WARNING. The
+  result of `AutoBookPending` maps each proposal that was not approved to its discrepancy id and
+  code.
+- **Remembering them.** The handler merges both into a module-level `last_reason_by_discrepancy`,
+  which drops an id once it is booked or resolved.
+- **Reasons that need no memory.** Rules 1 and 3 of § D take their reason from the row:
+  `NOT_BOOKABLE` with the kind, and `SEVERAL_ALLOCATIONS`.
+- **After a restart.** The first sweep of a fresh process refuses again, and refills the memory
+  before its own announcement runs.
+- **When no reason is known.** A NOT_BOOKED item whose reason this process has not seen is
+  announced as `REASON_UNKNOWN`, "see the worker log". It is never left out of the announcement.
+
+**The throttle key stays one key.** The bridge throttles per (logger, message TEMPLATE)
+(`alert_log_bridge.py:227`, `:291-297`). The announcement's template is a constant,
+`"confirmed discrepancies need the owner: %s"`, and the list of items, reasons included, is its
+single argument. So a reason never mints a new throttle key, and the throttle still does its
+job: one message per 900 s.
+
+- **Once per start.** The memory of what was announced is process-scoped and module-level, for the
+  reason `_SkipAnnouncement` gives (`booking_prepare_handler.py:82-109`: `main.py` builds a
+  fresh handler for every job). An id that stops being NEEDS_OWNER is dropped from it, so a
+  recurrence is announced again. Each start of the worker announces everything still open once
+  (decision 66, Q4: "one message per discrepancy per start of the worker").
+- **The daily reminder.** While anything is NEEDS_OWNER, one ERROR at most every 24 h lists every
+  such item with its reason. It is timed from the process's last announcement or reminder,
+  through a new setting, `reconciliation_needs_owner_reminder_seconds`, default 86400. It uses its
+  OWN constant template, `"reminder: %d confirmed discrepancies still need the owner: %s"`, so
+  the throttle cannot fold it into an announcement made in the same window. That closes the gap
+  the throttle leaves: a second announcement within 900 s of the first may never arrive alone,
+  and the reminder lists it within a day.
+- **Logger name.** The module's own `strategy_manager.reconciliation...` logger. It must never sit
+  under `strategy_manager.alerts`, which the bridge drops (`alert_log_bridge.py:52-58`).
+- **Alerts must be on.** Alerting is opt-in (P10), and whether it is on in production is not
+  verified. § M's check before the deploy settles that. Without it, the badge is the only signal
+  (§ K row 10).
+- **Automatic bookings are not announced.** Decision 66 lists them in the view "to be read when
+  the owner wants to". Their INFO lines (C6) are their trace in the journal.
+- **Under `DRY_RUN`** nothing runs, and nothing can exist to announce (P17).
+
+### F. The approve and reject routes, `PENDING` proposals, the bookings UI, and the migration
+
+With C1, a proposal is `PENDING` for the seconds between the sweep's commit and its approval, so
+a human approve or reject has nothing left to act on. Answered Q1 (a). As the owner was told,
+no manual path is lost: only an attributable discrepancy with one allocation could ever be
+approved by hand, and that is exactly the kind that becomes automatic.
+
+- Remove `GET /reconciliation/bookings`, `POST .../approve` and `POST .../reject`
+  (`router.py:378-504`), the frontend `features/bookings/` folder (`BookingsListView`,
+  `BookingCard`, both dialogs, `usePendingBookings`, `format.ts`, `outcomeMessage.ts`, and their
+  tests), `features/positions/pendingProposal.ts`, and the `BookingProposal` types the panel no
+  longer reads.
+- Keep `ApproveBooking`, now called by the worker. Remove `RejectBooking`, whose only caller is
+  the route. Keep prepare's `has_matching_rejection`: a historical `REJECTED` row still
+  suppresses its identical observation, which then reaches NEEDS_OWNER through the grace (rule
+  4). None is expected in production (P17).
+- A `PENDING` proposal still present at deploy is approved by the first non-dry-run run if it is
+  still fresh. Otherwise it becomes `SUPERSEDED` or `EXPIRED` and is prepared again.
+
+**No migration.** An automatic booking is `state='APPROVED'` with
+`decided_by='system:auto-booking'` (P13). The read route tells it apart from a manual approval
+by `decided_by` alone. Q3 was answered (a): the refusal reason is not stored. It travels in
+memory from the sweep to the alert (§ E), so no column is added and nothing is rehearsed.
+
+**Spec deltas, for the tasks to write.**
+- venue-close-booking: "Approval Is Manual and Freshness-Checked" becomes "Approval Is Automatic
+  and Freshness-Checked". "Admin Endpoints Require the Bearer Token" is reduced to the read
+  route, and "Endpoint Status Codes" is removed (Q1). "Rejection Writes Nothing and Requires a
+  Reason" is removed (Q1). Added: the automatic actor; Q2's two refusals in "Refusal Logging";
+  every refusal returning its code (§ E).
+- venue-reconciliation: added "Confirmed Discrepancies Needing the Owner Are Announced" (§ E) and
+  "Confirmed Discrepancy Read Endpoint" (§ G).
+- `book-venue-closes`' proposal item 1, "Booking is never automatic", is recorded as reversed
+  by decision 66.
+
+### G. The API
+
+`GET /reconciliation/confirmed`. It is mounted on the existing reconciliation router, so the
+admin bearer applies at router level (`router.py:100-104`). It is read-only and takes no
+parameter. It answers for the whole system (Q6, answered (a)).
+
+```
+{
+  "read_at": "2026-10-16T21:40:03Z",
+  "dry_run": false,
+  "needs_owner_count": 1,
+  "needs_owner": [Discrepancy],
+  "being_booked": [Discrepancy],
+  "booked": [Booking]
+}
+Discrepancy = {
+  "discrepancy_id", "exchange", "venue", "settlement_currency", "symbol",
+  "kind", "reason": "NOT_BOOKABLE" | "SEVERAL_ALLOCATIONS" | "NOT_BOOKED" | null,
+  "venue_net_base": "0", "ledger_net_base": "0.5",
+  "allocations": [{"allocation_id", "strategy_id", "strategy_name"}],
+  "confirmed_at", "last_observed_at"
+}
+Booking = {
+  "proposal_id", "discrepancy_id", "exchange", "venue", "settlement_currency", "symbol",
+  "kind", "strategy_id", "strategy_name", "allocation_id", "side", "quantity": "0.5",
+  "fill_count", "decided_at", "decided_by": "automatic" | "owner",
+  "execution_attempt_id", "discrepancy_open": true
+}
+```
+
+- `needs_owner_count` equals `len(needs_owner)`. It is served anyway, so the badge does not need
+  to know the list's shape, and a test pins the equality.
+- Money and quantities are strings, under the rule `BookingProposalView` states
+  (`router.py:241-252`).
+- `booked` holds every `APPROVED` proposal decided within the retention window, newest first,
+  bounded at 100: the last 30 days (Q5, answered (a)), with nothing to mark as seen. `discrepancy_open` says whether the scan has resolved its
+  discrepancy yet.
+- `dry_run` is `settings.dry_run`, so the view can say that the comparison does not run, rather
+  than an all-clear (§ H).
+- **Statements.** One for the open `CONFIRMED` discrepancies (the call P19 names); one for
+  `APPROVED` proposals that are either within the window or whose discrepancy is open (a new
+  read method on the proposal repository); one for strategy names by allocation id (a new
+  read-only adapter in `reconciliation/infrastructure`, in the manner of
+  `allocation_owner_adapter.py`). There is no statement per row, and T8 pins the count.
+- **Levels.** Those of a read model (`performance/application/scope.py:18-24`): WARNING with the
+  ids for a fault in stored data, such as an allocation whose strategy row is missing, which is
+  then served with `strategy_name: null`. Never ERROR: this route is polled every 60 s per open
+  tab, and an ERROR here would flood the alerts that § E relies on.
+- `GET /reconciliation/discrepancies` is unchanged.
+
+### H. Frontend
+
+Content and states only; the visual design is prototyped and reviewed with the owner later.
+
+- **API module.** `shared/api/discrepancies.ts`: the fetch, a shape check that refuses the whole
+  body if any element is malformed (the rule of `usePendingBookings.ts:7-17` and PR 14's T9), and
+  `useConfirmedDiscrepancies` under query key `["reconciliation", "confirmed"]`, refetched every
+  60 s and on focus like the open positions. The badge and the page read this one query, so
+  they cannot disagree.
+- **Navigation.** A fourth item, `{ to: "/discrepancies", labelKey: "discrepancies", end: false }`,
+  with a recommended order of Overview, Strategies, Discrepancies, Settings (for the prototype to
+  confirm). `SideNav` and `BottomNav` draw a `NavBadge` beside its label. It draws nothing while
+  loading, nothing on a failed read, and nothing at zero; otherwise it shows the count, with a
+  translated accessible name ("2 discrepancies need you"). It is red (`loss`) with its number
+  (Q7, answered (a)). Under decision 65's rule its words are its accessible name and the view
+  itself; amber was set aside because it already means dry run. On a phone
+  the bottom bar gets four `flex-1` cells, and the Spanish label, "Discrepancias", has to fit;
+  the prototype checks it at 375 px.
+- **Route.** `discrepancies` in `app/router.tsx`, inside the shell.
+- **Page** `features/discrepancies/DiscrepanciesPage.tsx`, in this order: the read state; "Needs
+  you" (NEEDS_OWNER); "Being booked" (BEING_BOOKED, only when not empty); "Booked automatically"
+  (the `booked` list). Within each list, items are grouped by exchange, whatever exchange tab is
+  selected (Q6, answered (a)). The page reads no exchange scope, so a badge of 2 can never sit
+  above an empty page. Each discrepancy item carries `id="discrepancy-<discrepancy_id>"` and
+  scrolls into view when the hash names it, as the rail does today (`DecisionRail.tsx:72-77`).
+
+| State | What the page says |
+| --- | --- |
+| First read loading | "Reading discrepancies…" (`role="status"`) |
+| First read failed | The error sentence and "Read again" (`role="alert"`), and no list: never "nothing needs you" |
+| A later refresh failed | The last lists stay, with "Last read" and since when, in `loss`, as PR 14's example 11d |
+| `dry_run` | "The comparison with the venue does not run in dry run, so nothing is checked here." Lists empty. Never an all-clear. |
+| Nothing at all | "Nothing needs you. The venue agrees with the ledger on every confirmed comparison." |
+| A NEEDS_OWNER item | Pair, pool, the kind in words, both nets, the strategies involved (a name links to the strategy), confirmed since, last compared, and what the owner can do: for `NO_MATCHING_ALLOCATION`, close it on the venue by hand, and the next scan resolves it; for the rest, "Ask for a manual reconciliation" (wording pending the prototype). Red, with these words beside it (decision 65). |
+| A BEING_BOOKED item | Neutral in the view: "Being booked automatically." Nothing here needs the owner. The position's venue mark stays red meanwhile (Q8, below), because the position row is what is wrong. |
+| A booking | Neutral: side, quantity, pair, strategy, when, "automatically", and "the venue agrees again" once its discrepancy is resolved |
+
+- **Overview.** `DecisionRail` and its slot leave `OverviewPage`. Its three scope messages move
+  into the page: scope loading, scope failed, no exchanges (P14). `PoolPanel`'s
+  `betweenChartAndGrid` prop goes, since nothing else passes it. The single-column layout is for
+  the prototype.
+- **The venue line and the venue chip** (`MarkLine.tsx` `VenueLine`, `OpenMarks.tsx` `VenueNote`)
+  always link to `{ pathname: "/discrepancies", hash: "#discrepancy-<discrepancy_id>" }`. They no
+  longer read proposals; they read `useConfirmedDiscrepancies` (Q8, answered (a)).
+  - **While a booking is under way,** the mark stays red, and its words say so: "being booked
+    automatically". The row still shows open a position the venue no longer holds.
+  - **When the booking lands,** the position leaves the list.
+  - **When it cannot be booked,** the mark is already red, and the words become those of its
+    NEEDS_OWNER reason.
+
+  The two lines find their discrepancy by `discrepancy_id` in `being_booked` or `needs_owner`.
+  PR 14 § K row 22's rule, "until it is read, neither the link nor the words", stays, now applied
+  to this query: while it loads, or after it failed, the line draws its red "venue disagrees"
+  and its nets, but no claim about booking. A `discrepancy_id` found in neither list, for
+  instance one the scan resolved between the two reads, also draws no claim (§ K row 15).
+- **Palette.** Tokens only (`index.css:6-34`). Red (`loss`) appears in three places, each
+  always with its words: a NEEDS_OWNER item, the nav badge (its words are its accessible name),
+  and the venue mark (decision 65). A booking, a result, is never red. `DecisionRail.tsx` leaves
+  `AMBER_ALLOWED`, and nothing joins it (Q7).
+
+### I. Texts and i18n keys (draft; approved with the prototype)
+
+Keys under `nav.discrepancies` and `discrepancies.*`, in both locales; the `overview.decisionRail.*`
+keys move to `overview.scope.*` for the three messages that stay, and the others are deleted;
+`positions.venue.link` is reworded and `positions.venue.noProposal` and
+`positions.venue.line.noProposal` are deleted. Draft English, with Spanish written in the
+prototype review:
+
+| Key | EN |
+| --- | --- |
+| `nav.discrepancies` | Discrepancies |
+| `discrepancies.badgeName` | {{count}} discrepancy needs you / {{count}} discrepancies need you |
+| `discrepancies.kind.NO_MATCHING_ALLOCATION` | The venue holds a position no strategy opened. |
+| `discrepancies.kind.AMBIGUOUS_PARTIAL_REDUCE` | The venue reduced a position several strategies share; which one cannot be told. |
+| `discrepancies.reason.SEVERAL_ALLOCATIONS` | The venue closed a position several strategies share; one booking cannot split it. |
+| `discrepancies.reason.NOT_BOOKED` | Could not be booked automatically. |
+| `discrepancies.beingBooked` | Being booked automatically. |
+| `discrepancies.booked` | Booked automatically |
+| `positions.venue.link` | See the discrepancy |
+| `positions.venue.line.beingBooked` | being booked automatically (Q8) |
+
+### J. Layering
+
+- `reconciliation/domain/attention.py`: § D, pure `Decimal` and `datetime`, no framework.
+- `reconciliation/application/`: `auto_book_pending.py`, `announce_needs_owner.py`,
+  `read_confirmed.py`. Each depends on ports in `application/ports.py`, and none imports
+  `ApproveBooking` as a class (C1).
+- `reconciliation/domain/booking.py` gains the `BookingRefusal` codes (§ E), pure.
+- `reconciliation/infrastructure/`: the route; a strategy-name adapter; and, for Q2, a
+  system-order-id adapter over `SqlAlchemyExecutionAttemptRepository`, a type the router already
+  imports from `execution` (`router.py:52-54`).
+- No module outside `reconciliation` changes on the backend except `main.py`'s wiring and one
+  setting.
+
+### K. What fails here without a log line?
+
+| # | Path | What the owner would see with no trace | What this design does |
+| --- | --- | --- | --- |
+| 1 | A confirmed `AMBIGUOUS` or `NO_MATCHING` | Nothing at all, today (§ B) | One ERROR per discrepancy per process, to Telegram (§ E); the badge |
+| 2 | A bookable discrepancy that prepare keeps refusing | A WARNING a minute, which nobody reads | After the grace: NEEDS_OWNER, the badge, and one ERROR carrying the refusal's code (Q3, § E). If no code is known to the process, `REASON_UNKNOWN` points to the log; the item is never dropped. |
+| 3 | The booking chain dies | Nothing, and the GHOST refusals go on | The watchdog's ERRORs (P12). The badge does not depend on the chain: the route computes rule 4 from the rows. |
+| 4 | An unexpected exception in one approval | — | Propagates, and the job FAILED reaches the watchdog's ERROR (C6) |
+| 5 | An approval refused as stale over and over | A WARNING a minute | The same grace: NEEDS_OWNER and one ERROR |
+| 6 | **A wrong attribution whose fills sum exactly** (P8) | **Nothing, ever: the booking looks right** | Q2's two refusals (§ C8); every booking listed in the view with its strategy. What is left is § N's first risk. |
+| 7 | The Overview with its scope failed, once the rail is gone | The title alone | The three scope messages move into the page (P14); a test per message (T11) |
+| 8 | The badge's read fails | No badge, read as "nothing needs you" | The nav cannot say "failed" without becoming a permanent alarm; the page says it; Telegram (§ E) does not depend on the panel |
+| 9 | A second announcement inside the throttle window | One alert and a "+1 suppressed" that arrives later, if at all | The daily reminder under its own template (Q4 (b), § E); the badge |
+| 10 | Alerting off, or its token missing | No Telegram message | The composition WARNING (`alerting.py:51-60`); the badge; and § M's check before the deploy, which prints only a count |
+| 11 | A NEEDS_OWNER discrepancy that resolves itself before the owner looks | An alert about something the page no longer shows | Accepted; the view lists open items only. Its resolution is in the journal (the scan's resolved count). |
+| 12 | A booking written, then the venue moves again | The item hidden as "booked" forever | Rule 2 compares the frozen observation with the current one (§ D) |
+| 13 | An allocation whose strategy row is missing | An item with no name | `strategy_name: null`, drawn as "unknown strategy"; one WARNING with the allocation id (§ G) |
+| 14 | `DRY_RUN` | "Nothing needs you", read as an all-clear | The page says the comparison does not run (§ H) |
+| 15 | The venue line before the confirmed-discrepancies read has arrived, after it failed, or for an id in neither list | "Being booked automatically", or a reason nobody read | No claim about booking is drawn; the red "venue disagrees" and the nets stay (§ H, Q8; T11) |
+
+### L. Testing strategy
+
+Strict TDD: each test is seen failing on an ASSERTION before the code exists. A test that passes
+at once is proven by breaking what it guards and watching it go red. Symbols cross a module
+boundary with a different spelling on each side (`SOLUSDT.P` in, `SOLUSDT` stored).
+
+| # | Test | Layer | What it pins |
+| --- | --- | --- | --- |
+| T1 | `needs_owner`, table-driven: each kind × one or two allocations × booked current, booked stale observation, unbooked × inside or past the grace × `OBSERVED` or resolved. | domain | § D, rules 1-5; K row 12 |
+| T2 | Q2: prepare refuses an increase, a flip, and a fill whose order id a system attempt holds. One WARNING each, no row. The reducing case still prepares. Every refusal branch, old and new, puts its `BookingRefusal` code in `PrepareBookingResult.refusals`. | application, fakes | C8; P8's example; § E |
+| T3 | `AutoBookPending` calls `approve` once per `PENDING` proposal, with `system:auto-booking`, and counts outcomes. | application, fakes | C1 |
+| T4 | The handler's order: expire, sweep, auto-book, announce, enqueue. Under `DRY_RUN` none of the four is called and the successor is still enqueued. An exception from auto-book propagates and enqueues no successor. | application, fakes | C1, C5, C6 |
+| T5 | **End to end on real PostgreSQL:** a confirmed `ATTRIBUTABLE_FULL_CLOSE`, a fake venue fill reader, one job. The proposal is `APPROVED` with `decided_by='system:auto-booking'`; one `VENUE` attempt and N ledger rows exist; the strategy nets to zero. Running the job again writes zero rows. A `PENDING` row left as by a crash is approved by the next run. | integration | C1, C4; spec "Approved Booking Clears the Existing-Position Guard" |
+| T6 | **Concurrency, lock-hold harness, real PostgreSQL:** connection 1 holds `SELECT ... FOR UPDATE` on a `PENDING` proposal; the automatic step starts in a task; after a bounded wait `not task.done()`; connection 1 marks it `APPROVED` and commits; the task returns `ALREADY_DECIDED`; exactly one attempt row exists. Proven non-vacuous by removing `with_for_update()` from a copy of the call and watching the wait assertion go red. | integration | C3, C4; reuses `test_approve_booking_integration.py:935`'s harness |
+| T7 | The announcement: one ERROR record listing two new NEEDS_OWNER items, each with its reason code and phrase (a `SUM_MISMATCH` from this run's sweep, a `NOT_BOOKABLE` from the row, a `REASON_UNKNOWN` when nothing is known); nothing on the second run; announced again after the item is dropped and returns. Two announcements with different reasons share ONE `record.msg` (the throttle key). The reminder fires after the reminder interval with an injected clock, has a different `record.msg`, lists everything still needing the owner, and does not fire when nothing does. The record's logger is not under `strategy_manager.alerts`, and the message holds no quantity. With a fake `AlertPort` behind a real `AlertLogBridge`, the record is delivered. | application + bridge | § E; K rows 1, 2, 9 |
+| T8 | The route: 401 without the bearer; the body's shape; money as strings; `needs_owner_count == len(needs_owner)`; the retention window (30 days, at most 100: Q5); `dry_run`; a missing strategy row gives `strategy_name: null` and one WARNING; statement count is constant in the number of rows. | infrastructure | § G |
+| T9 | Q1: approve, reject and the bookings list answer 404/405. | infrastructure | § F |
+| T10 | Frontend API module: a well-formed body; a body with one bad element refused whole; a 404 is an error. | frontend | § H |
+| T11 | Frontend: `NavBadge` draws nothing at zero, while loading, or on error, and the count with its accessible name otherwise, in both navs. The page in every state of § H's table. `OverviewPage` draws no rail and does draw each of the three scope messages. `VenueLine` and `VenueNote` link to `/discrepancies#discrepancy-<id>` and read no proposals. They say "being booked automatically" for an id in `being_booked`, and the reason's words for an id in `needs_owner`; they make no claim while the query loads, after it failed, or for an id in neither list. The page groups by exchange and ignores the selected tab. The badge is red. | frontend | § H; K rows 7, 8, 14, 15 |
+| T12 | `panel-tokens.test.ts`'s allow-list without `DecisionRail.tsx`, with nothing added; every new key present in both locales. | frontend | Palette and i18n rules |
+
+### M. Delivery
+
+One PR, in work units, each gated by `cd backend && uv run ruff check . && uv run mypy src && uv
+run pytest --tb=short` and by `npm run lint` and `npm test`:
+
+- **dc.1** The domain rule, the refusal codes, Q2's two refusals, the automatic step, the
+  announcement and its reminder, the two settings, and `main.py`'s wiring (T1-T7).
+- **dc.2** The read route and the removal of the decision routes (Q1) (T8, T9).
+- **dc.3** The API module, the nav item and badge, the page (T10, T11 in part, T12).
+- **dc.4** The Overview without the rail, the venue links, and the removal of the bookings feature
+  (T11 in part).
+
+Before the deploy, the owner runs a read-only count of `booking_proposals` by state and of open
+`reconciliation_discrepancies` by status on the VPS, from a script the tasks hand over, to
+confirm P17.
+
+**Are alerts on in production?** Decision 66, Q4, records that this is not verified. Before the
+deploy, the owner runs a read-only check that prints only COUNTS, never a line of the file or of
+the journal. The tasks write the exact commands; the two forms are:
+
+- a count of the lines of the worker's environment file that set `ALERTS_ENABLED` true and that
+  give `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` a non-empty value, for example with
+  `grep -c`;
+- a count, in the worker's journal since its last start, of the INFO line "operator alerts are
+  on" (`alerting.py:101-105`) and of the composition WARNING naming a missing setting
+  (`alerting.py:54-59`).
+
+Zero alerts-on lines means § E's messages would reach nobody. Turning alerts on is then the
+owner's step, before relying on this unit (§ N, risk 4).
+
+There is no migration (§ F). The deploy that changes `frontend/` repeats task pps.6 (the panel
+bundle), and `build.txt` is checked afterwards. While production stays in dry run, everything on
+the backend is inert (C5).
+
+**The first automatic booking is a deliberate live test** (Q10, answered (a)): a minimal position
+opened through the system and closed by hand on Bybit, with the owner watching the confirmation,
+the booking, the view, the badge and the alert. It needs `DRY_RUN=false`, since the scan does not
+run in dry run. So it is tied to the owner's separate decision to go live (decision 63), which
+Q10 does not take; this design only records it as the first step once live.
+
+### N. Risks, and what could be wrong in this design
+
+1. **A permanent wrong attribution, written with no human read.** The ledger is append-only and
+   has no compensating entry (the reason `book-venue-closes` gave for manual booking). The exact
+   sum is a strong filter, not proof: P8's example passes it. Q2's two refusals close the cases
+   found. Any case not found stays possible, and it would be silent (K row 6).
+2. **One poisoned proposal stops every booking** (C6). It is loud, through the watchdog, but
+   while it lasts every close is unbooked and GHOST refusals go on. That is preferred over a
+   ledger writer that continues past a fault it does not understand.
+3. **The alert throttle can swallow a second announcement** for up to 15 min, or until the next
+   admitted one (K row 9). The daily reminder, under its own template, bounds that loss to a
+   day (Q4).
+4. **The owner's "needs you" signal depends on Telegram being configured** (K rows 8, 10). If
+   alerts are off on the VPS, the badge is the only signal, which contradicts the owner's goal.
+   § M's count check settles it before the deploy.
+5. **A NEEDS_OWNER discrepancy has no remedy in the app**: a close by hand on the venue for
+   `NO_MATCHING_ALLOCATION`, and assisted manual reconciliation for the rest. No manual path is
+   lost, as Q1 recorded: only the kind that is now automatic was ever approvable by hand.
+6. **The grace is a judgement.** Too short, and the badge flashes for a booking that would have
+   succeeded a minute later. Too long, and a blocked strategy waits unannounced. It is 5 minutes,
+   five prepare intervals (Q3), and it is a setting.
+7. **An alert's reason is only as good as the process's memory** (§ E). A reason seen by no
+   sweep of this process is announced as `REASON_UNKNOWN`. It is never omitted, but then the
+   owner needs the log after all.
+8. **No live proof yet.** Every test runs against fakes or the local database. Q10 makes the
+   first real automatic booking a deliberate one, but only once the owner decides to go live
+   (decision 63).
+
+### O. Questions for the owner — answered 2026-10-16
+
+All ten were answered the same day, each as its recommended option, and Q3 with one addition.
+The source of truth is decision 66's sub-list "The design's questions (design.md, PR 15
+addendum), answered 2026-10-16". The options and tradeoffs that were put to the owner are in
+this file's history (the addendum's first writing).
+
+- **Q1 (a)** Remove the approve and reject routes and the bookings screen. A proposal still
+  PENDING at deploy is booked automatically if still current, otherwise discarded and prepared
+  again. No manual path is lost (§ F).
+- **Q2 (a)** Refuse a difference that grows or flips the position, and fills whose order id
+  belongs to an order this system placed. Either refusal makes the discrepancy need the owner,
+  with its alert (§ C8, § D rule 4).
+- **Q3 (a), plus one addition.** Counts after a 5-minute grace, shown as "Could not be booked
+  automatically". The reason is not stored, so there is no migration, but the alert that
+  announces it carries the reason (§ D, § E).
+- **Q4 (b)** One Telegram message per discrepancy per start of the worker, plus a daily reminder
+  while anything needs the owner. Whether alerts are on in production is checked before the
+  deploy with a command that prints only a count (§ E, § M).
+- **Q5 (a)** Automatic bookings of the last 30 days, at most 100. Nothing to mark as seen (§ G).
+- **Q6 (a)** The whole system, grouped by exchange, whatever tab is selected (§ G, § H).
+- **Q7 (a)** A red badge with its number; its words are its accessible name and the view (§ H).
+- **Q8 (a)** The venue mark stays red while being booked, its words saying "being booked
+  automatically" (§ H).
+- **Q9 (a)** A full close over several open allocations stays unbookable and needs the owner,
+  with its alert. This corrects what the owner was told before the design (P6, § D rule 3).
+- **Q10 (a)** The first automatic booking is a deliberate live test. It is tied to the owner's
+  decision to go live (decision 63), which this answer does not take (§ M).
+
+Never asked, because a decision or the code answers it: that only CONFIRMED discrepancies are
+shown (decision 66); that automatic bookings never count in the badge (decision 66); that
+nothing is booked for the two ambiguous kinds (decision 66); that booking stays refused in dry
+run (spec "DRY_RUN Refuses Booking Entirely"); that no pool lock is taken (P5, C3); that no
+quantity or price is written to an alert (§ G levels, PR 14 § K).
+

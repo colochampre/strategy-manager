@@ -10,6 +10,9 @@ either venue's rate limit — see ``config.py`` for the full arithmetic.
 substitution wrote ~43,200 job rows a day for bookkeeping nothing waits on.
 """
 
+import pytest
+from pydantic import ValidationError
+
 from strategy_manager.shared.config import Settings
 
 
@@ -188,3 +191,58 @@ def test_the_throttle_window_outlives_a_whole_retry_chain() -> None:
     waits = sum(min(base * 2**attempt, cap) for attempt in range(4))
 
     assert settings.alert_throttle_window_seconds > waits
+
+
+# --- Automatic booking and the needs-owner alert (owner decision 66) --------
+#
+# Read through ``getattr`` so a setting that does not exist yet fails on its
+# VALUE, not on an ``AttributeError`` at the call.
+
+
+def test_the_auto_booking_grace_defaults_to_five_minutes() -> None:
+    settings = Settings(_env_file=None)
+
+    assert getattr(settings, "reconciliation_auto_booking_grace_seconds", None) == 300
+
+
+def test_the_needs_owner_reminder_defaults_to_one_day() -> None:
+    settings = Settings(_env_file=None)
+
+    assert getattr(settings, "reconciliation_needs_owner_reminder_seconds", None) == 86400
+
+
+def test_the_auto_booking_grace_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECONCILIATION_AUTO_BOOKING_GRACE_SECONDS", "120")
+
+    settings = Settings(_env_file=None)
+
+    assert getattr(settings, "reconciliation_auto_booking_grace_seconds", None) == 120
+
+
+def test_the_needs_owner_reminder_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECONCILIATION_NEEDS_OWNER_REMINDER_SECONDS", "7200")
+
+    settings = Settings(_env_file=None)
+
+    assert getattr(settings, "reconciliation_needs_owner_reminder_seconds", None) == 7200
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "RECONCILIATION_AUTO_BOOKING_GRACE_SECONDS",
+        "RECONCILIATION_NEEDS_OWNER_REMINDER_SECONDS",
+    ],
+)
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_a_non_positive_booking_alert_interval_is_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

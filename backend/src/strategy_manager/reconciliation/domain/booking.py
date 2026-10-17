@@ -12,11 +12,12 @@ decision 13; ``match_fills``/``build_client_order_id`` never see a symbol at
 all, only fill ids and quantities).
 """
 
-from collections.abc import Sequence, Set
+from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from types import MappingProxyType
 
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -107,6 +108,62 @@ class MatchRefusalReason(StrEnum):
     NONPOSITIVE_QUANTITY = "NONPOSITIVE_QUANTITY"
     MIXED_SIDES = "MIXED_SIDES"
     SUM_MISMATCH = "SUM_MISMATCH"
+
+
+class BookingRefusal(StrEnum):
+    """One closed vocabulary for every reason a bookable discrepancy is not
+    booked (owner decision 66, 2026-10-16; spec "Every Refusal Is Returned
+    With A Code From One Closed Vocabulary"). Four codes come from
+    ``MatchRefusalReason``, six from prepare's other refusals, two from the
+    narrowed automatic boundary (Q2) and one from approval."""
+
+    SUM_MISMATCH = "SUM_MISMATCH"
+    MIXED_SIDES = "MIXED_SIDES"
+    ZERO_UNRECORDED = "ZERO_UNRECORDED"
+    NONPOSITIVE_QUANTITY = "NONPOSITIVE_QUANTITY"
+    WINDOW_TOO_LONG = "WINDOW_TOO_LONG"
+    MARKET_MISMATCH = "MARKET_MISMATCH"
+    VENUE_READ_FAILED = "VENUE_READ_FAILED"
+    NO_ORDER_ID = "NO_ORDER_ID"
+    SEVERAL_ALLOCATIONS = "SEVERAL_ALLOCATIONS"
+    SUPPRESSED_BY_REJECTION = "SUPPRESSED_BY_REJECTION"
+    GROWS_OR_FLIPS = "GROWS_OR_FLIPS"
+    SYSTEM_ORDER_FILL = "SYSTEM_ORDER_FILL"
+    STALE_AT_APPROVAL = "STALE_AT_APPROVAL"
+
+
+BOOKING_REFUSAL_PHRASES: Mapping[BookingRefusal, str] = MappingProxyType(
+    {
+        BookingRefusal.SUM_MISMATCH: "the venue fills do not add up to the difference",
+        BookingRefusal.MIXED_SIDES: "the venue fills mix buys and sells",
+        BookingRefusal.ZERO_UNRECORDED: "no unrecorded venue fills explain the difference",
+        BookingRefusal.NONPOSITIVE_QUANTITY: "a venue fill has no positive quantity",
+        BookingRefusal.WINDOW_TOO_LONG: "the difference is older than the longest window read",
+        BookingRefusal.MARKET_MISMATCH: "the venue returned fills for another market",
+        BookingRefusal.VENUE_READ_FAILED: "the venue fills could not be read",
+        BookingRefusal.NO_ORDER_ID: "a venue fill carries no order id",
+        BookingRefusal.SEVERAL_ALLOCATIONS: "the close spans several open allocations",
+        BookingRefusal.SUPPRESSED_BY_REJECTION: "the owner already rejected this exact difference",
+        BookingRefusal.GROWS_OR_FLIPS: "the venue position grew or flipped instead of shrinking",
+        BookingRefusal.SYSTEM_ORDER_FILL: "a fill belongs to an order this system placed",
+        BookingRefusal.STALE_AT_APPROVAL: "the proposal went stale before it could be approved",
+    }
+)
+"""The fixed English phrase of each code (tasks.md note N5). None of them
+names a quantity, a price or a fee: they travel in an alert (R19)."""
+
+
+def reduces_position(ledger_net_base: Decimal, venue_net_base: Decimal) -> bool:
+    """Owner decision 66 Q2: whether the venue's net lies between zero and the
+    ledger's net, zero included -- the same sign or flat, and no larger. Only
+    such a difference can be a close, a liquidation or a stop; an increase or
+    a flip is a fill this system cannot explain."""
+
+    if ledger_net_base > _ZERO:
+        return _ZERO <= venue_net_base <= ledger_net_base
+    if ledger_net_base < _ZERO:
+        return ledger_net_base <= venue_net_base <= _ZERO
+    return venue_net_base == _ZERO
 
 
 @dataclass(frozen=True, slots=True)

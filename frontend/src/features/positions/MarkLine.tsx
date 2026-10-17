@@ -1,14 +1,13 @@
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 
-import { usePendingBookings } from "@/features/bookings/usePendingBookings";
+import { DiscrepancyLink } from "@/features/positions/DiscrepancyLink";
 import { ORIGIN_STYLE } from "@/features/positions/origin";
 import type { Origin } from "@/features/positions/origin";
 import { OriginTag } from "@/features/positions/OriginTag";
-import { pendingProposalNames } from "@/features/positions/pendingProposal";
-import type { InFlightOrder, OpenPosition } from "@/shared/api/positions";
+import { useVenueFollowUp } from "@/features/positions/useVenueFollowUp";
+import type { InFlightOrder, OpenPosition, VenueDisagreement } from "@/shared/api/positions";
 import { cn } from "@/shared/lib/cn";
 import { figureText, timeOfAnswerText } from "@/shared/lib/figure-text";
 
@@ -96,37 +95,29 @@ function netText(net: string, baseCurrency: string | null, unreadable: string): 
 
 /**
  * The venue mark as ONE line under its row: pair, "venue disagrees" in red, both nets, when it was last
- * compared, how many positions share the difference (only above one), then the link to the pending decision
- * or the words that no booking is proposed. The pending bookings are asked for only by a position the venue
- * disagrees on; until they are READ neither the link nor the words is drawn (a link would be a guess and the
- * words a claim nobody checked, design § K row 22). A position without a disagreement draws no line.
+ * compared, how many positions share the difference (only above one), then what is happening to the
+ * discrepancy and the link to its item (owner decision 66 Q8). The line stays red in every state. The confirmed
+ * discrepancies are asked for only by a position the venue disagrees on; until they are READ, and for an id in
+ * neither list, neither the words nor the link is drawn (a link would be a guess and the words a claim nobody
+ * checked, design § K rows 15 and 22). A position without a disagreement draws no line and asks for nothing.
  */
 export function VenueLine({ position, asOf }: VenueLineProps) {
+  if (position.venue_disagreement === null) return null;
+  return <DisagreeingLine position={position} disagreement={position.venue_disagreement} asOf={asOf} />;
+}
+
+interface DisagreeingLineProps extends VenueLineProps {
+  disagreement: VenueDisagreement;
+}
+
+function DisagreeingLine({ position, disagreement, asOf }: DisagreeingLineProps) {
   const { t, i18n } = useTranslation();
-  const pending = usePendingBookings();
-  const disagreement = position.venue_disagreement;
-  if (disagreement === null) return null;
+  const followUp = useVenueFollowUp(disagreement.discrepancy_id);
 
   const locale = i18n.resolvedLanguage ?? "en";
   const pair = position.markets.join(" / ");
   const unreadable = t("positions.state.unreadable");
   const comparedAt = timeOfAnswerText(disagreement.last_observed_at, asOf, locale, true);
-
-  let followUp: ReactNode = null;
-  if (pending.data !== undefined) {
-    const named = pendingProposalNames(pending.data, position.allocation_id, disagreement.discrepancy_id);
-    followUp = named ? (
-      <Link
-        to={{ pathname: "/", hash: "#decision-rail" }}
-        aria-label={t("positions.venue.linkName", { pair })}
-        className="underline underline-offset-4"
-      >
-        {t("positions.venue.link")}
-      </Link>
-    ) : (
-      t("positions.venue.line.noProposal")
-    );
-  }
 
   return (
     <MarkLine
@@ -143,7 +134,8 @@ export function VenueLine({ position, asOf }: VenueLineProps) {
         }),
         comparedAt === null ? null : t("positions.venue.line.compared", { time: comparedAt }),
         disagreement.allocation_count > 1 ? t("positions.venue.line.shared", { positions: disagreement.allocation_count }) : null,
-        followUp,
+        followUp?.words ?? null,
+        followUp === null ? null : <DiscrepancyLink key="link" followUp={followUp} pair={pair} />,
       ]}
     />
   );

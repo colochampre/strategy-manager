@@ -1,0 +1,168 @@
+{
+  "_description": "Body of GET /api/reconciliation/confirmed for the owner's fixture server (task cd.4.1, owner decision 66). The owner's local fixture configuration serves it with this key removed, moves every time so read_at is now, and places each strategy placeholder (00000000-0000-4000-8000-0000000000bN) on the local strategy that open-positions.json's placeholder bN lands on, so the page, the links and the venue line agree. An allocation whose strategy_name is null keeps its placeholder: it stands for a strategy row that is missing. EVERY id here is a placeholder. The items mirror the prototype (Discrepancies.html, examples 5 and 7): on bybit, SOLUSDT not booked on a full close, STXUSDT over several allocations, AAVEUSDT an ambiguous partial reduce; on binance, LINKUSDT held by no strategy; ETHUSDT being booked, whose discrepancy_id 00000000-0000-4000-8000-0000000000d1 is the venue_disagreement of the ETH Swing position in open-positions.json; four bookings, three automatic and one by the owner.",
+  "read_at": "2026-10-16T21:39:55Z",
+  "dry_run": false,
+  "needs_owner_count": 4,
+  "needs_owner": [
+    {
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d2",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "SOLUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "reason": "NOT_BOOKED",
+      "venue_net_base": "0",
+      "ledger_net_base": "0.500000000000000000",
+      "allocations": [
+        {"allocation_id": "00000000-0000-4000-8000-0000000000a8", "strategy_id": "00000000-0000-4000-8000-0000000000b8", "strategy_name": "SOL 4h - RSI Divergences"}
+      ],
+      "confirmed_at": "2026-10-16T21:31:04Z",
+      "last_observed_at": "2026-10-16T21:39:42Z"
+    },
+    {
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d3",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "STXUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "reason": "SEVERAL_ALLOCATIONS",
+      "venue_net_base": "0",
+      "ledger_net_base": "450.000000000000000000",
+      "allocations": [
+        {"allocation_id": "00000000-0000-4000-8000-0000000000a9", "strategy_id": "00000000-0000-4000-8000-0000000000b9", "strategy_name": "STX 4h - RSI Divergences"},
+        {"allocation_id": "00000000-0000-4000-8000-0000000000aa", "strategy_id": "00000000-0000-4000-8000-0000000000ba", "strategy_name": "STX 1h - Breakout"}
+      ],
+      "confirmed_at": "2026-10-16T19:02:17Z",
+      "last_observed_at": "2026-10-16T21:39:42Z"
+    },
+    {
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d4",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "AAVEUSDT",
+      "kind": "AMBIGUOUS_PARTIAL_REDUCE",
+      "reason": "NOT_BOOKABLE",
+      "venue_net_base": "0.500000000000000000",
+      "ledger_net_base": "1.320000000000000000",
+      "allocations": [
+        {"allocation_id": "00000000-0000-4000-8000-0000000000ab", "strategy_id": "00000000-0000-4000-8000-0000000000bb", "strategy_name": "AAVE 4h - RSI Divergences"},
+        {"allocation_id": "00000000-0000-4000-8000-0000000000ac", "strategy_id": "00000000-0000-4000-8000-0000000000bc", "strategy_name": "AAVE 1h - Breakout"}
+      ],
+      "confirmed_at": "2026-10-15T08:14:40Z",
+      "last_observed_at": "2026-10-16T21:39:42Z"
+    },
+    {
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d5",
+      "exchange": "binance",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "LINKUSDT",
+      "kind": "NO_MATCHING_ALLOCATION",
+      "reason": "NOT_BOOKABLE",
+      "venue_net_base": "12",
+      "ledger_net_base": "0",
+      "allocations": [],
+      "confirmed_at": "2026-10-16T21:20:33Z",
+      "last_observed_at": "2026-10-16T21:39:51Z"
+    }
+  ],
+  "being_booked": [
+    {
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d1",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "ETHUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "reason": null,
+      "venue_net_base": "0",
+      "ledger_net_base": "0.600000000000000000",
+      "allocations": [
+        {"allocation_id": "00000000-0000-4000-8000-0000000000a5", "strategy_id": "00000000-0000-4000-8000-0000000000b5", "strategy_name": "ETH Swing"}
+      ],
+      "confirmed_at": "2026-10-16T21:37:12Z",
+      "last_observed_at": "2026-10-16T21:39:40Z"
+    }
+  ],
+  "booked": [
+    {
+      "proposal_id": "00000000-0000-4000-8000-0000000000e1",
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d6",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "SOLUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "strategy_id": "00000000-0000-4000-8000-0000000000b8",
+      "strategy_name": "SOL 4h - RSI Divergences",
+      "allocation_id": "00000000-0000-4000-8000-0000000000ad",
+      "side": "SELL",
+      "quantity": "0.500000000000000000",
+      "fill_count": 1,
+      "decided_at": "2026-10-16T21:33:08Z",
+      "decided_by": "automatic",
+      "execution_attempt_id": "00000000-0000-4000-8000-0000000000f1",
+      "discrepancy_open": true
+    },
+    {
+      "proposal_id": "00000000-0000-4000-8000-0000000000e2",
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d7",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "AAVEUSDT",
+      "kind": "ATTRIBUTABLE_SINGLE_ALLOCATION",
+      "strategy_id": "00000000-0000-4000-8000-0000000000bb",
+      "strategy_name": "AAVE 4h - RSI Divergences",
+      "allocation_id": "00000000-0000-4000-8000-0000000000ae",
+      "side": "SELL",
+      "quantity": "0.820000000000000000",
+      "fill_count": 2,
+      "decided_at": "2026-10-14T03:12:51Z",
+      "decided_by": "automatic",
+      "execution_attempt_id": "00000000-0000-4000-8000-0000000000f2",
+      "discrepancy_open": false
+    },
+    {
+      "proposal_id": "00000000-0000-4000-8000-0000000000e3",
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d8",
+      "exchange": "bybit",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "SUIUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "strategy_id": "00000000-0000-4000-8000-0000000000bd",
+      "strategy_name": "SUI 4h - RSI Divergences",
+      "allocation_id": "00000000-0000-4000-8000-0000000000af",
+      "side": "BUY",
+      "quantity": "140",
+      "fill_count": 1,
+      "decided_at": "2026-09-29T16:47:22Z",
+      "decided_by": "automatic",
+      "execution_attempt_id": "00000000-0000-4000-8000-0000000000f3",
+      "discrepancy_open": false
+    },
+    {
+      "proposal_id": "00000000-0000-4000-8000-0000000000e4",
+      "discrepancy_id": "00000000-0000-4000-8000-0000000000d9",
+      "exchange": "binance",
+      "venue": "usdt-m",
+      "settlement_currency": "USDT",
+      "symbol": "LINKUSDT",
+      "kind": "ATTRIBUTABLE_FULL_CLOSE",
+      "strategy_id": "00000000-0000-4000-8000-0000000000be",
+      "strategy_name": "LINK 4h - RSI Divergences",
+      "allocation_id": "00000000-0000-4000-8000-000000000a10",
+      "side": "BUY",
+      "quantity": "12",
+      "fill_count": 3,
+      "decided_at": "2026-10-02T11:05:37Z",
+      "decided_by": "owner",
+      "execution_attempt_id": "00000000-0000-4000-8000-0000000000f4",
+      "discrepancy_open": false
+    }
+  ]
+}

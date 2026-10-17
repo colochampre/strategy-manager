@@ -65,14 +65,17 @@ at a 60-second cadence.
 """
 
 import logging
+from collections.abc import MutableMapping
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.reconciliation.application.auto_book_pending import AutoBookResult
 from strategy_manager.reconciliation.application.expire_booking_proposals import (
     ExpireBookingProposalsResult,
 )
 from strategy_manager.reconciliation.application.prepare_booking import PrepareBookingResult
+from strategy_manager.reconciliation.domain.booking import BookingRefusal
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 
@@ -124,6 +127,31 @@ class ExpireBookingProposalsPort(Protocol):
     async def expire(self) -> ExpireBookingProposalsResult: ...
 
 
+class AutoBookPort(Protocol):
+    """What the handler needs from ``AutoBookPending`` (design § C1)."""
+
+    async def run(self) -> AutoBookResult: ...
+
+
+class AnnounceNeedsOwnerPort(Protocol):
+    """What the handler needs from ``AnnounceNeedsOwner`` (design § E): the
+    process-wide memory of the last known refusal per discrepancy, which the
+    use case may also prune."""
+
+    async def run(
+        self, last_reason_by_discrepancy: MutableMapping[UUID, BookingRefusal]
+    ) -> None: ...
+
+
+last_reason_by_discrepancy: dict[UUID, BookingRefusal] = {}
+"""The last refusal code this PROCESS saw for each unbooked discrepancy
+(design § E, "Remembering them"). Module-level for the reason
+``_SkipAnnouncement`` gives: ``main.py`` builds a fresh handler for every
+job. Filled from the sweep's refusals and the automatic step's stale
+proposals; an id is dropped once it is booked (here) or no longer open
+(by ``AnnounceNeedsOwner``, which reads the open rows)."""
+
+
 def _log_expiry(result: ExpireBookingProposalsResult) -> None:
     if result.expired:
         logger.info("prepare booking: expired %d stale proposal(s)", result.expired)
@@ -134,18 +162,24 @@ def _log_expiry(result: ExpireBookingProposalsResult) -> None:
     # noise competing with it.
 
 
-def _log_summary(result: PrepareBookingResult) -> None:
+def _log_summary(result: PrepareBookingResult, booked: AutoBookResult) -> None:
     if (
         result.proposals_prepared
         or result.proposals_skipped
         or result.proposals_suppressed
+        or booked.outcomes
+        or booked.left_for_next_run
     ):
         logger.info(
-            "prepare booking: considered=%d prepared=%d skipped=%d suppressed=%d",
+            "prepare booking: considered=%d prepared=%d skipped=%d suppressed=%d "
+            "approved=%d not_approved=%d left_for_next_run=%d",
             result.discrepancies_considered,
             result.proposals_prepared,
             result.proposals_skipped,
             result.proposals_suppressed,
+            len(booked.approved),
+            len(booked.not_approved),
+            booked.left_for_next_run,
         )
         return
     # Nothing happened -- the routine case at this cadence. Still visible at
@@ -164,6 +198,8 @@ class BookingPrepareHandler:
         self,
         prepare_booking: PrepareBookingPort,
         expire_booking_proposals: ExpireBookingProposalsPort,
+        auto_book: AutoBookPort,
+        announce_needs_owner: AnnounceNeedsOwnerPort,
         queue: JobQueuePort,
         clock: ClockPort,
         interval_seconds: float,
@@ -171,6 +207,8 @@ class BookingPrepareHandler:
     ) -> None:
         self._prepare_booking = prepare_booking
         self._expire_booking_proposals = expire_booking_proposals
+        self._auto_book = auto_book
+        self._announce_needs_owner = announce_needs_owner
         self._queue = queue
         self._clock = clock
         self._interval_seconds = interval_seconds
@@ -197,7 +235,20 @@ class BookingPrepareHandler:
             # the same convention ``ScanPools.scan`` already follows for
             # ``first_scan_id``/``last_scan_id``.
             result = await self._prepare_booking.sweep(job.id)
-            _log_summary(result)
+            # The automatic step is NOT inside ``sweep`` (design § C1):
+            # ``sweep`` commits once at its end while ``approve`` commits on
+            # every outcome. It runs over EVERY PENDING proposal, so a row
+            # left by a crash is picked up. Its exceptions are deliberately
+            # not caught (design § C6): a fault in the ledger writer stops
+            # the writer, no announcement is made and no successor is
+            # enqueued; the queue retries and the watchdog reports it.
+            booked = await self._auto_book.run()
+            last_reason_by_discrepancy.update(result.refusals)
+            last_reason_by_discrepancy.update(booked.not_approved)
+            for discrepancy_id in booked.approved:
+                last_reason_by_discrepancy.pop(discrepancy_id, None)
+            _log_summary(result, booked)
+            await self._announce_needs_owner.run(last_reason_by_discrepancy)
 
         await self._queue.enqueue(
             Job(

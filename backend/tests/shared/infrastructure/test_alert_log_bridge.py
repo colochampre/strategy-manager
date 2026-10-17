@@ -26,9 +26,17 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from strategy_manager.reconciliation.application.announce_needs_owner import reset_announcements
 from strategy_manager.shared.infrastructure.alert_log_bridge import (
     EXCLUDED_LOGGER_PREFIXES,
     AlertLogBridge,
+)
+from tests.reconciliation.application.test_announce_needs_owner import (
+    LEDGER_NET,
+    REMINDER,
+    VENUE_NET,
+    Harness,
+    _row,
 )
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
@@ -632,3 +640,64 @@ async def test_an_unformattable_record_still_produces_an_alert() -> None:
 
     assert len(alerter.sent) == 1
     assert "%d and %d" in alerter.sent[0][1]
+
+
+# --- PR 15, cd.1.21: the needs-owner announcement and its reminder -----------
+
+
+async def test_the_announcement_is_delivered_and_a_reminder_right_after_it_is_not_folded() -> None:
+    """A real ``AlertLogBridge`` behind the production logger hierarchy, a fake
+    ``AlertPort`` at the far end. The reminder has its OWN template, so the
+    bridge's per-template throttle (window 900 s) lets it through even when it
+    follows an announcement at once (design § E, K row 9). R19: no quantity,
+    price or fee reaches the port.
+    """
+    reset_announcements()
+    row = _row()
+    harness = Harness([row])
+    alerter = SpyAlerter()
+    bridge = await _bridge(alerter)  # its clock never moves: 0 s into the window
+    production_root = logging.getLogger("strategy_manager")
+    production_root.addHandler(bridge)
+    try:
+        await harness.run()  # the announcement
+        harness.clock.current = harness.clock.current + timedelta(seconds=REMINDER)
+        await harness.run()  # the reminder, same throttle window as far as the bridge knows
+        await bridge.drain()
+    finally:
+        production_root.removeHandler(bridge)
+        await bridge.aclose()
+        reset_announcements()
+
+    assert len(alerter.sent) == 2, "the reminder must not be folded into the announcement"
+    announcement, reminder = alerter.sent
+    assert "confirmed discrepancies need the owner" in announcement[1]
+    assert "reminder: 1 confirmed discrepancies still need the owner" in reminder[1]
+    assert str(row.id) in announcement[1] and str(row.id) in reminder[1]
+    for title, body in alerter.sent:
+        for secret in (str(VENUE_NET), str(LEDGER_NET)):
+            assert secret not in title and secret not in body
+
+
+async def test_two_announcements_in_one_window_are_folded_into_one_alert() -> None:
+    """The gap the reminder closes: a second announcement inside 900 s shares
+    the first's key, so only the first reaches the port."""
+    reset_announcements()
+    first, second = _row(), _row()
+    harness = Harness([first])
+    alerter = SpyAlerter()
+    bridge = await _bridge(alerter)
+    production_root = logging.getLogger("strategy_manager")
+    production_root.addHandler(bridge)
+    try:
+        await harness.run()
+        harness.discrepancies.rows = [first, second]
+        await harness.run()
+        await bridge.drain()
+    finally:
+        production_root.removeHandler(bridge)
+        await bridge.aclose()
+        reset_announcements()
+
+    assert len(alerter.sent) == 1
+    assert str(first.id) in alerter.sent[0][1]

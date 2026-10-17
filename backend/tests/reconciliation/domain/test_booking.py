@@ -20,6 +20,7 @@ from strategy_manager.reconciliation.domain.booking import (
     build_client_order_id,
     canonical_order,
     match_fills,
+    reduces_position,
 )
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -309,3 +310,32 @@ def test_two_bookings_of_one_partially_filled_order_get_distinct_ids() -> None:
 def test_client_order_id_raises_on_empty_fills() -> None:
     with pytest.raises(InvariantViolation):
         build_client_order_id("bybit", [])
+
+
+# --- reduces_position: the automatic boundary (owner decision 66 Q2) --------
+
+
+@pytest.mark.parametrize(
+    ("ledger", "venue", "expected"),
+    [
+        pytest.param("0.5", "0.8", False, id="long-grew"),
+        pytest.param("0.5", "-0.2", False, id="long-flipped-to-short"),
+        pytest.param("0.5", "0.2", True, id="long-reduced"),
+        pytest.param("0.5", "0", True, id="long-closed"),
+        pytest.param("-0.5", "-0.2", True, id="short-reduced"),
+        pytest.param("-0.5", "0.1", False, id="short-flipped-to-long"),
+        pytest.param("-0.5", "-0.8", False, id="short-grew"),
+        pytest.param("-0.5", "0", True, id="short-closed"),
+        pytest.param("0", "0.3", False, id="flat-opened-long"),
+        pytest.param("0", "-0.3", False, id="flat-opened-short"),
+    ],
+)
+def test_a_difference_is_automatic_only_when_it_reduces_the_position(
+    ledger: str, venue: str, expected: bool
+) -> None:
+    assert reduces_position(Decimal(ledger), Decimal(venue)) is expected
+
+
+@pytest.mark.parametrize("ledger", ["0.5", "-0.5", "12.345", "-0.001"])
+def test_a_full_close_is_always_accepted(ledger: str) -> None:
+    assert reduces_position(Decimal(ledger), Decimal("0")) is True
