@@ -18,9 +18,9 @@ const NO_BOOKING = "No booking in the last 30 days.";
 const FAILED = "Discrepancies could not be read, so this page cannot say whether anything needs you.";
 const DRY_RUN = "The comparison with the venue does not run in dry run, so nothing is checked here.";
 
-function mountPage(confirmed: ConfirmedStub) {
+function mountPage(confirmed: ConfirmedStub, path = "/discrepancies") {
   const fetchMock = stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, undefined, confirmed);
-  renderAt(<DiscrepanciesPage />, "/discrepancies");
+  renderAt(<DiscrepanciesPage />, path);
   return fetchMock;
 }
 
@@ -274,6 +274,33 @@ describe("the lists, grouped by exchange whatever tab was selected (owner decisi
     expect(being).not.toHaveClass("border-loss");
     expect(within(being).getByText("Being booked automatically.")).toBeInTheDocument();
     expect(within(being).queryByText("What you can do")).not.toBeInTheDocument();
+  });
+
+  describe("reaching an item by its hash", () => {
+    const scrollIntoView = vi.fn();
+
+    beforeEach(() => {
+      scrollIntoView.mockClear();
+      Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: scrollIntoView });
+    });
+    afterEach(() => {
+      Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    });
+
+    it("scrolls the item the hash names into view once the read has drawn it, and only then", async () => {
+      mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE, BINANCE] }) }, "/discrepancies#discrepancy-44");
+
+      await screen.findByRole("heading", { level: 2, name: "Needs you" });
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById("discrepancy-44"));
+    });
+
+    it("does not scroll in dry run, where no item is drawn", async () => {
+      mountPage({ kind: "ok", body: confirmedBody({ dry_run: true, needs_owner: [BINANCE] }) }, "/discrepancies#discrepancy-44");
+
+      await screen.findByText(DRY_RUN);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
   });
 
   it("draws the bookings in a table named by the section, with the sentence, and not the empty sentence", async () => {

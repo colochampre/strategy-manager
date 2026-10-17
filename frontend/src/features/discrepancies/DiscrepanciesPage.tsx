@@ -9,6 +9,7 @@ import { ReadLine, ReadState } from "@/features/discrepancies/ReadLine";
 import { groupByExchange } from "@/features/discrepancies/groupByExchange";
 import { useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import type { ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
+import { useHashScroll } from "@/shared/lib/useHashScroll";
 
 interface SectionProps {
   headingId: string;
@@ -122,6 +123,8 @@ export function DiscrepanciesPage() {
   const { t } = useTranslation();
   const confirmed = useConfirmedDiscrepancies();
   const reading = confirmed.data;
+  // The items exist only once a read has answered, and not at all in dry run.
+  useHashScroll(reading !== undefined && !reading.dry_run);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
