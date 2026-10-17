@@ -159,7 +159,11 @@ def reduces_position(ledger_net_base: Decimal, venue_net_base: Decimal) -> bool:
     such a difference can be a close, a liquidation or a stop; an increase or
     a flip is a fill this system cannot explain."""
 
-    return False
+    if ledger_net_base > _ZERO:
+        return _ZERO <= venue_net_base <= ledger_net_base
+    if ledger_net_base < _ZERO:
+        return ledger_net_base <= venue_net_base <= _ZERO
+    return venue_net_base == _ZERO
 
 
 @dataclass(frozen=True, slots=True)
