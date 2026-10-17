@@ -16,8 +16,14 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from strategy_manager.reconciliation.domain.discrepancy import (
+    DiscrepancyKind,
     DiscrepancyStatus,
     Observation,
+)
+from strategy_manager.shared.domain.errors import InvariantViolation
+
+_NEVER_BOOKABLE: frozenset[DiscrepancyKind] = frozenset(
+    {DiscrepancyKind.AMBIGUOUS_PARTIAL_REDUCE, DiscrepancyKind.NO_MATCHING_ALLOCATION}
 )
 
 
@@ -58,5 +64,24 @@ class Attention:
 def sort_confirmed(row: ConfirmedRow, now: datetime, grace: timedelta) -> Attention | None:
     """The group (and, for NEEDS_OWNER, the reason) of ``row``, or ``None``
     when it is OBSERVED or resolved. Design § D, first match wins."""
+
+    if row.status != DiscrepancyStatus.CONFIRMED or row.resolved:
+        return None
+
+    if row.observation.kind in _NEVER_BOOKABLE:
+        return Attention(AttentionGroup.NEEDS_OWNER, NeedsOwnerReason.NOT_BOOKABLE)
+
+    # ``Observation`` is a frozen dataclass: ``in`` compares kind and both
+    # nets by value, so ``0.5`` and ``0.50`` are the same observation.
+    if row.observation in row.approved_observations:
+        return Attention(AttentionGroup.BOOKED)
+
+    if row.open_allocation_count > 1:
+        return Attention(AttentionGroup.NEEDS_OWNER, NeedsOwnerReason.SEVERAL_ALLOCATIONS)
+
+    if row.confirmed_at is None:
+        raise InvariantViolation("a CONFIRMED discrepancy carries no confirmed_at")
+    if now - row.confirmed_at > grace:
+        return Attention(AttentionGroup.NEEDS_OWNER, NeedsOwnerReason.NOT_BOOKED)
 
     return Attention(AttentionGroup.BEING_BOOKED)
