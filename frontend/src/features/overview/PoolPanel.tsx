@@ -18,8 +18,6 @@ import type { Pool, PoolPerformance } from "@/shared/api/types";
 
 interface PoolPanelProps {
   pool: Pool;
-  /** Rendered between the chart and the month grid: the phone layout's decision rail. */
-  betweenChartAndGrid?: ReactNode;
 }
 
 /** `2026-09-30T10:00:00+00:00` as a short UTC date and time; the server's clock is UTC. */
@@ -90,11 +88,9 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
  * The available balance is the pools row's `balance.available`: the
  * performance body does not carry it.
  *
- * The panel is three slots in a fixed order, top, `betweenChartAndGrid` and
- * bottom, so whatever the caller puts in the middle keeps its place (and its
- * state) while the report loads and arrives.
+ * Nothing sits between the chart and the month grid: the panel takes no slot for a caller's node.
  */
-export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) {
+export function PoolPanel({ pool }: PoolPanelProps) {
   const { t, i18n } = useTranslation();
   const performance = usePoolPerformance(pool.exchange, pool.venue, pool.settlement_currency);
   const [range, setRange] = useState<RangeName>(DEFAULT_RANGE);
@@ -153,7 +149,6 @@ export function PoolPanel({ pool, betweenChartAndGrid = null }: PoolPanelProps) 
         )}
       </div>
       {top}
-      {betweenChartAndGrid}
       {report !== null && (
         <div className="flex flex-col gap-1.5">
           <MonthlyGrid monthly={report.monthly} />

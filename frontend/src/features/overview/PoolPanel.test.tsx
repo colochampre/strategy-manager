@@ -119,6 +119,22 @@ describe("a pool with a report (T13)", () => {
   });
 });
 
+describe("a pool panel has no slot between the chart and the grid (cd.2.20; spec 'The Overview Has No Decision Rail...')", () => {
+  it("ignores a betweenChartAndGrid prop: its node is not drawn and the grid follows the chart directly", async () => {
+    // Spread, so that the prop the panel no longer declares is passed without a type error: a caller of
+    // the old API would otherwise find its node drawn between the chart and the grid.
+    const removed = { betweenChartAndGrid: <p data-testid="between">between the chart and the grid</p> };
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "usdt-m", "USDT", BALANCE)] }, { [KEY]: report() }, undefined, {}, undefined, answering([]));
+    renderAt(<PoolPanel pool={pool("bybit", "usdt-m", "USDT", BALANCE)} {...removed} />);
+    await settle();
+
+    const panel = await screen.findByTestId("pool-panel");
+    expect(within(panel).queryByTestId("between")).not.toBeInTheDocument();
+    const top = within(panel).getByTestId("ledger-line").parentElement as HTMLElement;
+    expect(top.nextElementSibling).toContainElement(within(panel).getByTestId("month-2026-9"));
+  });
+});
+
 describe("the Overview asks for the open positions once (T22)", () => {
   it("shares one request between the panel's count and its list", async () => {
     const api = stubApi(
