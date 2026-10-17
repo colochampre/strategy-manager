@@ -434,8 +434,11 @@ async def seed_confirmed_discrepancy(
     venue_net: str,
     ledger_net: str,
     confirmed_at: datetime = CONFIRMED_AT,
+    symbol: str = MARKET_SYMBOL,
 ) -> UUID:
-    """A CONFIRMED, open discrepancy row for ``MARKET_SYMBOL``."""
+    """A CONFIRMED, open discrepancy row for ``symbol`` (``MARKET_SYMBOL`` by
+    default; only one open row exists per market, so a second one in the same
+    test names another)."""
 
     discrepancy_id, scan_id = uuid4(), uuid4()
     async with session_factory() as session:
@@ -455,7 +458,7 @@ async def seed_confirmed_discrepancy(
                 "exchange": POOL[0],
                 "venue": POOL[1],
                 "settlement_currency": POOL[2],
-                "symbol": MARKET_SYMBOL,
+                "symbol": symbol,
                 "kind": kind.value,
                 "venue_net": Decimal(venue_net),
                 "ledger_net": Decimal(ledger_net),
@@ -475,6 +478,7 @@ async def seed_scenario(
     ledger_net: str = "0.5",
     venue_net: str = "0",
     kind: DiscrepancyKind = DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
+    symbol: str = MARKET_SYMBOL,
 ) -> Scenario:
     strategy_id, allocation_id = await seed_open_allocation(
         session_factory, quantity=ledger_net
@@ -485,6 +489,7 @@ async def seed_scenario(
         kind=kind,
         venue_net=venue_net,
         ledger_net=ledger_net,
+        symbol=symbol,
     )
     return Scenario(strategy_id, allocation_id, discrepancy_id)
 
@@ -542,6 +547,31 @@ async def insert_pending_proposal(
 
 
 # --- Reading -----------------------------------------------------------------
+
+# The tables a refused or skipped job must leave exactly as it found them.
+# The names are constants of this module, never user input.
+WRITE_TABLES = (
+    "booking_proposals",
+    "execution_attempts",
+    "ledger_entries",
+    "reconciliation_discrepancies",
+)
+
+
+async def snapshot_tables(
+    session_factory: async_sessionmaker[AsyncSession], tables: Sequence[str] = WRITE_TABLES
+) -> dict[str, list[str]]:
+    """Every row, every column, of each table, as sorted JSON text. Two
+    snapshots are equal only when no row was added, removed or altered."""
+
+    snapshot: dict[str, list[str]] = {}
+    async with session_factory() as session:
+        for table in tables:
+            rows = await session.execute(
+                text(f"SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1")  # noqa: S608
+            )
+            snapshot[table] = [row[0] for row in rows.all()]
+    return snapshot
 
 
 async def proposals_of(
