@@ -1,3 +1,4 @@
+import { Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router";
 
@@ -28,8 +29,9 @@ export function TopBar() {
           <button
             type="button"
             onClick={toggleLanguage}
-            className="min-h-11 rounded-md px-2 text-xs uppercase text-ink-3 hover:text-ink"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs uppercase text-ink-3 hover:text-ink"
           >
+            <Languages aria-hidden="true" className="size-4 shrink-0" />
             {i18n.resolvedLanguage === "es" ? "en" : "es"}
           </button>
         </div>

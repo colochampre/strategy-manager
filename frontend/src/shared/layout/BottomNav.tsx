@@ -23,15 +23,20 @@ export function BottomNav() {
           key={item.to}
           to={item.to}
           end={item.end}
+          title={t(`nav.${item.labelKey}`)}
           className={({ isActive }) =>
             cn(
-              "relative flex min-h-11 min-w-0 flex-1 items-end justify-center whitespace-nowrap pb-2 text-xs transition-colors",
-              isActive ? "bg-panel-2 font-semibold text-ink" : "text-ink-3",
+              "flex min-h-11 min-w-0 flex-1 items-center justify-center transition-colors",
+              isActive ? "bg-panel-2 text-ink" : "text-ink-3",
             )
           }
         >
-          <span>{t(`nav.${item.labelKey}`)}</span>
-          {item.badge && <NavBadge corner />}
+          {/* Icon alone (owner decision 67 Q2): the name stays as visually hidden text, so the badge's hidden words still join it. */}
+          <span className="relative flex items-center justify-center px-3">
+            <item.icon aria-hidden="true" className="size-5 shrink-0" />
+            <span className="sr-only">{t(`nav.${item.labelKey}`)}</span>
+            {item.badge && <NavBadge corner />}
+          </span>
         </NavLink>
       ))}
     </nav>
