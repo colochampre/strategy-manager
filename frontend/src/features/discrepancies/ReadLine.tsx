@@ -1,11 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CONFIRMED_KEY } from "@/shared/api/discrepancies";
 import { cn } from "@/shared/lib/cn";
 import { clockSecondsText } from "@/shared/lib/figure-text";
 
-const BUTTON = "min-h-11 flex-none rounded-md border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60";
+const BUTTON =
+  "inline-flex min-h-11 flex-none items-center gap-1.5 rounded-md border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60";
 
 function useReadAgain() {
   const queryClient = useQueryClient();
@@ -59,6 +61,7 @@ export function ReadState({ status, errorUpdateCount }: ReadStateProps) {
         }}
         className={BUTTON}
       >
+        <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
         {t("discrepancies.read.refresh")}
       </button>
     </div>
@@ -91,6 +94,7 @@ export function ReadLine({ readAt, stale }: ReadLineProps) {
         {stale && <p className="text-loss">{t("discrepancies.read.stale", { time })}</p>}
       </div>
       <button type="button" onClick={readAgain} className={BUTTON}>
+        <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
         {t("discrepancies.read.refresh")}
       </button>
     </div>

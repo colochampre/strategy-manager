@@ -85,6 +85,18 @@ describe("a failed first read draws no figure at all", () => {
     await waitFor(() => expect(positionsRequests(api)).toBe(2));
   });
 
+  it("draws an aria-hidden RefreshCw left of the text of Read again beside a held answer, its name unchanged", async () => {
+    const { api } = mount(answering(openState([openPosition({ strategy_id: ALPHA })])), new Set([ALPHA]));
+    await settled(api);
+
+    const button = await screen.findByRole("button", { name: en.positions.state.refresh });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-refresh-cw", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+  });
+
   it("keeps Read again in place and focused, disabled for the screen reader, while it reads again after a failure", async () => {
     const route = failsOnceThenHolds(openState([openPosition({ strategy_id: ALPHA })]));
     stubApi(HEALTH, [], undefined, {}, route.route);
