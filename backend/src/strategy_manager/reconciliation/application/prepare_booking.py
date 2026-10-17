@@ -68,6 +68,7 @@ from strategy_manager.reconciliation.domain.booking import (
     ProposedFill,
     build_client_order_id,
     match_fills,
+    reduces_position,
 )
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyStatus, Observation
 from strategy_manager.shared.application.ports import ClockPort
@@ -136,6 +137,7 @@ class PrepareBooking:
         skipped = 0
         suppressed = 0
         considered = 0
+        refusals: dict[UUID, BookingRefusal] = {}
 
         for discrepancy in confirmed:
             if discrepancy.kind not in BOOKABLE_KINDS:
@@ -158,6 +160,25 @@ class PrepareBooking:
                     discrepancy.id,
                 )
                 suppressed += 1
+                refusals[discrepancy.id] = BookingRefusal.SUPPRESSED_BY_REJECTION
+                continue
+
+            if not reduces_position(discrepancy.ledger_net_base, discrepancy.venue_net_base):
+                # Owner decision 66 Q2 (2026-10-16): a liquidation, a stop or a
+                # close by hand only ever REDUCES a position. An increase or a
+                # flip is a fill this system cannot explain, so it is never
+                # booked automatically. Needs no venue read, so it comes first
+                # (tasks.md note N2).
+                logger.warning(
+                    "prepare booking: discrepancy %s grows or flips the position "
+                    "(ledger net %s, venue net %s), which is not a close; needs "
+                    "manual reconciliation",
+                    discrepancy.id,
+                    discrepancy.ledger_net_base,
+                    discrepancy.venue_net_base,
+                )
+                skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.GROWS_OR_FLIPS
                 continue
 
             expected_market = market_key(discrepancy.symbol)
@@ -173,6 +194,7 @@ class PrepareBooking:
                     self._max_span,
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.WINDOW_TOO_LONG
                 continue
 
             pool: PoolKey = (
@@ -192,6 +214,7 @@ class PrepareBooking:
                     exc,
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.VENUE_READ_FAILED
                 continue
 
             mismatched = {
@@ -209,6 +232,7 @@ class PrepareBooking:
                     sorted(mismatched),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.MARKET_MISMATCH
                 continue
 
             recorded_ids = await self._recorded_fill_ids.recorded_fill_ids(
@@ -230,6 +254,9 @@ class PrepareBooking:
                     matched.detail,
                 )
                 skipped += 1
+                # ``BookingRefusal`` repeats the four ``MatchRefusalReason``
+                # values by name, so the mapping is by value.
+                refusals[discrepancy.id] = BookingRefusal(matched.reason.value)
                 continue
 
             without_order_id = [
@@ -249,6 +276,7 @@ class PrepareBooking:
                     sorted(without_order_id),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.NO_ORDER_ID
                 continue
 
             if not discrepancy.open_allocation_ids:
@@ -270,7 +298,27 @@ class PrepareBooking:
                     len(discrepancy.open_allocation_ids),
                 )
                 skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.SEVERAL_ALLOCATIONS
                 continue
+
+            if self._system_order_ids is not None:
+                # Owner decision 66 Q2: a fill of an order THIS system placed
+                # is recorded by ``SettleExecution`` or its recovery, never as
+                # a venue-originated close (closes P8's example). One question
+                # for the whole set of matched order ids.
+                order_ids = sorted(
+                    {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
+                )
+                if await self._system_order_ids.holds_any(pool, order_ids):
+                    logger.warning(
+                        "prepare booking: discrepancy %s matched fills of an order "
+                        "this system placed, which is not a venue-originated "
+                        "close; needs manual reconciliation",
+                        discrepancy.id,
+                    )
+                    skipped += 1
+                    refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
+                    continue
             allocation_id = discrepancy.open_allocation_ids[0]
             strategy_id = await self._allocation_owner.strategy_for(allocation_id)
             client_order_id = build_client_order_id(discrepancy.exchange, matched.fills)
@@ -316,7 +364,7 @@ class PrepareBooking:
             # catch.
 
         await self._commit.commit()
-        return PrepareBookingResult(considered, prepared, skipped, suppressed)
+        return PrepareBookingResult(considered, prepared, skipped, suppressed, refusals)
 
 
 def _to_proposed_fill(fill: VenueFill) -> ProposedFill:
