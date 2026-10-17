@@ -10,30 +10,57 @@
 * row 12 (cd.3.12): a booking written and then the venue moves again.
 """
 
+from collections.abc import AsyncIterator
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind
+from strategy_manager.reconciliation.infrastructure.router import (
+    router as reconciliation_router,
+)
+from strategy_manager.shared import db as shared_db
 from tests.reconciliation.infrastructure.test_confirmed_router import (
     HEADERS,
     _approved_proposal,
     _discrepancy,
     _settings,  # noqa: F401  (autouse: admin token, DRY_RUN off, the 300 s grace)
     _strategy_and_allocation,
-    client,  # noqa: F401  (the app with the real router over the test database)
 )
 
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture
+async def api(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncClient]:
+    """The real router over the test database, with no proposal left over."""
+
+    async with pg_session_factory() as session:
+        await session.execute(text("TRUNCATE booking_proposals"))
+        await session.commit()
+
+    app = FastAPI()
+    app.include_router(reconciliation_router)
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
 async def test_a_discrepancy_confirmed_six_minutes_ago_with_no_proposal_at_all_needs_the_owner(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+    api: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     # The booking chain never ran: there is no proposal row of any state.
     discrepancy_id = await _discrepancy(
@@ -45,7 +72,7 @@ async def test_a_discrepancy_confirmed_six_minutes_ago_with_no_proposal_at_all_n
         ).scalar_one()
     assert proposals == 0
 
-    body: dict[str, Any] = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
 
     assert body["needs_owner_count"] == 1
     [item] = body["needs_owner"]
@@ -56,7 +83,7 @@ async def test_a_discrepancy_confirmed_six_minutes_ago_with_no_proposal_at_all_n
 
 
 async def test_the_same_discrepancy_confirmed_four_minutes_ago_is_still_being_booked(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+    api: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The other side of the 300 s grace, so the six-minute case above is not
     NEEDS_OWNER for any reason but its age."""
@@ -65,7 +92,7 @@ async def test_the_same_discrepancy_confirmed_four_minutes_ago_is_still_being_bo
         pg_session_factory, symbol="IIIUSDT", confirmed_ago=timedelta(minutes=4)
     )
 
-    body: dict[str, Any] = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
 
     assert body["needs_owner_count"] == 0
     assert [item["discrepancy_id"] for item in body["being_booked"]] == [str(discrepancy_id)]
@@ -77,7 +104,7 @@ async def test_the_same_discrepancy_confirmed_four_minutes_ago_is_still_being_bo
     [(timedelta(seconds=10), "being_booked"), (timedelta(hours=1), "needs_owner")],
 )
 async def test_after_a_booking_the_venue_moving_again_puts_the_item_back_and_keeps_the_booking(
-    client: AsyncClient,
+    api: AsyncClient,
     pg_session_factory: async_sessionmaker[AsyncSession],
     confirmed_ago: timedelta,
     group: str,
@@ -103,7 +130,7 @@ async def test_after_a_booking_the_venue_moving_again_puts_the_item_back_and_kee
         observed=(Decimal("0"), Decimal("0.5")),
     )
 
-    body: dict[str, Any] = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
 
     other = "needs_owner" if group == "being_booked" else "being_booked"
     assert [item["discrepancy_id"] for item in body[group]] == [str(discrepancy_id)]
@@ -119,7 +146,7 @@ async def test_after_a_booking_the_venue_moving_again_puts_the_item_back_and_kee
 
 
 async def test_a_booking_the_venue_has_not_moved_away_from_is_only_in_booked(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+    api: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """The control of the case above: the same booking with the venue where
     the proposal froze it is in no list but ``booked``."""
@@ -142,7 +169,7 @@ async def test_a_booking_the_venue_has_not_moved_away_from_is_only_in_booked(
         observed=(Decimal("0"), Decimal("0.5")),
     )
 
-    body: dict[str, Any] = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
 
     assert body["needs_owner"] == []
     assert body["being_booked"] == []
