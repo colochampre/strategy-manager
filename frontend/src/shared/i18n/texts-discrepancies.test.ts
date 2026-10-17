@@ -161,11 +161,26 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "a la espera de la próxima comparación",
   ],
   ["discrepancies.now.agrees", "the venue agrees again", "el exchange vuelve a coincidir"],
-  // The venue mark of an open position (examples 14 to 16): only the key the task names.
+  // The venue mark of an open position (examples 14 to 16): the words of its state, copied from the prototype.
   [
     "positions.venue.line.beingBooked",
     "being booked automatically",
     "se está registrando automáticamente",
+  ],
+  [
+    "positions.venue.line.reason.NOT_BOOKED",
+    "could not be booked automatically",
+    "no se pudo registrar automáticamente",
+  ],
+  [
+    "positions.venue.line.reason.SEVERAL_ALLOCATIONS",
+    "one booking cannot split it",
+    "un solo registro no puede repartirla",
+  ],
+  [
+    "positions.venue.line.reason.AMBIGUOUS_PARTIAL_REDUCE",
+    "which strategy it reduced cannot be told",
+    "no se puede saber a qué estrategia redujo",
   ],
   // The Overview's three scope messages, reworded: they no longer speak of pending bookings (example 13).
   ["overview.scope.loading", "Loading exchanges…", "Cargando exchanges…"],

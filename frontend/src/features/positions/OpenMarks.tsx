@@ -1,10 +1,8 @@
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 
-import { usePendingBookings } from "@/features/bookings/usePendingBookings";
+import { DiscrepancyLink } from "@/features/positions/DiscrepancyLink";
 import { Mark } from "@/features/positions/Mark";
-import { pendingProposalNames } from "@/features/positions/pendingProposal";
+import { useVenueFollowUp } from "@/features/positions/useVenueFollowUp";
 import { ofExchange, ofStrategy, useOpenPositions } from "@/shared/api/positions";
 import type { OpenPosition, OpenState } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
@@ -24,37 +22,30 @@ interface VenueNoteProps {
   discrepancyId: string;
 }
 
+/** A line's words as the chip's sentence: the first letter capitalised and a full stop, in both languages. */
+function sentenceOf(words: string): string {
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
+}
+
 /**
- * The venue chip and what follows it. The pending bookings are asked for only by a position the venue
- * disagrees on. Until they are READ the chip stands alone: a link would be a guess and "no booking is
- * proposed" a claim nobody checked (design § K row 22), so a read that is loading or failed draws neither.
- * The match is the allocation inside its pool and the discrepancy, both as the server sends them.
+ * The venue chip and what follows it. It stays red in every state. The confirmed discrepancies are asked for
+ * only by a position the venue disagrees on, and the match is by the discrepancy's id. Until they are READ, and
+ * for an id in neither list, the chip stands alone: a link would be a guess and the words a claim nobody
+ * checked (design § K rows 15 and 22), so a read that is loading or failed draws neither.
  */
 function VenueNote({ position, discrepancyId }: VenueNoteProps) {
-  const { t } = useTranslation();
-  const pending = usePendingBookings();
+  const followUp = useVenueFollowUp(discrepancyId);
   const pair = position.markets.join(" / ");
-
-  let after: ReactNode = null;
-  if (pending.data !== undefined) {
-    const named = pendingProposalNames(pending.data, position.allocation_id, discrepancyId);
-    after = named ? (
-      <Link
-        to={{ pathname: "/", hash: "#decision-rail" }}
-        aria-label={t("positions.venue.linkName", { pair })}
-        className="underline underline-offset-4"
-      >
-        {t("positions.venue.link")}
-      </Link>
-    ) : (
-      t("positions.venue.noProposal")
-    );
-  }
 
   return (
     <>
       <Mark kind="venue" />
-      {after !== null && <span className="text-xs text-ink-2">{after}</span>}
+      {followUp !== null && (
+        <span className="text-xs text-ink-2">
+          {followUp.words !== null && `${sentenceOf(followUp.words)} `}
+          <DiscrepancyLink followUp={followUp} pair={pair} />
+        </span>
+      )}
     </>
   );
 }

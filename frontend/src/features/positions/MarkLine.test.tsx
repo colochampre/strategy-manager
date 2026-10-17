@@ -2,8 +2,10 @@ import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OrderLine, VenueLine } from "@/features/positions/MarkLine";
+import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import i18n from "@/shared/i18n";
-import { lock, openOrder, openPosition, renderAt, stubApi, unlock } from "@/test/harness";
+import { confirmedBody, discrepancy, lock, openOrder, openPosition, renderAt, stubApi, unlock } from "@/test/harness";
+import type { ConfirmedStub } from "@/test/harness";
 
 /**
  * T17, the lines' half: ONE base and two variants (design addendum § H, "One component for the two lines"), the
@@ -29,14 +31,21 @@ async function settle() {
   for (let turn = 0; turn < 3; turn += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
-function proposal(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
-    discrepancy_id: DISCREPANCY,
-    allocation_id: ALLOCATION,
-    state: "PENDING",
-    ...overrides,
-  };
+/**
+ * The discrepancy the position's disagreement names, as the confirmed-discrepancies route spells it: the id is
+ * the join, and the symbol is the TradingView spelling while the position's market is the venue's (R21).
+ */
+function confirmedItem(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedDiscrepancy {
+  return discrepancy({ discrepancy_id: DISCREPANCY, symbol: "AAVEUSDT.P", ...overrides });
+}
+
+const BEING_BOOKED: ConfirmedStub = {
+  kind: "ok",
+  body: confirmedBody({ being_booked: [confirmedItem({ reason: null, kind: "ATTRIBUTABLE_FULL_CLOSE" })] }),
+};
+
+function needsOwner(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedStub {
+  return { kind: "ok", body: confirmedBody({ needs_owner: [confirmedItem(overrides)] }) };
 }
 
 function disagreeing(overrides: Parameters<typeof openPosition>[0] = {}) {
@@ -55,12 +64,12 @@ function disagreeing(overrides: Parameters<typeof openPosition>[0] = {}) {
   });
 }
 
-/** Mounts a venue line over an answer to the pending bookings, and waits until it has been read. */
-async function mountVenue(position = disagreeing(), bookings: unknown[] = [proposal()]) {
-  stubApi(HEALTH, bookings);
+/** Mounts a venue line over an answer to the confirmed discrepancies, and waits until it has been read. */
+async function mountVenue(position = disagreeing(), confirmed: ConfirmedStub = BEING_BOOKED) {
+  const api = stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, undefined, confirmed);
   const view = renderAt(<VenueLine position={position} asOf={AS_OF} />);
   await settle();
-  return view;
+  return Object.assign(view, { api });
 }
 
 function mountOrder(overrides: Parameters<typeof openOrder>[0] = {}) {
@@ -168,13 +177,13 @@ describe("the order line (example 19)", () => {
 });
 
 describe("the venue line (examples 18 and 25e)", () => {
-  it("reads pair, venue disagrees, both nets with the base currency, last compared and the link", async () => {
+  it("reads pair, venue disagrees, both nets with the base currency, last compared, the words and the link", async () => {
     await mountVenue();
     const line = venueLine("Venue disagrees, AAVEUSDT");
 
-    await venueLink("See the pending decision, AAVEUSDT");
+    await venueLink("See the discrepancy, AAVEUSDT");
     expect(line.textContent).toBe(
-      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · See the pending decision",
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · being booked automatically · See the discrepancy",
     );
     expect(line.querySelector(".text-loss")).toHaveTextContent("venue disagrees");
   });
@@ -194,9 +203,9 @@ describe("the venue line (examples 18 and 25e)", () => {
     await mountVenue(shared);
     const line = venueLine("Venue disagrees, AAVEUSDT");
 
-    await venueLink("See the pending decision, AAVEUSDT");
+    await venueLink("See the discrepancy, AAVEUSDT");
     expect(line.textContent).toBe(
-      "AAVEUSDT · venue disagrees · exchange 90 AAVE, ledger 150 AAVE · last compared 21:39:12 UTC · shared by 2 positions on this pair · See the pending decision",
+      "AAVEUSDT · venue disagrees · exchange 90 AAVE, ledger 150 AAVE · last compared 21:39:12 UTC · shared by 2 positions on this pair · being booked automatically · See the discrepancy",
     );
   });
 
@@ -204,17 +213,17 @@ describe("the venue line (examples 18 and 25e)", () => {
     await mountVenue();
     const line = venueLine("Venue disagrees, AAVEUSDT");
 
-    await venueLink("See the pending decision, AAVEUSDT");
+    await venueLink("See the discrepancy, AAVEUSDT");
     expect(line.textContent).not.toContain("shared by");
     expect(line.textContent).not.toContain(" ·  · ");
   });
 
-  it("is a group named for the pair, and its link is a real link named for the pair", async () => {
+  it("is a group named for the pair, and its link leads to the item's hash on the discrepancies page", async () => {
     await mountVenue();
 
-    const link = await venueLink("See the pending decision, AAVEUSDT");
-    expect(link).toHaveAttribute("href", "/#decision-rail");
-    expect(link).toHaveTextContent("See the pending decision");
+    const link = await venueLink("See the discrepancy, AAVEUSDT");
+    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
+    expect(link).toHaveTextContent("See the discrepancy");
     expect(venueLine("Venue disagrees, AAVEUSDT")).toContainElement(link);
   });
 
@@ -223,9 +232,9 @@ describe("the venue line (examples 18 and 25e)", () => {
     await mountVenue();
     const line = venueLine("El exchange no coincide, AAVEUSDT");
 
-    await venueLink("Ver la decisión pendiente, AAVEUSDT");
+    await venueLink("Ver la discrepancia, AAVEUSDT");
     expect(line.textContent).toBe(
-      "AAVEUSDT · el exchange no coincide · exchange 0 AAVE, libro mayor 0.82 AAVE · última comparación 21:39:12 UTC · Ver la decisión pendiente",
+      "AAVEUSDT · el exchange no coincide · exchange 0 AAVE, libro mayor 0.82 AAVE · última comparación 21:39:12 UTC · se está registrando automáticamente · Ver la discrepancia",
     );
   });
 
@@ -235,7 +244,94 @@ describe("the venue line (examples 18 and 25e)", () => {
     await mountVenue(disagreeing({ venue_disagreement: { ...base.venue_disagreement!, allocation_count: 2 } }));
     const line = venueLine("El exchange no coincide, AAVEUSDT");
 
-    await venueLink("Ver la decisión pendiente, AAVEUSDT");
+    await venueLink("Ver la discrepancia, AAVEUSDT");
     expect(line).toHaveTextContent("compartida por 2 posiciones en este par");
+  });
+});
+
+describe("the venue line reads the confirmed discrepancies (owner decision 66 Q8; example 14)", () => {
+  it.each([
+    ["NOT_BOOKED", { reason: "NOT_BOOKED" as const, kind: "ATTRIBUTABLE_FULL_CLOSE" as const }, "could not be booked automatically"],
+    [
+      "SEVERAL_ALLOCATIONS",
+      { reason: "SEVERAL_ALLOCATIONS" as const, kind: "ATTRIBUTABLE_FULL_CLOSE" as const },
+      "one booking cannot split it",
+    ],
+    [
+      "AMBIGUOUS_PARTIAL_REDUCE",
+      { reason: "NOT_BOOKABLE" as const, kind: "AMBIGUOUS_PARTIAL_REDUCE" as const },
+      "which strategy it reduced cannot be told",
+    ],
+  ])("says the words of a %s discrepancy in needs_owner, stays red and links to the item", async (_name, overrides, words) => {
+    await mountVenue(disagreeing(), needsOwner(overrides));
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    const link = await venueLink("See the discrepancy, AAVEUSDT");
+    expect(line.textContent).toBe(
+      `AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · ${words} · See the discrepancy`,
+    );
+    expect(line).toHaveClass("border-loss");
+    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
+  });
+
+  it("says the words of the reasons in Spanish, as the prototype writes them", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountVenue(disagreeing(), needsOwner({ reason: "NOT_BOOKED" }));
+    const line = venueLine("El exchange no coincide, AAVEUSDT");
+
+    await venueLink("Ver la discrepancia, AAVEUSDT");
+    expect(line).toHaveTextContent("no se pudo registrar automáticamente · Ver la discrepancia");
+  });
+
+  it("draws the link with no words for a needs_owner reason that has none of its own", async () => {
+    await mountVenue(disagreeing(), needsOwner({ reason: "REASON_UNKNOWN", kind: "NO_MATCHING_ALLOCATION" }));
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    await venueLink("See the discrepancy, AAVEUSDT");
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · See the discrepancy",
+    );
+  });
+
+  it("joins by the discrepancy's id, not by the pair: another id with the same pair makes no claim", async () => {
+    await mountVenue(disagreeing(), needsOwner({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }));
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["the query is loading", { kind: "pending" } as ConfirmedStub],
+    ["the read failed", { kind: "status", status: 500, body: { detail: "down" } } as ConfirmedStub],
+    ["the body is not the route's shape", { kind: "ok", body: [] } as ConfirmedStub],
+    ["the id is in neither list", { kind: "ok", body: confirmedBody() } as ConfirmedStub],
+  ])("makes no claim and draws no link while %s: the red line and its nets stay", async (_name, confirmed) => {
+    await mountVenue(disagreeing(), confirmed);
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(line).toHaveClass("border-loss");
+    expect(line.querySelector(".text-loss")).toHaveTextContent("venue disagrees");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("asks for the confirmed discrepancies once and for no booking proposal", async () => {
+    const view = await mountVenue();
+
+    const urls = view.api.mock.calls.map(([url]) => String(url));
+    expect(urls.filter((url) => url.endsWith("/reconciliation/confirmed"))).toHaveLength(1);
+    expect(urls.filter((url) => url.includes("bookings"))).toEqual([]);
+  });
+
+  it("asks for nothing when the position has no disagreement", async () => {
+    const view = await mountVenue(openPosition({ markets: ["AAVEUSDT"] }));
+
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(view.api.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("reconciliation"))).toEqual([]);
   });
 });

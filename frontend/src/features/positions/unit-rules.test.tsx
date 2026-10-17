@@ -6,7 +6,19 @@ import { OpenMarks } from "@/features/positions/OpenMarks";
 import { OpenStateLine } from "@/features/positions/OpenStateLine";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, openOrder, openPosition, openState, renderAt, stubApi, unlock } from "@/test/harness";
+import {
+  confirmedBody,
+  discrepancy,
+  jsonResponse,
+  lock,
+  openOrder,
+  openPosition,
+  openState,
+  renderAt,
+  stubApi,
+  unlock,
+} from "@/test/harness";
+import type { ConfirmedStub } from "@/test/harness";
 
 /**
  * The rules the Strategies page's marks and summary follow as ONE unit (op.2.28): the palette, red only with its
@@ -49,7 +61,7 @@ function disagreement(discrepancyId: string) {
   };
 }
 
-/** Positions of every origin, orders of every origin, a venue mark with a pending proposal and one without. */
+/** Positions of every origin, orders of every origin, a venue mark whose discrepancy is being booked and one whose is in neither list. */
 const STATE = openState(
   [
     openPosition({ allocation_id: A_LINKED, strategy_id: ALPHA, markets: ["AAVEUSDT"], origin: "live", venue_disagreement: disagreement(D_LINKED) }),
@@ -71,34 +83,13 @@ const STATE = openState(
   ],
 );
 
-const PENDING = [
-  {
-    id: "pppppppp-pppp-4ppp-8ppp-pppppppppppp",
-    discrepancy_id: D_LINKED,
-    exchange: "bybit",
-    venue: "usdt-m",
-    settlement_currency: "USDT",
-    symbol: "AAVEUSDT.P",
-    kind: "ATTRIBUTABLE_FULL_CLOSE",
-    allocation_id: A_LINKED,
-    strategy_id: ALPHA,
-    side: "SELL",
-    quantity: "0.82",
-    observed_venue_net_base: "0",
-    observed_ledger_net_base: "0.82",
-    observed_allocation_ids: [A_LINKED],
-    fills: [],
-    client_order_id: "vnu:bybit:order-1",
-    expires_at: "2026-10-14T01:02:03+00:00",
-    prepared_by_job_id: "55555555-5555-4555-8555-555555555555",
-    created_at: "2026-10-13T01:02:03+00:00",
-    state: "PENDING",
-    decided_at: null,
-    decided_by: null,
-    decision_reason: null,
-    execution_attempt_id: null,
-  },
-];
+/** One discrepancy being booked, which the first mark names (its symbol in the TradingView spelling, R21); the second names none. */
+const CONFIRMED: ConfirmedStub = {
+  kind: "ok",
+  body: confirmedBody({
+    being_booked: [discrepancy({ discrepancy_id: D_LINKED, symbol: "AAVEUSDT.P", reason: null })],
+  }),
+};
 
 function Where() {
   const location = useLocation();
@@ -110,7 +101,7 @@ async function mountUnit() {
   const current: { status: number; body: unknown } = { status: 200, body: STATE };
   const route = (url: string) =>
     url.endsWith("/positions/open") ? Promise.resolve(jsonResponse(current.body, current.status)) : undefined;
-  const api = stubApi(HEALTH, PENDING, undefined, {}, route);
+  const api = stubApi(HEALTH, [], undefined, {}, route, {}, undefined, undefined, CONFIRMED);
   const view = renderAt(
     <>
       <OpenStateLine exchange="bybit" visibleStrategyIds={new Set([ALPHA])} />
@@ -188,7 +179,7 @@ describe("the accessible names of the unit", () => {
     const { view } = await mountUnit();
 
     expect(screen.getByRole("list", { name: "Open positions of Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See the pending decision, AAVEUSDT" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See the discrepancy, AAVEUSDT" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Open:");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(view.container.querySelectorAll("[aria-hidden='true']")).toHaveLength(0);
@@ -215,7 +206,7 @@ describe("what a mark and a row never do", () => {
     expect(chips.length).toBeGreaterThanOrEqual(8);
     for (const target of [
       ...chips,
-      screen.getByText("No booking is proposed for it."),
+      screen.getByText(/^Being booked automatically\./),
       ...screen.getAllByRole("listitem"),
       screen.getByText(/^Not on this list:/),
     ]) {
@@ -228,22 +219,23 @@ describe("what a mark and a row never do", () => {
     expect(api.mock.calls.length).toBe(requestsBefore);
   });
 
-  it("leads, by its link, to the Overview's rail and to no view of the confirmed discrepancies", async () => {
+  it("leads, by its link, to the item on the discrepancies page and nowhere else", async () => {
     await mountUnit();
 
+    const item = `/discrepancies#discrepancy-${D_LINKED}`;
     const hrefs = [...document.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"));
-    expect(hrefs).toEqual(["/#decision-rail"]);
+    expect(hrefs).toEqual([item]);
 
-    fireEvent.click(screen.getByRole("link", { name: "See the pending decision, AAVEUSDT" }));
-    expect(screen.getByTestId("where")).toHaveTextContent("/#decision-rail");
+    fireEvent.click(screen.getByRole("link", { name: "See the discrepancy, AAVEUSDT" }));
+    expect(screen.getByTestId("where")).toHaveTextContent(item);
   });
 
-  it("asks only the panel's own API: the open positions and the pending bookings, and nothing of a venue", async () => {
+  it("asks only the panel's own API: the open positions and the confirmed discrepancies, and nothing of a venue", async () => {
     const { api } = await mountUnit();
 
     const urls = api.mock.calls.map(([url]) => String(url));
     const paths = new Set(urls.map((url) => new URL(url, "http://panel.test").pathname.replace(/^.*\/api/, "")));
-    expect([...paths].sort()).toEqual(["/positions/open", "/reconciliation/bookings"]);
+    expect([...paths].sort()).toEqual(["/positions/open", "/reconciliation/confirmed"]);
     expect(api.unexpected).toEqual([]);
     for (const [, init] of api.mock.calls) expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
   });
@@ -269,8 +261,8 @@ describe("the same unit in Spanish", () => {
       "orden en curso",
       "origen desconocido",
       "El exchange no coincide",
-      "No hay un registro propuesto para esta diferencia.",
-      "Ver la decisión pendiente",
+      "Se está registrando automáticamente.",
+      "Ver la discrepancia",
     ]) {
       expect(text).toContain(spanish);
     }
@@ -287,13 +279,13 @@ describe("the same unit in Spanish", () => {
       "order in flight",
       "origin unknown",
       "Venue disagrees",
-      "No booking is proposed",
-      "See the pending decision",
+      "Being booked automatically",
+      "See the discrepancy",
       "Could not be refreshed",
     ]) {
       expect(text).not.toContain(english);
     }
     expect(screen.getByRole("list", { name: "Posiciones abiertas de Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ver la decisión pendiente, AAVEUSDT" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver la discrepancia, AAVEUSDT" })).toBeInTheDocument();
   });
 });

@@ -504,8 +504,8 @@
     "venue": {
       "disagrees": "Venue disagrees",
       "noProposal": "No booking is proposed for it.",
-      "link": "See the pending decision",
-      "linkName": "See the pending decision, {{pair}}",
+      "link": "See the discrepancy",
+      "linkName": "See the discrepancy, {{pair}}",
       "groupName": "Venue disagrees, {{pair}}",
       "line": {
         "disagrees": "venue disagrees",
@@ -513,7 +513,12 @@
         "compared": "last compared {{time}} UTC",
         "shared": "shared by {{positions}} positions on this pair",
         "noProposal": "no booking is proposed",
-        "beingBooked": "being booked automatically"
+        "beingBooked": "being booked automatically",
+        "reason": {
+          "NOT_BOOKED": "could not be booked automatically",
+          "SEVERAL_ALLOCATIONS": "one booking cannot split it",
+          "AMBIGUOUS_PARTIAL_REDUCE": "which strategy it reduced cannot be told"
+        }
       }
     },
     "table": {

@@ -504,8 +504,8 @@
     "venue": {
       "disagrees": "El exchange no coincide",
       "noProposal": "No hay un registro propuesto para esta diferencia.",
-      "link": "Ver la decisión pendiente",
-      "linkName": "Ver la decisión pendiente, {{pair}}",
+      "link": "Ver la discrepancia",
+      "linkName": "Ver la discrepancia, {{pair}}",
       "groupName": "El exchange no coincide, {{pair}}",
       "line": {
         "disagrees": "el exchange no coincide",
@@ -513,7 +513,12 @@
         "compared": "última comparación {{time}} UTC",
         "shared": "compartida por {{positions}} posiciones en este par",
         "noProposal": "no hay un registro propuesto para esta diferencia",
-        "beingBooked": "se está registrando automáticamente"
+        "beingBooked": "se está registrando automáticamente",
+        "reason": {
+          "NOT_BOOKED": "no se pudo registrar automáticamente",
+          "SEVERAL_ALLOCATIONS": "un solo registro no puede repartirla",
+          "AMBIGUOUS_PARTIAL_REDUCE": "no se puede saber a qué estrategia redujo"
+        }
       }
     },
     "table": {

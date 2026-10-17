@@ -52,11 +52,11 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "No booking is proposed for it.",
     "No hay un registro propuesto para esta diferencia.",
   ],
-  ["positions.venue.link", "See the pending decision", "Ver la decisión pendiente"],
+  ["positions.venue.link", "See the discrepancy", "Ver la discrepancia"],
   [
     "positions.venue.linkName",
-    "See the pending decision, {{pair}}",
-    "Ver la decisión pendiente, {{pair}}",
+    "See the discrepancy, {{pair}}",
+    "Ver la discrepancia, {{pair}}",
   ],
   // op.3: the order line, the venue line, the table, its reasons and its notes (section I).
   ["positions.order.open", "opening", "apertura"],
