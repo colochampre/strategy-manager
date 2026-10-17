@@ -6,6 +6,7 @@ import { PositionsTable } from "@/features/positions/PositionsTable";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenPool } from "@/shared/api/positions";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface PoolOpenPositionsProps {
   pool: OpenPool;
@@ -35,10 +36,12 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
 
   if (open.data === undefined) {
     return (
-      <section aria-labelledby={headingId} className="flex flex-col gap-3">
-        {heading}
-        <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
-      </section>
+      <ReportSection>
+        <section aria-labelledby={headingId} className="flex flex-col gap-3">
+          {heading}
+          <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
+        </section>
+      </ReportSection>
     );
   }
 
@@ -47,22 +50,24 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      {heading}
-      <div aria-live="polite" className="flex flex-col gap-1">
-        {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
-      </div>
-      {mine.positions.length === 0 ? (
-        <p className="text-sm text-ink-3">{t("positions.table.empty")}</p>
-      ) : (
-        <PositionsTable
-          variant="pool"
-          positions={mine.positions}
-          asOf={answer.as_of}
-          currency={pool.settlement_currency}
-          labelledBy={headingId}
-        />
-      )}
-    </section>
+    <ReportSection>
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <div aria-live="polite" className="flex flex-col gap-1">
+          {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
+        </div>
+        {mine.positions.length === 0 ? (
+          <p className="text-sm text-ink-3">{t("positions.table.empty")}</p>
+        ) : (
+          <PositionsTable
+            variant="pool"
+            positions={mine.positions}
+            asOf={answer.as_of}
+            currency={pool.settlement_currency}
+            labelledBy={headingId}
+          />
+        )}
+      </section>
+    </ReportSection>
   );
 }

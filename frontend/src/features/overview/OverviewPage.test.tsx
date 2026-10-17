@@ -56,10 +56,30 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
       const panel = await screen.findByTestId("pool-panel");
       const grid = await within(panel).findByTestId("month-2026-9");
       const figure = within(panel).getByRole("img").closest("figure") as HTMLElement;
-      const top = figure.parentElement as HTMLElement;
+      // The chart's framed section is the last thing of the top block; the month grid's own framed section follows it.
+      const chartSection = figure.closest('[data-testid="report-section"]') as HTMLElement;
+      const top = chartSection.parentElement as HTMLElement;
       expect(top.nextElementSibling).toContainElement(grid);
+      expect(top.nextElementSibling).toHaveAttribute("data-testid", "report-section");
     },
   );
+
+  it("frames the chart, Month by month and Open positions, and not the ledger line (owner decision 67 Q4, Q7)", async () => {
+    setViewport("wide");
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
+      "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
+    });
+    renderAt(<AppRoutes />, "/");
+
+    const panel = await screen.findByTestId("pool-panel");
+    const grid = await within(panel).findByTestId("month-2026-9");
+    const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
+    expect(framed(within(panel).getByRole("img").closest("figure") as HTMLElement)).not.toBeNull();
+    expect(framed(grid)).not.toBeNull();
+    expect(framed(within(panel).getByRole("heading", { name: "Open positions" }))).not.toBeNull();
+    expect(framed(within(panel).getByTestId("ledger-line"))).toBeNull();
+    expect(within(panel).getAllByTestId("report-section")).toHaveLength(3);
+  });
 });
 
 describe("the Overview carries its own scope messages (spec; prototype example 13; design K row 7)", () => {
@@ -556,7 +576,7 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     // Not under the ledger line any more: the chart follows it directly, with no row of its own between.
     const ledger = within(panel).getByTestId("ledger-line");
     expect(ledger).not.toContainElement(group);
-    expect(ledger.nextElementSibling).toBe(header?.closest("figure"));
+    expect(ledger.nextElementSibling).toBe(header?.closest('[data-testid="report-section"]'));
     expect(header?.closest("figure")).toContainElement(within(panel).getByRole("img"));
   });
 

@@ -15,6 +15,7 @@ import { usePoolPerformance } from "@/shared/api/performance";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenState } from "@/shared/api/positions";
 import type { Pool, PoolPerformance } from "@/shared/api/types";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface PoolPanelProps {
   pool: Pool;
@@ -68,12 +69,14 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
           maxDrawdown={report.max_drawdown}
         />
       )}
-      <ReturnChart
-        curve={report.curve}
-        range={range}
-        asOf={asOf}
-        headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
-      />
+      <ReportSection>
+        <ReturnChart
+          curve={report.curve}
+          range={range}
+          asOf={asOf}
+          headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
+        />
+      </ReportSection>
     </div>
   );
 }
@@ -150,10 +153,12 @@ export function PoolPanel({ pool }: PoolPanelProps) {
       </div>
       {top}
       {report !== null && (
-        <div className="flex flex-col gap-1.5">
-          <MonthlyGrid monthly={report.monthly} />
-          <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
-        </div>
+        <ReportSection>
+          <div className="flex flex-col gap-1.5">
+            <MonthlyGrid monthly={report.monthly} />
+            <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
+          </div>
+        </ReportSection>
       )}
       {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
       <PoolOpenPositions pool={pool} />

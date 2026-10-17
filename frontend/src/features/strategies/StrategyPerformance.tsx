@@ -10,6 +10,7 @@ import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import type { StrategyPerformance as StrategyReport } from "@/shared/api/types";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface StrategyPerformanceProps {
   strategyId: string;
@@ -43,18 +44,22 @@ function ReportView({ report, asOf }: ReportViewProps) {
             returnLabel={t("strategies.performance.contribution", { range: t(`overview.range.${range}`) })}
           />
         )}
-        <ReturnChart
-          curve={report.curve}
-          range={range}
-          asOf={asOf}
-          title={t("strategies.performance.chartTitle")}
-          headerAction={<RangeSelector value={range} onChange={setRange} />}
-        />
+        <ReportSection>
+          <ReturnChart
+            curve={report.curve}
+            range={range}
+            asOf={asOf}
+            title={t("strategies.performance.chartTitle")}
+            headerAction={<RangeSelector value={range} onChange={setRange} />}
+          />
+        </ReportSection>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <MonthlyGrid monthly={report.monthly} />
-        <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
-      </div>
+      <ReportSection>
+        <div className="flex flex-col gap-1.5">
+          <MonthlyGrid monthly={report.monthly} />
+          <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
+        </div>
+      </ReportSection>
       <PairStatsTable pairs={report.by_pair} currency={report.currency} />
     </>
   );

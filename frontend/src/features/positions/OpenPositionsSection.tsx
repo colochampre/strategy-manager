@@ -8,6 +8,7 @@ import { ofExchange, ofStrategy, unmatched, useOpenPositions } from "@/shared/ap
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface OpenPositionsSectionProps {
   strategy: Strategy;
@@ -47,10 +48,12 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
 
   if (open.data === undefined) {
     return (
-      <section aria-labelledby={headingId} className="flex flex-col gap-3">
-        {heading}
-        <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
-      </section>
+      <ReportSection>
+        <section aria-labelledby={headingId} className="flex flex-col gap-3">
+          {heading}
+          <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
+        </section>
+      </ReportSection>
     );
   }
 
@@ -73,36 +76,38 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   );
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      {heading}
-      <div aria-live="polite" className="flex flex-col gap-1">
-        {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
-      </div>
-      {mine.positions.length === 0 ? (
-        <>
-          {sentence || <p className="text-sm text-ink-3">{t("positions.table.empty")}</p>}
-          {orders}
-        </>
-      ) : (
-        <>
-          <PositionsTable
-            variant="strategy"
-            positions={mine.positions}
-            asOf={answer.as_of}
-            currency={strategy.settlement_currency}
-            labelledBy={headingId}
-          />
-          {orders}
-          {sentence}
-        </>
-      )}
-      <div className="flex flex-col gap-1.5">
-        {noteKeys(mine.positions).map((key) => (
-          <p key={key} className="text-sm text-ink-2">
-            {t(key)}
-          </p>
-        ))}
-      </div>
-    </section>
+    <ReportSection>
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <div aria-live="polite" className="flex flex-col gap-1">
+          {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
+        </div>
+        {mine.positions.length === 0 ? (
+          <>
+            {sentence || <p className="text-sm text-ink-3">{t("positions.table.empty")}</p>}
+            {orders}
+          </>
+        ) : (
+          <>
+            <PositionsTable
+              variant="strategy"
+              positions={mine.positions}
+              asOf={answer.as_of}
+              currency={strategy.settlement_currency}
+              labelledBy={headingId}
+            />
+            {orders}
+            {sentence}
+          </>
+        )}
+        <div className="flex flex-col gap-1.5">
+          {noteKeys(mine.positions).map((key) => (
+            <p key={key} className="text-sm text-ink-2">
+              {t(key)}
+            </p>
+          ))}
+        </div>
+      </section>
+    </ReportSection>
   );
 }
