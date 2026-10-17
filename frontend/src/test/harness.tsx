@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 
+import type { BookedItem, ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
 import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
 import { useTokenStore } from "@/shared/auth/token-store";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
@@ -24,6 +25,87 @@ export type CredentialsStub = PoolsStub;
 export type PerformanceStub = PoolsStub;
 export type AvailablePairsStub = PoolsStub;
 export type OpenPositionsStub = PoolsStub;
+
+/**
+ * What `GET /reconciliation/confirmed` answers: a body, a status (a 404, a 500), a network error, or a
+ * request that never answers (`pending`, for loading). `sequence` answers the first request with the first
+ * stub, the second with the second, and every later one with the last, so a test can read well and then fail.
+ */
+export type ConfirmedStub = PoolsStub | { kind: "sequence"; stubs: PoolsStub[] };
+
+let placeholderSequence = 0;
+
+/** A placeholder id of the form `<prefix>-0001`, counting up per call, so two builders never collide on a key. */
+function placeholderId(prefix: string): string {
+  placeholderSequence += 1;
+  return `${prefix}-${String(placeholderSequence).padStart(4, "0")}`;
+}
+
+/** The three lists of `GET /reconciliation/confirmed` hold these: a NOT_BOOKED full close of "Alpha" on Bybit USDT-M. */
+export function discrepancy(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedDiscrepancy {
+  return {
+    discrepancy_id: placeholderId("discrepancy"),
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    symbol: "SOLUSDT",
+    kind: "ATTRIBUTABLE_FULL_CLOSE",
+    reason: "NOT_BOOKED",
+    venue_net_base: "0",
+    ledger_net_base: "0.5",
+    allocations: [
+      {
+        allocation_id: placeholderId("allocation"),
+        strategy_id: "11111111-1111-4111-8111-111111111111",
+        strategy_name: "Alpha",
+      },
+    ],
+    confirmed_at: "2026-10-16T21:31:00Z",
+    last_observed_at: "2026-10-16T21:39:42Z",
+    ...overrides,
+  };
+}
+
+/** One automatic booking of the `booked` list: a SELL of 0.5 SOL by "Alpha", its discrepancy already resolved. */
+export function booking(overrides: Partial<BookedItem> = {}): BookedItem {
+  return {
+    proposal_id: placeholderId("proposal"),
+    discrepancy_id: placeholderId("discrepancy"),
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    symbol: "SOLUSDT",
+    kind: "ATTRIBUTABLE_FULL_CLOSE",
+    strategy_id: "11111111-1111-4111-8111-111111111111",
+    strategy_name: "Alpha",
+    allocation_id: placeholderId("allocation"),
+    side: "SELL",
+    quantity: "0.5",
+    fill_count: 1,
+    decided_at: "2026-10-16T21:33:00Z",
+    decided_by: "automatic",
+    execution_attempt_id: null,
+    discrepancy_open: false,
+    ...overrides,
+  };
+}
+
+/**
+ * The whole body of `GET /reconciliation/confirmed`: all three lists empty and `dry_run` false unless a
+ * test says otherwise. `needs_owner_count` follows `needs_owner` unless it is overridden.
+ */
+export function confirmedBody(overrides: Partial<ConfirmedReading> = {}): ConfirmedReading {
+  const needsOwner = overrides.needs_owner ?? [];
+  return {
+    read_at: "2026-10-16T21:40:03Z",
+    dry_run: false,
+    needs_owner_count: needsOwner.length,
+    needs_owner: needsOwner,
+    being_booked: [],
+    booked: [],
+    ...overrides,
+  };
+}
 
 /** What `GET /pools/{exchange}/{venue}/{ccy}/available-pairs` answers for a pool, in the API's shape. */
 export function availablePairs(exchange: string, venue: string, currency: string, pairs: readonly string[]) {
@@ -295,7 +377,9 @@ export function failsOnceThenHolds(answer: unknown) {
  * recorded in the returned mock's `unexpected` array. `openPositions` overrides
  * the answer to `GET /positions/open`; by default it is a well-formed empty
  * body, `{as_of, positions: [], orders: []}`, so a page that asks for it reads
- * nothing open rather than a rejected request.
+ * nothing open rather than a rejected request. `confirmed` overrides the answer
+ * to `GET /reconciliation/confirmed` (see `ConfirmedStub`); by default it is
+ * `confirmedBody()`, three empty lists and `dry_run` false.
  */
 export function stubApi(
   health: HealthStub,
@@ -306,8 +390,10 @@ export function stubApi(
   available: Record<string, AvailablePairsStub> = {},
   credentials?: CredentialsStub,
   openPositions?: OpenPositionsStub,
+  confirmed?: ConfirmedStub,
 ) {
   const unexpected: string[] = [];
+  let confirmedRequests = 0;
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const owned = extra?.(url, init);
@@ -369,6 +455,20 @@ export function stubApi(
       if (pools.kind === "pending") return new Promise<Response>(() => undefined);
       if (pools.kind === "status") return Promise.resolve(jsonResponse(pools.body ?? {}, pools.status));
       return Promise.resolve(jsonResponse(pools.body));
+    }
+    // GET only, like the credentials. By default a well-formed empty reading, so a shell that draws the badge
+    // reads "nothing needs the owner" rather than a rejected request.
+    if (url.endsWith("/reconciliation/confirmed") && (init?.method ?? "GET") === "GET") {
+      const wanted: ConfirmedStub = confirmed ?? { kind: "ok", body: confirmedBody() };
+      const stub: PoolsStub =
+        wanted.kind === "sequence"
+          ? (wanted.stubs[Math.min(confirmedRequests, wanted.stubs.length - 1)] as PoolsStub)
+          : wanted;
+      confirmedRequests += 1;
+      if (stub.kind === "network-error") return Promise.reject(new TypeError("offline"));
+      if (stub.kind === "pending") return new Promise<Response>(() => undefined);
+      if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
+      return Promise.resolve(jsonResponse(stub.body));
     }
     if (url.includes("/reconciliation/bookings")) return Promise.resolve(jsonResponse(bookings));
     unexpected.push(url);
