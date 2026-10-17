@@ -95,6 +95,50 @@ def test_binance_booking_prepare_signs_with_vault_key_not_settings() -> None:
     assert "vault.load(BINANCE_EXCHANGE)" in body
 
 
+# --- PR 15, cd.1.22: the worker books what it prepares (owner decision 66 Q1) --
+
+
+def _prepare_booking_body() -> str:
+    from strategy_manager import main
+
+    source = inspect.getsource(main.build_worker_runner)
+    body = source[source.index("async def handle_reconciliation_prepare_booking") :]
+    return body[: body.index("async def handle_jobs_purge")]
+
+
+def test_the_automatic_step_is_wired_into_the_handler() -> None:
+    body = _prepare_booking_body()
+
+    assert "auto_book=AutoBookPending(" in body
+
+
+def test_the_automatic_step_approves_with_the_use_case_the_route_built() -> None:
+    """The worker builds ``ApproveBooking`` the way the route's
+    ``_approve_use_case`` does (design § C2): the same adapters, the same fixed
+    USD rate -- so a booking carries the same ``usd_rate_at_fill`` -- the same
+    clock, and ``dry_run=settings.dry_run``."""
+    body = _prepare_booking_body()
+    assert "ApproveBooking(" in body, "the automatic step must build the approval use case"
+    approve = "".join(body[body.index("ApproveBooking(") :].split())  # layout-insensitive
+
+    assert "proposals=SqlAlchemyBookingProposalRepository(session)" in approve
+    assert "discrepancies=SqlAlchemyDiscrepancyRepository(session)" in approve
+    assert "InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session))" in approve
+    assert "writer=SqlAlchemyBookingWriter(session)" in approve
+    assert 'FixedUsdRateProvider({Currency.USDT:Decimal("1")})' in approve
+    assert "clock=SystemClock()" in approve
+    assert "commit=session" in approve
+    assert "dry_run=settings.dry_run" in approve
+
+
+def test_prepare_booking_receives_the_system_order_ids_adapter() -> None:
+    """Owner decision 66 Q2: the refusal of a fill of an order this system
+    placed must never be skipped, so the adapter is always passed."""
+    body = _prepare_booking_body()
+
+    assert "system_order_ids=SystemOrderIdsAdapter(session)" in body
+
+
 # --- 1b.2: the four remaining Binance read sites, each pinned the same way --
 #
 # ``build_worker_runner`` wires five separate Binance READ sites (design's own

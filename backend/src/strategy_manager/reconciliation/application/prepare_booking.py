@@ -102,7 +102,7 @@ class PrepareBooking:
         max_span_seconds: int,
         proposal_expiry_seconds: int,
         dry_run: bool,
-        system_order_ids: SystemOrderIdsPort | None = None,
+        system_order_ids: SystemOrderIdsPort,
     ) -> None:
         self._discrepancies = discrepancies
         self._proposals = proposals
@@ -115,9 +115,9 @@ class PrepareBooking:
         self._max_span = timedelta(seconds=max_span_seconds)
         self._proposal_expiry = timedelta(seconds=proposal_expiry_seconds)
         self._dry_run = dry_run
-        # Owner decision 66 Q2: optional ONLY until ``main.py`` wires it
-        # (cd.1.23); ``None`` means the "fill of a system order" refusal is
-        # not applied, and that default is removed with the wiring.
+        # Owner decision 66 Q2: required, never optional -- an optional port
+        # would let a forgotten wiring skip the "fill of a system order"
+        # refusal without a word.
         self._system_order_ids = system_order_ids
 
     async def sweep(self, job_id: UUID) -> PrepareBookingResult:
@@ -301,24 +301,23 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.SEVERAL_ALLOCATIONS
                 continue
 
-            if self._system_order_ids is not None:
-                # Owner decision 66 Q2: a fill of an order THIS system placed
-                # is recorded by ``SettleExecution`` or its recovery, never as
-                # a venue-originated close (closes P8's example). One question
-                # for the whole set of matched order ids.
-                order_ids = sorted(
-                    {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
+            # Owner decision 66 Q2: a fill of an order THIS system placed is
+            # recorded by ``SettleExecution`` or its recovery, never as a
+            # venue-originated close (closes P8's example). One question for
+            # the whole set of matched order ids.
+            order_ids = sorted(
+                {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
+            )
+            if await self._system_order_ids.holds_any(pool, order_ids):
+                logger.warning(
+                    "prepare booking: discrepancy %s matched fills of an order "
+                    "this system placed, which is not a venue-originated "
+                    "close; needs manual reconciliation",
+                    discrepancy.id,
                 )
-                if await self._system_order_ids.holds_any(pool, order_ids):
-                    logger.warning(
-                        "prepare booking: discrepancy %s matched fills of an order "
-                        "this system placed, which is not a venue-originated "
-                        "close; needs manual reconciliation",
-                        discrepancy.id,
-                    )
-                    skipped += 1
-                    refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
-                    continue
+                skipped += 1
+                refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
+                continue
             allocation_id = discrepancy.open_allocation_ids[0]
             strategy_id = await self._allocation_owner.strategy_for(allocation_id)
             client_order_id = build_client_order_id(discrepancy.exchange, matched.fills)

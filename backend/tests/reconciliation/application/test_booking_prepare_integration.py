@@ -66,6 +66,9 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
+    SystemOrderIdsAdapter,
+)
 from strategy_manager.shared.config import get_settings
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
@@ -332,6 +335,7 @@ async def _prepare(
             max_span_seconds=604800,
             proposal_expiry_seconds=86400,
             dry_run=False,
+            system_order_ids=SystemOrderIdsAdapter(session),
         )
         return await use_case.sweep(job_id)
 

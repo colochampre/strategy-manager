@@ -20,6 +20,7 @@ decision 13's testing rule) — a test using one spelling everywhere proves
 nothing.
 """
 
+import inspect
 import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -1226,3 +1227,13 @@ async def test_every_old_refusal_branch_puts_its_code_in_the_result(
 
     assert proposals.inserted == []
     assert result.refusals == {discrepancy.id: code}
+
+
+def test_the_system_order_port_is_required_so_the_q2_refusal_can_never_be_skipped() -> None:
+    """Owner decision 66 Q2 (2026-10-16): until ``main.py`` wired the port it
+    defaulted to ``None`` and the refusal of a fill of a system order was not
+    applied; with a default, forgetting to wire it fails open (cd.1.23)."""
+
+    parameter = inspect.signature(PrepareBooking.__init__).parameters["system_order_ids"]
+
+    assert parameter.default is inspect.Parameter.empty
