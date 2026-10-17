@@ -16,6 +16,7 @@ skip INSIDE the handler"), mirroring how ``BalanceSyncHandler``/
 ``ExpireReservations``.
 """
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -409,6 +410,57 @@ async def test_a_symbol_vanished_from_both_sides_still_resolves() -> None:
     assert len(discrepancies.resolves) == 1
     assert discrepancies.resolves[0][1] == ("ETHUSDT",)
     assert result.discrepancies_resolved == 1
+
+
+_SCAN_LOGGER = "strategy_manager.reconciliation.application.scan_pools"
+
+
+async def test_a_pool_that_resolves_discrepancies_logs_one_info_line_for_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Owner decision 66 (2026-10-17): the resolution is announced per pool,
+    naming the pool, how many were resolved and the scan."""
+    prior = _record(
+        POOL_A,
+        "ETHUSDT",
+        DiscrepancyKind.NO_MATCHING_ALLOCATION,
+        Decimal("1.0"),
+        Decimal("0"),
+    )
+    use_case, _, _, _, _ = _build(
+        [POOL_A],
+        {("bybit", "usdt-m"): FakeVenueReader([])},
+        {POOL_A: []},
+        open_discrepancies={POOL_A: [prior]},
+    )
+    scan_id = uuid4()
+
+    with caplog.at_level(logging.INFO, logger=_SCAN_LOGGER):
+        await use_case.scan(scan_id)
+
+    exchange, venue, currency = POOL_A
+    records = [r for r in caplog.records if r.name == _SCAN_LOGGER and r.levelno == logging.INFO]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    for expected in (exchange, venue, currency, "1", str(scan_id)):
+        assert expected in message
+
+
+async def test_a_scan_that_resolves_nothing_logs_no_resolution_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    venue_reader = FakeVenueReader([VenuePosition("BTCUSDT", Decimal("1.5"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("BTCUSDT", (OpenAllocation(uuid4(), Decimal("1.5")),))
+        ]
+    }
+    use_case, _, _, _, _ = _build([POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger)
+
+    with caplog.at_level(logging.INFO, logger=_SCAN_LOGGER):
+        await use_case.scan(uuid4())
+
+    assert [r for r in caplog.records if r.name == _SCAN_LOGGER] == []
 
 
 # --- Design decision 8: per-pool venue errors are swallowed, others are not --

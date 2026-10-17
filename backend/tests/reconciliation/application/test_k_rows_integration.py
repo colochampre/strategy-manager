@@ -76,6 +76,7 @@ from tests.reconciliation.application.auto_booking_support import (
 pytestmark = pytest.mark.integration
 
 _ANNOUNCER = "strategy_manager.reconciliation.application.announce_needs_owner"
+_SCANNER = "strategy_manager.reconciliation.application.scan_pools"
 _TOKEN = "adm1n-t0ken"
 
 _PAST_THE_GRACE = NOW + timedelta(seconds=GRACE_SECONDS) + timedelta(hours=1)
@@ -416,7 +417,7 @@ async def test_a_discrepancy_resolved_by_the_scan_is_in_no_list_and_the_scan_cou
     # Neither side reports the market any more: the next scan resolves the row.
     scan_id = uuid4()
     async with session_factory() as session:
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.INFO, logger=_SCANNER):
             result = await ScanPools(
                 pools=[POOL],
                 venue_readers=_VenueReaders(_VenueReader([])),  # type: ignore[arg-type]
@@ -428,6 +429,13 @@ async def test_a_discrepancy_resolved_by_the_scan_is_in_no_list_and_the_scan_cou
             ).scan(scan_id)
 
     assert result.discrepancies_resolved == 1
+    # Owner decision 66 (2026-10-17): the scan says so, once, for the pool.
+    resolution_lines = [
+        r.getMessage() for r in caplog.records if r.name == _SCANNER and r.levelno == logging.INFO
+    ]
+    assert len(resolution_lines) == 1
+    for expected in (*POOL, "1", str(scan_id)):
+        assert expected in resolution_lines[0]
     async with session_factory() as session:
         resolved_by = (
             await session.execute(
