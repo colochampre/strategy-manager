@@ -420,6 +420,21 @@ describe("the Discrepancies item and its badge", () => {
     expect(within(bottom).getByText("12")).toHaveClass("absolute", "top-1", "right-1");
   });
 
+  it("shows no exchange tabs on /discrepancies, as on Settings, and still shows them on Overview and Strategies (note N7)", async () => {
+    stubConfirmed({ kind: "ok", body: needing(2) });
+    const discrepancies = renderAt(<AppRoutes />, "/discrepancies");
+    expect(await screen.findByRole("heading", { level: 1, name: "Discrepancies" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
+    discrepancies.unmount();
+
+    for (const path of ["/", "/strategies"]) {
+      stubConfirmed({ kind: "ok", body: needing(2) });
+      const view = renderAt(<AppRoutes />, path);
+      expect(await screen.findAllByRole("navigation", { name: "Exchanges" })).toHaveLength(2);
+      view.unmount();
+    }
+  });
+
   it("keeps the side rail's badge in the line of its label", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
