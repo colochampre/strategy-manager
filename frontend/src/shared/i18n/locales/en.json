@@ -6,6 +6,7 @@
     "sections": "Sections",
     "overview": "Overview",
     "strategies": "Strategies",
+    "discrepancies": "Discrepancies",
     "settings": "Settings"
   },
   "scope": {
@@ -27,6 +28,79 @@
     "title": "Page not found",
     "back": "Back to overview"
   },
+  "discrepancies": {
+    "title": "Discrepancies",
+    "lede": "Where the exchange and the ledger still disagree after repeated comparisons. A close the system can attribute to one strategy is booked automatically; the rest is listed under Needs you.",
+    "badgeName_one": "{{count}} discrepancy needs you",
+    "badgeName_other": "{{count}} discrepancies need you",
+    "section": {
+      "needsYou": "Needs you",
+      "beingBooked": "Being booked",
+      "booked": "Booked automatically"
+    },
+    "booked": "Booked automatically",
+    "beingBooked": "Being booked automatically.",
+    "note": {
+      "beingBooked": "Nothing here needs you. If it cannot be booked, it moves to Needs you.",
+      "booked": "The last 30 days, newest first, at most 100."
+    },
+    "empty": {
+      "needsYou": "Nothing needs you. The venue agrees with the ledger on every confirmed comparison.",
+      "needsYouWhileBooking": "Nothing needs you.",
+      "booked": "No booking in the last 30 days."
+    },
+    "read": {
+      "loading": "Reading discrepancies…",
+      "failed": "Discrepancies could not be read, so this page cannot say whether anything needs you.",
+      "lastRead": "Last read",
+      "refresh": "Read again",
+      "stale": "Could not be refreshed since {{time}} UTC.",
+      "dryRun": "The comparison with the venue does not run in dry run, so nothing is checked here."
+    },
+    "kind": {
+      "NO_MATCHING_ALLOCATION": "The venue holds a position no strategy opened.",
+      "AMBIGUOUS_PARTIAL_REDUCE": "The venue reduced a position several strategies share; which one cannot be told.",
+      "ATTRIBUTABLE_FULL_CLOSE": "The venue closed a position the ledger holds open.",
+      "ATTRIBUTABLE_SINGLE_ALLOCATION": "The venue reduced a position only one strategy holds."
+    },
+    "reason": {
+      "SEVERAL_ALLOCATIONS": "The venue closed a position several strategies share; one booking cannot split it.",
+      "NOT_BOOKED": "Could not be booked automatically."
+    },
+    "label": {
+      "exchange": "Exchange",
+      "ledger": "Ledger",
+      "difference": "Difference",
+      "strategy": "Strategy",
+      "strategies": "Strategies",
+      "noStrategy": "No strategy",
+      "confirmed": "Confirmed",
+      "lastCompared": "Last compared",
+      "whatYouCanDo": "What you can do"
+    },
+    "action": {
+      "manual": "Ask for a manual reconciliation. Nothing in this panel can book it.",
+      "byHand": "Close it on the exchange by hand. The next comparison resolves it."
+    },
+    "table": {
+      "booked": "Booked (UTC)",
+      "pair": "Pair",
+      "side": "Side",
+      "quantity": "Quantity",
+      "strategy": "Strategy",
+      "fills": "Fills",
+      "by": "By",
+      "now": "Now"
+    },
+    "by": {
+      "automatic": "automatically",
+      "owner": "by hand"
+    },
+    "now": {
+      "waiting": "waiting for the next comparison",
+      "agrees": "the venue agrees again"
+    }
+  },
   "overview": {
     "title": "Overview",
     "decisionRail": {
@@ -38,6 +112,11 @@
       "empty": "Nothing needs your decision.",
       "pending_one": "{{count}} pending",
       "pending_other": "{{count}} pending"
+    },
+    "scope": {
+      "loading": "Loading exchanges…",
+      "error": "The pools are hidden because the exchanges could not be loaded, so they cannot be filtered.",
+      "noExchanges": "No exchange is configured, so there are no pools to show."
     },
     "returnChart": {
       "title": "Return of the strategies, compounded",
@@ -431,7 +510,8 @@
         "nets": "exchange {{venue}}, ledger {{ledger}}",
         "compared": "last compared {{time}} UTC",
         "shared": "shared by {{positions}} positions on this pair",
-        "noProposal": "no booking is proposed"
+        "noProposal": "no booking is proposed",
+        "beingBooked": "being booked automatically"
       }
     },
     "table": {

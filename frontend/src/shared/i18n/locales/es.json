@@ -6,6 +6,7 @@
     "sections": "Secciones",
     "overview": "Resumen",
     "strategies": "Estrategias",
+    "discrepancies": "Discrepancias",
     "settings": "Configuración"
   },
   "scope": {
@@ -27,6 +28,79 @@
     "title": "Página no encontrada",
     "back": "Volver al resumen"
   },
+  "discrepancies": {
+    "title": "Discrepancias",
+    "lede": "Donde el exchange y el libro mayor siguen sin coincidir tras comparaciones repetidas. Un cierre que el sistema puede atribuir a una estrategia se registra automáticamente; el resto aparece en Requiere su atención.",
+    "badgeName_one": "{{count}} discrepancia requiere su atención",
+    "badgeName_other": "{{count}} discrepancias requieren su atención",
+    "section": {
+      "needsYou": "Requiere su atención",
+      "beingBooked": "Registrándose",
+      "booked": "Registradas automáticamente"
+    },
+    "booked": "Registradas automáticamente",
+    "beingBooked": "Se está registrando automáticamente.",
+    "note": {
+      "beingBooked": "Nada de esto requiere su atención. Si no se puede registrar, pasa a Requiere su atención.",
+      "booked": "Los últimos 30 días, de la más reciente a la más antigua, hasta 100."
+    },
+    "empty": {
+      "needsYou": "Nada requiere su atención. El exchange coincide con el libro mayor en cada comparación confirmada.",
+      "needsYouWhileBooking": "Nada requiere su atención.",
+      "booked": "Ningún registro en los últimos 30 días."
+    },
+    "read": {
+      "loading": "Leyendo discrepancias…",
+      "failed": "No se pudieron leer las discrepancias, así que esta página no puede decir si algo requiere su atención.",
+      "lastRead": "Última lectura",
+      "refresh": "Leer de nuevo",
+      "stale": "No se pudo actualizar desde las {{time}} UTC.",
+      "dryRun": "La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada."
+    },
+    "kind": {
+      "NO_MATCHING_ALLOCATION": "El exchange tiene una posición que ninguna estrategia abrió.",
+      "AMBIGUOUS_PARTIAL_REDUCE": "El exchange redujo una posición que comparten varias estrategias; no se puede saber cuál.",
+      "ATTRIBUTABLE_FULL_CLOSE": "El exchange cerró una posición que el libro mayor tiene abierta.",
+      "ATTRIBUTABLE_SINGLE_ALLOCATION": "El exchange redujo una posición que solo tiene una estrategia."
+    },
+    "reason": {
+      "SEVERAL_ALLOCATIONS": "El exchange cerró una posición que comparten varias estrategias; un solo registro no puede repartirla.",
+      "NOT_BOOKED": "No se pudo registrar automáticamente."
+    },
+    "label": {
+      "exchange": "Exchange",
+      "ledger": "Libro mayor",
+      "difference": "Diferencia",
+      "strategy": "Estrategia",
+      "strategies": "Estrategias",
+      "noStrategy": "Ninguna estrategia",
+      "confirmed": "Confirmada",
+      "lastCompared": "Última comparación",
+      "whatYouCanDo": "Qué puede hacer"
+    },
+    "action": {
+      "manual": "Pida una conciliación manual. Nada en este panel puede registrarla.",
+      "byHand": "Ciérrela a mano en el exchange. La próxima comparación la resuelve."
+    },
+    "table": {
+      "booked": "Registrada (UTC)",
+      "pair": "Par",
+      "side": "Sentido",
+      "quantity": "Cantidad",
+      "strategy": "Estrategia",
+      "fills": "Ejecuciones",
+      "by": "Por",
+      "now": "Ahora"
+    },
+    "by": {
+      "automatic": "automáticamente",
+      "owner": "a mano"
+    },
+    "now": {
+      "waiting": "a la espera de la próxima comparación",
+      "agrees": "el exchange vuelve a coincidir"
+    }
+  },
   "overview": {
     "title": "Resumen",
     "decisionRail": {
@@ -38,6 +112,11 @@
       "empty": "Nada requiere tu decisión.",
       "pending_one": "{{count}} pendiente",
       "pending_other": "{{count}} pendientes"
+    },
+    "scope": {
+      "loading": "Cargando exchanges…",
+      "error": "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.",
+      "noExchanges": "No hay ningún exchange configurado, por lo que no hay pools que mostrar."
     },
     "returnChart": {
       "title": "Rendimiento de las estrategias, compuesto",
@@ -431,7 +510,8 @@
         "nets": "exchange {{venue}}, libro mayor {{ledger}}",
         "compared": "última comparación {{time}} UTC",
         "shared": "compartida por {{positions}} posiciones en este par",
-        "noProposal": "no hay un registro propuesto para esta diferencia"
+        "noProposal": "no hay un registro propuesto para esta diferencia",
+        "beingBooked": "se está registrando automáticamente"
       }
     },
     "table": {
