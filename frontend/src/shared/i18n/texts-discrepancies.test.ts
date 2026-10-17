@@ -129,6 +129,8 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   ["discrepancies.label.strategy", "Strategy", "Estrategia"],
   ["discrepancies.label.strategies", "Strategies", "Estrategias"],
   ["discrepancies.label.noStrategy", "No strategy", "Ninguna estrategia"],
+  // K row 13: an allocation whose strategy row is missing. Not in the prototype; the wording is the spec's.
+  ["discrepancies.label.unknownStrategy", "unknown strategy", "estrategia desconocida"],
   ["discrepancies.label.confirmed", "Confirmed", "Confirmada"],
   ["discrepancies.label.lastCompared", "Last compared", "Última comparación"],
   ["discrepancies.label.whatYouCanDo", "What you can do", "Qué puede hacer"],

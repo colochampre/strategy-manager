@@ -1,8 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
-import { booking, confirmedBody, discrepancy, lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { useExchangeStore } from "@/shared/scope/exchange-store";
+import { booking, confirmedBody, discrepancy, lock, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 import type { ConfirmedStub } from "@/test/harness";
 
 /**
@@ -192,11 +193,100 @@ describe("the read states", () => {
     }
   });
 
-  it("makes one request to the route", async () => {
+  it("makes one request to the route (the badge and the page share it)", async () => {
     const fetchMock = mountPage({ kind: "ok", body: confirmedBody() });
 
     await screen.findByText(ALL_CLEAR);
     const requests = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/reconciliation/confirmed"));
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("the lists, grouped by exchange whatever tab was selected (owner decision 66 Q6)", () => {
+  afterEach(() => {
+    resetExchangeScope();
+  });
+
+  const BYBIT_ONE = discrepancy({ discrepancy_id: "41", exchange: "bybit", symbol: "SOLUSDT" });
+  const BYBIT_TWO = discrepancy({
+    discrepancy_id: "38",
+    exchange: "bybit",
+    symbol: "STXUSDT",
+    reason: "SEVERAL_ALLOCATIONS",
+  });
+  const BINANCE = discrepancy({
+    discrepancy_id: "44",
+    exchange: "binance",
+    symbol: "LINKUSDT",
+    reason: null,
+    kind: "NO_MATCHING_ALLOCATION",
+    allocations: [],
+  });
+
+  function groupsOf(sectionName: string): Array<{ exchange: string; pairs: string[] }> {
+    const section = screen.getByRole("heading", { level: 2, name: sectionName }).closest("section") as HTMLElement;
+    return within(section)
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => {
+        const group = heading.closest("section") as HTMLElement;
+        return {
+          exchange: heading.textContent ?? "",
+          pairs: within(group)
+            .queryAllByRole("heading", { level: 4 })
+            .map((pair) => pair.textContent ?? ""),
+        };
+      });
+  }
+
+  it("draws the items of bybit and binance under their exchange with the bybit tab selected, and no tabs", async () => {
+    useExchangeStore.setState({ selected: "bybit" });
+    mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE, BINANCE, BYBIT_TWO] }) });
+
+    await screen.findByRole("heading", { level: 2, name: "Needs you" });
+    expect(groupsOf("Needs you")).toEqual([
+      { exchange: "bybit", pairs: ["SOLUSDT", "STXUSDT"] },
+      { exchange: "binance", pairs: ["LINKUSDT"] },
+    ]);
+    expect(screen.getAllByRole("article")).toHaveLength(3);
+    expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
+  });
+
+  it("gives every item the id the hash names", async () => {
+    mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE, BINANCE] }) });
+
+    await screen.findByRole("heading", { level: 2, name: "Needs you" });
+    expect(screen.getAllByRole("article").map((article) => article.id)).toEqual(["discrepancy-41", "discrepancy-44"]);
+  });
+
+  it("draws the items being booked neutral, grouped the same way, and the needs-you ones red", async () => {
+    mountPage({
+      kind: "ok",
+      body: confirmedBody({
+        needs_owner: [BINANCE],
+        being_booked: [discrepancy({ discrepancy_id: "47", reason: null, exchange: "bybit" })],
+      }),
+    });
+
+    await screen.findByRole("heading", { level: 2, name: "Being booked" });
+    expect(groupsOf("Being booked")).toEqual([{ exchange: "bybit", pairs: ["SOLUSDT"] }]);
+    const [needs, being] = screen.getAllByRole("article") as [HTMLElement, HTMLElement];
+    expect(needs).toHaveClass("border-loss");
+    expect(being).not.toHaveClass("border-loss");
+    expect(within(being).getByText("Being booked automatically.")).toBeInTheDocument();
+    expect(within(being).queryByText("What you can do")).not.toBeInTheDocument();
+  });
+
+  it("draws the Being booked section only when it holds an item", async () => {
+    mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE] }) });
+
+    await screen.findByRole("heading", { level: 2, name: "Needs you" });
+    expect(sectionNames()).toEqual(["Needs you", "Booked automatically"]);
+  });
+
+  it("draws one article per item in the Needs-you list, as many as the badge counts", async () => {
+    mountPage({ kind: "ok", body: confirmedBody({ needs_owner: [BYBIT_ONE, BYBIT_TWO, BINANCE] }) });
+
+    await screen.findByRole("heading", { level: 2, name: "Needs you" });
+    expect(screen.getAllByRole("article")).toHaveLength(3);
   });
 });

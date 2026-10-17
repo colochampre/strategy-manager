@@ -75,6 +75,7 @@
       "strategy": "Strategy",
       "strategies": "Strategies",
       "noStrategy": "No strategy",
+      "unknownStrategy": "unknown strategy",
       "confirmed": "Confirmed",
       "lastCompared": "Last compared",
       "whatYouCanDo": "What you can do"
