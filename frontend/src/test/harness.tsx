@@ -369,6 +369,9 @@ export function failsOnceThenHolds(answer: unknown) {
 
 /**
  * Routes the endpoints the shell touches; everything else is a loud failure.
+ * The second argument is retired: it answered the booking route, which the panel no longer
+ * calls (owner decision 66), and is kept, ignored, only so that the callers that pass `[]` there
+ * still compile; a request to that route is now recorded in `unexpected`.
  * `performance` overrides a pool's report, keyed `exchange/venue/ccy`; a pool
  * without an entry answers an empty ledger. `extra` is asked first. `available`
  * overrides a pool's available pairs, keyed `exchange/venue/ccy`; a pool without
@@ -383,7 +386,7 @@ export function failsOnceThenHolds(answer: unknown) {
  */
 export function stubApi(
   health: HealthStub,
-  bookings: unknown[] = [],
+  _retired: unknown[] = [],
   pools: PoolsStub = DEFAULT_POOLS,
   performance: Record<string, PerformanceStub> = {},
   extra?: ExtraRoute,
@@ -470,7 +473,6 @@ export function stubApi(
       if (stub.kind === "status") return Promise.resolve(jsonResponse(stub.body ?? {}, stub.status));
       return Promise.resolve(jsonResponse(stub.body));
     }
-    if (url.includes("/reconciliation/bookings")) return Promise.resolve(jsonResponse(bookings));
     unexpected.push(url);
     return Promise.reject(new Error(`unexpected fetch: ${url}`));
   });

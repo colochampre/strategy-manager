@@ -196,20 +196,6 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   ],
 ];
 
-/** Keys that cd.2.23 deletes with the bookings feature: they must still exist until then (R18). */
-const UNTIL_CD_2_23 = [
-  "overview.decisionRail.title",
-  "overview.decisionRail.scopeLoading",
-  "overview.decisionRail.scopeError",
-  "overview.decisionRail.noExchanges",
-  "overview.decisionRail.explainer",
-  "overview.decisionRail.empty",
-  "overview.decisionRail.pending_one",
-  "overview.decisionRail.pending_other",
-  "positions.venue.noProposal",
-  "positions.venue.line.noProposal",
-];
-
 /** Words of the "tu" register: the panel's Spanish addresses the owner as "usted" (note N1). */
 const TU_REGISTER = /\b(tu|tus|ti|puedes|pide|pides|ciérrala|ciérralo|tienes|quieres)\b/i;
 
@@ -251,14 +237,5 @@ describe("the Discrepancies texts exist in both languages as approved", () => {
       .filter(([, text]) => typeof text === "string" && TU_REGISTER.test(text))
       .map(([path]) => path);
     expect(tu).toEqual([]);
-  });
-
-  it("keeps the keys that cd.2.23 deletes, until it deletes them", () => {
-    const missing: string[] = [];
-    for (const key of UNTIL_CD_2_23) {
-      if (typeof lookup(en, key) !== "string") missing.push(`en ${key}`);
-      if (typeof lookup(es, key) !== "string") missing.push(`es ${key}`);
-    }
-    expect(missing).toEqual([]);
   });
 });

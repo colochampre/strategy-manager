@@ -47,11 +47,6 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   ["positions.sideUnreadable", "side not readable", "lado no legible"],
   ["positions.order.inFlight", "order in flight", "orden en curso"],
   ["positions.venue.disagrees", "Venue disagrees", "El exchange no coincide"],
-  [
-    "positions.venue.noProposal",
-    "No booking is proposed for it.",
-    "No hay un registro propuesto para esta diferencia.",
-  ],
   ["positions.venue.link", "See the discrepancy", "Ver la discrepancia"],
   [
     "positions.venue.linkName",
@@ -74,11 +69,6 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "positions.venue.line.shared",
     "shared by {{positions}} positions on this pair",
     "compartida por {{positions}} posiciones en este par",
-  ],
-  [
-    "positions.venue.line.noProposal",
-    "no booking is proposed",
-    "no hay un registro propuesto para esta diferencia",
   ],
   ["positions.table.title", "Open positions", "Posiciones abiertas"],
   ["positions.table.empty", "No open position.", "Sin posiciones abiertas."],

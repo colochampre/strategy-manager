@@ -50,8 +50,8 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * The design allows amber in four places: the mode badge, the pending-bookings
- * count, a read-only key and a keyless exchange. The last two are drawn by
+ * The design allows amber in three places: the mode badge, a read-only key and a keyless exchange (the
+ * pending-bookings count left with the decision rail, owner decision 66 Q7, and nothing joined the list). The last two are drawn by
  * `shared/credentials/KeyMark.tsx`, the mark that the exchange tabs and the Settings card
  * share (PR 13, unit 13.3); the card's own border and sentence join with `ExchangeKeyCard.tsx`
  * in unit 13.4 (added to the list by the RED step of task 13.4.3, before the card uses amber). Decision 43
@@ -62,7 +62,6 @@ function sourceFiles(dir: string): string[] {
  * of the mode badge, in `features/positions/origin.ts`, the one positions file that names the class.
  */
 const AMBER_ALLOWED = [
-  "features/overview/DecisionRail.tsx",
   "features/positions/origin.ts",
   "features/settings/ExchangeKeyCard.tsx",
   "features/strategies/OperationFillsTable.tsx",
@@ -81,5 +80,62 @@ describe("the amber decision colour", () => {
       .map((file) => relative(SRC, file).replaceAll("\\", "/"))
       .sort();
     expect(users).toEqual(AMBER_ALLOWED);
+  });
+
+  it("lost the decision rail and gained nothing (spec 'The Amber Allow-List Gains Nothing')", () => {
+    // Exactly the seven files below: the rail's file is not among them, and no new one is.
+    expect(AMBER_ALLOWED).toEqual([
+      "features/positions/origin.ts",
+      "features/settings/ExchangeKeyCard.tsx",
+      "features/strategies/OperationFillsTable.tsx",
+      "features/strategies/TradeDetailDialog.tsx",
+      "features/strategies/TradesTable.tsx",
+      "shared/credentials/KeyMark.tsx",
+      "shared/layout/DryRunBadge.tsx",
+    ]);
+  });
+});
+
+/** Red (`loss`) as a colour utility, the way the amber one is matched above. */
+const LOSS_UTILITY = /\b(?:bg|text|border|ring|outline|fill|stroke|divide)-loss\b/;
+
+/**
+ * Owner decision 66 Q7 (decision 65's rule): in the discrepancies unit red appears on a "Needs you" item, on the
+ * navigation badge and on the venue mark, each always with its words. `ReadLine.tsx` is the page's read state,
+ * which turns red only to say a read failed. A booking, a result, is never red.
+ */
+const RED_IN_THE_UNIT = [
+  "features/discrepancies/DiscrepancyItem.tsx",
+  "features/discrepancies/ReadLine.tsx",
+  "features/positions/Mark.tsx",
+  "features/positions/MarkLine.tsx",
+  "shared/layout/NavBadge.tsx",
+];
+
+describe("red in the discrepancies unit", () => {
+  const unit = sourceFiles(SRC)
+    .map((file) => relative(SRC, file).replaceAll("\\", "/"))
+    .filter(
+      (file) =>
+        file.startsWith("features/discrepancies/") ||
+        file === "shared/layout/NavBadge.tsx" ||
+        file.startsWith("features/positions/Mark") ||
+        file === "features/positions/DiscrepancyLink.tsx" ||
+        file === "features/positions/useVenueFollowUp.ts",
+    );
+
+  it("is on the item, the badge and the venue mark only", () => {
+    expect(unit.length).toBeGreaterThan(8);
+    const users = unit.filter((file) => LOSS_UTILITY.test(readFileSync(join(SRC, file), "utf8"))).sort();
+    expect(users).toEqual(RED_IN_THE_UNIT);
+    expect(LOSS_UTILITY.test('className="border-loss"')).toBe(true);
+    expect(LOSS_UTILITY.test('className="border-rule"')).toBe(false);
+  });
+
+  it("never colours a booking: the booked list uses neither red nor amber", () => {
+    const booked = readFileSync(join(SRC, "features/discrepancies/BookedList.tsx"), "utf8");
+    expect(booked.length).toBeGreaterThan(100);
+    expect(LOSS_UTILITY.test(booked)).toBe(false);
+    expect(DECISION_UTILITY.test(booked)).toBe(false);
   });
 });

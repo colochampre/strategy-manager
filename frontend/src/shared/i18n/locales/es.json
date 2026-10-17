@@ -105,16 +105,6 @@
   },
   "overview": {
     "title": "Resumen",
-    "decisionRail": {
-      "title": "Requiere su decisión",
-      "scopeLoading": "Cargando exchanges…",
-      "scopeError": "Las reservas pendientes están ocultas porque no se pudieron cargar los exchanges y no se pueden filtrar.",
-      "noExchanges": "No hay ningún exchange configurado, por lo que no hay reservas pendientes que mostrar.",
-      "explainer": "Cierres que hizo el exchange y que el libro mayor todavía no registró. Aprobarlos los escribe en el libro mayor de forma definitiva.",
-      "empty": "Nada requiere tu decisión.",
-      "pending_one": "{{count}} pendiente",
-      "pending_other": "{{count}} pendientes"
-    },
     "scope": {
       "loading": "Cargando exchanges…",
       "error": "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.",
@@ -503,7 +493,6 @@
     },
     "venue": {
       "disagrees": "El exchange no coincide",
-      "noProposal": "No hay un registro propuesto para esta diferencia.",
       "link": "Ver la discrepancia",
       "linkName": "Ver la discrepancia, {{pair}}",
       "groupName": "El exchange no coincide, {{pair}}",
@@ -512,7 +501,6 @@
         "nets": "exchange {{venue}}, libro mayor {{ledger}}",
         "compared": "última comparación {{time}} UTC",
         "shared": "compartida por {{positions}} posiciones en este par",
-        "noProposal": "no hay un registro propuesto para esta diferencia",
         "beingBooked": "se está registrando automáticamente",
         "reason": {
           "NOT_BOOKED": "no se pudo registrar automáticamente",
@@ -664,64 +652,6 @@
       "placeholder": "Token de administración",
       "inputLabel": "Token de administración",
       "submit": "Desbloquear"
-    }
-  },
-  "bookings": {
-    "loading": "Cargando cierres pendientes…",
-    "empty": "No hay cierres pendientes.",
-    "error": {
-      "title": "No se pudieron cargar los cierres pendientes.",
-      "status": "Estado: {{status}}"
-    },
-    "card": {
-      "expires": "Vence",
-      "strategy": "Estrategia",
-      "allocation": "Asignación",
-      "side": "Lado",
-      "quantity": "Cantidad",
-      "observedVenueNet": "Neto del exchange",
-      "observedLedgerNet": "Neto del libro",
-      "fills": "Ejecuciones",
-      "fee": "Comisión"
-    },
-    "actions": {
-      "approve": "Aprobar",
-      "reject": "Rechazar"
-    },
-    "dialogs": {
-      "cancel": "Cancelar",
-      "close": "Cerrar",
-      "genericError": "Ocurrió un error. Intente nuevamente.",
-      "attempt": {
-        "heading": "Nuevo intento de ejecución",
-        "origin": "Origen",
-        "status": "Estado"
-      },
-      "confirm": {
-        "title": "Confirmar aprobación del cierre",
-        "description": "Estas son las filas exactas que se escribirán en el libro si aprueba.",
-        "usdRateNote": "La tasa en USD se lee al momento de escribir y se registra solo como metadato; nunca se usa para calcular la ganancia o pérdida.",
-        "confirm": "Aprobar",
-        "submitting": "Aprobando…",
-        "success": "Cierre aprobado."
-      },
-      "reject": {
-        "title": "Rechazar propuesta de cierre",
-        "description": "La discrepancia permanece abierta y puede volver a proponerse más tarde.",
-        "reasonLabel": "Motivo",
-        "reasonPlaceholder": "¿Por qué se rechaza esta propuesta?",
-        "reasonRequired": "Se requiere un motivo.",
-        "confirm": "Rechazar",
-        "submitting": "Rechazando…",
-        "success": "Cierre rechazado."
-      }
-    },
-    "outcomes": {
-      "ALREADY_DECIDED": "Esta propuesta ya fue decidida en otro lugar. Esta acción no escribió nada.",
-      "SUPERSEDED": "El exchange o el libro cambiaron desde que esto se preparó; no se escribió nada; aparecerá una propuesta nueva.",
-      "EXPIRED": "Esta propuesta venció antes de poder aprobarse. Puede aparecer una propuesta nueva si la discrepancia sigue abierta.",
-      "DRY_RUN_REFUSED": "Este entorno está en modo simulación; la aprobación y el rechazo de cierres están deshabilitados.",
-      "REASON_REQUIRED": "Se requiere un motivo no vacío."
     }
   }
 }
