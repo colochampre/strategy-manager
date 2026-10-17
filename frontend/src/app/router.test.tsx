@@ -53,10 +53,12 @@ describe("route map", () => {
     expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
   });
 
-  it("keeps pending bookings reachable from the overview, behind the token gate", async () => {
+  it("keeps the confirmed discrepancies reachable from the overview, behind the token gate", async () => {
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findByText("Nothing needs your decision.")).toBeInTheDocument();
+    const links = await screen.findAllByRole("link", { name: /^Discrepancies/ });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link).toHaveAttribute("href", "/discrepancies");
   });
 
   it("asks for the admin token instead of any page while locked", async () => {
