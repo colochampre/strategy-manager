@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { Copy } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 
 import { StatusButton } from "@/shared/ui/StatusButton";
@@ -82,6 +83,34 @@ describe("StatusButton", () => {
     expect(status).toHaveTextContent("Could not copy");
     expect(classesOf(status)).toContain("text-loss");
     expect(classesOf(status)).not.toContain("sr-only");
+  });
+
+  it("draws an optional icon left of the texts' grid, outside it, kept while the text changes", () => {
+    const props = { texts: ["Copy", "Copied"], message: null, className: "button", icon: Copy };
+    const { rerender } = render(<StatusButton {...props} shown="Copy" />);
+
+    const button = screen.getByRole("button", { name: "Copy" });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-copy", "shrink-0", "size-4");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    // Left of the grid, not inside it: the grid's width still follows the longest text alone.
+    const grid = within(button).getByText("Copied").parentElement as HTMLElement;
+    expect(classesOf(grid)).toContain("inline-grid");
+    expect(grid.contains(svg)).toBe(false);
+    expect(button.firstElementChild).toBe(svg);
+    expect(classesOf(button)).toEqual(expect.arrayContaining(["inline-flex", "items-center", "gap-1.5"]));
+
+    rerender(<StatusButton {...props} shown="Copied" />);
+
+    expect(screen.getByRole("button", { name: "Copied" }).querySelector("svg")).toBe(svg);
+  });
+
+  it("renders without an icon exactly as before", () => {
+    renderButton();
+
+    const button = screen.getByRole("button", { name: "Copy" });
+    expect(button.querySelector("svg")).toBeNull();
+    expect(button.className).toBe("button");
   });
 
   it("calls onClick when pressed", () => {

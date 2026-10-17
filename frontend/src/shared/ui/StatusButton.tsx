@@ -1,3 +1,5 @@
+import type { LucideIcon } from "lucide-react";
+
 import { InlineStatus } from "@/shared/ui/InlineStatus";
 import type { InlineStatusTone } from "@/shared/ui/InlineStatus";
 import { cn } from "@/shared/lib/cn";
@@ -15,6 +17,8 @@ interface StatusButtonProps {
   submit?: boolean;
   disabled?: boolean;
   className: string;
+  /** Drawn left of the texts, outside their grid cell, so it stays while the text changes. */
+  icon?: LucideIcon;
 }
 
 /**
@@ -32,10 +36,17 @@ export function StatusButton({
   submit = false,
   disabled,
   className,
+  icon: Icon,
 }: StatusButtonProps) {
   return (
     <>
-      <button type={submit ? "submit" : "button"} onClick={onClick} disabled={disabled} className={className}>
+      <button
+        type={submit ? "submit" : "button"}
+        onClick={onClick}
+        disabled={disabled}
+        className={Icon === undefined ? className : cn(className, "inline-flex items-center gap-1.5")}
+      >
+        {Icon !== undefined && <Icon aria-hidden="true" className="size-4 shrink-0" />}
         <span className="inline-grid justify-items-center">
           {texts.map((text) => (
             <span
