@@ -528,6 +528,33 @@ async def test_an_id_whose_approval_answered_already_decided_is_dropped_from_the
     assert announce.memory_seen == {still_refused: BookingRefusal.SUM_MISMATCH}
 
 
+async def test_this_sweeps_refusal_outlives_an_already_decided_answer_for_the_same_id() -> None:
+    """p17f.3: the sweep refused the discrepancy while an OLDER pending
+    proposal for it existed, and the owner decided that one before the
+    automatic step locked it. Only the code kept from an earlier sweep is
+    stale; the refusal this sweep just made is the reason the alert names."""
+    discrepancy = uuid4()
+    last_reason_by_discrepancy[discrepancy] = BookingRefusal.SUM_MISMATCH
+    events: list[str] = []
+    handler, _, announce, _ = _wired(
+        events,
+        sweep_result=PrepareBookingResult(
+            discrepancies_considered=1,
+            proposals_prepared=0,
+            proposals_skipped=1,
+            proposals_suppressed=0,
+            refusals={discrepancy: BookingRefusal.GROWS_OR_FLIPS},
+        ),
+        auto_result=AutoBookResult(
+            outcomes={"ALREADY_DECIDED": 1}, already_decided=(discrepancy,)
+        ),
+    )
+
+    await handler.handle(_claimed_job())
+
+    assert announce.memory_seen == {discrepancy: BookingRefusal.GROWS_OR_FLIPS}
+
+
 async def test_the_memory_survives_from_one_job_to_the_next() -> None:
     refused = uuid4()
     handler, _, _, _ = _wired(

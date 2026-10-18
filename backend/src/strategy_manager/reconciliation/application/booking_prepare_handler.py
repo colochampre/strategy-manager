@@ -243,12 +243,16 @@ class BookingPrepareHandler:
             # the writer, no announcement is made and no successor is
             # enqueued; the queue retries and the watchdog reports it.
             booked = await self._auto_book.run()
-            last_reason_by_discrepancy.update(result.refusals)
-            last_reason_by_discrepancy.update(booked.not_approved)
             # A discrepancy approval answered ALREADY_DECIDED was prepared by a
             # later sweep, so a refusal code kept from an older one is stale
-            # (cd.f11); it is forgotten exactly as a booked one is.
-            for discrepancy_id in (*booked.approved, *booked.already_decided):
+            # (cd.f11). It is forgotten BEFORE this sweep's refusals land: a
+            # refusal this sweep just made is current, not stale (p17f.3).
+            for discrepancy_id in booked.already_decided:
+                last_reason_by_discrepancy.pop(discrepancy_id, None)
+            last_reason_by_discrepancy.update(result.refusals)
+            last_reason_by_discrepancy.update(booked.not_approved)
+            # A booked discrepancy needs nobody, whatever was said of it.
+            for discrepancy_id in booked.approved:
                 last_reason_by_discrepancy.pop(discrepancy_id, None)
             _log_summary(result, booked)
             await self._announce_needs_owner.run(last_reason_by_discrepancy)

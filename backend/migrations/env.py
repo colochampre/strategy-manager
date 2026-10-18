@@ -3,11 +3,10 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.db import Base
+from strategy_manager.shared.db import Base, create_engine_for
 
 config = context.config
 
@@ -39,11 +38,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=NullPool,
-    )
+    connectable = create_engine_for(get_settings().database_url, poolclass=NullPool)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

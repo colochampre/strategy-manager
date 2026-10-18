@@ -97,12 +97,13 @@ class PoolExposureAdapter:
         # Owner decision 70: a discrepancy still open (OBSERVED or CONFIRMED) is a
         # position the venue may hold that the ledger does not, and the key is the
         # only way left to close it. A narrow read of the table, not the
-        # reconciliation repository, so this adapter stays a plain reader.
+        # reconciliation repository, so this adapter stays a plain reader. Read
+        # across the whole EXCHANGE, unlike the lists above (p17f.2): the key
+        # being deleted is the exchange's one key, which closes a position in
+        # any of its pools, not only the one the delete locks.
         discrepancies = await self._session.execute(
             select(ReconciliationDiscrepancyRow.symbol).where(
                 ReconciliationDiscrepancyRow.exchange == exchange,
-                ReconciliationDiscrepancyRow.venue == venue,
-                ReconciliationDiscrepancyRow.settlement_currency == settlement_currency,
                 ReconciliationDiscrepancyRow.resolved_at.is_(None),
             )
         )
