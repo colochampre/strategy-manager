@@ -5790,6 +5790,23 @@ Edit surface: `frontend/src/shared/ui/ReportSection.tsx` (new) and its test, `fe
 - [x] p16.4.3 Wrapped on `/strategies/:id`: the chart and Month by month (`StrategyPerformance.tsx`), By pair (`PairStatsTable.tsx`), Open positions (`OpenPositionsSection.tsx`, every state) and Closed trades (`TradesTable.tsx`, every state).
 - [x] p16.4.4 Wrapped on `/discrepancies`: "Booked automatically" only; "Needs you" and "Being booked" stay unframed. A test per page names which sections are framed and which are not.
 
+### Unit p16.6 — the buttons left out of Q3 (decision 67 Q8)
+
+Found by the owner in the first p16.5 review. Edit surface: `frontend/src/features/strategies/{WebhookMessage.tsx,EnableToggle.tsx,ArchiveControl.tsx,ArchiveDialog.tsx}`, `frontend/src/features/settings/KeyEntryForm.tsx`, their existing tests or one new `frontend/src/features/strategies/ButtonIconsQ8.test.tsx`. Route: delegated writer, parallel with p16.7 (disjoint surfaces). Same rules as p16.2.6: a `size-4` icon left of the text, `aria-hidden`, `inline-flex items-center gap-1.5`, the accessible name unchanged.
+
+- [ ] p16.6.1 Show secret / Hide secret (`WebhookMessage.tsx`) `Eye` / `EyeOff`: the icon follows the button's state, "Showing…" keeps `Eye`.
+- [ ] p16.6.2 Enable strategy / Disable strategy (`EnableToggle.tsx`) `Power` / `PowerOff`, following `strategy.enabled`.
+- [ ] p16.6.3 Archive (`ArchiveControl.tsx`) and "Archive permanently" in its dialog (`ArchiveDialog.tsx`, the pending text keeps the icon) `Archive`.
+- [ ] p16.6.4 Check and save (`KeyEntryForm.tsx`, through `StatusButton`'s `icon`) `ShieldCheck`; Close in the same form `X`.
+
+### Unit p16.7 — one remembered range (decision 68 Q1, Q2)
+
+Edit surface: `frontend/src/features/overview/range-store.ts` (new) and its test, `features/overview/PoolPanel.tsx`, `features/strategies/StrategyPerformance.tsx`, their existing tests, `frontend/src/test/{setup.ts,harness.tsx}`. Route: delegated writer, parallel with p16.6.
+
+- [ ] p16.7.1 `useRangeStore` (zustand `persist`, key `sm.range`, `createJSONStorage(() => createSafeStorage())`, as `shared/scope/exchange-store.ts`), default `DEFAULT_RANGE`; a stored value that is not one of `RANGES` reads as `DEFAULT_RANGE`; a throwing `localStorage` leaves the selector working in memory.
+- [ ] p16.7.2 `PoolPanel` and `StrategyPerformance` read and write the store instead of their own `useState`: 1Y chosen on the Overview is still 1Y after leaving and coming back, on every pool, on `/strategies/:id`, and after a remount that stands for a reload.
+- [ ] p16.7.3 Tests never inherit a range: the global test setup resets the store in memory and in storage before each test.
+
 ### Review and delivery
 
 - [ ] p16.5 **The owner's review** with the fixture server, at phone width, between 640 and 768 px, and wide: the icons (bottom bar alone, rail beside the name, buttons left of their text, the language symbol), the `%` on the months, the frames from `md` only.
