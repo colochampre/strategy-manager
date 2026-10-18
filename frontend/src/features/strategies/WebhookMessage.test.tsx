@@ -170,6 +170,36 @@ describe("WebhookMessage", () => {
     }
   });
 
+  it("draws Eye on Show secret, keeps it while fetching, and swaps to EyeOff on Hide secret, the names unchanged", async () => {
+    setup(() => new Promise<Response>(() => undefined));
+
+    const show = showButton();
+    const eye = show.querySelector("svg");
+    expect(eye).toHaveClass("lucide-eye", "size-4", "shrink-0");
+    expect(eye).toHaveAttribute("aria-hidden", "true");
+    expect(show.firstElementChild).toBe(eye);
+    expect(show).toHaveClass("inline-flex", "items-center", "gap-1.5");
+
+    fireEvent.click(show);
+    const showing = await screen.findByRole("button", { name: "Fetching the secret…" });
+    expect(showing.querySelector("svg")).toHaveClass("lucide-eye");
+  });
+
+  it("swaps Eye for EyeOff once the secret is shown", async () => {
+    setup();
+
+    fireEvent.click(showButton());
+    await revealedUrl();
+
+    const hide = hideButton();
+    const eyeOff = hide.querySelector("svg");
+    expect(eyeOff).toHaveClass("lucide-eye-off", "size-4", "shrink-0");
+    expect(eyeOff).toHaveAttribute("aria-hidden", "true");
+    expect(hide.firstElementChild).toBe(eyeOff);
+    expect(hide).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(hide).toHaveAccessibleName("Hide secret");
+  });
+
   it("test_url_shows_placeholder_by_default_not_the_secret", async () => {
     const { secretCalls, queryClient } = setup();
 

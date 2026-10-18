@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Archive } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ArchiveDialog } from "@/features/strategies/ArchiveDialog";
@@ -40,8 +41,9 @@ export function ArchiveControl({ strategy }: ArchiveControlProps) {
         disabled={strategy.enabled}
         aria-describedby={strategy.enabled ? hintId : undefined}
         onClick={() => setOpen(true)}
-        className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
       >
+        <Archive aria-hidden="true" className="size-4 shrink-0" />
         {t("strategies.archive.button")}
       </button>
       {strategy.enabled && (

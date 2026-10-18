@@ -1,6 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
-import { Copy } from "lucide-react";
+import { Copy, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusButton } from "@/shared/ui/StatusButton";
@@ -190,16 +190,18 @@ function WebhookMessageView({ strategyId }: WebhookMessageProps) {
               type="button"
               disabled={requested && secret.isFetching}
               onClick={show}
-              className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
             >
+              <Eye aria-hidden="true" className="size-4 shrink-0" />
               {t(requested && secret.isFetching ? "strategies.webhook.showing" : "strategies.webhook.show")}
             </button>
           ) : (
             <button
               type="button"
               onClick={hide}
-              className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
             >
+              <EyeOff aria-hidden="true" className="size-4 shrink-0" />
               {t("strategies.webhook.hide")}
             </button>
           )}
