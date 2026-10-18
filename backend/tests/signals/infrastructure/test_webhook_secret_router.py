@@ -58,6 +58,7 @@ from tests.accounts.fakes import (
     registry_for,
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
+from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -162,13 +163,13 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
 }
 
 
-#: Lists whose rows need a multi-table reconciliation fixture (scan, discrepancy,
-#: booking proposal). They are still requested and inspected; they are only
-#: allowed to answer an empty list. Every other GET must answer real data.
-_MAY_BE_EMPTY = {
-    ("GET", "/api/reconciliation/discrepancies"),
+#: Write routes whose handler reads no body at all: their answers are their own
+#: named refusals or successes, whatever the request carries.
+_NO_BODY = {
+    ("DELETE", "/api/credentials/{exchange}"),
+    ("DELETE", "/api/strategies/{strategy_id}"),
+    ("POST", "/api/strategies/{strategy_id}/archive"),
 }
-
 
 def _other_api_routes() -> list[tuple[str, str]]:
     """Every ``(METHOD, path template)`` under ``/api`` except the secret's own,
@@ -251,6 +252,9 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
     allocation_id = await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    # One open discrepancy, so the list's row serializer is inspected too (W3).
+    await clear_discrepancies(factory)
+    await seed_discrepancy(factory, symbol="STXUSDT")
     cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
     async with factory() as session:
         # An active key, so ``GET /api/credentials`` answers a STORED entry and
@@ -312,8 +316,10 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
             "fill_mode": "PARTIAL",
             "allowed_pairs": ["ETHUSDT"],
         }
-    elif body is None and method in {"POST", "PUT", "PATCH"}:
-        body = {}
+    elif body is None and method != "GET" and (method, template) not in _NO_BODY:
+        # A write route added later must be given a real body in ``_BODIES``; a
+        # blind ``{}`` would earn a 422 and the sweep would inspect nothing (W2).
+        pytest.fail(f"{method} {template} is a write route with no body in _BODIES or _NO_BODY")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         # One real state change first, so the strategy has an enablement event
@@ -334,14 +340,17 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     # find its data, or the sweep would be inspecting an empty body.
     assert response.status_code not in {401, 403}, f"{method} {template} was refused at the door"
     assert response.status_code < 500, f"{method} {template} crashed"
+    if method != "GET":
+        # FastAPI's validation refusal means the body never reached the handler,
+        # so the sweep would be inspecting a trivial 4xx answer (W2).
+        assert response.status_code != 422, (
+            f"{method} {template} answered 422: the sweep's body did not reach the handler"
+        )
     if method == "GET":
         assert response.status_code == 200, (
             f"{method} {template} answered {response.status_code}; seed the data it needs"
         )
-        if (method, template) not in _MAY_BE_EMPTY:
-            assert response.text not in {"[]", "{}"}, (
-                f"{method} {template} answered an empty body"
-            )
+        assert response.text not in {"[]", "{}"}, f"{method} {template} answered an empty body"
 
     if (method, template) == ("PUT", "/api/credentials/{exchange}"):
         assert response.status_code == 200, "the sweep's credential body must really be saved"
@@ -352,6 +361,8 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         # the 409 that names them, not a 404 or a success.
         assert response.status_code == 409, "the sweep's DELETE must reach the pool check"
         assert response.json()["outcome"] == "EXCHANGE_NOT_FLAT"
+    if (method, template) == ("GET", "/api/reconciliation/discrepancies"):
+        assert "STXUSDT" in response.text, "the seeded discrepancy must be served"
     if (method, template) == ("GET", "/api/credentials"):
         stored = [entry for entry in response.json() if entry["status"] == "STORED"]
         assert [entry["last4"] for entry in stored] == ["9876"]
