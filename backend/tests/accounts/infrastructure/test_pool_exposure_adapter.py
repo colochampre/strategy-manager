@@ -260,7 +260,18 @@ async def test_a_resolved_discrepancy_is_not_exposure(
     assert exposure.is_empty()
 
 
-async def test_another_pools_open_discrepancy_is_not_this_pools(
+async def test_an_open_discrepancy_on_another_pool_of_the_same_exchange_is_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Decision 70 names the EXCHANGE: its one key closes a position in any of
+    its pools, so a discrepancy on a spot pool of the same exchange blocks the
+    delete asked through its futures pool (p17f.2)."""
+    await seed_discrepancy(pg_session_factory, symbol="SOLUSDT", pool=("bybit", "spot", "USDT"))
+
+    assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset({"SOLUSDT"})
+
+
+async def test_another_exchanges_open_discrepancy_is_not_this_pools(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> None:
     await seed_discrepancy(pg_session_factory, symbol="BTCUSDT", pool=OTHER_POOL)
