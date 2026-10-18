@@ -48,6 +48,8 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from strategy_manager.shared.infrastructure.alert_log_bridge import AlertLogBridge
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from tests.accounts.fakes import (
@@ -390,6 +392,19 @@ class _Capture(logging.Handler):
         self.records[id(record)] = record
 
 
+CANARY = "sweep-canary-5b1e"
+
+
+class _SpyAlerter:
+    """Stands in for Telegram: keeps what would have been sent, sends nothing."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str]] = []
+
+    async def send(self, title: str, body: str) -> None:
+        self.sent.append((title, body))
+
+
 def _everything_a_record_says(record: logging.LogRecord) -> str:
     """The message, its raw template and arguments, and any traceback."""
     parts = [str(record.msg), str(record.args), record.name]
@@ -438,6 +453,7 @@ async def test_access_log_never_records_the_secret_value(
     and serving the module-level ``app`` that ``uvicorn strategy_manager.main:app``
     serves, receives a real request for the secret over a real socket."""
     capture = _Capture()
+    alerter = _SpyAlerter()
     with _logging_restored():
         config = uvicorn.Config(
             "strategy_manager.main:app",
@@ -447,10 +463,22 @@ async def test_access_log_never_records_the_secret_value(
             log_level="debug",
             access_log=True,
         )
+        # Built AFTER the config: uvicorn's ``dictConfig`` closes every handler that
+        # already exists, and a closed bridge drops every record.
+        bridge = AlertLogBridge(
+            alerter,
+            clock=SystemClock(),
+            throttle_window_seconds=900.0,
+            deployment="secret-sweep",
+        )
+        await bridge.start()
         # Hook every logger that exists once uvicorn has configured logging, and
         # the root, whose level is opened so nothing is dropped for being quiet.
         logging.root.setLevel(logging.DEBUG)
         logging.root.addHandler(capture)
+        # The same place ``operator_alerts`` puts it in production (the lifespan is
+        # off here, and the real one would build a Telegram alerter).
+        logging.root.addHandler(bridge)
         for lg in _all_loggers():
             lg.addHandler(capture)
 
@@ -466,9 +494,14 @@ async def test_access_log_never_records_the_secret_value(
 
             async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as api:
                 response = await api.get(SECRET_PATH, headers=_auth())
+            # A canary ERROR proves the bridge is live on the root logger: a bridge
+            # that never saw a record would make "no secret in it" prove nothing.
+            logging.getLogger("strategy_manager.sweep_canary").error("canary %s", CANARY)
+            await bridge.drain()
         finally:
             server.should_exit = True
             await serving
+            await bridge.aclose()
 
     assert response.status_code == 200
     assert response.json() == {"secret": SECRET}
@@ -483,6 +516,11 @@ async def test_access_log_never_records_the_secret_value(
 
     leaked = [(r.name, r.levelname) for r in records if SECRET in _everything_a_record_says(r)]
     assert leaked == [], f"the secret reached log records from: {leaked}"
+
+    # What the bridge would have sent to Telegram: the canary got through, and
+    # nothing it carried is the secret.
+    assert any(CANARY in body for _, body in alerter.sent), "the bridge never saw the canary"
+    assert all(SECRET not in title and SECRET not in body for title, body in alerter.sent)
 
     streams = capsys.readouterr()
     assert SECRET not in streams.out
