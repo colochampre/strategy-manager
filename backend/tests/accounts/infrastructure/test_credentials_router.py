@@ -16,6 +16,7 @@ assertion message.
 """
 
 import ast
+import base64
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi import Depends
 from httpx import ASGITransport, AsyncClient, Response
@@ -56,6 +58,7 @@ from strategy_manager.accounts.infrastructure.credentials_router import (
     get_delete_credential,
     get_save_credential,
 )
+from strategy_manager.accounts.infrastructure.key_inspectors.bybit import BybitKeyInspector
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
@@ -990,6 +993,72 @@ async def _is_active(factory: async_sessionmaker[AsyncSession], exchange: str) -
             {"e": exchange},
         )
         return [row[0] for row in rows.all()]
+
+
+@pytest.mark.integration
+async def test_the_real_wiring_saves_a_bybit_key_through_the_real_inspector_and_vault(
+    factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Follow-up 8f.3: ``get_save_credential`` is NOT overridden. The real
+    ``KeyInspectorRegistry.for_settings`` builds the real Bybit inspector, whose
+    only substitution is the HTTP transport: it answers from a stub, so no
+    request leaves the machine. The route then seals the key in the real vault."""
+    monkeypatch.setattr(
+        get_settings(),
+        "master_encryption_key",
+        base64.b64encode(os.urandom(MASTER_KEY_BYTES)).decode(),
+    )
+    requests: list[tuple[str, str]] = []
+
+    def venue(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/v5/account/wallet-balance":
+            return httpx.Response(
+                200,
+                json={
+                    "retCode": 0,
+                    "retMsg": "OK",
+                    "result": {"list": [{"accountType": "UNIFIED", "coin": []}]},
+                },
+            )
+        if request.url.path == "/v5/user/query-api":
+            return httpx.Response(
+                200,
+                json={
+                    "retCode": 0,
+                    "retMsg": "OK",
+                    "result": {
+                        "permissions": {"Wallet": ["AccountTransfer"]},
+                        "readOnly": 0,
+                    },
+                },
+            )
+        return httpx.Response(404, json={"retCode": 404, "retMsg": "unexpected path"})
+
+    real_init = BybitKeyInspector.__init__
+
+    def stubbed_init(self: BybitKeyInspector, **kwargs: Any) -> None:
+        real_init(self, **{**kwargs, "transport": httpx.MockTransport(venue)})
+
+    monkeypatch.setattr(BybitKeyInspector, "__init__", stubbed_init)
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
+        response = await api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
+
+    assert response.status_code == 200
+    assert response.json()["last4"] == BYBIT_KEY[-4:]
+    assert requests == [
+        ("GET", "/v5/account/wallet-balance"),
+        ("GET", "/v5/user/query-api"),
+    ]
+    _assert_no_secret(response.text)
+    assert await _is_active(factory, "bybit") == [True]
 
 
 @pytest.mark.integration
