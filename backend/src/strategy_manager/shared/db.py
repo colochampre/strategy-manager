@@ -6,7 +6,12 @@ single connection pool and a single transaction boundary for both.
 
 from collections.abc import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from strategy_manager.shared.config import get_settings
@@ -18,7 +23,16 @@ class Base(DeclarativeBase):
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.database_url, pool_pre_ping=True)
+def create_engine_for(database_url: str) -> AsyncEngine:
+    """The one way this process builds an engine.
+
+    ``hide_parameters`` keeps bound values (ciphertexts, wrapped keys, nonces)
+    out of a ``DBAPIError``'s text, which the alert bridge sends to Telegram.
+    """
+    return create_async_engine(database_url, pool_pre_ping=True, hide_parameters=True)
+
+
+engine = create_engine_for(_settings.database_url)
 
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
