@@ -14,7 +14,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.application.balance_sync_handler import BalanceSyncHandler
@@ -1884,14 +1883,6 @@ def create_app() -> FastAPI:
     # The credentials answers (last4, facts, label) must not be cached. A
     # middleware, because an exception handler's answer never sees a dependency.
     app.add_middleware(NoStoreMiddleware, prefix="/api/credentials")
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:

@@ -173,8 +173,6 @@ class Settings(BaseSettings):
     # the access log.
     admin_api_token: str = Field(default="")
 
-    cors_origins: list[str] = Field(default=["http://localhost:5173"])
-
     # Directory holding the built operator panel (the Vite ``dist`` output).
     #
     # EMPTY means the panel is not served at all, which is the default on
