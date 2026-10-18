@@ -5868,7 +5868,7 @@ Order and routing: the backend integration tests share one fixed database name (
 
 ### p17.7 The venue line reads dry run (cd.f10)
 
-- [x] p17.7.1 **Done 2026-10-18, `81d0f63`.** RED: the line ended "· being booked automatically · See the discrepancy" under dry run. Mutation `dry_run && false` turned it red. Open: a `needs_owner` item under dry run still draws its words and a link to a page that draws no list; not in cd.f10's text, left for the owner. `useVenueFollowUp.ts`: under `dry_run`, `CONFIRMED` rows left from a live period never produce the "being booked automatically" line nor its link. RED in the positions tests; a test that the line still shows when `dry_run` is false.
+- [x] p17.7.1 **Done 2026-10-18, `81d0f63`.** RED: the line ended "· being booked automatically · See the discrepancy" under dry run. Mutation `dry_run && false` turned it red. Extended by owner decision 71 in `c3daca1`: the guard now runs before `needs_owner` is read too. RED: a `NOT_BOOKED` item under dry run ended "· could not be booked automatically · See the discrepancy". `useVenueFollowUp.ts`: under `dry_run`, `CONFIRMED` rows left from a live period never produce the "being booked automatically" line nor its link. RED in the positions tests; a test that the line still shows when `dry_run` is false.
 
 ### p17.8 Cleanup of this file and the DuckDNS leftovers ("Si, por favor")
 
@@ -5880,7 +5880,7 @@ Order and routing: the backend integration tests share one fixed database name (
 
 ### Review and delivery
 
-- [ ] p17.D.1 The whole gate on the finished branch, totals against p17.0: backend `ruff`, `mypy src`, `pytest`; frontend `npm run lint`, `npm test`, `npm run build`.
+- [x] p17.D.1 **Done 2026-10-18, at `c3daca1`.** Backend `ruff` 0, `mypy src` 0 (303 source files), `pytest` exit 0, 337 files / 5,423 tests collected (p17.0: 334 / 5,402). Frontend `npm run lint` 0, `vitest` 96 files / 2,844 passed (p17.0: 96 / 2,835), `npm run build` 0. The whole gate on the finished branch on the finished branch, totals against p17.0: backend `ruff`, `mypy src`, `pytest`; frontend `npm run lint`, `npm test`, `npm run build`.
 - [ ] p17.D.2 Review: the orchestrator reads every writer's diff against its surface; an independent read-only reviewer reads the whole diff (a guard on a destructive action, risk item 2, and a removed middleware).
 - [ ] p17.D.3 The owner sees the delete dialog's new reason line with the fixture server.
 - [ ] p17.D.4 Push and open the PR ONLY on the owner's word.
@@ -5892,8 +5892,8 @@ Order and routing: the backend integration tests share one fixed database name (
 
 ## Cross-PR test sweep (run once, after PR 13)
 
-- [ ] X.1 `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` — full suite.
-- [ ] X.2 `cd frontend && npm run lint && npm test` — full suite.
+- [x] X.1 `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` — full suite. Green with p17.D.1's totals.
+- [x] X.2 `cd frontend && npm run lint && npm test` — full suite. Green with p17.D.1's totals.
 - [x] X.3 `cd frontend && npm run build` — the production build the CSP rehearsal (design decision 13, "font-src falls back to default-src 'self'") must load without a console CSP violation, checked manually by the owner against the deployed `PANEL_DIST_DIR` bundle. Its local half was done on 2026-10-11 as pps.1; its production half is pps.9, done the same day: one CSP message, caused by a script Cloudflare added, gone once that was switched off.
 - [x] X.4 **Done 2026-10-18 (PR 17 cleanup):** none of the Bybit or Binance names remain and `recharts` is in neither `frontend/src` nor `package.json`. `credentials_from_settings` remains in `shared/infrastructure/pionex/factory.py`, which is the Pionex probe exception (`PIONEX_API_*` settings read only by scripts), and in the docstrings of the Bybit and Binance factories, which describe the read-only pair that was removed. Grep sweep: no remaining reference to `bybit_api_key`, `bybit_api_secret`, `binance_api_key`, `binance_api_secret`, `credentials_from_settings`, or `recharts` anywhere under `backend/src` or `frontend/src`/`package.json`.
 - [ ] X.5 (an audit on 2026-10-18 found the two files' key sets identical, 505 each, but no test pins that globally; the task is a test that compares them) i18n sweep: every key referenced by a new component exists in both `frontend/src/shared/i18n/locales/en.json` and `es.json` — a RED test per feature already covers this per-unit; this is the final cross-feature confirmation.
