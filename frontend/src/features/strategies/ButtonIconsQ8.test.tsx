@@ -44,7 +44,8 @@ describe("EnableToggle icons (decision 67 Q8)", () => {
     expect(svg).toHaveClass(icon, "size-4", "shrink-0");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    // Its column stretches it to full width: the icon and text stay centred, as the text alone was.
+    expect(button).toHaveClass("inline-flex", "items-center", "justify-center", "gap-1.5");
     expect(button).toHaveAccessibleName(i18n.t(key));
   });
 });
