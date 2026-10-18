@@ -640,7 +640,8 @@
         "liveReservations_one": "{{count}} reserva vigente: capital retenido para una orden. Espere a que termine y vuelva a intentarlo.",
         "liveReservations_other": "{{count}} reservas vigentes: capital retenido para órdenes. Espere a que terminen y vuelva a intentarlo.",
         "inFlightAttempts_one": "{{count}} orden que se está enviando ahora mismo. Espere a que termine y vuelva a intentarlo.",
-        "inFlightAttempts_other": "{{count}} órdenes que se están enviando ahora mismo. Espere a que terminen y vuelva a intentarlo."
+        "inFlightAttempts_other": "{{count}} órdenes que se están enviando ahora mismo. Espere a que terminen y vuelva a intentarlo.",
+        "openDiscrepancies": "Discrepancia de conciliación sin resolver en: {{symbols}}. El exchange puede tener una posición que este sistema no registra, y esta clave es la que puede cerrarla. Para cambiar de clave, guarde la nueva en lugar de eliminar esta: la reemplaza."
       }
     },
     "title": "Configuración"

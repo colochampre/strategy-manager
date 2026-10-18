@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # allowlist is the whole authentication story for the webhook.
     webhook_secret: str = Field(default="")
 
-    # The origin TradingView posts to, for example ``https://example.duckdns.org``:
+    # The origin TradingView posts to, for example ``https://hook.example.com``:
     # the webhook's host, which is NOT the panel's (decision 5). It is DISPLAY
     # ONLY: the panel shows and copies the full webhook URL from it, and nothing
     # requests it. Empty means unset. A malformed value is never served and
@@ -173,15 +173,13 @@ class Settings(BaseSettings):
     # the access log.
     admin_api_token: str = Field(default="")
 
-    cors_origins: list[str] = Field(default=["http://localhost:5173"])
-
     # Directory holding the built operator panel (the Vite ``dist`` output).
     #
     # EMPTY means the panel is not served at all, which is the default on
     # purpose: development has the Vite server, tests mount nothing, and a
-    # production that has not finished the deploy prerequisites (DuckDNS proxy
+    # production that has not finished the deploy prerequisites (a reverse proxy
     # scoped to the webhook, ``cloudflared``, a Cloudflare Access policy, a
-    # frontend build) stays exactly as it is today. Setting it is the one switch
+    # frontend build) serves no UI. Setting it is the one switch
     # that makes this process serve a UI, so it is also checked at startup: a
     # directory without an ``index.html`` refuses to start rather than serving
     # 404s to the owner (``shared/infrastructure/spa.py``).

@@ -288,6 +288,7 @@ class NotFlatBody(BaseModel):
     allocations: list[str]
     live_reservations: list[str]
     in_flight_attempts: list[str]
+    open_discrepancies: list[str]
 
 
 def _refusal(result: SaveRefused) -> JSONResponse:
@@ -381,6 +382,7 @@ async def delete_credential(
             allocations=[str(a) for a in exposure.allocations],
             live_reservations=[str(r) for r in exposure.live_reservations],
             in_flight_attempts=[str(a) for a in exposure.in_flight_attempts],
+            open_discrepancies=sorted(exposure.open_discrepancies),
         )
         return JSONResponse(status_code=409, content=body.model_dump(mode="json"))
     # The same shape an exchange that was never keyed already answers.

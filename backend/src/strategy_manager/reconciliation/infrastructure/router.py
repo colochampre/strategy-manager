@@ -40,7 +40,6 @@ to paginate in Python on top of a full read.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -72,7 +71,7 @@ from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.wire import plain
+from strategy_manager.shared.infrastructure.wire import Money, plain
 
 # See this module's docstring and ``strategies/infrastructure/router.py``:
 # deliberately no ``Depends(require_admin_token)`` on the route itself.
@@ -107,8 +106,8 @@ class DiscrepancyView(BaseModel):
     settlement_currency: str
     symbol: str
     kind: DiscrepancyKind
-    venue_net_base: Decimal
-    ledger_net_base: Decimal
+    venue_net_base: Money
+    ledger_net_base: Money
     open_allocation_ids: tuple[UUID, ...]
     consecutive_scans: int
     status: DiscrepancyStatus

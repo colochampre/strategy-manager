@@ -188,9 +188,16 @@ class SqlAlchemyBookingProposalRepository:
         # in that gap, and two unlocked approvals could both do that
         # expensive, side-effecting work before either commits, even
         # though only one of their later ``mark_state`` calls would win.
+        #
+        # ``populate_existing`` makes the locked read return what the database
+        # holds NOW even when this session already holds the row in its
+        # identity map, as ``strategies/infrastructure/repository.py`` does.
         row = (
             await self._session.execute(
-                select(_Row).where(_Row.id == proposal_id).with_for_update()
+                select(_Row)
+                .where(_Row.id == proposal_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if row is None:

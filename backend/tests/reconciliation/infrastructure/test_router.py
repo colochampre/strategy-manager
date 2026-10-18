@@ -189,6 +189,7 @@ async def _seed(
     symbol: str,
     status: DiscrepancyStatus = DiscrepancyStatus.OBSERVED,
     resolve: bool = False,
+    observation: Observation | None = None,
 ) -> None:
     scan_id = uuid4()
     async with session_factory() as session:
@@ -196,7 +197,7 @@ async def _seed(
         await repo.upsert_open(
             pool,
             symbol,
-            _observation(),
+            observation or _observation(),
             [uuid4()],
             consecutive_scans=1,
             status=status,
@@ -273,6 +274,30 @@ async def test_authenticated_admin_lists_open_discrepancies_across_pools(
         ("bybit", "usdt-m", "USDT", "BTCUSDT"),
         ("binance", "usdt-m", "USDT", "ETHUSDT"),
     }
+
+
+async def test_nets_read_back_at_scale_18_are_written_in_plain_notation(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    authenticated_client: AsyncClient,
+) -> None:
+    """``Numeric(38, 18)`` reads a zero back as ``Decimal("0E-18")``, whose
+    ``str`` is ``"0E-18"``: a full close (venue net 0) must not reach the wire so."""
+    await _seed(
+        pg_session_factory,
+        pool=("bybit", "usdt-m", "USDT"),
+        symbol="ZEROUSDT",
+        observation=_observation(
+            venue_net_base=Decimal("0"), ledger_net_base=Decimal("0")
+        ),
+    )
+
+    response = await authenticated_client.get(
+        "/reconciliation/discrepancies", headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+
+    [row] = response.json()
+    assert row["venue_net_base"] == "0.000000000000000000"
+    assert row["ledger_net_base"] == "0.000000000000000000"
 
 
 async def test_default_status_filter_excludes_resolved_discrepancies(

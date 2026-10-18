@@ -48,6 +48,7 @@ from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind, 
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
+from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
 from strategy_manager.shared.config import get_settings
 from tests.pg_drop import drop_database_if_exists
 
@@ -456,6 +457,43 @@ async def test_get_for_update_returns_the_row(
 
     assert locked.id == inserted.id
     assert locked.state == "PENDING"
+
+
+async def test_get_for_update_reads_fresh_when_the_session_already_holds_the_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """cd.f12: a session that already loaded the row keeps it in its identity
+    map; the locked re-read must still return what the database holds NOW, or
+    the check under the lock would be checking nothing."""
+    async with session_factory() as session:
+        discrepancy_id, strategy_id, allocation_id = await _seed_discrepancy(session)
+        repo = SqlAlchemyBookingProposalRepository(session)
+        inserted = await repo.insert(
+            _proposal(
+                discrepancy_id=discrepancy_id,
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+            )
+        )
+        await session.commit()
+    assert inserted is not None
+
+    async with session_factory() as reader, session_factory() as other:
+        # Held by name: the identity map only keeps a row while it is referenced.
+        held = await reader.get(BookingProposalRow, inserted.id)
+        assert held is not None and held.state == "PENDING"
+
+        await SqlAlchemyBookingProposalRepository(other).mark_state(
+            inserted.id, "REJECTED", NOW, decided_by="other", decision_reason="decided"
+        )
+        await other.commit()
+
+        locked = await SqlAlchemyBookingProposalRepository(reader).get_for_update(
+            inserted.id
+        )
+        await reader.commit()
+
+    assert locked.state == "REJECTED"
 
 
 async def test_get_for_update_of_an_unknown_id_raises(

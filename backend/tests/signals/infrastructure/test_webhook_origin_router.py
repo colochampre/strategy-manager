@@ -63,12 +63,12 @@ def _set_origin(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
 async def test_a_configured_origin_is_served(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _set_origin(monkeypatch, "https://example.duckdns.org")
+    _set_origin(monkeypatch, "https://hook.example.com")
 
     response = await client.get(PATH, headers=_auth())
 
     assert response.status_code == 200
-    assert response.json() == {"origin": "https://example.duckdns.org"}
+    assert response.json() == {"origin": "https://hook.example.com"}
 
 
 async def test_an_unset_origin_is_served_as_null(client: AsyncClient) -> None:
@@ -116,12 +116,12 @@ async def test_a_malformed_value_does_not_stop_the_route_and_is_served_as_null(
 async def test_the_body_never_contains_the_webhook_secret(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _set_origin(monkeypatch, "https://example.duckdns.org")
+    _set_origin(monkeypatch, "https://hook.example.com")
 
     response = await client.get(PATH, headers=_auth())
 
     assert response.status_code == 200
-    assert response.json()["origin"] == "https://example.duckdns.org"
+    assert response.json()["origin"] == "https://hook.example.com"
     assert SECRET not in response.text
     assert SECRET not in "".join(f"{k}{v}" for k, v in response.headers.items())
 
@@ -131,7 +131,7 @@ async def test_the_route_requires_the_bearer_token(
 ) -> None:
     """A missing and a wrong token are the one 401, before the handler: the
     router carries the dependency, FastAPI does not re-apply the parent's."""
-    _set_origin(monkeypatch, "https://example.duckdns.org")
+    _set_origin(monkeypatch, "https://hook.example.com")
 
     missing = await client.get(PATH)
     wrong = await client.get(PATH, headers={"Authorization": "Bearer not-the-token"})
@@ -139,7 +139,7 @@ async def test_the_route_requires_the_bearer_token(
     assert (missing.status_code, wrong.status_code) == (401, 401)
     assert missing.json() == {"detail": UNAUTHORIZED_DETAIL}
     assert wrong.json() == {"detail": UNAUTHORIZED_DETAIL}
-    assert "example.duckdns.org" not in missing.text + wrong.text
+    assert "hook.example.com" not in missing.text + wrong.text
 
 
 def test_the_setting_defaults_to_empty() -> None:

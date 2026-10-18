@@ -39,6 +39,9 @@ export function useVenueFollowUp(discrepancyId: string): VenueFollowUp | null {
   const { t } = useTranslation();
   const confirmed = useConfirmedDiscrepancies();
   if (confirmed.data === undefined) return null;
+  // Under dry run the discrepancies page draws no list, so CONFIRMED rows left from a live period are neither
+  // being booked (nothing books in dry run) nor anything the link could reach, in either list (cd.f10).
+  if (confirmed.data.dry_run) return null;
 
   const to = { pathname: "/discrepancies", hash: `#discrepancy-${discrepancyId}` };
   const owned = confirmed.data.needs_owner.find((item) => item.discrepancy_id === discrepancyId);

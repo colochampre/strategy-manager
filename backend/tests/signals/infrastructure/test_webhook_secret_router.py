@@ -48,6 +48,8 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from strategy_manager.shared.infrastructure.alert_log_bridge import AlertLogBridge
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from tests.accounts.fakes import (
@@ -58,6 +60,7 @@ from tests.accounts.fakes import (
     registry_for,
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
+from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -162,13 +165,13 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
 }
 
 
-#: Lists whose rows need a multi-table reconciliation fixture (scan, discrepancy,
-#: booking proposal). They are still requested and inspected; they are only
-#: allowed to answer an empty list. Every other GET must answer real data.
-_MAY_BE_EMPTY = {
-    ("GET", "/api/reconciliation/discrepancies"),
+#: Write routes whose handler reads no body at all: their answers are their own
+#: named refusals or successes, whatever the request carries.
+_NO_BODY = {
+    ("DELETE", "/api/credentials/{exchange}"),
+    ("DELETE", "/api/strategies/{strategy_id}"),
+    ("POST", "/api/strategies/{strategy_id}/archive"),
 }
-
 
 def _other_api_routes() -> list[tuple[str, str]]:
     """Every ``(METHOD, path template)`` under ``/api`` except the secret's own,
@@ -251,6 +254,9 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
     allocation_id = await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    # One open discrepancy, so the list's row serializer is inspected too (W3).
+    await clear_discrepancies(factory)
+    await seed_discrepancy(factory, symbol="STXUSDT")
     cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
     async with factory() as session:
         # An active key, so ``GET /api/credentials`` answers a STORED entry and
@@ -312,8 +318,10 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
             "fill_mode": "PARTIAL",
             "allowed_pairs": ["ETHUSDT"],
         }
-    elif body is None and method in {"POST", "PUT", "PATCH"}:
-        body = {}
+    elif body is None and method != "GET" and (method, template) not in _NO_BODY:
+        # A write route added later must be given a real body in ``_BODIES``; a
+        # blind ``{}`` would earn a 422 and the sweep would inspect nothing (W2).
+        pytest.fail(f"{method} {template} is a write route with no body in _BODIES or _NO_BODY")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         # One real state change first, so the strategy has an enablement event
@@ -334,14 +342,17 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     # find its data, or the sweep would be inspecting an empty body.
     assert response.status_code not in {401, 403}, f"{method} {template} was refused at the door"
     assert response.status_code < 500, f"{method} {template} crashed"
+    if method != "GET":
+        # FastAPI's validation refusal means the body never reached the handler,
+        # so the sweep would be inspecting a trivial 4xx answer (W2).
+        assert response.status_code != 422, (
+            f"{method} {template} answered 422: the sweep's body did not reach the handler"
+        )
     if method == "GET":
         assert response.status_code == 200, (
             f"{method} {template} answered {response.status_code}; seed the data it needs"
         )
-        if (method, template) not in _MAY_BE_EMPTY:
-            assert response.text not in {"[]", "{}"}, (
-                f"{method} {template} answered an empty body"
-            )
+        assert response.text not in {"[]", "{}"}, f"{method} {template} answered an empty body"
 
     if (method, template) == ("PUT", "/api/credentials/{exchange}"):
         assert response.status_code == 200, "the sweep's credential body must really be saved"
@@ -352,6 +363,8 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         # the 409 that names them, not a 404 or a success.
         assert response.status_code == 409, "the sweep's DELETE must reach the pool check"
         assert response.json()["outcome"] == "EXCHANGE_NOT_FLAT"
+    if (method, template) == ("GET", "/api/reconciliation/discrepancies"):
+        assert "STXUSDT" in response.text, "the seeded discrepancy must be served"
     if (method, template) == ("GET", "/api/credentials"):
         stored = [entry for entry in response.json() if entry["status"] == "STORED"]
         assert [entry["last4"] for entry in stored] == ["9876"]
@@ -377,6 +390,19 @@ class _Capture(logging.Handler):
         # Keyed by identity: a record reaches this handler once per logger it
         # was attached to, and counting it twice would prove nothing.
         self.records[id(record)] = record
+
+
+CANARY = "sweep-canary-5b1e"
+
+
+class _SpyAlerter:
+    """Stands in for Telegram: keeps what would have been sent, sends nothing."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str]] = []
+
+    async def send(self, title: str, body: str) -> None:
+        self.sent.append((title, body))
 
 
 def _everything_a_record_says(record: logging.LogRecord) -> str:
@@ -427,6 +453,7 @@ async def test_access_log_never_records_the_secret_value(
     and serving the module-level ``app`` that ``uvicorn strategy_manager.main:app``
     serves, receives a real request for the secret over a real socket."""
     capture = _Capture()
+    alerter = _SpyAlerter()
     with _logging_restored():
         config = uvicorn.Config(
             "strategy_manager.main:app",
@@ -436,10 +463,22 @@ async def test_access_log_never_records_the_secret_value(
             log_level="debug",
             access_log=True,
         )
+        # Built AFTER the config: uvicorn's ``dictConfig`` closes every handler that
+        # already exists, and a closed bridge drops every record.
+        bridge = AlertLogBridge(
+            alerter,
+            clock=SystemClock(),
+            throttle_window_seconds=900.0,
+            deployment="secret-sweep",
+        )
+        await bridge.start()
         # Hook every logger that exists once uvicorn has configured logging, and
         # the root, whose level is opened so nothing is dropped for being quiet.
         logging.root.setLevel(logging.DEBUG)
         logging.root.addHandler(capture)
+        # The same place ``operator_alerts`` puts it in production (the lifespan is
+        # off here, and the real one would build a Telegram alerter).
+        logging.root.addHandler(bridge)
         for lg in _all_loggers():
             lg.addHandler(capture)
 
@@ -455,9 +494,14 @@ async def test_access_log_never_records_the_secret_value(
 
             async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as api:
                 response = await api.get(SECRET_PATH, headers=_auth())
+            # A canary ERROR proves the bridge is live on the root logger: a bridge
+            # that never saw a record would make "no secret in it" prove nothing.
+            logging.getLogger("strategy_manager.sweep_canary").error("canary %s", CANARY)
+            await bridge.drain()
         finally:
             server.should_exit = True
             await serving
+            await bridge.aclose()
 
     assert response.status_code == 200
     assert response.json() == {"secret": SECRET}
@@ -472,6 +516,11 @@ async def test_access_log_never_records_the_secret_value(
 
     leaked = [(r.name, r.levelname) for r in records if SECRET in _everything_a_record_says(r)]
     assert leaked == [], f"the secret reached log records from: {leaked}"
+
+    # What the bridge would have sent to Telegram: the canary got through, and
+    # nothing it carried is the secret.
+    assert any(CANARY in body for _, body in alerter.sent), "the bridge never saw the canary"
+    assert all(SECRET not in title and SECRET not in body for title, body in alerter.sent)
 
     streams = capsys.readouterr()
     assert SECRET not in streams.out

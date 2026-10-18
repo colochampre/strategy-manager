@@ -245,7 +245,10 @@ class BookingPrepareHandler:
             booked = await self._auto_book.run()
             last_reason_by_discrepancy.update(result.refusals)
             last_reason_by_discrepancy.update(booked.not_approved)
-            for discrepancy_id in booked.approved:
+            # A discrepancy approval answered ALREADY_DECIDED was prepared by a
+            # later sweep, so a refusal code kept from an older one is stale
+            # (cd.f11); it is forgotten exactly as a booked one is.
+            for discrepancy_id in (*booked.approved, *booked.already_decided):
                 last_reason_by_discrepancy.pop(discrepancy_id, None)
             _log_summary(result, booked)
             await self._announce_needs_owner.run(last_reason_by_discrepancy)

@@ -170,6 +170,7 @@ async def test_a_proposal_someone_else_already_decided_is_counted_but_not_called
     assert result.outcomes == {"ALREADY_DECIDED": 1}
     assert result.not_approved == {}
     assert result.approved == ()
+    assert result.already_decided == (decided.discrepancy_id,)
 
 
 async def test_the_limit_is_honoured_and_the_rest_is_reported() -> None:

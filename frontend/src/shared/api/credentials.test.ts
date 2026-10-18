@@ -517,6 +517,7 @@ const FULL_REFUSAL = {
   allocations: ["a-1", "a-2", "a-3"],
   live_reservations: [],
   in_flight_attempts: ["x-1"],
+  open_discrepancies: ["ETHUSDT"],
 };
 
 function expectOneDeleteTo(fetchMock: ReturnType<typeof answer>, exchange: string) {
@@ -560,8 +561,8 @@ describe("deleteCredential, the request", () => {
   });
 });
 
-describe("deleteCredential, a refusal and its five lists", () => {
-  it("reads the five lists of a 409 EXCHANGE_NOT_FLAT: names, symbols as sent, the rest counted", async () => {
+describe("deleteCredential, a refusal and its lists", () => {
+  it("reads the lists of a 409 EXCHANGE_NOT_FLAT: names, symbols as sent, the rest counted", async () => {
     answer(409, FULL_REFUSAL);
 
     expect(await deleteCredential("bybit")).toEqual({
@@ -572,17 +573,58 @@ describe("deleteCredential, a refusal and its five lists", () => {
         allocations: 3,
         liveReservations: 0,
         inFlightAttempts: 1,
+        openDiscrepancies: ["ETHUSDT"],
       },
     });
   });
 
   it("keeps empty lists as zero, so the dialog can leave their line out", async () => {
-    answer(409, { ...FULL_REFUSAL, enabled_strategies: [], symbols: [], allocations: [], in_flight_attempts: [] });
+    answer(409, {
+      ...FULL_REFUSAL,
+      enabled_strategies: [],
+      symbols: [],
+      allocations: [],
+      in_flight_attempts: [],
+      open_discrepancies: [],
+    });
 
     expect(await deleteCredential("bybit")).toEqual({
       kind: "notFlat",
-      lists: { enabledStrategies: [], symbols: [], allocations: 0, liveReservations: 0, inFlightAttempts: 0 },
+      lists: {
+        enabledStrategies: [],
+        symbols: [],
+        allocations: 0,
+        liveReservations: 0,
+        inFlightAttempts: 0,
+        openDiscrepancies: [],
+      },
     });
+  });
+
+  it("reads a refusal without open_discrepancies as none: a bundle can reach production before the API's pull", async () => {
+    const { open_discrepancies: _absent, ...older } = FULL_REFUSAL;
+    answer(409, older);
+
+    expect(await deleteCredential("bybit")).toEqual({
+      kind: "notFlat",
+      lists: {
+        enabledStrategies: ["Alpha", "Beta"],
+        symbols: ["STXUSDT.P", "BTCUSDT"],
+        allocations: 3,
+        liveReservations: 0,
+        inFlightAttempts: 1,
+        openDiscrepancies: [],
+      },
+    });
+  });
+
+  it.each([
+    ["not a list", "a string"],
+    ["a list with an entry that is not text", ["ETHUSDT", 5]],
+  ])("never half a list: open_discrepancies that is %s makes the whole refusal unlisted", async (_label, value) => {
+    answer(409, { ...FULL_REFUSAL, open_discrepancies: value });
+
+    expect(await deleteCredential("bybit")).toEqual({ kind: "notFlat", lists: null });
   });
 
   it.each([
@@ -682,7 +724,16 @@ describe("deleteCredential, the other answers", () => {
   });
 
   it("resolves a plain object of known fields that never holds the server's wording", async () => {
-    const known = new Set(["kind", "lists", "enabledStrategies", "symbols", "allocations", "liveReservations", "inFlightAttempts"]);
+    const known = new Set([
+      "kind",
+      "lists",
+      "enabledStrategies",
+      "symbols",
+      "allocations",
+      "liveReservations",
+      "inFlightAttempts",
+      "openDiscrepancies",
+    ]);
     const answers: [number, unknown][] = [
       [200, { detail: DETAIL }],
       [409, FULL_REFUSAL],

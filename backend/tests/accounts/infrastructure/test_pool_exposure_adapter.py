@@ -22,6 +22,8 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from tests.accounts.pool_seed import (
     NOW,
     POOL,
+    clear_discrepancies,
+    seed_discrepancy,
     seed_execution_attempt,
     seed_live_reservation,
     seed_open_position,
@@ -38,6 +40,13 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
 pytestmark = pytest.mark.integration
 
 OTHER_POOL = ("pionex", "spot", "USDT")
+
+
+@pytest.fixture(autouse=True)
+async def _no_leftover_discrepancies(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    await clear_discrepancies(pg_session_factory)
 
 
 async def _exposure(
@@ -225,6 +234,41 @@ async def test_a_reservation_past_its_expiry_but_not_yet_swept_still_blocks(
     )
 
     assert (await _exposure(pg_session_factory)).live_reservations == (reservation,)
+
+
+async def test_an_open_discrepancy_of_either_status_is_exposure_named_by_its_symbol(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Owner decision 70: a position the venue holds and the ledger does not."""
+    await seed_discrepancy(pg_session_factory, symbol="STXUSDT", status="OBSERVED")
+    await seed_discrepancy(pg_session_factory, symbol="ETHUSDT", status="CONFIRMED")
+
+    exposure = await _exposure(pg_session_factory)
+
+    assert exposure.open_discrepancies == frozenset({"STXUSDT", "ETHUSDT"})
+    assert not exposure.is_empty()
+
+
+async def test_a_resolved_discrepancy_is_not_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    await seed_discrepancy(pg_session_factory, symbol="STXUSDT", resolved=True)
+
+    exposure = await _exposure(pg_session_factory)
+
+    assert exposure.open_discrepancies == frozenset()
+    assert exposure.is_empty()
+
+
+async def test_another_pools_open_discrepancy_is_not_this_pools(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    await seed_discrepancy(pg_session_factory, symbol="BTCUSDT", pool=OTHER_POOL)
+
+    assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset()
+    assert (await _exposure(pg_session_factory, OTHER_POOL)).open_discrepancies == frozenset(
+        {"BTCUSDT"}
+    )
 
 
 async def test_the_adapter_reads_only_and_writes_nothing(

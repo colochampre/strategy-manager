@@ -508,6 +508,26 @@ async def test_an_id_that_was_booked_is_dropped_from_the_memory() -> None:
     assert announce.memory_seen == {still_refused: BookingRefusal.SUM_MISMATCH}
 
 
+async def test_an_id_whose_approval_answered_already_decided_is_dropped_from_the_memory() -> None:
+    """cd.f11: a later sweep prepared the discrepancy and approval answered
+    ``ALREADY_DECIDED``; the old refusal code must not outlive that, or the
+    alert names a stale reason."""
+    decided, still_refused = uuid4(), uuid4()
+    last_reason_by_discrepancy[decided] = BookingRefusal.SUM_MISMATCH
+    last_reason_by_discrepancy[still_refused] = BookingRefusal.SUM_MISMATCH
+    events: list[str] = []
+    handler, _, announce, _ = _wired(
+        events,
+        auto_result=AutoBookResult(
+            outcomes={"ALREADY_DECIDED": 1}, already_decided=(decided,)
+        ),
+    )
+
+    await handler.handle(_claimed_job())
+
+    assert announce.memory_seen == {still_refused: BookingRefusal.SUM_MISMATCH}
+
+
 async def test_the_memory_survives_from_one_job_to_the_next() -> None:
     refused = uuid4()
     handler, _, _, _ = _wired(

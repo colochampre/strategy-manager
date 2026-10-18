@@ -92,7 +92,8 @@ def _describe(exposure: PoolExposure) -> str:
         f"symbols={sorted(exposure.symbols)}, "
         f"allocations={[str(a) for a in exposure.allocations]}, "
         f"live_reservations={[str(r) for r in exposure.live_reservations]}, "
-        f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}"
+        f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}, "
+        f"open_discrepancies={sorted(exposure.open_discrepancies)}"
     )
 
 

@@ -207,6 +207,10 @@ class PoolExposure:
     superset of the allocator's own "unexpired" reading, because a row past its
     TTL that the sweeper has not reached still holds capital.
     ``in_flight_attempts`` is a SUBMITTED execution attempt, opening or closing.
+    ``open_discrepancies`` is the symbols of the pool's reconciliation
+    discrepancies still unresolved, OBSERVED or CONFIRMED (owner decision 70): a
+    position the venue holds and the ledger does not would be left with no key
+    to close it.
     """
 
     enabled_strategies: tuple[EnabledStrategy, ...]
@@ -214,6 +218,7 @@ class PoolExposure:
     allocations: tuple[UUID, ...]
     live_reservations: tuple[UUID, ...]
     in_flight_attempts: tuple[UUID, ...]
+    open_discrepancies: frozenset[str]
 
     def is_empty(self) -> bool:
         return not (
@@ -222,6 +227,7 @@ class PoolExposure:
             or self.allocations
             or self.live_reservations
             or self.in_flight_attempts
+            or self.open_discrepancies
         )
 
 

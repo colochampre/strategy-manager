@@ -56,6 +56,8 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocationResult,
 )
 from strategy_manager.allocation.application.ports import StrategyPolicySnapshot
+from strategy_manager.allocation.domain.lock_key import LockKey
+from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
 from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
@@ -441,15 +443,29 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
 # --- 6e.10: lock order ----------------------------------------------------------------------
 
 
+_POOL_KEY = LockKey.from_pool_key(
+    PoolKey(
+        exchange=Exchange(POOL[0]),
+        venue=Venue(POOL[1]),
+        settlement_currency=Currency(POOL[2]),
+    )
+)
+
+
 async def _advisory_counts(factory: async_sessionmaker[AsyncSession]) -> tuple[int, int]:
-    """``(granted, waiting)`` advisory locks, straight from ``pg_locks``."""
+    """``(granted, waiting)`` advisory locks on THIS pool's key, straight from
+    ``pg_locks``: classid/objid are the two ``hashtext`` halves ``LockKey`` yields,
+    so a lock another actor holds on some other key is not counted."""
     async with factory() as session:
         row = (
             await session.execute(
                 text(
                     "SELECT count(*) FILTER (WHERE granted), count(*) FILTER (WHERE NOT granted) "
-                    "FROM pg_locks WHERE locktype = 'advisory'"
-                )
+                    "FROM pg_locks WHERE locktype = 'advisory' "
+                    "AND classid::bigint = (hashtext(:first)::bigint & 4294967295) "
+                    "AND objid::bigint = (hashtext(:second)::bigint & 4294967295)"
+                ),
+                {"first": _POOL_KEY.first, "second": _POOL_KEY.second},
             )
         ).one()
         return int(row[0]), int(row[1])
@@ -544,17 +560,20 @@ class _HoldingPoolLock:
 class _PausingPolicyAfterFirstCall:
     """Pauses ``AllocateCapital`` after its PRE-lock policy read (which must still
     see ``enabled=True``) and before it reaches the lock. The in-lock re-read, the
-    second call, is never paused."""
+    second call, is never paused. ``reached`` is set the moment the first read has
+    returned and the pause begins, which is what a test waits on."""
 
     def __init__(self, inner: StrategyPolicyAdapter, resume: asyncio.Event) -> None:
         self._inner = inner
         self._resume = resume
+        self.reached = asyncio.Event()
         self.calls = 0
 
     async def policy_for(self, strategy_id: UUID) -> StrategyPolicySnapshot:
         result = await self._inner.policy_for(strategy_id)
         self.calls += 1
         if self.calls == 1:
+            self.reached.set()
             await self._resume.wait()
         return result
 
@@ -686,17 +705,19 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
 
     resume_policy = asyncio.Event()
     allocated: dict[str, AllocationResult] = {}
+    policies: list[_PausingPolicyAfterFirstCall] = []
 
     async def run_allocation() -> None:
         async with factory() as session:
             policy = _PausingPolicyAfterFirstCall(
                 StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)), resume_policy
             )
+            policies.append(policy)
             use_case = _allocator(session, policy, session)
             allocated["value"] = await use_case.allocate(_allocate_command(signal_id, strategy_id))
 
     task_allocation = asyncio.create_task(run_allocation())
-    await _until(_policy_read_happened(factory), "the allocation's pre-lock read")
+    await _until(lambda: _policy_read_reached(policies), "the allocation's pre-lock read")
     await set_strategy_enabled(factory, strategy_id, False)
 
     acquired = asyncio.Event()
@@ -731,19 +752,12 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
     assert await _pool_enabled(factory) is False
 
 
-def _policy_read_happened(
-    factory: async_sessionmaker[AsyncSession],
-) -> Callable[[], Awaitable[bool]]:
+async def _policy_read_reached(policies: list[_PausingPolicyAfterFirstCall]) -> bool:
     """The allocation's pre-lock read is a plain SELECT on ``strategies`` with no
-    lock, so nothing in ``pg_locks`` marks it; a short, bounded settle is the
-    honest signal that it reached its pause. The ordering it protects is asserted
-    from the database afterwards, not from this wait."""
-
-    async def settled() -> bool:
-        await asyncio.sleep(0.2)
-        return True
-
-    return settled
+    lock, so nothing in ``pg_locks`` marks it. The pausing policy says so itself:
+    its ``reached`` event is set when the first read has returned and the pause
+    begins, so this waits on an observed event, never on elapsed time."""
+    return bool(policies) and policies[0].reached.is_set()
 
 
 async def test_the_lock_hold_harness_would_notice_an_unlocked_delete(

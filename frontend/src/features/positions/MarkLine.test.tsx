@@ -44,6 +44,10 @@ const BEING_BOOKED: ConfirmedStub = {
   body: confirmedBody({ being_booked: [confirmedItem({ reason: null, kind: "ATTRIBUTABLE_FULL_CLOSE" })] }),
 };
 
+function liveBeingBooked() {
+  return { being_booked: [confirmedItem({ reason: null, kind: "ATTRIBUTABLE_FULL_CLOSE" })] };
+}
+
 function needsOwner(overrides: Partial<ConfirmedDiscrepancy> = {}): ConfirmedStub {
   return { kind: "ok", body: confirmedBody({ needs_owner: [confirmedItem(overrides)] }) };
 }
@@ -295,6 +299,37 @@ describe("the venue line reads the confirmed discrepancies (owner decision 66 Q8
 
   it("joins by the discrepancy's id, not by the pair: another id with the same pair makes no claim", async () => {
     await mountVenue(disagreeing(), needsOwner({ discrepancy_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }));
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("says it is being booked, and links, when the read is live (dry_run false)", async () => {
+    await mountVenue(disagreeing(), { kind: "ok", body: confirmedBody({ ...liveBeingBooked(), dry_run: false }) });
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    await venueLink("See the discrepancy, AAVEUSDT");
+    expect(line.textContent).toContain("being booked automatically");
+  });
+
+  it("does not promise automatic booking nor link under dry run, whatever CONFIRMED rows a live period left (cd.f10)", async () => {
+    await mountVenue(disagreeing(), { kind: "ok", body: confirmedBody({ ...liveBeingBooked(), dry_run: true }) });
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("names no reason and draws no link for a needs_owner item under dry run: the page it links to draws no list", async () => {
+    await mountVenue(disagreeing(), {
+      kind: "ok",
+      body: confirmedBody({ needs_owner: [confirmedItem({ reason: "NOT_BOOKED" })], dry_run: true }),
+    });
     const line = venueLine("Venue disagrees, AAVEUSDT");
 
     expect(line.textContent).toBe(

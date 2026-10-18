@@ -27,6 +27,7 @@ from strategy_manager.execution.infrastructure.repository import (
 )
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.reconciliation.infrastructure.models import ReconciliationDiscrepancyRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 
@@ -93,6 +94,19 @@ class PoolExposureAdapter:
                 symbols.add(market)
                 allocations.append(holding.allocation_id)
 
+        # Owner decision 70: a discrepancy still open (OBSERVED or CONFIRMED) is a
+        # position the venue may hold that the ledger does not, and the key is the
+        # only way left to close it. A narrow read of the table, not the
+        # reconciliation repository, so this adapter stays a plain reader.
+        discrepancies = await self._session.execute(
+            select(ReconciliationDiscrepancyRow.symbol).where(
+                ReconciliationDiscrepancyRow.exchange == exchange,
+                ReconciliationDiscrepancyRow.venue == venue,
+                ReconciliationDiscrepancyRow.settlement_currency == settlement_currency,
+                ReconciliationDiscrepancyRow.resolved_at.is_(None),
+            )
+        )
+
         return PoolExposure(
             enabled_strategies=tuple(
                 EnabledStrategy(id=row.id, name=row.name) for row in enabled.all()
@@ -105,4 +119,5 @@ class PoolExposureAdapter:
             in_flight_attempts=tuple(
                 await self._attempts.submitted_for_pool(exchange, venue, settlement_currency)
             ),
+            open_discrepancies=frozenset(discrepancies.scalars().all()),
         )

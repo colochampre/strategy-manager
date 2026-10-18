@@ -39,6 +39,8 @@ class AutoBookResult:
     """Discrepancy id -> code, for each proposal that was not approved."""
     approved: tuple[UUID, ...] = ()
     """The discrepancy ids whose proposal this run approved."""
+    already_decided: tuple[UUID, ...] = ()
+    """The discrepancy ids whose proposal approval answered ``ALREADY_DECIDED``."""
     left_for_next_run: int = 0
     """How many PENDING proposals the list's limit left for the next run."""
 
@@ -57,6 +59,7 @@ class AutoBookPending:
         outcomes: dict[str, int] = {}
         not_approved: dict[UUID, BookingRefusal] = {}
         approved: list[UUID] = []
+        already_decided: list[UUID] = []
 
         # Deliberately no try/except around the call: an unexpected fault in
         # a ledger writer stops the writer rather than continuing past it
@@ -66,6 +69,8 @@ class AutoBookPending:
             outcomes[result.outcome.value] = outcomes.get(result.outcome.value, 0) + 1
             if result.outcome is ApproveOutcome.APPROVED:
                 approved.append(proposal.discrepancy_id)
+            elif result.outcome is ApproveOutcome.ALREADY_DECIDED:
+                already_decided.append(proposal.discrepancy_id)
             elif result.outcome in _STALE_OUTCOMES:
                 not_approved[proposal.discrepancy_id] = BookingRefusal.STALE_AT_APPROVAL
 
@@ -73,6 +78,7 @@ class AutoBookPending:
             outcomes=outcomes,
             not_approved=not_approved,
             approved=tuple(approved),
+            already_decided=tuple(already_decided),
             # The EXACT number the limit left (design § C6: the summary names
             # the count): what is still PENDING once the loop is done.
             left_for_next_run=await self._proposals.count_pending(),

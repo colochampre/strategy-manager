@@ -29,6 +29,7 @@ EMPTY = PoolExposure(
     allocations=(),
     live_reservations=(),
     in_flight_attempts=(),
+    open_discrepancies=frozenset(),
 )
 SENTINEL_LABEL = "default"
 ACTIVE = ActiveCredential("bybit", SENTINEL_LABEL, "abcd")
@@ -177,13 +178,21 @@ async def test_no_active_credential_raises_after_the_lock_and_writes_nothing() -
 @pytest.mark.parametrize(
     "exposure",
     [
-        PoolExposure((EnabledStrategy(uuid4(), "alpha"),), frozenset(), (), (), ()),
-        PoolExposure((), frozenset({"ETHUSDT"}), (), (), ()),
-        PoolExposure((), frozenset(), (uuid4(),), (), ()),
-        PoolExposure((), frozenset(), (), (uuid4(),), ()),
-        PoolExposure((), frozenset(), (), (), (uuid4(),)),
+        PoolExposure((EnabledStrategy(uuid4(), "alpha"),), frozenset(), (), (), (), frozenset()),
+        PoolExposure((), frozenset({"ETHUSDT"}), (), (), (), frozenset()),
+        PoolExposure((), frozenset(), (uuid4(),), (), (), frozenset()),
+        PoolExposure((), frozenset(), (), (uuid4(),), (), frozenset()),
+        PoolExposure((), frozenset(), (), (), (uuid4(),), frozenset()),
+        PoolExposure((), frozenset(), (), (), (), frozenset({"STXUSDT"})),
     ],
-    ids=["enabled_strategy", "symbol", "allocation", "live_reservation", "in_flight_attempt"],
+    ids=[
+        "enabled_strategy",
+        "symbol",
+        "allocation",
+        "live_reservation",
+        "in_flight_attempt",
+        "open_discrepancy",
+    ],
 )
 async def test_any_one_kind_of_exposure_refuses_and_nothing_is_written(
     exposure: PoolExposure,
@@ -239,6 +248,7 @@ async def test_a_refusal_logs_one_warning_naming_the_exchange_and_what_blocks(
         (),
         (reservation,),
         (),
+        frozenset(),
     )
     built = Built(exposure=exposure)
 
@@ -255,8 +265,25 @@ async def test_a_refusal_logs_one_warning_naming_the_exchange_and_what_blocks(
     assert "abcd" not in message
 
 
+async def test_a_refusal_for_an_open_discrepancy_names_its_symbol_in_the_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Owner decision 70: the symbol the venue holds and the ledger does not."""
+    built = Built(exposure=PoolExposure((), frozenset(), (), (), (), frozenset({"STXUSDT"})))
+
+    with caplog.at_level("DEBUG"), pytest.raises(ExchangeNotFlat) as caught:
+        await built.use_case.execute("bybit")
+
+    assert "STXUSDT" in str(caught.value)
+    (record,) = [r for r in caplog.records if r.name.startswith("strategy_manager")]
+    assert "open_discrepancies=['STXUSDT']" in record.getMessage()
+    assert built.revoker.deactivated == []
+
+
 async def test_the_refusal_carries_no_key_fragment_anywhere() -> None:
-    blocking = PoolExposure((EnabledStrategy(uuid4(), "alpha"),), frozenset(), (), (), ())
+    blocking = PoolExposure(
+        (EnabledStrategy(uuid4(), "alpha"),), frozenset(), (), (), (), frozenset()
+    )
     built = Built(exposure=blocking)
 
     with pytest.raises(ExchangeNotFlat) as caught:
