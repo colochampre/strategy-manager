@@ -5819,6 +5819,71 @@ Edit surface: `frontend/src/features/overview/range-store.ts` (new) and its test
 
 ---
 
+## PR 17: hardening (branch `feat/operator-panel-hardening`)
+
+Scope agreed with the owner on 2026-10-18 ("Vamos con el grupo 2 recomendado", "Si, sirve"): the follow-ups 8f.1, 7f.1 (decision 69), 8f.4 (decision 70), 8f.3, 8f.5, 7f.3, 7f.4, 7f.5, cd.f6, cd.f10, cd.f11, cd.f12, cd.f13, plus a cleanup of this file ("Si, por favor"). Out: cd.f1-f5, cd.f7-f9, 8f.2. 7f.2 is already done (the sweep sends real bodies) and is ticked in p17.8, not reworked.
+
+Order and routing: the backend integration tests share one fixed database name (`strategy_manager_test`), so backend writers run one at a time; the one frontend-only unit (p17.7) runs beside the first. Every writer works strict TDD (RED on an assertion first) and writes source with Edit/Write only.
+
+- [ ] p17.0 Baseline on `de02242`: backend `uv run pytest --co -q` per-file total; frontend 96 files / 2,835 tests (p16.D.1).
+
+### p17.1 The engine hides bound parameters (8f.1)
+
+- [ ] p17.1.1 `shared/db.py` creates the engine with `hide_parameters=True`. RED: a `DBAPIError` raised through an engine built the way `db.py` builds it does not contain a bound value in `str(exc)`. The test lives in a new `backend/tests/shared/test_db.py` and needs no network.
+
+### p17.2 CORS is removed (7f.1, decision 69)
+
+- [ ] p17.2.1 `main.py` loses the `CORSMiddleware` import and `add_middleware`; `Settings` loses `cors_origins`; `.env.example` loses its CORS block. RED: a preflight `OPTIONS` to an `/api` route with `Origin: http://localhost:5173` gets no `access-control-allow-origin` header, and `Settings` has no `cors_origins` field. A test that a leftover `CORS_ORIGINS` value in the environment still lets `Settings` load (it passes before and after; proven non-vacuous by setting `extra="forbid"` and watching it fail).
+
+### p17.3 An open discrepancy blocks deleting the key (8f.4, decision 70)
+
+- [ ] p17.3.1 `PoolExposure` gains a sixth list, the symbols of the pool's open discrepancies (`reconciliation_discrepancies` with `resolved_at IS NULL`, both `OBSERVED` and `CONFIRMED`), read by `PoolExposureAdapter` inside the delete's locks; `is_empty()` and `_describe` include it. RED in `test_pool_exposure_adapter.py` (an open row counts, a resolved row and another pool's row do not) and `test_delete_credential.py` (refused with `ExchangeNotFlat`, the key stays active).
+- [ ] p17.3.2 The 409 `NotFlatBody` carries the new list as `open_discrepancies`. RED in `test_credentials_router.py`.
+- [ ] p17.3.3 The panel: `listsFrom` reads `open_discrepancies` and treats its absence as an empty list (a panel bundle can reach production before the API's pull, or after); `DeleteKeyDialog` draws one reason line for it through a new `settings.delete.reasons.*` key in EN and ES, matching the existing reasons' wording and register. RED in `credentials.test.ts` and `DeleteKeyDialog.test.tsx`; one test that a 409 without the field still lists the other reasons.
+- [ ] p17.3.4 Archiving a strategy is unchanged (decision 70): `ArchiveStrategy` reads its own exposure adapter, not `PoolExposure`; no file of it changes.
+
+### p17.4 The rest of the key-delete follow-ups (8f.3, 8f.5)
+
+- [ ] p17.4.1 8f.3: one router test runs `get_save_credential` with the real `KeyInspectorRegistry.for_settings`, with the venue's HTTP answered by a stub transport, and saves a key end to end.
+- [ ] p17.4.2 8f.5: `_advisory_counts` in `test_delete_credential_integration.py` matches the pool's exact advisory key (as the W1 tests do), and `_policy_read_happened` waits on an observed event instead of `sleep(0.2)`. Proven non-vacuous by removing the lock and watching the tests go red.
+
+### p17.5 Reconciliation (cd.f13, cd.f6, cd.f11, cd.f12)
+
+- [ ] p17.5.1 cd.f13: the discrepancies route writes `venue_net_base` and `ledger_net_base` through `plain()`, so a zero never reaches the wire as `0E-18`. RED in `reconciliation/infrastructure/test_router.py`. Then an audit of every other `str(<Decimal>)` on the admin wire (`pools_router.py`, `strategies/infrastructure/router.py`, `share_input.py`, `main.py`): each one that can carry a scaled zero gets the same fix and a RED test; the audit's result is written here.
+- [ ] p17.5.2 cd.f6: `scan_pools.py` logs at WARNING when a discrepancy becomes `CONFIRMED` (pool, symbol, kind, both nets); `holding_guard.py` logs the GHOST refusal at ERROR, which reaches the owner's Telegram through the alert bridge. AMBIGUOUS stays at WARNING. RED with `caplog` in `test_scan_pools.py` and `test_holding_guard.py`.
+- [ ] p17.5.3 cd.f11: the reason memory drops a discrepancy's entry when approval answers `ALREADY_DECIDED`, as it does for `booked.approved`. RED in `test_booking_prepare_handler.py` or `test_announce_needs_owner.py`: the alert no longer names a stale refusal code.
+- [ ] p17.5.4 cd.f12: `get_for_update` in `booking_proposal_repository.py` adds `.execution_options(populate_existing=True)`, as `strategies/infrastructure/repository.py:70` does. RED if one can be built (a row held in the session's identity map, changed by another session, read fresh); otherwise the exception is written here and `test_auto_booking_concurrency.py` stays green.
+
+### p17.6 The secret sweep's last gaps (7f.3, 7f.4, 7f.5)
+
+- [ ] p17.6.1 7f.3: `test_webhook_secret_router.py` seeds one open discrepancy, so `GET /api/reconciliation/discrepancies` answers a real row and `_MAY_BE_EMPTY` is empty or gone.
+- [ ] p17.6.2 7f.4: the access-log test runs with the alert bridge attached to the root logger (lifespan on, or the bridge attached by the test) and asserts the secret reaches neither the access log nor the bridge.
+- [ ] p17.6.3 7f.5: `/health` and `POST /webhook/tradingview` (accepted and refused) answer bodies that do not contain the strategy's webhook secret.
+
+### p17.7 The venue line reads dry run (cd.f10)
+
+- [ ] p17.7.1 `useVenueFollowUp.ts`: under `dry_run`, `CONFIRMED` rows left from a live period never produce the "being booked automatically" line nor its link. RED in the positions tests; a test that the line still shows when `dry_run` is false.
+
+### p17.8 Cleanup of this file and the DuckDNS leftovers ("Si, por favor")
+
+- [ ] p17.8.1 Tick, with their evidence, the items already done: 7f.2, 12f.1, 12f.4, 12f.5, 12f.6 (the host now comes from `webhook_public_origin`, `https://hook.strategymanager.trade` in production), op.0.2, X.1, X.2.
+- [ ] p17.8.2 Close as not needed, with the reason: 12f.12 (the text left with PR 15's rail), op.1.4, op.1.6.
+- [ ] p17.8.3 Reword what went stale: 7f.3, 7f.5, 7p.1 (only the tabs and the pool eyebrow remain), 11f.1, X.4, X.5, and the lines that still describe DuckDNS as the live path (165, 354, 1288, 2570).
+- [ ] p17.8.4 The `example.duckdns.org` examples become `hook.example.com`: `.env.example`, `shared/config.py`, `test_webhook_origin_router.py`, `WebhookMessage.test.tsx`. The root `CLAUDE.md` stops listing Recharts.
+- [ ] p17.8.5 PR 16's delivery: tick p16.D.3-D.5 and write p16.D.6, its delivery-log row.
+
+### Review and delivery
+
+- [ ] p17.D.1 The whole gate on the finished branch, totals against p17.0: backend `ruff`, `mypy src`, `pytest`; frontend `npm run lint`, `npm test`, `npm run build`.
+- [ ] p17.D.2 Review: the orchestrator reads every writer's diff against its surface; an independent read-only reviewer reads the whole diff (a guard on a destructive action, risk item 2, and a removed middleware).
+- [ ] p17.D.3 The owner sees the delete dialog's new reason line with the fixture server.
+- [ ] p17.D.4 Push and open the PR ONLY on the owner's word.
+- [ ] p17.D.5 Merge with a merge commit on the owner's word.
+- [ ] p17.D.6 **Owner step, after the merge: backend and panel.** Pull as `strategy`, restart `strategy-api strategy-worker`, then pps.6 for the bundle.
+- [ ] p17.D.7 The delivery log entry, in the branch of the next PR.
+
+---
+
 ## Cross-PR test sweep (run once, after PR 13)
 
 - [ ] X.1 `cd backend && uv run ruff check . && uv run mypy src && uv run pytest --tb=short` — full suite.
