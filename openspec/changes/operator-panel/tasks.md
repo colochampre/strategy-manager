@@ -5880,13 +5880,21 @@ Order and routing: the backend integration tests share one fixed database name (
 
 ### Review and delivery
 
-- [x] p17.D.1 **Done 2026-10-18, at `c3daca1`.** Backend `ruff` 0, `mypy src` 0 (303 source files), `pytest` exit 0, 337 files / 5,423 tests collected (p17.0: 334 / 5,402). Frontend `npm run lint` 0, `vitest` 96 files / 2,844 passed (p17.0: 96 / 2,835), `npm run build` 0. The whole gate on the finished branch on the finished branch, totals against p17.0: backend `ruff`, `mypy src`, `pytest`; frontend `npm run lint`, `npm test`, `npm run build`.
-- [ ] p17.D.2 Review: the orchestrator reads every writer's diff against its surface; an independent read-only reviewer reads the whole diff (a guard on a destructive action, risk item 2, and a removed middleware).
+- [x] p17.D.1 **Done 2026-10-18, at `c3daca1`.** Backend `ruff` 0, `mypy src` 0 (303 source files), `pytest` exit 0, 337 files / 5,423 tests collected (p17.0: 334 / 5,402). Frontend `npm run lint` 0, `vitest` 96 files / 2,844 passed (p17.0: 96 / 2,835), `npm run build` 0. Re-run after p17.D.2's corrections: see that line. The whole gate on the finished branch, totals against p17.0: backend `ruff`, `mypy src`, `pytest`; frontend `npm run lint`, `npm test`, `npm run build`.
+- [x] p17.D.2 **Done 2026-10-18.** Independent read-only reviewer over `de02242..c3daca1`: 0 blockers, one owner decision, four advisories. The decision: nothing resolves a discrepancy under dry run (the scan is skipped, `reconciliation_scan_handler.py:111`) nor for a key the venue revoked (the pool is skipped every scan), so the reason line's "it has to be resolved first" could promise what never happens; owner decision 72, `3a45a1b`, makes the line name the way out, saving a new key, which supersedes the active one. Advisory 1, the leftover-`CORS_ORIGINS` test could not fail (pydantic-settings applies `extra` to dotenv entries only, not to environment variables): fixed in `796f294`, it loads a throwaway `.env` and a stricter subclass proves the line reaches the policy. Advisories 2-4 are pre-existing or not reachable today and become p17f.1-p17f.3 below. Gate re-run at `796f294`: backend `ruff` 0, `mypy src` 0, `pytest` exit 0; frontend `npm run lint` 0, `vitest` 96 files / 2,844 passed (both corrections changed tests, added none). Review: the orchestrator reads every writer's diff against its surface; an independent read-only reviewer reads the whole diff (a guard on a destructive action, risk item 2, and a removed middleware).
 - [ ] p17.D.3 The owner sees the delete dialog's new reason line with the fixture server.
 - [ ] p17.D.4 Push and open the PR ONLY on the owner's word.
 - [ ] p17.D.5 Merge with a merge commit on the owner's word.
 - [ ] p17.D.6 **Owner step, after the merge: backend and panel.** Pull as `strategy`, restart `strategy-api strategy-worker`, then pps.6 for the bundle.
 - [ ] p17.D.7 The delivery log entry, in the branch of the next PR.
+
+### PR 17 follow-ups (from p17.D.2; not in PR 17)
+
+- [ ] p17f.1 `backend/migrations/env.py` builds its engine with `async_engine_from_config`, not `create_engine_for`, so a failed data migration prints its bound values to the owner's SSH terminal. Pre-existing; 8f.1's text named `db.py` only.
+- [ ] p17f.2 Decision 70 says per exchange; the key-delete guard reads open discrepancies per pool (exchange, venue, settlement currency), like the other lists. Equivalent today (one scanned pool per exchange, `usdt-m/USDT`); a configured `bybit/spot/USDT` would not block. The read takes no pool lock against a concurrent scan, which takes none either.
+- [ ] p17f.3 `booking_prepare_handler.py`: the cd.f11 pop runs after this sweep's refusals are recorded, so a refusal and an `ALREADY_DECIDED` for the same discrepancy in one sweep leaves the alert reading `REASON_UNKNOWN`. Narrow race; only the alert text. The `approved` pop had the same order before PR 17.
+- [ ] p17f.4 The owner's direction (2026-10-18): "Cuando corresponda, vayamos pensando en pasar dry run a false". Plan the switch to `DRY_RUN=false` when it fits; not a task of PR 17.
+- [ ] p17f.5 The owner's request (2026-10-18): "que la seleccion de idioma se recuerde, al igual que la temporalidad seleccionada para los charts de overview y strategies". The panel remembers the chosen language and the chosen chart timeframe on the Overview and on Strategies; not a task of PR 17.
 
 ---
 
