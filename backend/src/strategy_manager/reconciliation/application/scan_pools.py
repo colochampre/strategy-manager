@@ -52,6 +52,7 @@ from strategy_manager.reconciliation.application.ports import (
 )
 from strategy_manager.reconciliation.domain.classify import classify
 from strategy_manager.reconciliation.domain.discrepancy import (
+    DiscrepancyStatus,
     Observation,
     derive_status,
     next_consecutive_scans,
@@ -229,6 +230,27 @@ class ScanPools:
                     prior_observation, observation, prior_record.consecutive_scans
                 )
             status = derive_status(consecutive_scans, self._confirmations_required)
+
+            # The transition only, not every scan of a row that is already
+            # CONFIRMED: this is the one moment the journal can say that the
+            # system now treats a disagreement as real (cd.f6).
+            if status is DiscrepancyStatus.CONFIRMED and (
+                prior_record is None
+                or prior_record.status is not DiscrepancyStatus.CONFIRMED
+            ):
+                exchange, venue, settlement_currency = pool
+                logger.warning(
+                    "reconciliation scan: discrepancy confirmed in %s/%s/%s: "
+                    "%s %s (venue net %s, ledger net %s, scan %s)",
+                    exchange,
+                    venue,
+                    settlement_currency,
+                    symbol,
+                    kind.value,
+                    format(observation.venue_net_base, "f"),
+                    format(observation.ledger_net_base, "f"),
+                    scan_id,
+                )
 
             await self._discrepancies.upsert_open(
                 pool,

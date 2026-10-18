@@ -463,6 +463,85 @@ async def test_a_scan_that_resolves_nothing_logs_no_resolution_line(
     assert [r for r in caplog.records if r.name == _SCAN_LOGGER] == []
 
 
+async def _scan_with_prior_status(
+    prior_status: DiscrepancyStatus | None,
+    caplog: pytest.LogCaptureFixture,
+    consecutive_scans: int,
+) -> None:
+    """One scan of a 2.0-vs-1.5 disagreement on ``POOL_A``/``BTCUSDT``, with an
+    open row of ``prior_status`` already stored (or none)."""
+    venue_reader = FakeVenueReader([VenuePosition("BTCUSDT", Decimal("2.0"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("BTCUSDT", (OpenAllocation(uuid4(), Decimal("1.5")),))
+        ]
+    }
+    open_rows: dict[PoolKey, list[DiscrepancyRecord]] = {}
+    if prior_status is not None:
+        open_rows[POOL_A] = [
+            _record(
+                POOL_A,
+                "BTCUSDT",
+                DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION,
+                Decimal("2.0"),
+                Decimal("1.5"),
+                consecutive_scans=consecutive_scans,
+                status=prior_status,
+            )
+        ]
+    use_case, _, _, _, _ = _build(
+        [POOL_A],
+        {("bybit", "usdt-m"): venue_reader},
+        ledger,
+        open_discrepancies=open_rows,
+        confirmations_required=2,
+    )
+    with caplog.at_level(logging.INFO, logger=_SCAN_LOGGER):
+        await use_case.scan(uuid4())
+
+
+async def test_a_discrepancy_reaching_confirmed_logs_one_warning_naming_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """cd.f6: a row could reach CONFIRMED with no line in the journal."""
+    await _scan_with_prior_status(DiscrepancyStatus.OBSERVED, caplog, 1)
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == _SCAN_LOGGER and r.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    exchange, venue, currency = POOL_A
+    for expected in (
+        exchange,
+        venue,
+        currency,
+        "BTCUSDT",
+        DiscrepancyKind.ATTRIBUTABLE_SINGLE_ALLOCATION.value,
+        "2.0",
+        "1.5",
+    ):
+        assert expected in message
+
+
+async def test_a_scan_of_an_already_confirmed_discrepancy_logs_nothing_about_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await _scan_with_prior_status(DiscrepancyStatus.CONFIRMED, caplog, 2)
+
+    assert [r for r in caplog.records if r.name == _SCAN_LOGGER] == []
+
+
+async def test_a_discrepancy_still_observed_logs_nothing_about_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await _scan_with_prior_status(None, caplog, 1)
+
+    assert [r for r in caplog.records if r.name == _SCAN_LOGGER] == []
+
+
 # --- Design decision 8: per-pool venue errors are swallowed, others are not --
 
 

@@ -198,7 +198,11 @@ class HoldingGuard:
             f"pool net {pool_net}, other strategies' net {pool_net - net}, "
             f"venue net {venue_net}; refusing"
         )
-        logger.warning("refusing %s holding: %s", kind.value.lower(), refused)
+        # A GHOST is a position the venue no longer holds, which the owner has
+        # to hear about: ERROR reaches their Telegram through the alert bridge.
+        # AMBIGUOUS stays at WARNING (cd.f6).
+        level = logging.ERROR if kind is OrphanKind.GHOST else logging.WARNING
+        logger.log(level, "refusing %s holding: %s", kind.value.lower(), refused)
         return GuardOutcome(
             proceed=False, refused=refused, reason=f"DIVERGENT_HOLDING_{kind.value}"
         )

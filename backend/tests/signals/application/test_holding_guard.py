@@ -315,7 +315,7 @@ async def test_a_real_orphan_reports_only_the_calling_strategys_own_holdings() -
     assert outcome.real_orphan_holdings == [own_holding]
 
 
-async def test_a_ghost_orphan_refuses_with_a_warning_naming_the_details(
+async def test_a_ghost_orphan_refuses_with_an_error_naming_the_details(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The venue agrees with what the pool would net WITHOUT this strategy's
@@ -347,7 +347,9 @@ async def test_a_ghost_orphan_refuses_with_a_warning_naming_the_details(
     assert "ETHUSDT" in outcome.refused
     assert str(allocation_id) in outcome.refused
     assert "0.5" in outcome.refused
-    assert any(record.levelname == "WARNING" for record in caplog.records)
+    # ERROR, not WARNING: ERROR reaches the owner's Telegram through the alert
+    # bridge, and a GHOST is a position the venue no longer holds (cd.f6).
+    assert [r.levelname for r in caplog.records if "ghost" in r.getMessage()] == ["ERROR"]
 
 
 async def test_an_ambiguous_orphan_refuses_naming_the_details(
@@ -380,6 +382,7 @@ async def test_an_ambiguous_orphan_refuses_naming_the_details(
     assert str(strategy_id) in outcome.refused
     assert str(allocation_id) in outcome.refused
     assert any(record.levelname == "WARNING" for record in caplog.records)
+    assert not any(record.levelname == "ERROR" for record in caplog.records)
 
 
 async def test_a_failed_venue_read_classifies_as_ambiguous() -> None:
