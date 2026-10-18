@@ -641,7 +641,8 @@
         "liveReservations_one": "{{count}} live reservation: capital held for an order. Wait for it to finish, then try again.",
         "liveReservations_other": "{{count}} live reservations: capital held for orders. Wait for them to finish, then try again.",
         "inFlightAttempts_one": "{{count}} order being placed right now. Wait for it to finish, then try again.",
-        "inFlightAttempts_other": "{{count}} orders being placed right now. Wait for them to finish, then try again."
+        "inFlightAttempts_other": "{{count}} orders being placed right now. Wait for them to finish, then try again.",
+        "openDiscrepancies": "Unresolved reconciliation discrepancy on: {{symbols}}. The venue may hold a position this system does not track. It has to be resolved first."
       }
     }
   },

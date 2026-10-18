@@ -41,6 +41,9 @@ function reasonLines(lists: NotFlatLists, t: (key: string, options: Record<strin
   if (lists.inFlightAttempts > 0) {
     lines.push(t("settings.delete.reasons.inFlightAttempts", { count: lists.inFlightAttempts }));
   }
+  if (lists.openDiscrepancies.length > 0) {
+    lines.push(t("settings.delete.reasons.openDiscrepancies", { symbols: lists.openDiscrepancies.join(", ") }));
+  }
   return lines;
 }
 

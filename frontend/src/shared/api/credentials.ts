@@ -220,9 +220,11 @@ export interface NotFlatLists {
   allocations: number;
   liveReservations: number;
   inFlightAttempts: number;
+  /** The symbols of the exchange's unresolved reconciliation discrepancies (owner decision 70). */
+  openDiscrepancies: readonly string[];
 }
 
-/** How a delete ended. `lists` is null for a refusal whose five lists cannot all be read. */
+/** How a delete ended. `lists` is null for a refusal whose lists cannot all be read. */
 export type DeleteResult =
   | { kind: "deleted" }
   | { kind: "notFlat"; lists: NotFlatLists | null }
@@ -238,9 +240,11 @@ function isTexts(value: unknown): value is string[] {
 }
 
 /**
- * The five lists of a refusal, or null. Never half a list: when any of the five is missing or is not a list, or a
+ * The lists of a refusal, or null. Never half a list: when any of the first five is missing or is not a list, or a
  * strategy has no name, none of them is trusted, because a line that left out one thing in the way would let the
- * owner believe the rest is all there is. Strategies are kept by name (shown as text); every other list is counted.
+ * owner believe the rest is all there is. Strategies are kept by name (shown as text); every other list is counted,
+ * except the symbols. `open_discrepancies` is the one that may be absent, read as none: a panel bundle can reach
+ * production before the API that sends it, or after. When present it must be a list of texts like the others.
  */
 function listsFrom(body: Readonly<Record<string, unknown>> | undefined): NotFlatLists | null {
   if (body === undefined) return null;
@@ -253,12 +257,15 @@ function listsFrom(body: Readonly<Record<string, unknown>> | undefined): NotFlat
     names.push(entry.name);
   }
   if (!isTexts(symbols) || !isTexts(allocations) || !isTexts(reservations) || !isTexts(attempts)) return null;
+  const discrepancies = body.open_discrepancies === undefined ? [] : body.open_discrepancies;
+  if (!isTexts(discrepancies)) return null;
   return {
     enabledStrategies: names,
     symbols,
     allocations: allocations.length,
     liveReservations: reservations.length,
     inFlightAttempts: attempts.length,
+    openDiscrepancies: discrepancies,
   };
 }
 

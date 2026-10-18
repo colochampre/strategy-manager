@@ -352,6 +352,57 @@ describe("what the dialog says for each answer", () => {
     ]);
   });
 
+  it("draws one line, last, for the open discrepancies the server lists (owner decision 70)", async () => {
+    mount(answers(409, { ...REFUSAL, open_discrepancies: ["STXUSDT", "ETHUSDT"] }));
+    openDialog();
+
+    await confirm();
+
+    const alert = await screen.findByRole("alert");
+    const lines = within(alert).getAllByRole("listitem").map((line) => line.textContent);
+    expect(lines).toHaveLength(5);
+    expect(lines[4]).toBe(
+      "Unresolved reconciliation discrepancy on: STXUSDT, ETHUSDT. The venue may hold a position this system does not track. It has to be resolved first.",
+    );
+  });
+
+  it("names an open discrepancy that is the only thing in the way", async () => {
+    mount(
+      answers(409, {
+        ...REFUSAL,
+        enabled_strategies: [],
+        symbols: [],
+        allocations: [],
+        in_flight_attempts: [],
+        open_discrepancies: ["STXUSDT"],
+      }),
+    );
+    openDialog();
+
+    await confirm();
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(1);
+    expect(alert).toHaveTextContent("Unresolved reconciliation discrepancy on: STXUSDT.");
+  });
+
+  it("still lists the other reasons for a 409 that has no open_discrepancies field", async () => {
+    const { open_discrepancies: _absent, ...older } = { ...REFUSAL, open_discrepancies: ["X"] };
+    mount(answers(409, older));
+    openDialog();
+
+    await confirm();
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getAllByRole("listitem").map((line) => line.textContent)).toEqual([
+      "2 enabled strategies: Alpha, Beta. Disable them first.",
+      "Open position on: STXUSDT.P, BTCUSDT. It has to be closed first.",
+      "3 open allocations. They end when their positions are closed.",
+      "1 order being placed right now. Wait for it to finish, then try again.",
+    ]);
+    expect(alert).not.toHaveTextContent("discrepancy");
+  });
+
   it("uses the singular reservation line for a count of one", async () => {
     mount(answers(409, { ...REFUSAL, live_reservations: ["res-1"], in_flight_attempts: [] }));
     openDialog();
