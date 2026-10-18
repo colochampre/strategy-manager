@@ -325,6 +325,19 @@ describe("the venue line reads the confirmed discrepancies (owner decision 66 Q8
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
+  it("names no reason and draws no link for a needs_owner item under dry run: the page it links to draws no list", async () => {
+    await mountVenue(disagreeing(), {
+      kind: "ok",
+      body: confirmedBody({ needs_owner: [confirmedItem({ reason: "NOT_BOOKED" })], dry_run: true }),
+    });
+    const line = venueLine("Venue disagrees, AAVEUSDT");
+
+    expect(line.textContent).toBe(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("makes no claim for a being_booked id that belongs to ANOTHER position of the same symbol", async () => {
     const otherPositionsId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const otherBeingBooked: ConfirmedStub = {
