@@ -362,7 +362,7 @@ describe("what the dialog says for each answer", () => {
     const lines = within(alert).getAllByRole("listitem").map((line) => line.textContent);
     expect(lines).toHaveLength(5);
     expect(lines[4]).toBe(
-      "Unresolved reconciliation discrepancy on: STXUSDT, ETHUSDT. The venue may hold a position this system does not track. It has to be resolved first.",
+      "Unresolved reconciliation discrepancy on: STXUSDT, ETHUSDT. The venue may hold a position this system does not track, and this key is what can close it. To change keys, save the new one instead of deleting this one: it replaces it.",
     );
   });
 
