@@ -43,6 +43,9 @@ export function useVenueFollowUp(discrepancyId: string): VenueFollowUp | null {
   const to = { pathname: "/discrepancies", hash: `#discrepancy-${discrepancyId}` };
   const owned = confirmed.data.needs_owner.find((item) => item.discrepancy_id === discrepancyId);
   if (owned !== undefined) return { words: reasonWords(owned, t), to };
+  // Under dry run the discrepancies page draws no list, so CONFIRMED rows left from a live period are neither
+  // being booked (nothing books in dry run) nor anything the link could reach (cd.f10).
+  if (confirmed.data.dry_run) return null;
   const booking = confirmed.data.being_booked.some((item) => item.discrepancy_id === discrepancyId);
   if (booking) return { words: t("positions.venue.line.beingBooked"), to };
   return null;
