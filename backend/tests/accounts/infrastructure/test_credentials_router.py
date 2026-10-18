@@ -84,6 +84,8 @@ from tests.accounts.fakes import (
     registry_for,
 )
 from tests.accounts.pool_seed import (
+    clear_discrepancies,
+    seed_discrepancy,
     seed_execution_attempt,
     seed_live_reservation,
     seed_open_position,
@@ -636,6 +638,7 @@ async def factory(
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
         await session.commit()
+    await clear_discrepancies(pg_session_factory)
     return pg_session_factory
 
 
@@ -1068,6 +1071,7 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     submitted = await seed_live_reservation(factory, strategy_id=holder_id, status="SUBMITTED")
     attempt = uuid4()
     await seed_execution_attempt(factory, attempt_id=attempt, reservation_id=submitted)
+    await seed_discrepancy(factory, symbol="STXUSDT")
 
     async with _serve_delete(factory) as served:
         response = await served.api.delete("/api/credentials/bybit", headers=_auth())
@@ -1082,6 +1086,7 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
         "allocations",
         "live_reservations",
         "in_flight_attempts",
+        "open_discrepancies",
     }
     assert body["outcome"] == "EXCHANGE_NOT_FLAT"
     assert body["enabled_strategies"] == [
@@ -1091,9 +1096,29 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     assert body["allocations"] == [str(allocation)]
     assert sorted(body["live_reservations"]) == sorted([str(reservation), str(submitted)])
     assert body["in_flight_attempts"] == [str(attempt)]
+    assert body["open_discrepancies"] == ["STXUSDT"]
     _assert_no_secret(response.text)
     assert BYBIT_KEY[-4:] not in response.text
     _assert_no_store(response)
+    assert await _is_active(factory, "bybit") == [True]
+
+
+@pytest.mark.integration
+async def test_delete_credentials_409_for_an_open_discrepancy_alone_keeps_the_key(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Owner decision 70: nothing else is exposed, yet the key stays."""
+    await _store(factory, "bybit")
+    await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED")
+
+    async with _serve_delete(factory) as served:
+        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["outcome"] == "EXCHANGE_NOT_FLAT"
+    assert body["open_discrepancies"] == ["STXUSDT"]
+    assert body["enabled_strategies"] == body["symbols"] == body["allocations"] == []
     assert await _is_active(factory, "bybit") == [True]
 
 
