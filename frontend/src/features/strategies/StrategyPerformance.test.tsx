@@ -1,10 +1,11 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PoolPanel } from "@/features/overview/PoolPanel";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import type { PairStat, StrategyPerformance as StrategyReport } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { emptyPerformance, jsonResponse, lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { emptyPerformance, jsonResponse, lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
@@ -77,6 +78,34 @@ describe("StrategyPerformance", () => {
     expect(ledger()).toBe("PnL 7D +30.00 · contribution to the pool 7D +2.5% · deepest -2.4%");
     expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("return-curve")).toBeInTheDocument();
+  });
+
+  it("shows the range chosen on a pool panel, and a choice here is kept after a remount (owner decision 68 Q2)", async () => {
+    const poolRow = pool("bybit", "usdt-m", "USDT");
+    stubApi(
+      HEALTH,
+      [],
+      { kind: "ok", body: [poolRow] },
+      { "bybit/usdt-m/USDT": { kind: "ok", body: emptyPerformance("bybit", "usdt-m", "USDT") } },
+      (url) => (url.includes(`/performance/strategies/${ID}`) ? Promise.resolve(jsonResponse(report())) : undefined),
+    );
+    const first = renderAt(<PoolPanel pool={poolRow} />);
+    await screen.findByTestId("ledger-line");
+    fireEvent.click(screen.getByRole("button", { name: "1Y" }));
+    first.unmount();
+
+    const second = renderAt(<StrategyPerformance strategyId={ID} />);
+    await screen.findByTestId("ledger-line");
+
+    expect(screen.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+    expect(ledger()).toBe("PnL 1Y +118.40 · contribution to the pool 1Y +9.6% · deepest -2.4%");
+
+    fireEvent.click(screen.getByRole("button", { name: "90D" }));
+    second.unmount();
+    renderAt(<StrategyPerformance strategyId={ID} />);
+    await screen.findByTestId("ledger-line");
+
+    expect(screen.getByRole("button", { name: "90D" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("draws the strategy's own curve and months, under a title that says it is a contribution", async () => {

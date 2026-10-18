@@ -1,11 +1,10 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LedgerLine } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
-import { DEFAULT_RANGE, RangeSelector } from "@/features/overview/RangeSelector";
-import type { RangeName } from "@/features/overview/RangeSelector";
+import { RangeSelector } from "@/features/overview/RangeSelector";
+import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { useStrategyPerformance } from "@/shared/api/performance";
@@ -24,7 +23,8 @@ interface ReportViewProps {
 
 function ReportView({ report, asOf }: ReportViewProps) {
   const { t } = useTranslation();
-  const [range, setRange] = useState<RangeName>(DEFAULT_RANGE);
+  const range = useRangeStore((state) => state.range);
+  const setRange = useRangeStore((state) => state.setRange);
   const summary = report.ranges.find((entry) => entry.range === range);
 
   return (

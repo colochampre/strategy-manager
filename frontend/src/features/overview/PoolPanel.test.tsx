@@ -119,6 +119,53 @@ describe("a pool with a report (T13)", () => {
   });
 });
 
+describe("the chart range is one for the whole panel (owner decision 68 Q2)", () => {
+  const SECOND = pool("bybit", "inverse", "BTC", BALANCE);
+
+  async function mountTwo() {
+    stubApi(
+      HEALTH,
+      [],
+      { kind: "ok", body: [pool("bybit", "usdt-m", "USDT", BALANCE), SECOND] },
+      { [KEY]: report(), "bybit/inverse/BTC": { kind: "ok", body: emptyPerformance("bybit", "inverse", "BTC") } },
+      undefined,
+      {},
+      undefined,
+      answering([]),
+    );
+    const view = renderAt(
+      <>
+        <PoolPanel pool={pool("bybit", "usdt-m", "USDT", BALANCE)} />
+        <PoolPanel pool={SECOND} />
+      </>,
+    );
+    await settle();
+    return view;
+  }
+
+  it("shows the range chosen on one pool on every other pool", async () => {
+    await mountTwo();
+    const [first, second] = screen.getAllByTestId("pool-panel");
+    expect(within(first as HTMLElement).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+
+    await act(async () => within(first as HTMLElement).getByRole("button", { name: "1Y" }).click());
+
+    expect(within(first as HTMLElement).getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(second as HTMLElement).getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(second as HTMLElement).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("keeps the range after the panels are left and come back", async () => {
+    const view = await mountTwo();
+    await act(async () => screen.getAllByRole("button", { name: "1Y" })[0]?.click());
+    view.unmount();
+
+    await mountTwo();
+
+    expect(screen.getAllByRole("button", { name: "1Y" }).map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+  });
+});
+
 describe("a pool panel has no slot between the chart and the grid (cd.2.20; spec 'The Overview Has No Decision Rail...')", () => {
   it("ignores a betweenChartAndGrid prop: its node is not drawn and the grid follows the chart directly", async () => {
     // Spread, so that the prop the panel no longer declares is passed without a type error: a caller of

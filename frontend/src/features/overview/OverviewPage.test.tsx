@@ -430,7 +430,7 @@ describe("the range selector", () => {
     expect(performanceCalls(fetchMock)).toHaveLength(1);
   });
 
-  it("belongs to its own panel: pressing 7D on one leaves the other on 30D", async () => {
+  it("is shared by every panel (owner decision 68 Q2): pressing 7D on one moves the other too, each on its own figures", async () => {
     stubApi(HEALTH, [], TWO, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
       "bybit/inverse/BTC": { kind: "ok", body: activeReport("bybit", "inverse", "BTC", "0.41200000") },
@@ -443,8 +443,11 @@ describe("the range selector", () => {
     fireEvent.click(within(first).getByRole("button", { name: "7D" }));
 
     await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
-    expect(within(second).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+0.41200000");
+    expect(within(second).getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(second).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
+    // The second pool reads its own 7D entry, not its 30D one.
+    await waitFor(() => expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
+    expect(within(second).getByTestId("ledger-pnl")).not.toHaveTextContent("+0.41200000");
   });
 });
 
@@ -714,7 +717,7 @@ describe("the chart follows the selected range", () => {
     expect(counts).toEqual([2, 8, 23, 92, 101]);
   });
 
-  it("belongs to its own panel: 7D on one redraws only that chart", async () => {
+  it("is shared by every panel (owner decision 68 Q2): 7D on one redraws both charts, each from its own curve", async () => {
     const two = {
       kind: "ok",
       body: [pool("bybit", "linear", "USDT", BALANCE), pool("bybit", "inverse", "BTC", BALANCE)],
@@ -731,7 +734,7 @@ describe("the chart follows the selected range", () => {
     fireEvent.click(within(first).getByRole("button", { name: "7D" }));
 
     await waitFor(() => expect(chartDays(first)).toBe(2));
-    expect(chartDays(second)).toBe(CONSISTENT_DAYS_30D);
+    expect(chartDays(second)).toBe(2);
   });
 
   it("shows the empty-range state, no error, when the window holds no day", async () => {
