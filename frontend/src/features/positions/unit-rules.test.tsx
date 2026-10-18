@@ -182,7 +182,8 @@ describe("the accessible names of the unit", () => {
     expect(screen.getByRole("link", { name: "See the discrepancy, AAVEUSDT" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Open:");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(view.container.querySelectorAll("[aria-hidden='true']")).toHaveLength(0);
+    // The decorative icons (owner decision 67) are hidden on purpose; nothing else may be.
+    expect(view.container.querySelectorAll("[aria-hidden='true']:not(svg.lucide)")).toHaveLength(0);
   });
 
   it("hides the loading ellipsis from assistive technology and names the wait by the translated text", async () => {

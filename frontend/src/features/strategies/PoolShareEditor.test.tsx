@@ -2033,6 +2033,18 @@ describe.each([
   /** Every element that holds exactly `text`, outside the button that owns it. */
   const outside = (host: HTMLElement, text: string) => screen.queryAllByText(text).filter((node) => !host.contains(node));
 
+  it("draws an aria-hidden Save icon left of the texts' cell, outside it, the name unchanged", () => {
+    setup(strategy());
+
+    const host = button(T.save);
+    const svg = host.querySelector("svg");
+    expect(svg).toHaveClass("lucide-save", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(host.firstElementChild).toBe(svg);
+    expect(cellOf(host, T.saved).parentElement?.contains(svg)).toBe(false);
+    expect(host).toHaveAccessibleName(T.save);
+  });
+
   it("holds all three of its texts and shows only Save while nothing was saved", () => {
     setup(strategy());
 

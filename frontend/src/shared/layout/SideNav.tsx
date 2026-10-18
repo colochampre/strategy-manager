@@ -28,7 +28,10 @@ export function SideNav() {
             )
           }
         >
-          <span>{t(`nav.${item.labelKey}`)}</span>
+          <span className="flex items-center gap-2">
+            <item.icon aria-hidden="true" className="size-4 shrink-0" />
+            {t(`nav.${item.labelKey}`)}
+          </span>
           {item.badge && <NavBadge />}
         </NavLink>
       ))}

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LedgerLine } from "@/features/overview/LedgerLine";
@@ -7,14 +6,16 @@ import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import type { OpenCount } from "@/features/overview/MonthlySummary";
 import { PoolEyebrow } from "@/features/overview/PoolEyebrow";
-import { DEFAULT_RANGE, RangeSelector } from "@/features/overview/RangeSelector";
+import { RangeSelector } from "@/features/overview/RangeSelector";
 import type { RangeName } from "@/features/overview/RangeSelector";
+import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { usePoolPerformance } from "@/shared/api/performance";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenState } from "@/shared/api/positions";
 import type { Pool, PoolPerformance } from "@/shared/api/types";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface PoolPanelProps {
   pool: Pool;
@@ -68,12 +69,14 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
           maxDrawdown={report.max_drawdown}
         />
       )}
-      <ReturnChart
-        curve={report.curve}
-        range={range}
-        asOf={asOf}
-        headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
-      />
+      <ReportSection>
+        <ReturnChart
+          curve={report.curve}
+          range={range}
+          asOf={asOf}
+          headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
+        />
+      </ReportSection>
     </div>
   );
 }
@@ -93,7 +96,8 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
 export function PoolPanel({ pool }: PoolPanelProps) {
   const { t, i18n } = useTranslation();
   const performance = usePoolPerformance(pool.exchange, pool.venue, pool.settlement_currency);
-  const [range, setRange] = useState<RangeName>(DEFAULT_RANGE);
+  const range = useRangeStore((state) => state.range);
+  const setRange = useRangeStore((state) => state.setRange);
   const staleBalance = pool.balance !== null && pool.balance.stale ? pool.balance : null;
   const report = performance.status === "success" ? performance.data : null;
   // The same query as the list's (one request): null while the first read is loading or has failed, so the
@@ -150,10 +154,12 @@ export function PoolPanel({ pool }: PoolPanelProps) {
       </div>
       {top}
       {report !== null && (
-        <div className="flex flex-col gap-1.5">
-          <MonthlyGrid monthly={report.monthly} />
-          <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
-        </div>
+        <ReportSection>
+          <div className="flex flex-col gap-1.5">
+            <MonthlyGrid monthly={report.monthly} />
+            <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
+          </div>
+        </ReportSection>
       )}
       {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
       <PoolOpenPositions pool={pool} />

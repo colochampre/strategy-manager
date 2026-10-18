@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Trash } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { DeleteKeyDialog } from "@/features/settings/DeleteKeyDialog";
@@ -96,8 +97,9 @@ export function DeleteKeyControl({
           aria-label={`${t("settings.card.delete")} ${name}`}
           disabled={disabled}
           onClick={open}
-          className="min-h-11 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
         >
+          <Trash aria-hidden="true" className="size-4 shrink-0" />
           {t("settings.card.delete")}
         </button>
       )}

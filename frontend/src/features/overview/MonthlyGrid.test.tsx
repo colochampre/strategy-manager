@@ -56,7 +56,7 @@ describe("MonthlyGrid", () => {
     const element = screen.getByTestId("month-2026-3");
     expect(element).toHaveClass("bg-rule-soft");
     expect(bandClasses(element)).toEqual([]);
-    expect(element).toHaveTextContent("0.0");
+    expect(element).toHaveTextContent(/^0\.0%$/);
   });
 
   it("test_month_with_no_closed_trade_renders_dashed_empty_cell", () => {
@@ -70,7 +70,7 @@ describe("MonthlyGrid", () => {
     // A month at exactly 0% closed trades and is NOT the empty cell.
     const flat = screen.getByTestId("month-2026-3");
     expect(flat).not.toHaveClass("border-dashed");
-    expect(flat).toHaveTextContent("0.0");
+    expect(flat).toHaveTextContent(/^0\.0%$/);
     expect(flat).toHaveAccessibleName("March 2026: 0.0%");
   });
 
@@ -101,9 +101,8 @@ describe("MonthlyGrid", () => {
     );
     const years = screen.getAllByRole("rowheader").map((node) => node.textContent);
     expect(years).toEqual(["2026", "2025", "2024"]);
-    expect(cell("January 2026: +3.1%")).toHaveTextContent("+3.1");
-    // The value is written without the percent sign: the cell is narrow on a phone.
-    expect(cell("January 2026: +3.1%")).not.toHaveTextContent("%");
+    // The month carries the percent sign like the year column (owner decision 67 Q2).
+    expect(cell("January 2026: +3.1%")).toHaveTextContent(/^\+3\.1%$/);
     const header = screen.getAllByRole("columnheader").map((node) => node.textContent);
     expect(header).toEqual(["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D", "Year"]);
   });

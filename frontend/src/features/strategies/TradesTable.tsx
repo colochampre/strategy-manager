@@ -9,6 +9,7 @@ import { cn } from "@/shared/lib/cn";
 import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { Absent } from "@/shared/ui/Absent";
 import { Instant } from "@/shared/ui/Instant";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface TradesTableProps {
   strategyId: string;
@@ -313,21 +314,23 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   }
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-        {t("strategies.performance.trades.title")}
-      </h2>
-      {body}
-      {open !== null && (
-        <TradeDetailDialog
-          key={open.allocation_id}
-          strategyId={strategyId}
-          trade={open}
-          currency={currency}
-          locale={locale}
-          onClose={() => setOpen(null)}
-        />
-      )}
-    </section>
+    <ReportSection>
+      <section aria-labelledby={headingId} className="flex flex-col gap-2">
+        <h2 id={headingId} className="font-display text-base font-semibold text-ink">
+          {t("strategies.performance.trades.title")}
+        </h2>
+        {body}
+        {open !== null && (
+          <TradeDetailDialog
+            key={open.allocation_id}
+            strategyId={strategyId}
+            trade={open}
+            currency={currency}
+            locale={locale}
+            onClose={() => setOpen(null)}
+          />
+        )}
+      </section>
+    </ReportSection>
   );
 }

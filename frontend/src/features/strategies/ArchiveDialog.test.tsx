@@ -105,6 +105,38 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
+describe("Archive icons", () => {
+  it("draws an aria-hidden Archive left of the Archive button's text, its name unchanged", () => {
+    renderControl();
+
+    const button = screen.getByRole("button", { name: i18n.t("strategies.archive.button") });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-archive", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    // Its column stretches it to full width: the icon and text stay centred, as the text alone was.
+    expect(button).toHaveClass("inline-flex", "items-center", "justify-center", "gap-1.5");
+    expect(button).toHaveAccessibleName(i18n.t("strategies.archive.button"));
+  });
+
+  it("draws Archive on the confirm button and keeps it while the text says pending", () => {
+    const view = render(
+      <ArchiveDialog name={NAME} pending={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const confirm = screen.getByRole("button", { name: i18n.t("strategies.archive.confirm") });
+    const svg = confirm.querySelector("svg");
+    expect(svg).toHaveClass("lucide-archive", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(confirm.firstElementChild).toBe(svg);
+    expect(confirm).toHaveClass("inline-flex", "items-center", "gap-1.5");
+
+    view.rerender(<ArchiveDialog name={NAME} pending error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    const pending = screen.getByRole("button", { name: i18n.t("strategies.archive.pending") });
+    expect(pending.querySelector("svg")).toHaveClass("lucide-archive");
+  });
+});
+
 describe("ArchiveControl", () => {
   it("test_archive_requires_explicit_confirmation_not_single_click", async () => {
     const fetchMock = stubFetch(jsonResponse(strategy({ archived_at: "2026-10-03T00:00:00+00:00" })));

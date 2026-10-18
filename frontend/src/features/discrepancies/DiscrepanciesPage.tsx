@@ -10,6 +10,7 @@ import { groupByExchange } from "@/features/discrepancies/groupByExchange";
 import { useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import type { ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
 import { useHashScroll } from "@/shared/lib/useHashScroll";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface SectionProps {
   headingId: string;
@@ -101,13 +102,15 @@ function Lists({ reading }: ListsProps) {
           <Items items={beingBooked} variant="beingBooked" readAt={reading.read_at} />
         </Section>
       )}
-      <Section headingId={bookedId} title={t("discrepancies.section.booked")} note={t("discrepancies.note.booked")}>
-        {booked.length > 0 ? (
-          <BookedList items={booked} labelledBy={bookedId} />
-        ) : (
-          <p className="text-sm text-ink-3">{t("discrepancies.empty.booked")}</p>
-        )}
-      </Section>
+      <ReportSection>
+        <Section headingId={bookedId} title={t("discrepancies.section.booked")} note={t("discrepancies.note.booked")}>
+          {booked.length > 0 ? (
+            <BookedList items={booked} labelledBy={bookedId} />
+          ) : (
+            <p className="text-sm text-ink-3">{t("discrepancies.empty.booked")}</p>
+          )}
+        </Section>
+      </ReportSection>
     </>
   );
 }

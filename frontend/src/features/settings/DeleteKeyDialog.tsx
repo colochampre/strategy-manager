@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type SyntheticEvent, useId, useLayoutEffect, useRef } from "react";
+import { Trash } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { DeleteResult, NotFlatLists } from "@/shared/api/credentials";
@@ -149,8 +150,9 @@ export function DeleteKeyDialog({ name, last4, pending, result, onConfirm, onCan
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className={`${BUTTON} bg-loss font-medium text-ink hover:opacity-90`}
+            className={`${BUTTON} inline-flex items-center gap-1.5 bg-loss font-medium text-ink hover:opacity-90`}
           >
+            <Trash aria-hidden="true" className="size-4 shrink-0" />
             {pending ? t("settings.delete.pending") : t("settings.delete.confirm")}
           </button>
         </div>

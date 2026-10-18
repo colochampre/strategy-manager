@@ -266,6 +266,24 @@ describe("the form's shape (design § F)", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(2);
   });
 
+  it("draws ShieldCheck left of Check and save and X left of Close, aria-hidden, the names unchanged", () => {
+    renderForm();
+
+    const check = submit();
+    const shield = check.querySelector("svg");
+    expect(shield).toHaveClass("lucide-shield-check", "size-4", "shrink-0");
+    expect(shield).toHaveAttribute("aria-hidden", "true");
+    expect(check.firstElementChild).toBe(shield);
+    expect(check).toHaveAccessibleName("Check and save");
+
+    const close = found(screen.queryByRole("button", { name: "Close" }), "Close");
+    const cross = close.querySelector("svg");
+    expect(cross).toHaveClass("lucide-x", "size-4", "shrink-0");
+    expect(cross).toHaveAttribute("aria-hidden", "true");
+    expect(close.firstElementChild).toBe(cross);
+    expect(close).toHaveClass("inline-flex", "items-center", "gap-1.5");
+  });
+
   it("calls onClose from Close", () => {
     const { props } = renderForm();
 
@@ -309,7 +327,8 @@ describe("the form's shape (design § F)", () => {
 
     expect(section.outerHTML).not.toMatch(AMBER);
     for (const node of [section, ...Array.from(section.querySelectorAll("[class]"))]) {
-      expect(node.className, node.tagName).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
+      // An icon's `className` is an SVGAnimatedString; the attribute is the string.
+      expect(node.getAttribute("class"), node.tagName).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
     }
     expect(section.querySelector("[style]")).toBeNull();
   });

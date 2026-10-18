@@ -176,7 +176,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                           band >= FIRST_CONTRAST_BAND ? "font-semibold text-ground" : "text-ink",
                         )}
                       >
-                        {percentText(value, locale, false)}
+                        {percentText(value, locale)}
                       </td>
                     );
                   })}

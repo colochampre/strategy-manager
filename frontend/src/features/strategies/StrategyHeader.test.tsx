@@ -56,6 +56,17 @@ afterEach(async () => {
 });
 
 describe("StrategyHeader webhook disclosure", () => {
+  it("draws an aria-hidden Webhook left of the toggle's text and leaves its name as it was", () => {
+    setup();
+
+    const svg = toggle().querySelector("svg");
+    expect(svg).toHaveClass("lucide-webhook", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(toggle().firstElementChild).toBe(svg);
+    expect(toggle()).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(toggle()).toHaveAccessibleName("Connect a TradingView alert");
+  });
+
   it("test_the_webhook_block_is_closed_by_default_and_opened_by_a_button_in_the_header", () => {
     setup();
 

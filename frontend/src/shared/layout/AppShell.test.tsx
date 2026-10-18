@@ -408,7 +408,7 @@ describe("the Discrepancies item and its badge", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("gives the bottom bar four equal cells whose labels sit level whether or not a badge is drawn", async () => {
+  it("gives the bottom bar four equal cells whose icons sit level whether or not a badge is drawn", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
     const bottom = screen.getAllByRole("navigation", { name: "Sections" })[1] as HTMLElement;
@@ -417,10 +417,10 @@ describe("the Discrepancies item and its badge", () => {
     const cells = within(bottom).getAllByRole("link");
     expect(cells).toHaveLength(4);
     for (const cell of cells) {
-      expect(cell).toHaveClass("flex-1", "min-w-0", "items-end", "pb-2", "relative");
-      expect(cell).not.toHaveClass("items-center");
+      // The icon alone is centred in a touch target of at least 44 px (owner decision 67 Q2).
+      expect(cell).toHaveClass("flex-1", "min-w-0", "min-h-11", "items-center", "justify-center");
     }
-    // The badge sits in the corner of its cell, out of the label's line.
+    // The badge sits in the corner of the icon's box, out of the icon's way.
     expect(within(bottom).getByText("12")).toHaveClass("absolute", "top-1", "right-1");
   });
 

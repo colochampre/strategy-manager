@@ -102,6 +102,21 @@ afterEach(() => {
 });
 
 describe("the strategies list", () => {
+  it("draws an aria-hidden Plus left of New strategy and leaves its name as it was", async () => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+    await screen.findByText("Alpha");
+
+    const button = screen.getByRole("button", { name: en.strategies.new.open });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-plus", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(button).toHaveAccessibleName("New strategy");
+  });
+
   it("test_archived_excluded_by_default_toggle_shows_them", async () => {
     const api = strategiesApi([strategy(), ARCHIVED]);
     stubApi(HEALTH, [], POOLS, {}, api.route);

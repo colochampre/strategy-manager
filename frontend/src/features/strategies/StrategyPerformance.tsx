@@ -1,15 +1,15 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LedgerLine } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
-import { DEFAULT_RANGE, RangeSelector } from "@/features/overview/RangeSelector";
-import type { RangeName } from "@/features/overview/RangeSelector";
+import { RangeSelector } from "@/features/overview/RangeSelector";
+import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import type { StrategyPerformance as StrategyReport } from "@/shared/api/types";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface StrategyPerformanceProps {
   strategyId: string;
@@ -23,7 +23,8 @@ interface ReportViewProps {
 
 function ReportView({ report, asOf }: ReportViewProps) {
   const { t } = useTranslation();
-  const [range, setRange] = useState<RangeName>(DEFAULT_RANGE);
+  const range = useRangeStore((state) => state.range);
+  const setRange = useRangeStore((state) => state.setRange);
   const summary = report.ranges.find((entry) => entry.range === range);
 
   return (
@@ -43,18 +44,22 @@ function ReportView({ report, asOf }: ReportViewProps) {
             returnLabel={t("strategies.performance.contribution", { range: t(`overview.range.${range}`) })}
           />
         )}
-        <ReturnChart
-          curve={report.curve}
-          range={range}
-          asOf={asOf}
-          title={t("strategies.performance.chartTitle")}
-          headerAction={<RangeSelector value={range} onChange={setRange} />}
-        />
+        <ReportSection>
+          <ReturnChart
+            curve={report.curve}
+            range={range}
+            asOf={asOf}
+            title={t("strategies.performance.chartTitle")}
+            headerAction={<RangeSelector value={range} onChange={setRange} />}
+          />
+        </ReportSection>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <MonthlyGrid monthly={report.monthly} />
-        <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
-      </div>
+      <ReportSection>
+        <div className="flex flex-col gap-1.5">
+          <MonthlyGrid monthly={report.monthly} />
+          <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
+        </div>
+      </ReportSection>
       <PairStatsTable pairs={report.by_pair} currency={report.currency} />
     </>
   );

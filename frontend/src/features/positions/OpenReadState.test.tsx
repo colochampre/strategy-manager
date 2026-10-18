@@ -54,6 +54,20 @@ describe("a failed read", () => {
   });
 });
 
+describe("the icon of Read again", () => {
+  it("draws an aria-hidden RefreshCw left of the text and leaves the accessible name as it was", () => {
+    mount("error", 1);
+
+    const button = screen.getByRole("button", { name: en.positions.state.refresh });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveClass("lucide-refresh-cw", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveAccessibleName(en.positions.state.refresh);
+    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+  });
+});
+
 describe("reading again after a failure", () => {
   it("keeps the same button, focused and marked aria-disabled, beside the loading text", () => {
     const { show } = mount("error", 1);

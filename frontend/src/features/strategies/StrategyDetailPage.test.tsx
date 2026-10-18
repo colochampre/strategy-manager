@@ -294,12 +294,30 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("frames the chart, Month by month, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
+    renderPage(strategy());
+    await heading("ETH Breakout");
+
+    const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
+    for (const name of [
+      en.strategies.performance.byPair.title,
+      en.strategies.performance.trades.title,
+      "Open positions",
+    ]) {
+      expect(framed(await screen.findByRole("heading", { name }))).not.toBeNull();
+    }
+    expect(framed((await screen.findByRole("img", { name: /./ })).closest("figure") as HTMLElement)).not.toBeNull();
+    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(5);
+  });
+
   it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {
     renderPage(strategy());
     await heading("ETH Breakout");
 
     const tradesTitle = await screen.findByRole("heading", { name: en.strategies.performance.trades.title });
-    const section = tradesTitle.closest("section") as HTMLElement;
+    // The framed section wraps the <section>: the wrapper is what sits under the grid.
+    const section = tradesTitle.closest('[data-testid="report-section"]') as HTMLElement;
+    expect(section).not.toBeNull();
     const aside = screen.getByRole("complementary", { name: en.strategies.detail.settings });
     const grid = aside.parentElement as HTMLElement;
     const column = grid.firstElementChild as HTMLElement;

@@ -193,6 +193,25 @@ describe("the read states", () => {
     }
   });
 
+  it("frames Booked automatically only, and leaves Needs you and Being booked unframed (owner decision 67 Q4)", async () => {
+    mountPage({
+      kind: "ok",
+      body: confirmedBody({
+        needs_owner: [discrepancy()],
+        being_booked: [discrepancy({ reason: null })],
+        booked: [booking()],
+      }),
+    });
+
+    const framed = (name: string) =>
+      screen.getByRole("heading", { level: 2, name }).closest('[data-testid="report-section"]');
+    await screen.findByRole("heading", { level: 2, name: "Booked automatically" });
+    expect(framed("Booked automatically")).not.toBeNull();
+    expect(framed("Needs you")).toBeNull();
+    expect(framed("Being booked")).toBeNull();
+    expect(screen.getAllByTestId("report-section")).toHaveLength(1);
+  });
+
   it("makes one request to the route (the badge and the page share it)", async () => {
     const fetchMock = mountPage({ kind: "ok", body: confirmedBody() });
 

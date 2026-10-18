@@ -900,7 +900,10 @@ describe("its place on the detail page (T10)", () => {
     expect(settings.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(open.compareDocumentPosition(closed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const section = open.closest("section") as HTMLElement;
-    expect(section.parentElement).toBe(settings.parentElement?.parentElement);
+    // The framed section wraps it, and that wrapper is the full-width block.
+    const framed = section.closest('[data-testid="report-section"]') as HTMLElement;
+    expect(framed).not.toBeNull();
+    expect(framed.parentElement).toBe(settings.parentElement?.parentElement);
     expect(await within(section).findByRole("table", { name: "Open positions" })).toBeInTheDocument();
   });
 });

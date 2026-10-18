@@ -5,6 +5,7 @@ import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/a
 import { rateText } from "@/shared/lib/figure-text";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { ReportSection } from "@/shared/ui/ReportSection";
 
 const DASH = "—";
 
@@ -130,11 +131,13 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   }
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-        {t("strategies.performance.byPair.title")}
-      </h2>
-      {body}
-    </section>
+    <ReportSection>
+      <section aria-labelledby={headingId} className="flex flex-col gap-2">
+        <h2 id={headingId} className="font-display text-base font-semibold text-ink">
+          {t("strategies.performance.byPair.title")}
+        </h2>
+        {body}
+      </section>
+    </ReportSection>
   );
 }
