@@ -31,7 +31,8 @@ capital instead.
 - **Backend:** FastAPI, Python 3.12 (pinned via uv), SQLAlchemy 2.0 async,
   Alembic, PostgreSQL 17, pytest, ruff, mypy strict.
 - **Frontend:** Vite 6, React 19, TypeScript strict, Tailwind 4, TanStack Query,
-  Zustand, react-i18next (EN/ES), Recharts 3, Vitest.
+  Zustand, react-i18next (EN/ES), lucide-react, Vitest. Charts are drawn as
+  plain SVG (`frontend/src/shared/charts`), with no chart library.
 - **Job queue:** PostgreSQL `FOR UPDATE SKIP LOCKED`. No Redis, no Celery.
 - **Database:** the local `postgresql-x64-17` Windows service. `docker-compose.yml`
   exists only as an alternative for machines without it.

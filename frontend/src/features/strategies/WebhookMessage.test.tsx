@@ -63,7 +63,7 @@ const cachedData = (queryClient: QueryClient) =>
 /** The secret's entries only: the webhook's host is cached too, and is not what an eviction removes. */
 const secretEntries = (queryClient: QueryClient) => queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] });
 
-const HOST = "https://example.duckdns.org";
+const HOST = "https://hook.example.com";
 const HOST_UNSET =
   "No public host is configured for the webhook, so only the path is shown. Put your webhook's host in front of it.";
 const HOST_ERROR = "The webhook's host could not be loaded, so only the path is shown.";
@@ -571,7 +571,7 @@ describe("WebhookMessage", () => {
       expect(code.tagName).toBe("CODE");
       expect(code.closest("a")).toBeNull();
       expect(document.querySelector("a, form, [href], [action]")).toBeNull();
-      expect(calls.filter((call) => call.url.includes("example.duckdns.org"))).toEqual([]);
+      expect(calls.filter((call) => call.url.includes("hook.example.com"))).toEqual([]);
       expect(calls.map((call) => call.url).every((url) => url.endsWith(ORIGIN_PATH) || url.endsWith(SECRET_PATH))).toBe(true);
     });
 
