@@ -213,7 +213,7 @@ describe("the strategies list", () => {
     expect(await screen.findByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Gamma")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);
 
     expect(await screen.findByText("Gamma")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
@@ -508,7 +508,7 @@ describe("the Strategies page shows nothing of another exchange", () => {
     renderAt(<AppRoutes />, "/strategies");
     // The scope starts on the first exchange (bybit); the owner moves to binance first.
     await screen.findByText("Bybit Strat");
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);
     await screen.findByText("Binance Strat");
     return fetchMock;
   }
@@ -529,7 +529,7 @@ describe("the Strategies page shows nothing of another exchange", () => {
     for (const text of BYBIT_ONLY) expect(document.body.textContent ?? "", text).not.toContain(text);
 
     const before = positionsCalls(fetchMock);
-    fireEvent.click(screen.getAllByRole("button", { name: "bybit" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "Bybit" })[0] as HTMLElement);
     await screen.findByText("Bybit Strat");
 
     expect(figure("Open")).toBe("4");
@@ -567,9 +567,9 @@ describe("the Strategies page shows nothing of another exchange", () => {
     await mountPage(orphans);
 
     await waitFor(() => expect(screen.queryByText("Open:")).toBeInTheDocument());
-    for (const tab of ["binance", "bybit"]) {
+    for (const tab of ["Binance", "Bybit"]) {
       fireEvent.click(screen.getAllByRole("button", { name: tab })[0] as HTMLElement);
-      await screen.findByText(tab === "binance" ? "Binance Strat" : "Bybit Strat");
+      await screen.findByText(tab === "Binance" ? "Binance Strat" : "Bybit Strat");
       expect(figure("Open")).toBe("0");
       expect(figure("Orders in flight")).toBe("0");
       const text = document.body.textContent ?? "";

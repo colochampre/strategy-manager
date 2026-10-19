@@ -18,7 +18,7 @@ interface Wordmark {
 /**
  * The letters of each exchange's logotype, copied by the owner from the header of the exchange's own site on
  * 2026-10-18 (owner decision 77). Only the letters are kept: Binance's and Pionex's brand figure is left out.
- * Bybit's letters are drawn in the panel's text colour, because its own `#15192a` cannot be seen on the dark
+ * Bybit's letters are drawn in the panel's text colour, because its own near-black cannot be seen on the dark
  * panel; its `I` keeps Bybit's orange, as Bybit's own dark mode draws it. Colours are the palette's tokens.
  */
 const WORDMARKS: Readonly<Record<string, Wordmark>> = {

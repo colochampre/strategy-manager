@@ -5,6 +5,7 @@ import { usePools } from "@/shared/api/pools";
 import { useTokenStore } from "@/shared/auth/token-store";
 import { KeyMark } from "@/shared/credentials/KeyMark";
 import { keyMark, keyState, knownPools, poolOn } from "@/shared/credentials/key-state";
+import { ExchangeWordmark } from "@/shared/exchanges/ExchangeWordmark";
 import { cn } from "@/shared/lib/cn";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
@@ -25,6 +26,9 @@ interface ExchangeTabsProps {
  * key: `read-only`, or `no key`. The word comes from the same function the
  * Settings card uses, with the same inputs. While the credentials load or fail
  * there is no mark: no mark is a claim of nothing, and never "the key is fine".
+ *
+ * The name is the exchange's own logotype, dimmed on every tab but the selected
+ * one, or its capitalised name where there is no logotype (owner decision 77).
  *
  * Every tab holds the same three-row grid (design § E), so the name sits at the
  * same height with a mark and without one. Below `lg` the tabs share the row's
@@ -82,7 +86,9 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
               )}
             >
               <span className="grid min-h-13 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center">
-                <span className="row-start-2 leading-5">{exchange}</span>
+                <span className="row-start-2 flex h-5 items-center leading-5">
+                  <ExchangeWordmark exchange={exchange} className={cn("h-3.5", !selected && "opacity-55")} />
+                </span>
                 {mark !== null && (
                   <>
                     {" "}

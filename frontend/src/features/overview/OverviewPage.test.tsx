@@ -265,7 +265,7 @@ describe("one panel per pool of the exchange", () => {
     renderAt(<AppRoutes />, "/");
     await screen.findAllByTestId("pool-panel");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(1));
     expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("binance · usdt-m · USDT");

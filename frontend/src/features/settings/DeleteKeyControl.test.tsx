@@ -304,7 +304,7 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
 
-    const tabs = await screen.findAllByRole("button", { name: "bybit no key" });
+    const tabs = await screen.findAllByRole("button", { name: "Bybit no key" });
     const mark = within(tabs[0] as HTMLElement).getByText("no key");
     expect(mark).toHaveClass("text-ink-3");
     expect(mark).not.toHaveClass("text-decision");
