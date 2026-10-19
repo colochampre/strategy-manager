@@ -269,6 +269,15 @@
         "saveFailed": "The allowed pairs were not saved. Try again."
       },
       "saved": "Saved",
+      "name": {
+        "rename": "Rename strategy",
+        "field": "Strategy name",
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel",
+        "taken": "A strategy with this name already exists.",
+        "saveFailed": "The name was not saved. Try again."
+      },
       "share": {
         "label": "Share of the pool per trade",
         "info": "About the share of the pool",

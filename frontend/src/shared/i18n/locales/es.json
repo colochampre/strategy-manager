@@ -269,6 +269,15 @@
         "saveFailed": "No se guardaron los pares permitidos. Inténtelo de nuevo."
       },
       "saved": "Guardado",
+      "name": {
+        "rename": "Renombrar estrategia",
+        "field": "Nombre de la estrategia",
+        "save": "Guardar",
+        "saving": "Guardando…",
+        "cancel": "Cancelar",
+        "taken": "Ya existe una estrategia con este nombre.",
+        "saveFailed": "El nombre no se guardó. Inténtelo de nuevo."
+      },
       "share": {
         "label": "Porcentaje del pool por operación",
         "info": "Acerca del porcentaje del pool",
