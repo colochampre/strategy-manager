@@ -6044,7 +6044,7 @@ Branch `test/operator-panel-i18n-parity`, cut from `origin/main` at `89f5b25`. T
   - `git diff --stat main -- backend` is empty.
 
   Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 21's 100 files / 2,893 tests. Backend untouched: `git diff --stat main -- backend` is empty.
-- [ ] p22.D.2 Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
+- [x] p22.D.2 **Done 2026-10-19** on the owner's "Si, push y PR". Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
 - [ ] p22.D.3 Merge with a merge commit on the owner's word.
 - [ ] p22.D.4 **Owner step, after the merge:** pull as `strategy`. No restart and no pps.6: no file the panel's bundle is built from changes.
 - [ ] p22.D.5 The delivery log entry, in the branch of the next PR.
