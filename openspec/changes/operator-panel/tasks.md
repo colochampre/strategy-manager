@@ -6011,8 +6011,8 @@ Branch `feat/operator-panel-rename-strategy`, cut from `origin/main` at `d4b10c6
   - `git diff --stat main -- backend` is empty.
 
   Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 20's 98 files / 2,861 tests. Backend untouched: `git diff --stat main -- backend` is empty.
-- [ ] p21.D.2 **First review 2026-10-19:** "Funciona bien. Al guardar no me aparece 'Esta estrategia ya no existe', sino que queda como la puse, salgo, entro, refresco la página, y queda bomo lo edité". The fixture server sends what is not a GET to the local API, so the rename was really saved. The owner asked for icons (p21.5). **Second look 2026-10-19:** "Estan bien", plus the label (p21.6). The owner sees the rename on the fixture server before the push ("Si cambia algo, primero veo el resultado").
-- [ ] p21.D.3 Push and open the PR ONLY on the owner's word.
+- [x] p21.D.2 **Done 2026-10-19**: "Ahora si. Push y PR". **First review 2026-10-19:** "Funciona bien. Al guardar no me aparece 'Esta estrategia ya no existe', sino que queda como la puse, salgo, entro, refresco la página, y queda bomo lo edité". The fixture server sends what is not a GET to the local API, so the rename was really saved. The owner asked for icons (p21.5). **Second look 2026-10-19:** "Estan bien", plus the label (p21.6). The owner sees the rename on the fixture server before the push ("Si cambia algo, primero veo el resultado").
+- [x] p21.D.3 **Done 2026-10-19** on the owner's "Push y PR". Push and open the PR ONLY on the owner's word.
 - [ ] p21.D.4 Merge with a merge commit on the owner's word.
 - [ ] p21.D.5 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.
 - [ ] p21.D.6 The delivery log entry, in the branch of the next PR.
