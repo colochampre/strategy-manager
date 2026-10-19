@@ -5982,8 +5982,8 @@ Branch `feat/operator-panel-wordmarks`, cut from `origin/main` at `63addd4`. 7p.
   - `git diff --stat main -- backend` is empty.
 
   Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 17's 96 files / 2,844 tests. Backend untouched: `git diff --stat main -- backend` is empty.
-- [ ] p20.D.2 The owner sees the tabs and Settings on the fixture server before the push ("Si cambia algo, primero veo el resultado").
-- [ ] p20.D.3 Push and open the PR ONLY on the owner's word.
+- [x] p20.D.2 **Done 2026-10-18**, on the fixture server: "Se ven bien! Push y PR". The owner sees the tabs and Settings on the fixture server before the push ("Si cambia algo, primero veo el resultado").
+- [x] p20.D.3 **Done 2026-10-18** on the owner's "Push y PR". Push and open the PR ONLY on the owner's word.
 - [ ] p20.D.4 Merge with a merge commit on the owner's word.
 - [ ] p20.D.5 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.
 - [ ] p20.D.6 The delivery log entry, in the branch of the next PR.
