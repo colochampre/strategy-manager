@@ -522,6 +522,12 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **Q3, the review on the fixture server (2026-10-19):** "Funciona bien. [...] Lo único que agregaría serían iconos a los botones de guardar y cancelar". Save gets the Save icon that the panel's other Save buttons carry, through the same `StatusButton`. Cancel gets the X that closes the key form.
     - **Q4, the second look (2026-10-19):** "Estan bien. Un último detalle: el boton de Guardar que diga 'Guardar nombre' y 'Save name' por un detalle de que sino, el boton queda con espacio vacio que lo hace parecer alargado". The button is as wide as "Guardando…", so "Guardar" left empty space beside it.
     - **Read from the existing panel, not asked:** an archived strategy shows no pencil, because the API refuses every change to one (`STRATEGY_ARCHIVED`), as the share and pairs editors are disabled for it. A 409 `STRATEGY_ARCHIVED` and a 404 that arrive anyway get the share editor's archived and gone texts. A rename does not touch any TradingView alert: the alert names the strategy by its id (`signal_type`), never by its name.
+79. **Three backlog items weighed together: X.5 is done, 12f.13 is dropped and 8f.2 is accepted** (2026-10-19, owner). The owner asked: "Que posible solucion tiene 12f.13? Desaconsejas encarar los 3 temas en un solo PR? Alguno es complejo y requeriría el propio?". The proposal was X.5 now, 12f.13 closed as a browser setting, and 8f.2 closed as an accepted risk behind Cloudflare Access. The owner answered: "Me parece bien. Descartamos 12f.13, seguimos con X.5".
+    - **12f.13, dropped.** The only fix is trying attributes on the "API key" field one at a time, seen in Brave and in Firefox. Each browser has its own heuristic, and none of them runs in jsdom, so no test could hold the fix and a browser update could undo it. The entry reads nothing and writes only if chosen. It is switched off in each browser's own settings.
+    - **8f.2, accepted.** Checking the token before the body is parsed would touch authentication on every route: backend, an independent verifier, and a deploy with a restart. What it would close is small:
+      - `/api` is reached only through the Cloudflare Tunnel behind Access. Caddy forwards `/webhook/tradingview` alone. So nobody outside Access can send the malformed body.
+      - The 422 is already redacted.
+    - **X.5** is PR 22: a test that pins both locale files to one key set, and every key the sources name to both files.
 
 ## Standing constraints
 
