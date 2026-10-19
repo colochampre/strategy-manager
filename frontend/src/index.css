@@ -19,6 +19,11 @@
   --color-loss: #E0644B;         /* ember: losses, drawdown, refusals */
   --color-decision: #CE8018;     /* amber: ONLY "needs your decision" */
 
+  /* Each exchange's own colour, as its logotype draws it (owner decision 77). Used by those logotypes only. */
+  --color-brand-binance: #F3BA2F;
+  --color-brand-bybit: #F7A600;
+  --color-brand-pionex: #FF7028;
+
   /* Monthly grid bands: fixed ±15% scale, 6 bands of 2.5 points each. */
   --color-gain-1: color-mix(in srgb, #1FA6B8 20%, #1E272F);
   --color-gain-2: color-mix(in srgb, #1FA6B8 32%, #1E272F);
