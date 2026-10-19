@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Save, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+import { StatusButton } from "@/shared/ui/StatusButton";
 
 import { ApiError } from "@/shared/api/client";
 import { useRenameStrategy } from "@/shared/api/strategies";
@@ -108,19 +110,22 @@ export function StrategyTitle({ strategy }: StrategyTitleProps) {
           autoComplete="off"
           className="min-h-11 rounded-md border border-rule bg-ground px-3 py-2 font-display text-xl font-bold text-ink"
         />
-        <button
-          type="submit"
+        <StatusButton
+          texts={[t("strategies.detail.name.save"), t("strategies.detail.name.saving")]}
+          shown={rename.isPending ? t("strategies.detail.name.saving") : t("strategies.detail.name.save")}
+          message={null}
+          submit
           disabled={trimmed === "" || rename.isPending}
+          icon={Save}
           className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-        >
-          {rename.isPending ? t("strategies.detail.name.saving") : t("strategies.detail.name.save")}
-        </button>
+        />
         <button
           type="button"
           onClick={close}
           disabled={rename.isPending}
-          className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
         >
+          <X aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.detail.name.cancel")}
         </button>
       </div>

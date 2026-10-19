@@ -93,6 +93,33 @@ describe("StrategyHeader rename: the pencil (p21.2)", () => {
     expect(cancelButton()).toBeEnabled();
   });
 
+  it("draws an aria-hidden Save icon on Save and an X on Cancel, each left of its text, the names unchanged (p21.5)", () => {
+    setup();
+    fireEvent.click(pencil());
+
+    for (const [host, icon, name] of [
+      [saveButton(), "lucide-save", "Save"],
+      [cancelButton(), "lucide-x", "Cancel"],
+    ] as const) {
+      const svg = host.querySelector("svg");
+      expect(svg).toHaveClass(icon, "size-4", "shrink-0");
+      expect(svg).toHaveAttribute("aria-hidden", "true");
+      expect(host.firstElementChild).toBe(svg);
+      expect(host).toHaveClass("inline-flex", "items-center", "gap-1.5");
+      expect(host).toHaveAccessibleName(name);
+    }
+  });
+
+  it("keeps Save as wide as its longest text: both texts share one cell, the hidden one out of sight and of the name (p21.5)", () => {
+    setup();
+    fireEvent.click(pencil());
+
+    const cells = Array.from(saveButton().querySelectorAll("span > span"));
+    expect(cells.map((cell) => cell.textContent)).toEqual(["Save", "Saving…"]);
+    expect(cells[1]).toHaveClass("invisible");
+    expect(cells[1]).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("shows no pencil for an archived strategy", () => {
     setup({ ...STRATEGY, archived_at: "2026-10-01T00:00:00Z" });
 

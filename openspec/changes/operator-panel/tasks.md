@@ -6002,14 +6002,15 @@ Branch `feat/operator-panel-rename-strategy`, cut from `origin/main` at `d4b10c6
 - [x] p21.2 **Done 2026-10-19.** RED: 19 of the 20 tests in `StrategyHeader.rename.test.tsx` failed on "Unable to find an accessible element with the role "button" and name "Rename strategy"". The archived case passed at once, since the header had no pencil at all; it pins the rule once the pencil exists. Built in three steps so that each rule showed its own RED (p21.3 and p21.4 below). `features/strategies/StrategyTitle.tsx`, rendered by `StrategyHeader` in place of its `h1`. A pencil button beside the title, named "Rename strategy", opens the field with the current name, focused. An archived strategy shows no pencil.
 - [x] p21.3 **Done 2026-10-19.** RED with the pencil and the field in place, and Save and Cancel inert. Nine tests failed on assertions, among them `expected <input …></input> to be null`, `expect(element).toBeDisabled()` and `Unable to find role="button" and name "Saving…"`. Focus returns to the pencil when the field closes. Save sends the name with its edges trimmed and closes the field on success. Enter saves and Escape cancels. Cancel puts the title back unchanged and sends nothing. Save is disabled while the trimmed name is empty, and an unchanged name closes the field without a call.
 - [x] p21.4 **Done 2026-10-19.** RED with saving and cancelling in place: the seven refusal tests failed on `Unable to find role="alert"`. The text is `role="alert"`, and the field carries `aria-invalid` and is described by it. Cancelling drops the refusal. The refusals, shown under the field, which stays open: 409 with no code reads "A strategy with this name already exists."; 409 `STRATEGY_ARCHIVED` and 404 read the archived and gone texts; any other failure reads "The name was not saved. Try again." Spanish texts use "usted".
-- [x] p21.D.1 **Done 2026-10-19.**
+- [x] p21.5 **Done 2026-10-19**, from the owner's review (decision 78 Q3): "Lo único que agregaría serían iconos a los botones de guardar y cancelar". RED: `expect(received).toHaveClass()` on the icons, and `expected [] to deeply equal [ 'Save', 'Saving…' ]` on the shared cell. Save is a `StatusButton` with the `Save` icon, so it keeps the width of "Saving…". Cancel draws an `X`. Both icons are aria-hidden and the buttons' names are unchanged.
+- [x] p21.D.1 **Done 2026-10-19**, run again after p21.5.
   - `npm run lint` 0.
-  - `vitest` 100 files / 2,891 passed, against PR 20's 98 / 2,861: +2 files and +30 tests.
+  - `vitest` 100 files / 2,893 passed, against PR 20's 98 / 2,861: +2 files and +32 tests.
   - `npm run build` 0, with the usual chunk-size warning.
   - `git diff --stat main -- backend` is empty.
 
   Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 20's 98 files / 2,861 tests. Backend untouched: `git diff --stat main -- backend` is empty.
-- [ ] p21.D.2 The owner sees the rename on the fixture server before the push ("Si cambia algo, primero veo el resultado").
+- [ ] p21.D.2 **First review 2026-10-19:** "Funciona bien. Al guardar no me aparece 'Esta estrategia ya no existe', sino que queda como la puse, salgo, entro, refresco la página, y queda bomo lo edité". The fixture server sends what is not a GET to the local API, so the rename was really saved. The owner asked for icons (p21.5). The owner sees the rename on the fixture server before the push ("Si cambia algo, primero veo el resultado").
 - [ ] p21.D.3 Push and open the PR ONLY on the owner's word.
 - [ ] p21.D.4 Merge with a merge commit on the owner's word.
 - [ ] p21.D.5 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.
