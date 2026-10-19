@@ -513,6 +513,13 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
     - **The look (2026-10-18), approved on a rendered preview:** "Si, se ven bien". An unselected tab dims its logotype, as the tab's text is dimmed today. 7p.2's question, brand colours beside the amber key marks, is answered by this preview: the marks stay small text under the logotype.
     - **Q2, an exchange with no logotype (2026-10-18):** "Para un exchange que no tenga svg, su nombre debe ir capitalizado". Its name shows with a capital initial, also when no translation names it.
     - **Q3, where (2026-10-18):** "En las pestañas y también en Settings". The logotype goes on the exchange tabs and on the title of each Settings card. Everywhere, the exchange's display name stays its accessible name.
+78. **Renaming a strategy from its own page** (2026-10-19, owner, on 12f.11, which decision 51 left for later): "Sigamos con 12f.11 (renombrar una estrategia desde su página".
+    - **Q1, where (2026-10-19):** the owner chose "Lápiz junto al nombre" over a name field in the settings column. A pencil button sits beside the page's title. Activating it turns the title into a field with Save and Cancel; Enter saves and Escape cancels.
+    - **Q2, the refusals (2026-10-19):** "Si", to this proposal:
+      - Spaces at either end are trimmed before sending. A name that is empty after trimming leaves Save disabled. The panel does this because the API's `min_length=1` does not trim.
+      - A name another strategy already uses (409) shows "A strategy with this name already exists." under the field. The field stays open with what was typed.
+      - Saving an unchanged name closes the field and calls nothing. Any other failure shows a generic "not saved" text.
+    - **Read from the existing panel, not asked:** an archived strategy shows no pencil, because the API refuses every change to one (`STRATEGY_ARCHIVED`), as the share and pairs editors are disabled for it. A 409 `STRATEGY_ARCHIVED` and a 404 that arrive anyway get the share editor's archived and gone texts. A rename does not touch any TradingView alert: the alert names the strategy by its id (`signal_type`), never by its name.
 
 ## Standing constraints
 
