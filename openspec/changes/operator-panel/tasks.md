@@ -6027,12 +6027,23 @@ Branch `feat/operator-panel-rename-strategy`, cut from `origin/main` at `d4b10c6
 
 Branch `test/operator-panel-i18n-parity`, cut from `origin/main` at `89f5b25`. Task X.5, as owner decision 79 settles it, plus PR 21's delivery record. Frontend tests and documentation only: no source file changes.
 
-- [ ] p22.1 `shared/i18n/locale-parity.test.ts`:
+- [x] p22.1 **Done 2026-10-19.** Both tests passed at once, because the files agree today. Each protection was then broken and went red on an assertion, and each break was undone:
+  - a key added to `en.json` only: `expected { …(2) } to deeply equal { onlyEnglish: [], onlySpanish: [] }`, naming `strategies.detail.name.parityProbe`;
+  - `t("strategies.detail.name.cancelProbe")` in `StrategyTitle.tsx`: `expected [ …(2) ] to deeply equal []`, naming both `en` and `es`;
+  - a template key under a missing prefix, `` t(`strategies.probePrefix.${...}`) ``: `expected [ 'en strategies.probePrefix.*', …(1) ] to deeply equal []`.
+
+  After the last break was undone, `git diff` of the sources and locales was empty. `shared/i18n/locale-parity.test.ts`:
   - `en.json` and `es.json` hold the same set of keys, compared over the whole files;
   - every key the non-test sources name to `t()` as a literal exists in both files. A plural key counts as present when its `_one` and `_other` forms are. A key built from a template literal needs its prefix to be a branch of both files.
 
   The scan must find what it is about, so the test also asserts that it found many keys and a few known ones. If the test passes at once, it is proven non-vacuous by breaking each protection in turn: a key added to one file only, and a `t()` key that no file holds. Each must go red on an assertion, and then be undone.
-- [ ] p22.D.1 Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 21's 100 files / 2,893 tests. Backend untouched: `git diff --stat main -- backend` is empty.
+- [x] p22.D.1 **Done 2026-10-19.**
+  - `npm run lint` 0.
+  - `vitest` 101 files / 2,895 passed, against PR 21's 100 / 2,893: +1 file and +2 tests.
+  - `npm run build` 0.
+  - `git diff --stat main -- backend` is empty.
+
+  Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 21's 100 files / 2,893 tests. Backend untouched: `git diff --stat main -- backend` is empty.
 - [ ] p22.D.2 Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
 - [ ] p22.D.3 Merge with a merge commit on the owner's word.
 - [ ] p22.D.4 **Owner step, after the merge:** pull as `strategy`. No restart and no pps.6: no file the panel's bundle is built from changes.
@@ -6046,4 +6057,4 @@ Branch `test/operator-panel-i18n-parity`, cut from `origin/main` at `89f5b25`. T
 - [x] X.2 `cd frontend && npm run lint && npm test` — full suite. Green with p17.D.1's totals.
 - [x] X.3 `cd frontend && npm run build` — the production build the CSP rehearsal (design decision 13, "font-src falls back to default-src 'self'") must load without a console CSP violation, checked manually by the owner against the deployed `PANEL_DIST_DIR` bundle. Its local half was done on 2026-10-11 as pps.1; its production half is pps.9, done the same day: one CSP message, caused by a script Cloudflare added, gone once that was switched off.
 - [x] X.4 **Done 2026-10-18 (PR 17 cleanup):** none of the Bybit or Binance names remain and `recharts` is in neither `frontend/src` nor `package.json`. `credentials_from_settings` remains in `shared/infrastructure/pionex/factory.py`, which is the Pionex probe exception (`PIONEX_API_*` settings read only by scripts), and in the docstrings of the Bybit and Binance factories, which describe the read-only pair that was removed. Grep sweep: no remaining reference to `bybit_api_key`, `bybit_api_secret`, `binance_api_key`, `binance_api_secret`, `credentials_from_settings`, or `recharts` anywhere under `backend/src` or `frontend/src`/`package.json`.
-- [ ] X.5 **Built as PR 22 (p22.1), owner decision 79.** (an audit on 2026-10-18 found the two files' key sets identical, 505 each, but no test pins that globally; the task is a test that compares them) i18n sweep: every key referenced by a new component exists in both `frontend/src/shared/i18n/locales/en.json` and `es.json` — a RED test per feature already covers this per-unit; this is the final cross-feature confirmation.
+- [x] X.5 **Done 2026-10-19 as PR 22's p22.1, owner decision 79.** (an audit on 2026-10-18 found the two files' key sets identical, 505 each, but no test pins that globally; the task is a test that compares them) i18n sweep: every key referenced by a new component exists in both `frontend/src/shared/i18n/locales/en.json` and `es.json` — a RED test per feature already covers this per-unit; this is the final cross-feature confirmation.
