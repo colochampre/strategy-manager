@@ -3,7 +3,7 @@ import { type ReactNode, type Ref, useId } from "react";
 import { ArrowLeftRight, KeyRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { exchangeName } from "@/features/settings/exchange-name";
+import { exchangeName } from "@/shared/exchanges/exchange-name";
 import type { CredentialEntry, StoredCredential } from "@/shared/api/credentials";
 import { KeyMark } from "@/shared/credentials/KeyMark";
 import { type KeyState, keyMark, keyState } from "@/shared/credentials/key-state";

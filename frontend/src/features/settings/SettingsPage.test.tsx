@@ -164,8 +164,8 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance", "kraken"]);
-    const kraken = screen.getByRole("article", { name: "kraken" });
+    expect(cardNames()).toEqual(["Bybit", "Binance", "Kraken"]);
+    const kraken = screen.getByRole("article", { name: "Kraken" });
     expect(within(kraken).queryByText("key ending in AB12")).toBeInTheDocument();
     expect(within(kraken).queryAllByRole("button")).toEqual([]);
   });
@@ -180,7 +180,7 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance", "alpha", "zeta", "mexc", "Pionex"]);
+    expect(cardNames()).toEqual(["Bybit", "Binance", "Alpha", "Zeta", "Mexc", "Pionex"]);
   });
 
   it("marks the degraded exchange amber and leaves an exchange whose pool is off neutral", async () => {
@@ -364,7 +364,7 @@ describe("the card and the tab agree", () => {
 
     renderAt(<AppRoutes />, "/settings");
     await cardsDrawn();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "kraken" })?.textContent).toContain("no key"));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Kraken" })?.textContent).toContain("no key"));
     for (const [exchange, word] of wordsOnTabs) {
       const card = screen.queryAllByRole("article").find((article) => article.textContent?.toLowerCase().includes(exchange));
       expect(card, exchange).toBeDefined();
@@ -417,7 +417,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(within(screen.getByRole("article", { name: "kraken" })).queryAllByRole("button")).toEqual([]);
+    expect(within(screen.getByRole("article", { name: "Kraken" })).queryAllByRole("button")).toEqual([]);
   });
 
   it("test_one_form_at_a_time: opening another card's form closes and unmounts the open one", async () => {

@@ -59,7 +59,7 @@ describe("the card's shell", () => {
     ["bybit", "Bybit"],
     ["binance", "Binance"],
     ["pionex", "Pionex"],
-    ["kraken", "kraken"],
+    ["kraken", "Kraken"],
   ])("is an article named by its one h3, the proper name of %s: %s", (exchange, name) => {
     renderCard({ exchange, entry: stored(exchange) });
 
