@@ -272,7 +272,7 @@
       "name": {
         "rename": "Rename strategy",
         "field": "Strategy name",
-        "save": "Save",
+        "save": "Save name",
         "saving": "Saving…",
         "cancel": "Cancel",
         "taken": "A strategy with this name already exists.",

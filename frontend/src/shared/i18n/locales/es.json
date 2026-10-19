@@ -272,7 +272,7 @@
       "name": {
         "rename": "Renombrar estrategia",
         "field": "Nombre de la estrategia",
-        "save": "Guardar",
+        "save": "Guardar nombre",
         "saving": "Guardando…",
         "cancel": "Cancelar",
         "taken": "Ya existe una estrategia con este nombre.",

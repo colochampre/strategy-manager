@@ -520,6 +520,7 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - A name another strategy already uses (409) shows "A strategy with this name already exists." under the field. The field stays open with what was typed.
       - Saving an unchanged name closes the field and calls nothing. Any other failure shows a generic "not saved" text.
     - **Q3, the review on the fixture server (2026-10-19):** "Funciona bien. [...] Lo único que agregaría serían iconos a los botones de guardar y cancelar". Save gets the Save icon that the panel's other Save buttons carry, through the same `StatusButton`. Cancel gets the X that closes the key form.
+    - **Q4, the second look (2026-10-19):** "Estan bien. Un último detalle: el boton de Guardar que diga 'Guardar nombre' y 'Save name' por un detalle de que sino, el boton queda con espacio vacio que lo hace parecer alargado". The button is as wide as "Guardando…", so "Guardar" left empty space beside it.
     - **Read from the existing panel, not asked:** an archived strategy shows no pencil, because the API refuses every change to one (`STRATEGY_ARCHIVED`), as the share and pairs editors are disabled for it. A 409 `STRATEGY_ARCHIVED` and a 404 that arrive anyway get the share editor's archived and gone texts. A rename does not touch any TradingView alert: the alert names the strategy by its id (`signal_type`), never by its name.
 
 ## Standing constraints

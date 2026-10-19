@@ -53,7 +53,7 @@ function setup(strategy: Strategy = STRATEGY, answer: (name: string) => Response
 
 const pencil = () => screen.getByRole("button", { name: "Rename strategy" });
 const field = () => screen.getByRole("textbox", { name: "Strategy name" });
-const saveButton = () => screen.getByRole("button", { name: "Save" });
+const saveButton = () => screen.getByRole("button", { name: "Save name" });
 const cancelButton = () => screen.getByRole("button", { name: "Cancel" });
 const title = () => screen.queryByRole("heading", { level: 1 });
 
@@ -98,7 +98,7 @@ describe("StrategyHeader rename: the pencil (p21.2)", () => {
     fireEvent.click(pencil());
 
     for (const [host, icon, name] of [
-      [saveButton(), "lucide-save", "Save"],
+      [saveButton(), "lucide-save", "Save name"],
       [cancelButton(), "lucide-x", "Cancel"],
     ] as const) {
       const svg = host.querySelector("svg");
@@ -115,7 +115,7 @@ describe("StrategyHeader rename: the pencil (p21.2)", () => {
     fireEvent.click(pencil());
 
     const cells = Array.from(saveButton().querySelectorAll("span > span"));
-    expect(cells.map((cell) => cell.textContent)).toEqual(["Save", "Saving…"]);
+    expect(cells.map((cell) => cell.textContent)).toEqual(["Save name", "Saving…"]);
     expect(cells[1]).toHaveClass("invisible");
     expect(cells[1]).toHaveAttribute("aria-hidden", "true");
   });
@@ -134,7 +134,7 @@ describe("StrategyHeader rename: the pencil (p21.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Renombrar estrategia" }));
 
     expect(screen.getByRole("textbox", { name: "Nombre de la estrategia" })).toHaveValue("ETH Breakout");
-    expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Guardar nombre" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
   });
 });
@@ -292,7 +292,7 @@ describe("StrategyHeader rename: the refusals (p21.4)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Renombrar estrategia" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Nombre de la estrategia" }), { target: { value: "Taken" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar nombre" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Ya existe una estrategia con este nombre.");
   });
@@ -303,7 +303,7 @@ describe("StrategyHeader rename: the refusals (p21.4)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Renombrar estrategia" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Nombre de la estrategia" }), { target: { value: "Other" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar nombre" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("El nombre no se guardó. Inténtelo de nuevo.");
   });
