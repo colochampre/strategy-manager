@@ -92,6 +92,22 @@ export async function setStrategyAllocationPercent(strategyId: string, value: st
   return body;
 }
 
+/**
+ * `PATCH /api/strategies/{id}` with only `name`: every other field stays unchanged. The caller trims it; the API
+ * does not. The answer is checked, as for the share.
+ */
+export async function setStrategyName(strategyId: string, name: string): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
@@ -129,6 +145,21 @@ export function useSetAllocationPercent(strategyId: string) {
   const queryClient = useQueryClient();
   return useMutation<Strategy, Error, string>({
     mutationFn: (value) => setStrategyAllocationPercent(strategyId, value),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["strategy", strategyId], saved);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
+  });
+}
+
+/** Renames the strategy, with the share's cache effects: the confirmed answer first, then both keys read again. */
+export function useRenameStrategy(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, string>({
+    mutationFn: (name) => setStrategyName(strategyId, name),
     onSuccess: (saved) => {
       queryClient.setQueryData(["strategy", strategyId], saved);
     },

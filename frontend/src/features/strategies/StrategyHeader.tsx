@@ -3,6 +3,7 @@ import { Webhook } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { StrategyTitle } from "@/features/strategies/StrategyTitle";
 import { UptimeSummary } from "@/features/strategies/UptimeSummary";
 import { WebhookMessage } from "@/features/strategies/WebhookMessage";
 import type { Strategy } from "@/shared/api/types";
@@ -42,7 +43,7 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
     <header className="flex flex-col gap-1.5">
       <BackToStrategies />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h1 className="font-display text-3xl font-bold text-ink">{strategy.name}</h1>
+        <StrategyTitle strategy={strategy} />
         <span
           className={cn(
             "rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.12em]",
