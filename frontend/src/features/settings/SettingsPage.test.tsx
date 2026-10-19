@@ -72,8 +72,13 @@ async function cardsDrawn(): Promise<HTMLElement[]> {
   return screen.getAllByRole("article");
 }
 
+/** A heading's name as it is drawn: the logotype's accessible name, or its text where it has none (decision 77). */
+function headingName(heading: HTMLElement): string {
+  return heading.querySelector('[role="img"]')?.getAttribute("aria-label") ?? heading.textContent ?? "";
+}
+
 function cardNames(): string[] {
-  return screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent ?? "");
+  return screen.getAllByRole("heading", { level: 3 }).map(headingName);
 }
 
 function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
@@ -96,7 +101,7 @@ describe("the page's structure", () => {
     mountPage();
     await cardsDrawn();
 
-    const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${heading.textContent}`);
+    const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
     expect(outline).toEqual(["H1 Settings", "H2 Exchange keys", "H3 Bybit", "H3 Binance"]);
   });
 

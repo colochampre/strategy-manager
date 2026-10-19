@@ -4,6 +4,7 @@ import { ArrowLeftRight, KeyRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { exchangeName } from "@/shared/exchanges/exchange-name";
+import { ExchangeWordmark } from "@/shared/exchanges/ExchangeWordmark";
 import type { CredentialEntry, StoredCredential } from "@/shared/api/credentials";
 import { KeyMark } from "@/shared/credentials/KeyMark";
 import { type KeyState, keyMark, keyState } from "@/shared/credentials/key-state";
@@ -253,8 +254,9 @@ export function ExchangeKeyCard({
       )}
     >
       <div className="flex min-w-0 flex-col gap-1">
-        <h3 id={headingId} className="font-display text-[17px] font-semibold text-ink">
-          {name}
+        {/* The exchange's own logotype, named by its display name; its capitalised name where it has none (decision 77). */}
+        <h3 id={headingId} className="flex h-6 items-center font-display text-[17px] font-semibold text-ink">
+          <ExchangeWordmark exchange={exchange} className="h-4" />
         </h3>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           {fromAnswer ? (
