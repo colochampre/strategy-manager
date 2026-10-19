@@ -206,6 +206,7 @@ allowed pair: SFP → `SFPUSDT`, AAVE → `AAVEUSDT`, STX → `STXUSDT`. Since 2
 | PR 16 | #74 | `de02242` | — | 2026-10-18 | `feat(panel): icons, framed reports and a remembered chart range (PR 16)`, owner decisions 67 and 68, branch `feat/operator-panel-polish`, merge commit parents `9ef2991` and `23b2be9`: icons from `lucide-react` 1.49.0 on the navigation, the language switch and the panel's buttons (the bottom bar draws icons only), `%` on the monthly grid's months, the report sections framed from `md` through one `ReportSection`, the chart range remembered for the whole panel under `sm.range` (survives a reload), and the full-width Enable and Archive buttons centred. Frontend only: no backend file, no migration, no restart. Gate on `567b386`: `npm run lint` 0, `npx vitest run` 0 with 96 files / 2,835 tests, `npm run build` 0. Deployed by the owner: pull as `strategy`, then pps.6: built by the assistant from a detached worktree of `origin/main` at `de0224299f58`, SHA-256 `416e32670252da0679505103aedfbe362355767990f0e8fbfafcd21dfa9b4901`; the owner's block printed `OK`, `readable`, `bundle: de0224299f58` and `checkout: de0224299f58`, and the owner read the panel: "Todo perfecto". cd.D.9 stays blocked on decision 63. |
 | PR 17 | #75 | `e19a4ba` | — | 2026-10-18 | `fix(panel): hardening, CORS out, a discrepancy blocks the key delete, dry run reads right (PR 17)`, owner decisions 69-72, branch `feat/operator-panel-hardening`, merge commit parents `de02242` and `2dbcb65`: every engine hides bound parameters (8f.1), CORS removed (7f.1), an open discrepancy blocks the key delete and the dialog names the way out, replacing the key (8f.4), the venue line names no discrepancy under dry run (cd.f10), cd.f6, cd.f11-f13, the 7f.2-7f.5 secret sweeps, the DuckDNS examples and `tasks.md` cleanup. Gate: backend `ruff` 0, `mypy src` 0, `pytest` exit 0 with 5,423 tests collected; frontend `npm run lint` 0, vitest 96 files / 2,844, `npm run build` 0. Independent review: 0 blockers; follow-ups p17f.1-p17f.4. No migration. Deployed by the owner: pull as `strategy` and restart `strategy-api strategy-worker` (`e19a4ba Merge pull request #75`, `active` twice), then pps.6: built by the assistant from a detached worktree of `origin/main` at `e19a4ba90493`, 22 entries, SHA-256 `296e6d903b0295792057759c92927b65a868c188e362c8a1e01587c07b8201ec`; the owner's block printed all OK (`OK`, `readable`, bundle and checkout `e19a4ba90493`), and the owner read the panel: "Las salidas todas ok. El panel se ve bien". |
 | PR 18 | #76 | `37400b0` | — | 2026-10-18 | `fix(api): PR 17's follow-ups, migrations engine, exchange-wide discrepancy guard, refusal order (PR 18)`, branch `feat/operator-panel-followups`, merge commit parents `e19a4ba` and `647116c`. The changes: the migrations' engine is built by `create_engine_for` with `NullPool`, so it hides bound parameters too (p17f.1); an open discrepancy on any pool of the exchange blocks its key delete (p17f.2); an `ALREADY_DECIDED` answer no longer erases the same sweep's refusal (p17f.3); and PR 17's delivery record. Gate on `76d56e8`: `ruff` 0, `mypy src` 0, `pytest` exit 0 with 337 files and 5,427 tests collected. Backend only: no migration and no pps.6. Pushed and opened on the owner's "Si, push y PR", merged by the owner ("Hecho el merge"). The owner pulled as `strategy` and restarted both services, and reported `37400b0 Merge pull request #76` and `active` twice. |
+| PR 19 | #77 | `63addd4` | — | 2026-10-18 | `docs(openspec): going live, the first real Binance round trip and PR 18's delivery (PR 19)`, branch `docs/operator-panel-go-live`, merge commit parents `37400b0` and `640e161`. Documentation only: p17f.4 (owner decisions 73 and 74, the first real Binance round trip, the switch to `DRY_RUN=false`), the Binance rate confirmed in `design.md` § M, and PR 18's delivery. No gate was run: nothing under `backend/src` or `frontend/src` changed. Pushed and opened on the owner's "Si, push y PR", merged by the owner. The owner pulled as `strategy` with no restart and reported `63addd4 ... Merge pull request #77`. |
 
 Also done outside the PRs (2026-09-25): the three stale Pionex rows were deleted from
 `pool_balance_snapshots`, and the Bybit FUND balance was moved to UNIFIED.
@@ -5932,10 +5933,44 @@ Branch `feat/operator-panel-followups`, cut from `origin/main` at `e19a4ba`. p17
 
 Branch `docs/operator-panel-go-live`, cut from `origin/main` at `37400b0`. It records p17f.4 (owner decisions 73 and 74, the first real Binance round trip and the switch to `DRY_RUN=false`), the confirmed Binance rate in `design.md` § M, and PR 18's delivery (p18.D.2-D.5). No code, no gate: nothing under `backend/src` or `frontend/src` changes.
 
-- [ ] p19.D.1 Push and open the PR ONLY on the owner's word.
-- [ ] p19.D.2 Merge with a merge commit on the owner's word.
-- [ ] p19.D.3 **Owner step, after the merge:** pull as `strategy`. No restart (documentation only) and no pps.6.
-- [ ] p19.D.4 The delivery log entry, in the branch of the next PR.
+- [x] p19.D.1 **Done 2026-10-18** on the owner's "Si, push y PR": #77. Push and open the PR ONLY on the owner's word.
+- [x] p19.D.2 **Done 2026-10-18**, the owner's "Hecho el merge": merge commit `63addd4`, parents `37400b0` and `640e161`. Merge with a merge commit on the owner's word.
+- [x] p19.D.3 **Done 2026-10-18**: "Hecho el deploy: `63addd4 (HEAD -> main, origin/main, origin/HEAD) Merge pull request #77 ...`", with no restart. **Owner step, after the merge:** pull as `strategy`. No restart (documentation only) and no pps.6.
+- [x] p19.D.4 **Done 2026-10-18** in PR 20's branch: the PR 19 row of the delivery log. The delivery log entry, in the branch of the next PR.
+
+### Live operation, still to be seen
+
+- [ ] live.1 The owner asked for this to stay pending (2026-10-18): "Anota como pendiente la confirmación de la primera operación real, porque pueden pasar horas o días hasta que suceda". When the first live signal arrives, the owner reports what the panel and Binance show, and the evidence is written here:
+  - the position in the panel, with no rehearsal mark and with its leverage;
+  - the same quantity on Binance;
+  - the fill's price and its fee;
+  - the first live reconciliation scan, and any automatic booking.
+
+  cd.D.9 is folded into this item.
+
+## PR 20: exchange logotypes, and openspec cleanup
+
+Branch `feat/operator-panel-wordmarks`, cut from `origin/main` at `63addd4`. 7p.1 and 7p.2 as owner decision 77 reshapes them, plus the cleanup the owner agreed to on 2026-10-18 ("Dale"). Frontend and documentation: no backend file, no migration. Strict TDD for each frontend rule. Each test is seen failing on an assertion first.
+
+- [ ] p20.1 `exchangeName` moves to `shared/exchanges/exchange-name.ts`. An id with no `exchanges.<id>` entry shows with a capital initial, not as the API spells it (decision 77 Q2). Settings imports it from there.
+- [ ] p20.2 `shared/exchanges/ExchangeWordmark.tsx` draws each logotype as inline SVG:
+  - Binance's letters, Bybit's letters with its `I`, and Pionex's letters.
+  - Brand colours are `@theme` tokens in `index.css` (`--color-brand-binance`, `--color-brand-bybit`, `--color-brand-pionex`); there is no hex in a `className`. Bybit's other letters use `fill-ink`.
+  - The accessible name is `exchangeName`'s display name.
+  - An exchange with no logotype renders its display name as text.
+- [ ] p20.3 `ExchangeTabs` draws the logotype instead of the raw id. An unselected tab dims it, and the key mark under it is unchanged. Existing tests that find a tab by the raw id are re-pointed to the display name, and each such edit is recorded.
+- [ ] p20.4 The Settings card's `h3` draws the logotype, with the heading's accessible name unchanged ("Binance"). Messages that name the exchange inside a sentence stay text.
+- [ ] p20.5 `PoolEyebrow` shows the display name, in its uppercase style (7p.1's last place).
+- [ ] p20.6 Cleanup:
+  - The old follow-up boxes that PR 17 did are ticked with a pointer to the PR 17 task that did each: 7f.1-7f.5 and 8f.1-8f.5. Each mapping is checked against that task's evidence; one that was not done stays open with its reason.
+  - 9q.30 is closed as superseded: its points (2)-(5) need a dry-run fill, and production is live (decision 74).
+  - 7p.1 and 7p.2 are ticked with this PR's evidence.
+- [ ] p20.D.1 Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 17's 96 files / 2,844 tests. Backend untouched: `git diff --stat main -- backend` is empty.
+- [ ] p20.D.2 The owner sees the tabs and Settings on the fixture server before the push ("Si cambia algo, primero veo el resultado").
+- [ ] p20.D.3 Push and open the PR ONLY on the owner's word.
+- [ ] p20.D.4 Merge with a merge commit on the owner's word.
+- [ ] p20.D.5 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.
+- [ ] p20.D.6 The delivery log entry, in the branch of the next PR.
 
 ---
 
