@@ -218,8 +218,8 @@ describe("one panel per pool of the exchange", () => {
     const panels = await screen.findAllByTestId("pool-panel");
     expect(panels).toHaveLength(2);
     const [usdt, btc] = panels as [HTMLElement, HTMLElement];
-    expect(within(usdt).getByTestId("pool-eyebrow")).toHaveTextContent("bybit · linear · USDT");
-    expect(within(btc).getByTestId("pool-eyebrow")).toHaveTextContent("bybit · inverse · BTC");
+    expect(within(usdt).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit · linear · USDT");
+    expect(within(btc).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit · inverse · BTC");
 
     await waitFor(() => expect(within(usdt).getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
     await waitFor(() => expect(within(btc).getByTestId("ledger-lead")).toHaveTextContent("0.12500000"));
@@ -250,11 +250,11 @@ describe("one panel per pool of the exchange", () => {
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(5));
     expect(screen.getAllByTestId("pool-eyebrow").map((node) => node.textContent)).toEqual([
-      "pionex · usdt-m · USDT",
-      "pionex · spot · USDT",
-      "pionex · coin-m · BTC",
-      "pionex · coin-m · ETH2",
-      "pionex · coin-m · ETH",
+      "Pionex · usdt-m · USDT",
+      "Pionex · spot · USDT",
+      "Pionex · coin-m · BTC",
+      "Pionex · coin-m · ETH2",
+      "Pionex · coin-m · ETH",
     ]);
     // Ranking is not summing: no figure on the page is a total across pools.
     expect(document.body).not.toHaveTextContent("1,000.00");
@@ -265,10 +265,10 @@ describe("one panel per pool of the exchange", () => {
     renderAt(<AppRoutes />, "/");
     await screen.findAllByTestId("pool-panel");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "binance" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(1));
-    expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("binance · usdt-m · USDT");
+    expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("Binance · usdt-m · USDT");
     await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("777.00"));
   });
 

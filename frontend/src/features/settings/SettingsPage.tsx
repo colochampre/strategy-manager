@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
-import { exchangeName } from "@/features/settings/exchange-name";
+import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";

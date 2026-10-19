@@ -72,8 +72,13 @@ async function cardsDrawn(): Promise<HTMLElement[]> {
   return screen.getAllByRole("article");
 }
 
+/** A heading's name as it is drawn: the logotype's accessible name, or its text where it has none (decision 77). */
+function headingName(heading: HTMLElement): string {
+  return heading.querySelector('[role="img"]')?.getAttribute("aria-label") ?? heading.textContent ?? "";
+}
+
 function cardNames(): string[] {
-  return screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent ?? "");
+  return screen.getAllByRole("heading", { level: 3 }).map(headingName);
 }
 
 function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
@@ -96,7 +101,7 @@ describe("the page's structure", () => {
     mountPage();
     await cardsDrawn();
 
-    const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${heading.textContent}`);
+    const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
     expect(outline).toEqual(["H1 Settings", "H2 Exchange keys", "H3 Bybit", "H3 Binance"]);
   });
 
@@ -164,8 +169,8 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance", "kraken"]);
-    const kraken = screen.getByRole("article", { name: "kraken" });
+    expect(cardNames()).toEqual(["Bybit", "Binance", "Kraken"]);
+    const kraken = screen.getByRole("article", { name: "Kraken" });
     expect(within(kraken).queryByText("key ending in AB12")).toBeInTheDocument();
     expect(within(kraken).queryAllByRole("button")).toEqual([]);
   });
@@ -180,7 +185,7 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance", "alpha", "zeta", "mexc", "Pionex"]);
+    expect(cardNames()).toEqual(["Bybit", "Binance", "Alpha", "Zeta", "Mexc", "Pionex"]);
   });
 
   it("marks the degraded exchange amber and leaves an exchange whose pool is off neutral", async () => {
@@ -355,19 +360,21 @@ describe("the card and the tab agree", () => {
 
     const wordsOnTabs = new Map<string, string>();
     const view = renderAt(<AppRoutes />, "/");
-    await waitFor(() => expect(screen.queryAllByRole("button", { name: "kraken no key" }).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.queryAllByRole("button", { name: "Kraken no key" }).length).toBeGreaterThan(0));
     for (const tab of within(screen.getAllByRole("navigation", { name: "Exchanges" })[0] as HTMLElement).getAllByRole("button")) {
-      const name = tab.firstElementChild?.firstElementChild?.textContent ?? "";
-      wordsOnTabs.set(name, tab.textContent?.slice(name.length).trim() ?? "");
+      // The tab's name is its logotype's accessible name, or its text where it has none (owner decision 77).
+      const nameRow = tab.querySelector(".row-start-2");
+      const name = nameRow?.querySelector('[role="img"]')?.getAttribute("aria-label") ?? nameRow?.textContent ?? "";
+      wordsOnTabs.set(name, tab.querySelector(".row-start-3")?.textContent?.trim() ?? "");
     }
     view.unmount();
 
     renderAt(<AppRoutes />, "/settings");
     await cardsDrawn();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "kraken" })?.textContent).toContain("no key"));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Kraken" })?.textContent).toContain("no key"));
     for (const [exchange, word] of wordsOnTabs) {
-      const card = screen.queryAllByRole("article").find((article) => article.textContent?.toLowerCase().includes(exchange));
-      expect(card, exchange).toBeDefined();
+      const card = screen.queryByRole("article", { name: exchange });
+      expect(card, exchange).not.toBeNull();
       if (word === "") {
         expect(card?.textContent, exchange).not.toMatch(/read-only|no key/);
       } else {
@@ -375,10 +382,10 @@ describe("the card and the tab agree", () => {
       }
     }
     expect([...wordsOnTabs]).toEqual([
-      ["bybit", ""],
-      ["binance", "read-only"],
-      ["pionex", "no key"],
-      ["kraken", "no key"],
+      ["Bybit", ""],
+      ["Binance", "read-only"],
+      ["Pionex", "no key"],
+      ["Kraken", "no key"],
     ]);
   });
 });
@@ -417,7 +424,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(within(screen.getByRole("article", { name: "kraken" })).queryAllByRole("button")).toEqual([]);
+    expect(within(screen.getByRole("article", { name: "Kraken" })).queryAllByRole("button")).toEqual([]);
   });
 
   it("test_one_form_at_a_time: opening another card's form closes and unmounts the open one", async () => {
@@ -746,7 +753,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
     for (const bar of await screen.findAllByRole("navigation", { name: "Exchanges" })) {
-      await waitFor(() => expect(within(bar).queryByRole("button", { name: "bybit read-only" })).toBeInTheDocument());
+      await waitFor(() => expect(within(bar).queryByRole("button", { name: "Bybit read-only" })).toBeInTheDocument());
     }
   });
 

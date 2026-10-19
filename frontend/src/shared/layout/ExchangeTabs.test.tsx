@@ -57,10 +57,7 @@ describe("which routes show the tabs", () => {
     const bars = await screen.findAllByRole("navigation", { name: "Exchanges" });
     expect(bars).toHaveLength(2);
     for (const bar of bars) {
-      expect(within(bar).getAllByRole("button").map((tab) => tab.textContent)).toEqual([
-        "bybit",
-        "binance",
-      ]);
+      expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
     }
   });
 
@@ -110,20 +107,20 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    const pressed = await screen.findAllByRole("button", { name: "bybit", pressed: true });
+    const pressed = await screen.findAllByRole("button", { name: "Bybit", pressed: true });
     expect(pressed).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "binance", pressed: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Binance", pressed: true })).not.toBeInTheDocument();
   });
 
   it("selects the clicked exchange and persists it under sm.exchange", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    const tabs = await screen.findAllByRole("button", { name: "binance" });
+    const tabs = await screen.findAllByRole("button", { name: "Binance" });
     fireEvent.click(tabs[0] as HTMLElement);
 
-    expect(await screen.findAllByRole("button", { name: "binance", pressed: true })).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "bybit", pressed: true })).not.toBeInTheDocument();
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Bybit", pressed: true })).not.toBeInTheDocument();
     const raw = window.localStorage.getItem("sm.exchange");
     expect(JSON.parse(raw as string).state.selected).toBe("binance");
   });
@@ -131,12 +128,12 @@ describe("selection", () => {
   it("keeps the selection when moving between scoped routes", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
-    fireEvent.click((await screen.findAllByRole("button", { name: "binance" }))[0] as HTMLElement);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Binance" }))[0] as HTMLElement);
 
     fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
 
     await screen.findByRole("heading", { level: 1, name: "Strategies" });
-    expect(await screen.findAllByRole("button", { name: "binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
   });
 
   it("starts from a persisted exchange that is still an option", async () => {
@@ -149,7 +146,7 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
   });
 
   it("falls back to the first exchange when the persisted one is gone", async () => {
@@ -162,8 +159,8 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "bybit", pressed: true })).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "kraken" })).not.toBeInTheDocument();
+    expect(await screen.findAllByRole("button", { name: "Bybit", pressed: true })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Kraken" })).not.toBeInTheDocument();
   });
 });
 
@@ -219,7 +216,7 @@ describe("layout contract", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findAllByRole("button", { name: "bybit" });
+    await screen.findAllByRole("button", { name: "Bybit" });
     const [wide, narrow] = screen.getAllByRole("navigation", { name: "Exchanges" });
     const header = screen.getByRole("banner");
 
@@ -259,7 +256,7 @@ describe("layout contract", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findAllByRole("button", { name: "bybit" });
+    await screen.findAllByRole("button", { name: "Bybit" });
     for (const bar of screen.getAllByRole("navigation", { name: "Exchanges" })) {
       for (const node of [bar, ...within(bar).getAllByRole("button")]) {
         expect(node.className).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
@@ -289,7 +286,7 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
 
 /** The two surfaces of the tabs: the bar from `lg` and the row below it on a phone. */
 async function bothBars(): Promise<HTMLElement[]> {
-  await screen.findAllByRole("button", { name: /bybit/ });
+  await screen.findAllByRole("button", { name: /Bybit/ });
   const bars = screen.getAllByRole("navigation", { name: "Exchanges" });
   expect(bars).toHaveLength(2);
   return bars;
@@ -301,6 +298,11 @@ async function tabNamed(bar: HTMLElement, name: string): Promise<HTMLElement> {
   return within(bar).getByRole("button", { name });
 }
 
+/** A tab's name as it is drawn: its logotype's accessible name, or its text where it has no logotype (decision 77). */
+function drawnName(element: Element): string {
+  return element.querySelector('[role="img"]')?.getAttribute("aria-label") ?? element.textContent ?? "";
+}
+
 describe("the key mark of a tab (design § E), in both surfaces", () => {
   const BOTH_ON = [pool("bybit"), pool("binance")];
   const BINANCE_OFF = [pool("bybit"), disabled("binance")];
@@ -310,7 +312,7 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       "a key that cannot trade",
       credentialsOk(storedKey("bybit"), storedKey("binance", { trade_capable: false })),
       BOTH_ON,
-      "binance read-only",
+      "Binance read-only",
       "read-only",
       "text-decision",
     ],
@@ -318,7 +320,7 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       "no key and a pool on",
       credentialsOk(storedKey("bybit"), emptyKey("binance")),
       BOTH_ON,
-      "binance no key",
+      "Binance no key",
       "no key",
       "text-decision",
     ],
@@ -326,7 +328,7 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       "no key and a pool on, the exchange not listed at all",
       credentialsOk(storedKey("bybit")),
       BOTH_ON,
-      "binance no key",
+      "Binance no key",
       "no key",
       "text-decision",
     ],
@@ -334,7 +336,7 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       "a deleted key: no key and no pool on",
       credentialsOk(storedKey("bybit"), emptyKey("binance")),
       BINANCE_OFF,
-      "binance no key",
+      "Binance no key",
       "no key",
       "text-ink-3",
     ],
@@ -342,7 +344,7 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       "an exchange never keyed: not listed and no pool on",
       credentialsOk(storedKey("bybit")),
       BINANCE_OFF,
-      "binance no key",
+      "Binance no key",
       "no key",
       "text-ink-3",
     ],
@@ -355,8 +357,8 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
       expect(mark).toHaveClass(tone);
       expect(mark).not.toHaveClass(tone === "text-decision" ? "text-ink-3" : "text-decision");
       // The exchange whose key trades is its name alone: no mark, nothing after the name.
-      const plain = within(bar).getByRole("button", { name: "bybit" });
-      expect(plain.textContent).toBe("bybit");
+      const plain = within(bar).getByRole("button", { name: "Bybit" });
+      expect([drawnName(plain), plain.textContent]).toEqual(["Bybit", ""]);
     }
   });
 
@@ -364,9 +366,10 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
     renderTabs(BOTH_ON, credentialsOk(storedKey("bybit"), storedKey("binance", { trade_capable: false })));
 
     for (const bar of await bothBars()) {
-      await tabNamed(bar, "binance read-only");
-      expect(within(bar).queryByRole("button", { name: "bybit" })).toBeInTheDocument();
-      expect(within(bar).getByRole("button", { name: "bybit" }).textContent).toBe("bybit");
+      await tabNamed(bar, "Binance read-only");
+      expect(within(bar).queryByRole("button", { name: "Bybit" })).toBeInTheDocument();
+      const plain = within(bar).getByRole("button", { name: "Bybit" });
+      expect([drawnName(plain), plain.textContent]).toEqual(["Bybit", ""]);
     }
   });
 
@@ -379,12 +382,12 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
     // Neither exchange has a key that trades here, so any mark drawn would be a claim made on nothing.
     const fetchMock = renderTabs([pool("bybit"), pool("binance")], stub);
 
-    await screen.findAllByRole("button", { name: "bybit" });
+    await screen.findAllByRole("button", { name: "Bybit" });
     await waitFor(() => expect(credentialCalls(fetchMock)).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     for (const bar of screen.getAllByRole("navigation", { name: "Exchanges" })) {
-      expect(within(bar).getAllByRole("button").map((tab) => tab.textContent)).toEqual(["bybit", "binance"]);
+      expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
       expect(bar.querySelector(".row-start-3")).toBeNull();
     }
   });
@@ -398,16 +401,16 @@ describe("the structure that keeps a tab's name at the same place (jsdom has no 
     emptyKey("pionex"),
   );
   const MARKED = new Map([
-    ["binance", "read-only"],
-    ["pionex", "no key"],
-    ["kraken", "no key"],
+    ["Binance", "read-only"],
+    ["Pionex", "no key"],
+    ["Kraken", "no key"],
   ]);
 
   it("gives every tab, marked or not, the same grid, one name in the middle row and a mark in the last", async () => {
     renderTabs(MIXED, CREDENTIALS);
 
     for (const bar of await bothBars()) {
-      await tabNamed(bar, "kraken no key");
+      await tabNamed(bar, "Kraken no key");
       const tabs = within(bar).getAllByRole("button");
       expect(tabs).toHaveLength(4);
       const nameClasses = new Set<string>();
@@ -426,20 +429,20 @@ describe("the structure that keeps a tab's name at the same place (jsdom has no 
         expect(names).toHaveLength(1);
         nameClasses.add(String(names[0]?.className));
 
-        const exchange = names[0]?.textContent ?? "";
+        const exchange = names[0] === undefined ? "" : drawnName(names[0]);
         const markText = MARKED.get(exchange);
         const marks = Array.from(grid.children).filter((child) => child.classList.contains("row-start-3"));
         if (markText === undefined) {
-          // No mark: exactly one element in the grid, and the button's text is the name alone.
+          // No mark: exactly one element in the grid, and the button's accessible name is the name alone.
           expect(grid.children).toHaveLength(1);
           expect(marks).toHaveLength(0);
-          expect(tab.textContent).toBe(exchange);
+          expect(tab).toHaveAccessibleName(exchange);
         } else {
           expect(grid.children).toHaveLength(2);
           expect(marks).toHaveLength(1);
           expect(marks[0]).toHaveTextContent(markText);
           // The accessible name is the name, a space and the mark; the space is a real text node.
-          expect(tab.textContent).toBe(`${exchange} ${markText}`);
+          expect(tab).toHaveAccessibleName(`${exchange} ${markText}`);
           expect(Array.from(grid.childNodes).some((node) => node.nodeType === 3 && node.textContent === " ")).toBe(
             true,
           );
@@ -454,7 +457,7 @@ describe("the structure that keeps a tab's name at the same place (jsdom has no 
     renderTabs(MIXED, CREDENTIALS);
 
     for (const bar of await bothBars()) {
-      await tabNamed(bar, "kraken no key");
+      await tabNamed(bar, "Kraken no key");
       for (const tab of within(bar).getAllByRole("button")) {
         expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap");
         expect(tab).not.toHaveClass("shrink-0");
@@ -485,7 +488,7 @@ describe("the tab and the card take the pools by one rule (task 13.5.0)", () => 
       </QueryClientProvider>,
     );
     for (const bar of await bothBars()) {
-      expect(within(await tabNamed(bar, "binance no key")).getByText("no key")).toHaveClass("text-decision");
+      expect(within(await tabNamed(bar, "Binance no key")).getByText("no key")).toHaveClass("text-decision");
     }
 
     poolsFail = true;
@@ -516,7 +519,7 @@ describe("the tabs read the credentials", () => {
     const fetchMock = stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findAllByRole("button", { name: "bybit" });
+    await screen.findAllByRole("button", { name: "Bybit" });
     await waitFor(() => expect(credentialCalls(fetchMock).length).toBeGreaterThan(0));
     const index = fetchMock.mock.calls.findIndex(([url]) => String(url).endsWith("/credentials"));
     const answer = (await fetchMock.mock.results[index]?.value) as Response;
@@ -530,6 +533,42 @@ describe("the tabs read the credentials", () => {
     expect(source).toMatch(/keyMark\(\s*keyState\(/);
     expect(source).toContain('"@/shared/credentials/key-state"');
     expect(source).not.toMatch(/\b(?:bg|text|border|ring|outline|fill|stroke|divide)-decision\b/);
+  });
+});
+
+describe("the exchange's logotype on its tab (owner decision 77)", () => {
+  const FOUR = [pool("bybit"), pool("binance"), pool("pionex"), pool("kraken")];
+  const ALL_KEYED = credentialsOk(storedKey("bybit"), storedKey("binance"), storedKey("pionex"), storedKey("kraken"));
+
+  it("draws each known exchange's logotype, named by its display name, and a capitalised name where there is none", async () => {
+    renderTabs(FOUR, ALL_KEYED);
+
+    for (const bar of await bothBars()) {
+      await tabNamed(bar, "Kraken");
+      const tabs = within(bar).getAllByRole("button");
+      expect(tabs.map((tab) => within(tab).queryByRole("img")?.getAttribute("aria-label") ?? tab.textContent)).toEqual([
+        "Bybit",
+        "Binance",
+        "Pionex",
+        "Kraken",
+      ]);
+    }
+  });
+
+  it("dims the logotype of every tab but the selected one", async () => {
+    renderTabs(FOUR, ALL_KEYED);
+
+    for (const bar of await bothBars()) {
+      await tabNamed(bar, "Kraken");
+      const dimmed = within(bar)
+        .getAllByRole("img")
+        .map((image) => [image.getAttribute("aria-label"), image.classList.contains("opacity-55")]);
+      expect(dimmed).toEqual([
+        ["Bybit", false],
+        ["Binance", true],
+        ["Pionex", true],
+      ]);
+    }
   });
 });
 

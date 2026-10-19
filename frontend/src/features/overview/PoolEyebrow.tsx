@@ -1,3 +1,7 @@
+import { useTranslation } from "react-i18next";
+
+import { exchangeName } from "@/shared/exchanges/exchange-name";
+
 interface PoolEyebrowProps {
   exchange: string;
   venue: string;
@@ -6,17 +10,17 @@ interface PoolEyebrowProps {
 }
 
 /**
- * `{EXCHANGE} · {VENUE} · {CCY}`. The text is the raw identifier the API uses;
- * capitalised display names are a separate polish (task 7p.1), and the style
- * upper-cases it.
+ * `{EXCHANGE} · {VENUE} · {CCY}`. The exchange is its display name (task 7p.1, owner decision 77), the venue
+ * and the currency are the API's identifiers, and the style upper-cases all three.
  */
 export function PoolEyebrow({ exchange, venue, currency }: PoolEyebrowProps) {
+  const { t, i18n } = useTranslation();
   return (
     <p
       data-testid="pool-eyebrow"
       className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3"
     >
-      {`${exchange} · ${venue} · ${currency}`}
+      {`${exchangeName(t, i18n, exchange)} · ${venue} · ${currency}`}
     </p>
   );
 }

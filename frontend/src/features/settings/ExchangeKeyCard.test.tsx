@@ -59,15 +59,34 @@ describe("the card's shell", () => {
     ["bybit", "Bybit"],
     ["binance", "Binance"],
     ["pionex", "Pionex"],
-    ["kraken", "kraken"],
+    ["kraken", "Kraken"],
   ])("is an article named by its one h3, the proper name of %s: %s", (exchange, name) => {
     renderCard({ exchange, entry: stored(exchange) });
 
     expect(screen.queryByRole("article", { name })).toBeInTheDocument();
     const headings = screen.getAllByRole("heading");
     expect(headings).toHaveLength(1);
-    expect(headings[0]).toHaveTextContent(name);
+    expect(headings[0]).toHaveAccessibleName(name);
     expect(headings[0]?.tagName).toBe("H3");
+  });
+
+  it.each([
+    ["bybit", "Bybit"],
+    ["binance", "Binance"],
+    ["pionex", "Pionex"],
+  ])("draws %s's logotype as its heading, named %s (owner decision 77)", (exchange, name) => {
+    renderCard({ exchange, entry: stored(exchange) });
+
+    const heading = screen.getByRole("heading", { level: 3 });
+    expect([within(heading).queryByRole("img")?.getAttribute("aria-label"), heading.textContent]).toEqual([name, ""]);
+    expect(heading).toHaveAccessibleName(name);
+  });
+
+  it("writes the capitalised name as the heading of an exchange with no logotype", () => {
+    renderCard({ exchange: "kraken", entry: stored("kraken") });
+
+    const heading = screen.getByRole("heading", { level: 3 });
+    expect([within(heading).queryByRole("img"), heading.textContent]).toEqual([null, "Kraken"]);
   });
 
   it("has the card's classes and the grid that puts the actions beside the head from sm", () => {
