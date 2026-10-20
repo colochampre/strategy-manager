@@ -6066,7 +6066,7 @@ Branch `docs/operator-panel-live-confirmed`, cut from `origin/main` at `1b4ecda`
 - [x] p23.1 **Done 2026-10-20.** live.1 ticked with the evidence the owner read from the panel, from Binance and from the VPS.
 - [x] p23.2 **Done 2026-10-20.** set.1 recorded, with the owner's words verbatim. Not built.
 - [x] p23.D.1 **Done 2026-10-20.** `git diff --stat` names `tasks.md` alone among the files committed, and `git diff --check` is clean. The open boxes are 11f.1, cd.D.9, set.1 and p23.D.2-D.5. Structural readback of the diff: only `tasks.md` changes, and no source file.
-- [ ] p23.D.2 Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
+- [x] p23.D.2 **Done 2026-10-20** on the owner's "Si, push y PR". Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
 - [ ] p23.D.3 Merge with a merge commit on the owner's word.
 - [ ] p23.D.4 **Owner step, after the merge:** pull as `strategy`. No restart and no pps.6.
 - [ ] p23.D.5 The delivery log entry, in the branch of the next PR.
