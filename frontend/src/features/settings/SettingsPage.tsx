@@ -6,7 +6,8 @@ import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
-import { useCredentials } from "@/shared/api/credentials";
+import { NewKeyControl } from "@/features/settings/NewKeyControl";
+import { type CredentialEntry, useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
 import served from "@/shared/credentials/served-exchanges.json";
@@ -49,9 +50,20 @@ export function SettingsPage() {
   const [openForm, setOpenForm] = useState<string | null>(null);
   /** A save is in flight: every button of every card is disabled meanwhile. */
   const [saving, setSaving] = useState(false);
-  /** Which toggle should have the focus once the form has left the document; a new object each time asks again. */
-  const [focusRequest, setFocusRequest] = useState<{ exchange: string } | null>(null);
+  /**
+   * Which toggle should have the focus once the form has left the document; a new object each time asks again.
+   * `New key` takes it when that card is gone, or when `exchange` is `null`.
+   */
+  const [focusRequest, setFocusRequest] = useState<{ exchange: string | null } | null>(null);
   const toggles = useRef(new Map<string, HTMLButtonElement>());
+  const newKeyButton = useRef<HTMLButtonElement>(null);
+  /** The select of `New key` while it is open, with the exchange chosen in it (decision 80). */
+  const [adding, setAdding] = useState<{ chosen: string | null } | null>(null);
+  /**
+   * The exchange whose `Delete key` dialog is open. Its card stays while the dialog does, even once the list says it
+   * has no key: a delete whose answer was lost must say so on screen, and the dialog lives in the card.
+   */
+  const [deleting, setDeleting] = useState<string | null>(null);
   const queryClient = useQueryClient();
   /**
    * The last save that worked, kept until the owner does the next thing on the page. `last4` is the answer's, only
@@ -70,7 +82,9 @@ export function SettingsPage() {
   const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
-    if (focusRequest !== null) toggles.current.get(focusRequest.exchange)?.focus();
+    if (focusRequest === null) return;
+    const toggle = focusRequest.exchange === null ? undefined : toggles.current.get(focusRequest.exchange);
+    (toggle ?? newKeyButton.current)?.focus();
   }, [focusRequest]);
 
   /** The next thing the owner does ends the notice of a save: no timer (design § F). */
@@ -81,7 +95,30 @@ export function SettingsPage() {
 
   function openFormOf(exchange: string) {
     endNotice();
+    // Another card's form: the page holds one form at a time, so the select of `New key` closes.
+    if (adding?.chosen !== exchange) setAdding(null);
     setOpenForm(exchange);
+  }
+
+  /** `New key` was pressed: its select replaces it, and any open form closes. */
+  function openNewKey() {
+    endNotice();
+    setOpenForm(null);
+    setAdding({ chosen: null });
+  }
+
+  /** An exchange was chosen in the select: its card is drawn under it with the form open. */
+  function chooseNewKey(exchange: string) {
+    endNotice();
+    setAdding({ chosen: exchange });
+    setOpenForm(exchange);
+  }
+
+  /** Cancel, or the chosen card's form closed: the select and the card go, and `New key` takes the focus. */
+  function cancelNewKey() {
+    setAdding(null);
+    setOpenForm(null);
+    setFocusRequest({ exchange: null });
   }
 
   /**
@@ -89,6 +126,7 @@ export function SettingsPage() {
    * toggle, which is `Add key` now, because the `Delete key` the owner pressed is gone.
    */
   function deleted(exchange: string) {
+    setDeleting(null);
     setAnnouncement(t("settings.delete.deletedStatus", { exchange: exchangeName(t, i18n, exchange) }));
     setFocusRequest({ exchange });
   }
@@ -110,6 +148,8 @@ export function SettingsPage() {
         .join(" "),
     );
     setOpenForm(null);
+    // A key saved from the select's card: the card joins the list, so the select closes.
+    if (adding?.chosen === exchange) setAdding(null);
     setFocusRequest({ exchange });
   }
 
@@ -126,6 +166,10 @@ export function SettingsPage() {
 
   /** Closes the form of `exchange` (unmounting and so emptying it) and returns the focus to the toggle that opened it. */
   function closeForm(exchange: string) {
+    if (adding?.chosen === exchange) {
+      cancelNewKey();
+      return;
+    }
     setOpenForm(null);
     setFocusRequest({ exchange });
   }
@@ -147,8 +191,32 @@ export function SettingsPage() {
           (exchange) =>
             credentials.data.some((row) => row.exchange === exchange && row.status === "STORED") ||
             poolOn(exchange, poolList) === true ||
-            justSaved(exchange),
+            justSaved(exchange) ||
+            deleting === exchange,
         );
+  /** What `New key` offers: the served exchanges with no card, in the file's order (decision 80 Q1). */
+  const available = SERVED.filter((exchange) => !cards.includes(exchange));
+  const chosen = adding?.chosen ?? null;
+
+  /** The key form of one card, the same on a card of the list and on the select's card. */
+  function formOf(exchange: string, data: readonly CredentialEntry[]) {
+    return (
+      <KeyEntryForm
+        id={`key-form-${exchange}`}
+        exchange={exchange}
+        name={exchangeName(t, i18n, exchange)}
+        hasKey={
+          data.some((row) => row.exchange === exchange && row.status === "STORED") ||
+          // A key saved a moment ago is stored even if the list has not been read again.
+          justSaved(exchange)
+        }
+        confirmations={CONFIRMATIONS[exchange] ?? []}
+        onClose={() => closeForm(exchange)}
+        onSaved={(answer) => saved(exchange, answer)}
+        onBusyChange={setSaving}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -228,30 +296,44 @@ export function SettingsPage() {
                         name={exchangeName(t, i18n, exchange)}
                         last4={listedLast4(exchange)}
                         disabled={openForm === exchange || saving}
-                        onOpen={endNotice}
+                        onOpen={() => {
+                          endNotice();
+                          setDeleting(exchange);
+                        }}
                         onDeleted={() => deleted(exchange)}
                         onFocusFallback={() => setFocusRequest({ exchange })}
+                        onClosed={() => setDeleting(null)}
                       />
                     }
                   >
-                    <KeyEntryForm
-                      id={`key-form-${exchange}`}
-                      exchange={exchange}
-                      name={exchangeName(t, i18n, exchange)}
-                      hasKey={
-                        credentials.data.some((row) => row.exchange === exchange && row.status === "STORED") ||
-                        // A key saved a moment ago is stored even if the list has not been read again.
-                        justSaved(exchange)
-                      }
-                      confirmations={CONFIRMATIONS[exchange] ?? []}
-                      onClose={() => closeForm(exchange)}
-                      onSaved={(answer) => saved(exchange, answer)}
-                      onBusyChange={setSaving}
-                    />
+                    {formOf(exchange, credentials.data)}
                   </ExchangeKeyCard>
                 </li>
               ))}
             </ul>
+            <NewKeyControl
+              available={available}
+              open={adding !== null}
+              chosen={chosen}
+              busy={saving}
+              onOpen={openNewKey}
+              onChoose={chooseNewKey}
+              onCancel={cancelNewKey}
+              buttonRef={newKeyButton}
+            />
+            {chosen !== null && available.includes(chosen) && (
+              <ExchangeKeyCard
+                exchange={chosen}
+                entry={credentials.data.find((row) => row.exchange === chosen)}
+                poolOn={poolOn(chosen, poolList)}
+                served
+                open={openForm === chosen}
+                busy={saving}
+                onToggle={() => (openForm === chosen ? cancelNewKey() : openFormOf(chosen))}
+              >
+                {formOf(chosen, credentials.data)}
+              </ExchangeKeyCard>
+            )}
           </>
         )}
       </section>

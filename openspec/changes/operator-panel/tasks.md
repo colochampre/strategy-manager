@@ -6082,14 +6082,30 @@ Branch `feat/operator-panel-add-key`, cut from `origin/main` at `63b9eb4`. Task 
   - the delete tests expect the card to go when the pool is off, and one new test keeps it, degraded, when the pool is on.
 
   Focus after a delete that removes the card moves to p24.5. `src/features/settings`: 7 files / 397 tests green, `npm run lint` 0. Which cards the page draws. A card for an exchange whose key is stored (served or not), for one that is degraded (no key and an enabled pool known), and for one whose key was just saved while the list is read again. No other exchange has a card. The order is `exchangeList`'s.
-- [ ] p24.2 The `New key` button, under the cards. Shown only while at least one served exchange has no card. Disabled while a save is in flight.
-- [ ] p24.3 The select.
+- [x] p24.2-p24.6 **Done 2026-10-20**, in one commit: the button, the select, the chosen card, the end of a save or a delete, and the Spanish all live in `NewKeyControl.tsx` and the page's state.
+  - **RED:** 10 of the 12 new tests failed on assertions (`expect(received).toBeInTheDocument()` for `New key`).
+  - **Passed at once, then proven:**
+    - The two "is not drawn" tests went red when `available` was set to every served exchange, and so did "does not offer an exchange that already has a card".
+    - The save test went red when the select was left open after a save from its card. To make it bite, it starts with no key, so Bybit is still on offer.
+    - The two delete-focus tests went red when `New key` no longer took the focus of a card that was gone.
+    - The lost-answer test went red when the card was not kept while its dialog was open.
+    - Each break was undone.
+  - **Found while building:** removing a keyless card also removed its open `Delete key` dialog. A delete whose answer was lost would then lose its message. The page now keeps the card while its dialog is open, through a new `onClosed` on `DeleteKeyControl`.
+  - **The texts:** "New key" / "Nueva clave", "Exchange", "Choose an exchange" / "Elija un exchange", "Cancel" / "Cancelar".
+- [x] p24.2 The `New key` button, under the cards. Shown only while at least one served exchange has no card. Disabled while a save is in flight.
+- [x] p24.3 The select.
   - Pressing `New key` replaces it with a select labelled "Exchange", focused. The select has a placeholder option and the served exchanges with no card, in the file's order, by display name.
   - Cancel beside it closes it, and the focus returns to `New key`.
-- [ ] p24.4 The chosen exchange's card, under the select, with its key form open (the same form, with its confirmations). Choosing another exchange swaps the card. The form's Cancel closes the select and the card, and the focus returns to `New key`. Opening another card's form closes the select.
-- [ ] p24.5 After a save from that card, the select closes and the card joins the list from the answer, with the focus on its `Replace key`. After a delete that leaves an exchange with no card, the focus goes to `New key`. The status region speaks as it does today in both cases.
-- [ ] p24.6 Spanish: "Nueva clave", "Exchange", the placeholder and Cancel, in "usted" where a sentence needs it.
-- [ ] p24.D.1 Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 22's 101 files / 2,895 tests. Backend untouched: `git diff --stat main -- backend` is empty.
+- [x] p24.4 The chosen exchange's card, under the select, with its key form open (the same form, with its confirmations). Choosing another exchange swaps the card. The form's Cancel closes the select and the card, and the focus returns to `New key`. Opening another card's form closes the select.
+- [x] p24.5 After a save from that card, the select closes and the card joins the list from the answer, with the focus on its `Replace key`. After a delete that leaves an exchange with no card, the focus goes to `New key`. The status region speaks as it does today in both cases.
+- [x] p24.6 Spanish: "Nueva clave", "Exchange", the placeholder and Cancel, in "usted" where a sentence needs it.
+- [x] p24.D.1 **Done 2026-10-20.**
+  - `npm run lint` 0.
+  - `vitest` 101 files / 2,912 passed, against PR 22's 101 / 2,895: +17 tests and no new file (the tests are in `SettingsPage.test.tsx`).
+  - `npm run build` 0, with the usual chunk-size warning.
+  - `git diff --stat main -- backend` is empty.
+
+  Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 22's 101 files / 2,895 tests. Backend untouched: `git diff --stat main -- backend` is empty.
 - [ ] p24.D.2 The owner sees it on the fixture server before the push ("Si cambia algo, primero veo el resultado"). Push and open the PR ONLY on the owner's word.
 - [ ] p24.D.3 Merge with a merge commit on the owner's word.
 - [ ] p24.D.4 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.

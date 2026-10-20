@@ -556,7 +556,11 @@
       "error": "No se pudieron cargar las claves de los exchanges.",
       "retry": "Reintentar",
       "stale": "Esta lista no se pudo actualizar y puede estar desactualizada.",
-      "poolsUnknown": "No se pudieron cargar los pools, así que aquí no se marca un exchange sin clave."
+      "poolsUnknown": "No se pudieron cargar los pools, así que aquí no se marca un exchange sin clave.",
+      "newKey": "Nueva clave",
+      "exchange": "Exchange",
+      "choose": "Elija un exchange",
+      "cancel": "Cancelar"
     },
     "card": {
       "keyLabel": "clave",

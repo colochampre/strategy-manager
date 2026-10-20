@@ -271,6 +271,8 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     expect(status).toHaveAttribute("role", "status");
     expect(status).toHaveClass("sr-only");
     expect(status.closest("article")).toBeNull();
+    // The card whose button had the focus is gone, so `New key`, which now offers Bybit, takes it (p24.5).
+    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
   });
 
   it("keeps the card, degraded with `Add key`, when the exchange's pool is still on", async () => {
@@ -345,7 +347,7 @@ describe("a delete that did not work leaves the card telling the truth", () => {
     expect(screen.queryByText(DELETED_STATUS)).not.toBeInTheDocument();
   });
 
-  it("test_a_lost_answer_after_a_delete_that_worked: the dialog says it is not known, and the page behind it shows no key", async () => {
+  it("test_a_lost_answer_after_a_delete_that_worked: the dialog says it is not known, and the card behind it shows no key", async () => {
     deletePage({ onDelete: () => Promise.resolve(jsonResponse({ detail: DETAIL }, 500)), serverDeletes: true });
     await cardsDrawn();
 
@@ -353,11 +355,17 @@ describe("a delete that did not work leaves the card telling the truth", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The delete ended in a way this panel cannot read.");
-    // The re-read found no key and no pool on: Bybit has no card left behind the dialog (decision 80).
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
+    // The re-read found no key and no pool on, but the card stays while its dialog is open (decision 80).
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add key Bybit" })).toBeInTheDocument());
+    expect(alert).toBeInTheDocument();
     expect(deleteButton()).not.toBeInTheDocument();
     expect(screen.queryByText(DELETED_STATUS)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(DETAIL);
+
+    // Closing the dialog lets the card go, so the page takes the focus to `New key` (p24.5).
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
   });
 
   it("test_a_delete_whose_page_left_still_reads_both_lists_again", async () => {
