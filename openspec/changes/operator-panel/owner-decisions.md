@@ -528,6 +528,17 @@ Taken with the owner on 2026-09-24. Engram mirrors: `project/frontend-decisions`
       - `/api` is reached only through the Cloudflare Tunnel behind Access. Caddy forwards `/webhook/tradingview` alone. So nobody outside Access can send the malformed body.
       - The 422 is already redacted.
     - **X.5** is PR 22: a test that pins both locale files to one key set, and every key the sources name to both files.
+80. **Settings shows the exchanges that hold a key, and a `New key` button adds one** (2026-10-20, owner, task set.1). The request (2026-10-19): "en Settings, en vez de mostrar las plataformas soportadas en tarjetas sin key, mostrar una opción agregar plataforma, y en un select (si corresponde) mostrar las plataformas soportadas (las que sabemos que disponen de API), como binance, pionex y bybit. Allí se agregarían más plataformas a medida que les demos soporte, como OKX, Exness, etc. De esta manera, si el usuario solo tiene una key activa, vería solo esa tarjeta, y un botón de New key". Then: "Dale, seguimos con set.1".
+    - **Q1, what the select offers (2026-10-20):** the owner chose "Solo los que el panel sirve", over listing Pionex and over showing unsupported exchanges disabled. The options are the exchanges of `served-exchanges.json` (Bybit and Binance today) that have no card. Pionex is not offered. The panel does not manage its key: the save route answers 404 for it (`credentials_router.py:22`), and Pionex offers no futures order placement over its API. A new exchange appears in the select once the backend serves it and the file lists it.
+    - **Q2, an exchange with no key and an enabled pool (2026-10-20):** the owner chose "Mantener su tarjeta ámbar". Its card stays, degraded, with its `Add key` button, because a pool that is on cannot trade without a key. The cards that go are those of an exchange with no key and no enabled pool.
+    - **Q3, the flow (2026-10-20):** the owner chose "Botón → selector → tarjeta con formulario" over going straight to the form when only one exchange is left. The button, under the cards, opens a select of the exchanges that can be added. Choosing one draws its card with the key form already open: the same form, with Binance's confirmations. Cancel closes everything, and the card goes. The select appears even when only one exchange is left. When none is left, the button is not shown.
+    - **Q4, the button's text (2026-10-20):** the owner chose "Nueva clave / New key" over "Agregar exchange" and "Agregar plataforma". The select is labelled "Exchange".
+    - **Read from the existing page, not asked:**
+      - A stored key always has its card, whether or not the panel serves its exchange (Pionex's today, with no buttons).
+      - A key saved a moment ago keeps its card while the list is read again.
+      - The page still holds one open form at a time. Opening another card's form closes the select.
+      - When the card whose button had the focus is gone, after a delete or a cancel, the focus goes to `New key`.
+      - The delivery log's "Production now" (last confirmed on this point 2026-10-02) has the vault holding a key for Binance, Bybit and Pionex. If that still holds, the page shows the same three cards as before, and no `New key` until a key is deleted.
 
 ## Standing constraints
 

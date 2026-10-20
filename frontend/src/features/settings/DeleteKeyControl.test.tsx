@@ -255,15 +255,15 @@ describe("opening and closing the dialog", () => {
 });
 
 describe("the end of a delete that worked (spec: the empty state is the one of a key never configured)", () => {
-  it("closes the dialog on a card that is already the new one, says it in the status region and focuses Add key", async () => {
+  it("closes the dialog, takes the card away when the exchange's pool is off, and says it in the status region", async () => {
     deletePage();
     await cardsDrawn();
 
     await confirmDelete();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    // The lists were read again before the dialog closed: the card behind it is the new one at once.
-    expect(screen.queryByRole("button", { name: "Add key Bybit" })).toBeInTheDocument();
+    // The lists were read again before the dialog closed: with no key and no pool on, Bybit has no card (decision 80).
+    expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument();
     expect(deleteButton()).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(OLD_LAST4);
 
@@ -271,29 +271,43 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     expect(status).toHaveAttribute("role", "status");
     expect(status).toHaveClass("sr-only");
     expect(status.closest("article")).toBeNull();
+    // The card whose button had the focus is gone, so `New key`, which now offers Bybit, takes it (p24.5).
+    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
+  });
+
+  it("keeps the card, degraded with `Add key`, when the exchange's pool is still on", async () => {
+    deletePage({ poolsAfter: [pool("bybit")] });
+    await cardsDrawn();
+
+    await confirmDelete();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Add key Bybit" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Add key Bybit" })).toHaveFocus());
   });
 
-  it("test_confirmed_successful_delete_shows_same_empty_state_as_never_configured: the card's markup is the same", async () => {
-    deletePage();
+  it("test_confirmed_successful_delete_shows_same_empty_state_as_never_configured: no card on either page", async () => {
+    // Binance keeps its key on both pages, so each page has one card to compare.
+    deletePage({
+      credentials: [storedKey("bybit", { last4: OLD_LAST4 }), storedKey("binance")],
+      afterDelete: [emptyKey("bybit"), storedKey("binance")],
+    });
     await cardsDrawn();
     await confirmDelete();
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Add key Bybit" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    // Ids come from the order of rendering; what is compared is the markup.
-    const normalise = (html: string) => html.replace(/\b(id|aria-labelledby|aria-controls|for)="[^"]*"/g, '$1=""');
-    const afterDelete = normalise(card("Bybit").innerHTML);
+    const afterDelete = screen.getAllByRole("article").map((article) => article.textContent);
     cleanup();
 
     deletePage({
-      credentials: [emptyKey("bybit"), emptyKey("binance")],
+      credentials: [emptyKey("bybit"), storedKey("binance")],
       poolsBefore: [disabledPool("bybit")],
     });
     await cardsDrawn();
-    const neverConfigured = normalise(card("Bybit").innerHTML);
+    const neverConfigured = screen.getAllByRole("article").map((article) => article.textContent);
 
-    expect(afterDelete).toContain("Add key");
-    expect(afterDelete).toBe(neverConfigured);
+    expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument();
+    expect(afterDelete).toEqual(neverConfigured);
   });
 
   it("makes that exchange's tab read `no key` in grey", async () => {
@@ -341,14 +355,17 @@ describe("a delete that did not work leaves the card telling the truth", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The delete ended in a way this panel cannot read.");
+    // The re-read found no key and no pool on, but the card stays while its dialog is open (decision 80).
     await waitFor(() => expect(screen.queryByRole("button", { name: "Add key Bybit" })).toBeInTheDocument());
+    expect(alert).toBeInTheDocument();
     expect(deleteButton()).not.toBeInTheDocument();
     expect(screen.queryByText(DELETED_STATUS)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(DETAIL);
 
-    // `Delete key` is gone, so the page takes the focus to the card's toggle.
+    // Closing the dialog lets the card go, so the page takes the focus to `New key` (p24.5).
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add key Bybit" })).toHaveFocus());
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
   });
 
   it("test_a_delete_whose_page_left_still_reads_both_lists_again", async () => {

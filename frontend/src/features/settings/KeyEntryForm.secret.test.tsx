@@ -116,7 +116,8 @@ function setup(respond: () => Promise<Response>, lists: { credentials?: () => un
     }
     return undefined;
   };
-  const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit")] }, {}, extra);
+  // Binance's pool is on, so its card is there with no key (decision 80): a second form to open.
+  const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit"), pool("binance")] }, {}, extra);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>

@@ -19,6 +19,11 @@ export interface DeleteKeyControlProps {
   onDeleted?: () => void;
   /** The dialog closed and the card has no `Delete key` to take the focus back: the page picks it up. */
   onFocusFallback?: () => void;
+  /**
+   * The dialog closed without a delete that worked, and the focus has been placed. The page keeps a card with no key
+   * in the document while its dialog is open (decision 80); from here it may let it go.
+   */
+  onClosed?: () => void;
 }
 
 /**
@@ -39,6 +44,7 @@ export function DeleteKeyControl({
   onOpen,
   onDeleted,
   onFocusFallback,
+  onClosed,
 }: DeleteKeyControlProps) {
   const { t } = useTranslation();
   const remove = useDeleteCredential();
@@ -55,6 +61,7 @@ export function DeleteKeyControl({
     if (refocus === 0) return;
     if (button.current !== null) button.current.focus();
     else onFocusFallback?.();
+    onClosed?.();
     // Only a new closing asks for the focus, not a new callback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refocus]);

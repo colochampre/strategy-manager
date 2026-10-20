@@ -102,7 +102,7 @@ describe("the page's structure", () => {
     await cardsDrawn();
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Exchange keys", "H3 Bybit", "H3 Binance"]);
+    expect(outline).toEqual(["H1 Settings", "H2 Exchange keys", "H3 Bybit"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {
@@ -136,7 +136,7 @@ describe("the page's structure", () => {
 });
 
 describe("the list of exchanges", () => {
-  it("test_no_exchange_tabs_lists_every_exchange: no exchange bar on Settings, and a card for every exchange", async () => {
+  it("test_no_exchange_tabs_lists_every_exchange: no exchange bar on Settings, and a card for every exchange with a key", async () => {
     stubApi(
       HEALTH,
       [],
@@ -150,18 +150,24 @@ describe("the list of exchanges", () => {
 
     await cardsDrawn();
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
-    expect(cardNames()).toEqual(["Bybit", "Binance", "Pionex"]);
+    expect(cardNames()).toEqual(["Bybit", "Pionex"]);
   });
 
-  it("gives Binance a card, in the empty state, when neither route lists it", async () => {
+  it("gives no card to a served exchange with no key and no pool (decision 80)", async () => {
     stub(ok(storedKey("bybit")), [pool("bybit")]);
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance"]);
-    const binance = screen.getByRole("article", { name: "Binance" });
-    expect(within(binance).queryByText("No key stored. Add one to read and trade on Binance from here.")).toBeInTheDocument();
-    expect(binance).toHaveClass("border-rule");
+    expect(cardNames()).toEqual(["Bybit"]);
+    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+  });
+
+  it("gives no card to an exchange whose only row is EMPTY and whose pool is off", async () => {
+    stub(ok(storedKey("bybit"), emptyKey("binance")), [pool("bybit"), disabled("binance")]);
+    mountPage();
+    await cardsDrawn();
+
+    expect(cardNames()).toEqual(["Bybit"]);
   });
 
   it("shows a stored key of an exchange nothing else lists, with no button", async () => {
@@ -169,14 +175,14 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(cardNames()).toEqual(["Bybit", "Binance", "Kraken"]);
+    expect(cardNames()).toEqual(["Bybit", "Kraken"]);
     const kraken = screen.getByRole("article", { name: "Kraken" });
     expect(within(kraken).queryByText("key ending in AB12")).toBeInTheDocument();
     expect(within(kraken).queryAllByRole("button")).toEqual([]);
   });
 
   it("lists the served exchanges first in the file's order, then the others of the credentials by name, then the pool-only ones by name", async () => {
-    stub(ok(storedKey("zeta"), storedKey("bybit"), storedKey("alpha")), [
+    stub(ok(storedKey("zeta"), storedKey("binance"), storedKey("bybit"), storedKey("alpha")), [
       pool("pionex"),
       pool("mexc"),
       pool("zeta"),
@@ -196,14 +202,14 @@ describe("the list of exchanges", () => {
     expect(screen.getByRole("article", { name: "Bybit" })).toHaveClass("border-rule");
   });
 
-  it("leaves a deleted key's exchange neutral: its pool is off", async () => {
-    stub(ok(storedKey("bybit"), emptyKey("binance")), [pool("bybit"), disabled("binance")]);
+  it("keeps the degraded card of an exchange with no key and an enabled pool, with its `Add key` (decision 80 Q2)", async () => {
+    stub(ok(storedKey("bybit"), emptyKey("binance")), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
 
     const binance = screen.getByRole("article", { name: "Binance" });
-    expect(binance).toHaveClass("border-rule");
-    expect(binance.outerHTML).not.toMatch(AMBER);
+    expect(binance.outerHTML).toMatch(AMBER);
+    expect(within(binance).queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
   });
 });
 
@@ -264,7 +270,7 @@ describe("the page's own states", () => {
       }
       return undefined;
     };
-    stub({ kind: "pending" }, [pool("bybit")], extra);
+    stub({ kind: "pending" }, [pool("bybit"), pool("binance")], extra);
     const queryClient = mountPage();
     await cardsDrawn();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -291,9 +297,8 @@ describe("the page's own states", () => {
 
     await waitFor(() => expect(screen.queryByText(POOLS_LINE)).toBeInTheDocument());
     expect(screen.queryAllByText(POOLS_LINE)).toHaveLength(1);
-    const binance = screen.getByRole("article", { name: "Binance" });
-    expect(binance).toHaveClass("border-rule");
-    expect(binance.outerHTML).not.toMatch(AMBER);
+    // Not known to be degraded, so Binance, which has no key, has no card at all (decision 80).
+    expect(cardNames()).toEqual(["Bybit"]);
     expect(screen.getAllByRole("article").every((card) => !AMBER.test(card.outerHTML))).toBe(true);
   });
 
@@ -371,9 +376,14 @@ describe("the card and the tab agree", () => {
 
     renderAt(<AppRoutes />, "/settings");
     await cardsDrawn();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Kraken" })?.textContent).toContain("no key"));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Pionex" })?.textContent).toContain("no key"));
     for (const [exchange, word] of wordsOnTabs) {
       const card = screen.queryByRole("article", { name: exchange });
+      // Kraken has no key and its pool is off: its tab says so, and it has no card (decision 80).
+      if (exchange === "Kraken") {
+        expect(card, exchange).toBeNull();
+        continue;
+      }
       expect(card, exchange).not.toBeNull();
       if (word === "") {
         expect(card?.textContent, exchange).not.toMatch(/read-only|no key/);
@@ -409,7 +419,7 @@ function formsOpen(): HTMLElement[] {
 
 describe("the toggles and the open form (task 13.5.8)", () => {
   it("names the buttons with their exchange: `Replace key Bybit` and `Add key Binance`, not the same name twice", async () => {
-    stub(ok(storedKey("bybit")));
+    stub(ok(storedKey("bybit")), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
 
@@ -428,7 +438,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
   });
 
   it("test_one_form_at_a_time: opening another card's form closes and unmounts the open one", async () => {
-    stub(ok(storedKey("bybit")));
+    stub(ok(storedKey("bybit")), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
 
@@ -474,7 +484,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
   });
 
   it("test_closing_returns_the_focus_to_the_toggle", async () => {
-    stub(ok(storedKey("bybit")));
+    stub(ok(storedKey("bybit")), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
     fireEvent.click(toggleOf("Binance"));
@@ -856,6 +866,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     savePage({
       credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
       after: [storedKey("bybit", { last4: NEW_LAST4 })],
+      pools: [pool("bybit"), pool("binance")],
     });
     // The timers are faked BEFORE the save, so a timer started by the save would be one of them. Time still
     // moves by itself (shouldAdvanceTime), so the page's reads and waitFor go on working.
@@ -978,6 +989,7 @@ describe("the page in Spanish", () => {
       credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
       reread: "pending",
       respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
+      pools: [pool("bybit"), pool("binance")],
     });
     await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
     expect(screen.queryByRole("button", { name: "Reemplazar clave Bybit" })).toBeInTheDocument();
@@ -1027,5 +1039,257 @@ describe("the page in Spanish", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("No se pudieron cargar las claves de los exchanges.");
     expect(screen.queryByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+});
+
+// ---- `New key` and its select (owner decision 80, tasks p24.2 to p24.6) ----
+
+const newKeyButton = () => screen.queryByRole("button", { name: "New key" });
+const exchangeSelect = () => screen.queryByRole("combobox", { name: "Exchange" });
+
+/** The select's options as they read, the placeholder first. */
+function optionsOf(select: HTMLElement): string[] {
+  return within(select).getAllByRole("option").map((option) => option.textContent ?? "");
+}
+
+/** Waits for `New key`, then presses it. */
+async function pressNewKey() {
+  await waitFor(() => expect(newKeyButton()).toBeInTheDocument());
+  fireEvent.click(newKeyButton() as HTMLElement);
+}
+
+function choose(id: string) {
+  fireEvent.change(exchangeSelect() as HTMLElement, { target: { value: id } });
+}
+
+describe("the `New key` button (p24.2)", () => {
+  it("is drawn under the cards while a served exchange has no card", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    const button = await waitFor(() => found(newKeyButton(), "New key"));
+    const list = screen.getByRole("list", { name: "Exchange keys" });
+    expect(list.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("is drawn on a page with no card at all", async () => {
+    stub(ok(), [disabled("bybit")]);
+    mountPage();
+
+    await waitFor(() => expect(newKeyButton()).toBeInTheDocument());
+    expect(screen.queryAllByRole("article")).toEqual([]);
+  });
+
+  it("is not drawn when every served exchange has a key", async () => {
+    stub(ok(storedKey("bybit"), storedKey("binance")));
+    mountPage();
+    await cardsDrawn();
+
+    expect(cardNames()).toEqual(["Bybit", "Binance"]);
+    expect(newKeyButton()).not.toBeInTheDocument();
+  });
+
+  it("is not drawn when the only served exchange left is degraded: its own card has `Add key`", async () => {
+    stub(ok(storedKey("bybit")), [pool("bybit"), pool("binance")]);
+    mountPage();
+    await cardsDrawn();
+
+    expect(screen.queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
+    expect(newKeyButton()).not.toBeInTheDocument();
+  });
+
+  it("is disabled while a save is in flight", async () => {
+    const pending = new Promise<Response>(() => undefined);
+    const extra: ExtraRoute = (url, init) =>
+      url.endsWith("/credentials/bybit") && init?.method === "PUT" ? pending : undefined;
+    stub(ok(storedKey("bybit")), [pool("bybit")], extra);
+    mountPage();
+    await cardsDrawn();
+    await waitFor(() => expect(newKeyButton()).toBeInTheDocument());
+    fireEvent.click(toggleOf("Bybit"));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: SECRET_VALUE } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+
+    await waitFor(() => expect(newKeyButton()).toBeDisabled());
+  });
+});
+
+describe("the select of `New key` (p24.3)", () => {
+  it("replaces the button with a select labelled `Exchange`, focused, offering the served exchanges with no card", async () => {
+    stub(ok(), [disabled("bybit"), { ...pool("pionex", "spot"), enabled: false }]);
+    mountPage();
+
+    await pressNewKey();
+
+    const select = found(exchangeSelect(), "the select");
+    expect(select).toHaveFocus();
+    expect(newKeyButton()).not.toBeInTheDocument();
+    // The file's order, by display name; Pionex has a pool, but the panel does not serve its key (decision 80 Q1).
+    expect(optionsOf(select)).toEqual(["Choose an exchange", "Bybit", "Binance"]);
+    expect((select as HTMLSelectElement).value).toBe("");
+  });
+
+  it("does not offer an exchange that already has a card", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    await pressNewKey();
+
+    expect(optionsOf(found(exchangeSelect(), "the select"))).toEqual(["Choose an exchange", "Binance"]);
+  });
+
+  it("closes on Cancel and gives the focus back to `New key`", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    await pressNewKey();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(exchangeSelect()).not.toBeInTheDocument();
+    await waitFor(() => expect(newKeyButton()).toHaveFocus());
+  });
+});
+
+describe("the card chosen in the select (p24.4)", () => {
+  it("draws the chosen exchange's card under the select, its key form open with its confirmations", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    await pressNewKey();
+
+    choose("binance");
+
+    const binance = screen.getByRole("article", { name: "Binance" });
+    const select = found(exchangeSelect(), "the select");
+    expect(select.compareDocumentPosition(binance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(binance).queryByRole("heading", { level: 4, name: "Add a Binance key" })).toBeInTheDocument();
+    expect(within(binance).queryByLabelText(WITHDRAWALS_LABEL)).toBeInTheDocument();
+    expect(within(binance).getByLabelText("API key")).toHaveFocus();
+    // It is not one of the list's cards: the list holds the cards of keys that exist.
+    expect(binance.closest("ul")).toBeNull();
+  });
+
+  it("swaps the card when another exchange is chosen", async () => {
+    stub(ok(), [disabled("bybit")]);
+    mountPage();
+    await pressNewKey();
+
+    choose("bybit");
+    expect(cardNames()).toEqual(["Bybit"]);
+    choose("binance");
+
+    expect(cardNames()).toEqual(["Binance"]);
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Add a Binance key"]);
+  });
+
+  it("closes the select and the card when the form is closed, and gives the focus back to `New key`", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    await pressNewKey();
+    choose("binance");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(exchangeSelect()).not.toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    await waitFor(() => expect(newKeyButton()).toHaveFocus());
+  });
+
+  it("closes the select and the card when another card's form is opened", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+    await pressNewKey();
+    choose("binance");
+
+    fireEvent.click(toggleOf("Bybit"));
+
+    expect(exchangeSelect()).not.toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Replace the Bybit key"]);
+  });
+});
+
+describe("a key saved from the select's card (p24.5)", () => {
+  it("closes the select, puts the card in the list from the answer, focuses its `Replace key` and says it", async () => {
+    // No key and no pool yet, so Bybit is still left to offer once Binance has its key.
+    savePage({
+      credentials: [],
+      after: [storedKey("binance", { last4: NEW_LAST4 })],
+      reread: "pending",
+      pools: [],
+    });
+    await pressNewKey();
+    choose("binance");
+
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: SECRET_VALUE } });
+    fireEvent.click(screen.getByLabelText(WITHDRAWALS_LABEL));
+    fireEvent.click(screen.getByLabelText(FUTURES_LABEL));
+    fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+
+    await waitFor(() => expect(exchangeSelect()).not.toBeInTheDocument());
+    const list = screen.getByRole("list", { name: "Exchange keys" });
+    const binance = screen.getByRole("article", { name: "Binance" });
+    expect(binance.closest("ul")).toBe(list);
+    expect(screen.getAllByRole("article", { name: "Binance" })).toHaveLength(1);
+    expect(noteIn(binance, PENDING_NOTICE)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Replace key Binance" })).toHaveFocus());
+    expect(statusRegion().map((region) => region.textContent)).toContain(SAVED_NOTICE);
+    // Bybit is still left: `New key` is back, closed.
+    expect(newKeyButton()).toBeInTheDocument();
+  });
+
+  it("keeps the select and the card when the save is refused", async () => {
+    savePage({
+      credentials: [storedKey("bybit")],
+      respond: () => Promise.resolve(jsonResponse({ detail: { code: "KEY_REJECTED" } }, 422)),
+    });
+    await cardsDrawn();
+    await pressNewKey();
+    choose("binance");
+
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY_VALUE } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: SECRET_VALUE } });
+    fireEvent.click(screen.getByLabelText(WITHDRAWALS_LABEL));
+    fireEvent.click(screen.getByLabelText(FUTURES_LABEL));
+    fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Checking…" })).not.toBeInTheDocument());
+    expect(exchangeSelect()).toBeInTheDocument();
+    expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Add a Binance key"]);
+  });
+});
+
+describe("`New key` in Spanish (p24.6)", () => {
+  it("writes the button, the select, its placeholder and Cancel in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    const button = await waitFor(() => found(screen.queryByRole("button", { name: "Nueva clave" }), "Nueva clave"));
+    // Checked before the select opens: "Cancelar" holds the English "Cancel", which the check looks for.
+    expectNoEnglishSettingsText();
+    fireEvent.click(button);
+
+    const select = found(screen.queryByRole("combobox", { name: "Exchange" }), "the select");
+    expect(optionsOf(select)).toEqual(["Elija un exchange", "Binance"]);
+    expect(screen.queryByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+    expect(es.settings.keys).toMatchObject({
+      newKey: "Nueva clave",
+      exchange: "Exchange",
+      choose: "Elija un exchange",
+      cancel: "Cancelar",
+    });
+    expect(screen.queryByText("Choose an exchange")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
   });
 });

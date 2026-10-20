@@ -557,7 +557,11 @@
       "error": "Exchange keys could not be loaded.",
       "retry": "Try again",
       "stale": "This list could not be refreshed and may be out of date.",
-      "poolsUnknown": "The pools could not be loaded, so an exchange without a key is not marked here."
+      "poolsUnknown": "The pools could not be loaded, so an exchange without a key is not marked here.",
+      "newKey": "New key",
+      "exchange": "Exchange",
+      "choose": "Choose an exchange",
+      "cancel": "Cancel"
     },
     "card": {
       "keyLabel": "key",
