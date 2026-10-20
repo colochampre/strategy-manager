@@ -6106,7 +6106,7 @@ Branch `feat/operator-panel-add-key`, cut from `origin/main` at `63b9eb4`. Task 
   - `git diff --stat main -- backend` is empty.
 
   Gate: frontend `npm run lint`, `npm test`, `npm run build`, with totals against PR 22's 101 files / 2,895 tests. Backend untouched: `git diff --stat main -- backend` is empty.
-- [ ] p24.D.2 The owner sees it on the fixture server before the push ("Si cambia algo, primero veo el resultado"). Push and open the PR ONLY on the owner's word.
+- [x] p24.D.2 **Done 2026-10-20**: "Esta muy bien. Push y PR". The owner sees it on the fixture server before the push ("Si cambia algo, primero veo el resultado"). Push and open the PR ONLY on the owner's word.
 - [ ] p24.D.3 Merge with a merge commit on the owner's word.
 - [ ] p24.D.4 **Owner step, after the merge: panel only.** Pull as `strategy`, then pps.6 for the bundle. No restart.
 - [ ] p24.D.5 The delivery log entry, in the branch of the next PR.
