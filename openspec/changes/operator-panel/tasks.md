@@ -6076,7 +6076,12 @@ Branch `docs/operator-panel-live-confirmed`, cut from `origin/main` at `1b4ecda`
 
 Branch `feat/operator-panel-add-key`, cut from `origin/main` at `63b9eb4`. Task set.1 as owner decision 80 designs it, plus PR 23's delivery record. Frontend and documentation: the save route and `served-exchanges.json` are unchanged, so no backend file changes. Strict TDD for each rule; each new test is seen failing on an assertion first. The existing tests that assert a card for an exchange with no key and no enabled pool are rewritten to the new rule, not deleted.
 
-- [ ] p24.1 Which cards the page draws. A card for an exchange whose key is stored (served or not), for one that is degraded (no key and an enabled pool known), and for one whose key was just saved while the list is read again. No other exchange has a card. The order is `exchangeList`'s.
+- [x] p24.1 **Done 2026-10-20.** RED: six tests of `SettingsPage.test.tsx` failed on assertions, for example `expected [ 'Bybit', 'Binance' ] to deeply equal [ 'Bybit' ]` and the heading outline one longer than expected. The filter is `cards` in `SettingsPage.tsx`. Eleven existing tests had drawn Binance's keyless card, and each was rewritten to the new rule:
+  - those that needed a second card to open now give Binance an enabled pool, so its card is the degraded one;
+  - the tab-and-card test expects Kraken (no key, pool off) to have no card;
+  - the delete tests expect the card to go when the pool is off, and one new test keeps it, degraded, when the pool is on.
+
+  Focus after a delete that removes the card moves to p24.5. `src/features/settings`: 7 files / 397 tests green, `npm run lint` 0. Which cards the page draws. A card for an exchange whose key is stored (served or not), for one that is degraded (no key and an enabled pool known), and for one whose key was just saved while the list is read again. No other exchange has a card. The order is `exchangeList`'s.
 - [ ] p24.2 The `New key` button, under the cards. Shown only while at least one served exchange has no card. Disabled while a save is in flight.
 - [ ] p24.3 The select.
   - Pressing `New key` replaces it with a select labelled "Exchange", focused. The select has a placeholder option and the served exchanges with no card, in the file's order, by display name.

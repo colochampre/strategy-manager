@@ -130,6 +130,26 @@ export function SettingsPage() {
     setFocusRequest({ exchange });
   }
 
+  /** A key saved on this card a moment ago, while the list has not been read again since. */
+  function justSaved(exchange: string): boolean {
+    return lastSave?.exchange === exchange && credentials.dataUpdatedAt <= lastSave.listStamp;
+  }
+
+  /**
+   * The exchanges that get a card (decision 80): one whose key is stored, served or not; one that is degraded, with
+   * no key and a pool KNOWN to be on, since that pool cannot trade; and one whose key was just saved. An exchange
+   * with no key and no enabled pool has none: `New key` adds it.
+   */
+  const cards =
+    credentials.data === undefined
+      ? []
+      : exchangeList(SERVED, credentials.data, poolList ?? []).filter(
+          (exchange) =>
+            credentials.data.some((row) => row.exchange === exchange && row.status === "STORED") ||
+            poolOn(exchange, poolList) === true ||
+            justSaved(exchange),
+        );
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
@@ -176,7 +196,7 @@ export function SettingsPage() {
             )}
             {pools.isError && <p className="text-[13px] text-ink-2">{t("settings.keys.poolsUnknown")}</p>}
             <ul aria-labelledby={titleId} className="flex flex-col gap-4">
-              {exchangeList(SERVED, credentials.data, poolList ?? []).map((exchange) => (
+              {cards.map((exchange) => (
                 <li key={exchange}>
                   <ExchangeKeyCard
                     exchange={exchange}
@@ -221,7 +241,7 @@ export function SettingsPage() {
                       hasKey={
                         credentials.data.some((row) => row.exchange === exchange && row.status === "STORED") ||
                         // A key saved a moment ago is stored even if the list has not been read again.
-                        (lastSave?.exchange === exchange && credentials.dataUpdatedAt <= lastSave.listStamp)
+                        justSaved(exchange)
                       }
                       confirmations={CONFIRMATIONS[exchange] ?? []}
                       onClose={() => closeForm(exchange)}
