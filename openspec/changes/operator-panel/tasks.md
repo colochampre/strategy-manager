@@ -6132,7 +6132,7 @@ Branch `fix/operator-panel-delete-alert`, cut from `origin/main` at `c27540d`. P
   - **An independent read-only review found no blockers.** The `active` set is the one `hints()` gave. All five sites take both sets from the one read, and `vault` is still used at each of them. Two advisories were already true at the baseline:
     - `configured` now follows the database, not the in-memory pool set. A pool that the reload keeps out because of a lock-key collision, and that has no key, now logs a true ERROR.
     - The pools read per job still come from `pool_set.by_key`. For one cycle they can differ from `configured`, which changes which pools are read but sends no ERROR.
-- [ ] p25.D.2 Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
+- [x] p25.D.2 **Done 2026-10-21** on the owner's "Si, push y PR". Push and open the PR ONLY on the owner's word. There is nothing to see on the fixture server.
 - [ ] p25.D.3 Merge with a merge commit on the owner's word.
 - [ ] p25.D.4 **Owner step, after the merge: backend.** Pull as `strategy`, then `systemctl restart strategy-api strategy-worker`. No migration and no pps.6.
 - [ ] p25.D.5 The delivery log entry, in the branch of the next PR.
