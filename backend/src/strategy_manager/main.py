@@ -46,6 +46,7 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
 )
+from strategy_manager.accounts.infrastructure.key_coverage import read_key_coverage
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.accounts.infrastructure.pool_status_adapter import SqlAlchemyPoolStatus
 from strategy_manager.accounts.infrastructure.pools_router import router as pools_router
@@ -637,21 +638,6 @@ async def _vault_credential(
         return None
 
 
-async def _active_exchanges(vault: SqlAlchemyCredentialVault) -> frozenset[str]:
-    """Every exchange holding an ACTIVE vault credential right now, read
-    fresh on every call (no decrypt -- ``hints()`` only reads the row).
-
-    DEGRADED IS NOT A STARTUP SNAPSHOT (the orchestrator's binding correction
-    on this unit, replaying F11's own lesson for pool enablement against
-    credential presence): a key saved or deleted while the worker is already
-    running (decisions 21/22) must be seen on the very next job that asks,
-    not only after a restart. Querying fresh here is what buys that; caching
-    this set at composition time is exactly the mistake this function exists
-    to avoid.
-    """
-    return frozenset(hint.exchange for hint in await vault.hints())
-
-
 def _track_degraded_exchanges(
     tracker: set[str], *, configured: frozenset[str], active: frozenset[str]
 ) -> None:
@@ -669,9 +655,17 @@ def _track_degraded_exchanges(
     rather than re-discovered: an exchange already known missing at boot is
     not re-logged by the first per-job check that runs after it.
 
-    ``configured`` now follows the LIVE pool set (PR 3 unit 1b.9/1b.10's
-    per-cycle reload, ``_PoolSet.configured_exchanges``), so an exchange can
-    also leave it entirely -- its last pool disabled. That exchange is
+    Every caller passes ``configured`` and ``active`` from ONE
+    ``read_key_coverage`` statement, read fresh on every job: a key saved or
+    deleted while the worker runs is seen on the next job, not only after a
+    restart. Both must describe the same moment. Deleting a key from the panel
+    disables its pool in the same commit; when ``configured`` came from the
+    shared pool set, which only catches up on the next balance.sync reload,
+    that delete read as an enabled pool with no key and sent a false ERROR
+    (2026-10-21).
+
+    An exchange can also leave ``configured`` entirely -- its last pool
+    disabled. That exchange is
     dropped from ``tracker`` SILENTLY if it was degraded there: it did not
     recover, it simply stopped needing a key at all, and logging "reads
     resume" for it would be actively misleading.
@@ -1002,9 +996,9 @@ def build_worker_runner(
     # the next restart -- a known, accepted gap, not a silent one.
 
     # The shared, process-lifetime DEGRADED set every read site below
-    # consults and updates via ``_track_degraded_exchanges``, reading
-    # ``pool_set.configured_exchanges`` fresh each time (never a frozen
-    # local) so an exchange enabled or fully disabled at runtime is seen
+    # consults and updates via ``_track_degraded_exchanges``, fed by
+    # ``read_key_coverage`` on every job (one statement for pools and keys)
+    # so an exchange enabled or fully disabled at runtime is seen
     # immediately (binding requirement 3). Seeded from the worker's own
     # startup report (``worker._assert_keys_present``) so the very first
     # per-job check never re-logs what startup already did.
@@ -1160,19 +1154,18 @@ def build_worker_runner(
         instead of raising out of job entry.
 
         Which exchange gets a factory AT ALL is now decided PER JOB, from the
-        vault's active-key listing (``_active_exchanges``, no decrypt) rather
+        vault's active-key listing (``read_key_coverage``, no decrypt) rather
         than from pool configuration alone: a DEGRADED exchange is skipped
         here -- no factory, so no read and no raise -- rather than reaching
         the lazy ``.load()`` above only to fail the moment it is actually
         invoked. Checked before the closures below so this context manager's
-        one ``hints()`` query serves both exchanges, not two.
+        one ``read_key_coverage`` query serves both exchanges, not two.
         """
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
-        active = await _active_exchanges(vault)
-        _track_degraded_exchanges(
-            _degraded, configured=pool_set.configured_exchanges, active=active
-        )
+        coverage = await read_key_coverage(session)
+        active = coverage.active
+        _track_degraded_exchanges(_degraded, configured=coverage.configured, active=active)
 
         async with AsyncExitStack() as clients:
 
@@ -1239,7 +1232,7 @@ def build_worker_runner(
 
         Live, which exchange gets a ``LazyVenuePositionReader`` AT ALL is
         decided PER JOB from the vault's active-key listing
-        (``_active_exchanges``, no decrypt), exactly like
+        (``read_key_coverage``, no decrypt), exactly like
         ``balance_refresh_reader_for`` above: a DEGRADED exchange is skipped
         here rather than reaching its own lazy ``.load()`` only to fail when
         actually invoked.
@@ -1256,10 +1249,9 @@ def build_worker_runner(
             return
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
-        active = await _active_exchanges(vault)
-        _track_degraded_exchanges(
-            _degraded, configured=pool_set.configured_exchanges, active=active
-        )
+        coverage = await read_key_coverage(session)
+        active = coverage.active
+        _track_degraded_exchanges(_degraded, configured=coverage.configured, active=active)
 
         async with AsyncExitStack() as clients:
 
@@ -1400,10 +1392,9 @@ def build_worker_runner(
             binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
-            active = await _active_exchanges(vault)
-            _track_degraded_exchanges(
-                _degraded, configured=pool_set.configured_exchanges, active=active
-            )
+            coverage = await read_key_coverage(session)
+            active = coverage.active
+            _track_degraded_exchanges(_degraded, configured=coverage.configured, active=active)
 
             async with AsyncExitStack() as clients:
                 syncs: list[SyncBalances] = []
@@ -1504,7 +1495,7 @@ def build_worker_runner(
 
         Live, a DEGRADED exchange's pools are filtered OUT of both
         ``bybit_pools``/``binance_pools`` (per-job, from
-        ``_active_exchanges``) BEFORE either the reader-building below or
+        ``read_key_coverage``) BEFORE either the reader-building below or
         ``ScanPools(pools=...)`` sees them -- not only skipped for reader
         construction. ``ScanPools`` never swallows ``UnservedPoolError``
         (only ``VenuePositionReadError``, per pool, for a live call that
@@ -1519,9 +1510,10 @@ def build_worker_runner(
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             if not settings.dry_run:
-                active = await _active_exchanges(vault)
+                coverage = await read_key_coverage(session)
+                active = coverage.active
                 _track_degraded_exchanges(
-                    _degraded, configured=pool_set.configured_exchanges, active=active
+                    _degraded, configured=coverage.configured, active=active
                 )
                 if BYBIT_EXCHANGE not in active:
                     bybit_pools = []
@@ -1617,9 +1609,10 @@ def build_worker_runner(
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             active: frozenset[str] = frozenset()
             if not settings.dry_run:
-                active = await _active_exchanges(vault)
+                coverage = await read_key_coverage(session)
+                active = coverage.active
                 _track_degraded_exchanges(
-                    _degraded, configured=pool_set.configured_exchanges, active=active
+                    _degraded, configured=coverage.configured, active=active
                 )
 
             async with AsyncExitStack() as clients:

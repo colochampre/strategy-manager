@@ -133,7 +133,7 @@ def test_balance_refresh_reader_gates_on_the_active_key_listing() -> None:
         "async def balance_refresh_reader_for", "async def venue_net_position_reader_for"
     )
 
-    assert "_active_exchanges(" in body
+    assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
     assert "BYBIT_EXCHANGE in active" in body
     assert "BINANCE_EXCHANGE in active" in body
@@ -142,7 +142,7 @@ def test_balance_refresh_reader_gates_on_the_active_key_listing() -> None:
 def test_venue_net_position_reader_gates_on_the_active_key_listing() -> None:
     body = _sliced("async def venue_net_position_reader_for", "async def handle_signal_process")
 
-    assert "_active_exchanges(" in body
+    assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
     assert "BYBIT_EXCHANGE in active" in body
     assert "BINANCE_EXCHANGE in active" in body
@@ -155,7 +155,7 @@ def test_balance_sync_gates_on_the_active_key_listing_before_building_syncs() ->
     dies."""
     body = _sliced("async def handle_balance_sync", "async def handle_reservation_sweep")
 
-    assert "_active_exchanges(" in body
+    assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
     assert "BYBIT_EXCHANGE in active" in body
     assert "BINANCE_EXCHANGE in active" in body
@@ -171,7 +171,7 @@ def test_reconciliation_scan_gates_on_the_active_key_listing() -> None:
         "async def handle_reconciliation_scan", "async def handle_reconciliation_prepare_booking"
     )
 
-    assert "_active_exchanges(" in body
+    assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
     # Pools filtered OUT of the list before ScanPools ever sees them, not
     # gated inline while building readers -- both collections must agree by
@@ -194,7 +194,7 @@ def test_booking_prepare_registers_a_degraded_stand_in_reader() -> None:
         "async def handle_reconciliation_prepare_booking", "async def handle_jobs_purge"
     )
 
-    assert "_active_exchanges(" in body
+    assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
     assert "_DegradedVenueFillReader(" in body
 
