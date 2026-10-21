@@ -77,13 +77,11 @@ They live in `owner-decisions.md`, numbered 1-12. In one line each:
 - An app-owned login (decision 1).
 - COIN-M, Pionex execution, and a REVERSE that flips. These are unchanged from today.
 
-### Open questions (product, asked one at a time after this proposal)
+### Questions raised by the design (all answered 2026-10-21)
 
-The design names three of them, each with a recommendation:
-
-- **OQ1.** What a user in simulation trades against: a real balance read with their key, or a simulated balance for a user with no key yet.
-- **OQ2.** What the `DRY_RUN=true` brake does to a real position that is already open: whether its close still runs for real (recommended), or whether everything turns simulated.
-- **OQ3.** What "the strategy's return" in the public list measures, since each subscriber's return differs by share, leverage and fees.
+- **OQ1 → decision 13.** Simulation runs against the user's real balance, read with their own key; a read-only key is enough.
+- **OQ2 → decision 14.** The `DRY_RUN=true` brake stops real openings only. A real position that is already open closes for real.
+- **OQ3 → decision 15.** The public return is measured from the signals' prices, unleveraged and before fees, with the number of live subscribers beside it.
 
 ## Impact
 
@@ -92,7 +90,7 @@ The design names three of them, each with a recommendation:
 - Rule 1 holds per user. A new user starts in `SIMULATION`.
 - `.env` `DRY_RUN` defaults to true, and while it is true nobody opens a real position.
 - A user's mode flips only through the transition use case: live needs a trade-capable key (decision 6), and simulation needs the user to hold nothing real.
-- The startup guard that compares `DRY_RUN` with the ledger (`main.py:777-797`) becomes per user. Its exact rule depends on OQ2.
+- The brake stops real openings only. A real position that is already open still closes for real (decision 14). The startup guard that compares `DRY_RUN` with the ledger (`main.py:777-797`) changes to match.
 
 ### Idempotency keys (rule 2)
 

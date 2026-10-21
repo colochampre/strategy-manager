@@ -264,7 +264,9 @@ sequenceDiagram
 
 The fakes stay process-lifetime, as today.
 
-**Startup guard.** `assert_dry_run_matches_ledger` (`main.py:777-797`) becomes per reservation mode. What it refuses depends on OQ2.
+**Closes follow the open (decision 14).** A closing delivery runs in the `mode` recorded on the reservation it closes, whatever the brake or the user's current mode say. So `exchange_for` is called with the reservation's mode for a close, and with the effective mode for an open.
+
+**Startup guard.** `assert_dry_run_matches_ledger` (`main.py:777-797`) no longer refuses `DRY_RUN=true` while real allocations are open; decision 14 makes that a valid state. What it still refuses is a real open allocation whose user has no active trade-capable key, because that close could not run. Its message names the users by id and how many allocations each holds.
 
 ### AD8. Every read and write is scoped, and checked across users
 
@@ -350,18 +352,15 @@ Every PR follows strict TDD and the gate. Concurrency (AD7's mode race, AD5's pe
 
 ## Open questions (product; asked one at a time)
 
-**OQ1. What a user in simulation trades against.**
-- Today, simulation reads the real balance? To check during apply: how balance sync behaves under `DRY_RUN`.
-- Decision 6 lets a user start in simulation with no key at all.
-- **Recommendation:** a user in simulation needs a key too (read-only is enough), and simulates against their real balance. The results are then realistic, and nobody plays with invented money that inflates the public record.
-- The alternative is a fixed simulated balance for keyless users. It is easier to try, and less honest.
+**OQ1. What a user in simulation trades against. Answered: decision 13.**
+- Answer: their real balance, read with their own key. A read-only key is enough.
+- `Subscribe` therefore requires an active key, of any capability, on the strategy's exchange.
+- To check during apply: how balance sync behaves under `DRY_RUN` today.
 
-**OQ2. What the `DRY_RUN=true` brake does to a real position already open.**
-- **Recommendation:** the brake stops real **openings** only. A real allocation closes for real, in the mode recorded at its open, because a brake that turns closes simulated leaves real positions on the venue with no close.
-- That narrows decision 7's literal "keeps everyone simulated", so it is asked rather than assumed.
+**OQ2. What the `DRY_RUN=true` brake does to a real position already open. Answered: decision 14.**
+- Answer: the brake stops real openings only. A real allocation closes for real, in the mode recorded at its open (AD7).
 
-**OQ3. What "the strategy's return" in the public list measures.**
-- Each subscriber's return differs by share, leverage and fees.
-- **Recommendation:** a record taken from the signals themselves: the alert prices, unleveraged, before fees. Every strategy has it from its first trade, and no subscriber's sizing can change it.
-- Beside it, the list shows how many subscribers trade it live.
-- The alternative is the author's own subscription results, labelled simulation or live, as decision 9 worded it. That record is empty when the author does not subscribe.
+**OQ3. What "the strategy's return" in the public list measures. Answered: decision 15.**
+- Answer: a record taken from the signals: the alert prices, unleveraged, before fees. The live subscriber count is shown beside it.
+- Each closed trade pairs an opening signal with the signal that closes it, using `price` (`signals/domain/alert.py:149`). The public record never reads the ledger.
+- It is a read-only projection, in `performance/application`.

@@ -100,4 +100,19 @@ These come from the owner's own words above. They are not asked again.
     - This change builds the users, the subscriptions, the authors and the mode per user, all free of charge.
     - Charging, and the legal review it needs (operator-panel decision 4: possibly regulated, CNV), is a separate change, designed once there are real users.
 
+13. **A user in simulation simulates against their real balance, read with their own key (design OQ1, 2026-10-21).** The owner chose "Su saldo real, con clave".
+    - Simulation needs at least one stored key, and a read-only key is enough. A user with no key can browse, but cannot subscribe.
+    - Results are measured against the real balance, so the public record is never inflated by invented money.
+
+14. **The `DRY_RUN=true` brake stops real openings only; a real position closes for real (design OQ2, 2026-10-21).** The owner chose "Cierra en real".
+    - This narrows decision 7. While the brake is on, nobody opens a real position. A real allocation that is already open closes for real when its signal arrives, in the mode recorded when it opened.
+    - So the worker still loads the live keys of users who hold real open allocations, even while the brake is on.
+    - The startup guard no longer refuses to start when `DRY_RUN=true` meets real open allocations. That combination is now a valid state.
+
+15. **The public return of a strategy is measured from its signals (design OQ3, 2026-10-21).** The owner chose "El de las señales".
+    - Each closed trade's return comes from the entry and exit prices of the alerts themselves, unleveraged and before fees. The list labels it that way.
+    - Every strategy has a record from its first closed trade, whether or not anyone subscribes. No subscriber's share, leverage or fees can change it.
+    - Beside it, the list shows the number of subscribers trading the strategy live. This replaces decision 9's "simulation vs live" label: a record taken from signals is neither.
+    - Decision 9's other items stay: the strategy's age and its closed trades.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
