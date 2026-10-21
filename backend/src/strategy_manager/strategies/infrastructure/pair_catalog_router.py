@@ -34,8 +34,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.strategies.application.ports import PairCatalogPort
 from strategy_manager.strategies.application.read_available_pairs import (
     ReadAvailablePairs,
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/pools",
     tags=["pools"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

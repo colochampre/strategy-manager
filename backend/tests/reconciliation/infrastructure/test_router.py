@@ -1,9 +1,9 @@
 """API tests for ``GET /reconciliation/discrepancies``.
 
 Two things travel together here, exactly like
-``tests/strategies/infrastructure/test_router_auth.py``: the bearer-token
-guard (now shared, see ``shared/infrastructure/admin_auth.py``) refuses every
-request without a valid token, discovered from the router itself rather than
+``tests/strategies/infrastructure/test_router_auth.py``: the admin guard
+(shared, see ``identity/infrastructure/dependencies.py``) refuses every
+request without a valid Access assertion, discovered from the router itself rather than
 a hand-written list; and, once authenticated, the endpoint reads real rows
 back through ``SqlAlchemyDiscrepancyRepository`` rather than a fake -- the
 whole point of decision 10 is that the router is a thin read over the port
@@ -30,6 +30,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow  # noqa: F401
 from strategy_manager.main import create_app
 from strategy_manager.reconciliation.application.ports import (
@@ -51,7 +52,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
 )
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -63,8 +64,7 @@ pytestmark = pytest.mark.integration
 #: The pool every booking-proposal test below seeds and books against.
 _BOOKING_POOL = ("bybit", "usdt-m", "USDT")
 
-TOKEN = "adm1n-t0ken"
-NOW = datetime(2026, 9, 18, 12, 0, 0, tzinfo=UTC)
+NOW =datetime(2026, 9, 18, 12, 0, 0, tzinfo=UTC)
 
 #: Path parameters are filled with a well-formed value so that a refusal is
 #: never the path converter's doing.
@@ -89,8 +89,8 @@ def _app() -> FastAPI:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    sign_in_as_admin(monkeypatch)
     yield
 
 
@@ -229,11 +229,7 @@ async def test_no_route_leaks_which_part_of_the_credential_was_wrong(
 ) -> None:
     details = set()
     for method, path in _routes():
-        for headers in (
-            {},
-            {"Authorization": f"Bearer {TOKEN}-wrong"},
-            {"Authorization": TOKEN},
-        ):
+        for headers in ({}, FORGED_HEADERS):
             response = await client.request(method, path, headers=headers)
 
             assert response.status_code == 401
@@ -260,7 +256,7 @@ async def test_authenticated_admin_lists_open_discrepancies_across_pools(
     )
 
     response = await authenticated_client.get(
-        "/reconciliation/discrepancies", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/reconciliation/discrepancies", headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 200
@@ -292,7 +288,7 @@ async def test_nets_read_back_at_scale_18_are_written_in_plain_notation(
     )
 
     response = await authenticated_client.get(
-        "/reconciliation/discrepancies", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/reconciliation/discrepancies", headers=ADMIN_HEADERS
     )
 
     [row] = response.json()
@@ -313,7 +309,7 @@ async def test_default_status_filter_excludes_resolved_discrepancies(
     )
 
     response = await authenticated_client.get(
-        "/reconciliation/discrepancies", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/reconciliation/discrepancies", headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 200
@@ -337,7 +333,7 @@ async def test_status_resolved_returns_only_resolved_discrepancies(
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"status": "resolved"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -359,7 +355,7 @@ async def test_status_all_returns_both_open_and_resolved(
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"status": "all"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -376,7 +372,7 @@ async def test_limit_bounds_the_number_of_rows_returned(
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"limit": 2},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -389,7 +385,7 @@ async def test_limit_above_the_max_is_rejected(
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"limit": 501},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 422
@@ -405,7 +401,7 @@ async def test_exchange_venue_settlement_currency_and_symbol_filter_independentl
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"exchange": "bybit"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -427,7 +423,7 @@ async def test_the_symbol_filter_finds_a_market_under_any_of_its_spellings(
     response = await authenticated_client.get(
         "/reconciliation/discrepancies",
         params={"symbol": queried},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -583,7 +579,7 @@ async def _state_of(session_factory: async_sessionmaker[AsyncSession], proposal_
 
 async def test_the_bookings_list_route_is_gone(authenticated_client: AsyncClient) -> None:
     response = await authenticated_client.get(
-        "/reconciliation/bookings", headers={"Authorization": f"Bearer {TOKEN}"}
+        "/reconciliation/bookings", headers=ADMIN_HEADERS
     )
 
     assert response.status_code in (404, 405)
@@ -596,7 +592,7 @@ async def test_the_approve_route_is_gone_and_the_proposal_stays_pending(
 
     response = await authenticated_client.post(
         f"/reconciliation/bookings/{proposal_id}/approve",
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code in (404, 405)
@@ -611,7 +607,7 @@ async def test_the_reject_route_is_gone_and_the_proposal_stays_pending(
     response = await authenticated_client.post(
         f"/reconciliation/bookings/{proposal_id}/reject",
         json={"reason": "duplicate"},
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code in (404, 405)

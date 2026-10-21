@@ -58,6 +58,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.performance.application.ports import (
     AllocationFillsSourcePort,
     OperationFillsSourcePort,
@@ -96,7 +97,6 @@ from strategy_manager.performance.infrastructure.rehearsal_pricing_source import
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money, Price, Ratio
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
@@ -106,7 +106,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/performance",
     tags=["performance"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

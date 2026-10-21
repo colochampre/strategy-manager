@@ -108,6 +108,10 @@ from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
     unserved_pools,
 )
+from strategy_manager.identity.infrastructure.identity_invariant import (
+    assert_identity_configured,
+)
+from strategy_manager.identity.infrastructure.me_router import router as me_router
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.read_recorded_fill_ids import ReadRecordedFillIds
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
@@ -272,9 +276,6 @@ from strategy_manager.signals.infrastructure.webhook_secret_router import (
     router as webhook_secret_router,
 )
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
-from strategy_manager.strategies.infrastructure.admin_token_invariant import (
-    assert_admin_api_token_configured,
-)
 from strategy_manager.strategies.infrastructure.pair_catalog import VenuePairCatalog
 from strategy_manager.strategies.infrastructure.pair_catalog_router import (
     router as pair_catalog_router,
@@ -298,11 +299,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     3: ``WEBHOOK_SECRET`` must be configured, or this process mounts an
     endpoint that answers 401 to every alert it was deployed to receive.
 
-    4: ``ADMIN_API_TOKEN`` must be configured, or this process mounts the
-    router that registers and arms strategies with an authentication whose
-    expected value is empty. 3 and 4 are one invariant per mounted router,
-    which is why both live here: this function is where the routers this
-    process serves become reachable.
+    4: the API must know who is signed in and who the admin is
+    (``assert_identity_configured``, multi-user design AD1), or this process
+    mounts routers whose guard has nothing to compare against. It replaced the
+    bearer-token check. 3 and 4 are one invariant per mounted surface, which is
+    why both live here: this function is where the routers this process serves
+    become reachable.
 
     Invariant 2 (``DRY_RUN`` vs. the registered adapter) is not repeated here:
     it belongs to ``build_worker_runner``, which is the only place that decides
@@ -326,7 +328,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             pools = await CapitalPoolRepository(conn).list_enabled()
             await assert_pool_lock_keys_distinct(conn, pools)
         assert_webhook_secret_configured(settings)
-        assert_admin_api_token_configured(settings)
+        assert_identity_configured(settings)
         assert_panel_dist_ready(settings)
         # A line, not an invariant: a typo in a display setting must not stop
         # the process that receives the alerts (rule 3). Never raises.
@@ -1876,6 +1878,8 @@ def create_app() -> FastAPI:
     # The credentials answers (last4, facts, label) must not be cached. A
     # middleware, because an exception handler's answer never sees a dependency.
     app.add_middleware(NoStoreMiddleware, prefix="/api/credentials")
+    # Nor the answer that names who is signed in (multi-user design AD1).
+    app.add_middleware(NoStoreMiddleware, prefix="/api/me")
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:
@@ -1892,7 +1896,8 @@ def create_app() -> FastAPI:
 
     # Every administrative router lives under one prefix (design.md §13, spec:
     # admin-api). Each included router keeps its OWN
-    # ``dependencies=[Depends(require_admin_token)]``, so authentication stays
+    # ``dependencies=[Depends(require_admin)]`` (``/me`` keeps
+    # ``verified_email``, multi-user design AD1), so authentication stays
     # structural per router rather than becoming a property of this wrapper --
     # wrapping never removes or replaces a router's own guard, it only moves
     # where its routes are reachable from. ``/webhook/tradingview`` and
@@ -1908,6 +1913,7 @@ def create_app() -> FastAPI:
     api_router.include_router(webhook_secret_router)
     api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
+    api_router.include_router(me_router)
     app.include_router(api_router)
 
     # LAST, after every router: the panel's catch-all matches any GET path, so

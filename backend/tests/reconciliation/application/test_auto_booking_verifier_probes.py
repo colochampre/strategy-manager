@@ -44,6 +44,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.config import get_settings
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import seed_execution_attempt
 from tests.reconciliation.application.auto_booking_support import (
     LEDGER_SYMBOL,
@@ -69,7 +70,6 @@ from tests.reconciliation.application.auto_booking_support import (
 pytestmark = pytest.mark.integration
 
 _ANNOUNCER = "strategy_manager.reconciliation.application.announce_needs_owner"
-_TOKEN = "adm1n-t0ken"
 
 
 @pytest.fixture(scope="module")
@@ -101,7 +101,7 @@ async def _clean(engine: AsyncEngine) -> AsyncIterator[None]:
 
 @pytest.fixture(autouse=True)
 def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", _TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "dry_run", False)
     monkeypatch.setattr(get_settings(), "reconciliation_auto_booking_grace_seconds", 300)
 
@@ -237,9 +237,7 @@ async def test_a_flip_is_not_booked_and_reaches_the_owner_without_a_quantity(
     async with AsyncClient(
         transport=ASGITransport(app=_app(session_factory)), base_url="http://test"
     ) as api:
-        response = await api.get(
-            "/api/reconciliation/confirmed", headers={"Authorization": f"Bearer {_TOKEN}"}
-        )
+        response = await api.get("/api/reconciliation/confirmed", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     body = response.json()
     assert body["needs_owner_count"] == 1

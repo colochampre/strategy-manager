@@ -24,28 +24,28 @@ Design AD1 and AD11 (sign-in only). Every endpoint that exists today stays **adm
 
 ### Backend
 
-- [ ] A.1 Dependency: PyJWT with the `crypto` extra, pinned to an exact release at least two weeks old. `cryptography` is already a dependency.
-- [ ] A.2 Domain `identity/domain/user.py`:
+- [x] A.1 Dependency: PyJWT with the `crypto` extra, pinned to an exact release at least two weeks old. `cryptography` is already a dependency.
+- [x] A.2 Domain `identity/domain/user.py`:
   - `User(id, email, created_at, last_seen_at)`;
   - e-mail normalisation, trimmed and lower-cased, with tests.
   - No framework imports.
-- [ ] A.3 Migration 0029:
-  - creates `users`: `id uuid` pk; `email text` unique, with CHECK `email = lower(email)`; `created_at`; `last_seen_at`;
-  - inserts the owner from `ADMIN_EMAIL`, and refuses with a clear message when it is unset;
+- [x] A.3 Migration 0029:
+  - creates `users`: `id uuid` pk; `email text` unique, with CHECK `email = lower(email)` and no whitespace; `created_at`; `last_seen_at`;
+  - inserts no row: the owner's is created by their first `GET /api/me` (design, "The owner's row");
   - its `downgrade` drops the table.
   - It is rehearsed on a throwaway database restored from a fresh backup (task A.12).
-- [ ] A.4 Settings:
+- [x] A.4 Settings:
   - add `access_team_domain`, `access_aud`, `admin_email` and `dev_user_email`. `model_config` is not touched.
   - The API refuses to start:
     - with neither Access nor a dev e-mail configured;
     - with `dev_user_email` set while `DRY_RUN=false`;
     - with `admin_email` unset.
   - One test per refusal.
-- [ ] A.5 Application:
+- [x] A.5 Application:
   - the port `IdentityVerifier`;
   - the use case `ResolveUser`, which finds or creates the user by e-mail. Two concurrent first requests create one row: `ON CONFLICT (email) DO NOTHING`, then a read. Proven on real PostgreSQL.
   - `last_seen_at` is written at most once a minute per user.
-- [ ] A.6 Infrastructure `AccessJwtVerifier`:
+- [x] A.6 Infrastructure `AccessJwtVerifier`:
   - fetches the keys from `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` and matches them by `kid`;
   - checks the RS256 signature, `aud`, `iss` and `exp`;
   - reads `email`.
@@ -59,24 +59,24 @@ Design AD1 and AD11 (sign-in only). Every endpoint that exists today stays **adm
     - an unknown `kid` after the refresh.
   - When the keys cannot be fetched, the answer is 503.
   - No token or claim is ever logged beyond the e-mail's domain.
-- [ ] A.7 FastAPI dependencies:
+- [x] A.7 FastAPI dependencies:
   - `current_user` reads `Cf-Access-Jwt-Assertion`, or the dev e-mail when configured;
   - `require_admin` builds on it and compares the e-mail with `ADMIN_EMAIL`, case-insensitively.
   - They replace `require_admin_token` on all 9 routers.
   - `strategies/infrastructure/admin_token_invariant.py` and its test are rewritten: every `/api` route depends on `require_admin`, except `/api/me`, which depends on `current_user`. `/webhook/tradingview` and `/health` are unchanged.
-- [ ] A.8 `GET /api/me` returns `{email, is_admin, dry_run}`. A non-admin gets 200 here and 403 on every other `/api` route, with one test per router.
-- [ ] A.9 Retire the bearer token:
+- [x] A.8 `GET /api/me` returns `{email, is_admin, dry_run}`. A non-admin gets 200 here and 403 on every other `/api` route, with one test per router.
+- [x] A.9 Retire the bearer token (no script or doc outside `openspec`'s history called the API with it):
   - first list every caller of the HTTP API outside the panel (scripts, docs);
   - then remove `admin_api_token`, `AdminTokenAuth` and `require_admin_token`.
   - The owner removes `ADMIN_API_TOKEN` from the VPS `.env` after the deploy (A.13). A leftover line is ignored, as with the old key settings.
-- [ ] A.10 Tests: one `current_user` override fixture replaces the token header across the existing suites. Each suite keeps one unauthenticated test asserting 401.
+- [x] A.10 Tests: one `current_user` override fixture replaces the token header across the existing suites. Each suite keeps one unauthenticated test asserting 401.
 
 ### Frontend
 
-- [ ] A.11 The panel without a token:
+- [x] A.11 The panel without a token:
   - remove `TokenGate`, `token-store` and the `Authorization` header from `shared/api/client.ts`;
   - a 401 reloads the page, so that Access signs the user in again;
-  - a 403 shows a "not authorised" state;
+  - a signed-in user who is not the admin is told so by e-mail (`SignInGate`, from `/api/me`), so they never meet a page of 403s; a 503 offers a retry;
   - a `useMe` query feeds the top bar with the e-mail.
   - Update `src/test/harness.tsx` and the tests that set the token.
   - EN/ES copy, with ES in "usted".
@@ -91,7 +91,7 @@ Design AD1 and AD11 (sign-in only). Every endpoint that exists today stays **adm
 - [ ] A.13 Deploy:
   - pull as `strategy`, `alembic upgrade head`, restart both services;
   - pps.6 for the panel;
-  - check: the panel loads with no token prompt, `GET /api/me` shows the owner as admin, and the webhook still answers;
+  - check: the panel loads with no token prompt, `GET /api/me` shows the owner as admin, `users` holds exactly the owner's row, and the webhook still answers;
   - then remove `ADMIN_API_TOKEN` from `.env` and restart the API.
 
 ### Delivery

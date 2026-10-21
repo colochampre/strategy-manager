@@ -26,8 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -36,7 +36,6 @@ from tests.strategies.infrastructure.test_share_preview_router import _strategy,
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
 Factory = async_sessionmaker[AsyncSession]
 
 #: More than 18 decimal places AS WRITTEN. The last two are the spellings a
@@ -61,8 +60,8 @@ class _Catalog:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 @pytest.fixture
@@ -81,19 +80,17 @@ async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # 
         yield api
 
 
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
-
 async def _preview(client: AsyncClient, strategy_id: UUID, value: str) -> Any:
     return await client.get(
-        f"/api/strategies/{strategy_id}/share-preview", params={"share": value}, headers=_auth()
+        f"/api/strategies/{strategy_id}/share-preview",
+        params={"share": value},
+        headers=ADMIN_HEADERS,
     )
 
 
 async def _patch(client: AsyncClient, strategy_id: UUID, value: str) -> Any:
     return await client.patch(
-        f"/api/strategies/{strategy_id}", json={"allocation_percent": value}, headers=_auth()
+        f"/api/strategies/{strategy_id}", json={"allocation_percent": value}, headers=ADMIN_HEADERS
     )
 
 
@@ -110,7 +107,7 @@ async def _register(client: AsyncClient, strategy_id: UUID, value: str) -> Any:
             "allocation_percent": value,
             "allowed_pairs": ["ETHUSDT"],
         },
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
 

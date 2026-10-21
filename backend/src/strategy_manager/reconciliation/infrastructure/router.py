@@ -47,6 +47,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.reconciliation.application.market_key import market_key
 from strategy_manager.reconciliation.application.ports import DiscrepancyRecord
 from strategy_manager.reconciliation.application.read_confirmed import (
@@ -69,16 +70,15 @@ from strategy_manager.reconciliation.infrastructure.strategy_name_adapter import
 )
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Money, plain
 
 # See this module's docstring and ``strategies/infrastructure/router.py``:
-# deliberately no ``Depends(require_admin_token)`` on the route itself.
+# deliberately no ``Depends(require_admin)`` on the route itself.
 router = APIRouter(
     prefix="/reconciliation",
     tags=["reconciliation"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

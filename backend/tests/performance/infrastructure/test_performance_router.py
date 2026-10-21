@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.infrastructure.performance_router import (
@@ -38,9 +39,8 @@ from strategy_manager.performance.infrastructure.performance_router import (
     get_fills_source,
 )
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.performance.fakes import FakeFillsSource, FixedClock
 from tests.performance.infrastructure.conftest import seed_strategy
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -53,15 +53,10 @@ from tests.performance.infrastructure.test_allocation_fills_source import (
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
 NOW = datetime(2026, 9, 30, 0, 0, tzinfo=UTC)
 DAY1 = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 DAY2 = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
 COIN_M_BTC = PoolKey(Exchange.PIONEX, Venue.COIN_M, Currency.BTC)
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
 
 
 class _Json(dict[str, Any]):
@@ -79,8 +74,8 @@ def _json(response: Response) -> _Json:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
@@ -182,10 +177,10 @@ POOL_URL = "/api/performance/pools/bybit/usdt-m/USDT"
 # --- authentication and routing --------------------------------------------------------
 
 
-async def test_get_pool_performance_requires_bearer_token(
+async def test_get_pool_performance_requires_a_signed_in_admin(
     client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """All three routes refuse a missing or wrong token with the one 401, and
+    """All three routes refuse a missing or forged assertion with the one 401, and
     none exists outside ``/api``. Discovered per route, not assumed from the
     pool route alone."""
     strategy_id = await _strategy(pg_session_factory)
@@ -196,9 +191,9 @@ async def test_get_pool_performance_requires_bearer_token(
     ]
     for url in urls:
         missing = await client.get(url)
-        wrong = await client.get(url, headers={"Authorization": f"Bearer {TOKEN}-wrong"})
-        admitted = await client.get(url, headers=_auth())
-        pre_move = await client.get(url.removeprefix("/api"), headers=_auth())
+        wrong = await client.get(url, headers=FORGED_HEADERS)
+        admitted = await client.get(url, headers=ADMIN_HEADERS)
+        pre_move = await client.get(url.removeprefix("/api"), headers=ADMIN_HEADERS)
 
         assert missing.status_code == 401, url
         assert wrong.status_code == 401, url
@@ -216,12 +211,12 @@ async def test_get_pool_performance_404_unknown_pool(client: AsyncClient) -> Non
         "/api/performance/pools/bybit/usdt-m/usdt",
         "/api/performance/pools/bybit/usdt-m/DOGE",
     ):
-        response = await client.get(url, headers=_auth())
+        response = await client.get(url, headers=ADMIN_HEADERS)
 
         assert response.status_code == 404, url
         assert response.json() == {"detail": "no such pool"}, url
 
-    known = await client.get(POOL_URL, headers=_auth())
+    known = await client.get(POOL_URL, headers=ADMIN_HEADERS)
     assert known.status_code == 200
 
 
@@ -237,7 +232,7 @@ async def test_pool_performance_of_a_disabled_pool_is_still_readable(
         )
         await session.commit()
 
-    response = await client.get(POOL_URL, headers=_auth())
+    response = await client.get(POOL_URL, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert _json(response)["trade_count"] == 1
@@ -258,7 +253,7 @@ async def test_get_pool_performance_returns_curve_drawdown_monthly_and_ranges(
     await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
     await _trade(pg_session_factory, strategy_id, DAY2, exit_="79.4", capital="1030")
 
-    response = await client.get(POOL_URL, headers=_auth())
+    response = await client.get(POOL_URL, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body = _json(response)
@@ -307,7 +302,7 @@ async def test_pool_performance_trades_without_capital_count_in_pnl_not_in_the_c
     await _trade(pg_session_factory, strategy_id, DAY1, exit_="105", capital=None)
     await _trade(pg_session_factory, strategy_id, DAY2, exit_="120", capital="1000")
 
-    response = await client.get(POOL_URL, headers=_auth())
+    response = await client.get(POOL_URL, headers=ADMIN_HEADERS)
 
     body = _json(response)
     assert body["trade_count"] == 3
@@ -389,7 +384,7 @@ async def test_pool_performance_reports_every_exclusion(
         ),
     )
 
-    response = await client.get(POOL_URL, headers=_auth())
+    response = await client.get(POOL_URL, headers=ADMIN_HEADERS)
 
     body = _json(response)
     assert body["excluded"] == {
@@ -428,8 +423,8 @@ async def test_two_pools_on_one_exchange_are_reported_separately(
         symbols=("ETHBTC.P", "ETHBTC"),
     )
 
-    usdt = _json(await client.get("/api/performance/pools/pionex/spot/USDT", headers=_auth()))
-    btc = _json(await client.get("/api/performance/pools/pionex/coin-m/BTC", headers=_auth()))
+    usdt = _json(await client.get("/api/performance/pools/pionex/spot/USDT", headers=ADMIN_HEADERS))
+    btc = _json(await client.get("/api/performance/pools/pionex/coin-m/BTC", headers=ADMIN_HEADERS))
 
     assert (usdt["currency"], usdt["trade_count"], Decimal(usdt["total_pnl"])) == (
         "USDT",
@@ -466,7 +461,7 @@ async def test_get_strategy_performance_includes_by_pair(
         pg_session_factory, strategy_id, DAY2, exit_="105", symbols=("ETHUSDT.P", "ETHUSDT")
     )
 
-    response = await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+    response = await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body = _json(response)
@@ -494,12 +489,12 @@ async def test_strategy_performance_holds_only_that_strategys_trades(
     await _trade(pg_session_factory, other, DAY1, exit_="150")
 
     mine_body = _json(
-        await client.get(f"/api/performance/strategies/{mine}", headers=_auth())
+        await client.get(f"/api/performance/strategies/{mine}", headers=ADMIN_HEADERS)
     )
     other_body = _json(
-        await client.get(f"/api/performance/strategies/{other}", headers=_auth())
+        await client.get(f"/api/performance/strategies/{other}", headers=ADMIN_HEADERS)
     )
-    pool_body = _json(await client.get(POOL_URL, headers=_auth()))
+    pool_body = _json(await client.get(POOL_URL, headers=ADMIN_HEADERS))
 
     assert Decimal(mine_body["total_pnl"]) == Decimal("10")
     assert Decimal(other_body["total_pnl"]) == Decimal("50")
@@ -512,13 +507,13 @@ async def test_strategy_endpoints_answer_404_for_an_unknown_strategy(
     unknown = uuid4()
     for suffix in ("", "/trades"):
         response = await client.get(
-            f"/api/performance/strategies/{unknown}{suffix}", headers=_auth()
+            f"/api/performance/strategies/{unknown}{suffix}", headers=ADMIN_HEADERS
         )
 
         assert response.status_code == 404, suffix
         assert response.json() == {"detail": "no such strategy"}, suffix
 
-    malformed = await client.get("/api/performance/strategies/not-a-uuid", headers=_auth())
+    malformed = await client.get("/api/performance/strategies/not-a-uuid", headers=ADMIN_HEADERS)
     assert malformed.status_code == 422
 
 
@@ -536,9 +531,11 @@ async def test_an_archived_strategy_still_returns_its_performance_and_trades(
         )
         await session.commit()
 
-    performance = await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+    performance = await client.get(
+        f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS
+    )
     trades = await client.get(
-        f"/api/performance/strategies/{strategy_id}/trades", headers=_auth()
+        f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
     )
 
     assert performance.status_code == 200
@@ -563,7 +560,7 @@ async def test_strategy_endpoints_read_the_strategys_own_pool_never_one_from_the
         for strategy_id in (bybit_strategy, pionex_strategy):
             for suffix in ("", "/trades"):
                 response = await api.get(
-                    f"/api/performance/strategies/{strategy_id}{suffix}", headers=_auth()
+                    f"/api/performance/strategies/{strategy_id}{suffix}", headers=ADMIN_HEADERS
                 )
                 assert response.status_code == 200, suffix
 
@@ -586,7 +583,7 @@ async def test_get_strategy_trades_item_shape_and_direction(
     )
 
     response = await client.get(
-        f"/api/performance/strategies/{strategy_id}/trades", headers=_auth()
+        f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 200
@@ -646,7 +643,9 @@ async def test_get_strategy_trades_keyset_pagination_walks_every_trade_once(
     pages = 0
     while True:
         response = await client.get(
-            f"/api/performance/strategies/{strategy_id}/trades", params=params, headers=_auth()
+            f"/api/performance/strategies/{strategy_id}/trades",
+            params=params,
+            headers=ADMIN_HEADERS,
         )
         assert response.status_code == 200, response.text
         body = _json(response)
@@ -674,17 +673,19 @@ async def test_get_strategy_trades_keyset_pagination_422_half_a_cursor(
     # Strictly before the trade's close, so the ordering (not a random id) decides.
     when, allocation = "2026-09-21T11:00:00Z", str(uuid4())
 
-    only_time = await client.get(url, params={"before_closed_at": when}, headers=_auth())
-    only_id = await client.get(url, params={"before_allocation_id": allocation}, headers=_auth())
+    only_time = await client.get(url, params={"before_closed_at": when}, headers=ADMIN_HEADERS)
+    only_id = await client.get(
+        url, params={"before_allocation_id": allocation}, headers=ADMIN_HEADERS
+    )
     naive = await client.get(
         url,
         params={"before_closed_at": "2026-09-21T12:00:00", "before_allocation_id": allocation},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
     good = await client.get(
         url,
         params={"before_closed_at": when, "before_allocation_id": allocation},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert only_time.status_code == 422
@@ -705,11 +706,11 @@ async def test_get_strategy_trades_page_size_defaults_to_50_max_200_else_422(
         await _trade(pg_session_factory, strategy_id, DAY1 + timedelta(minutes=minute))
     url = f"/api/performance/strategies/{strategy_id}/trades"
 
-    default = _json(await client.get(url, headers=_auth()))
-    largest = await client.get(url, params={"limit": "200"}, headers=_auth())
-    zero = await client.get(url, params={"limit": "0"}, headers=_auth())
-    over = await client.get(url, params={"limit": "201"}, headers=_auth())
-    word = await client.get(url, params={"limit": "many"}, headers=_auth())
+    default = _json(await client.get(url, headers=ADMIN_HEADERS))
+    largest = await client.get(url, params={"limit": "200"}, headers=ADMIN_HEADERS)
+    zero = await client.get(url, params={"limit": "0"}, headers=ADMIN_HEADERS)
+    over = await client.get(url, params={"limit": "201"}, headers=ADMIN_HEADERS)
+    word = await client.get(url, params={"limit": "many"}, headers=ADMIN_HEADERS)
 
     assert len(default["trades"]) == 50
     assert default["next_cursor"] is not None
@@ -749,10 +750,10 @@ async def test_empty_ledger_returns_zeros_and_empty_arrays_never_an_error(
     trade list of that strategy: all 200, all zeros or empty."""
     strategy_id = await _strategy(pg_session_factory)
 
-    pool = await client.get(POOL_URL, headers=_auth())
-    strategy = await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+    pool = await client.get(POOL_URL, headers=ADMIN_HEADERS)
+    strategy = await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     trades = await client.get(
-        f"/api/performance/strategies/{strategy_id}/trades", headers=_auth()
+        f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
     )
 
     assert pool.status_code == strategy.status_code == trades.status_code == 200
@@ -793,9 +794,9 @@ async def test_a_ledger_holding_only_rehearsal_fills_is_empty_and_says_how_many_
         ),
     )
 
-    pool = _json(await client.get(POOL_URL, headers=_auth()))
+    pool = _json(await client.get(POOL_URL, headers=ADMIN_HEADERS))
     strategy = _json(
-        await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+        await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     )
 
     _assert_empty_report(pool, rehearsal=2)
@@ -826,7 +827,7 @@ async def test_no_response_contains_a_json_float_and_every_decimal_is_a_plain_st
 
     leaves: list[tuple[str, Any]] = []
     for url in urls:
-        response = await client.get(url, headers=_auth())
+        response = await client.get(url, headers=ADMIN_HEADERS)
         assert response.status_code == 200, url
         leaves += [(f"{url} {path}", value) for path, value in _walk(response.json())]
 
@@ -878,7 +879,7 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
 
     with caplog.at_level(logging.ERROR):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-            response = await api.get(POOL_URL, headers=_auth())
+            response = await api.get(POOL_URL, headers=ADMIN_HEADERS)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "performance data failed an integrity check"}

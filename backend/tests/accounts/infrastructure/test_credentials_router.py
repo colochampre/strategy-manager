@@ -2,7 +2,7 @@
 design 8a § C, design § 4b).
 
 The PUT tests need no database: the router is mounted through ``create_app()``
-(so the ``/api`` prefix and the bearer guard are part of what is proven) with
+(so the ``/api`` prefix and the admin guard are part of what is proven) with
 ``get_save_credential`` overridden to a REAL ``SaveCredential`` over the fake
 venue and writer of ``tests/accounts/fakes.py``. The fake venue records every
 request, which is what makes "nothing was sent to the venue" an assertion.
@@ -60,10 +60,10 @@ from strategy_manager.accounts.infrastructure.credentials_router import (
 )
 from strategy_manager.accounts.infrastructure.key_inspectors.bybit import BybitKeyInspector
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from strategy_manager.shared.infrastructure.crypto import (
     MASTER_KEY_BYTES,
     Envelope,
@@ -95,12 +95,12 @@ from tests.accounts.pool_seed import (
     seed_strategy,
     set_strategy_enabled,
 )
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
 
-TOKEN = "adm1n-t0ken"
 WITHDRAWALS = "withdrawals_disabled_confirmed"
 FUTURES = "futures_enabled_confirmed"
 
@@ -116,13 +116,9 @@ FACT_KEYS = {
 ENTRY_KEYS = {"exchange", "status", "last4", "label", "stored_at"} | FACT_KEYS
 
 
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
-
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 def _bybit_body(**over: Any) -> dict[str, Any]:
@@ -165,7 +161,7 @@ async def _serve(
 
 async def _put_bybit(served: "Served", **over: Any) -> Response:
     return await served.api.put(
-        "/api/credentials/bybit", json=_bybit_body(**over), headers=_auth()
+        "/api/credentials/bybit", json=_bybit_body(**over), headers=ADMIN_HEADERS
     )
 
 
@@ -223,7 +219,7 @@ async def test_put_a_binance_key_with_both_confirmations_is_stored_owner_confirm
         response = await served.api.put(
             "/api/credentials/binance",
             json=_binance_body(**{WITHDRAWALS: True, FUTURES: True}),
-            headers=_auth(),
+            headers=ADMIN_HEADERS,
         )
 
     assert response.status_code == 200
@@ -240,7 +236,7 @@ async def test_put_the_label_is_optional_and_a_given_one_is_stored() -> None:
     async with _serve() as served:
         default = await _put_bybit(served)
         named = await served.api.put(
-            "/api/credentials/bybit", json=_bybit_body(label="trading-2"), headers=_auth()
+            "/api/credentials/bybit", json=_bybit_body(label="trading-2"), headers=ADMIN_HEADERS
         )
 
     assert [default.status_code, named.status_code] == [200, 200]
@@ -265,7 +261,7 @@ async def test_put_binance_missing_confirmation_422_names_the_missing_field(
 ) -> None:
     async with _serve() as served:
         response = await served.api.put(
-            "/api/credentials/binance", json=_binance_body(**given), headers=_auth()
+            "/api/credentials/binance", json=_binance_body(**given), headers=ADMIN_HEADERS
         )
 
     assert response.status_code == 422
@@ -284,7 +280,7 @@ async def test_put_binance_missing_confirmation_422_names_the_missing_field(
 async def test_put_bybit_true_confirmation_422_not_applicable(field: str) -> None:
     async with _serve() as served:
         response = await served.api.put(
-            "/api/credentials/bybit", json=_bybit_body(**{field: True}), headers=_auth()
+            "/api/credentials/bybit", json=_bybit_body(**{field: True}), headers=ADMIN_HEADERS
         )
 
     assert response.status_code == 422
@@ -301,7 +297,7 @@ async def test_put_bybit_with_confirmations_false_is_fine() -> None:
         response = await served.api.put(
             "/api/credentials/bybit",
             json=_bybit_body(**{WITHDRAWALS: False, FUTURES: False}),
-            headers=_auth(),
+            headers=ADMIN_HEADERS,
         )
 
     assert response.status_code == 200
@@ -380,7 +376,7 @@ def test_the_outcome_map_covers_every_save_outcome_and_only_saved_is_a_success()
 async def test_put_an_unserved_exchange_is_404_and_nothing_is_sent_to_any_venue() -> None:
     async with _serve() as served:
         response = await served.api.put(
-            "/api/credentials/pionex", json=_bybit_body(), headers=_auth()
+            "/api/credentials/pionex", json=_bybit_body(), headers=ADMIN_HEADERS
         )
 
     assert response.status_code == 404
@@ -402,7 +398,7 @@ async def test_put_a_client_cannot_supply_a_confirmation_time_or_a_fact(extra: s
         response = await served.api.put(
             "/api/credentials/bybit",
             json=_bybit_body(**{extra: "2020-01-01T00:00:00Z"}),
-            headers=_auth(),
+            headers=ADMIN_HEADERS,
         )
 
     assert response.status_code == 422
@@ -425,7 +421,7 @@ async def test_put_a_bad_body_is_a_422_that_echoes_neither_key_nor_secret(
     body: dict[str, Any],
 ) -> None:
     async with _serve() as served:
-        response = await served.api.put("/api/credentials/bybit", json=body, headers=_auth())
+        response = await served.api.put("/api/credentials/bybit", json=body, headers=ADMIN_HEADERS)
 
     assert response.status_code == 422
     assert response.json()["detail"], "a 422 with no errors would prove nothing"
@@ -439,7 +435,7 @@ async def test_put_a_malformed_json_body_is_a_422_that_echoes_nothing() -> None:
         response = await served.api.put(
             "/api/credentials/bybit",
             content='{"api_key": "' + BYBIT_KEY + '", "api_secret": "' + BYBIT_SECRET,
-            headers={**_auth(), "Content-Type": "application/json"},
+            headers={**ADMIN_HEADERS, "Content-Type": "application/json"},
         )
 
     assert response.status_code == 422
@@ -508,7 +504,7 @@ async def test_every_put_answer_carries_no_store() -> None:
         answers["422-malformed"] = await served.api.put(
             "/api/credentials/bybit",
             content="{not json",
-            headers={**_auth(), "Content-Type": "application/json"},
+            headers={**ADMIN_HEADERS, "Content-Type": "application/json"},
         )
         answers["422-refusal"] = await _put_bybit(served, **{WITHDRAWALS: True})
         answers["401-missing"] = await served.api.put(
@@ -517,10 +513,10 @@ async def test_every_put_answer_carries_no_store() -> None:
         answers["401-wrong"] = await served.api.put(
             "/api/credentials/bybit",
             json=_bybit_body(),
-            headers={"Authorization": "Bearer not-the-token"},
+            headers=FORGED_HEADERS,
         )
         answers["404"] = await served.api.put(
-            "/api/credentials/pionex", json=_bybit_body(), headers=_auth()
+            "/api/credentials/pionex", json=_bybit_body(), headers=ADMIN_HEADERS
         )
     for outcome, status in (
         (SaveOutcome.CONCURRENT_SAVE, 409),
@@ -549,7 +545,7 @@ async def test_a_get_refused_for_its_token_carries_no_store() -> None:
     async with _serve() as served:
         missing = await served.api.get("/api/credentials")
         wrong = await served.api.get(
-            "/api/credentials", headers={"Authorization": "Bearer not-the-token"}
+            "/api/credentials", headers=FORGED_HEADERS
         )
 
     assert [missing.status_code, wrong.status_code] == [401, 401]
@@ -563,7 +559,9 @@ async def test_the_503_for_an_unusable_master_key_carries_no_store(
     monkeypatch.setattr(get_settings(), "master_encryption_key", "")
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-        response = await api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
+        response = await api.put(
+            "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
+        )
 
     assert response.status_code == 503
     _assert_no_store(response)
@@ -590,7 +588,7 @@ async def test_the_credential_routes_refuse_a_missing_or_wrong_token(
         body = _bybit_body() if method == "PUT" else None
         missing = await served.api.request(method, path, json=body)
         wrong = await served.api.request(
-            method, path, json=body, headers={"Authorization": "Bearer not-the-token"}
+            method, path, json=body, headers=FORGED_HEADERS
         )
 
     assert [missing.status_code, wrong.status_code] == [401, 401]
@@ -609,7 +607,9 @@ async def test_an_unusable_master_key_answers_503_before_anything_else_and_says_
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         with caplog.at_level("DEBUG"):
-            response = await api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
+            response = await api.put(
+                "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
+            )
 
     assert response.status_code == 503
     assert response.json() == {"detail": "credential storage is not configured"}
@@ -700,12 +700,12 @@ async def test_get_credentials_shows_source_and_confirmation_fields_never_live_r
         saved = await served.api.put(
             "/api/credentials/binance",
             json=_binance_body(**{WITHDRAWALS: True, FUTURES: True}),
-            headers=_auth(),
+            headers=ADMIN_HEADERS,
         )
         assert saved.status_code == 200
         calls_after_save = list(served.inspector.calls)
 
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     assert listed.status_code == 200
     _assert_no_store(saved)
@@ -737,8 +737,8 @@ async def test_get_credentials_entries_have_no_permissions_key(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with _serve_db(factory) as served:
-        await served.api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        await served.api.put("/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS)
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     entries = listed.json()
     assert {entry["exchange"] for entry in entries} >= {"bybit"}
@@ -754,7 +754,7 @@ async def test_get_credentials_an_exchange_with_only_an_enabled_pool_is_empty_an
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with _serve_db(factory) as served:
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     entries = listed.json()
     # The seeded pools are pionex and bybit, all enabled, and nothing is stored.
@@ -785,7 +785,7 @@ async def test_get_credentials_an_exchange_with_only_a_history_row_is_listed_emp
     await _set_pool_enabled(factory, "pionex", False)
 
     async with _serve_db(factory) as served:
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     entries = listed.json()
     # Binance has no pool at all, no active key, and one superseded row.
@@ -803,7 +803,7 @@ async def test_get_credentials_an_exchange_with_no_key_no_history_and_no_enabled
     await _set_pool_enabled(factory, "bybit", False)
 
     async with _serve_db(factory) as served:
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     assert [entry["exchange"] for entry in listed.json()] == ["pionex"]
 
@@ -815,12 +815,12 @@ async def test_get_credentials_a_rotated_exchange_is_one_entry_the_active_key(
     first, second = "FIRST-BYBIT-KEY-1111", "SECOND-BYBIT-KEY-2222"
     async with _serve_db(factory) as served:
         one = await served.api.put(
-            "/api/credentials/bybit", json=_bybit_body(api_key=first), headers=_auth()
+            "/api/credentials/bybit", json=_bybit_body(api_key=first), headers=ADMIN_HEADERS
         )
         two = await served.api.put(
-            "/api/credentials/bybit", json=_bybit_body(api_key=second), headers=_auth()
+            "/api/credentials/bybit", json=_bybit_body(api_key=second), headers=ADMIN_HEADERS
         )
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     assert [one.status_code, two.status_code] == [200, 200]
     entry = _entry(listed.json(), "bybit")
@@ -844,7 +844,7 @@ async def test_get_credentials_a_legacy_row_reads_unrecorded_with_no_validation_
         await session.commit()
 
     async with _serve_db(factory) as served:
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     entry = _entry(listed.json(), "pionex")
     assert entry["status"] == "STORED"
@@ -1049,7 +1049,9 @@ async def test_the_real_wiring_saves_a_bybit_key_through_the_real_inspector_and_
 
     app.dependency_overrides[shared_db.get_session] = _session
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-        response = await api.put("/api/credentials/bybit", json=_bybit_body(), headers=_auth())
+        response = await api.put(
+            "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
+        )
 
     assert response.status_code == 200
     assert response.json()["last4"] == BYBIT_KEY[-4:]
@@ -1066,7 +1068,7 @@ async def test_delete_credentials_404_when_no_active_row(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "no active credential for exchange 'bybit'"}
@@ -1080,8 +1082,8 @@ async def test_delete_credentials_200_status_empty_matches_never_configured_shap
     await _store(factory, "bybit")
 
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
-        listed = await served.api.get("/api/credentials", headers=_auth())
+        response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -1102,7 +1104,7 @@ async def test_delete_credentials_disables_the_pool_and_a_new_save_enables_it_ag
 ) -> None:
     await _store(factory, "bybit")
     async with _serve_delete(factory) as served:
-        await served.api.delete("/api/credentials/bybit", headers=_auth())
+        await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
     async with factory() as session:
         enabled = (
             await session.execute(
@@ -1113,7 +1115,7 @@ async def test_delete_credentials_disables_the_pool_and_a_new_save_enables_it_ag
 
     async with _serve_db(factory) as served_save:
         saved = await served_save.api.put(
-            "/api/credentials/bybit", json=_bybit_body(), headers=_auth()
+            "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
         )
 
     assert saved.status_code == 200
@@ -1143,7 +1145,7 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     await seed_discrepancy(factory, symbol="STXUSDT")
 
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     body = response.json()
@@ -1181,7 +1183,7 @@ async def test_delete_credentials_409_for_an_open_discrepancy_alone_keeps_the_ke
     await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED")
 
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     body = response.json()
@@ -1201,7 +1203,7 @@ async def test_delete_credentials_for_an_exchange_without_a_known_pool_is_404_an
     await _store(factory, "pionex", key="PIONEX-FAKE-KEY-mnop")
 
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/pionex", headers=_auth())
+        response = await served.api.delete("/api/credentials/pionex", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "exchange 'pionex' is not served by this panel"}
@@ -1216,7 +1218,7 @@ async def test_delete_credentials_for_an_exchange_without_a_known_pool_is_404_wi
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/kraken", headers=_auth())
+        response = await served.api.delete("/api/credentials/kraken", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "exchange 'kraken' is not served by this panel"}
@@ -1232,7 +1234,7 @@ async def test_delete_credentials_takes_the_known_pool_lock_and_reads_its_exposu
     await _store(factory, "bybit")
 
     async with _serve_delete(factory) as served:
-        response = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert served.lock_calls == [("bybit", "usdt-m", "USDT")]
@@ -1250,7 +1252,7 @@ async def test_delete_credentials_unauthenticated_is_401_before_anything_else(
         answers = [
             await served.api.delete(path, headers=headers)
             for path in ("/api/credentials/pionex", "/api/credentials/bybit")
-            for headers in ({}, {"Authorization": "Bearer not-the-token"})
+            for headers in ({}, FORGED_HEADERS)
         ]
 
     assert [a.status_code for a in answers] == [401, 401, 401, 401]
@@ -1271,21 +1273,21 @@ async def test_every_delete_answer_carries_no_store(
     await _store(factory, "pionex", key="PIONEX-FAKE-KEY-mnop")
     async with _serve_delete(factory) as served:
         answers["404-no-row"] = await served.api.delete(
-            "/api/credentials/bybit", headers=_auth()
+            "/api/credentials/bybit", headers=ADMIN_HEADERS
         )
         answers["404-not-served"] = await served.api.delete(
-            "/api/credentials/pionex", headers=_auth()
+            "/api/credentials/pionex", headers=ADMIN_HEADERS
         )
         answers["401-missing"] = await served.api.delete("/api/credentials/bybit")
         answers["401-wrong"] = await served.api.delete(
-            "/api/credentials/bybit", headers={"Authorization": "Bearer not-the-token"}
+            "/api/credentials/bybit", headers=FORGED_HEADERS
         )
         await _store(factory, "bybit")
         strategy_id = uuid4()
         await seed_strategy(factory, strategy_id=strategy_id, enabled=True)
-        answers["409"] = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        answers["409"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
         await set_strategy_enabled(factory, strategy_id, False)
-        answers["200"] = await served.api.delete("/api/credentials/bybit", headers=_auth())
+        answers["200"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
 
     assert {k: v.status_code for k, v in answers.items()} == {
         "404-no-row": 404,
@@ -1300,13 +1302,13 @@ async def test_every_delete_answer_carries_no_store(
 
 
 @pytest.mark.integration
-async def test_the_delete_route_is_behind_the_bearer_guard_like_the_others(
+async def test_the_delete_route_is_behind_the_admin_guard_like_the_others(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with _serve_delete(factory) as served:
         missing = await served.api.request("DELETE", "/api/credentials/bybit")
         wrong = await served.api.request(
-            "DELETE", "/api/credentials/bybit", headers={"Authorization": "Bearer not-the-token"}
+            "DELETE", "/api/credentials/bybit", headers=FORGED_HEADERS
         )
 
     assert [missing.status_code, wrong.status_code] == [401, 401]

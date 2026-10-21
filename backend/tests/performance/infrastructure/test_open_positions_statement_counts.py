@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.performance.infrastructure.guard_cases import (
     record_fill,
     seed_allocation,
@@ -28,8 +28,6 @@ from tests.performance.infrastructure.guard_cases import (
 )
 
 pytestmark = pytest.mark.integration
-
-TOKEN = "adm1n-t0ken"
 
 
 @contextmanager
@@ -52,7 +50,7 @@ async def _request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[int, int, int]:
     """``(statements, positions, orders)`` of one request."""
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     app = create_app()
 
     async def _session() -> AsyncIterator[AsyncSession]:
@@ -62,9 +60,7 @@ async def _request(
     app.dependency_overrides[shared_db.get_session] = _session
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with _captured_sql(engine) as statements:
-            response = await client.get(
-                "/api/positions/open", headers={"Authorization": f"Bearer {TOKEN}"}
-            )
+            response = await client.get("/api/positions/open", headers=ADMIN_HEADERS)
     assert response.status_code == 200, response.text
     body = response.json()
     return len(statements), len(body["positions"]), len(body["orders"])

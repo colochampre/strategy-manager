@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
+from tests.identity_auth import ADMIN_HEADERS
 from tests.performance.infrastructure.conftest import _rehearsal_id
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BINANCE,
@@ -41,9 +42,8 @@ from tests.performance.infrastructure.test_performance_router import (  # noqa: 
     DAY1,
     POOL_URL,
     _app,
-    _auth,
-    _configure_admin_token,
     _json,
+    _signed_in,
     _strategy,
     _trade,
     _walk,
@@ -122,7 +122,7 @@ async def _rehearsal_operations(
 
 
 async def _report(client: AsyncClient, strategy_id: UUID) -> dict[str, Any]:
-    response = await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+    response = await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert response.status_code == 200, response.text
     return dict(_json(response))
 
@@ -248,7 +248,7 @@ async def test_the_strategy_and_pool_reports_gain_no_win_rate(
     await _operations(pg_session_factory, strategy_id, ("110", "90"))
 
     strategy_report = await _report(client, strategy_id)
-    pool_report = _json(await client.get(POOL_URL, headers=_auth()))
+    pool_report = _json(await client.get(POOL_URL, headers=ADMIN_HEADERS))
 
     assert strategy_report["by_pair"][0]["wins"] == 1
     for report in (strategy_report, dict(pool_report)):

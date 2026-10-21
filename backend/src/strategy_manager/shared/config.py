@@ -157,21 +157,26 @@ class Settings(BaseSettings):
     # expires: both are bounded by this value. Nothing here is a credential.
     pair_catalogue_ttl_seconds: float = Field(default=300.0)
 
-    # Bearer token required by every ``/strategies`` endpoint — the surface
-    # that registers strategies and arms them, which is to say the surface
-    # that decides what this system trades and with how much capital.
-    #
-    # There is no safe default, and an empty value is not one. It is empty
-    # here so that a deployment which sets nothing is REFUSED at startup
-    # (invariant 4) rather than served; a placeholder default would be a
-    # published password, and a "disable auth when empty" fallback would hand
-    # the internet the admin API the moment this line went unread.
-    #
-    # Unlike ``webhook_secret`` this is a token WE issue to ourselves: no
-    # third party's request format constrains it, so it travels in the
-    # ``Authorization`` header rather than a query string and never reaches
-    # the access log.
-    admin_api_token: str = Field(default="")
+    # Who is signed in (multi-user design AD1). Every ``/api`` request carries
+    # the Cloudflare Access assertion, and the API verifies it itself against
+    # this team's published keys and this application's AUD tag. Neither value
+    # is a credential: the team domain is public and the AUD tag only names the
+    # application. ``access_team_domain`` may be written with or without
+    # ``https://``. Both empty means Access is not configured.
+    access_team_domain: str = Field(default="")
+    access_aud: str = Field(default="")
+
+    # The admin is the user whose e-mail is this one, compared after folding
+    # case. Computed on every request, never stored, so the admin is recovered by
+    # editing ``.env``, never the database. Required: the API refuses to start
+    # without it (``assert_identity_configured``).
+    admin_email: str = Field(default="")
+
+    # A fixed identity for local runs without Cloudflare (the Vite dev server,
+    # the fixture review): every request is this user. Refused at startup
+    # together with Access, and refused whenever ``DRY_RUN`` is false, so a
+    # leftover line can never sign the internet in on a live deployment.
+    dev_user_email: str = Field(default="")
 
     # Directory holding the built operator panel (the Vite ``dist`` output).
     #

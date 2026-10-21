@@ -104,7 +104,7 @@ export function DeleteKeyDialog({ name, last4, pending, result, onConfirm, onCan
       case "unknown":
         return { text: t("settings.delete.errors.unknown"), lines: [] as string[] };
       default:
-        // Nothing yet, a delete that worked (the dialog is closing) or a 401 (the token gate takes the page).
+        // Nothing yet, a delete that worked (the dialog is closing) or a 401 (the page is loaded again to sign in).
         return null;
     }
   })();

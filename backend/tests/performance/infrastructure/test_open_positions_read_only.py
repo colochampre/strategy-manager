@@ -31,6 +31,7 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.performance.fakes import HeldOpenStateSource
 from tests.performance.infrastructure.guard_cases import seed_guard_cases
 from tests.performance.infrastructure.test_open_positions_snapshot import (
@@ -43,8 +44,7 @@ from tests.performance.infrastructure.test_open_positions_snapshot import (
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
-URL = "/api/positions/open"
+URL ="/api/positions/open"
 TABLES = (
     "ledger_entries",
     "reservations",
@@ -70,13 +70,13 @@ def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
 
 
 @pytest.fixture(autouse=True)
-def _admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 async def _get(app: FastAPI) -> Response:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        return await client.get(URL, headers={"Authorization": f"Bearer {TOKEN}"})
+        return await client.get(URL, headers=ADMIN_HEADERS)
 
 
 async def test_the_route_answers_while_another_transaction_holds_a_pools_advisory_lock(

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
-import { useTokenStore } from "@/shared/auth/token-store";
+import { page } from "@/shared/auth/reauthenticate";
 
 function fakeResponse(body: unknown, status: number, ok: boolean = status >= 200 && status < 300): Response {
   return {
@@ -13,13 +13,17 @@ function fakeResponse(body: unknown, status: number, ok: boolean = status >= 200
 }
 
 describe("apiFetch", () => {
+  let reload: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     window.localStorage.clear();
-    useTokenStore.setState({ token: null });
+    window.sessionStorage.clear();
+    reload = vi.spyOn(page, "reload").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("prefixes every call with the API base URL and the /api prefix", async () => {
@@ -32,28 +36,31 @@ describe("apiFetch", () => {
     expect(call[0]).toBe(`${API_BASE_URL}/api/reconciliation/confirmed`);
   });
 
-  it("sends the stored token as a Bearer Authorization header", async () => {
-    useTokenStore.getState().setToken("secret-token");
+  it("sends no credential of its own: Cloudflare Access signs the request", async () => {
+    window.localStorage.setItem("sm.admin_token", JSON.stringify({ state: { token: "left-over" } }));
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true }, 200));
     vi.stubGlobal("fetch", fetchMock);
 
     await apiFetch("/reconciliation/confirmed");
 
     const call = fetchMock.mock.calls[0] as [string, RequestInit];
-    const headers = new Headers(call[1].headers);
-    expect(headers.get("Authorization")).toBe("Bearer secret-token");
+    expect(new Headers(call[1].headers).get("Authorization")).toBeNull();
   });
 
-  it("clears the token store on any 401 response, so TokenGate re-renders", async () => {
-    useTokenStore.getState().setToken("stale-token");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(fakeResponse({ detail: "Not authenticated" }, 401, false));
-    vi.stubGlobal("fetch", fetchMock);
+  it("reloads the page on a 401, so an expired Access session signs in again, and still throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ detail: "unauthorized" }, 401, false)));
+
+    await expect(apiFetch("/reconciliation/confirmed")).rejects.toMatchObject({ status: 401 });
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([403, 503, 500])("does not reload on a %i", async (status) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ detail: "no" }, status, false)));
 
     await expect(apiFetch("/reconciliation/confirmed")).rejects.toBeInstanceOf(ApiError);
 
-    expect(useTokenStore.getState().token).toBeNull();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it.each([

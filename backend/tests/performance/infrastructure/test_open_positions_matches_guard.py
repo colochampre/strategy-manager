@@ -30,12 +30,10 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
 )
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.performance.infrastructure.guard_cases import GuardCases, seed_guard_cases
 
 pytestmark = pytest.mark.integration
-
-TOKEN = "adm1n-t0ken"
 
 
 @contextmanager
@@ -57,7 +55,7 @@ async def _route(
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[dict[str, Any], list[tuple[str, int]]]:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     app = create_app()
 
     async def _session() -> AsyncIterator[AsyncSession]:
@@ -67,9 +65,7 @@ async def _route(
     app.dependency_overrides[shared_db.get_session] = _session
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with _statements_with_connection(engine) as statements:
-            response = await client.get(
-                "/api/positions/open", headers={"Authorization": f"Bearer {TOKEN}"}
-            )
+            response = await client.get("/api/positions/open", headers=ADMIN_HEADERS)
     assert response.status_code == 200, response.text
     body = response.json()
     assert isinstance(body, dict)

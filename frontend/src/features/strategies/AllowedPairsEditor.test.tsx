@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AllowedPairsEditor } from "@/features/strategies/AllowedPairsEditor";
 import type { Strategy } from "@/shared/api/types";
-import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
 import { availablePairs, jsonResponse, stubApi } from "@/test/harness";
 
@@ -79,12 +78,8 @@ const add = async (symbol: string) => {
 const catalogueReady = () =>
   waitFor(() => expect(screen.getByLabelText(i18n.t("strategies.pairs.search"))).toBeEnabled());
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(() => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
 });
 
 describe("AllowedPairsEditor", () => {

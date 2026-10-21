@@ -51,6 +51,7 @@ from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.reconciliation.application.auto_booking_support import (
     GRACE_SECONDS,
     MARKET_SYMBOL,
@@ -77,7 +78,6 @@ pytestmark = pytest.mark.integration
 
 _ANNOUNCER = "strategy_manager.reconciliation.application.announce_needs_owner"
 _SCANNER = "strategy_manager.reconciliation.application.scan_pools"
-_TOKEN = "adm1n-t0ken"
 
 _PAST_THE_GRACE = NOW + timedelta(seconds=GRACE_SECONDS) + timedelta(hours=1)
 
@@ -111,7 +111,7 @@ async def _clean(engine: AsyncEngine) -> AsyncIterator[None]:
 
 @pytest.fixture(autouse=True)
 def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", _TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "dry_run", False)
     monkeypatch.setattr(get_settings(), "reconciliation_auto_booking_grace_seconds", 3600)
 
@@ -403,9 +403,7 @@ async def test_a_discrepancy_resolved_by_the_scan_is_in_no_list_and_the_scan_cou
 
     async def read() -> dict[str, object]:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-            response = await api.get(
-                "/api/reconciliation/confirmed", headers={"Authorization": f"Bearer {_TOKEN}"}
-            )
+            response = await api.get("/api/reconciliation/confirmed", headers=ADMIN_HEADERS)
         assert response.status_code == 200
         body: dict[str, object] = response.json()
         return body

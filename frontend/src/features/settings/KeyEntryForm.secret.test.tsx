@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import { saveCredential } from "@/shared/api/credentials";
+import { page } from "@/shared/auth/reauthenticate";
 import i18n from "@/shared/i18n";
 import {
   type ExtraRoute,
@@ -395,30 +396,24 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     expect(secretField().value).toBe("");
   });
 
-  it("test_a_401_during_a_save_leaves_the_token_gate_and_nothing_typed", async () => {
+  it("test_a_401_during_a_save_reloads_the_page_and_leaves_nothing_typed", async () => {
     const { fetchMock } = setup(answer(401, { detail: ECHO }));
+    const reload = vi.spyOn(page, "reload").mockImplementation(() => undefined);
     await openBybit();
     type();
     const readsBefore = reads(fetchMock).length;
 
     fireEvent.click(submitButton());
-    await screen.findByRole("button", { name: "Unlock" });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     await settled(fetchMock);
 
-    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
-    expect(leaks(document.body.innerHTML)).toEqual([]);
-    // Nothing is recorded, re-read or focused: the page is being replaced by the gate.
-    expect(reads(fetchMock)).toHaveLength(readsBefore);
-    expect(document.activeElement?.tagName === "INPUT" && document.activeElement.getAttribute("type") === "password").toBe(false);
-
-    await act(async () => {
-      unlock();
-    });
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
-    await card("Bybit");
-    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
+    expect(keyField().value).toBe("");
+    expect(secretField().value).toBe("");
     expect(leaks(document.body.innerHTML)).toEqual([]);
     expect(leaks(document.body.textContent ?? "")).toEqual([]);
+    // Nothing is recorded, re-read or focused: the page is being loaded again, through Access's sign-in.
+    expect(reads(fetchMock)).toHaveLength(readsBefore);
+    expect(document.activeElement?.tagName === "INPUT" && document.activeElement.getAttribute("type") === "password").toBe(false);
   });
 });
 

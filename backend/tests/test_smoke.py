@@ -49,15 +49,20 @@ def test_dry_run_is_enabled_by_default() -> None:
 def test_no_exchange_credentials_are_baked_in() -> None:
     """No credential may ship as a default value.
 
-    ``admin_api_token`` belongs in this list for the same reason as the other
-    two: a default would be a published password. It is the one whose empty
-    default is ALSO load-bearing — startup invariant 4 reads exactly this
-    value to decide whether to refuse to boot."""
+    The four identity settings are not credentials, but they belong in this
+    list for the same reason: a default ``admin_email`` would hand the admin
+    views to whoever owns that address, and a default ``dev_user_email`` would
+    sign every request in as somebody. Their empty defaults are ALSO
+    load-bearing — startup invariant 4 (``assert_identity_configured``) reads
+    exactly these values to decide whether to refuse to boot."""
     settings = Settings(_env_file=None)
 
     assert settings.webhook_secret == ""
-    assert settings.admin_api_token == ""
     assert settings.master_encryption_key == ""
+    assert settings.admin_email == ""
+    assert settings.access_team_domain == ""
+    assert settings.access_aud == ""
+    assert settings.dev_user_email == ""
 
 
 def test_tradingview_constraints_are_pinned() -> None:

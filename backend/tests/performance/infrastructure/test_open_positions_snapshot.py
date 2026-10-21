@@ -41,14 +41,14 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 )
 from strategy_manager.reconciliation.infrastructure.models import ReconciliationDiscrepancyRow
 from strategy_manager.shared import db as shared_db
+from tests.identity_auth import ADMIN_HEADERS
 from tests.performance.fakes import HeldOpenStateSource
 from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
     _seed_allocation,
 )
 from tests.performance.infrastructure.test_performance_router import (  # noqa: F401
-    _auth,
-    _configure_admin_token,
+    _signed_in,
 )
 
 pytestmark = pytest.mark.integration
@@ -136,7 +136,7 @@ async def _read_held_across_a_fill(
     ids: tuple[UUID, UUID, UUID],
 ) -> dict[str, Any]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        request = asyncio.create_task(client.get("/api/positions/open", headers=_auth()))
+        request = asyncio.create_task(client.get("/api/positions/open", headers=ADMIN_HEADERS))
         # The harness is parked between the first statement and the second.
         while not held_slot:
             await asyncio.sleep(0)
@@ -169,7 +169,7 @@ async def _read_held_across(
     """The same hold as above, with ``concurrent`` run on connections of its own
     while the read is parked; the WHOLE body is returned."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        request = asyncio.create_task(client.get("/api/positions/open", headers=_auth()))
+        request = asyncio.create_task(client.get("/api/positions/open", headers=ADMIN_HEADERS))
         while not held_slot:
             await asyncio.sleep(0)
             assert not request.done(), "the request ended before the read started"

@@ -77,12 +77,12 @@ describe("navigation", () => {
     }
   });
 
-  it("moves the active state when a link is followed", () => {
+  it("moves the active state when a link is followed", async () => {
     renderShell("/");
 
     fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
 
-    expect(screen.getByText("strategies body")).toBeInTheDocument();
+    expect(await screen.findByText("strategies body")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Overview" })[0]).not.toHaveAttribute("aria-current");
   });
 
@@ -106,7 +106,7 @@ describe("DryRunBadge", () => {
     expect(screen.queryByText("Live")).not.toBeInTheDocument();
   });
 
-  it("reads /health without the admin token and without the /api prefix", async () => {
+  it("reads /health without a credential header and without the /api prefix", async () => {
     const fetchMock = stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
     renderShell();
 
@@ -166,13 +166,13 @@ describe("DryRunBadge", () => {
     }
   });
 
-  it("is visible while the token gate is locked, because /health needs no token", async () => {
+  it("is visible while signed out, because /health needs no sign-in", async () => {
     lock();
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
     renderShell();
 
     expect(await screen.findByText("Dry run")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unlock" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
   });
 });
 

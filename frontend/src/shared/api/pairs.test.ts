@@ -1,13 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
 import { fetchAvailablePairs, useAvailablePairs } from "@/shared/api/pairs";
 import type { PoolKey } from "@/shared/api/types";
-import { useTokenStore } from "@/shared/auth/token-store";
 import { jsonResponse } from "@/test/harness";
 
 const BYBIT: PoolKey = { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" };
@@ -29,12 +28,8 @@ function clientWrapper() {
   return { client, wrapper };
 }
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(() => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
 });
 
 describe("fetchAvailablePairs", () => {

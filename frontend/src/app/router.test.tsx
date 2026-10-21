@@ -61,11 +61,11 @@ describe("route map", () => {
     for (const link of links) expect(link).toHaveAttribute("href", "/discrepancies");
   });
 
-  it("asks for the admin token instead of any page while locked", async () => {
+  it("asks to sign in again instead of any page while signed out", async () => {
     lock();
     renderAt(<AppRoutes />, "/settings");
 
-    expect(await screen.findByRole("button", { name: "Unlock" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).not.toBeInTheDocument();
   });
 });
