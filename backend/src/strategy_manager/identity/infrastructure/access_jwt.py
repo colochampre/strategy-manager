@@ -27,8 +27,11 @@ most once a minute, so a made-up ``kid`` cannot make the API fetch on every
 request.
 
 **Nothing secret is logged.** Neither the assertion nor any claim reaches a
-log: a refusal is answered 401 by the dependency and needs no line, and an
-unavailable key set is logged once per failed fetch, without the response body.
+log. A request with no assertion writes no line. A presented assertion that
+fails a check writes one WARNING naming the check, because behind the tunnel
+that means this API's Access settings are wrong. An unavailable key set is
+logged once per failed fetch, without the response body, and answers 503 until
+a later fetch succeeds.
 """
 
 import asyncio
@@ -109,6 +112,14 @@ class AccessJwtVerifier:
                 options={"require": ["exp", "aud", "iss"]},
             )
         except jwt.PyJWTError as error:
+            # The tunnel validated this token before it arrived, so a refusal here
+            # almost always means ACCESS_AUD or ACCESS_TEAM_DOMAIN is wrong. The line
+            # names the failed check only, never the token or a claim.
+            logger.warning(
+                "Cloudflare Access assertion refused (%s); check ACCESS_AUD and "
+                "ACCESS_TEAM_DOMAIN if every panel request answers 401",
+                type(error).__name__,
+            )
             raise IdentityRefusedError from error
 
         email = claims.get("email")
@@ -122,6 +133,10 @@ class AccessJwtVerifier:
         async with self._refresh:
             if kid not in self._keys and self._may_refresh():
                 await self._fetch()
+        if not self._keys:
+            # A failed fetch inside the refresh interval: still an outage, never a
+            # refusal, or the panel would read 401 as an expired session and reload.
+            raise IdentityUnavailableError
         try:
             return self._keys[kid]
         except KeyError:

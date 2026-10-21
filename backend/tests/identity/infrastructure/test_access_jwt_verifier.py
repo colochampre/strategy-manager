@@ -239,3 +239,65 @@ async def test_a_malformed_key_set_makes_identity_unavailable() -> None:
 
     with pytest.raises(IdentityUnavailableError):
         await verifier.verify(_token())
+
+
+async def test_an_outage_stays_unavailable_until_the_next_refresh() -> None:
+    """A request inside the refresh interval after a failed fetch is still 503, never a
+    silent 401: the panel would read a 401 as an expired session and reload."""
+    keys = _Keys(status=500)
+    clock = _Monotonic()
+    verifier = _verifier(keys, monotonic=clock)
+
+    with pytest.raises(IdentityUnavailableError):
+        await verifier.verify(_token())
+    clock.now += 1
+    with pytest.raises(IdentityUnavailableError):
+        await verifier.verify(_token())
+    assert keys.fetches == 1
+
+    clock.now += 60
+    keys.status = 200
+    keys.entries = [_jwk(KEY_A, "kid-a")]
+    assert await verifier.verify(_token()) == EMAIL
+    assert keys.fetches == 2
+
+
+@pytest.mark.parametrize(
+    ("label", "overrides", "reason"),
+    [
+        ("wrong aud", {"aud": ["another-application"]}, "InvalidAudienceError"),
+        ("wrong iss", {"iss": "https://other.cloudflareaccess.com"}, "InvalidIssuerError"),
+        ("expired", {"exp": datetime.now(UTC) - timedelta(minutes=5)}, "ExpiredSignatureError"),
+    ],
+)
+async def test_a_presented_assertion_that_is_refused_says_why_in_one_warning(
+    label: str, overrides: dict[str, Any], reason: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The tunnel validates the token before it arrives, so a presented token the API
+    refuses almost always means ACCESS_AUD or ACCESS_TEAM_DOMAIN is wrong. Without a
+    line, every panel request would answer 401 and nothing would say why. The line
+    names the failed check only: never the token, never a claim."""
+    caplog.set_level("WARNING", logger="strategy_manager.identity.infrastructure.access_jwt")
+    token = _token(**overrides)
+
+    with pytest.raises(IdentityRefusedError):
+        await _verifier(_Keys(_jwk(KEY_A, "kid-a"))).verify(token)
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1, label
+    text = warnings[0].getMessage()
+    assert reason in text
+    assert token not in text
+    assert EMAIL.lower() not in text.lower()
+    assert "example.com" not in text.lower()
+
+
+async def test_a_request_without_an_assertion_writes_no_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG", logger="strategy_manager.identity.infrastructure.access_jwt")
+
+    with pytest.raises(IdentityRefusedError):
+        await _verifier(_Keys(_jwk(KEY_A, "kid-a"))).verify(None)
+
+    assert caplog.records == []
