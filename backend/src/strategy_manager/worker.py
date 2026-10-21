@@ -355,7 +355,7 @@ def _assert_keys_present(
     "binance" would send an operator chasing the wrong row.
 
     This is the STARTUP report only. The composition root re-checks the same
-    active-key listing on its own per-job cadence (``main._active_exchanges``
+    active-key listing on its own per-job cadence (``read_key_coverage``
     / ``main._track_degraded_exchanges``), seeded with this function's return
     value so a key saved or deleted while the worker is already running is
     seen on the next job -- not only after a restart -- and the very first

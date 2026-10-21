@@ -249,12 +249,18 @@ def test_no_frozen_pools_by_key_snapshot_survives_anywhere_in_the_composition_ro
     assert "pools_by_key" not in source
 
 
-def test_configured_exchanges_reads_the_shared_pool_set_everywhere() -> None:
+def test_the_degraded_check_reads_pools_and_keys_in_one_query_everywhere() -> None:
+    """Deleting a key from the panel disables its pool in the same commit, but
+    the shared pool set only catches up on the next balance.sync reload. Fed
+    from it, the tracker saw an enabled pool with no key and sent a false ERROR
+    to Telegram (2026-10-21, after Bybit's key was deleted). Every call now
+    takes both sets from ONE statement, so it never mixes two moments."""
     source = inspect.getsource(main.build_worker_runner)
-    # The old frozen local must be gone; every degraded-tracker call reads
-    # the live property instead.
     assert "configured_exchanges = frozenset" not in source
-    assert source.count("configured=pool_set.configured_exchanges") >= 5
+    assert "configured=pool_set.configured_exchanges" not in source
+    assert "_active_exchanges(" not in source
+    assert source.count("coverage = await read_key_coverage(session)") >= 5
+    assert source.count("configured=coverage.configured") >= 5
 
 
 def test_dry_run_fakes_cover_both_bybit_and_binance_unconditionally() -> None:
