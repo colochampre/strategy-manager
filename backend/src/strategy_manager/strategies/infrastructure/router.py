@@ -47,6 +47,7 @@ from strategy_manager.allocation.infrastructure.repository import (
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
@@ -55,7 +56,6 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
@@ -122,14 +122,14 @@ from strategy_manager.strategies.infrastructure.share_input import Share
 # open, and it would look exactly like the four already here. A decorator that
 # has to be copied is a rule that will eventually not be.
 #
-# So there is deliberately no ``Depends(require_admin_token)`` on any route
+# So there is deliberately no ``Depends(require_admin)`` on any route
 # below. Adding one would not be harmless duplication — it would teach the
 # next reader that this is where authentication lives, and the route that then
 # omits it inherits nothing and says nothing.
 router = APIRouter(
     prefix="/strategies",
     tags=["strategies"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 logger = logging.getLogger(__name__)

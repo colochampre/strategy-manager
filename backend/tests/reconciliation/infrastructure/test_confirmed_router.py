@@ -19,6 +19,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.reconciliation.application.auto_book_pending import AUTO_BOOKING_ACTOR
 from strategy_manager.reconciliation.application.ports import (
@@ -41,7 +42,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -50,9 +51,7 @@ from tests.reconciliation.infrastructure.conftest import (
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
 POOL = ("bybit", "usdt-m", "USDT")
-HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 _TOP_KEYS = {
     "read_at",
@@ -99,7 +98,7 @@ _BOOKING_KEYS = {
 
 @pytest.fixture(autouse=True)
 def _settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "dry_run", False)
     monkeypatch.setattr(get_settings(), "reconciliation_auto_booking_grace_seconds", 300)
     yield
@@ -223,7 +222,7 @@ async def _approved_proposal(
     return record.id
 
 
-async def test_without_the_bearer_the_route_answers_401(client: AsyncClient) -> None:
+async def test_without_an_assertion_the_route_answers_401(client: AsyncClient) -> None:
     response = await client.get("/reconciliation/confirmed")
 
     assert response.status_code == 401
@@ -235,7 +234,8 @@ async def test_the_route_is_mounted_under_api_and_has_no_unprefixed_twin() -> No
         transport=ASGITransport(app=create_app()), base_url="http://test"
     ) as api:
         assert (await api.get("/api/reconciliation/confirmed")).status_code == 401
-        assert (await api.get("/reconciliation/confirmed", headers=HEADERS)).status_code == 404
+        unprefixed = await api.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+        assert unprefixed.status_code == 404
 
 
 async def test_the_body_has_the_keys_and_shape_of_the_design(
@@ -261,7 +261,7 @@ async def test_the_body_has_the_keys_and_shape_of_the_design(
         symbol="CCCUSDT",
     )
 
-    response = await client.get("/reconciliation/confirmed", headers=HEADERS)
+    response = await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body: dict[str, Any] = response.json()
@@ -312,7 +312,7 @@ async def test_money_and_quantities_are_strings(
         symbol="EEEUSDT",
     )
 
-    body = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
 
     assert len(body["needs_owner"]) == 1
     assert len(body["booked"]) == 1
@@ -348,7 +348,7 @@ async def test_quantities_read_back_at_scale_18_are_written_in_plain_notation(
         symbol="GGGUSDT",
     )
 
-    body = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
 
     [need] = body["needs_owner"]
     [booking] = body["booked"]
@@ -371,7 +371,7 @@ async def test_dry_run_is_the_setting_and_the_lists_are_what_the_database_holds(
         pg_session_factory, symbol="FFFUSDT", kind=DiscrepancyKind.AMBIGUOUS_PARTIAL_REDUCE
     )
 
-    body = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
 
     assert body["dry_run"] is dry_run
     assert body["needs_owner_count"] == 1
@@ -393,7 +393,7 @@ async def test_a_resolved_or_observed_discrepancy_is_in_no_list(
         )
         await session.commit()
 
-    body = (await client.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
 
     assert (body["needs_owner"], body["being_booked"], body["booked"]) == ([], [], [])
     assert body["needs_owner_count"] == 0
@@ -409,7 +409,7 @@ async def _count_statements(
 
     event.listen(engine.sync_engine, "before_cursor_execute", _record)
     try:
-        response = await client.get("/reconciliation/confirmed", headers=HEADERS)
+        response = await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", _record)
     assert response.status_code == 200
@@ -495,7 +495,7 @@ async def test_the_call_changes_no_table(
     )
     before = await _snapshot(pg_session_factory)
 
-    response = await client.get("/reconciliation/confirmed", headers=HEADERS)
+    response = await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert await _snapshot(pg_session_factory) == before
@@ -508,7 +508,7 @@ async def test_the_discrepancies_route_answers_as_before(
 
     await _discrepancy(pg_session_factory, symbol="KKKUSDT")
 
-    response = await client.get("/reconciliation/discrepancies", headers=HEADERS)
+    response = await client.get("/reconciliation/discrepancies", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     [row] = response.json()

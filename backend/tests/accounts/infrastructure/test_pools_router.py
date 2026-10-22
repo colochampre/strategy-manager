@@ -22,10 +22,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -36,16 +37,10 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 @pytest.fixture
@@ -141,12 +136,12 @@ def _by_pool(body: list[dict[str, Any]]) -> _Pools:
     return _Pools({(p["exchange"], p["venue"], p["settlement_currency"]): p for p in body})
 
 
-async def test_get_pools_requires_bearer_token(client: AsyncClient) -> None:
+async def test_get_pools_requires_a_signed_in_admin(client: AsyncClient) -> None:
     """Every refusal is the same 401, and the route lives under ``/api`` only."""
     missing = await client.get("/api/pools")
-    wrong = await client.get("/api/pools", headers={"Authorization": f"Bearer {TOKEN}-wrong"})
-    pre_move = await client.get("/pools", headers=_auth())
-    admitted = await client.get("/api/pools", headers=_auth())
+    wrong = await client.get("/api/pools", headers=FORGED_HEADERS)
+    pre_move = await client.get("/pools", headers=ADMIN_HEADERS)
+    admitted = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     assert missing.status_code == 401
     assert wrong.status_code == 401
@@ -168,7 +163,7 @@ async def test_get_pools_computes_allocatable_as_max_zero_available_minus_reserv
     await _snapshot(pg_session_factory, "pionex", "spot", "USDT", total="50", available="10")
     await _reserve(pg_session_factory, "pionex", "spot", "USDT", "25", status="SUBMITTED")
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     pools = _by_pool(response.json())
     bybit = pools[("bybit", "usdt-m", "USDT")]
@@ -200,7 +195,7 @@ async def test_get_pools_reserved_counts_only_live_reservations(
         expires_in=timedelta(seconds=-5),
     )
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     bybit = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
     assert Decimal(bybit["reserved"]) == Decimal("7")
@@ -220,7 +215,7 @@ async def test_get_pools_never_sums_two_pools_on_same_exchange(
     await _reserve(pg_session_factory, "pionex", "spot", "USDT", "100", status="SUBMITTED")
     await _reserve(pg_session_factory, "pionex", "coin-m", "BTC", "0.25", status="PENDING")
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     body = response.json()
     assert isinstance(body, list)
@@ -257,7 +252,7 @@ async def test_get_pools_pool_without_a_snapshot_has_null_balance_and_null_alloc
     await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="100")
     await _reserve(pg_session_factory, "pionex", "spot", "USDT", "40", status="PENDING")
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     pools = _by_pool(response.json())
     unsynced = pools[("pionex", "spot", "USDT")]
@@ -288,7 +283,7 @@ async def test_get_pools_balance_carries_observed_at_utc_and_stale_flag(
         observed_at=now - timedelta(seconds=limit + 60),
     )
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     pools = _by_pool(response.json())
     fresh = pools[("bybit", "usdt-m", "USDT")]["balance"]
@@ -313,7 +308,7 @@ async def test_get_pools_money_is_json_strings_and_disabled_pools_are_listed(
         await session.commit()
     await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="100")
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     pools = _by_pool(response.json())
     assert len(pools) == 4
@@ -338,7 +333,7 @@ async def test_get_pools_writes_zero_and_whole_amounts_in_plain_notation(
     notation, so a client never has to parse an exponent."""
     await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="5", available="0")
 
-    response = await client.get("/api/pools", headers=_auth())
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
     synced = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
     amounts = [

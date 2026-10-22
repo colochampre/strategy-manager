@@ -3,7 +3,6 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useTokenStore } from "@/shared/auth/token-store";
 import {
   distinctExchanges,
   EXCHANGE_STORAGE_KEY,
@@ -32,7 +31,6 @@ async function readyScope(pools: unknown) {
 }
 
 beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
   resetExchangeScope();
 });
 afterEach(() => {

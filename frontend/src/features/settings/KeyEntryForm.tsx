@@ -80,7 +80,7 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
    * document (the elements are held by this closure), unticks the boxes and
    * clears the two flags. Every ending but a 401 reads the two lists again, and
    * only a form that is still mounted shows the result; a 401 does nothing, the
-   * token gate takes the page.
+   * page is being loaded again to sign in (`apiFetch`).
    */
   async function attempt() {
     if (inFlight.current) return;

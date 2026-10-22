@@ -31,7 +31,6 @@ from strategy_manager.accounts.infrastructure.credentials_router import get_save
 from strategy_manager.accounts.infrastructure.key_inspectors.binance import BinanceKeyInspector
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import KeyInspectorRegistry
 from strategy_manager.main import create_app
-from strategy_manager.shared.config import get_settings
 from tests.accounts.fakes import (
     NOW,
     RecordingCommit,
@@ -39,6 +38,7 @@ from tests.accounts.fakes import (
     RecordingWriter,
     TickingClock,
 )
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.signals.infrastructure.test_webhook_secret_router import (
     _all_loggers,
     _Capture,
@@ -46,7 +46,6 @@ from tests.signals.infrastructure.test_webhook_secret_router import (
     _logging_restored,
 )
 
-TOKEN = "adm1n-t0ken"
 KEY = "LOGTEST-FAKE-KEY-0a1b2c"
 SECRET = "LOGTEST-FAKE-SECRET-3d4e5f-must-never-leak"
 
@@ -57,8 +56,8 @@ class _FrozenClock:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 async def test_no_log_record_at_any_level_carries_the_key_or_the_secret_on_a_real_put(
@@ -117,7 +116,7 @@ async def test_no_log_record_at_any_level_carries_the_key_or_the_secret_on_a_rea
             assert server.started, "the uvicorn server did not start"
             port = server.servers[0].sockets[0].getsockname()[1]
 
-            headers = {"Authorization": f"Bearer {TOKEN}"}
+            headers = ADMIN_HEADERS
             async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as api:
                 saved = await api.put(
                     "/api/credentials/binance",

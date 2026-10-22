@@ -1,7 +1,7 @@
-"""API tests for the bearer token guarding ``/strategies``.
+"""API tests for the admin guard on ``/strategies``.
 
-The assertion that matters most here is not that a bad token is refused — it
-is that EVERY route on this router is refused, discovered from the router
+The assertion that matters most here is not that a forged assertion is refused
+— it is that EVERY route on this router is refused, discovered from the router
 itself rather than from a list written by hand. A list would go stale the
 moment someone adds an endpoint, which is the exact failure the router-level
 dependency exists to prevent; enumerating ``router.routes`` means the test
@@ -17,12 +17,19 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import (
+    FORBIDDEN_DETAIL,
+    UNAUTHORIZED_DETAIL,
+)
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
-
-TOKEN = "adm1n-t0ken"
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    OTHER_HEADERS,
+    sign_in_as_admin,
+)
 
 #: Path parameters are filled with a well-formed value so that a refusal is
 #: never the path converter's doing.
@@ -56,10 +63,10 @@ def _app() -> FastAPI:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Set explicitly rather than inherited from the developer's .env, so these
     assertions describe the code and not the machine."""
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     yield
 
 
@@ -90,7 +97,7 @@ async def test_unit_2e_routes_are_covered_by_the_dynamic_enumeration() -> None:
     assert ("GET", "events") in suffixes
 
 
-async def test_every_registered_route_refuses_a_request_without_a_token(
+async def test_every_registered_route_refuses_a_request_without_an_assertion(
     client: AsyncClient,
 ) -> None:
     """The structural claim. The dependency is on the router, so this holds for
@@ -106,16 +113,11 @@ async def test_no_route_leaks_which_part_of_the_credential_was_wrong(
     client: AsyncClient,
 ) -> None:
     """One detail for every refusal, on every route. A caller who learns that
-    a token is merely wrong — rather than absent, or wrongly framed — is being
-    told which half of their guess to keep."""
+    an assertion is merely wrong — rather than absent — is being told which
+    half of their guess to keep."""
     details = set()
     for method, path in _routes():
-        for headers in (
-            {},
-            {"Authorization": f"Bearer {TOKEN}-wrong"},
-            {"Authorization": TOKEN},
-            {"Authorization": f"Basic {TOKEN}"},
-        ):
+        for headers in ({}, FORGED_HEADERS):
             response = await client.request(method, path, headers=headers)
 
             assert response.status_code == 401
@@ -124,48 +126,49 @@ async def test_no_route_leaks_which_part_of_the_credential_was_wrong(
     assert details == {UNAUTHORIZED_DETAIL}
 
 
-async def test_a_wrong_token_is_refused(client: AsyncClient) -> None:
-    response = await client.get(
-        "/strategies", headers={"Authorization": "Bearer not-the-token"}
-    )
+async def test_every_registered_route_forbids_a_signed_in_user_who_is_not_the_admin(
+    client: AsyncClient,
+) -> None:
+    """A user who proved who they are, and is not the admin, gets 403 on every
+    route: the guard is the router's, so it covers routes added later too."""
+    for method, path in _routes():
+        response = await client.request(method, path, headers=OTHER_HEADERS)
+
+        assert response.status_code == 403, f"{method} {path} was not forbidden"
+        assert response.json() == {"detail": FORBIDDEN_DETAIL}, f"{method} {path}"
+
+
+async def test_a_forged_assertion_is_refused(client: AsyncClient) -> None:
+    response = await client.get("/strategies", headers=FORGED_HEADERS)
 
     assert response.status_code == 401
 
 
-async def test_a_missing_authorization_header_is_refused(client: AsyncClient) -> None:
+async def test_a_missing_assertion_header_is_refused(client: AsyncClient) -> None:
     response = await client.get("/strategies")
 
     assert response.status_code == 401
 
 
-async def test_a_header_without_the_bearer_scheme_is_refused(
-    client: AsyncClient,
-) -> None:
-    response = await client.get("/strategies", headers={"Authorization": TOKEN})
-
-    assert response.status_code == 401
-
-
-async def test_an_unconfigured_token_refuses_even_a_request_that_sends_none(
+async def test_an_unconfigured_admin_admits_nobody(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The comparison must never be vacuous. Startup invariant 4 refuses to
     boot a deployment configured this way; this asserts the second lock, which
     is what stands if that invariant is ever removed or bypassed."""
-    monkeypatch.setattr(get_settings(), "admin_api_token", "")
+    monkeypatch.setattr(get_settings(), "admin_email", "")
 
-    for headers in ({"Authorization": "Bearer "}, {"Authorization": "Bearer"}, {}):
-        response = await client.get("/strategies", headers=headers)
+    response = await client.get("/strategies", headers=ADMIN_HEADERS)
 
-        assert response.status_code == 401
+    assert response.status_code == 403
 
 
 async def test_strategy_routes_live_under_api_prefix() -> None:
     """The ``/api`` move (design.md §13, spec: admin-api). In the real
     composition root, every strategies route now resolves under
-    ``/api/strategies`` — still refused without a token, because wrapping the
-    router changes where its routes are reachable from, never its own
-    ``dependencies=[Depends(require_admin_token)]`` — and the pre-move path is
+    ``/api/strategies`` — still refused without an assertion, because wrapping
+    the router changes where its routes are reachable from, never its own
+    ``dependencies=[Depends(require_admin)]`` — and the pre-move path is
     no longer registered at all.
 
     Uses ``create_app()`` rather than this file's own bare ``_app()``: the
@@ -175,7 +178,7 @@ async def test_strategy_routes_live_under_api_prefix() -> None:
     ``app.routes`` — this FastAPI version resolves an included router's
     routes lazily (``_IncludedRouter``), so the table is not flat until a
     request actually walks it. Neither call builds a database session,
-    mirroring ``test_a_missing_authorization_header_is_refused`` above — the
+    mirroring ``test_a_missing_assertion_header_is_refused`` above — the
     router dependency short-circuits before ``SessionDep`` is ever resolved.
     """
     transport = ASGITransport(app=create_app())
@@ -188,7 +191,7 @@ async def test_strategy_routes_live_under_api_prefix() -> None:
 
 
 @pytest.mark.integration
-async def test_a_correct_token_reaches_the_endpoint(
+async def test_the_signed_in_admin_reaches_the_endpoint(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The other half: the guard refuses, it does not wall the router off."""
@@ -203,9 +206,7 @@ async def test_a_correct_token_reaches_the_endpoint(
     app.dependency_overrides[shared_db.get_session] = _override_get_session
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as api:
-        response = await api.get(
-            "/strategies", headers={"Authorization": f"Bearer {TOKEN}"}
-        )
+        response = await api.get("/strategies", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == []

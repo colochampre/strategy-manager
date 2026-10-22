@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
 import { useStrategy } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
-import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
 import { jsonResponse, pool } from "@/test/harness";
 import { pressRangeKey, pressTab } from "@/test/keyboard";
@@ -195,12 +194,8 @@ const moveHandle = (key: string) => {
   pressRangeKey(key);
 };
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(() => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
 });
 
 describe("PoolShareEditor, step 3: the value and Save", () => {

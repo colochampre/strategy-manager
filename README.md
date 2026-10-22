@@ -50,8 +50,12 @@ psql -U postgres -d strategy_manager_test -c "ALTER SCHEMA public OWNER TO strat
 
 # 2. Configure
 cp .env.example backend/.env     # then fill DATABASE_URL, WEBHOOK_SECRET,
-#                                  ADMIN_API_TOKEN, MASTER_ENCRYPTION_KEY —
-#                                  the API refuses to start without them
+#                                  ADMIN_EMAIL, MASTER_ENCRYPTION_KEY —
+#                                  the API refuses to start without them.
+#                                  The panel is signed in by Cloudflare
+#                                  Access: production sets ACCESS_TEAM_DOMAIN
+#                                  and ACCESS_AUD; a local dry run sets
+#                                  DEV_USER_EMAIL (to ADMIN_EMAIL) instead
 
 # 3. Backend
 cd backend

@@ -4,7 +4,7 @@ The webhook secret is the one value in this system that an unauthenticated
 request could turn into a forged signal, so the endpoint that returns it is
 tested from four sides:
 
-- it requires the same bearer token as every other ``/api`` route;
+- it requires the same signed-in admin as every other ``/api`` route;
 - it answers ``Cache-Control: no-store``;
 - NO OTHER ``/api`` route, of any method, ever puts the value in a body or a
   header. The routes are read from the application's own route table, so a route
@@ -44,10 +44,10 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 )
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
 from strategy_manager.shared.infrastructure.alert_log_bridge import AlertLogBridge
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
@@ -61,6 +61,7 @@ from tests.accounts.fakes import (
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
 from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -68,18 +69,13 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
 )
 from tests.performance.infrastructure.test_performance_router import _trade
 
-TOKEN = "adm1n-t0ken"
 SECRET = "wh-s3cret-7d41c9e2-must-never-leak"
 SECRET_PATH = "/api/webhook-secret"
 
 
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
-
 @pytest.fixture(autouse=True)
 def _configure_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "webhook_secret", SECRET)
 
 
@@ -95,22 +91,21 @@ async def client() -> AsyncIterator[AsyncClient]:
 # --- the endpoint itself ----------------------------------------------------------
 
 
-async def test_get_webhook_secret_requires_bearer_token(client: AsyncClient) -> None:
+async def test_get_webhook_secret_requires_a_signed_in_admin(client: AsyncClient) -> None:
     missing = await client.get(SECRET_PATH)
-    wrong = await client.get(SECRET_PATH, headers={"Authorization": "Bearer not-the-token"})
-    basic = await client.get(SECRET_PATH, headers={"Authorization": f"Basic {TOKEN}"})
+    wrong = await client.get(SECRET_PATH, headers=FORGED_HEADERS)
 
-    assert [missing.status_code, wrong.status_code, basic.status_code] == [401, 401, 401]
-    for refusal in (missing, wrong, basic):
+    assert [missing.status_code, wrong.status_code] == [401, 401]
+    for refusal in (missing, wrong):
         assert refusal.json() == {"detail": UNAUTHORIZED_DETAIL}
         assert SECRET not in refusal.text
 
-    granted = await client.get(SECRET_PATH, headers=_auth())
+    granted = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
     assert granted.status_code == 200
 
 
 async def test_get_webhook_secret_returns_cache_control_no_store(client: AsyncClient) -> None:
-    response = await client.get(SECRET_PATH, headers=_auth())
+    response = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.headers.get("cache-control") == "no-store"
@@ -122,7 +117,7 @@ async def test_an_unconfigured_secret_is_refused_never_returned_as_an_empty_valu
 ) -> None:
     monkeypatch.setattr(get_settings(), "webhook_secret", "")
 
-    response = await client.get(SECRET_PATH, headers=_auth())
+    response = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 503
     assert "secret" not in response.json()
@@ -132,7 +127,7 @@ async def test_an_unconfigured_secret_is_refused_never_returned_as_an_empty_valu
 
 async def test_the_dedicated_endpoint_is_not_a_method_other_than_get(client: AsyncClient) -> None:
     for method in ("POST", "PUT", "PATCH", "DELETE"):
-        response = await client.request(method, SECRET_PATH, headers=_auth())
+        response = await client.request(method, SECRET_PATH, headers=ADMIN_HEADERS)
         assert response.status_code == 405, method
         assert SECRET not in response.text
 
@@ -327,13 +322,13 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         # One real state change first, so the strategy has an enablement event
         # for ``.../events`` to list.
         toggled = await api.patch(
-            f"/api/strategies/{strategy_id}", json={"enabled": False}, headers=_auth()
+            f"/api/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS
         )
         assert toggled.status_code == 200
         response = await api.request(
             method,
             _concrete_path(template, strategy_id, allocation_id),
-            headers=_auth(),
+            headers=ADMIN_HEADERS,
             json=body,
         )
 
@@ -493,7 +488,7 @@ async def test_access_log_never_records_the_secret_value(
             port = server.servers[0].sockets[0].getsockname()[1]
 
             async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as api:
-                response = await api.get(SECRET_PATH, headers=_auth())
+                response = await api.get(SECRET_PATH, headers=ADMIN_HEADERS)
             # A canary ERROR proves the bridge is live on the root logger: a bridge
             # that never saw a record would make "no secret in it" prove nothing.
             logging.getLogger("strategy_manager.sweep_canary").error("canary %s", CANARY)

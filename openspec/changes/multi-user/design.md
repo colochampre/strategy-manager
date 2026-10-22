@@ -53,9 +53,16 @@ The keys are cached in process and refreshed on an unknown `kid`, at most once a
 - `ADMIN_EMAIL`;
 - `DEV_USER_EMAIL`, for local runs without Cloudflare.
 
-`model_config` does not change. The API refuses to start with neither Access nor a dev e-mail configured. It also refuses `DEV_USER_EMAIL` when `DRY_RUN=false`.
+`model_config` does not change. The API refuses to start, naming the setting:
+
+- with neither Access nor a dev e-mail configured;
+- with only one of `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`;
+- with `DEV_USER_EMAIL` beside Access, or when `DRY_RUN=false`;
+- with an `ADMIN_EMAIL` or a `DEV_USER_EMAIL` that is not an address.
 
 **Admin.** A user is admin when their e-mail equals `ADMIN_EMAIL`, compared case-insensitively. It is computed, not stored, so the admin is recovered by editing `.env`, never the database.
+
+**The owner's row.** Migration 0029 creates `users` empty. A migration that reads `.env` would tie the schema to a setting, so the owner's row is created like everyone's: by their first `GET /api/me` after the deploy (task A.13 checks it). PR B's 0030 then takes the one user that exists as the owner of the existing data, and refuses unless exactly one exists.
 
 **Layers.**
 - domain: `identity/domain/user.py` (`User`, `Mode`), with no framework.
@@ -315,8 +322,8 @@ The fakes stay process-lifetime, as today.
 
 | Rev | What | Downgrade |
 | --- | --- | --- |
-| 0029 | `users`; insert the owner from `ADMIN_EMAIL` (the migration refuses if it is unset) | drop `users` |
-| 0030 | `user_id` on owned tables (AD2; ledger by constant default); keys' unique per user; pools' surrogate id and FK moves; ledger fill unique with `user_id` | reversible while only the owner exists |
+| 0029 | `users`, empty; the owner's row is created by their first `GET /api/me` | drop `users` |
+| 0030 | `user_id` on owned tables (AD2; ledger by constant default), filled with the one existing user (refuses unless exactly one exists); keys' unique per user; pools' surrogate id and FK moves; ledger fill unique with `user_id` | reversible while only the owner exists |
 | 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then dropped from `strategies`; strategy's pool FK dropped | reversible while only the owner exists |
 | 0032 | `signal_deliveries`; one per existing signal for the owner's subscription; `reservations.delivery_id` backfilled, `signal_id UNIQUE` dropped | reversible while only the owner exists |
 | 0033 | `strategies.webhook_secret_hash` (the current global secret hashed by the migration from settings); `users.mode` (the owner's set to `LIVE` if `DRY_RUN=false` at migration time, else `SIMULATION`); `reservations.mode` backfilled from each row's recorded mode origin | reversible while only the owner exists |

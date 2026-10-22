@@ -1,12 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
 import { setStrategyAllocationPercent, useSetAllocationPercent } from "@/shared/api/strategies";
-import { useTokenStore } from "@/shared/auth/token-store";
 import { jsonResponse } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -41,12 +40,8 @@ function clientWrapper() {
   return { client, wrapper };
 }
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(() => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
 });
 
 describe("setStrategyAllocationPercent", () => {

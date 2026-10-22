@@ -25,15 +25,14 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from strategy_manager.main import create_app
-from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.validation_errors import (
     redacted_validation_handler,
 )
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 
 KEY = "SENTINEL-KEY-0f3a11"
 SECRET = "SENTINEL-SECRET-9c1d77"
 EXTRA = "SENTINEL-EXTRA-5b2e90"
-TOKEN = "adm1n-t0ken"
 
 ALLOWED_ERROR_KEYS = {"type", "loc", "msg"}
 
@@ -180,8 +179,8 @@ async def test_a_real_route_of_the_real_app_answers_a_redacted_422(
 ) -> None:
     """``PATCH /api/strategies/{id}`` is an existing body route: its wrong-typed
     field is echoed by the default handler and must not be by this app."""
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
-    body = json.dumps({"name": {"nested": SECRET}, "enabled": SECRET})
+    sign_in_as_admin(monkeypatch)
+    body =json.dumps({"name": {"nested": SECRET}, "enabled": SECRET})
 
     async with AsyncClient(
         transport=ASGITransport(app=create_app()), base_url="http://test"
@@ -189,7 +188,7 @@ async def test_a_real_route_of_the_real_app_answers_a_redacted_422(
         response = await api.patch(
             "/api/strategies/5f0b2c1e-5b0b-4d7e-9f57-3a1f6f0f9c11",
             content=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {TOKEN}"},
+            headers={"Content-Type": "application/json", **ADMIN_HEADERS},
         )
 
     assert response.status_code == 422

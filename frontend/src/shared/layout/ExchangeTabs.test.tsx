@@ -80,12 +80,12 @@ describe("which routes show the tabs", () => {
     expect(poolCalls(fetchMock)).toHaveLength(0);
   });
 
-  it("shows no tabs while the token gate is locked, and never asks for pools", async () => {
+  it("shows no tabs while signed out, and never asks for pools", async () => {
     lock();
     const fetchMock = stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findByRole("button", { name: "Unlock" });
+    await screen.findByRole("button", { name: "Sign in again" });
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
     expect(poolCalls(fetchMock)).toHaveLength(0);
   });

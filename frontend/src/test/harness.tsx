@@ -6,7 +6,7 @@ import { vi } from "vitest";
 
 import type { BookedItem, ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
 import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
-import { useTokenStore } from "@/shared/auth/token-store";
+import { page } from "@/shared/auth/reauthenticate";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
 
 export type HealthStub =
@@ -401,6 +401,14 @@ export function stubApi(
     const url = String(input);
     const owned = extra?.(url, init);
     if (owned !== undefined) return owned;
+    // Who is signed in: the admin after `unlock()`, nobody (401) after `lock()` or by default.
+    if (url.endsWith("/api/me")) {
+      return Promise.resolve(
+        signedIn
+          ? jsonResponse({ email: SIGNED_IN_EMAIL, is_admin: true, dry_run: true })
+          : jsonResponse({ detail: "unauthorized" }, 401),
+      );
+    }
     if (url.endsWith("/health")) {
       if (health.kind === "network-error") return Promise.reject(new TypeError("offline"));
       if (health.kind === "pending") return new Promise<Response>(() => undefined);
@@ -494,13 +502,25 @@ export function setViewport(width: "wide" | "narrow"): void {
   }));
 }
 
+/** The e-mail `GET /api/me` answers after `unlock()`. */
+export const SIGNED_IN_EMAIL = "owner@example.com";
+
+let signedIn = false;
+
+/** `stubApi` answers `GET /api/me` with the admin, so the sign-in gate opens. */
 export function unlock(): void {
-  useTokenStore.setState({ token: "test-token" });
+  signedIn = true;
 }
 
+/**
+ * `stubApi` answers `GET /api/me` with 401, so the gate stays closed. The page
+ * reload a 401 triggers is replaced: jsdom cannot navigate.
+ */
 export function lock(): void {
   window.localStorage.clear();
-  useTokenStore.setState({ token: null });
+  window.sessionStorage.clear();
+  signedIn = false;
+  vi.spyOn(page, "reload").mockImplementation(() => undefined);
 }
 
 /** Forget the exchange picked in an earlier test, in memory and in storage. */

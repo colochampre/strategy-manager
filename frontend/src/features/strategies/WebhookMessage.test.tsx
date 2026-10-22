@@ -238,7 +238,7 @@ describe("WebhookMessage", () => {
     const call = secretCalls()[0];
     expect(call?.url.endsWith(SECRET_PATH)).toBe(true);
     expect(call?.init?.method ?? "GET").toBe("GET");
-    expect(new Headers(call?.init?.headers).get("Authorization")).toBe("Bearer test-token");
+    expect(new Headers(call?.init?.headers).has("Authorization")).toBe(false);
     expect(call?.url).not.toContain(SECRET);
     expect(screen.getByRole("button", { name: "Hide secret" })).toBeInTheDocument();
   });
@@ -730,7 +730,7 @@ describe("WebhookMessage", () => {
       expect(writeText).toHaveBeenCalledWith(`${HOST}/webhook/tradingview?secret=${AWKWARD_ENCODED}`);
       expect(JSON.stringify(writeText.mock.calls)).not.toContain("WEBHOOK_SECRET");
       expect(secretCallsOf(calls)).toHaveLength(1);
-      expect(new Headers(secretCallsOf(calls)[0]?.init?.headers).get("Authorization")).toBe("Bearer test-token");
+      expect(new Headers(secretCallsOf(calls)[0]?.init?.headers).has("Authorization")).toBe(false);
     });
 
     it.each([

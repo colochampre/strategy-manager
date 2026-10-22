@@ -26,8 +26,8 @@ from httpx import ASGITransport, AsyncClient, Response
 
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import get_settings
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 
-TOKEN = "adm1n-t0ken"
 WEBHOOK_SECRET = "wh-s3cret-spa-tests"
 
 INDEX_MARKER = "INDEX-HTML-MARKER-7f3a"
@@ -70,7 +70,7 @@ def layout(tmp_path: Path) -> Layout:
 
 @pytest.fixture(autouse=True)
 def _configure_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "webhook_secret", WEBHOOK_SECRET)
     monkeypatch.setattr(get_settings(), "panel_dist_dir", "")
 
@@ -162,9 +162,7 @@ async def test_a_non_get_request_is_not_touched_by_the_catch_all(
         assert response.status_code == 404, (method, path)
         assert not _is_index(response), (method, path)
 
-    wrong_method = await client.delete(
-        "/api/webhook-secret", headers={"Authorization": f"Bearer {TOKEN}"}
-    )
+    wrong_method = await client.delete("/api/webhook-secret", headers=ADMIN_HEADERS)
     assert wrong_method.status_code == 405
     assert not _is_index(wrong_method)
 
@@ -175,9 +173,7 @@ async def test_existing_routes_still_answer_and_are_not_shadowed_by_the_catch_al
     """Behavioural proof that the catch-all is registered last: a handler
     registered before it must still be the one that answers."""
     health = await client.get("/health")
-    secret = await client.get(
-        "/api/webhook-secret", headers={"Authorization": f"Bearer {TOKEN}"}
-    )
+    secret = await client.get("/api/webhook-secret", headers=ADMIN_HEADERS)
     unauthenticated = await client.get("/api/webhook-secret")
 
     assert health.status_code == 200
@@ -407,9 +403,7 @@ async def test_api_responses_carry_none_of_the_panel_headers(client: AsyncClient
 
 async def test_credentials_keep_no_store_with_the_panel_mounted(client: AsyncClient) -> None:
     refused = await client.get("/api/credentials")
-    authorised = await client.get(
-        "/api/credentials/nope", headers={"Authorization": f"Bearer {TOKEN}"}
-    )
+    authorised = await client.get("/api/credentials/nope", headers=ADMIN_HEADERS)
 
     assert refused.status_code == 401
     assert refused.headers["cache-control"] == "no-store"

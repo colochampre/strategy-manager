@@ -30,6 +30,7 @@ from strategy_manager.execution.domain.mode_origin import (
     InFlightAttemptOrigin,
     OpenAllocationOrigin,
 )
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.performance.application.ports import SubmittedOrder
 from strategy_manager.performance.domain.open_position import DiscrepancyRow, PoolLabel
 from strategy_manager.performance.infrastructure import open_positions_router
@@ -40,8 +41,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
     get_open_state_source,
     get_snapshot_session,
 )
-from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.performance.fakes import (
     FakeDisagreementSource,
     FakeFactsSource,
@@ -58,8 +58,7 @@ from tests.performance.open_state_cases import (
     submitted_order,
 )
 
-TOKEN = "adm1n-t0ken"
-NOW = datetime(2026, 10, 12, 10, 0, 0, tzinfo=UTC)
+NOW =datetime(2026, 10, 12, 10, 0, 0, tzinfo=UTC)
 PIONEX_BTC = PoolLabel("pionex", "coin-m", "BTC")
 URL = "/api/positions/open"
 
@@ -77,12 +76,8 @@ POOL_BODY = {"exchange": "bybit", "venue": "usdt-m", "settlement_currency": "USD
 
 
 @pytest.fixture(autouse=True)
-def _admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 def _app(
@@ -109,7 +104,7 @@ def _app(
 async def _get(app: FastAPI, url: str = URL, *, headers: dict[str, str] | None = None) -> Any:
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        return await client.get(url, headers=_auth() if headers is None else headers)
+        return await client.get(url, headers=ADMIN_HEADERS if headers is None else headers)
 
 
 async def _body(app: FastAPI, url: str = URL) -> dict[str, Any]:
@@ -532,8 +527,10 @@ async def test_orders_sort_by_submitted_at_then_attempt_id_with_an_unknown_time_
 # --- 401 and 500 ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer wrong"}])
-async def test_the_route_refuses_a_request_without_the_token(headers: dict[str, str]) -> None:
+@pytest.mark.parametrize("headers", [{}, FORGED_HEADERS])
+async def test_the_route_refuses_a_request_without_a_valid_assertion(
+    headers: dict[str, str],
+) -> None:
     response = await _get(_app(FakeOpenStateReader()), headers=headers)
 
     assert response.status_code == 401

@@ -48,6 +48,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.strategies.infrastructure.router import get_pool_sizing
 from tests.accounts.infrastructure.test_pools_router import _snapshot
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -57,7 +58,6 @@ from tests.performance.infrastructure.test_performance_router import _walk
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
 _WAIT = 5.0  # seconds; only ever a ceiling for a hung test, never a pacing delay
 
 BYBIT = ("bybit", "usdt-m", "USDT")
@@ -67,13 +67,9 @@ BYBIT_KEY = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
 Factory = async_sessionmaker[AsyncSession]
 
 
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
-
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 def _app(factory: Factory) -> FastAPI:
@@ -161,7 +157,7 @@ def _balance(response: Any) -> dict[str, Any]:
 async def _preview(client: AsyncClient, strategy_id: UUID, share: str | None = None) -> Any:
     params = {} if share is None else {"share": share}
     return await client.get(
-        f"/api/strategies/{strategy_id}/share-preview", params=params, headers=_auth()
+        f"/api/strategies/{strategy_id}/share-preview", params=params, headers=ADMIN_HEADERS
     )
 
 

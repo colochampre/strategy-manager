@@ -660,12 +660,13 @@
     }
   },
   "auth": {
-    "tokenGate": {
-      "title": "Admin token required",
-      "description": "Paste the admin token once. It is held only in this browser and is never bundled with the app.",
-      "placeholder": "Admin token",
-      "inputLabel": "Admin token",
-      "submit": "Unlock"
+    "gate": {
+      "checking": "Checking sign-in",
+      "notOpen": "You are signed in as {{email}}. The panel is not open to other users yet.",
+      "unavailable": "Sign-in cannot be checked right now.",
+      "retry": "Try again",
+      "signedOut": "Your session has ended.",
+      "signInAgain": "Sign in again"
     }
   }
 }

@@ -17,13 +17,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.performance.infrastructure import open_positions_router
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
-
-TOKEN = "adm1n-t0ken"
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 
 
 def test_the_router_wires_the_guards_own_sql_reader() -> None:
@@ -45,7 +43,7 @@ async def test_the_application_serves_the_route_under_api(
     pg_session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     app = create_app()
 
     async def _session() -> AsyncIterator[AsyncSession]:
@@ -56,9 +54,7 @@ async def test_the_application_serves_the_route_under_api(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         unauthorized = await client.get("/api/positions/open")
-        served = await client.get(
-            "/api/positions/open", headers={"Authorization": f"Bearer {TOKEN}"}
-        )
+        served = await client.get("/api/positions/open", headers=ADMIN_HEADERS)
 
     assert unauthorized.status_code == 401
     assert unauthorized.json() == {"detail": UNAUTHORIZED_DETAIL}

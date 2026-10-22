@@ -45,7 +45,11 @@ async def test_operator_alerts_on_the_shared_settings_installs_no_bridge() -> No
 def _startup_secrets(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     settings = get_settings()
     monkeypatch.setattr(settings, "webhook_secret", "test-webhook-secret")
-    monkeypatch.setattr(settings, "admin_api_token", "test-admin-token")
+    monkeypatch.setattr(settings, "admin_email", "owner@example.com")
+    monkeypatch.setattr(settings, "dev_user_email", "owner@example.com")
+    monkeypatch.setattr(settings, "access_team_domain", "")
+    monkeypatch.setattr(settings, "access_aud", "")
+    monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "panel_dist_dir", "")
     yield
 

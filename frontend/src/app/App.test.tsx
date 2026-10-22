@@ -51,13 +51,13 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
   });
 
-  it("test_bookings_and_tokengate_use_renamed_tokens_not_removed_ones", async () => {
+  it("test_bookings_and_signin_gate_use_renamed_tokens_not_removed_ones", async () => {
     const { container } = renderApp("/");
 
-    // Locked: the token gate renders inside the shell.
-    const field = container.querySelector("input");
-    expect(field).toHaveClass("border-rule", "bg-panel-2", "text-ink");
-    expect(screen.getByRole("button", { name: "Unlock" })).toHaveClass("bg-gain");
+    // Signed out: the sign-in gate renders inside the shell.
+    const button = await screen.findByRole("button", { name: "Sign in again" });
+    expect(button).toHaveClass("bg-gain");
+    expect(button.parentElement).toHaveClass("border-rule", "bg-panel");
     // The dry-run badge is the amber "needs your decision" role.
     expect(await screen.findByText("Dry run")).toHaveClass("text-decision");
 

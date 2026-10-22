@@ -26,11 +26,11 @@ from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
 )
 from strategy_manager.shared import db as shared_db
+from tests.identity_auth import ADMIN_HEADERS
 from tests.reconciliation.infrastructure.test_confirmed_router import (
-    HEADERS,
     _approved_proposal,
     _discrepancy,
-    _settings,  # noqa: F401  (autouse: admin token, DRY_RUN off, the 300 s grace)
+    _settings,  # noqa: F401  (autouse: signed in as admin, DRY_RUN off, the 300 s grace)
     _strategy_and_allocation,
 )
 
@@ -72,7 +72,9 @@ async def test_a_discrepancy_confirmed_six_minutes_ago_with_no_proposal_at_all_n
         ).scalar_one()
     assert proposals == 0
 
-    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (
+        await api.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+    ).json()
 
     assert body["needs_owner_count"] == 1
     [item] = body["needs_owner"]
@@ -92,7 +94,9 @@ async def test_the_same_discrepancy_confirmed_four_minutes_ago_is_still_being_bo
         pg_session_factory, symbol="IIIUSDT", confirmed_ago=timedelta(minutes=4)
     )
 
-    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (
+        await api.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+    ).json()
 
     assert body["needs_owner_count"] == 0
     assert [item["discrepancy_id"] for item in body["being_booked"]] == [str(discrepancy_id)]
@@ -130,7 +134,9 @@ async def test_after_a_booking_the_venue_moving_again_puts_the_item_back_and_kee
         observed=(Decimal("0"), Decimal("0.5")),
     )
 
-    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (
+        await api.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+    ).json()
 
     other = "needs_owner" if group == "being_booked" else "being_booked"
     assert [item["discrepancy_id"] for item in body[group]] == [str(discrepancy_id)]
@@ -169,7 +175,9 @@ async def test_a_booking_the_venue_has_not_moved_away_from_is_only_in_booked(
         observed=(Decimal("0"), Decimal("0.5")),
     )
 
-    body: dict[str, Any] = (await api.get("/reconciliation/confirmed", headers=HEADERS)).json()
+    body: dict[str, Any] = (
+        await api.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+    ).json()
 
     assert body["needs_owner"] == []
     assert body["being_booked"] == []

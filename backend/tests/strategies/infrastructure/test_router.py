@@ -7,7 +7,7 @@ strategy-lifecycle; tasks.md 2e.3).
 
 Mirrors ``tests/reconciliation/infrastructure/test_router.py``'s own
 pattern: a bare ``FastAPI()`` app with only this router mounted, the admin
-token configured explicitly (not inherited from the environment), and
+signed in explicitly (not inherited from the environment), and
 ``get_session`` overridden to a real Postgres session from
 ``pg_session_factory`` -- the router reads real rows back through the real
 repository/adapters, never a fake.
@@ -34,7 +34,6 @@ from strategy_manager.performance.infrastructure.performance_router import (
     router as performance_router,
 )
 from strategy_manager.shared import db as shared_db
-from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.delete_strategy import DeleteStrategy
 from strategy_manager.strategies.application.ports import PoolKey, StrategyHistory
@@ -51,14 +50,9 @@ from strategy_manager.strategies.infrastructure.router import (
     get_delete_strategy,
 )
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
 
 pytestmark = pytest.mark.integration
-
-TOKEN = "adm1n-t0ken"
-
-
-def _auth(token: str = TOKEN) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
 
 class _Catalog:
@@ -96,8 +90,8 @@ def _app(catalog: _Catalog | None = None) -> FastAPI:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:  # type: ignore[misc]
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:  # type: ignore[misc]
+    sign_in_as_admin(monkeypatch)
     yield
 
 
@@ -150,7 +144,7 @@ async def _register(client: AsyncClient, **overrides: Any) -> UUID:
         "allowed_pairs": overrides.pop("allowed_pairs", ["ETHUSDT"]),
     }
     body.update(overrides)
-    response = await client.post("/strategies", json=body, headers=_auth())
+    response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
     assert response.status_code == 201, response.text
     return strategy_id
 
@@ -182,7 +176,7 @@ async def test_get_strategies_excludes_archived_by_default(
     archived_id = await _register(client, name="to-archive")
     await _archive_directly(pg_session_factory, archived_id)
 
-    response = await client.get("/strategies", headers=_auth())
+    response = await client.get("/strategies", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     ids = {row["id"] for row in response.json()}
@@ -196,7 +190,7 @@ async def test_get_strategies_include_archived_true_shows_archived(
     archived_id = await _register(client, name="to-archive")
     await _archive_directly(pg_session_factory, archived_id)
 
-    response = await client.get("/strategies?include_archived=true", headers=_auth())
+    response = await client.get("/strategies?include_archived=true", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     ids = {row["id"] for row in response.json()}
@@ -209,7 +203,7 @@ async def test_get_strategy_detail_by_id_always_loads_archived(
     archived_id = await _register(client, name="to-archive")
     await _archive_directly(pg_session_factory, archived_id)
 
-    response = await client.get(f"/strategies/{archived_id}", headers=_auth())
+    response = await client.get(f"/strategies/{archived_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -231,7 +225,7 @@ async def test_put_allowed_pairs_endpoint(client: AsyncClient) -> None:
     response = await client.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["solusdt.p"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -246,7 +240,7 @@ async def test_put_allowed_pairs_collapses_duplicates_after_normalization(
     response = await client.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["SOLUSDT.P", "SOLUSDT_PERP", "solusdt"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -257,7 +251,7 @@ async def test_put_allowed_pairs_empty_list_refused_422(client: AsyncClient) -> 
     strategy_id = await _register(client)
 
     response = await client.put(
-        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": []}, headers=_auth()
+        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": []}, headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 422
@@ -269,7 +263,7 @@ async def test_put_allowed_pairs_entries_normalizing_to_empty_refused_422(
     strategy_id = await _register(client)
 
     response = await client.put(
-        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": [".P"]}, headers=_auth()
+        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": [".P"]}, headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 422
@@ -277,7 +271,7 @@ async def test_put_allowed_pairs_entries_normalizing_to_empty_refused_422(
 
 async def test_put_allowed_pairs_unknown_strategy_404(client: AsyncClient) -> None:
     response = await client.put(
-        f"/strategies/{uuid4()}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=_auth()
+        f"/strategies/{uuid4()}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 404
@@ -299,7 +293,7 @@ async def test_post_strategies_requires_min_one_pair_422(client: AsyncClient) ->
         "allowed_pairs": [],
     }
 
-    response = await client.post("/strategies", json=body, headers=_auth())
+    response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
 
     assert response.status_code == 422
 
@@ -312,10 +306,10 @@ async def test_post_strategies_requires_min_one_pair_422(client: AsyncClient) ->
 async def test_get_strategy_events_endpoint(client: AsyncClient) -> None:
     strategy_id = await _register(client)
 
-    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
-    await client.patch(f"/strategies/{strategy_id}", json={"enabled": False}, headers=_auth())
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS)
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS)
 
-    response = await client.get(f"/strategies/{strategy_id}/events", headers=_auth())
+    response = await client.get(f"/strategies/{strategy_id}/events", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     events = response.json()
@@ -326,7 +320,7 @@ async def test_get_strategy_events_endpoint(client: AsyncClient) -> None:
 
 
 async def test_get_strategy_events_unknown_strategy_404(client: AsyncClient) -> None:
-    response = await client.get(f"/strategies/{uuid4()}/events", headers=_auth())
+    response = await client.get(f"/strategies/{uuid4()}/events", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
 
@@ -341,15 +335,15 @@ async def test_strategy_view_uptime_reflects_events_on_detail_and_list(
 ) -> None:
     strategy_id = await _register(client)
 
-    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
-    await client.patch(f"/strategies/{strategy_id}", json={"enabled": False}, headers=_auth())
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS)
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS)
 
-    detail = await client.get(f"/strategies/{strategy_id}", headers=_auth())
+    detail = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert detail.status_code == 200
     assert detail.json()["uptime"]["seconds"] >= 0
     assert detail.json()["uptime"]["baseline"] is False
 
-    listing = await client.get("/strategies", headers=_auth())
+    listing = await client.get("/strategies", headers=ADMIN_HEADERS)
     assert listing.status_code == 200
     by_id = {row["id"]: row for row in listing.json()}
     assert by_id[str(strategy_id)]["uptime"]["seconds"] == detail.json()["uptime"]["seconds"]
@@ -366,7 +360,7 @@ async def test_archive_endpoint_succeeds_on_disabled_flat_strategy(client: Async
     archiving it right away needs no PATCH first."""
     strategy_id = await _register(client)
 
-    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["archived_at"] is not None
@@ -375,8 +369,8 @@ async def test_archive_endpoint_succeeds_on_disabled_flat_strategy(client: Async
 async def test_archive_endpoint_is_idempotent_same_archived_at(client: AsyncClient) -> None:
     strategy_id = await _register(client)
 
-    first = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
-    second = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    first = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
+    second = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -387,16 +381,16 @@ async def test_archive_endpoint_refuses_enabled_strategy_409_still_enabled(
     client: AsyncClient,
 ) -> None:
     strategy_id = await _register(client)
-    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS)
 
-    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["detail"]["error"] == "STILL_ENABLED"
 
 
 async def test_archive_endpoint_unknown_strategy_404(client: AsyncClient) -> None:
-    response = await client.post(f"/strategies/{uuid4()}/archive", headers=_auth())
+    response = await client.post(f"/strategies/{uuid4()}/archive", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
 
@@ -439,7 +433,7 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
         )
         await session.commit()
 
-    response = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    response = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     body = response.json()["detail"]
@@ -449,10 +443,10 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
 
 async def test_archived_strategy_patch_refused_409_at_http_layer(client: AsyncClient) -> None:
     strategy_id = await _register(client)
-    await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     response = await client.patch(
-        f"/strategies/{strategy_id}", json={"name": "renamed"}, headers=_auth()
+        f"/strategies/{strategy_id}", json={"name": "renamed"}, headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 409
@@ -461,12 +455,12 @@ async def test_archived_strategy_patch_refused_409_at_http_layer(client: AsyncCl
 
 async def test_archived_strategy_pairs_put_refused_409_at_http_layer(client: AsyncClient) -> None:
     strategy_id = await _register(client)
-    await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
     response = await client.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["ETHUSDT"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 409
@@ -515,7 +509,7 @@ def _post_body(**overrides: Any) -> dict[str, Any]:
 
 
 async def _row_count(api: AsyncClient, strategy_id: str) -> int:
-    response = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    response = await api.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     return 1 if response.status_code == 200 else 0
 
 
@@ -525,7 +519,7 @@ async def test_post_unknown_pairs_422_structured_and_names_the_symbols(
     catalog.available = frozenset({"STXUSDT"})
     body = _post_body(allowed_pairs=["STXUSDT.P", "YPF"])
 
-    response = await api.post("/strategies", json=body, headers=_auth())
+    response = await api.post("/strategies", json=body, headers=ADMIN_HEADERS)
 
     assert response.status_code == 422
     detail = response.json()["detail"]
@@ -548,7 +542,7 @@ async def test_put_unknown_pairs_422_names_only_the_added_symbols(
     response = await api.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["ETHUSDT", "SOLUSDT_PERP", "ypf.p"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 422
@@ -556,7 +550,7 @@ async def test_put_unknown_pairs_422_names_only_the_added_symbols(
     assert detail["error"] == "UNKNOWN_PAIRS"
     assert detail["unknown"] == ["YPF"]
     assert set(detail) == {"error", "message", "unknown"}
-    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    stored = await api.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
 
 
@@ -567,7 +561,7 @@ async def test_put_keeping_a_delisted_stored_pair_200(api: AsyncClient, catalog:
     response = await api.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["ETHUSDT", "SOLUSDT_PERP"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 200
@@ -580,7 +574,7 @@ async def test_post_unreadable_catalogue_502_pair_catalogue_unavailable_and_no_r
     catalog.failure = PairCatalogUnavailable("venue down")
     body = _post_body()
 
-    response = await api.post("/strategies", json=body, headers=_auth())
+    response = await api.post("/strategies", json=body, headers=ADMIN_HEADERS)
 
     assert response.status_code == 502
     detail = response.json()["detail"]
@@ -596,7 +590,7 @@ async def test_post_unserved_pool_422_pair_catalogue_not_served(
     catalog.failure = PairCatalogNotServed("no source")
     body = _post_body()
 
-    response = await api.post("/strategies", json=body, headers=_auth())
+    response = await api.post("/strategies", json=body, headers=ADMIN_HEADERS)
 
     assert response.status_code == 422
     detail = response.json()["detail"]
@@ -621,12 +615,12 @@ async def test_put_unreadable_or_unserved_catalogue_refuses_and_keeps_the_stored
     response = await api.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["ETHUSDT", "SOLUSDT"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == status
     assert response.json()["detail"]["error"] == code
-    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    stored = await api.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
 
 
@@ -654,14 +648,14 @@ async def test_put_pairs_changed_409(
     response = await api.put(
         f"/strategies/{strategy_id}/allowed-pairs",
         json={"pairs": ["ETHUSDT", "SOLUSDT", "STXUSDT_PERP"]},
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert detail["error"] == "PAIRS_CHANGED"
     assert set(detail) == {"error", "message"}
-    stored = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+    stored = await api.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert stored.json()["allowed_pairs"] == ["ETHUSDT"]
 
 
@@ -671,32 +665,34 @@ async def test_existing_refusals_keep_their_status_and_shape(
     strategy_id = await _register(api, name="kept")
 
     unknown = await api.put(
-        f"/strategies/{uuid4()}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=_auth()
+        f"/strategies/{uuid4()}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=ADMIN_HEADERS
     )
     assert unknown.status_code == 404
     assert isinstance(unknown.json()["detail"], str)
 
     duplicate = await api.post(
-        "/strategies", json=_post_body(id=str(strategy_id), name="other"), headers=_auth()
+        "/strategies", json=_post_body(id=str(strategy_id), name="other"), headers=ADMIN_HEADERS
     )
     assert duplicate.status_code == 409
     assert "already registered" in duplicate.json()["detail"]
 
     empty = await api.put(
-        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": [".P"]}, headers=_auth()
+        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": [".P"]}, headers=ADMIN_HEADERS
     )
     assert empty.status_code == 422
     assert isinstance(empty.json()["detail"], str)
 
     no_pool = await api.post(
-        "/strategies", json=_post_body(venue="usdt-m"), headers=_auth()
+        "/strategies", json=_post_body(venue="usdt-m"), headers=ADMIN_HEADERS
     )  # pionex/usdt-m/USDT is not a seeded pool
     assert no_pool.status_code == 422
     assert "no enabled capital pool" in no_pool.json()["detail"]
 
-    await api.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    await api.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
     archived = await api.put(
-        f"/strategies/{strategy_id}/allowed-pairs", json={"pairs": ["ETHUSDT"]}, headers=_auth()
+        f"/strategies/{strategy_id}/allowed-pairs",
+        json={"pairs": ["ETHUSDT"]},
+        headers=ADMIN_HEADERS,
     )
     assert archived.status_code == 409
     assert archived.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
@@ -712,7 +708,7 @@ async def test_a_listed_pair_sent_as_tradingview_spells_it_is_stored_as_the_mark
     catalog.available = frozenset({"STXUSDT"})
 
     response = await api.post(
-        "/strategies", json=_post_body(allowed_pairs=["STXUSDT.P"]), headers=_auth()
+        "/strategies", json=_post_body(allowed_pairs=["STXUSDT.P"]), headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 201
@@ -872,17 +868,19 @@ async def test_delete_a_strategy_with_no_history_204_no_body_and_get_is_404_afte
 ) -> None:
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 204
     assert response.content == b""
-    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+    assert (
+        await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    ).status_code == 404
 
 
 async def test_delete_unknown_id_404(deleting: AsyncClient) -> None:
     unknown = uuid4()
 
-    response = await deleting.delete(f"/strategies/{unknown}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{unknown}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     assert response.json()["detail"] == f"no strategy registered under id {unknown}"
@@ -891,8 +889,8 @@ async def test_delete_unknown_id_404(deleting: AsyncClient) -> None:
 async def test_delete_repeated_404(deleting: AsyncClient) -> None:
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
 
-    first = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
-    second = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    first = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    second = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert (first.status_code, second.status_code) == (204, 404)
 
@@ -901,13 +899,15 @@ async def test_delete_enabled_409_still_enabled_and_the_strategy_remains_enabled
     deleting: AsyncClient,
 ) -> None:
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
-    await deleting.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth())
+    await deleting.patch(
+        f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
+    )
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["detail"]["error"] == "STILL_ENABLED"
-    kept = await deleting.get(f"/strategies/{strategy_id}", headers=_auth())
+    kept = await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert kept.status_code == 200
     assert kept.json()["enabled"] is True
 
@@ -918,7 +918,7 @@ async def test_delete_with_history_409_has_history_carries_all_six_integer_count
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
     await _seed_signal(pg_session_factory, strategy_id)
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     detail = response.json()["detail"]
@@ -926,13 +926,15 @@ async def test_delete_with_history_409_has_history_carries_all_six_integer_count
     assert isinstance(detail["message"], str)
     assert detail["history"] == _history_body(signals=1)
     assert all(type(count) is int for count in detail["history"].values())
-    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 200
+    assert (
+        await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    ).status_code == 200
 
 
 async def _toggle(api: AsyncClient, strategy_id: str) -> None:
     for enabled in (True, False):
         toggled = await api.patch(
-            f"/strategies/{strategy_id}", json={"enabled": enabled}, headers=_auth()
+            f"/strategies/{strategy_id}", json={"enabled": enabled}, headers=ADMIN_HEADERS
         )
         assert toggled.status_code == 200
 
@@ -945,10 +947,12 @@ async def test_delete_a_toggled_strategy_204(deleting: AsyncClient) -> None:
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
     await _toggle(deleting, strategy_id)
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 204
-    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+    assert (
+        await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    ).status_code == 404
 
 
 async def test_delete_a_toggled_strategy_with_a_signal_409_still_reports_its_events(
@@ -960,7 +964,7 @@ async def test_delete_a_toggled_strategy_with_a_signal_409_still_reports_its_eve
     await _toggle(deleting, strategy_id)
     await _seed_signal(pg_session_factory, strategy_id)
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["detail"]["history"] == _history_body(signals=1, enablement_events=2)
@@ -975,7 +979,7 @@ async def test_delete_database_refusal_is_409_has_history_never_500(
     await _seed_signal(pg_session_factory, strategy_id, reservation=True)
 
     with caplog.at_level(logging.WARNING):
-        response = await miscounting.delete(f"/strategies/{strategy_id}", headers=_auth())
+        response = await miscounting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
     detail = response.json()["detail"]
@@ -985,7 +989,7 @@ async def test_delete_database_refusal_is_409_has_history_never_500(
     errors = [record for record in caplog.records if record.levelno >= logging.ERROR]
     assert len(errors) == 1
     assert "reservations_strategy_id_fkey" in errors[0].getMessage()
-    kept = await miscounting.get(f"/strategies/{strategy_id}", headers=_auth())
+    kept = await miscounting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert kept.status_code == 200
 
 
@@ -993,18 +997,18 @@ async def test_after_a_delete_events_performance_and_archive_answer_404(
     deleting: AsyncClient,
 ) -> None:
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
-    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert deleted.status_code == 204
 
     answers = {
-        "events": await deleting.get(f"/strategies/{strategy_id}/events", headers=_auth()),
+        "events": await deleting.get(f"/strategies/{strategy_id}/events", headers=ADMIN_HEADERS),
         "performance": await deleting.get(
-            f"/performance/strategies/{strategy_id}", headers=_auth()
+            f"/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS
         ),
         "trades": await deleting.get(
-            f"/performance/strategies/{strategy_id}/trades", headers=_auth()
+            f"/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
         ),
-        "archive": await deleting.post(f"/strategies/{strategy_id}/archive", headers=_auth()),
+        "archive": await deleting.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS),
     }
 
     assert {name: r.status_code for name, r in answers.items()} == dict.fromkeys(answers, 404)
@@ -1012,13 +1016,13 @@ async def test_after_a_delete_events_performance_and_archive_answer_404(
 
 async def test_a_deleted_id_registers_again_201_with_zero_uptime(deleting: AsyncClient) -> None:
     strategy_id = await _register(deleting, name="again", allowed_pairs=["STXUSDT"])
-    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    deleted = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert deleted.status_code == 204
 
     response = await deleting.post(
         "/strategies",
         json=_post_body(id=str(strategy_id), name="again", allowed_pairs=["STXUSDT.P"]),
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
     )
 
     assert response.status_code == 201
@@ -1027,7 +1031,7 @@ async def test_a_deleted_id_registers_again_201_with_zero_uptime(deleting: Async
         "first_enabled_at": None,
         "baseline": False,
     }
-    events = await deleting.get(f"/strategies/{strategy_id}/events", headers=_auth())
+    events = await deleting.get(f"/strategies/{strategy_id}/events", headers=ADMIN_HEADERS)
     assert events.json() == []
 
 
@@ -1045,9 +1049,9 @@ async def test_a_refused_delete_leaves_the_session_usable_for_the_next_request(
             strategy_id = await _register(api, allowed_pairs=["STXUSDT"])
             await _seed_signal(pg_session_factory, strategy_id, reservation=True)
 
-            refused = await api.delete(f"/strategies/{strategy_id}", headers=_auth())
+            refused = await api.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
             assert refused.status_code == 409
-            after = await api.get(f"/strategies/{strategy_id}", headers=_auth())
+            after = await api.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
             assert after.status_code == 200
             assert after.json()["id"] == str(strategy_id)
@@ -1068,12 +1072,12 @@ async def test_a_refused_delete_releases_the_row_lock_before_the_session_closes(
             strategy_id = await _register(api, allowed_pairs=["STXUSDT"])
             if refusal == "still_enabled":
                 await api.patch(
-                    f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth()
+                    f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
                 )
             else:
                 await _seed_signal(pg_session_factory, strategy_id)
 
-            refused = await api.delete(f"/strategies/{strategy_id}", headers=_auth())
+            refused = await api.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
             assert refused.status_code == 409
 
             async with pg_session_factory() as other:
@@ -1087,14 +1091,16 @@ async def test_a_refused_delete_releases_the_row_lock_before_the_session_closes(
 async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> None:
     # Q3 answered "yes" (decision 42): an archived strategy is still deletable.
     strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
-    archived = await deleting.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    archived = await deleting.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
     assert archived.status_code == 200
     assert archived.json()["archived_at"] is not None
 
-    response = await deleting.delete(f"/strategies/{strategy_id}", headers=_auth())
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 204
-    assert (await deleting.get(f"/strategies/{strategy_id}", headers=_auth())).status_code == 404
+    assert (
+        await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    ).status_code == 404
 
 
 # --------------------------------------------------------------------------
@@ -1121,14 +1127,14 @@ async def _set_stored_share(
 
 
 async def _share_of(client: AsyncClient, strategy_id: UUID) -> Any:
-    response = await client.get(f"/strategies/{strategy_id}", headers=_auth())
+    response = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
     assert response.status_code == 200, response.text
     return response.json()["allocation_percent"]
 
 
 async def _patch_share(client: AsyncClient, strategy_id: UUID, value: Any) -> Any:
     return await client.patch(
-        f"/strategies/{strategy_id}", json={"allocation_percent": value}, headers=_auth()
+        f"/strategies/{strategy_id}", json={"allocation_percent": value}, headers=ADMIN_HEADERS
     )
 
 
@@ -1205,10 +1211,10 @@ async def test_zero_above_100_and_a_text_that_is_not_a_decimal_are_422_and_the_s
 async def test_only_the_share_changes(client: AsyncClient) -> None:
     strategy_id = await _register(client, allowed_pairs=["ETHUSDT", "SOLUSDT"])
     enabled = await client.patch(
-        f"/strategies/{strategy_id}", json={"enabled": True}, headers=_auth()
+        f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
     )
     assert enabled.status_code == 200
-    before = (await client.get(f"/strategies/{strategy_id}", headers=_auth())).json()
+    before = (await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)).json()
 
     patched = await _patch_share(client, strategy_id, "25")
 
@@ -1226,7 +1232,7 @@ async def test_a_disabled_strategys_share_is_accepted_and_it_stays_disabled(
     client: AsyncClient,
 ) -> None:
     strategy_id = await _register(client)
-    assert (await client.get(f"/strategies/{strategy_id}", headers=_auth())).json()[
+    assert (await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)).json()[
         "enabled"
     ] is False
 
@@ -1254,7 +1260,7 @@ async def test_an_archived_strategys_share_is_refused_409_and_the_stored_share_i
     """Spec scenario "An archived strategy's share is refused" (12f.9.14: the
     existing archived test patches the NAME, so the share had no test of its own)."""
     strategy_id = await _register(client, allocation_percent="30")
-    archived = await client.post(f"/strategies/{strategy_id}/archive", headers=_auth())
+    archived = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
     assert archived.status_code == 200
 
     response = await _patch_share(client, strategy_id, "40")

@@ -1,12 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigationType } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyControl";
 import { API_BASE_URL } from "@/shared/api/config";
 import type { Strategy } from "@/shared/api/types";
-import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
 import es from "@/shared/i18n/locales/es.json";
 import { jsonResponse } from "@/test/harness";
@@ -62,12 +61,8 @@ function openAndConfirm() {
   fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.delete.confirm") }));
 }
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(async () => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
   await i18n.changeLanguage("en");
 });
 

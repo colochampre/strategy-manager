@@ -1,13 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ArchiveControl } from "@/features/strategies/ArchiveControl";
 import { ArchiveDialog } from "@/features/strategies/ArchiveDialog";
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
 import type { Strategy } from "@/shared/api/types";
-import { useTokenStore } from "@/shared/auth/token-store";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -96,12 +95,8 @@ function stubFetch(response: Response) {
   return fetchMock;
 }
 
-beforeEach(() => {
-  useTokenStore.setState({ token: "a-token" });
-});
 afterEach(async () => {
   vi.unstubAllGlobals();
-  useTokenStore.setState({ token: null });
   await i18n.changeLanguage("en");
 });
 

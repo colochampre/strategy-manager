@@ -39,6 +39,7 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.identity_auth import ADMIN_HEADERS
 from tests.ledger.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
 from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
@@ -46,9 +47,8 @@ from tests.performance.infrastructure.test_allocation_fills_source import (
     _seed_allocation,
 )
 from tests.strategies.infrastructure.test_router import (  # noqa: F401
-    _auth,
     _authenticated_client,
-    _configure_admin_token,
+    _signed_in,
 )
 
 pytestmark = pytest.mark.integration
@@ -129,7 +129,7 @@ async def test_a_changed_share_leaves_an_existing_reservation_unchanged(
     assert len(attempts_before) == 1
 
     patched = await client.patch(
-        f"/strategies/{strategy_id}", json={"allocation_percent": "25"}, headers=_auth()
+        f"/strategies/{strategy_id}", json={"allocation_percent": "25"}, headers=ADMIN_HEADERS
     )
 
     assert patched.status_code == 200, patched.text
@@ -175,7 +175,7 @@ async def test_the_next_opening_is_sized_with_the_new_share(
 
     before = await policy_share()
     patched = await client.patch(
-        f"/strategies/{strategy_id}", json={"allocation_percent": "25"}, headers=_auth()
+        f"/strategies/{strategy_id}", json={"allocation_percent": "25"}, headers=ADMIN_HEADERS
     )
     after = await policy_share()
 
@@ -209,7 +209,7 @@ async def test_a_share_change_completes_while_the_pools_advisory_lock_is_held(
                 client.patch(
                     f"/strategies/{strategy_id}",
                     json={"allocation_percent": "25"},
-                    headers=_auth(),
+                    headers=ADMIN_HEADERS,
                 )
             )
             await asyncio.wait({task}, timeout=_WAIT)

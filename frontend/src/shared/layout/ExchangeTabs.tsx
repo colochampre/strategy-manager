@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
-import { useTokenStore } from "@/shared/auth/token-store";
+import { useMe } from "@/shared/api/me";
 import { KeyMark } from "@/shared/credentials/KeyMark";
 import { keyMark, keyState, knownPools, poolOn } from "@/shared/credentials/key-state";
 import { ExchangeWordmark } from "@/shared/exchanges/ExchangeWordmark";
@@ -14,10 +14,11 @@ interface ExchangeTabsProps {
 }
 
 /**
- * The exchange selector of the scoped routes. While the token gate is locked
- * there is nothing to scope and `GET /pools` would only answer 401, so it
- * renders nothing and asks for nothing; `TopBar` mounts it only on the scoped
- * routes, which is why Settings never reads the scope.
+ * The exchange selector of the scoped routes. Until the sign-in gate has
+ * confirmed the admin there is nothing to scope, and `GET /pools` would only
+ * answer 401 or 403, so it renders nothing and asks for nothing; `TopBar`
+ * mounts it only on the scoped routes, which is why Settings never reads the
+ * scope.
  *
  * The row scrolls sideways and never wraps, so a long exchange list on a phone
  * cannot push the page taller than the viewport.
@@ -35,8 +36,8 @@ interface ExchangeTabsProps {
  * whole width; from `lg` they keep their own.
  */
 export function ExchangeTabs({ className }: ExchangeTabsProps) {
-  const token = useTokenStore((state) => state.token);
-  if (token === null) return null;
+  const me = useMe();
+  if (me.data?.isAdmin !== true) return null;
   return <ExchangeTabsBar className={className} />;
 }
 

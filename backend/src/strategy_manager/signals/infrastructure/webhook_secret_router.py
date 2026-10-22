@@ -9,7 +9,8 @@ the application's own route table to keep that true for routes not yet written.
 
 What keeps the value from leaking, beyond returning it once:
 
-- **Bearer auth** on the router, exactly as on every other ``/api`` router.
+- **Admin only** (``require_admin``) on the router, exactly as on every other
+  ``/api`` router.
 - **``Cache-Control: no-store``** on the answer, so neither the browser nor an
   intermediary keeps a copy. ``Pragma: no-cache`` is not added: the spec asks
   for ``Cache-Control: no-store`` alone, and ``Pragma`` only matters to HTTP/1.0
@@ -32,13 +33,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.shared.config import Settings, get_settings
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 
 router = APIRouter(
     prefix="/webhook-secret",
     tags=["webhook-secret"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 _NO_STORE = {"Cache-Control": "no-store"}

@@ -1,7 +1,7 @@
 """``GET /pools/{exchange}/{venue}/{ccy}/available-pairs`` (design addendum § F).
 
 Mirrors ``test_router.py``: a bare ``FastAPI()`` with only this router mounted,
-the admin token set explicitly, ``get_session`` over real PostgreSQL (pool
+the admin signed in explicitly, ``get_session`` over real PostgreSQL (pool
 existence is a real ``capital_pools`` read) and ``get_pair_catalog`` overridden
 with a fake, so no test touches a network or needs a credential. The two tests
 that exercise the REAL ``VenuePairCatalog`` drive it over ``httpx.MockTransport``.
@@ -36,18 +36,14 @@ from strategy_manager.strategies.infrastructure.pair_catalog_router import (
 from strategy_manager.strategies.infrastructure.pair_catalog_router import (
     router as pair_catalog_router,
 )
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 from tests.shared.infrastructure.binance.test_futures_rules import AAVE
 from tests.shared.infrastructure.bybit.test_read_client import BTC_PERP
 
 pytestmark = pytest.mark.integration
 
-TOKEN = "adm1n-t0ken"
 BYBIT = "/pools/bybit/usdt-m/USDT/available-pairs"
 PIONEX_SPOT = "/pools/pionex/spot/USDT/available-pairs"
-
-
-def _auth(token: str = TOKEN) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
 
 class _Catalog:
@@ -70,8 +66,8 @@ class _Catalog:
 
 
 @pytest.fixture(autouse=True)
-def _configure_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_in_as_admin(monkeypatch)
 
 
 def _app(
@@ -99,7 +95,7 @@ async def test_available_pairs_200_sorted_with_pool_and_count(
     catalog = _Catalog({("bybit", "usdt-m", "USDT"): frozenset({"STXUSDT", "AAVEUSDT", "BTCUSDT"})})
 
     async with _client(_app(pg_session_factory, catalog)) as api:
-        response = await api.get(BYBIT, headers=_auth())
+        response = await api.get(BYBIT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {
@@ -122,7 +118,7 @@ async def test_unknown_pool_404_and_the_catalogue_is_never_asked(
             "/pools/bybit/usdt-m/usdt/available-pairs",  # wrong case
             "/pools/kraken/spot/USDT/available-pairs",  # an exchange nobody configured
         ):
-            response = await api.get(path, headers=_auth())
+            response = await api.get(path, headers=ADMIN_HEADERS)
 
             assert response.status_code == 404, path
             assert response.json() == {"detail": "no such pool"}
@@ -148,7 +144,7 @@ async def test_disabled_pool_200(
     catalog = _Catalog({("bybit", "usdt-m", "USDT"): frozenset({"STXUSDT"})})
 
     async with _client(_app(pg_session_factory, catalog)) as api:
-        response = await api.get(BYBIT, headers=_auth())
+        response = await api.get(BYBIT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["pairs"] == ["STXUSDT"]
@@ -161,7 +157,7 @@ async def test_unserved_pool_404_pair_catalogue_not_served_not_an_empty_list(
     catalog = _Catalog(failure=PairCatalogNotServed("no catalogue for pionex/spot"))
 
     async with _client(_app(pg_session_factory, catalog)) as api:
-        response = await api.get(PIONEX_SPOT, headers=_auth())
+        response = await api.get(PIONEX_SPOT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     body = response.json()
@@ -186,7 +182,7 @@ async def test_the_real_catalogue_refuses_a_pool_with_no_source_without_any_venu
     real = VenuePairCatalog.for_settings(_settings(), transport=httpx.MockTransport(handler))
 
     async with _client(_app(pg_session_factory, real)) as api:
-        response = await api.get(PIONEX_SPOT, headers=_auth())
+        response = await api.get(PIONEX_SPOT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"] == "PAIR_CATALOGUE_NOT_SERVED"
@@ -199,7 +195,7 @@ async def test_venue_unreachable_502_pair_catalogue_unavailable(
     catalog = _Catalog(failure=PairCatalogUnavailable("the pair list could not be read"))
 
     async with _client(_app(pg_session_factory, catalog)) as api:
-        response = await api.get(BYBIT, headers=_auth())
+        response = await api.get(BYBIT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 502
     body = response.json()
@@ -208,14 +204,14 @@ async def test_venue_unreachable_502_pair_catalogue_unavailable(
     assert "pairs" not in body
 
 
-async def test_no_token_is_401_before_the_catalogue_is_asked(
+async def test_no_assertion_is_401_before_the_catalogue_is_asked(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     catalog = _Catalog({("bybit", "usdt-m", "USDT"): frozenset({"STXUSDT"})})
 
     async with _client(_app(pg_session_factory, catalog)) as api:
         missing = await api.get(BYBIT)
-        wrong = await api.get(BYBIT, headers=_auth("not-the-token"))
+        wrong = await api.get(BYBIT, headers=FORGED_HEADERS)
 
     assert missing.status_code == 401
     assert wrong.status_code == 401
@@ -234,9 +230,9 @@ async def test_one_pools_request_never_returns_another_pools_pairs(
     )
 
     async with _client(_app(pg_session_factory, catalog)) as api:
-        usdt = await api.get(BYBIT, headers=_auth())
-        btc = await api.get("/pools/pionex/coin-m/BTC/available-pairs", headers=_auth())
-        eth = await api.get("/pools/pionex/coin-m/ETH/available-pairs", headers=_auth())
+        usdt = await api.get(BYBIT, headers=ADMIN_HEADERS)
+        btc = await api.get("/pools/pionex/coin-m/BTC/available-pairs", headers=ADMIN_HEADERS)
+        eth = await api.get("/pools/pionex/coin-m/ETH/available-pairs", headers=ADMIN_HEADERS)
 
     assert [r.json()["pairs"] for r in (usdt, btc, eth)] == [["STXUSDT"], ["BTCUSD"], ["ETHUSD"]]
     assert catalog.asked == [
@@ -281,7 +277,7 @@ async def test_the_real_catalogue_requests_only_the_configured_host_and_the_fixe
     )
 
     async with _client(_app(pg_session_factory, real)) as api:
-        response = await api.get(BYBIT, headers=_auth())
+        response = await api.get(BYBIT, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["pairs"] == ["STXUSDT"]
@@ -315,7 +311,9 @@ async def test_binance_pool_reads_the_configured_futures_host_and_the_fixed_path
     )
 
     async with _client(_app(pg_session_factory, real)) as api:
-        response = await api.get("/pools/binance/usdt-m/USDT/available-pairs", headers=_auth())
+        response = await api.get(
+            "/pools/binance/usdt-m/USDT/available-pairs", headers=ADMIN_HEADERS
+        )
 
     assert response.status_code == 200
     assert response.json()["pairs"] == ["AAVEUSDT"]
@@ -326,7 +324,7 @@ async def test_binance_pool_reads_the_configured_futures_host_and_the_fixed_path
     assert "signature" not in request.url.params
 
 
-async def test_the_composition_root_mounts_the_route_under_api_behind_the_token() -> None:
+async def test_the_composition_root_mounts_the_route_under_api_behind_the_guard() -> None:
     """``main.py`` binds it: one ``VenuePairCatalog`` on ``app.state`` and the
     router inside ``api_router``. A live request, because this FastAPI resolves
     included routers lazily."""
@@ -373,7 +371,7 @@ async def test_n_concurrent_requests_make_one_venue_read(
     n = 5
 
     async with _client(_app(pg_session_factory, arrivals)) as api:
-        tasks = [asyncio.create_task(api.get(BYBIT, headers=_auth())) for _ in range(n)]
+        tasks = [asyncio.create_task(api.get(BYBIT, headers=ADMIN_HEADERS)) for _ in range(n)]
         with contextlib.suppress(TimeoutError):
             async with asyncio.timeout(10):  # a hang guard, not a timing assertion
                 while arrivals.arrived < n:

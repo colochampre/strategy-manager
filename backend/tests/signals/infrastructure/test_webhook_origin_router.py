@@ -17,11 +17,11 @@ from typing import Any
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import Settings, get_settings
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
 
-TOKEN = "adm1n-t0ken"
 SECRET = "wh-s3cret-5b2e7a10-must-never-leak"
 PATH = "/api/webhook-origin"
 
@@ -37,13 +37,9 @@ _CASES: dict[str, Any] = json.loads(
 )
 
 
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
-
-
 @pytest.fixture(autouse=True)
 def _configure(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "admin_api_token", TOKEN)
+    sign_in_as_admin(monkeypatch)
     monkeypatch.setattr(get_settings(), "webhook_secret", SECRET)
     monkeypatch.setattr(get_settings(), "webhook_public_origin", "")
 
@@ -65,14 +61,14 @@ async def test_a_configured_origin_is_served(
 ) -> None:
     _set_origin(monkeypatch, "https://hook.example.com")
 
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"origin": "https://hook.example.com"}
 
 
 async def test_an_unset_origin_is_served_as_null(client: AsyncClient) -> None:
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"origin": None}
@@ -84,7 +80,7 @@ async def test_every_accepted_case_of_the_shared_list_is_served_normalised(
 ) -> None:
     _set_origin(monkeypatch, case["raw"])
 
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.json() == {"origin": case["origin"]}
 
@@ -95,7 +91,7 @@ async def test_every_refused_case_of_the_shared_list_is_served_as_null(
 ) -> None:
     _set_origin(monkeypatch, raw)
 
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"origin": None}
@@ -106,7 +102,7 @@ async def test_a_malformed_value_does_not_stop_the_route_and_is_served_as_null(
 ) -> None:
     _set_origin(monkeypatch, "https://user:pass@example.org")
 
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"origin": None}
@@ -118,7 +114,7 @@ async def test_the_body_never_contains_the_webhook_secret(
 ) -> None:
     _set_origin(monkeypatch, "https://hook.example.com")
 
-    response = await client.get(PATH, headers=_auth())
+    response = await client.get(PATH, headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["origin"] == "https://hook.example.com"
@@ -126,15 +122,15 @@ async def test_the_body_never_contains_the_webhook_secret(
     assert SECRET not in "".join(f"{k}{v}" for k, v in response.headers.items())
 
 
-async def test_the_route_requires_the_bearer_token(
+async def test_the_route_requires_a_signed_in_admin(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A missing and a wrong token are the one 401, before the handler: the
+    """A missing and a forged assertion are the one 401, before the handler: the
     router carries the dependency, FastAPI does not re-apply the parent's."""
     _set_origin(monkeypatch, "https://hook.example.com")
 
     missing = await client.get(PATH)
-    wrong = await client.get(PATH, headers={"Authorization": "Bearer not-the-token"})
+    wrong = await client.get(PATH, headers=FORGED_HEADERS)
 
     assert (missing.status_code, wrong.status_code) == (401, 401)
     assert missing.json() == {"detail": UNAUTHORIZED_DETAIL}

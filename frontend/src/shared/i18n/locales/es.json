@@ -660,12 +660,13 @@
     "title": "Configuración"
   },
   "auth": {
-    "tokenGate": {
-      "title": "Se requiere el token de administración",
-      "description": "Pegue el token de administración una vez. Se guarda solo en este navegador y nunca se incluye en la aplicación.",
-      "placeholder": "Token de administración",
-      "inputLabel": "Token de administración",
-      "submit": "Desbloquear"
+    "gate": {
+      "checking": "Verificando el ingreso",
+      "notOpen": "Ingresó como {{email}}. El panel todavía no está abierto a otros usuarios.",
+      "unavailable": "En este momento no se puede verificar el ingreso.",
+      "retry": "Reintentar",
+      "signedOut": "Su sesión terminó.",
+      "signInAgain": "Ingresar de nuevo"
     }
   }
 }

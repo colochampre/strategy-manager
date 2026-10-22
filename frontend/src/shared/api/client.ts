@@ -1,5 +1,5 @@
 import { API_BASE_URL, API_PREFIX } from "@/shared/api/config";
-import { useTokenStore } from "@/shared/auth/token-store";
+import { reauthenticate } from "@/shared/auth/reauthenticate";
 
 /**
  * FastAPI answers a refusal with `{"detail": "text"}`, or, for the structured
@@ -59,28 +59,25 @@ async function parseErrorBody(response: Response): Promise<RefusalLikeBody | und
 }
 
 /**
- * Sends the stored admin bearer token on every call and throws a typed
- * `ApiError` for any response that is not 2xx — never resolves a refusal as
- * success. Any 401 clears the token store, which makes `TokenGate` re-render
- * its paste-once form (design.md §12).
+ * Throws a typed `ApiError` for any response that is not 2xx — never resolves
+ * a refusal as success.
+ *
+ * It sends no credential of its own. Cloudflare Access signs the person in
+ * before the page loads and attaches its assertion to every request that
+ * reaches the API (multi-user design AD1). A 401 therefore means that session
+ * expired under an open page: `reauthenticate` reloads it, at most once a
+ * minute, so Access signs the person in again.
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = useTokenStore.getState().token;
-
-  const headers = new Headers(init.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, { ...init, headers });
+    response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, init);
   } catch {
     throw new ApiError(0, { detail: "Network request failed" });
   }
 
   if (response.status === 401) {
-    useTokenStore.getState().clearToken();
+    reauthenticate();
   }
 
   if (!response.ok) {

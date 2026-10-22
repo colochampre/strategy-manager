@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.execution.infrastructure.mode_origin_reader import (
     SqlAlchemyModeOriginReader,
 )
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.performance.application.ports import (
     ConfirmedDisagreementSourcePort,
     OpenPositionFactsSourcePort,
@@ -53,14 +54,13 @@ from strategy_manager.reconciliation.infrastructure.repository import (
 )
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.infrastructure.admin_auth import require_admin_token
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money, Price
 
 router = APIRouter(
     prefix="/positions",
     tags=["positions"],
-    dependencies=[Depends(require_admin_token)],
+    dependencies=[Depends(require_admin)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

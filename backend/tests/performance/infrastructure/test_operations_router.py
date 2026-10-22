@@ -28,13 +28,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.operation import OperationFill
 from strategy_manager.performance.infrastructure.performance_router import (
     get_fills_source,
     get_operation_fills_source,
 )
-from strategy_manager.shared.infrastructure.admin_auth import UNAUTHORIZED_DETAIL
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS
 from tests.performance.fakes import FakeFillsSource, FakeOperationFillsSource
 from tests.performance.infrastructure.conftest import (
     OPERATIONS_T0,
@@ -51,9 +52,8 @@ from tests.performance.infrastructure.test_operations_statement_counts import (
 )
 from tests.performance.infrastructure.test_performance_router import (  # noqa: F401
     _app,
-    _auth,
-    _configure_admin_token,
     _json,
+    _signed_in,
     _strategy,
     _walk,
 )
@@ -80,7 +80,7 @@ def _trades_url(strategy_id: UUID) -> str:
 async def _list(
     client: AsyncClient, strategy_id: UUID, **params: Any
 ) -> dict[str, Any]:
-    response = await client.get(_trades_url(strategy_id), headers=_auth(), params=params)
+    response = await client.get(_trades_url(strategy_id), headers=ADMIN_HEADERS, params=params)
     assert response.status_code == 200, response.text
     return dict(_json(response))
 
@@ -309,7 +309,7 @@ async def test_a_strategy_that_only_ran_in_dry_run_lists_its_operations_while_it
 
     listed = await _list(client, strategy_id, include_rehearsal="true")
     default = await _list(client, strategy_id)
-    report = await client.get(f"/api/performance/strategies/{strategy_id}", headers=_auth())
+    report = await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert _ids(listed) == [str(allocation_id)]
     assert _ids(default) == []
@@ -355,7 +355,7 @@ async def test_include_rehearsal_that_is_not_a_boolean_is_422(
 ) -> None:
     response = await client.get(
         _trades_url(operations_ledger.strategy_id),
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
         params={"include_rehearsal": "maybe"},
     )
 
@@ -367,18 +367,18 @@ async def test_the_existing_refusals_are_unchanged(
 ) -> None:
     strategy = _trades_url(operations_ledger.strategy_id)
     half_cursor = await client.get(
-        strategy, headers=_auth(), params={"before_allocation_id": str(uuid4())}
+        strategy, headers=ADMIN_HEADERS, params={"before_allocation_id": str(uuid4())}
     )
     naive = await client.get(
         strategy,
-        headers=_auth(),
+        headers=ADMIN_HEADERS,
         params={
             "before_closed_at": "2026-09-30T00:00:00",
             "before_allocation_id": str(uuid4()),
         },
     )
-    too_many = await client.get(strategy, headers=_auth(), params={"limit": 201})
-    unknown = await client.get(_trades_url(uuid4()), headers=_auth())
+    too_many = await client.get(strategy, headers=ADMIN_HEADERS, params={"limit": 201})
+    unknown = await client.get(_trades_url(uuid4()), headers=ADMIN_HEADERS)
 
     assert (unknown.status_code, unknown.json()) == (404, {"detail": "no such strategy"})
     assert half_cursor.status_code == 422
@@ -423,7 +423,7 @@ async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_a_500_and
 
     with caplog.at_level(logging.ERROR):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-            response = await api.get(_trades_url(strategy_id), headers=_auth())
+            response = await api.get(_trades_url(strategy_id), headers=ADMIN_HEADERS)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "performance data failed an integrity check"}
@@ -452,7 +452,9 @@ async def test_a_rehearsal_row_with_a_non_positive_capital_is_the_existing_500(
     with caplog.at_level(logging.ERROR):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
             response = await api.get(
-                _trades_url(strategy_id), headers=_auth(), params={"include_rehearsal": "true"}
+                _trades_url(strategy_id),
+                headers=ADMIN_HEADERS,
+                params={"include_rehearsal": "true"},
             )
 
     assert response.status_code == 500
@@ -472,7 +474,7 @@ def _fills_url(strategy_id: UUID, allocation_id: UUID) -> str:
 async def _fills(
     client: AsyncClient, strategy_id: UUID, allocation_id: UUID
 ) -> dict[str, Any]:
-    response = await client.get(_fills_url(strategy_id, allocation_id), headers=_auth())
+    response = await client.get(_fills_url(strategy_id, allocation_id), headers=ADMIN_HEADERS)
     assert response.status_code == 200, response.text
     return dict(_json(response))
 
@@ -613,7 +615,7 @@ async def test_an_unknown_id_another_strategys_operation_and_an_empty_one_answer
     }
 
     answers = {
-        name: await client.get(_fills_url(ledger.strategy_id, allocation_id), headers=_auth())
+        name: await client.get(_fills_url(ledger.strategy_id, allocation_id), headers=ADMIN_HEADERS)
         for name, allocation_id in asked.items()
     }
 
@@ -629,7 +631,7 @@ async def test_an_unknown_strategy_is_a_different_404(
     client: AsyncClient, operations_ledger: OperationsLedger
 ) -> None:
     response = await client.get(
-        _fills_url(uuid4(), operations_ledger.real_long), headers=_auth()
+        _fills_url(uuid4(), operations_ledger.real_long), headers=ADMIN_HEADERS
     )
 
     assert (response.status_code, response.json()) == (404, {"detail": "no such strategy"})
@@ -639,7 +641,7 @@ async def test_an_allocation_id_that_is_not_a_uuid_is_422(
     client: AsyncClient, operations_ledger: OperationsLedger
 ) -> None:
     response = await client.get(
-        f"{_trades_url(operations_ledger.strategy_id)}/not-a-uuid/fills", headers=_auth()
+        f"{_trades_url(operations_ledger.strategy_id)}/not-a-uuid/fills", headers=ADMIN_HEADERS
     )
 
     assert response.status_code == 422
@@ -670,7 +672,7 @@ async def test_a_fill_in_another_pool_is_500_with_the_integrity_detail_and_no_fi
 
     with caplog.at_level(logging.ERROR):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-            response = await api.get(_fills_url(strategy_id, allocation_id), headers=_auth())
+            response = await api.get(_fills_url(strategy_id, allocation_id), headers=ADMIN_HEADERS)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "performance data failed an integrity check"}
@@ -717,7 +719,7 @@ async def test_the_404s_log_one_warning_naming_strategy_and_allocation(
     unknown = uuid4()
 
     with caplog.at_level(logging.DEBUG):
-        response = await client.get(_fills_url(ledger.strategy_id, unknown), headers=_auth())
+        response = await client.get(_fills_url(ledger.strategy_id, unknown), headers=ADMIN_HEADERS)
 
     assert response.status_code == 404
     performance = [r for r in caplog.records if r.name.startswith("strategy_manager.performance")]
@@ -759,10 +761,10 @@ async def test_the_route_issues_the_same_number_of_statements_for_one_fill_and_f
 # --- authentication and the wire, over both routes -------------------------------------
 
 
-async def test_the_trades_and_fills_routes_require_the_bearer_token(
+async def test_the_trades_and_fills_routes_require_a_signed_in_admin(
     client: AsyncClient, operations_ledger: OperationsLedger
 ) -> None:
-    """Both routes refuse a missing or a wrong token with the one 401, and neither
+    """Both routes refuse a missing or a forged assertion with the one 401, and neither
     exists outside ``/api``. The hand-written URL list of the pool route's own
     test is not touched: the new routes are discovered here, not assumed."""
     ledger = operations_ledger
@@ -773,9 +775,9 @@ async def test_the_trades_and_fills_routes_require_the_bearer_token(
     ]
     for url in urls:
         missing = await client.get(url)
-        wrong = await client.get(url, headers={"Authorization": "Bearer not-the-token"})
-        admitted = await client.get(url, headers=_auth())
-        pre_move = await client.get(url.removeprefix("/api"), headers=_auth())
+        wrong = await client.get(url, headers=FORGED_HEADERS)
+        admitted = await client.get(url, headers=ADMIN_HEADERS)
+        pre_move = await client.get(url.removeprefix("/api"), headers=ADMIN_HEADERS)
 
         assert missing.status_code == 401, url
         assert wrong.status_code == 401, url
@@ -827,12 +829,12 @@ async def test_no_trades_or_fills_response_contains_a_json_float_or_an_exponent(
 
     leaves: list[tuple[str, Any]] = []
     for url, params in requests:
-        response = await client.get(url, headers=_auth(), params=params)
+        response = await client.get(url, headers=ADMIN_HEADERS, params=params)
         assert response.status_code == 200, (url, params)
         leaves += [(f"{url} {params} {path}", value) for path, value in _walk(response.json())]
 
     micro_row = _row(
-        dict(_json(await client.get(_trades_url(ledger.strategy_id), headers=_auth()))), micro
+        dict(_json(await client.get(_trades_url(ledger.strategy_id), headers=ADMIN_HEADERS))), micro
     )
     assert (micro_row["entry_price"], micro_row["exit_price"]) == (
         "0.000000500000000000",
