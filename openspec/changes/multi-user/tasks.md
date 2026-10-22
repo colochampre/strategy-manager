@@ -168,7 +168,7 @@ It needs an independent verifier before the PR.
     - the refusal with zero users and with two;
     - a second user may hold an active key on the same exchange and the same pool triple;
     - the downgrade and the upgrade again.
-- [ ] B.2 The `current_user` dependency returns the `User` (through `ResolveUser`) for `verified_email`. `/api/me` uses it instead of resolving inline. `require_admin` is unchanged.
+- [x] B.2 The `current_user` dependency returns the `User` (through `ResolveUser`) for `verified_email`. `/api/me` uses it instead of resolving inline. `require_admin` is unchanged.
 - [ ] B.3 Scoped persistence (AD8): every repository and adapter that reads or writes owned rows takes `user_id` and filters on it. That covers the accounts, allocation, execution, ledger, reconciliation, performance and strategies adapters in the map of 2026-10-21. No unscoped read remains outside an admin use case or the worker's per-user loop. Each scoped method gets one test where a second user's row is present and not returned.
 - [ ] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
 - [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.

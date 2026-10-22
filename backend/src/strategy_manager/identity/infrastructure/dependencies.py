@@ -16,7 +16,8 @@ identity cannot be checked at all, because Access's keys could not be fetched,
 the answer is 503: a Cloudflare outage must never read as a forged token.
 
 ``require_admin`` returns nothing, for the old reason: there is nothing for the
-endpoint to re-check, and a truthy return would invite it to.
+endpoint to re-check, and a truthy return would invite it to. ``current_user``
+returns the ``User``, because a scoped route needs its id (PR B).
 """
 
 from functools import lru_cache
@@ -24,15 +25,20 @@ from typing import Annotated
 
 import httpx
 from fastapi import Depends, Header, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.application.ports import (
     IdentityRefusedError,
     IdentityUnavailableError,
     IdentityVerifierPort,
 )
-from strategy_manager.identity.domain.user import InvalidEmailError, normalize_email
+from strategy_manager.identity.application.resolve_user import ResolveUser
+from strategy_manager.identity.domain.user import InvalidEmailError, User, normalize_email
 from strategy_manager.identity.infrastructure.access_jwt import AccessJwtVerifier
+from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.shared.config import Settings, get_settings
+from strategy_manager.shared.db import get_session
+from strategy_manager.shared.infrastructure.clock import SystemClock
 
 #: Where Access puts the assertion on every request it forwards to the origin.
 ASSERTION_HEADER = "Cf-Access-Jwt-Assertion"
@@ -88,6 +94,25 @@ def is_admin(email: str, settings: Settings) -> bool:
         return normalize_email(email) == normalize_email(settings.admin_email)
     except InvalidEmailError:
         return False
+
+
+async def current_user(
+    email: Annotated[str, Depends(verified_email)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> User:
+    """The signed-in ``User``: found, or created on the first request (decision
+    2). Every scoped route filters by its ``id``.
+
+    The row is committed here, before the route runs, so a route that later
+    fails or rolls back never takes a new user's row down with it."""
+    try:
+        user = await ResolveUser(SqlAlchemyUserRepository(session), SystemClock()).execute(email)
+    except InvalidEmailError:
+        # Access vouched for something that is not an address. It cannot become
+        # a user, and the caller learns nothing more than from a forged token.
+        raise HTTPException(status_code=401, detail=UNAUTHORIZED_DETAIL) from None
+    await session.commit()
+    return user
 
 
 async def require_admin(
