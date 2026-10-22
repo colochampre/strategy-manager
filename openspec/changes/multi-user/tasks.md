@@ -6,15 +6,17 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-21: main `7a006fc`, panel bundle `c27540d3f848`.
+- 2026-10-22: main `a1295e0`, panel bundle `a1295e08340b`, alembic `0029`.
 - `DRY_RUN=false`.
-- Access admits only the owner.
+- Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
+- `users` holds one row, the owner's, created by their first `/api/me`.
 
 ## Delivery log
 
 | PR | What | Merge | Deploy |
 | --- | --- | --- | --- |
 | #84 | Multi-user decisions 1-15, proposal and design; operator-panel PR 25's delivery record | `7a006fc` (parents `2e137f1`, `c4513d1`) | 2026-10-21, pull only (docs) |
+| #85 | PR A: identity from Cloudflare Access, `/api/me`, the panel without the token, migration 0029 | `a1295e0` (parents `7a006fc`, `7f878ca`) | 2026-10-22, see "PR A's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -84,11 +86,11 @@ Design AD1 and AD11 (sign-in only). Every endpoint that exists today stays **adm
 
 ### Owner-run (production)
 
-- [ ] A.12 Before the deploy:
+- [x] A.12 Before the deploy:
   - read the Access team domain and the application's AUD tag in Zero Trust;
   - add `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ADMIN_EMAIL` to the VPS `.env` with nano;
   - take a fresh backup, and rehearse 0029 on a throwaway restore.
-- [ ] A.13 Deploy:
+- [x] A.13 Deploy:
   - pull as `strategy`, `alembic upgrade head`, restart both services;
   - pps.6 for the panel;
   - check: the panel loads with no token prompt, `GET /api/me` shows the owner as admin, `users` holds exactly the owner's row, and the webhook still answers;
@@ -96,11 +98,30 @@ Design AD1 and AD11 (sign-in only). Every endpoint that exists today stays **adm
 
 ### Delivery
 
-- [ ] A.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
-- [ ] A.D.2 Push and open the PR (on the owner's word).
-- [ ] A.D.3 Merge (owner), with a merge commit.
-- [ ] A.D.4 Deploy (A.12, A.13).
-- [ ] A.D.5 Delivery log row and "Production now".
+- [x] A.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [x] A.D.2 Push and open the PR (on the owner's word).
+- [x] A.D.3 Merge (owner), with a merge commit.
+- [x] A.D.4 Deploy (A.12, A.13).
+- [x] A.D.5 Delivery log row and "Production now".
+
+### PR A's delivery
+
+**Verification (A.D.1).** Gate on `c9dc960`: backend ruff and mypy clean (315 files), full pytest exit 0; frontend lint clean, vitest 2917 passed. An independent verifier read A.1-A.11 against the diff and found two blockers, both fixed in `7f878ca`:
+- a failed fetch of the Access keys turned the next minute of requests into 401 instead of 503, so the panel read an outage as an expired session;
+- a 403 test for a signed-in non-admin existed for one router only. It now covers every admin-only route, by method and path. It was proven non-vacuous by stripping the pools router's guard in memory, from a script outside the repository: both route-guard tests failed, and passed with the guard back. (Editing the guard out of the source was refused by the session's permission classifier.)
+
+The same commit adds one WARNING, naming the failed check and never the token or a claim, when a presented assertion is refused: behind the tunnel that means `ACCESS_AUD` or `ACCESS_TEAM_DOMAIN` is wrong. Advisories left open: a rotated key can be refused for up to a minute; the dev identity is stopped by the startup invariant only, not per request; the old token stays in the browser's `localStorage`, unused.
+
+**PR A's deploy, 2026-10-22** (owner-run, one step at a time):
+1. Pull as `strategy`, fast-forward `7a006fc..a1295e0`.
+2. `uv sync --locked` as `strategy`: `+ pyjwt==2.15.1`. The services start with `uv run`, which would sync too, but a failure here shows while they still run.
+3. Backup `/root/sm_pre0029_20261022_0051.dump`. Rehearsal on `sm_rehearsal_0029`: production at `0028`; `strategies` 6, `signals` 44, `ledger_entries` 42 on both sides and unchanged by the upgrade; after `upgrade head`, `0029`, `users` empty with `ck_users_email_normalized`, `users_pkey`, `ux_users_email`; a mixed-case e-mail refused; `downgrade -1` back to `0028` with `users` gone; the copy dropped.
+4. `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ADMIN_EMAIL` added with nano. A read-only check ran the startup invariant against the real `.env`: ok, `dry_run` false, no dev identity, the team domain a `cloudflareaccess.com` host, the AUD 64 hex characters.
+5. `alembic upgrade head`: `0028 -> 0029`.
+6. Both services restarted, both active.
+7. pps.6: bundle built from a clean worktree of `origin/main`, 22 entries, SHA-256 `369aadcaac8b5f9e6ec40f1c50fc95c994e8b1b7c0801ae2e9a8a1e55e808840`; `OK`, `readable`, bundle and checkout both `a1295e08340b`.
+8. Checks: the panel opens with no token prompt and shows the owner's e-mail; `/api/me` answers the owner with `is_admin` true and `dry_run` false; `users` holds one row, and it is `ADMIN_EMAIL`; no WARNING or ERROR from the API since the restart; a POST to `/webhook/tradingview` from the VPS answers `401` (a GET answers `404` from Caddy's path filter, as since whn.3, and proves nothing).
+9. `ADMIN_API_TOKEN` removed from `.env` (owner `strategy`, mode 600 before and after); the API restarted, active, and the panel still opens.
 
 ## PR B-G
 
