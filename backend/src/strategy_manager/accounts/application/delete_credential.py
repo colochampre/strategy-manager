@@ -42,6 +42,7 @@ this precondition; deletion is the only path that checks flatness.
 
 import logging
 from dataclasses import dataclass
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     CapitalPoolWriterPort,
@@ -112,7 +113,10 @@ class DeleteCredential:
         self._pools = pools
         self._commit = commit
 
-    async def execute(self, exchange: str) -> Deleted:
+    async def execute(self, user_id: UUID, exchange: str) -> Deleted:
+        """``user_id`` is the signed-in user deleting the key. Today it selects
+        only WHOSE pool the delete switches off (multi-user design AD8); the key,
+        the lock and the exposure are not scoped to it yet."""
         # Step 1: nothing below runs for an exchange without a known pool.
         try:
             known = known_pool_for(exchange)
@@ -143,7 +147,7 @@ class DeleteCredential:
 
         # Step 5 and 6: deactivate, disable, commit.
         await self._credentials.deactivate(exchange)
-        flipped = await self._pools.disable(exchange)
+        flipped = await self._pools.disable(user_id, exchange)
         await self._commit.commit()
 
         logger.info(

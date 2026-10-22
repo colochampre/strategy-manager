@@ -44,10 +44,13 @@ class BalanceSourcePort(Protocol):
     """Reads a pool's funds from the exchange or a stand-in.
     Implementations MUST be local (DB or in-memory) — a synchronous remote
     call here would run inside the advisory lock once consumed by
-    ``allocation.application.PoolBalancePort`` (design.md § Interfaces)."""
+    ``allocation.application.PoolBalancePort`` (design.md § Interfaces).
+
+    The pool is ``user_id``'s pool on that market (multi-user design AD8):
+    another user's pool on the same market is never read."""
 
     async def read_balance(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolFunds: ...
 
 
@@ -83,9 +86,10 @@ class ExchangeBalanceReaderPort(Protocol):
 
 
 class BalanceSnapshotWriterPort(Protocol):
-    """Persists readings so the allocation path can read them locally."""
+    """Persists readings so the allocation path can read them locally, each one
+    as the snapshot of ``user_id``'s pool on the reading's market."""
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None: ...
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None: ...
 
 
 class BalanceSnapshotAgePort(Protocol):
@@ -96,11 +100,11 @@ class BalanceSnapshotAgePort(Protocol):
 
     ``None`` means no snapshot has ever been synced for the pool -- there is
     nothing to fall back to, so this always resolves to UNAVAILABLE regardless
-    of the fallback bound.
+    of the fallback bound. The pool is ``user_id``'s.
     """
 
     async def age_seconds(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> float | None: ...
 
 
@@ -146,16 +150,19 @@ class CapitalPoolWriterPort(Protocol):
 
     Both write through the caller's session, so they commit with the caller's
     transaction and roll back with it.
+
+    The pool is ``user_id``'s (multi-user design AD8): another user's pool on the
+    same market is never created, flipped or read.
     """
 
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         """Makes the exchange's pool enabled, creating the row when it does not
         exist. An existing row's ``min_order_size`` is never touched. Returns
         ``True`` when this call changed something (row inserted, or flipped from
         disabled) and ``False`` when the pool was already enabled."""
         ...
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
         """Flips only an existing row to disabled; a missing row is not created.
         Returns ``True`` when an enabled row was flipped."""
         ...

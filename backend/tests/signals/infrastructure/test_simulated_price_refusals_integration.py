@@ -31,6 +31,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure import test_order_outcomes_integration as order_h
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
 from tests.signals.infrastructure.conftest import (
@@ -278,9 +279,11 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
         # The ORM test database seeds Bybit's pool only.
         await session.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size)"
-                " VALUES ('binance', 'usdt-m', 'USDT', 1) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size)"
+                " VALUES (:owner, 'binance', 'usdt-m', 'USDT', 1) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": OWNER_ID},
         )
         await session.commit()
     await seed_strategy(pg_session_factory, strategy_id=strategy_id, exchange="binance")

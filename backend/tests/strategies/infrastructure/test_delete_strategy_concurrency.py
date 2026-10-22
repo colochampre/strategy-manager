@@ -105,12 +105,14 @@ def head_database_url() -> Iterator[str]:
 async def engine(head_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(head_database_url, pool_pre_ping=True)
     async with engine.begin() as conn:
-        await seed_owner(conn)
+        owner = await seed_owner(conn)
         await conn.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:owner, 'bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": owner},
         )
     yield engine
     await engine.dispose()

@@ -58,7 +58,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.performance.application.ports import (
     AllocationFillsSourcePort,
     OperationFillsSourcePort,
@@ -401,9 +402,17 @@ async def _strategy_pool(session: AsyncSession, strategy_id: UUID) -> PoolKey:
 
 @router.get("/pools/{exchange}/{venue}/{ccy}", response_model=PerformanceBody)
 async def pool_performance(
-    exchange: str, venue: str, ccy: str, session: SessionDep, fills: FillsDep, clock: ClockDep
+    exchange: str,
+    venue: str,
+    ccy: str,
+    session: SessionDep,
+    fills: FillsDep,
+    clock: ClockDep,
+    user: Annotated[User, Depends(current_user)],
 ) -> PerformanceBody:
-    pool = await SqlAlchemyPoolLookup(session).find(exchange, venue, ccy)
+    """The pool must be the signed-in user's (multi-user design AD8): another
+    user's pool on the same market is a 404."""
+    pool = await SqlAlchemyPoolLookup(session).find(user.id, exchange, venue, ccy)
     if pool is None:
         raise HTTPException(status_code=404, detail="no such pool")
     report = await _guarded(ReadPoolPerformance(fills, clock).read(pool))

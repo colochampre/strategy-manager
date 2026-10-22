@@ -91,6 +91,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -100,10 +101,11 @@ POOL_BALANCE = Decimal("1000")
 WAIT_SECONDS = 5.0
 
 _POOL_CONFIG = {
-    POOL: PoolConfig(
+    (OWNER_ID, POOL): PoolConfig(
         exchange=Exchange.BYBIT,
         venue=Venue.USDT_M,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 }
@@ -163,8 +165,11 @@ async def _pool_enabled(
         return bool(
             (
                 await session.execute(
-                    text("SELECT enabled FROM capital_pools WHERE exchange = :e"),
-                    {"e": exchange},
+                    text(
+                        "SELECT enabled FROM capital_pools WHERE exchange = :e "
+                        "AND user_id = :owner"
+                    ),
+                    {"e": exchange, "owner": OWNER_ID},
                 )
             ).scalar_one()
         )
@@ -195,7 +200,7 @@ def _build(
 
 async def _delete(factory: async_sessionmaker[AsyncSession], exchange: str = "bybit") -> Any:
     async with factory() as session:
-        return await _build(session).execute(exchange)
+        return await _build(session).execute(OWNER_ID, exchange)
 
 
 # --- 6e.1, 6e.2: refusals ------------------------------------------------------------------
@@ -317,7 +322,7 @@ async def test_deletion_succeeds_when_flat_deactivates_credential_disables_pool_
 
     async with factory() as session:
         spy = _SpyCommit(session, factory)
-        result = await _build(session, commit=spy).execute("bybit")
+        result = await _build(session, commit=spy).execute(OWNER_ID, "bybit")
 
     assert result.exchange == "bybit"
     assert result.last4 == BYBIT_KEY[-4:]
@@ -335,10 +340,10 @@ async def test_a_failing_pool_write_rolls_the_credential_deactivation_back(
     await _store_key(factory)
 
     class _ExplodingPools:
-        async def enable(self, exchange: str) -> bool:
+        async def enable(self, user_id: UUID, exchange: str) -> bool:
             raise AssertionError
 
-        async def disable(self, exchange: str) -> bool:
+        async def disable(self, user_id: UUID, exchange: str) -> bool:
             raise RuntimeError("pool write failed")
 
     async with factory() as session:
@@ -350,7 +355,7 @@ async def test_a_failing_pool_write_rolls_the_credential_deactivation_back(
             session,
         )
         with pytest.raises(RuntimeError):
-            await use_case.execute("bybit")
+            await use_case.execute(OWNER_ID, "bybit")
 
     assert await _credential_flags(factory) == [True]
     assert await _pool_enabled(factory) is True
@@ -429,6 +434,7 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
             session,
             clock,
         ).execute(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="bybit", label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),
@@ -662,7 +668,7 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
     async def run_delete() -> None:
         async with factory() as session:
             try:
-                deleted["value"] = await _build(session).execute("bybit")
+                deleted["value"] = await _build(session).execute(OWNER_ID, "bybit")
             except BaseException as exc:  # noqa: BLE001 -- captured for the assertion
                 failed["value"] = exc
 
@@ -727,7 +733,7 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
     async def run_delete() -> None:
         async with factory() as session:
             lock = _HoldingPoolLock(PoolLockAdapter(session), acquired, resume_delete)
-            deleted["value"] = await _build(session, pool_lock=lock).execute("bybit")
+            deleted["value"] = await _build(session, pool_lock=lock).execute(OWNER_ID, "bybit")
 
     task_delete = asyncio.create_task(run_delete())
     await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)  # the delete holds the pool lock

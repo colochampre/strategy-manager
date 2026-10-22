@@ -78,15 +78,20 @@ class FixedClock:
 
 
 class FakePools:
+    """``AUTHOR_ID``'s enabled pools; any other user has none (multi-user
+    design AD8). Records whose pools were asked for."""
+
     def __init__(
         self, pools: list[tuple[Exchange, Venue, Currency]] | None = None
     ) -> None:
         self._pools = (
             pools if pools is not None else [(Exchange.PIONEX, Venue.SPOT, Currency.USDT)]
         )
+        self.users_asked: list[UUID] = []
 
-    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]:
-        return self._pools
+    async def enabled_pools(self, user_id: UUID) -> list[tuple[Exchange, Venue, Currency]]:
+        self.users_asked.append(user_id)
+        return self._pools if user_id == AUTHOR_ID else []
 
 
 class SpyCommit:
@@ -230,6 +235,29 @@ async def test_an_account_with_no_enabled_pools_says_so_plainly() -> None:
 
     with pytest.raises(PoolNotAvailable, match="Enabled pools are none"):
         await use_case.register(_command())
+
+
+async def test_the_pools_checked_are_the_authors_never_another_users() -> None:
+    """Multi-user design AD8. ``AUTHOR_ID`` holds an enabled ``pionex/spot/USDT``
+    pool; a second user holds none. The second user registering on that market
+    is refused, and the question was put for the second user."""
+    other = UUID("5f0c1d2e-0000-4000-8000-0000000000c2")
+    repository = FakeRepository()
+    pools = FakePools()
+    use_case = RegisterStrategy(
+        repository=repository,  # type: ignore[arg-type]
+        pools=pools,  # type: ignore[arg-type]
+        pairs=FakeCatalog(),
+        commit=SpyCommit(),  # type: ignore[arg-type]
+        enablement_log=SpyEnablementLog(),  # type: ignore[arg-type]
+        clock=FixedClock(FIXED_NOW),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(PoolNotAvailable, match="Enabled pools are none"):
+        await use_case.register(_command(author_id=other))
+
+    assert pools.users_asked == [other]
+    assert repository.inserted == []
 
 
 async def test_the_write_is_committed() -> None:

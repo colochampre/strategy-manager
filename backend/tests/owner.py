@@ -19,6 +19,8 @@ calls it after its truncate: a test that truncated ``users`` itself (the
 identity tests do) leaves no gap behind.
 """
 
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -48,3 +50,79 @@ async def seed_owner(executor: AsyncConnection | AsyncSession) -> UUID:
         {"id": OWNER_ID, "email": OWNER_EMAIL},
     )
     return OWNER_ID
+
+
+async def seed_other_user(executor: AsyncConnection | AsyncSession) -> UUID:
+    """A second user, with a fresh id and e-mail, for the cross-user tests
+    (multi-user design AD8). Not committed. ``users`` outlives the fixtures'
+    truncates, so the e-mail is unique per call."""
+    user_id = uuid4()
+    return await seed_user(executor, f"other-{user_id}@example.com", user_id)
+
+
+async def seed_pool(
+    executor: AsyncConnection | AsyncSession,
+    market: tuple[str, str, str],
+    *,
+    user_id: UUID = OWNER_ID,
+    enabled: bool = True,
+    min_order_size: Decimal = Decimal("5"),
+) -> int:
+    """One ``capital_pools`` row of ``user_id`` on ``market``; returns its id.
+    Not committed. A duplicate ``(user, market)`` raises, as it should."""
+    exchange, venue, currency = market
+    pool_id = (
+        await executor.execute(
+            text(
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, enabled, min_order_size) "
+                "VALUES (:user_id, :exchange, :venue, :currency, :enabled, :minimum) "
+                "RETURNING id"
+            ),
+            {
+                "user_id": user_id,
+                "exchange": exchange,
+                "venue": venue,
+                "currency": currency,
+                "enabled": enabled,
+                "minimum": min_order_size,
+            },
+        )
+    ).scalar_one()
+    return int(pool_id)
+
+
+async def seed_snapshot(
+    executor: AsyncConnection | AsyncSession,
+    market: tuple[str, str, str],
+    *,
+    total: Decimal,
+    available: Decimal,
+    observed_at: datetime,
+    user_id: UUID = OWNER_ID,
+) -> None:
+    """The ``pool_balance_snapshots`` row of ``user_id``'s pool on ``market``,
+    written raw (not through the repository under test). The pool must exist.
+    Not committed."""
+    exchange, venue, currency = market
+    inserted = await executor.execute(
+        text(
+            "INSERT INTO pool_balance_snapshots "
+            "(pool_id, user_id, exchange, venue, settlement_currency, total, available, "
+            "observed_at) "
+            "SELECT id, user_id, exchange, venue, settlement_currency, :total, :available, "
+            ":observed_at FROM capital_pools WHERE user_id = :user_id "
+            "AND exchange = :exchange AND venue = :venue AND settlement_currency = :currency"
+        ),
+        {
+            "user_id": user_id,
+            "exchange": exchange,
+            "venue": venue,
+            "currency": currency,
+            "total": total,
+            "available": available,
+            "observed_at": observed_at,
+        },
+    )
+    if inserted.rowcount != 1:  # type: ignore[attr-defined]
+        raise AssertionError(f"user {user_id} has no pool on {market} to snapshot")

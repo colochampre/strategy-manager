@@ -17,6 +17,7 @@ import logging
 import os
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select, text
@@ -79,8 +80,9 @@ from tests.accounts.fakes import (
     bybit_credential,
     registry_for,
 )
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
-LOGGER = "strategy_manager.accounts.application.save_credential"
+LOGGER ="strategy_manager.accounts.application.save_credential"
 
 
 
@@ -94,7 +96,9 @@ class Harness:
         clock: TickingClock | None = None,
         pools: RecordingPoolWriter | None = None,
         events: list[str] | None = None,
+        user_id: UUID = OWNER_ID,
     ) -> None:
+        self.user_id = user_id
         self.inspector = inspector
         self.writer = writer or RecordingWriter(events=events)
         self.pools = pools or RecordingPoolWriter(events=events)
@@ -110,7 +114,7 @@ class Harness:
     async def save(
         self, credential: ExchangeCredential, confirmations: OwnerConfirmations = NEITHER
     ) -> SaveResult:
-        return await self.use_case.execute(credential, confirmations)
+        return await self.use_case.execute(self.user_id, credential, confirmations)
 
 
 def _saved(result: SaveResult) -> Saved:
@@ -476,11 +480,11 @@ async def test_rotation_deactivates_previous_row_retains_it(
     async with pg_session_factory() as session:
         first = await _real_use_case(
             session, master_key, RecordingInspector(READ_ONLY_SNAPSHOT), clock
-        ).execute(bybit_credential("BYBIT-OLD-KEY-1111"), NEITHER)
+        ).execute(OWNER_ID, bybit_credential("BYBIT-OLD-KEY-1111"), NEITHER)
     async with pg_session_factory() as session:
         second = await _real_use_case(
             session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
-        ).execute(bybit_credential("BYBIT-NEW-KEY-2222"), NEITHER)
+        ).execute(OWNER_ID, bybit_credential("BYBIT-NEW-KEY-2222"), NEITHER)
 
     saved_first, saved_second = _saved(first), _saved(second)
     rows = await _rows(pg_session_factory, "bybit")
@@ -510,13 +514,13 @@ async def test_rotation_never_inherits_the_previous_keys_confirmations(
     async with pg_session_factory() as session:
         first = _saved(
             await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
-                binance_credential("BINANCE-OLD-KEY-1111"), BOTH
+                OWNER_ID, binance_credential("BINANCE-OLD-KEY-1111"), BOTH
             )
         )
     async with pg_session_factory() as session:
         second = _saved(
             await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
-                binance_credential("BINANCE-NEW-KEY-2222"), BOTH
+                OWNER_ID, binance_credential("BINANCE-NEW-KEY-2222"), BOTH
             )
         )
 
@@ -545,13 +549,13 @@ async def test_rotating_binance_without_confirmations_leaves_the_active_key_unto
     async with pg_session_factory() as session:
         _saved(
             await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
-                binance_credential("BINANCE-OLD-KEY-1111"), BOTH
+                OWNER_ID, binance_credential("BINANCE-OLD-KEY-1111"), BOTH
             )
         )
     async with pg_session_factory() as session:
         refused = _refused(
             await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
-                binance_credential("BINANCE-NEW-KEY-2222"), NEITHER
+                OWNER_ID, binance_credential("BINANCE-NEW-KEY-2222"), NEITHER
             )
         )
 
@@ -592,7 +596,7 @@ async def test_concurrent_save_second_refused_409_by_constraint_name_not_message
         async with pg_session_factory() as session:
             return await _real_use_case(
                 session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
-            ).execute(bybit_credential("BYBIT-LOSER-KEY-2222"), NEITHER)
+            ).execute(OWNER_ID, bybit_credential("BYBIT-LOSER-KEY-2222"), NEITHER)
 
     async with pg_session_factory() as winner:
         vault = SqlAlchemyCredentialVault(winner, EnvelopeCipher(master_key), clock)
@@ -636,6 +640,17 @@ async def test_a_saved_binance_key_enables_the_binance_pool_only() -> None:
     _saved(await h.save(binance_credential(), BOTH))
 
     assert h.pools.enabled == ["binance"]
+
+
+async def test_the_pool_enabled_is_the_saving_users_never_another_users() -> None:
+    """Two users may each hold a pool on this market (AD8): saving a key
+    switches on the signed-in user's pool, whoever else holds one."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    h = Harness(RecordingInspector(TRADING_SNAPSHOT), user_id=other)
+
+    _saved(await h.save(bybit_credential()))
+
+    assert h.pools.users == [other]
 
 
 @pytest.mark.parametrize(
@@ -738,24 +753,26 @@ async def _seed_pool(
     *,
     enabled: bool,
     min_order_size: str = "5",
+    user_id: UUID = OWNER_ID,
 ) -> None:
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, "
-                "enabled, min_order_size) "
-                "VALUES (:exchange, 'usdt-m', 'USDT', :enabled, :min_order_size)"
-            ),
-            {"exchange": exchange, "enabled": enabled, "min_order_size": min_order_size},
+        await seed_pool(
+            session,
+            (exchange, "usdt-m", "USDT"),
+            user_id=user_id,
+            enabled=enabled,
+            min_order_size=Decimal(min_order_size),
         )
         await session.commit()
 
 
 async def _pools(
-    factory: async_sessionmaker[AsyncSession],
+    factory: async_sessionmaker[AsyncSession], user_id: UUID = OWNER_ID
 ) -> dict[tuple[str, str, str], tuple[bool, Decimal]]:
     async with factory() as session:
-        rows = (await session.execute(select(CapitalPoolRow))).scalars()
+        rows = (
+            await session.execute(select(CapitalPoolRow).where(CapitalPoolRow.user_id == user_id))
+        ).scalars()
         return {
             (r.exchange, r.venue, r.settlement_currency): (r.enabled, r.min_order_size)
             for r in rows
@@ -807,7 +824,7 @@ async def test_first_key_saved_for_exchange_enables_its_pool_same_transaction(
             observing,
             clock,
         )
-        _saved(await use_case.execute(binance_credential(), BOTH))
+        _saved(await use_case.execute(OWNER_ID, binance_credential(), BOTH))
 
     assert observing.own_view_enabled is True
     assert observing.other_view_enabled is False
@@ -816,6 +833,53 @@ async def test_first_key_saved_for_exchange_enables_its_pool_same_transaction(
     assert [(r.api_key_last4, r.is_active) for r in await _rows(pg_session_factory, "binance")] == [
         ("efgh", True)
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_saving_a_key_never_enables_another_users_pool_on_the_same_market(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """AD8: both users hold a disabled Binance pool. The owner's save switches
+    on the owner's pool and leaves the other user's exactly as it was."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await _seed_pool(pg_session_factory, "binance", enabled=False)
+    await _seed_pool(pg_session_factory, "binance", enabled=False, user_id=other)
+    clock = TickingClock(NOW)
+    async with pg_session_factory() as session:
+        _saved(
+            await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
+                OWNER_ID, binance_credential(), BOTH
+            )
+        )
+
+    assert (await _pools(pg_session_factory))[("binance", "usdt-m", "USDT")][0] is True
+    assert (await _pools(pg_session_factory, other))[("binance", "usdt-m", "USDT")][0] is False
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_a_first_key_creates_the_saving_users_pool_beside_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """Only the other user holds a Binance pool. The owner's save inserts the
+    owner's own row rather than adopting the other user's."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await _seed_pool(pg_session_factory, "binance", enabled=False, user_id=other)
+    clock = TickingClock(NOW)
+    async with pg_session_factory() as session:
+        _saved(
+            await _real_use_case(session, master_key, RecordingInspector(), clock).execute(
+                OWNER_ID, binance_credential(), BOTH
+            )
+        )
+
+    assert (await _pools(pg_session_factory))[("binance", "usdt-m", "USDT")][0] is True
+    assert (await _pools(pg_session_factory, other))[("binance", "usdt-m", "USDT")][0] is False
 
 
 @pytest.mark.integration
@@ -830,7 +894,7 @@ async def test_resaving_key_for_already_enabled_pool_leaves_min_order_size_uncha
             _saved(
                 await _real_use_case(
                     session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
-                ).execute(bybit_credential(api_key), NEITHER)
+                ).execute(OWNER_ID, bybit_credential(api_key), NEITHER)
             )
 
     assert await _pools(pg_session_factory) == {
@@ -863,7 +927,7 @@ async def test_a_lost_race_leaves_the_pool_untouched_even_inside_the_open_transa
         async with pg_session_factory() as session:
             result = await _real_use_case(
                 session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
-            ).execute(bybit_credential("BYBIT-LOSER-KEY-2222"), NEITHER)
+            ).execute(OWNER_ID, bybit_credential("BYBIT-LOSER-KEY-2222"), NEITHER)
             still = await session.execute(
                 text("SELECT enabled FROM capital_pools WHERE exchange = 'bybit'")
             )
@@ -889,10 +953,10 @@ async def test_a_lost_race_leaves_the_pool_untouched_even_inside_the_open_transa
 
 
 class _FailingPools:
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         raise RuntimeError("pool write failed")
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
         return False
 
 
@@ -912,7 +976,7 @@ async def test_a_pool_write_that_fails_leaves_no_credential_committed(
             clock,
         )
         with pytest.raises(RuntimeError, match="pool write failed"):
-            await use_case.execute(bybit_credential(), NEITHER)
+            await use_case.execute(OWNER_ID, bybit_credential(), NEITHER)
 
     assert await _rows(pg_session_factory, "bybit") == []
     assert (await _pools(pg_session_factory))[("bybit", "usdt-m", "USDT")][0] is False

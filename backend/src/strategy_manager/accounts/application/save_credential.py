@@ -37,6 +37,7 @@ No line ever carries a key, a secret or a venue payload.
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     CapitalPoolWriterPort,
@@ -118,8 +119,14 @@ class SaveCredential:
         self._clock = clock
 
     async def execute(
-        self, credential: ExchangeCredential, confirmations: OwnerConfirmations
+        self,
+        user_id: UUID,
+        credential: ExchangeCredential,
+        confirmations: OwnerConfirmations,
     ) -> SaveResult:
+        """``user_id`` is the signed-in user saving the key. Today it selects
+        only WHOSE pool the save switches on (multi-user design AD8); the key
+        itself is not scoped to it yet."""
         exchange = credential.exchange
 
         premature = check_confirmations(exchange, confirmations)
@@ -145,7 +152,7 @@ class SaveCredential:
         # Decision 21: the same transaction as the credential, after it. Nothing
         # above reaches here on a refusal, a venue failure or a lost race, so a
         # pool is only ever switched on for a key that was stored.
-        pool_switched_on = await self._pools.enable(exchange)
+        pool_switched_on = await self._pools.enable(user_id, exchange)
         await self._commit.commit()
 
         logger.info("saved %s credential (key ending %s)", exchange, credential.last4)

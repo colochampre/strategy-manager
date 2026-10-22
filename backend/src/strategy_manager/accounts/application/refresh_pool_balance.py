@@ -26,6 +26,7 @@ context -- this class only ever knows about a pool.
 
 import asyncio
 import logging
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     BalanceSnapshotAgePort,
@@ -57,8 +58,11 @@ class RefreshPoolBalance:
         self._fallback_max_age_seconds = fallback_max_age_seconds
 
     async def refresh(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome:
+        """Refreshes ``user_id``'s pool on that market (multi-user design AD8):
+        the reading is stored as that user's snapshot, and on a failure it is
+        that user's snapshot whose age decides."""
         pool: PoolKey = (exchange, venue, settlement_currency)
         try:
             async with asyncio.timeout(self._timeout_seconds):
@@ -66,15 +70,15 @@ class RefreshPoolBalance:
         except Exception as exc:  # noqa: BLE001 - a timeout and a reader
             # failure degrade identically here: read the snapshot age and
             # decide FALLBACK vs UNAVAILABLE either way.
-            return await self._on_failure(pool, reason=str(exc))
+            return await self._on_failure(user_id, pool, reason=str(exc))
 
-        await self._snapshots.upsert(readings)
+        await self._snapshots.upsert(user_id, readings)
         await self._commit.commit()
         return RefreshOutcome(status=RefreshStatus.FRESH)
 
-    async def _on_failure(self, pool: PoolKey, reason: str) -> RefreshOutcome:
+    async def _on_failure(self, user_id: UUID, pool: PoolKey, reason: str) -> RefreshOutcome:
         exchange, venue, settlement_currency = pool
-        age = await self._age.age_seconds(exchange, venue, settlement_currency)
+        age = await self._age.age_seconds(user_id, exchange, venue, settlement_currency)
         if age is not None and age <= self._fallback_max_age_seconds:
             logger.warning(
                 "on-demand balance refresh failed for pool %s (%s); falling back "

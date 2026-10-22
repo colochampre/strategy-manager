@@ -2,7 +2,7 @@
 share preview (design.md, unit 12f addendum, section H; tasks.md 12f.9.11).
 
 The adapter is ONE SELECT: the ``capital_pools`` row outer-joined to its
-``pool_balance_snapshots`` row on the three-part key. No constraint or index decides
+``pool_balance_snapshots`` row on the pool's id. No constraint or index decides
 what it answers, so the ORM schema of ``tests/ledger/infrastructure/conftest.py`` on
 a real PostgreSQL is enough.
 
@@ -18,14 +18,16 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.infrastructure.pool_sizing import SqlAlchemyPoolSizing
 from strategy_manager.allocation.application.ports import PoolSizing, SizingSnapshot
 from tests.ledger.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
+from tests.owner import OWNER_ID, seed_other_user, seed_pool, seed_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -48,39 +50,28 @@ async def _snapshot(
     total: str,
     available: str,
     age: timedelta = timedelta(seconds=1),
+    user_id: UUID = OWNER_ID,
 ) -> None:
-    exchange, venue, currency = pool
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO pool_balance_snapshots "
-                "(exchange, venue, settlement_currency, total, available, observed_at) "
-                "VALUES (:e, :v, :c, :total, :available, :observed_at)"
-            ),
-            {
-                "e": exchange,
-                "v": venue,
-                "c": currency,
-                "total": Decimal(total),
-                "available": Decimal(available),
-                "observed_at": NOW - age,
-            },
+        await seed_snapshot(
+            session,
+            pool,
+            user_id=user_id,
+            total=Decimal(total),
+            available=Decimal(available),
+            observed_at=NOW - age,
         )
         await session.commit()
 
 
 async def _add_pool(
-    factory: async_sessionmaker[AsyncSession], pool: tuple[str, str, str], minimum: str
+    factory: async_sessionmaker[AsyncSession],
+    pool: tuple[str, str, str],
+    minimum: str,
+    user_id: UUID = OWNER_ID,
 ) -> None:
-    exchange, venue, currency = pool
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES (:e, :v, :c, :minimum)"
-            ),
-            {"e": exchange, "v": venue, "c": currency, "minimum": Decimal(minimum)},
-        )
+        await seed_pool(session, pool, user_id=user_id, min_order_size=Decimal(minimum))
         await session.commit()
 
 
@@ -88,9 +79,17 @@ async def _read(
     factory: async_sessionmaker[AsyncSession],
     pool: tuple[str, str, str],
     max_age: float = MAX_AGE,
+    user_id: UUID = OWNER_ID,
 ) -> PoolSizing | None:
     async with factory() as session:
-        return await SqlAlchemyPoolSizing(session, FrozenClock(), max_age).read(*pool)
+        return await SqlAlchemyPoolSizing(session, FrozenClock(), max_age).read(user_id, *pool)
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
 
 
 @contextmanager
@@ -196,3 +195,32 @@ async def test_the_adapter_issues_one_select(
 
     assert len(statements) == 1
     assert statements[0].lstrip().upper().startswith("SELECT")
+
+
+# --- Two users, one market (multi-user design AD8) ----------------------------
+
+
+async def test_another_users_pool_on_the_same_market_is_never_read(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """The owner's bybit pool (minimum 5) was never synced. A second user's pool
+    on the same market, minimum 9, holds 999. The owner reads its own: minimum 5
+    and no snapshot, never the other user's figures."""
+    other = await _other_user(pg_session_factory)
+    await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
+    await _snapshot(pg_session_factory, BYBIT, total="999", available="999", user_id=other)
+
+    assert await _read(pg_session_factory, BYBIT) == PoolSizing(
+        min_order_size=Decimal("5"), snapshot=None
+    )
+
+
+async def test_a_user_without_a_pool_on_the_market_reads_nothing(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """The owner holds a synced bybit pool; the second user holds none. The
+    second user's read answers ``None``, not the owner's pool."""
+    other = await _other_user(pg_session_factory)
+    await _snapshot(pg_session_factory, BYBIT, total="1000", available="400")
+
+    assert await _read(pg_session_factory, BYBIT, user_id=other) is None

@@ -89,10 +89,11 @@ REQUEST_AMOUNT = Decimal("200")
 FIXED_NOW = datetime(2026, 9, 28, 12, 0, 0, tzinfo=UTC)
 
 _POOL_CONFIG = {
-    POOL: PoolConfig(
+    (OWNER_ID, POOL): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 }

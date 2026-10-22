@@ -45,7 +45,6 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
 )
-from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.domain.pool_key import PoolKey as AllocationPoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
@@ -91,6 +90,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
+from tests.owner import OWNER_ID, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -329,15 +329,12 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     # ---- a stale, deliberately WRONG snapshot -- proves the on-demand
     # refresh (S3) overwrites it rather than the open reading it directly ----
     async with pg_session_factory() as session:
-        await session.execute(
-            insert(PoolBalanceSnapshotRow).values(
-                exchange="bybit",
-                venue="usdt-m",
-                settlement_currency="USDT",
-                total=BEFORE_REVEAL_BALANCE,
-                available=BEFORE_REVEAL_BALANCE,
-                observed_at=START - timedelta(hours=1),
-            )
+        await seed_snapshot(
+            session,
+            POOL,
+            total=BEFORE_REVEAL_BALANCE,
+            available=BEFORE_REVEAL_BALANCE,
+            observed_at=START - timedelta(hours=1),
         )
         await session.commit()
 
@@ -425,10 +422,11 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         clock=clock,
     )
     pools_by_key = {
-        POOL: PoolConfig(
+        (OWNER_ID, POOL): PoolConfig(
             exchange=Exchange("bybit"),
             venue=Venue("usdt-m"),
             settlement_currency=Currency("USDT"),
+            user_id=OWNER_ID,
             min_order_size=Decimal("1"),
         )
     }

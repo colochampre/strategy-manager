@@ -12,14 +12,17 @@ import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
 from strategy_manager.accounts.application.ports import PoolBalanceReading, PoolKey
 from strategy_manager.accounts.application.refresh_pool_balance import RefreshPoolBalance
 from strategy_manager.signals.application.ports import RefreshStatus
+from tests.owner import OWNER_ID
 
 POOL = ("bybit", "usdt-m", "USDT")
+OTHER_ID = UUID("00000000-0000-4000-8000-0000000000b2")
 NOW = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 
 
@@ -59,8 +62,10 @@ class StubReader:
 class SpyWriter:
     def __init__(self) -> None:
         self.written: list[Sequence[PoolBalanceReading]] = []
+        self.users: list[UUID] = []
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None:
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None:
+        self.users.append(user_id)
         self.written.append(readings)
 
 
@@ -76,10 +81,12 @@ class StubAge:
     def __init__(self, age: float | None) -> None:
         self._age = age
         self.requested: list[PoolKey] = []
+        self.users: list[UUID] = []
 
     async def age_seconds(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> float | None:
+        self.users.append(user_id)
         self.requested.append((exchange, venue, settlement_currency))
         return self._age
 
@@ -108,7 +115,7 @@ async def test_a_successful_read_is_written_and_committed_before_returning_fresh
     reading = _reading(available="777")
     refresh, writer, commit, age_port = _build(StubReader([reading]))
 
-    outcome = await refresh.refresh(*POOL)
+    outcome = await refresh.refresh(OWNER_ID, *POOL)
 
     assert outcome.status is RefreshStatus.FRESH
     assert list(writer.written[0]) == [reading]
@@ -123,7 +130,7 @@ async def test_only_the_one_pool_is_requested_not_every_pool_the_exchange_holds(
     reader = StubReader()
     refresh, _, _, _ = _build(reader)
 
-    await refresh.refresh(*POOL)
+    await refresh.refresh(OWNER_ID, *POOL)
 
     assert list(reader.requested[0]) == [POOL]
 
@@ -136,7 +143,7 @@ async def test_a_reader_error_within_the_fallback_bound_falls_back_and_warns(
     )
 
     with caplog.at_level("WARNING"):
-        outcome = await refresh.refresh(*POOL)
+        outcome = await refresh.refresh(OWNER_ID, *POOL)
 
     assert outcome.status is RefreshStatus.FALLBACK
     assert outcome.age_seconds == 40.0
@@ -151,12 +158,32 @@ async def test_a_reader_error_within_the_fallback_bound_falls_back_and_warns(
     assert "40" in warning.message
 
 
+async def test_a_fresh_reading_is_stored_as_the_asking_users_snapshot() -> None:
+    """Two users may each hold a pool on this market (AD8): the refresh for
+    one of them never lands as the other's snapshot."""
+    refresh, writer, _, _ = _build(StubReader())
+
+    await refresh.refresh(OTHER_ID, *POOL)
+
+    assert writer.users == [OTHER_ID]
+
+
+async def test_on_a_failure_the_age_read_is_the_asking_users_snapshot() -> None:
+    """Another user's fresh snapshot on the same market must never let this
+    user's signal fall back."""
+    refresh, _, _, age_port = _build(StubReader(raises=RuntimeError("bybit down")))
+
+    await refresh.refresh(OTHER_ID, *POOL)
+
+    assert age_port.users == [OTHER_ID]
+
+
 async def test_a_reader_error_past_the_fallback_bound_is_unavailable() -> None:
     refresh, writer, commit, _ = _build(
         StubReader(raises=RuntimeError("bybit down")), age=120.0, fallback_max_age_seconds=90.0
     )
 
-    outcome = await refresh.refresh(*POOL)
+    outcome = await refresh.refresh(OWNER_ID, *POOL)
 
     assert outcome.status is RefreshStatus.UNAVAILABLE
     assert outcome.age_seconds == 120.0
@@ -172,7 +199,7 @@ async def test_no_snapshot_has_ever_existed_is_unavailable_not_fallback() -> Non
         StubReader(raises=RuntimeError("bybit down")), age=None, fallback_max_age_seconds=90.0
     )
 
-    outcome = await refresh.refresh(*POOL)
+    outcome = await refresh.refresh(OWNER_ID, *POOL)
 
     assert outcome.status is RefreshStatus.UNAVAILABLE
     assert outcome.age_seconds is None
@@ -185,7 +212,7 @@ async def test_a_reader_that_hangs_past_the_timeout_is_treated_as_a_failure() ->
         StubReader(hang_seconds=0.2), age=10.0, timeout_seconds=0.01, fallback_max_age_seconds=90.0
     )
 
-    outcome = await refresh.refresh(*POOL)
+    outcome = await refresh.refresh(OWNER_ID, *POOL)
 
     assert outcome.status is RefreshStatus.FALLBACK
     assert outcome.age_seconds == 10.0

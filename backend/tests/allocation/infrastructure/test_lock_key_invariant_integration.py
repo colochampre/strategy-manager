@@ -22,6 +22,7 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -33,24 +34,28 @@ _CONFIGURED_POOLS = [
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("10"),
     ),
     PoolConfig(
         exchange=Exchange.BYBIT,
         venue=Venue.USDT_M,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("5"),
     ),
     PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.COIN_M,
         settlement_currency=Currency.BTC,
+        user_id=OWNER_ID,
         min_order_size=Decimal("0.0001"),
     ),
     PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.COIN_M,
         settlement_currency=Currency.ETH,
+        user_id=OWNER_ID,
         min_order_size=Decimal("0.001"),
     ),
 ]

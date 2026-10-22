@@ -111,15 +111,16 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "strategies, capital_pools, jobs RESTART IDENTITY CASCADE"
             )
         )
-        await seed_owner(conn)
+        owner = await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
                     "INSERT INTO capital_pools "
-                    "(exchange, venue, settlement_currency, min_order_size) "
-                    "VALUES (:exchange, :venue, :settlement_currency, :min_order_size)"
+                    "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                    "VALUES (:user_id, :exchange, :venue, :settlement_currency, "
+                    ":min_order_size)"
                 ),
-                pool,
+                {"user_id": owner, **pool},
             )
 
     yield engine

@@ -219,7 +219,10 @@ class RegisterStrategy:
             raise UnknownPairs(unknown)
 
     async def _assert_pool_available(self, command: RegisterCommand) -> None:
-        available = await self._pools.enabled_pools()
+        # The AUTHOR's pools (multi-user design AD8): a strategy is allocated in
+        # its author's pool (B.5), so another user's enabled pool on the same
+        # market is not one this strategy could ever size from.
+        available = await self._pools.enabled_pools(command.author_id)
         if (command.exchange, command.venue, command.settlement_currency) in available:
             return
 

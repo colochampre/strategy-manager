@@ -20,6 +20,7 @@ from strategy_manager.reconciliation.application.ports import PoolKey
 from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
     SystemOrderIdsAdapter,
 )
+from tests.owner import OWNER_ID
 from tests.reconciliation.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -44,11 +45,16 @@ async def _seed_attempt(
         await session.execute(
             text(
                 "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size) "
-                "VALUES (:exchange, :venue, :settlement_currency, 5) "
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:owner, :exchange, :venue, :settlement_currency, 5) "
                 "ON CONFLICT DO NOTHING"
             ),
-            {"exchange": exchange, "venue": venue, "settlement_currency": settlement_currency},
+            {
+                "owner": OWNER_ID,
+                "exchange": exchange,
+                "venue": venue,
+                "settlement_currency": settlement_currency,
+            },
         )
         await session.commit()
     await seed_strategy(

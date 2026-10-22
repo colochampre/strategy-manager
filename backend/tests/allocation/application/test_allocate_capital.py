@@ -24,7 +24,12 @@ from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    RecordingPoolStatus,
+    RecordingSkipRecorder,
+)
+from tests.owner import OWNER_ID
 
 
 class FrozenClock:
@@ -64,11 +69,15 @@ class SequencedStrategyPolicyPort:
 
 @dataclass
 class FakePoolBalancePort:
+    """Records whose pool each read was for (multi-user design AD8)."""
+
     balance: PoolBalance | None = None
+    users: list[UUID] = field(default_factory=list)
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
+        self.users.append(user_id)
         if self.balance is None:
             raise InvariantViolation(
                 f"no configured pool for ({exchange}, {venue}, {settlement_currency})"
@@ -121,6 +130,7 @@ def _enabled_snapshot(**overrides: object) -> StrategyPolicySnapshot:
         venue="spot",
         settlement_currency="USDT",
         allocation_percent=Decimal("100"),
+        author_id=OWNER_ID,
     )
     defaults.update(overrides)
     # Pionex, because the default venue is spot: the lock key these tests
@@ -152,6 +162,40 @@ def _build_use_case(
         pool_status=AlwaysEnabledPool(),
     )
     return use_case, lock, reservations, commit
+
+
+async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
+    """Multi-user design AD8 (B.5): a signal is allocated in its strategy's
+    author's pool. Both the in-lock balance read and the pool-status check ask
+    about the author's pool, never another user's on the same market."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b1b1")
+    balance = FakePoolBalancePort(
+        PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10"))
+    )
+    status = RecordingPoolStatus(disabled=False)
+    use_case = AllocateCapital(
+        strategy_policy=FakeStrategyPolicyPort(_enabled_snapshot(author_id=author)),
+        pool_balance=balance,
+        lock=FakeAdvisoryLock(),
+        reservations=FakeReservationRepository(),
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+        pool_status=status,
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert balance.users == [author]
+    assert status.users == [author]
 
 
 async def test_resume_returns_existing_reservation_without_taking_the_lock() -> None:
@@ -579,7 +623,7 @@ class LockAwarePoolBalancePort:
     reads: int = 0
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
         self.reads += 1
         return self.inside_lock if self.lock.acquired else self.before_lock

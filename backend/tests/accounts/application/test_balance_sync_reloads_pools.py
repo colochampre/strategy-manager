@@ -22,7 +22,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -40,6 +40,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -47,6 +48,7 @@ _BYBIT_POOL = PoolConfig(
     exchange=Exchange.BYBIT,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 
@@ -76,18 +78,37 @@ def _claimed_job() -> ClaimedJob:
 
 
 async def _seed_pool(
-    session_factory: async_sessionmaker[AsyncSession], *, exchange: str, enabled: bool
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    exchange: str,
+    enabled: bool,
+    user_id: UUID = OWNER_ID,
 ) -> None:
     async with session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size, enabled) "
-                "VALUES (:exchange, 'usdt-m', 'USDT', 10, :enabled)"
-            ),
-            {"exchange": exchange, "enabled": enabled},
+        await seed_pool(
+            session,
+            (exchange, "usdt-m", "USDT"),
+            user_id=user_id,
+            enabled=enabled,
+            min_order_size=Decimal("10"),
         )
         await session.commit()
+
+
+async def _snapshot_owners(
+    session_factory: async_sessionmaker[AsyncSession], *, exchange: str
+) -> list[UUID]:
+    """The owners of the snapshots on ``exchange``, one per row."""
+    async with session_factory() as session:
+        result = await session.execute(
+            text(
+                "SELECT s.user_id FROM pool_balance_snapshots s "
+                "JOIN capital_pools p ON p.id = s.pool_id AND p.user_id = s.user_id "
+                "WHERE s.exchange = :exchange ORDER BY s.user_id"
+            ),
+            {"exchange": exchange},
+        )
+        return [UUID(str(row[0])) for row in result.all()]
 
 
 async def _set_pool_enabled(
@@ -221,6 +242,49 @@ async def test_pool_disabled_while_running_stops_being_read_on_the_next_cycle(
     await handler(_claimed_job())
     assert bybit_client.calls == 2
     assert binance_client.calls == 1  # unchanged: not read this cycle
+
+
+async def test_each_users_enabled_pool_gets_its_own_snapshot(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    _seeded_vault: None,
+    _fake_clients: tuple[_FakeVenueClient, _FakeVenueClient],
+) -> None:
+    """Multi-user design AD9: one sync per (user, exchange). The owner and a
+    second user each hold an enabled bybit pool; the second user's binance pool
+    is disabled. One cycle writes one bybit snapshot per user, each on that
+    user's own pool, and none on binance.
+
+    ``assert_pool_lock_keys_distinct`` is replaced, as in the collision test
+    below: it still keys a lock by market, so two users on one market read as a
+    collision and the reload is refused. Making the lock identify one user's
+    pool is tasks.md B.4, not this unit."""
+    _, binance_client = _fake_clients
+    monkeypatch.setattr(main, "engine", pg_engine)
+
+    async def _distinct(conn: object, pools: object) -> None:
+        return None
+
+    monkeypatch.setattr(main, "assert_pool_lock_keys_distinct", _distinct)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+
+    await _seed_pool(pg_session_factory, exchange="bybit", enabled=True)
+    await _seed_pool(pg_session_factory, exchange="bybit", enabled=True, user_id=other)
+    await _seed_pool(pg_session_factory, exchange="binance", enabled=False, user_id=other)
+
+    runner = main.build_worker_runner(
+        [_BYBIT_POOL], session_factory_override=pg_session_factory
+    )
+    await runner._handlers[JobKind.BALANCE_SYNC](_claimed_job())  # noqa: SLF001
+
+    assert await _snapshot_owners(pg_session_factory, exchange="bybit") == sorted(
+        [OWNER_ID, other], key=str
+    )
+    assert await _snapshot_owners(pg_session_factory, exchange="binance") == []
+    assert binance_client.calls == 0
 
 
 async def _job_count(session_factory: async_sessionmaker[AsyncSession]) -> int:

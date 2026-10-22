@@ -21,7 +21,9 @@ class AlwaysEnabledPool:
     is never reported disabled, so ``AllocateCapital`` behaves as it did before
     the in-lock pool check existed."""
 
-    async def is_disabled(self, exchange: str, venue: str, settlement_currency: str) -> bool:
+    async def is_disabled(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> bool:
         return False
 
 
@@ -29,13 +31,18 @@ class AlwaysEnabledPool:
 class RecordingPoolStatus:
     """``PoolStatusPort`` whose answer is scripted and whose calls are recorded,
     each with the ``events`` log it shares with the fakes around it so a test
-    can prove the read came after the lock."""
+    can prove the read came after the lock. ``users`` records whose pool each
+    call asked about (multi-user design AD8)."""
 
     disabled: bool
     events: list[str] = field(default_factory=list)
     calls: list[tuple[str, str, str]] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
-    async def is_disabled(self, exchange: str, venue: str, settlement_currency: str) -> bool:
+    async def is_disabled(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> bool:
+        self.users.append(user_id)
         self.calls.append((exchange, venue, settlement_currency))
         self.events.append("pool_status")
         return self.disabled

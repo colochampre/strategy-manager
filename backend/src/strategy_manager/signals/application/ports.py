@@ -231,10 +231,12 @@ class BalanceRefreshPort(Protocol):
     webhook ingress (CLAUDE.md rule 3).
 
     Implemented by ``accounts.application.refresh_pool_balance.RefreshPoolBalance``.
+
+    The pool is ``user_id``'s (multi-user design AD8): the strategy author's.
     """
 
     async def refresh(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome: ...
 
 

@@ -19,11 +19,17 @@ would mean an ERROR every run for a configuration that is working as asked.
 This reads only what ``balance.sync`` WROTE. It never asks a venue: that is the
 whole difference between a watchdog and one more thing an exchange's socket can
 hang.
+
+**A global sweep, on purpose** (multi-user design AD9): the watchdog is the
+admin's, and it reports every user's stale pools. It takes no ``user_id``;
+instead each ``StalePool`` carries its pool's owner, and a snapshot is joined to
+its pool by ``pool_id`` (migration ``0030``), so a user whose sync works never
+hides another user's pool on the same market that nothing has synced.
 """
 
 from datetime import timedelta
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import (
@@ -47,6 +53,7 @@ class SqlAlchemyStaleSnapshotReader:
 
         result = await self._session.execute(
             select(
+                CapitalPoolRow.user_id,
                 CapitalPoolRow.exchange,
                 CapitalPoolRow.venue,
                 CapitalPoolRow.settlement_currency,
@@ -55,12 +62,7 @@ class SqlAlchemyStaleSnapshotReader:
             .select_from(CapitalPoolRow)
             .outerjoin(
                 PoolBalanceSnapshotRow,
-                and_(
-                    CapitalPoolRow.exchange == PoolBalanceSnapshotRow.exchange,
-                    CapitalPoolRow.venue == PoolBalanceSnapshotRow.venue,
-                    CapitalPoolRow.settlement_currency
-                    == PoolBalanceSnapshotRow.settlement_currency,
-                ),
+                PoolBalanceSnapshotRow.pool_id == CapitalPoolRow.id,
             )
             .where(CapitalPoolRow.enabled.is_(True))
             .where(
@@ -75,11 +77,13 @@ class SqlAlchemyStaleSnapshotReader:
                 CapitalPoolRow.exchange,
                 CapitalPoolRow.venue,
                 CapitalPoolRow.settlement_currency,
+                CapitalPoolRow.user_id,
             )
         )
 
         return [
             StalePool(
+                user_id=row.user_id,
                 exchange=row.exchange,
                 venue=row.venue,
                 settlement_currency=row.settlement_currency,

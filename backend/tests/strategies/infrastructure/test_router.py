@@ -50,7 +50,12 @@ from strategy_manager.strategies.infrastructure.router import (
     get_delete_strategy,
 )
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
-from tests.identity_auth import ADMIN_EMAIL, ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_EMAIL,
+    ADMIN_HEADERS,
+    hand_owner_pools_to_admin,
+    sign_in_as_admin,
+)
 from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
@@ -112,6 +117,9 @@ async def _authenticated_client(
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE strategy_enablement_events"))
         await session.commit()
+    # A strategy is registered on its author's pools (multi-user design AD8), and
+    # the author is the signed-in admin: the seeded pools are made the admin's.
+    await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
 
@@ -806,6 +814,9 @@ async def _delete_client(
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE strategy_enablement_events"))
         await session.commit()
+    # A strategy is registered on its author's pools (multi-user design AD8), and
+    # the author is the signed-in admin: the seeded pools are made the admin's.
+    await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
     app.include_router(performance_router)

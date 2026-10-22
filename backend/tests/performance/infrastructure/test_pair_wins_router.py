@@ -25,11 +25,11 @@ from uuid import UUID
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from tests.identity_auth import ADMIN_HEADERS
+from tests.identity_auth import ADMIN_HEADERS, hand_owner_pools_to_admin
+from tests.owner import seed_pool
 from tests.performance.infrastructure.conftest import _rehearsal_id
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BINANCE,
@@ -59,6 +59,9 @@ PIONEX_SPELLINGS = ("STXUSDT_PERP", "STXUSDT_PERP")
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncClient]:
+    """The seeded pools are the signed-in admin's: the pool report finds only
+    the signed-in user's pool (multi-user design AD8)."""
+    await hand_owner_pools_to_admin(pg_session_factory)
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as api:
@@ -269,13 +272,7 @@ async def test_two_strategies_on_two_pools_are_not_blended(
     S2 won none."""
     # The shared fixtures seed no Binance pool; the foreign key of a strategy needs it.
     async with pg_session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('binance', 'usdt-m', 'USDT', 5)"
-            )
-        )
+        await seed_pool(session, ("binance", "usdt-m", "USDT"))
         await session.commit()
     bybit_strategy = await _strategy(pg_session_factory, BYBIT)
     binance_strategy = await _strategy(pg_session_factory, BINANCE)

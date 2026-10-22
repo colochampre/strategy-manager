@@ -546,7 +546,9 @@ async def preview_share(
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
     previewed = policy.allocation_percent.value if share is None else share
     try:
-        preview = await use_case.preview(pool, previewed)
+        # The author's pool (B.5): the pool a signal of this strategy is
+        # allocated in, whoever is signed in to look at it.
+        preview = await use_case.preview(strategy.author_id, pool, previewed)
     except UnknownPoolError as exc:
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc

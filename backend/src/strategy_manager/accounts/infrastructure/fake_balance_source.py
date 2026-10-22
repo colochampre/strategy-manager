@@ -4,6 +4,7 @@ design's component inventory.
 """
 
 from decimal import Decimal
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import PoolFunds
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -42,8 +43,12 @@ class FakeBalanceSource:
         )
 
     async def read_balance(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolFunds:
+        """``user_id`` is accepted and not consulted: this stand-in holds ONE
+        user's balances, keyed by market. A test about two users' pools on one
+        market uses ``DbBalanceSource``, which does scope by it."""
+        del user_id
         try:
             return self._funds[(exchange, venue, settlement_currency)]
         except KeyError as exc:

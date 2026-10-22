@@ -18,10 +18,16 @@ on either exchange.
 
 Idempotent: running it again changes nothing.
 
+**Whose pool.** A pool belongs to a user since migration ``0030``, and two users
+may each hold one on the same market. ``--user-email`` names the user, it is
+required, and this reads and writes that user's pools only. An e-mail with no
+``users`` row is refused before anything is written: that user has to sign in to
+the panel once first.
+
 Usage:
     cd backend
-    uv run python scripts/configure_binance_pools.py            # preview
-    uv run python scripts/configure_binance_pools.py --confirm
+    uv run python scripts/configure_binance_pools.py --user-email <e-mail>   # preview
+    uv run python scripts/configure_binance_pools.py --user-email <e-mail> --confirm
 """
 
 import argparse
@@ -61,6 +67,11 @@ async def main() -> int:
         action="store_true",
         help="apply the change. Without it this only previews.",
     )
+    parser.add_argument(
+        "--user-email",
+        required=True,
+        help="the e-mail of the user whose pool this configures.",
+    )
     args = parser.parse_args()
 
     if args.min_order_size is not None and args.min_order_size <= 0:
@@ -70,16 +81,34 @@ async def main() -> int:
     minimum = args.min_order_size or DEFAULT_MIN_ORDER_SIZE
 
     async with session_factory() as session:
+        user_id = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": args.user_email},
+            )
+        ).scalar_one_or_none()
+        if user_id is None:
+            print(
+                f"no user is registered with the e-mail {args.user_email!r}; they have "
+                "to sign in to the panel once before a pool can be theirs. Nothing "
+                "was changed.",
+                file=sys.stderr,
+            )
+            await engine.dispose()
+            return 1
+
         rows = (
             await session.execute(
                 text(
                     "SELECT exchange, venue, settlement_currency, enabled, min_order_size "
-                    "FROM capital_pools ORDER BY exchange, venue, settlement_currency"
-                )
+                    "FROM capital_pools WHERE user_id = :user_id "
+                    "ORDER BY exchange, venue, settlement_currency"
+                ),
+                {"user_id": user_id},
             )
         ).all()
 
-        print("capital_pools now:")
+        print(f"capital_pools of user {str(user_id)[:8]} now:")
         existing = False
         for exchange, venue, currency, enabled, current_min in rows:
             target = (exchange, venue, currency) == (EXCHANGE, VENUE, CURRENCY)
@@ -99,12 +128,13 @@ async def main() -> int:
         await session.execute(
             text(
                 "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, enabled, min_order_size) "
-                "VALUES (:exchange, :venue, :currency, true, :minimum) "
-                "ON CONFLICT (exchange, venue, settlement_currency) DO UPDATE "
+                "(user_id, exchange, venue, settlement_currency, enabled, min_order_size) "
+                "VALUES (:user_id, :exchange, :venue, :currency, true, :minimum) "
+                "ON CONFLICT (user_id, exchange, venue, settlement_currency) DO UPDATE "
                 "SET enabled = true, min_order_size = EXCLUDED.min_order_size"
             ),
             {
+                "user_id": user_id,
                 "exchange": EXCHANGE,
                 "venue": VENUE,
                 "currency": CURRENCY,
@@ -117,8 +147,10 @@ async def main() -> int:
             await session.execute(
                 text(
                     "SELECT exchange, venue, settlement_currency, min_order_size "
-                    "FROM capital_pools WHERE enabled ORDER BY exchange, venue"
-                )
+                    "FROM capital_pools WHERE enabled AND user_id = :user_id "
+                    "ORDER BY exchange, venue"
+                ),
+                {"user_id": user_id},
             )
         ).all()
         print("enabled now:")

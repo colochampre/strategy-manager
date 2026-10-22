@@ -588,8 +588,10 @@ class ProcessSignalHandler:
         # here can the ERROR name the signal, the strategy and the symbol --
         # ``RefreshPoolBalance`` itself never sees any of the three, only the
         # pool.
+        # The strategy AUTHOR's pool (B.5), here and in the sizing read below:
+        # until subscriptions exist a signal is allocated in its author's pool.
         refresh_outcome = await self._balance_refresh.refresh(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         if refresh_outcome.status is RefreshStatus.UNAVAILABLE:
             refused = (
@@ -608,7 +610,7 @@ class ProcessSignalHandler:
             )
 
         pool_balance = await self._pool_balance.read(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         # Sized from the pool's TOTAL, never from what is still free: the same
         # percentage must ask for the same amount whether or not other

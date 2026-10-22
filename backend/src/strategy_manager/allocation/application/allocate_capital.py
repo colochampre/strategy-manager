@@ -210,8 +210,11 @@ class AllocateCapital:
         # held. It MUST follow ``acquire``: a read before the wait would see the
         # pool enabled. A plain read, never ``FOR UPDATE`` -- ``DeleteCredential``
         # updates this row, and a waiting allocation must not hold a lock it needs.
+        # The pool is the strategy's AUTHOR's (B.5): until subscriptions exist,
+        # a signal is allocated in its author's pool, never another user's pool
+        # on the same market.
         if await self._pool_status.is_disabled(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         ):
             detail = (
                 f"in-lock re-check skips signal {command.signal_id} for strategy "
@@ -233,7 +236,7 @@ class AllocateCapital:
 
         try:
             pool_balance = await self._pool_balance.read(
-                policy.exchange, policy.venue, policy.settlement_currency
+                policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
             )
         except DomainError as exc:
             raise UnknownPoolError(

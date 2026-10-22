@@ -6,6 +6,7 @@ no real credential anywhere (rule 1).
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     CapitalPoolWriterPort,
@@ -118,16 +119,19 @@ class RecordingPoolWriter:
         self._events = events
         self.enabled: list[str] = []
         self.disabled: list[str] = []
+        self.users: list[UUID] = []
 
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         if self._error is not None:
             raise self._error
+        self.users.append(user_id)
         self.enabled.append(exchange)
         if self._events is not None:
             self._events.append("enable")
         return self._newly_enabled
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
+        self.users.append(user_id)
         self.disabled.append(exchange)
         return False
 

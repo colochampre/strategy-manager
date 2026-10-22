@@ -12,6 +12,7 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     assert_lock_key_pairs_distinct,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 
 def _pool(venue: Venue, currency: Currency) -> PoolConfig:
@@ -19,6 +20,7 @@ def _pool(venue: Venue, currency: Currency) -> PoolConfig:
         exchange=Exchange.BYBIT,
         venue=venue,
         settlement_currency=currency,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 

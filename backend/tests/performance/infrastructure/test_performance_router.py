@@ -40,7 +40,13 @@ from strategy_manager.performance.infrastructure.performance_router import (
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    hand_owner_pools_to_admin,
+    sign_in_as_admin,
+)
+from tests.owner import seed_other_user, seed_pool
 from tests.performance.fakes import FakeFillsSource, FixedClock
 from tests.performance.infrastructure.conftest import seed_strategy
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -94,6 +100,9 @@ def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncClient]:
+    """The seeded pools are the signed-in admin's: the pool report finds only
+    the signed-in user's pool (multi-user design AD8)."""
+    await hand_owner_pools_to_admin(pg_session_factory)
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as api:
@@ -218,6 +227,25 @@ async def test_get_pool_performance_404_unknown_pool(client: AsyncClient) -> Non
 
     known = await client.get(POOL_URL, headers=ADMIN_HEADERS)
     assert known.status_code == 200
+
+
+async def test_get_pool_performance_404_on_another_users_pool(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Multi-user design AD8. A second user holds a pool on ``binance/usdt-m/
+    USDT``, a market the signed-in admin has none on. To the admin it is the
+    same 404 as a pool nobody holds, so its existence is not disclosed."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+
+    response = await client.get(
+        "/api/performance/pools/binance/usdt-m/USDT", headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "no such pool"}
 
 
 async def test_pool_performance_of_a_disabled_pool_is_still_readable(
@@ -874,6 +902,7 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
         pool_total_at_open=Decimal("1000"),
         rehearsal=False,
     )
+    await hand_owner_pools_to_admin(pg_session_factory)
     app = _app(pg_session_factory)
     app.dependency_overrides[get_fills_source] = lambda: FakeFillsSource([stray])
 

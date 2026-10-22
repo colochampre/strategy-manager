@@ -14,6 +14,7 @@ alerting on its snapshot would train the operator to ignore the alert.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -23,6 +24,7 @@ from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
     SqlAlchemyStaleSnapshotReader,
 )
 from strategy_manager.shared.application.watchdog import StalePool
+from tests.owner import OWNER_ID, seed_other_user, seed_pool, seed_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -42,23 +44,16 @@ async def _write_snapshot(
     factory: async_sessionmaker[AsyncSession],
     pool: tuple[str, str, str],
     observed_at: datetime,
+    user_id: UUID = OWNER_ID,
 ) -> None:
-    exchange, venue, currency = pool
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO pool_balance_snapshots "
-                "(exchange, venue, settlement_currency, total, available, observed_at) "
-                "VALUES (:exchange, :venue, :currency, :total, :available, :observed_at)"
-            ),
-            {
-                "exchange": exchange,
-                "venue": venue,
-                "currency": currency,
-                "total": Decimal("100"),
-                "available": Decimal("100"),
-                "observed_at": observed_at,
-            },
+        await seed_snapshot(
+            session,
+            pool,
+            user_id=user_id,
+            total=Decimal("100"),
+            available=Decimal("100"),
+            observed_at=observed_at,
         )
         await session.commit()
 
@@ -70,12 +65,22 @@ async def _disable(
     async with factory() as session:
         await session.execute(
             text(
-                "UPDATE capital_pools SET enabled = false WHERE exchange = :exchange "
-                "AND venue = :venue AND settlement_currency = :currency"
+                "UPDATE capital_pools SET enabled = false WHERE user_id = :user_id "
+                "AND exchange = :exchange AND venue = :venue AND settlement_currency = :currency"
             ),
-            {"exchange": exchange, "venue": venue, "currency": currency},
+            {"user_id": OWNER_ID, "exchange": exchange, "venue": venue, "currency": currency},
         )
         await session.commit()
+
+
+async def _other_users_pool(
+    factory: async_sessionmaker[AsyncSession], pool: tuple[str, str, str]
+) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, pool, user_id=other)
+        await session.commit()
+    return other
 
 
 async def _stale(
@@ -158,3 +163,43 @@ async def test_one_stale_pool_does_not_hide_behind_a_fresh_one(
 
     assert BYBIT in keys
     assert SPOT not in keys
+
+
+# --- Two users, one market (multi-user design AD8, AD9) -----------------------
+
+
+def _owned(pools: list[StalePool], market: tuple[str, str, str]) -> list[UUID]:
+    """The owners of the reported pools on ``market``."""
+    return [
+        pool.user_id
+        for pool in pools
+        if (pool.exchange, pool.venue, pool.settlement_currency) == market
+    ]
+
+
+async def test_another_users_fresh_snapshot_never_hides_this_users_unsynced_pool(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A second user's bybit pool synced 30 s ago; the owner's bybit pool never
+    did. The owner's pool is reported, never-synced; the other's is not."""
+    other = await _other_users_pool(pg_session_factory, BYBIT)
+    await _write_snapshot(
+        pg_session_factory, BYBIT, NOW - timedelta(seconds=30), user_id=other
+    )
+
+    stale = await _stale(pg_session_factory)
+
+    assert _owned(stale, BYBIT) == [OWNER_ID]
+    assert next(pool for pool in stale if pool.exchange == "bybit").age_seconds is None
+
+
+async def test_every_users_stale_pool_is_reported_with_its_owner(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The sweep is global (AD9): the owner's bybit pool is fresh, a second
+    user's on the same market never synced. That one is reported, carrying its
+    owner, and the owner's fresh pool is not."""
+    other = await _other_users_pool(pg_session_factory, BYBIT)
+    await _write_snapshot(pg_session_factory, BYBIT, NOW - timedelta(seconds=30))
+
+    assert _owned(await _stale(pg_session_factory), BYBIT) == [other]

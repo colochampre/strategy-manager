@@ -17,11 +17,17 @@ worst-off one, and an inner join would make it vanish.
 
 One query for the pools and their snapshots, one ``sum_active`` per pool. The
 pools number in the single digits. Nothing here sums across pools (rule 7).
+
+**Only ``user_id``'s pools** (multi-user design AD8): another user's pool on the
+same market is never listed, and a snapshot is joined to its pool by ``pool_id``
+(migration ``0030``), so it is always that pool's own. The reservations summed
+per pool are still read by market until they carry their pool's owner.
 """
 
 from datetime import timedelta
+from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.domain.pool_overview import (
@@ -45,20 +51,16 @@ class SqlAlchemyPoolOverview:
         self._clock = clock
         self._max_age = timedelta(seconds=snapshot_max_age_seconds)
 
-    async def list_pools(self) -> list[PoolOverview]:
+    async def list_pools(self, user_id: UUID) -> list[PoolOverview]:
         now = self._clock.now()
         rows = (
             await self._session.execute(
                 select(CapitalPoolRow, PoolBalanceSnapshotRow)
                 .outerjoin(
                     PoolBalanceSnapshotRow,
-                    and_(
-                        CapitalPoolRow.exchange == PoolBalanceSnapshotRow.exchange,
-                        CapitalPoolRow.venue == PoolBalanceSnapshotRow.venue,
-                        CapitalPoolRow.settlement_currency
-                        == PoolBalanceSnapshotRow.settlement_currency,
-                    ),
+                    PoolBalanceSnapshotRow.pool_id == CapitalPoolRow.id,
                 )
+                .where(CapitalPoolRow.user_id == user_id)
                 .order_by(
                     CapitalPoolRow.exchange,
                     CapitalPoolRow.venue,

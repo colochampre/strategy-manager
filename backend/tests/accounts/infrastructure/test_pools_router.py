@@ -26,7 +26,13 @@ from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_D
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    hand_owner_pools_to_admin,
+    seed_admin,
+    sign_in_as_admin,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -34,6 +40,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     seed_signal,
     seed_strategy,
 )
+from tests.owner import seed_other_user, seed_pool, seed_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -47,6 +54,9 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> AsyncIterator[AsyncClient]:
+    """The seeded pools are the signed-in admin's: ``GET /api/pools`` lists only
+    the signed-in user's (multi-user design AD8)."""
+    await hand_owner_pools_to_admin(pg_session_factory)
     app = create_app()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
@@ -67,22 +77,17 @@ async def _snapshot(
     total: str,
     available: str,
     observed_at: datetime | None = None,
+    user_id: UUID | None = None,
 ) -> None:
+    """The snapshot of ``user_id``'s pool, by default the signed-in admin's."""
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO pool_balance_snapshots "
-                "(exchange, venue, settlement_currency, total, available, observed_at) "
-                "VALUES (:e, :v, :c, :total, :available, :observed_at)"
-            ),
-            {
-                "e": exchange,
-                "v": venue,
-                "c": currency,
-                "total": Decimal(total),
-                "available": Decimal(available),
-                "observed_at": observed_at or datetime.now(UTC),
-            },
+        await seed_snapshot(
+            session,
+            (exchange, venue, currency),
+            user_id=user_id or await seed_admin(session),
+            total=Decimal(total),
+            available=Decimal(available),
+            observed_at=observed_at or datetime.now(UTC),
         )
         await session.commit()
 
@@ -344,3 +349,35 @@ async def test_get_pools_writes_zero_and_whole_amounts_in_plain_notation(
     ]
     assert [Decimal(a) for a in amounts] == [Decimal("5"), Decimal("0"), Decimal("0"), Decimal("0")]
     assert not any("e" in a.lower() for a in amounts), amounts
+
+
+async def test_get_pools_lists_only_the_signed_in_users_pools(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8. A second user holds a pool on bybit, the admin's
+    market too, holding 999, and one on binance, where the admin has none. The
+    admin is listed their own four pools, with their own bybit balance."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+    await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="100")
+    await _snapshot(
+        pg_session_factory,
+        "bybit",
+        "usdt-m",
+        "USDT",
+        total="999",
+        available="999",
+        user_id=other,
+    )
+
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
+
+    body = response.json()
+    assert len(body) == 4
+    pools = _by_pool(body)
+    assert ("binance", "usdt-m", "USDT") not in pools
+    assert Decimal(pools[("bybit", "usdt-m", "USDT")]["balance"]["total"]) == Decimal("500")

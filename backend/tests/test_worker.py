@@ -27,17 +27,20 @@ from strategy_manager.worker import (
     _configure_logging,
     _log_vault_self_test,
 )
+from tests.owner import OWNER_ID
 
 _BYBIT_POOL = PoolConfig(
     exchange=Exchange.BYBIT,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 _BINANCE_POOL = PoolConfig(
     exchange=Exchange.BINANCE,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 

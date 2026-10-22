@@ -47,6 +47,7 @@ from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemySignalOutcomeAdapter,
 )
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -232,10 +233,11 @@ async def _run_continuation(
     settings = get_settings()
     exchange = FakeExchangeAdapter(exchange="bybit", fill_price=Decimal("2"), fee_rate=Decimal("0"))
     pools = {
-        _POOL: PoolConfig(
+        (OWNER_ID, _POOL): PoolConfig(
             exchange=Exchange("bybit"),
             venue=Venue("usdt-m"),
             settlement_currency=Currency("USDT"),
+            user_id=OWNER_ID,
             min_order_size=Decimal("1"),
         )
     }

@@ -15,6 +15,8 @@ There is no empty list standing in for either: an empty answer would read as
 "this venue lists nothing".
 """
 
+from uuid import UUID
+
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.strategies.application.ports import (
     PairCatalogPort,
@@ -32,8 +34,9 @@ class ReadAvailablePairs:
         self._pools = pools
         self._pairs = pairs
 
-    async def execute(self, pool: PoolKey) -> list[str]:
-        """``market_key`` forms, sorted: the form a save accepts back."""
-        if not await self._pools.exists(pool):
+    async def execute(self, user_id: UUID, pool: PoolKey) -> list[str]:
+        """``market_key`` forms, sorted: the form a save accepts back. The pool
+        must be ``user_id``'s (multi-user design AD8)."""
+        if not await self._pools.exists(user_id, pool):
             raise UnknownPool(f"no such pool: {pool[0]}/{pool[1]}/{pool[2]}")
         return sorted(await self._pairs.available_pairs(pool))

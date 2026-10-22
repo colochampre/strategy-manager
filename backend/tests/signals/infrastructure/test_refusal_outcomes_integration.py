@@ -34,6 +34,7 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     SpyAdvisoryLock,
     SpyPlaceOrder,
@@ -103,10 +104,11 @@ def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCap
     source = FakeBalanceSource()
     source.set_balance("bybit", "usdt-m", "USDT", balance)
     pools = {
-        ("bybit", "usdt-m", "USDT"): PoolConfig(
+        (OWNER_ID, ("bybit", "usdt-m", "USDT")): PoolConfig(
             exchange=Exchange.BYBIT,
             venue=Venue.USDT_M,
             settlement_currency=Currency.USDT,
+            user_id=OWNER_ID,
             min_order_size=Decimal("5"),
         )
     }

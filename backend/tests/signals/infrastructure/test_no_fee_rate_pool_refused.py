@@ -36,6 +36,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.signals.infrastructure.models import SignalRow
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -52,6 +53,7 @@ def pool_config(exchange: Exchange, venue: Venue) -> PoolConfig:
         exchange=exchange,
         venue=venue,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("5"),
     )
 
@@ -67,12 +69,18 @@ async def seed_pool(factory: Factory, pool: PoolConfig) -> None:
     async with factory() as session:
         await session.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size)"
-                " VALUES (:exchange, :venue, 'USDT', 5) ON CONFLICT DO NOTHING"
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size)"
+                " VALUES (:user_id, :exchange, :venue, 'USDT', 5) ON CONFLICT DO NOTHING"
             ),
-            {"exchange": pool.exchange.value, "venue": pool.venue.value},
+            {
+                "user_id": pool.user_id,
+                "exchange": pool.exchange.value,
+                "venue": pool.venue.value,
+            },
         )
         await SqlAlchemyBalanceSnapshotRepository(session).upsert(
+            pool.user_id,
             [
                 PoolBalanceReading(
                     exchange=pool.exchange.value,

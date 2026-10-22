@@ -8,6 +8,7 @@ turning an exchange outage into a snapshot that looks perfectly healthy.
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -18,6 +19,7 @@ from strategy_manager.accounts.application.sync_balances import (
     SyncResult,
 )
 from strategy_manager.shared.domain.money import Exchange
+from tests.owner import OWNER_ID
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 POOLS: list[PoolKey] = [("pionex", "spot", "USDT"), ("bybit", "usdt-m", "USDT")]
@@ -54,8 +56,10 @@ class StubReader:
 class SpyWriter:
     def __init__(self) -> None:
         self.written: list[Sequence[PoolBalanceReading]] = []
+        self.users: list[UUID] = []
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None:
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None:
+        self.users.append(user_id)
         self.written.append(readings)
 
 
@@ -67,10 +71,13 @@ class SpyCommit:
         self.commits += 1
 
 
-def _build(reader: StubReader) -> tuple[SyncBalances, SpyWriter, SpyCommit]:
+def _build(
+    reader: StubReader, user_id: UUID = OWNER_ID
+) -> tuple[SyncBalances, SpyWriter, SpyCommit]:
     writer = SpyWriter()
     commit = SpyCommit()
     sync = SyncBalances(
+        user_id=user_id,
         pools=POOLS,
         reader=reader,
         snapshots=writer,
@@ -97,6 +104,17 @@ async def test_the_readings_are_written_and_committed() -> None:
     assert list(writer.written[0]) == readings
     assert commit.commits == 1
     assert result.synced == 2
+
+
+async def test_the_readings_are_stored_as_the_syncs_own_users_snapshots() -> None:
+    """Two users may each hold a pool on one market (AD8): a sync built for
+    one of them must never land its readings as another user's snapshot."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    sync, writer, _ = _build(StubReader([_reading("spot", "1")]), user_id=other)
+
+    await sync.sync()
+
+    assert writer.users == [other]
 
 
 async def test_a_failed_read_writes_nothing_and_commits_nothing() -> None:

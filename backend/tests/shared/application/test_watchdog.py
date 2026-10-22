@@ -19,6 +19,7 @@ the integration tests beside each adapter.
 
 import logging
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 
@@ -28,6 +29,7 @@ from strategy_manager.shared.application.watchdog import (
     StalePool,
     Watchdog,
 )
+from tests.owner import OWNER_ID
 
 NOW = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 WATCHDOG_LOGGER = "strategy_manager.shared.application.watchdog"
@@ -36,11 +38,21 @@ LOOKBACK = 300.0
 
 RECURRING = (JobKind.RESERVATION_SWEEP, JobKind.BALANCE_SYNC, JobKind.JOBS_PURGE)
 
+OTHER_ID = UUID("5e6f7a8b-0000-4000-8000-00000000b1b1")
+
 BYBIT_POOL = StalePool(
-    exchange="bybit", venue="usdt-m", settlement_currency="USDT", age_seconds=4_212.0
+    user_id=OWNER_ID,
+    exchange="bybit",
+    venue="usdt-m",
+    settlement_currency="USDT",
+    age_seconds=4_212.0,
 )
 NEVER_SYNCED_POOL = StalePool(
-    exchange="binance", venue="usdt-m", settlement_currency="USDT", age_seconds=None
+    user_id=OWNER_ID,
+    exchange="binance",
+    venue="usdt-m",
+    settlement_currency="USDT",
+    age_seconds=None,
 )
 
 
@@ -320,6 +332,30 @@ async def test_all_the_stale_pools_share_one_error(
     assert len(errors) == 1
     assert "bybit/usdt-m/USDT" in errors[0].getMessage()
     assert "binance/usdt-m/USDT" in errors[0].getMessage()
+
+
+async def test_two_users_stale_pools_on_one_market_are_each_named_with_their_owner(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The sweep is global (multi-user design AD9). Two users' bybit pools are
+    both stale: the one ERROR names the market once per owner, by the id
+    prefix, never by an e-mail."""
+    other_pool = StalePool(
+        user_id=OTHER_ID,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        age_seconds=None,
+    )
+    watchdog = _watchdog(snapshots=FakeStaleSnapshots((BYBIT_POOL, other_pool)))
+
+    with caplog.at_level(logging.INFO, logger=WATCHDOG_LOGGER):
+        await watchdog.check()
+
+    message = _errors(caplog)[0].getMessage()
+    assert f"bybit/usdt-m/USDT of user {str(OWNER_ID)[:8]}" in message
+    assert f"bybit/usdt-m/USDT of user {str(OTHER_ID)[:8]}" in message
+    assert "@" not in message
 
 
 async def test_a_healthy_run_logs_at_most_one_info_and_nothing_louder(

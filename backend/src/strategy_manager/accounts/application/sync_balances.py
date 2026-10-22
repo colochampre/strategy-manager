@@ -8,6 +8,7 @@ background job its time and never blocks an allocation.
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     BalanceSnapshotWriterPort,
@@ -29,13 +30,18 @@ class SyncPort(Protocol):
 
 
 class SyncBalances:
+    """One user's pools on one exchange (multi-user design AD9): ``pools`` are
+    ``user_id``'s, and every reading is stored as that user's snapshot."""
+
     def __init__(
         self,
+        user_id: UUID,
         pools: Sequence[PoolKey],
         reader: ExchangeBalanceReaderPort,
         snapshots: BalanceSnapshotWriterPort,
         commit: CommitPort,
     ) -> None:
+        self._user_id = user_id
         self._pools = pools
         self._reader = reader
         self._snapshots = snapshots
@@ -50,13 +56,13 @@ class SyncBalances:
         failure would hide the outage behind a number that looks like data.
         """
         readings = await self._reader.read(self._pools)
-        await self._snapshots.upsert(readings)
+        await self._snapshots.upsert(self._user_id, readings)
         await self._commit.commit()
         return SyncResult(synced=len(readings))
 
 
 class CompositeBalanceSync:
-    """Runs one ``SyncBalances`` per exchange, in order.
+    """Runs one ``SyncBalances`` per ``(user, exchange)``, in order.
 
     Each exchange has its own reader, its own credential and its own account,
     so there is no single call that answers for all of them. They are kept

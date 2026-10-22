@@ -384,7 +384,7 @@ def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:
 
 def _build_process_signal_handler(
     session: AsyncSession,
-    pools_by_key: Mapping[tuple[str, str, str], PoolConfig],
+    pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
     exchanges: ExchangeRegistryPort,
     tradable_pools: frozenset[tuple[str, str]],
@@ -706,25 +706,33 @@ class _PoolSet:
     happens, at most, a few times a day. Every consumer reads the SAME
     shared instance, so a refresh lands for all of them the instant it
     happens, with no restart and no per-consumer plumbing.
+
+    ``by_key`` is keyed by ``(user_id, market)`` (multi-user design AD8): two
+    users may each hold a pool on one market, with their own minimum and their
+    own money, so the market alone no longer names a pool.
     """
 
     def __init__(self, pools: Sequence[PoolConfig]) -> None:
         self.pools: tuple[PoolConfig, ...] = ()
-        self.by_key: dict[tuple[str, str, str], PoolConfig] = {}
+        self.by_key: dict[tuple[UUID, tuple[str, str, str]], PoolConfig] = {}
         self.configured_exchanges: frozenset[str] = frozenset()
         self.replace(pools)
 
     def replace(self, pools: Sequence[PoolConfig]) -> None:
         self.pools = tuple(pools)
         self.by_key = {
-            (pool.exchange.value, pool.venue.value, pool.settlement_currency.value): pool
+            (
+                pool.user_id,
+                (pool.exchange.value, pool.venue.value, pool.settlement_currency.value),
+            ): pool
             for pool in pools
         }
-        self.configured_exchanges = frozenset(key[0] for key in self.by_key)
+        self.configured_exchanges = frozenset(market[0] for _, market in self.by_key)
 
 
 def _track_pool_changes(
-    previous: frozenset[tuple[str, str, str]], current: frozenset[tuple[str, str, str]]
+    previous: frozenset[tuple[UUID, tuple[str, str, str]]],
+    current: frozenset[tuple[UUID, tuple[str, str, str]]],
 ) -> None:
     """Logs a pool's enable/disable transition exactly once, the moment
     ``_PoolSet.replace`` adopts a new set (design.md's F11 fix, binding
@@ -736,11 +744,40 @@ def _track_pool_changes(
     ``_track_degraded_exchanges`` already has for exchanges. The very first
     reload after startup compares against the STARTUP set itself (``_PoolSet``
     is constructed from it), so nothing is re-logged there either.
+
+    A pool is a user's pool on a market, so the line names the market and the
+    user's id prefix, never an e-mail (multi-user design AD9).
     """
-    for key in sorted(current - previous):
-        logger.info("pool %s newly enabled; reads resume within one sync interval", key)
-    for key in sorted(previous - current):
-        logger.warning("pool %s newly disabled; reads stop from this cycle", key)
+    for user_id, market in sorted(current - previous, key=_pool_order):
+        logger.info(
+            "pool %s of user %s newly enabled; reads resume within one sync interval",
+            market,
+            str(user_id)[:8],
+        )
+    for user_id, market in sorted(previous - current, key=_pool_order):
+        logger.warning(
+            "pool %s of user %s newly disabled; reads stop from this cycle",
+            market,
+            str(user_id)[:8],
+        )
+
+
+def _pool_order(key: tuple[UUID, tuple[str, str, str]]) -> tuple[tuple[str, str, str], str]:
+    """Market first, then user: a UUID does not sort against a tuple."""
+    return key[1], str(key[0])
+
+
+def _markets_per_user(
+    by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig], exchange: str
+) -> dict[UUID, list[tuple[str, str, str]]]:
+    """Each user's enabled markets on one exchange, for one balance sync per
+    ``(user, exchange)`` (multi-user design AD9). A user with no pool on the
+    exchange is absent, so no sync is built that would read nothing."""
+    per_user: dict[UUID, list[tuple[str, str, str]]] = {}
+    for user_id, market in sorted(by_key, key=_pool_order):
+        if market[0] == exchange:
+            per_user.setdefault(user_id, []).append(market)
+    return per_user
 
 
 class _DegradedVenueFillReader:
@@ -1198,13 +1235,13 @@ def build_worker_runner(
             factories: dict[str, ReaderFactory] = {}
 
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
+                any(market[0] == BYBIT_EXCHANGE for _, market in pool_set.by_key)
                 and BYBIT_EXCHANGE in active
             ):
                 factories[BYBIT_EXCHANGE] = bybit_reader
 
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
+                any(market[0] == BINANCE_EXCHANGE for _, market in pool_set.by_key)
                 and BINANCE_EXCHANGE in active
             ):
                 factories[BINANCE_EXCHANGE] = binance_reader
@@ -1283,7 +1320,7 @@ def build_worker_runner(
 
             readers: list[VenuePositionReaderPort] = []
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
+                any(market[0] == BYBIT_EXCHANGE for _, market in pool_set.by_key)
                 and BYBIT_EXCHANGE in active
             ):
                 readers.append(
@@ -1292,7 +1329,7 @@ def build_worker_runner(
                     )
                 )
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
+                any(market[0] == BINANCE_EXCHANGE for _, market in pool_set.by_key)
                 and BINANCE_EXCHANGE in active
             ):
                 readers.append(
@@ -1385,13 +1422,18 @@ def build_worker_runner(
         runs, so ``bybit_pools``/``binance_pools`` and every other
         consumer's own read of ``pool_set`` see the CURRENT configuration,
         not a startup snapshot.
+
+        One ``SyncBalances`` per ``(user, exchange)`` (multi-user design AD9),
+        each storing its readings as that user's snapshots. The reader, and so
+        the key, is still ONE per exchange: whose key reads each user's pools is
+        tasks.md B.7's change, not this one.
         """
         await _reload_pools()
 
         async with factory() as session:
             snapshots = SqlAlchemyBalanceSnapshotRepository(session)
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
+            bybit_pools = _markets_per_user(pool_set.by_key, BYBIT_EXCHANGE)
+            binance_pools = _markets_per_user(pool_set.by_key, BINANCE_EXCHANGE)
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             coverage = await read_key_coverage(session)
@@ -1414,13 +1456,16 @@ def build_worker_runner(
                             ),
                         )
                     )
-                    syncs.append(
+                    bybit_reader = BybitBalanceReader(bybit, SystemClock())
+                    syncs.extend(
                         SyncBalances(
-                            pools=bybit_pools,
-                            reader=BybitBalanceReader(bybit, SystemClock()),
+                            user_id=user_id,
+                            pools=markets,
+                            reader=bybit_reader,
                             snapshots=snapshots,
                             commit=session,
                         )
+                        for user_id, markets in bybit_pools.items()
                     )
 
                 if binance_pools and BINANCE_EXCHANGE in active:
@@ -1445,13 +1490,16 @@ def build_worker_runner(
                             ),
                         )
                     )
-                    syncs.append(
+                    binance_reader = BinanceBalanceReader(binance, SystemClock())
+                    syncs.extend(
                         SyncBalances(
-                            pools=binance_pools,
-                            reader=BinanceBalanceReader(binance, SystemClock()),
+                            user_id=user_id,
+                            pools=markets,
+                            reader=binance_reader,
                             snapshots=snapshots,
                             commit=session,
                         )
+                        for user_id, markets in binance_pools.items()
                     )
 
                 handler = BalanceSyncHandler(
@@ -1505,10 +1553,18 @@ def build_worker_runner(
         reader would still raise it and kill this chain, the same failure
         mode this unit fixes for balance.sync. Filtering the pool list keeps
         the two collections in agreement by construction.
+
+        Per MARKET, not yet per user's pool: each distinct market is scanned
+        once whoever holds a pool on it (reconciliation per user's pool is
+        tasks.md B.8).
         """
         async with factory() as session:
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
+            bybit_pools = sorted(
+                {market for _, market in pool_set.by_key if market[0] == BYBIT_EXCHANGE}
+            )
+            binance_pools = sorted(
+                {market for _, market in pool_set.by_key if market[0] == BINANCE_EXCHANGE}
+            )
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             if not settings.dry_run:
@@ -1605,8 +1661,13 @@ def build_worker_runner(
         discrepancy instead (see that class's own docstring).
         """
         async with factory() as session:
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
+            # Per market, like ``handle_reconciliation_scan`` (B.8 makes it per user).
+            bybit_pools = sorted(
+                {market for _, market in pool_set.by_key if market[0] == BYBIT_EXCHANGE}
+            )
+            binance_pools = sorted(
+                {market for _, market in pool_set.by_key if market[0] == BINANCE_EXCHANGE}
+            )
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             active: frozenset[str] = frozenset()

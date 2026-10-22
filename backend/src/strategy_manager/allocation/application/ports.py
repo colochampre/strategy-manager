@@ -31,6 +31,10 @@ class StrategyPolicySnapshot:
     re-check, unit 2c) keeps constructing this DTO unchanged. ``name`` is
     carried only for the archived-strategy WARNING text (design.md § 8),
     which names the strategy for the owner rather than just its id.
+
+    ``author_id`` is the strategy's author (multi-user design AD2). Until
+    subscriptions exist (PR C), a signal is allocated in its author's pool: the
+    balance, the pool flag and the sizing are read for that user (B.5).
     """
 
     strategy_id: UUID
@@ -40,6 +44,7 @@ class StrategyPolicySnapshot:
     venue: str
     settlement_currency: str
     allocation_percent: Decimal  # 0 < value <= 100 (tasks.md 7.6)
+    author_id: UUID
     name: str = ""
     archived: bool = False
     allowed_pairs: frozenset[str] = frozenset()
@@ -92,19 +97,24 @@ class PoolSizingPort(Protocol):
     It is not ``PoolBalancePort``: that one refuses a stale snapshot, which is right
     for sizing a trade and wrong for a figure that must be shown and marked stale.
     A pool with no row answers ``None``; a pool with a row and no snapshot answers
-    a ``PoolSizing`` whose ``snapshot`` is ``None``."""
+    a ``PoolSizing`` whose ``snapshot`` is ``None``.
+
+    The pool is ``user_id``'s (multi-user design AD8)."""
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolSizing | None: ...
 
 
 class PoolBalancePort(Protocol):
     """Implementations MUST be local (DB or in-memory). A synchronous remote
-    call here would run inside the advisory lock (design.md § Interfaces)."""
+    call here would run inside the advisory lock (design.md § Interfaces).
+
+    The pool is ``user_id``'s (multi-user design AD8): another user's pool on the
+    same market is never read."""
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance: ...
 
 
@@ -119,9 +129,13 @@ class PoolStatusPort(Protocol):
     MUST be a plain read with no row lock: a waiting allocation must not hold
     a lock the delete needs (lock order: advisory first, then row locks).
     A pool with no row is NOT reported disabled -- that misconfiguration keeps
-    failing loudly through ``PoolBalancePort`` as it always has."""
+    failing loudly through ``PoolBalancePort`` as it always has.
 
-    async def is_disabled(self, exchange: str, venue: str, settlement_currency: str) -> bool: ...
+    The pool is ``user_id``'s (multi-user design AD8)."""
+
+    async def is_disabled(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> bool: ...
 
 
 class AdvisoryLockPort(Protocol):

@@ -20,10 +20,10 @@ import base64
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -95,11 +95,20 @@ from tests.accounts.pool_seed import (
     seed_strategy,
     set_strategy_enabled,
 )
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    SIGNED_IN_ID,
+    hand_owner_pools_to_admin,
+    seed_admin,
+    sign_in_as_admin,
+    without_a_database,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import seed_other_user, seed_pool
 
 WITHDRAWALS = "withdrawals_disabled_confirmed"
 FUTURES = "futures_enabled_confirmed"
@@ -130,10 +139,13 @@ def _binance_body(**over: Any) -> dict[str, Any]:
 
 
 def _use_case(
-    inspector: RecordingInspector, writer: RecordingWriter, commit: RecordingCommit
+    inspector: RecordingInspector,
+    writer: RecordingWriter,
+    commit: RecordingCommit,
+    pools: RecordingPoolWriter | None = None,
 ) -> SaveCredential:
     return SaveCredential(
-        registry_for(inspector), writer, RecordingPoolWriter(), commit, TickingClock()
+        registry_for(inspector), writer, pools or RecordingPoolWriter(), commit, TickingClock()
     )
 
 
@@ -143,6 +155,7 @@ class Served:
     inspector: RecordingInspector
     writer: RecordingWriter
     commit: RecordingCommit
+    pools: RecordingPoolWriter = field(default_factory=RecordingPoolWriter)
 
 
 @asynccontextmanager
@@ -152,11 +165,12 @@ async def _serve(
     inspector = inspector or RecordingInspector(TRADING_SNAPSHOT)
     writer = writer or RecordingWriter()
     commit = RecordingCommit()
-    app = create_app()
-    use_case = _use_case(inspector, writer, commit)
+    pools = RecordingPoolWriter()
+    app = without_a_database(create_app())
+    use_case = _use_case(inspector, writer, commit, pools)
     app.dependency_overrides[get_save_credential] = lambda: use_case
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-        yield Served(api, inspector, writer, commit)
+        yield Served(api, inspector, writer, commit, pools)
 
 
 async def _put_bybit(served: "Served", **over: Any) -> Response:
@@ -197,6 +211,16 @@ async def test_put_credentials_returns_last4_and_facts_never_the_key_or_secret_o
     assert "permissions" not in response.text
     assert served.commit.commits == 1
     assert [credential.api_key for credential, _ in served.writer.stored] == [BYBIT_KEY]
+
+
+async def test_put_credentials_enables_the_signed_in_users_pool() -> None:
+    """AD8: the pool switched on is the signed-in user's, never the fixtures'
+    owner nor anyone else holding a pool on the market."""
+    async with _serve() as served:
+        response = await _put_bybit(served)
+
+    assert response.status_code == 200
+    assert served.pools.users == [SIGNED_IN_ID]
 
 
 async def test_put_a_read_only_bybit_key_is_stored_with_the_warning_and_trade_capable_false() -> (
@@ -557,7 +581,7 @@ async def test_the_503_for_an_unusable_master_key_carries_no_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "master_encryption_key", "")
-    app = create_app()
+    app = without_a_database(create_app())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         response = await api.put(
             "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
@@ -604,7 +628,7 @@ async def test_an_unusable_master_key_answers_503_before_anything_else_and_says_
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr(get_settings(), "master_encryption_key", "")
-    app = create_app()
+    app = without_a_database(create_app())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         with caplog.at_level("DEBUG"):
             response = await api.put(
@@ -637,11 +661,14 @@ def _cipher() -> EnvelopeCipher:
 async def factory(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> async_sessionmaker[AsyncSession]:
-    """The test database with no credential rows left by another test."""
+    """The test database with no credential rows left by another test. The
+    seeded pools are the signed-in admin's: a save or a delete switches the
+    signed-in user's own pool (AD8)."""
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
         await session.commit()
     await clear_discrepancies(pg_session_factory)
+    await hand_owner_pools_to_admin(pg_session_factory)
     return pg_session_factory
 
 
@@ -1126,6 +1153,55 @@ async def test_delete_credentials_disables_the_pool_and_a_new_save_enables_it_ag
             )
         ).scalar_one()
     assert enabled is True
+
+
+async def _pool_enabled(
+    factory: async_sessionmaker[AsyncSession], user_id: UUID, exchange: str
+) -> bool:
+    async with factory() as session:
+        enabled = (
+            await session.execute(
+                text(
+                    "SELECT enabled FROM capital_pools "
+                    "WHERE user_id = :user_id AND exchange = :exchange"
+                ),
+                {"user_id": user_id, "exchange": exchange},
+            )
+        ).scalar_one()
+    return bool(enabled)
+
+
+@pytest.mark.integration
+async def test_delete_and_save_switch_only_the_signed_in_users_pool_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: another user holds an ENABLED Bybit pool and a DISABLED Binance
+    pool on the same markets as the admin's. Deleting the admin's Bybit key
+    switches off the admin's pool only; saving the admin's Binance key switches
+    on the admin's pool only."""
+    async with factory() as session:
+        admin = await seed_admin(session)
+        other = await seed_other_user(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other, enabled=True)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other, enabled=False)
+        await session.commit()
+    await _set_pool_enabled(factory, "binance", False)
+    await _store(factory, "bybit")
+
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+    async with _serve_db(factory, RecordingInspector(PermissionSnapshot())) as served_save:
+        saved = await served_save.api.put(
+            "/api/credentials/binance",
+            json=_binance_body(**{WITHDRAWALS: True, FUTURES: True}),
+            headers=ADMIN_HEADERS,
+        )
+
+    assert (deleted.status_code, saved.status_code) == (200, 200)
+    assert await _pool_enabled(factory, admin, "bybit") is False
+    assert await _pool_enabled(factory, other, "bybit") is True
+    assert await _pool_enabled(factory, admin, "binance") is True
+    assert await _pool_enabled(factory, other, "binance") is False
 
 
 @pytest.mark.integration

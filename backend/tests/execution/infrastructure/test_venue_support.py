@@ -22,6 +22,7 @@ from strategy_manager.execution.infrastructure.venue_support import (
     unserved_pools,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 BYBIT_FUTURES = (Exchange.BYBIT.value, Venue.USDT_M.value)
 BINANCE_FUTURES = (Exchange.BINANCE.value, Venue.USDT_M.value)
@@ -37,6 +38,7 @@ def _pool(
         exchange=exchange,
         venue=venue,
         settlement_currency=currency,
+        user_id=OWNER_ID,
         min_order_size=Decimal("10"),
     )
 

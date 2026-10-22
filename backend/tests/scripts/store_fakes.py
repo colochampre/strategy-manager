@@ -22,6 +22,7 @@ from tests.accounts.fakes import (
     as_writer,
     registry_for,
 )
+from tests.owner import OWNER_ID
 
 
 class ScriptSession:
@@ -79,4 +80,4 @@ class ScriptSession:
             raise self._save_error
         if self._result is not None:
             return self._result
-        return await self._use_case.execute(credential, confirmations)
+        return await self._use_case.execute(OWNER_ID, credential, confirmations)

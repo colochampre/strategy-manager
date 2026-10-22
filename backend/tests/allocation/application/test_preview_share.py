@@ -14,6 +14,7 @@ that selects the wrong column.
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from strategy_manager.allocation.application.allocate_capital import UnknownPoolError
 from strategy_manager.allocation.application.ports import PoolSizing, SizingSnapshot
@@ -21,22 +22,24 @@ from strategy_manager.allocation.application.preview_share import PreviewShare
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.share_preview import ShareAmount
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 POOL = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
 OBSERVED_AT = datetime(2026, 10, 6, 9, 30, tzinfo=UTC)
 
 
 class FakeSizing:
-    """A ``PoolSizingPort`` that answers one prepared value and records its reads."""
+    """A ``PoolSizingPort`` that answers one prepared value and records its reads,
+    with the user each read was for."""
 
     def __init__(self, answer: PoolSizing | None) -> None:
         self.answer = answer
-        self.reads: list[tuple[str, str, str]] = []
+        self.reads: list[tuple[UUID, str, str, str]] = []
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolSizing | None:
-        self.reads.append((exchange, venue, settlement_currency))
+        self.reads.append((user_id, exchange, venue, settlement_currency))
         return self.answer
 
 
@@ -48,7 +51,9 @@ def _sizing(total: str = "1000", *, stale: bool = False, minimum: str = "5") -> 
 
 
 async def test_a_snapshot_gives_the_exact_amount_and_the_hundred_steps() -> None:
-    preview = await PreviewShare(FakeSizing(_sizing("1000"))).preview(POOL, Decimal("33.5"))
+    preview = await PreviewShare(FakeSizing(_sizing("1000"))).preview(
+        OWNER_ID, POOL, Decimal("33.5")
+    )
 
     assert preview.pool == POOL
     assert preview.pool_minimum == Decimal("5")
@@ -62,7 +67,7 @@ async def test_a_snapshot_gives_the_exact_amount_and_the_hundred_steps() -> None
 async def test_the_amount_comes_from_the_total_not_from_what_is_available() -> None:
     """The pool holds 1000, of which 400 is free: a share of 10 asks for 100. The
     port cannot hand over the free 400 (see this module's docstring)."""
-    preview = await PreviewShare(FakeSizing(_sizing("1000"))).preview(POOL, Decimal("10"))
+    preview = await PreviewShare(FakeSizing(_sizing("1000"))).preview(OWNER_ID, POOL, Decimal("10"))
 
     assert preview.exact is not None
     assert preview.exact.amount == Decimal("100")
@@ -71,7 +76,7 @@ async def test_the_amount_comes_from_the_total_not_from_what_is_available() -> N
 async def test_a_stale_snapshot_is_served_and_marked() -> None:
     """The worker's reader refuses a stale snapshot; a display shows it and says so."""
     preview = await PreviewShare(FakeSizing(_sizing("1000", stale=True))).preview(
-        POOL, Decimal("10")
+        OWNER_ID, POOL, Decimal("10")
     )
 
     assert preview.balance is not None
@@ -84,7 +89,7 @@ async def test_a_stale_snapshot_is_served_and_marked() -> None:
 async def test_no_snapshot_gives_no_balance_no_exact_amount_no_steps_and_never_a_zero() -> None:
     sizing = PoolSizing(min_order_size=Decimal("5"), snapshot=None)
 
-    preview = await PreviewShare(FakeSizing(sizing)).preview(POOL, Decimal("33.5"))
+    preview = await PreviewShare(FakeSizing(sizing)).preview(OWNER_ID, POOL, Decimal("33.5"))
 
     assert preview.balance is None
     assert preview.exact is None
@@ -94,7 +99,7 @@ async def test_no_snapshot_gives_no_balance_no_exact_amount_no_steps_and_never_a
 async def test_a_pool_nothing_has_synced_still_carries_its_minimum() -> None:
     sizing = PoolSizing(min_order_size=Decimal("5"), snapshot=None)
 
-    preview = await PreviewShare(FakeSizing(sizing)).preview(POOL, Decimal("33.5"))
+    preview = await PreviewShare(FakeSizing(sizing)).preview(OWNER_ID, POOL, Decimal("33.5"))
 
     assert preview.pool_minimum == Decimal("5")
 
@@ -105,8 +110,8 @@ async def test_the_stored_share_is_the_default_and_an_asked_share_replaces_it() 
     it; the hundred steps are the same table either way."""
     use_case = PreviewShare(FakeSizing(_sizing("1000")))
 
-    stored = await use_case.preview(POOL, Decimal("33.5"))
-    asked = await use_case.preview(POOL, Decimal("12.34"))
+    stored = await use_case.preview(OWNER_ID, POOL, Decimal("33.5"))
+    asked = await use_case.preview(OWNER_ID, POOL, Decimal("12.34"))
 
     assert stored.exact == ShareAmount(Decimal("33.5"), Decimal("335"), False)
     assert asked.exact == ShareAmount(Decimal("12.34"), Decimal("123.4"), False)
@@ -116,9 +121,20 @@ async def test_the_stored_share_is_the_default_and_an_asked_share_replaces_it() 
 async def test_the_port_is_read_once() -> None:
     fake = FakeSizing(_sizing("1000"))
 
-    await PreviewShare(fake).preview(POOL, Decimal("33.5"))
+    await PreviewShare(fake).preview(OWNER_ID, POOL, Decimal("33.5"))
 
-    assert fake.reads == [("bybit", "usdt-m", "USDT")]
+    assert fake.reads == [(OWNER_ID, "bybit", "usdt-m", "USDT")]
+
+
+async def test_the_pool_read_is_the_users_the_preview_was_asked_for() -> None:
+    """Multi-user design AD8: the pool on the market is the one of the user the
+    route names (the strategy's author), never another user's."""
+    other = UUID("5e6f7a8b-0000-4000-8000-00000000b1b1")
+    fake = FakeSizing(_sizing("1000"))
+
+    await PreviewShare(fake).preview(other, POOL, Decimal("33.5"))
+
+    assert [read[0] for read in fake.reads] == [other]
 
 
 async def test_a_pool_with_no_row_raises_the_modules_invariant_error() -> None:
@@ -129,7 +145,7 @@ async def test_a_pool_with_no_row_raises_the_modules_invariant_error() -> None:
     captured: Exception | None = None
 
     try:
-        await PreviewShare(FakeSizing(None)).preview(POOL, Decimal("33.5"))
+        await PreviewShare(FakeSizing(None)).preview(OWNER_ID, POOL, Decimal("33.5"))
     except Exception as exc:  # noqa: BLE001
         captured = exc
 
@@ -137,3 +153,4 @@ async def test_a_pool_with_no_row_raises_the_modules_invariant_error() -> None:
     assert "bybit" in str(captured)
     assert "usdt-m" in str(captured)
     assert "USDT" in str(captured)
+    assert f"of user {str(OWNER_ID)[:8]}" in str(captured)

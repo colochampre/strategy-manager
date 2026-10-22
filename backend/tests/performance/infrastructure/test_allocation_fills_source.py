@@ -31,10 +31,11 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
     SqlAlchemyAllocationFillsSource,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import seed_pool
 
 pytestmark = pytest.mark.integration
 
-T0 = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
+T0 =datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 BYBIT = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
 PIONEX = PoolKey(Exchange.PIONEX, Venue.SPOT, Currency.USDT)
 # Same venue AND same settlement currency as BYBIT: only the exchange differs.
@@ -348,13 +349,7 @@ async def test_source_returns_only_the_requested_pool(
     )
 
     async with pg_session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('binance', 'usdt-m', 'USDT', 5)"
-            )
-        )
+        await seed_pool(session, ("binance", "usdt-m", "USDT"))
         await session.commit()
     binance_strategy, binance_alloc, binance_attempt = await _seed_allocation(
         pg_session_factory, pool=BINANCE

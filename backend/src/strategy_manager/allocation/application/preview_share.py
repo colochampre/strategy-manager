@@ -15,6 +15,7 @@ that must be shown, marked stale.
 
 from dataclasses import dataclass
 from decimal import Decimal
+from uuid import UUID
 
 from strategy_manager.allocation.application.allocate_capital import UnknownPoolError
 from strategy_manager.allocation.application.ports import PoolSizingPort, SizingSnapshot
@@ -42,21 +43,25 @@ class PreviewShare:
     def __init__(self, sizing: PoolSizingPort) -> None:
         self._sizing = sizing
 
-    async def preview(self, pool: PoolKey, share: Decimal) -> SharePreview:
+    async def preview(self, user_id: UUID, pool: PoolKey, share: Decimal) -> SharePreview:
         """``share`` is the percentage to preview as ``exact``: the strategy's stored
         share, or the one the caller asked about. The hundred steps do not depend on it.
+
+        ``user_id`` is whose pool on that market is read: the strategy's author's
+        (B.5), the pool a signal of that strategy is allocated in.
 
         Raises ``UnknownPoolError`` for a pool the port has no row for: a strategy
         cannot be registered on one, so it is a fault in stored data, not an answer.
         """
 
         sizing = await self._sizing.read(
-            pool.exchange.value, pool.venue.value, pool.settlement_currency.value
+            user_id, pool.exchange.value, pool.venue.value, pool.settlement_currency.value
         )
         if sizing is None:
             raise UnknownPoolError(
                 f"pool ({pool.exchange.value}, {pool.venue.value}, "
-                f"{pool.settlement_currency.value}) has no capital_pools row"
+                f"{pool.settlement_currency.value}) of user {str(user_id)[:8]} has no "
+                "capital_pools row"
             )
 
         snapshot = sizing.snapshot

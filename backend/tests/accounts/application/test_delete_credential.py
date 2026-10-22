@@ -22,8 +22,9 @@ from strategy_manager.accounts.application.ports import (
     PoolExposure,
     PoolKey,
 )
+from tests.owner import OWNER_ID
 
-EMPTY = PoolExposure(
+EMPTY =PoolExposure(
     enabled_strategies=(),
     symbols=frozenset(),
     allocations=(),
@@ -82,12 +83,14 @@ class FakePools:
         self._events = events
         self._flipped = flipped
         self.disabled: list[str] = []
+        self.users: list[UUID] = []
 
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         raise AssertionError("deleting a key never enables a pool")
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
         self._events.log.append("disable")
+        self.users.append(user_id)
         self.disabled.append(exchange)
         return self._flipped
 
@@ -127,7 +130,7 @@ async def test_the_steps_run_lock_then_row_then_exposure_then_writes_then_commit
     deadlock ``ArchiveStrategy`` already documents."""
     built = Built()
 
-    await built.use_case.execute("bybit")
+    await built.use_case.execute(OWNER_ID, "bybit")
 
     assert built.events.log == [
         "lock",
@@ -142,11 +145,22 @@ async def test_the_steps_run_lock_then_row_then_exposure_then_writes_then_commit
 async def test_the_lock_is_the_exchanges_known_pool_never_a_caller_supplied_one() -> None:
     built = Built()
 
-    await built.use_case.execute("bybit")
+    await built.use_case.execute(OWNER_ID, "bybit")
 
     assert built.lock.pools == [("bybit", "usdt-m", "USDT")]
     assert built.exposure.pools == [("bybit", "usdt-m", "USDT")]
     assert built.pools.disabled == ["bybit"]
+
+
+async def test_the_pool_disabled_is_the_deleting_users_never_another_users() -> None:
+    """Two users may each hold a pool on this market (AD8): the one switched
+    off is the signed-in user's, whoever else holds one."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    built = Built()
+
+    await built.use_case.execute(other, "bybit")
+
+    assert built.pools.users == [other]
 
 
 @pytest.mark.parametrize("exchange", ["pionex", "kraken", ""])
@@ -158,7 +172,7 @@ async def test_an_exchange_without_a_known_pool_is_refused_before_any_lock_or_re
     built = Built(active=ActiveCredential(exchange, SENTINEL_LABEL, "abcd"))
 
     with pytest.raises(ExchangeNotServed):
-        await built.use_case.execute(exchange)
+        await built.use_case.execute(OWNER_ID, exchange)
 
     assert built.events.log == []
     assert built.revoker.deactivated == []
@@ -169,7 +183,7 @@ async def test_no_active_credential_raises_after_the_lock_and_writes_nothing() -
     built = Built(active=None)
 
     with pytest.raises(NoActiveCredential):
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     assert built.events.log == ["lock", "lock_active"]
     assert built.commit.commits == 0
@@ -200,7 +214,7 @@ async def test_any_one_kind_of_exposure_refuses_and_nothing_is_written(
     built = Built(exposure=exposure)
 
     with pytest.raises(ExchangeNotFlat) as caught:
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     assert caught.value.exposure == exposure
     assert built.events.log == ["lock", "lock_active", "exposure"]
@@ -213,7 +227,7 @@ async def test_a_success_logs_one_info_naming_the_exchange_last4_and_disabled_po
     built = Built()
 
     with caplog.at_level("DEBUG"):
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     records = [r for r in caplog.records if r.name.startswith("strategy_manager")]
     assert [r.levelname for r in records] == ["INFO"]
@@ -230,7 +244,7 @@ async def test_a_success_on_an_already_disabled_pool_says_so_instead_of_claiming
     built = Built(flipped=False)
 
     with caplog.at_level("DEBUG"):
-        result = await built.use_case.execute("bybit")
+        result = await built.use_case.execute(OWNER_ID, "bybit")
 
     assert result.pool_disabled is False
     (record,) = [r for r in caplog.records if r.name.startswith("strategy_manager")]
@@ -253,7 +267,7 @@ async def test_a_refusal_logs_one_warning_naming_the_exchange_and_what_blocks(
     built = Built(exposure=exposure)
 
     with caplog.at_level("DEBUG"), pytest.raises(ExchangeNotFlat):
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     records = [r for r in caplog.records if r.name.startswith("strategy_manager")]
     assert [r.levelname for r in records] == ["WARNING"]
@@ -272,7 +286,7 @@ async def test_a_refusal_for_an_open_discrepancy_names_its_symbol_in_the_warning
     built = Built(exposure=PoolExposure((), frozenset(), (), (), (), frozenset({"STXUSDT"})))
 
     with caplog.at_level("DEBUG"), pytest.raises(ExchangeNotFlat) as caught:
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     assert "STXUSDT" in str(caught.value)
     (record,) = [r for r in caplog.records if r.name.startswith("strategy_manager")]
@@ -287,6 +301,6 @@ async def test_the_refusal_carries_no_key_fragment_anywhere() -> None:
     built = Built(exposure=blocking)
 
     with pytest.raises(ExchangeNotFlat) as caught:
-        await built.use_case.execute("bybit")
+        await built.use_case.execute(OWNER_ID, "bybit")
 
     assert "abcd" not in str(caught.value)

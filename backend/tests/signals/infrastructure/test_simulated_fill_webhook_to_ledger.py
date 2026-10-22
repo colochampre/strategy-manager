@@ -363,9 +363,9 @@ async def test_a_profitable_round_trip_moves_no_availability(stack: Stack) -> No
 
     async with stack.factory() as session:
         funds = await PoolBalanceAdapter(
-            {("bybit", "usdt-m", "USDT"): BYBIT_POOL},
+            {(BYBIT_POOL.user_id, ("bybit", "usdt-m", "USDT")): BYBIT_POOL},
             DbBalanceSource(session, SystemClock(), max_age_seconds=90.0),
-        ).read("bybit", "usdt-m", "USDT")
+        ).read(BYBIT_POOL.user_id, "bybit", "usdt-m", "USDT")
         reservations = list((await session.execute(select(ReservationRow))).scalars())
     assert (funds.total, funds.available) == (POOL_BALANCE, POOL_BALANCE)
     # One reservation, the one the opening alert took: 564, FILLED. No price and

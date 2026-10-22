@@ -7,7 +7,11 @@ refused, that loses the race for the one-active-key slot, or whose venue read
 fails never reaches this class, and one that reaches it and then fails later
 takes the pool write down with it.
 
-Identity comes from ``KNOWN_FUTURES_POOLS`` alone, never from a caller.
+The market comes from ``KNOWN_FUTURES_POOLS`` alone, never from a caller. The
+owner is the caller's ``user_id`` (multi-user design AD8): the pool written is
+that user's, and another user's pool on the same market is never touched. Two
+users may each hold one, which is why the upsert's conflict target is
+``ux_capital_pools_user_market`` and carries ``user_id``.
 
 **No advisory lock, on purpose.** The pool advisory lock serializes an
 allocation's availability read, decision and reservation (rule 4). Enabling a
@@ -21,6 +25,8 @@ which does have exposure to read, takes the advisory lock itself before it
 calls ``disable``.
 """
 
+from uuid import UUID
+
 from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,9 +39,10 @@ class SqlAlchemyCapitalPoolWriter:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         pool = known_pool_for(exchange)
         insertion = insert(CapitalPoolRow).values(
+            user_id=user_id,
             exchange=exchange,
             venue=pool.venue.value,
             settlement_currency=pool.settlement_currency.value,
@@ -48,6 +55,7 @@ class SqlAlchemyCapitalPoolWriter:
         # flipped from disabled), which is how the caller knows to log it.
         upsert = insertion.on_conflict_do_update(
             index_elements=[
+                CapitalPoolRow.user_id,
                 CapitalPoolRow.exchange,
                 CapitalPoolRow.venue,
                 CapitalPoolRow.settlement_currency,
@@ -58,11 +66,12 @@ class SqlAlchemyCapitalPoolWriter:
         result = await self._session.execute(upsert)
         return result.first() is not None
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
         pool = known_pool_for(exchange)
         flip = (
             update(CapitalPoolRow)
             .where(
+                CapitalPoolRow.user_id == user_id,
                 CapitalPoolRow.exchange == exchange,
                 CapitalPoolRow.venue == pool.venue.value,
                 CapitalPoolRow.settlement_currency == pool.settlement_currency.value,

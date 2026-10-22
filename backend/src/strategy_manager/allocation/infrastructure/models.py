@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Numeric, Text, text
+from sqlalchemy import DateTime, ForeignKey, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -18,17 +18,7 @@ class ReservationRow(Base):
     """Mirrors the ``reservations`` table created by migration ``0004``."""
 
     __tablename__ = "reservations"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["exchange", "venue", "settlement_currency"],
-            [
-                "capital_pools.exchange",
-                "capital_pools.venue",
-                "capital_pools.settlement_currency",
-            ],
-            name="fk_reservations_capital_pool",
-        ),
-    )
+    # No pool FK here yet: 0030 moved it to (pool_id, user_id), which U3 adds.
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")

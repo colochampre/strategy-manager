@@ -33,6 +33,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -64,7 +65,7 @@ async def _store_key(factory: async_sessionmaker[AsyncSession], exchange: str) -
 
 async def _enable_pool(factory: async_sessionmaker[AsyncSession], exchange: str) -> None:
     async with factory() as session:
-        await SqlAlchemyCapitalPoolWriter(session).enable(exchange)
+        await SqlAlchemyCapitalPoolWriter(session).enable(OWNER_ID, exchange)
         await session.commit()
 
 
@@ -74,7 +75,7 @@ async def _delete_as_the_panel_does(
     """The pair ``DeleteCredential`` commits together: the key off, the pool off."""
     async with factory() as session:
         await SqlAlchemyCredentialRevoker(session, TickingClock()).deactivate(exchange)
-        await SqlAlchemyCapitalPoolWriter(session).disable(exchange)
+        await SqlAlchemyCapitalPoolWriter(session).disable(OWNER_ID, exchange)
         await session.commit()
 
 

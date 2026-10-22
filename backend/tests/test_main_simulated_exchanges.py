@@ -24,6 +24,7 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import (
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 MAIN_LOGGER = "strategy_manager.main"
 
@@ -33,6 +34,7 @@ def _pool(exchange: Exchange, venue: Venue) -> PoolConfig:
         exchange=exchange,
         venue=venue,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("10"),
     )
 

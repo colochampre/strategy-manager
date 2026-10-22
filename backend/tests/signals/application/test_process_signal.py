@@ -84,6 +84,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
@@ -106,10 +107,12 @@ class FakeStrategyPolicyPort:
 @dataclass
 class FakePoolBalancePort:
     balance: PoolBalance
+    users: list[UUID] = field(default_factory=list)
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
+        self.users.append(user_id)
         return self.balance
 
 
@@ -306,10 +309,12 @@ class FakeBalanceRefreshPort:
         default_factory=lambda: RefreshOutcome(status=RefreshStatus.FRESH)
     )
     calls: list[tuple[str, str, str]] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def refresh(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome:
+        self.users.append(user_id)
         self.calls.append((exchange, venue, settlement_currency))
         return self.outcome
 
@@ -364,6 +369,7 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         # ``ReaderByExchange`` factory by).
         exchange=Exchange.PIONEX,
         strategy_id=uuid4(),
+        author_id=OWNER_ID,
         enabled=True,
         fill_mode="PARTIAL",
         venue="spot",
@@ -1520,14 +1526,14 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
 
     class OrderingRefresh:
         async def refresh(
-            self, exchange: str, venue: str, settlement_currency: str
+            self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
         ) -> RefreshOutcome:
             order.append("refresh")
             return RefreshOutcome(status=RefreshStatus.FRESH)
 
     class OrderingPoolBalance:
         async def read(
-            self, exchange: str, venue: str, settlement_currency: str
+            self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
         ) -> PoolBalance:
             order.append("pool_balance")
             return PoolBalance(
@@ -1661,6 +1667,39 @@ async def test_a_fallback_balance_still_proceeds_to_allocate() -> None:
     assert len(place_order.calls) == 1
 
 
+async def test_the_refresh_and_the_sizing_read_are_the_strategy_authors_pool() -> None:
+    """AD8: two users may each hold a pool on this market. A signal is sized
+    from, and refreshes, its strategy author's pool, never another user's."""
+    author = UUID("00000000-0000-4000-8000-0000000000b2")
+    policy = _snapshot(author_id=author)
+    balance_refresh = FakeBalanceRefreshPort()
+    sizing = FakePoolBalancePort(
+        PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1"))
+    )
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(_open_long_context()),
+        strategy_policy=FakeStrategyPolicyPort(policy),
+        pool_balance=sizing,
+        holding_guard=_holding_guard(),
+        balance_refresh=balance_refresh,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), policy=policy),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=FakeCommit(),
+        closing_attempts=FakeClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
+        tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
+    )
+
+    await handler.handle(uuid4())
+
+    assert balance_refresh.users == [author]
+    assert sizing.users == [author]
+
+
 # --- S3 correction: lazy, per-exchange credential/client construction -------
 #
 # Orchestrator review of the first S3 commit (cb59825) found a regression:
@@ -1718,7 +1757,7 @@ class _SpyExchangeFactory:
 class _SpyWriter:
     written: list[Sequence[PoolBalanceReading]] = field(default_factory=list)
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None:
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None:
         self.written.append(readings)
 
 
@@ -1735,7 +1774,7 @@ class _StubAge:
     age: float | None
 
     async def age_seconds(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> float | None:
         return self.age
 
@@ -3084,7 +3123,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
                 PoolExposureAdapter.over(deleter),
                 SqlAlchemyCapitalPoolWriter(deleter),
                 deleter,
-            ).execute("bybit")
+            ).execute(OWNER_ID, "bybit")
 
         lock = SpyAdvisoryLock()
         place_order = SpyPlaceOrder()
