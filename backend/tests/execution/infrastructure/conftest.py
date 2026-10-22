@@ -28,6 +28,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -87,6 +88,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "capital_pools, jobs RESTART IDENTITY CASCADE"
             )
         )
+        await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
@@ -116,8 +118,11 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
+    author_id: UUID = OWNER_ID,
 ) -> None:
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -125,6 +130,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
             )

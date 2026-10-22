@@ -37,6 +37,7 @@ class SqlAlchemyStrategyRepository:
                 exchange=strategy.policy.exchange.value,
                 venue=strategy.policy.venue.value,
                 settlement_currency=strategy.policy.settlement_currency.value,
+                author_id=strategy.author_id,
                 enabled=strategy.enabled,
                 fill_mode=strategy.policy.fill_mode.value,
                 allocation_percent=strategy.policy.allocation_percent.value,
@@ -79,7 +80,11 @@ class SqlAlchemyStrategyRepository:
 
         Excludes archived strategies unless ``include_archived=True``
         (spec: strategy-lifecycle § "Strategy Listing Excludes Archived By
-        Default")."""
+        Default").
+
+        Unscoped by design: every author's strategies, for the admin-only
+        router (owner decision 16; multi-user design AD8 makes the list a
+        public read). It takes no ``user_id``."""
         stmt = select(StrategyRow).order_by(StrategyRow.name)
         if not include_archived:
             stmt = stmt.where(StrategyRow.archived_at.is_(None))
@@ -144,6 +149,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
             fill_mode=FillMode(row.fill_mode),
             allocation_percent=AllocationPercent(row.allocation_percent),
         ),
+        author_id=row.author_id,
         enabled=row.enabled,
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
         archived_at=row.archived_at,

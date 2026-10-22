@@ -20,6 +20,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
+from tests.owner import OWNER_ID
 
 RECEIVED_AT = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -87,6 +88,7 @@ def _strategy(strategy_id: UUID) -> Strategy:
             settlement_currency=Currency.USDT,
             fill_mode=FillMode.PARTIAL,
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
 

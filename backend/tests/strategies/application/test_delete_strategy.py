@@ -35,6 +35,7 @@ from strategy_manager.strategies.domain.strategy import (
     FillMode,
     Strategy,
 )
+from tests.owner import OWNER_ID
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 NAME = "Delete Me v1"
@@ -78,6 +79,7 @@ def _strategy(**overrides: object) -> Strategy:
         "id": STRATEGY_ID,
         "name": NAME,
         "policy": policy,
+        "author_id": OWNER_ID,
         "allowed_pairs": AllowedPairs(frozenset({"STXUSDT"})),
     }
     fields.update(overrides)

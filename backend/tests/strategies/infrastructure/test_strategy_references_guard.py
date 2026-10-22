@@ -152,7 +152,8 @@ async def test_execution_attempts_reach_a_strategy_only_through_reservations_and
         )
     )
 
-    assert targets == {"reservations", "signals"}, (
+    # ``users`` is the attempt's owner (migration 0030), not a way to a strategy.
+    assert targets == {"reservations", "signals", "users"}, (
         f"execution_attempts now references {sorted(targets)}; "
         f"{_EXTEND_THE_HISTORY}"
     )

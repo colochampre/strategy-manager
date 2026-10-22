@@ -67,6 +67,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -87,6 +88,7 @@ def head_database_url() -> Iterator[str]:
 async def engine(head_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(head_database_url, pool_pre_ping=True)
     async with engine.begin() as conn:
+        await seed_owner(conn)
         await conn.execute(
             text(
                 "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
@@ -146,6 +148,7 @@ def _strategy_row(strategy_id: UUID, *, archived: bool = False) -> StrategyRow:
         exchange=exchange,
         venue=venue,
         settlement_currency=currency,
+        author_id=OWNER_ID,
         enabled=False,
         fill_mode="PARTIAL",
         allowed_pairs=["STXUSDT"],
@@ -453,6 +456,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
                 fill_mode=FillMode.PARTIAL,
                 allocation_percent=Decimal("100"),
                 allowed_pairs=["STXUSDT"],
+                author_id=OWNER_ID,
             )
         )
 

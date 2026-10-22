@@ -34,6 +34,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -101,6 +102,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "capital_pools, jobs RESTART IDENTITY CASCADE"
             )
         )
+        await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
@@ -136,8 +138,13 @@ async def seed_strategy(
     # explicitly, or the new allowlist gate (``process_signal.py``,
     # ``_refuse_unlisted_pair``) refuses every one of its opening signals.
     allowed_pairs: frozenset[str] | None = None,
+    author_id: UUID = OWNER_ID,
 ) -> None:
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            # Idempotent: the head-schema databases that reuse this helper have
+            # no ``pg_engine`` to seed the owner for them.
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -145,6 +152,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
                 allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],

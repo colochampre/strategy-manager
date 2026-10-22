@@ -41,6 +41,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -124,6 +125,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "capital_pools RESTART IDENTITY CASCADE"
             )
         )
+        await seed_owner(conn)
         await conn.execute(
             text(
                 "INSERT INTO capital_pools "
@@ -152,10 +154,13 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
+    author_id: UUID = OWNER_ID,
 ) -> None:
     """Duplicated from ``tests/ledger/infrastructure/conftest.py``'s helper
     of the same name -- see this file's own docstring for why."""
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -163,6 +168,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
             )

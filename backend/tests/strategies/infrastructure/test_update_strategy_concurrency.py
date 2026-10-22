@@ -50,6 +50,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -64,6 +65,7 @@ async def _insert_strategy(
             StrategyRow(
                 id=strategy_id,
                 name=f"strategy-{strategy_id}",
+                author_id=OWNER_ID,
                 enabled=enabled,
                 fill_mode="PARTIAL",
                 **_POOL,

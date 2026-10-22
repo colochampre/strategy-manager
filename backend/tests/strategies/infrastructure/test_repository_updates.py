@@ -25,6 +25,7 @@ from strategy_manager.strategies.infrastructure.pool_catalog import (
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -50,6 +51,7 @@ def _strategy(
             fill_mode=FillMode.PARTIAL,
             allocation_percent=AllocationPercent(Decimal(percent)),
         ),
+        author_id=OWNER_ID,
         enabled=enabled,
     )
 
@@ -94,6 +96,7 @@ async def test_update_writes_the_mutable_fields(
             fill_mode=FillMode.SKIP,
             allocation_percent=AllocationPercent(Decimal("25")),
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
 
@@ -134,6 +137,7 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
             fill_mode=strategy.policy.fill_mode,
             allocation_percent=strategy.policy.allocation_percent,
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
 

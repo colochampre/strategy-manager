@@ -50,6 +50,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 )
 from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
 from strategy_manager.shared.config import get_settings
+from tests.owner import seed_owner
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -160,11 +161,13 @@ async def _seed_discrepancy(
     )
     scan_id = uuid4()
     symbol = f"STX{uuid4().hex[:10].upper()}USDT.P"
+    author = await seed_owner(session)
     await session.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, :exchange, :venue, :settlement_currency, true, 'PARTIAL')"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, :exchange, :venue, :settlement_currency, true, 'PARTIAL', "
+            ":author)"
         ),
         {
             "id": strategy_id,
@@ -172,6 +175,7 @@ async def _seed_discrepancy(
             "exchange": _POOL[0],
             "venue": _POOL[1],
             "settlement_currency": _POOL[2],
+            "author": author,
         },
     )
     await session.execute(

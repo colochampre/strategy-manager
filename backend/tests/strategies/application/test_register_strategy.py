@@ -34,6 +34,7 @@ FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 # The real signalType of one of the owner's Pionex signals. Using a realistic
 # one makes the point the docstring makes: this id is copied, never generated.
 SIGNAL_TYPE = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
+AUTHOR_ID = UUID("5f0c1d2e-0000-4000-8000-0000000000b1")
 
 
 class FakeRepository:
@@ -126,6 +127,7 @@ def _command(**overrides: object) -> RegisterCommand:
         "fill_mode": FillMode.PARTIAL,
         "allocation_percent": Decimal("100"),
         "allowed_pairs": ["ETHUSDT"],
+        "author_id": AUTHOR_ID,
     }
     fields.update(overrides)
     return RegisterCommand(exchange=Exchange.PIONEX, **fields)  # type: ignore[arg-type]

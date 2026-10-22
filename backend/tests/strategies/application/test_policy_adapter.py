@@ -18,6 +18,7 @@ from strategy_manager.strategies.application.policy_adapter import (
 )
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
+from tests.owner import OWNER_ID
 
 
 class _FakeStrategyRepository:
@@ -39,6 +40,7 @@ async def test_policy_for_maps_strategy_to_snapshot_dto() -> None:
         policy=AllocationPolicy(exchange=Exchange.PIONEX, 
             venue=Venue.COIN_M, settlement_currency=Currency.ETH, fill_mode=FillMode.PARTIAL
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
     adapter = StrategyPolicyAdapter(_FakeStrategyRepository({strategy_id: strategy}))
@@ -60,6 +62,7 @@ async def test_policy_for_maps_a_disabled_skip_strategy() -> None:
         policy=AllocationPolicy(exchange=Exchange.PIONEX, 
             venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
         ),
+        author_id=OWNER_ID,
         enabled=False,
     )
     adapter = StrategyPolicyAdapter(_FakeStrategyRepository({strategy_id: strategy}))
@@ -91,6 +94,7 @@ async def test_policy_for_maps_name_and_a_non_archived_strategy_with_allowed_pai
             settlement_currency=Currency.ETH,
             fill_mode=FillMode.PARTIAL,
         ),
+        author_id=OWNER_ID,
         enabled=True,
         allowed_pairs=AllowedPairs(frozenset({"ETHUSDT", "BTCUSDT"})),
     )
@@ -117,6 +121,7 @@ async def test_policy_for_maps_archived_true_once_archived_at_is_set() -> None:
             settlement_currency=Currency.USDT,
             fill_mode=FillMode.SKIP,
         ),
+        author_id=OWNER_ID,
         enabled=False,
         archived_at=datetime(2026, 9, 1, tzinfo=UTC),
     )
@@ -141,6 +146,7 @@ async def test_policy_for_maps_an_empty_allowed_pairs_list() -> None:
             settlement_currency=Currency.USDT,
             fill_mode=FillMode.PARTIAL,
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
     adapter = StrategyPolicyAdapter(_FakeStrategyRepository({strategy_id: strategy}))

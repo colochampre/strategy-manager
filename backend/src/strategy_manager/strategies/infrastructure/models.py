@@ -1,20 +1,27 @@
 """SQLAlchemy ORM model owned by ``strategies``. Mirrors migration
-``0003_strategies_pools``, extended by ``0007_allocation_percent`` and
-``0024_strategy_lifecycle``.
+``0003_strategies_pools``, extended by ``0007_allocation_percent``,
+``0024_strategy_lifecycle`` and ``0030_ownership``.
 
 ``id`` has NO ``gen_random_uuid()`` server default: it MUST be supplied
 explicitly by the caller as the strategy's ``signal_type`` UUID (design.md
 § "strategy_id derives from signal_type" — HARD CONSTRAINT ON SLICE 3).
 
-``strategies`` has a composite FK into ``capital_pools``, so both models share
-the one declarative registry in ``shared.db.Base``.
+**A strategy names a market, not a pool** (multi-user design AD3). ``0030``
+dropped the composite FK into ``capital_pools``, because pools now belong to
+users and the market triple stopped being their key. ``ck_strategies_venue``
+keeps the venue to the ones a pool can have, and ``RegisterStrategy`` still
+checks that the pool exists.
+
+``author_id`` references ``users``, so ``identity``'s ``UserRow`` must be on the
+same ``Base.metadata`` wherever a schema is built from it (``tests/pg_schema.py``
+registers it for the integration tests). The constraints carry 0030's names.
 """
 
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKeyConstraint, Numeric, Text, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -25,19 +32,13 @@ from strategy_manager.shared.db import Base
 
 class StrategyRow(Base):
     """Mirrors the ``strategies`` table created by migration ``0003``,
-    extended with ``allocation_percent`` by migration ``0007``."""
+    extended with ``allocation_percent`` by migration ``0007`` and with
+    ``author_id`` by migration ``0030``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
-        ForeignKeyConstraint(
-            ["exchange", "venue", "settlement_currency"],
-            [
-                "capital_pools.exchange",
-                "capital_pools.venue",
-                "capital_pools.settlement_currency",
-            ],
-            name="fk_strategies_capital_pool",
-        ),
+        CheckConstraint("venue IN ('spot', 'usdt-m', 'coin-m')", name="ck_strategies_venue"),
+        Index("ix_strategies_author_id", "author_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -45,6 +46,11 @@ class StrategyRow(Base):
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
+    author_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_strategies_author"),
+        nullable=False,
+    )
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

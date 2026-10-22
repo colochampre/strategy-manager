@@ -29,6 +29,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
     StrategyEnablementEventRow,  # noqa: F401  registers the table on Base.metadata
 )
 from strategy_manager.strategies.infrastructure.models import StrategyRow  # noqa: F401
+from tests.owner import seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -101,6 +102,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         await rebuild_schema_once(conn)
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("TRUNCATE strategies, capital_pools RESTART IDENTITY CASCADE"))
+        await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(

@@ -25,6 +25,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -102,6 +103,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "RESTART IDENTITY CASCADE"
             )
         )
+        await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
@@ -132,15 +134,17 @@ async def seed_strategy(
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
     allocation_percent: Decimal = Decimal("100"),
+    author_id: UUID = OWNER_ID,
 ) -> None:
     """Inserts a committed ``strategies`` row so reservation FKs resolve.
 
     ``exchange`` defaults to the one that owns the default venue among the
-    seeded pools: the composite FK now names all three columns, so a mismatched
-    pair simply does not exist.
+    seeded pools. ``author_id`` defaults to the owner ``pg_engine`` seeds.
     """
 
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -148,6 +152,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
                 allocation_percent=allocation_percent,

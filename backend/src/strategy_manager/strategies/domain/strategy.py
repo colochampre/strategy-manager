@@ -66,11 +66,17 @@ class Strategy:
     """A registered strategy. ``id`` MUST equal the ``signal_type`` UUID the
     owner already pastes into TradingView (design.md § "strategy_id derives
     from signal_type" — HARD CONSTRAINT ON SLICE 3) — it is never generated
-    by this object or by persistence."""
+    by this object or by persistence.
+
+    ``author_id`` is the ``User`` who registered it (multi-user design AD2). A
+    strategy names a market, not a pool, so the author is not the owner of the
+    money a signal moves: until subscriptions exist (PR C) it is, because a
+    signal is worked in its author's pools."""
 
     id: UUID
     name: str
     policy: AllocationPolicy
+    author_id: UUID
     enabled: bool = False
     allowed_pairs: AllowedPairs = AllowedPairs(frozenset())
     archived_at: datetime | None = None

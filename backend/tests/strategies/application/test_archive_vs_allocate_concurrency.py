@@ -79,6 +79,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -194,6 +195,7 @@ async def _seed_strategy(
                 exchange=POOL[0],
                 venue=POOL[1],
                 settlement_currency=POOL[2],
+                author_id=OWNER_ID,
                 enabled=True,
                 fill_mode="PARTIAL",
             )

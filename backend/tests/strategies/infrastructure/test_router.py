@@ -50,7 +50,8 @@ from strategy_manager.strategies.infrastructure.router import (
     get_delete_strategy,
 )
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_EMAIL, ADMIN_HEADERS, sign_in_as_admin
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -161,6 +162,34 @@ async def _archive_directly(
             {"id": strategy_id},
         )
         await session.commit()
+
+
+# --------------------------------------------------------------------------
+# Multi-user B.3/B.6: a strategy is stamped with the signed-in admin as author
+# --------------------------------------------------------------------------
+
+
+async def test_a_strategy_created_by_the_signed_in_admin_carries_the_admins_user_id(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The admin's ``User`` is resolved by ``current_user`` on the request, with
+    its own id: not the fixture owner every seed defaults to."""
+    strategy_id = await _register(client)
+
+    async with pg_session_factory() as session:
+        admin_id = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"), {"email": ADMIN_EMAIL}
+            )
+        ).scalar_one()
+        author_id = (
+            await session.execute(
+                text("SELECT author_id FROM strategies WHERE id = :id"), {"id": strategy_id}
+            )
+        ).scalar_one()
+
+    assert admin_id != OWNER_ID
+    assert author_id == admin_id
 
 
 # --------------------------------------------------------------------------

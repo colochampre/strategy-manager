@@ -33,7 +33,8 @@ async def factory(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> async_sessionmaker[AsyncSession]:
     async with pg_session_factory() as session:
-        await session.execute(text("TRUNCATE users"))
+        # CASCADE: ``strategies.author_id`` references ``users`` (migration 0030).
+        await session.execute(text("TRUNCATE users CASCADE"))
         await session.commit()
     return pg_session_factory
 

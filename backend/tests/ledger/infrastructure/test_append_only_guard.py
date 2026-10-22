@@ -32,6 +32,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
+from tests.owner import seed_owner
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -110,13 +111,14 @@ def _pgcode(error: DBAPIError) -> str | None:
 
 async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     strategy_id = uuid4()
+    author = await seed_owner(conn)
     await conn.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL')"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL', :author)"
         ),
-        {"id": strategy_id, "name": f"strategy-{strategy_id}"},
+        {"id": strategy_id, "name": f"strategy-{strategy_id}", "author": author},
     )
     signal_id = uuid4()
     await conn.execute(

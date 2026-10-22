@@ -47,6 +47,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -86,6 +87,7 @@ async def _strategy(factory: Factory) -> UUID:
             exchange=exchange,
             venue=venue,
             settlement_currency=currency,
+            author_id=OWNER_ID,
             enabled=False,
             fill_mode="PARTIAL",
             allowed_pairs=["STXUSDT"],
