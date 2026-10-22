@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
-from tests.pg_head_schema import migrated_head_database
+from tests.pg_head_schema import migrated_database
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _DB_NAME = "strategy_manager_test_events_cascade"
@@ -82,7 +82,7 @@ def _sqlstate(error: DBAPIError) -> str | None:
 
 @pytest.fixture(scope="module")
 def database_url() -> Iterator[str]:
-    with migrated_head_database(_DB_NAME) as url:
+    with migrated_database(_DB_NAME, "0029") as url:
         yield url
 
 
@@ -99,7 +99,7 @@ def throwaway_db_factory() -> Iterator[Callable[[str], str]]:
     """``make(suffix)`` -> a fresh database migrated to ``head``, dropped afterwards."""
     with ExitStack() as stack:
         yield lambda suffix: stack.enter_context(
-            migrated_head_database(f"{_THROWAWAY_DB_PREFIX}_{suffix}")
+            migrated_database(f"{_THROWAWAY_DB_PREFIX}_{suffix}", "0029")
         )
 
 
@@ -385,7 +385,7 @@ def test_upgrade_downgrade_upgrade_is_clean(
 ) -> None:
     url = throwaway_db_factory("roundtrip")
     _run_alembic_ok(url, "downgrade", "0027")
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     async def work(connection: AsyncConnection) -> tuple[str | None, str | None, int, int]:
         strategy_id = await _seed_strategy(connection)
@@ -433,7 +433,7 @@ def test_the_migration_moves_no_row(
 
     _run_alembic_ok(url, "downgrade", "0027")
     at_0027 = _on_throwaway(url, snapshot)
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     assert at_0027 == at_head
     assert _on_throwaway(url, snapshot) == at_head

@@ -108,7 +108,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -631,7 +631,7 @@ def test_downgrade_drops_unconditionally_even_with_rows(database_url: str) -> No
     # unaffected -- this test intentionally runs last (name sorts after
     # every other `test_*` in this file alphabetically is NOT guaranteed by
     # pytest, so re-upgrading here is required, not cosmetic).
-    _run_alembic_ok(database_url, "upgrade", "head")
+    _run_alembic_ok(database_url, "upgrade", "0029")
     assert asyncio.run(_table_exists()) is True
 
 

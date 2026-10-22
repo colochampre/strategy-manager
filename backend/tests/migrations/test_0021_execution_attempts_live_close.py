@@ -86,7 +86,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -333,7 +333,7 @@ def test_downgrade_refuses_then_forced_downgrade_and_upgrade_round_trips(
     assert asyncio.run(_close_count(allocation_id)) == 1
     assert asyncio.run(_unique_constraint_exists()) is True
 
-    _run_alembic_ok(database_url, "upgrade", "head")
+    _run_alembic_ok(database_url, "upgrade", "0029")
     assert asyncio.run(_unique_constraint_exists()) is False
 
     async def _live_close_index_exists() -> bool:

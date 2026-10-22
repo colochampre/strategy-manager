@@ -94,7 +94,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic(url, "upgrade", "head")
+    _run_alembic(url, "upgrade", "0029")
 
     yield url
 
@@ -374,5 +374,5 @@ def test_downgrade_then_upgrade_round_trips(database_url: str) -> None:
 
     assert asyncio.run(_table_exists()) is False
 
-    _run_alembic(database_url, "upgrade", "head")
+    _run_alembic(database_url, "upgrade", "0029")
     assert asyncio.run(_table_exists()) is True

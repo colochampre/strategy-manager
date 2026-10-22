@@ -138,14 +138,18 @@ It needs an independent verifier before the PR.
 
 ### Backend
 
-- [ ] B.1 Migration 0030 (design AD2, "Migration plan"):
-  - **Refusals.** It refuses, naming the count, unless `users` holds exactly one row. That row is the owner of every existing row.
+- [x] B.1 Migration 0030 (design AD2, "Migration plan"). Done on 2026-10-21:
+  - 22 tests in `tests/migrations/test_0030_ownership.py`. Two mutations proved them non-vacuous: rewriting the ledger, and a pool FK without `user_id`.
+  - The tests of 0020-0028 now migrate to `0029`, the revision they were written against.
+  - **Gate red by the owner's choice:** 132 tests in 16 files stay red until B.3 and B.9. All of them run on the `head` schema and exercise code that does not write `user_id` yet. Nothing is pushed until the gate is green.
+  - Specification:
+  - **Refusals.** With rows to own, it refuses unless `users` holds exactly one row, and names the count. That row is the owner of every existing row.
+    - A database nobody has signed into holds only the four pools `0003` seeded. Those pools are deleted, since saving a key creates its pool again. Without this, every fresh database (tests, a new machine) would be refused.
   - **`user_id uuid NOT NULL REFERENCES users(id)`** on `exchange_credentials`, `capital_pools`, `pool_balance_snapshots`, `reservations`, `execution_attempts`, `ledger_entries`, `reconciliation_discrepancies` and `booking_proposals`, each with an index. `strategies` gets `author_id` the same way.
-    - The ledger takes the owner's id as a constant `DEFAULT`, dropped in the same migration. It is never UPDATEd, and its append-only triggers stay enabled.
-    - The other tables are filled with a plain UPDATE, then set `NOT NULL`.
-  - **Pools.** `capital_pools` gets `id integer GENERATED ALWAYS AS IDENTITY` as its primary key, plus `UNIQUE (user_id, exchange, venue, settlement_currency)`.
+    - Every table takes the owner's id as a constant `DEFAULT`, dropped in the same migration. No row is rewritten. The ledger is never UPDATEd, and its append-only triggers stay enabled.
+  - **Pools.** `capital_pools` gets `id integer GENERATED ALWAYS AS IDENTITY` as its primary key, plus `UNIQUE (user_id, exchange, venue, settlement_currency)` and `UNIQUE (id, user_id)`.
     - The four composite pool FKs are dropped first: reservations, snapshots, discrepancies, booking proposals.
-    - Each of those tables gets `pool_id`, filled by a join, then made `NOT NULL` with an FK to `capital_pools(id)`. The snapshots' cascade is kept.
+    - Each of those tables gets `pool_id`, filled by a join and then made `NOT NULL`. Its FK is `(pool_id, user_id)` to `capital_pools (id, user_id)`, so the database refuses one user's row in another user's pool. The snapshots' cascade is kept.
     - `pool_balance_snapshots`' primary key moves to `pool_id`.
     - The text columns `exchange`, `venue` and `settlement_currency` stay where they are.
   - **Strategies.** `fk_strategies_capital_pool` is dropped. A CHECK limits `venue` and `settlement_currency` to the values `capital_pools` allows.
@@ -153,9 +157,8 @@ It needs an independent verifier before the PR.
     - `ux_exchange_credentials_one_active_per_exchange` becomes `(user_id, exchange) WHERE is_active`;
     - `ux_ledger_exchange_fill` becomes `(user_id, exchange, venue, exchange_fill_id)`;
     - `ux_reconciliation_open_per_symbol` gains `user_id`.
-    - Update the names and `ON CONFLICT` targets that the code spells out:
-      - `accounts/infrastructure/credential_vault.py:38`;
-      - `reconciliation/infrastructure/booking_writer.py:44`;
+    - The names stay, because code catches them by name (`accounts/infrastructure/credential_vault.py:38`, `reconciliation/infrastructure/booking_writer.py:44`).
+    - The `ON CONFLICT` targets that list the old columns need `user_id`, so they move with B.3:
       - `accounts/infrastructure/capital_pool_writer.py:49`;
       - `accounts/infrastructure/balance_snapshot_repository.py:42`;
       - `reconciliation/infrastructure/repository.py:137`.

@@ -99,7 +99,7 @@ The keys are cached in process and refreshed on an unknown `kid`, at most once a
 - `reconciliation_discrepancies`' open-row unique gains `user_id`.
 - `strategies.name` stays unique across everyone. Every strategy is public, and two "BTC Trend" entries in one list would let one author pass for another.
 
-**The append-only ledger.** The backfill must not UPDATE the ledger. The migration inserts the owner's user first. It then adds the column as `ADD COLUMN user_id uuid NOT NULL DEFAULT '<owner id literal>'`. On PostgreSQL 11+, a constant default is stored in the catalogue and no row is rewritten, so the append-only triggers never fire. The default is dropped in the same migration. The other tables are backfilled with a plain UPDATE.
+**The append-only ledger.** The backfill must not UPDATE the ledger. The migration inserts the owner's user first. It then adds the column as `ADD COLUMN user_id uuid NOT NULL DEFAULT '<owner id literal>'`. On PostgreSQL 11+, a constant default is stored in the catalogue and no row is rewritten, so the append-only triggers never fire. The default is dropped in the same migration. The other tables receive their owner the same way, since it costs nothing and rewrites nothing (B.1).
 
 ### AD3. A strategy names a market; a subscription names a pool
 

@@ -105,7 +105,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -407,7 +407,7 @@ def throwaway_db_factory() -> Iterator[Callable[[str], str]]:
         url = _database_url(dev_url, name)
         asyncio.run(drop_database_if_exists(maintenance_dsn, name))
         asyncio.run(_create_database(maintenance_dsn, name))
-        _run_alembic_ok(url, "upgrade", "head")
+        _run_alembic_ok(url, "upgrade", "0029")
         created.append(name)
         return url
 
