@@ -123,6 +123,101 @@ The same commit adds one WARNING, naming the failed check and never the token or
 8. Checks: the panel opens with no token prompt and shows the owner's e-mail; `/api/me` answers the owner with `is_admin` true and `dry_run` false; `users` holds one row, and it is `ADMIN_EMAIL`; no WARNING or ERROR from the API since the restart; a POST to `/webhook/tradingview` from the VPS answers `401` (a GET answers `404` from Caddy's path filter, as since whn.3, and proves nothing).
 9. `ADMIN_API_TOKEN` removed from `.env` (owner `strategy`, mode 600 before and after); the API restarted, active, and the panel still opens.
 
-## PR B-G
+## PR B: ownership, scoping, the worker per user
+
+Design AD2, AD8, AD9, AD10, and decision 16. Written 2026-10-21 from production at `0029` and a read-only map of the code. Paths are relative to `backend/src/strategy_manager/`.
+
+Every owned row gets its owner, and every read of owned rows takes `user_id`. Keys, pools, performance and open positions open to any signed-in user, scoped. Strategies, the pair catalogue, the webhook secret and origin, and discrepancies stay admin-only (decision 16). Until PR C, a signal is worked in its strategy author's pools, with the author's key.
+
+**Risk:**
+- item 1: migration 0030 rewrites keys and constraints on live tables;
+- item 2: guards change from admin-only to scoped;
+- item 4: the advisory lock's key changes.
+
+It needs an independent verifier before the PR.
+
+### Backend
+
+- [ ] B.1 Migration 0030 (design AD2, "Migration plan"):
+  - **Refusals.** It refuses, naming the count, unless `users` holds exactly one row. That row is the owner of every existing row.
+  - **`user_id uuid NOT NULL REFERENCES users(id)`** on `exchange_credentials`, `capital_pools`, `pool_balance_snapshots`, `reservations`, `execution_attempts`, `ledger_entries`, `reconciliation_discrepancies` and `booking_proposals`, each with an index. `strategies` gets `author_id` the same way.
+    - The ledger takes the owner's id as a constant `DEFAULT`, dropped in the same migration. It is never UPDATEd, and its append-only triggers stay enabled.
+    - The other tables are filled with a plain UPDATE, then set `NOT NULL`.
+  - **Pools.** `capital_pools` gets `id integer GENERATED ALWAYS AS IDENTITY` as its primary key, plus `UNIQUE (user_id, exchange, venue, settlement_currency)`.
+    - The four composite pool FKs are dropped first: reservations, snapshots, discrepancies, booking proposals.
+    - Each of those tables gets `pool_id`, filled by a join, then made `NOT NULL` with an FK to `capital_pools(id)`. The snapshots' cascade is kept.
+    - `pool_balance_snapshots`' primary key moves to `pool_id`.
+    - The text columns `exchange`, `venue` and `settlement_currency` stay where they are.
+  - **Strategies.** `fk_strategies_capital_pool` is dropped. A CHECK limits `venue` and `settlement_currency` to the values `capital_pools` allows.
+  - **Uniques that gain `user_id`:**
+    - `ux_exchange_credentials_one_active_per_exchange` becomes `(user_id, exchange) WHERE is_active`;
+    - `ux_ledger_exchange_fill` becomes `(user_id, exchange, venue, exchange_fill_id)`;
+    - `ux_reconciliation_open_per_symbol` gains `user_id`.
+    - Update the names and `ON CONFLICT` targets that the code spells out:
+      - `accounts/infrastructure/credential_vault.py:38`;
+      - `reconciliation/infrastructure/booking_writer.py:44`;
+      - `accounts/infrastructure/capital_pool_writer.py:49`;
+      - `accounts/infrastructure/balance_snapshot_repository.py:42`;
+      - `reconciliation/infrastructure/repository.py:137`.
+  - **Downgrade.** It refuses unless exactly one user exists, then restores 0029's keys and constraints.
+  - **Tests** on real PostgreSQL:
+    - upgrade with one user: every row is the owner's, and the ledger rows keep their `xmin`, so none was rewritten;
+    - the refusal with zero users and with two;
+    - a second user may hold an active key on the same exchange and the same pool triple;
+    - the downgrade and the upgrade again.
+- [ ] B.2 The `current_user` dependency returns the `User` (through `ResolveUser`) for `verified_email`. `/api/me` uses it instead of resolving inline. `require_admin` is unchanged.
+- [ ] B.3 Scoped persistence (AD8): every repository and adapter that reads or writes owned rows takes `user_id` and filters on it. That covers the accounts, allocation, execution, ledger, reconciliation, performance and strategies adapters in the map of 2026-10-21. No unscoped read remains outside an admin use case or the worker's per-user loop. Each scoped method gets one test where a second user's row is present and not returned.
+- [ ] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
+- [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
+- [ ] B.6 Routers (decision 16):
+  - credentials, pools, performance and open positions depend on `current_user` and pass its id down;
+  - the other routers keep `require_admin`, and strategies stamp `author_id` from the admin's `User`.
+  - `test_every_api_route_is_guarded.py` lists the scoped routes explicitly, and every other `/api` route still forbids a non-admin with 403.
+  - **Cross-user tests**, one per scoped endpoint: user B asks for user A's resource and receives 404, or an empty list. No row changes, which includes B's DELETE leaving A's key active.
+- [ ] B.7 Worker per `(user_id, exchange)` (AD9):
+  - `read_key_coverage` returns sets of pairs, in one statement;
+  - one `SyncBalances` per pair with an active key;
+  - `_degraded` is keyed by the pair, and one user's failure degrades only that user;
+  - `exchange_for`, the balance reader and the venue reader load the key of the row's user.
+  - The startup refusal on a key that does not open is unchanged.
+  - A Telegram alert names the user's id prefix, never an e-mail.
+- [ ] B.8 Reconciliation per user's pool (AD10):
+  - the venue's net position is read with that user's key;
+  - the ledger side is filtered by `user_id`;
+  - discrepancies and booking proposals carry it, and the admin's discrepancy view shows the user's e-mail beside each row.
+- [ ] B.9 Tests: one fixture creates the owner's `User`, and the suites that insert owned rows directly pass its id (about 100 files).
+
+### Frontend
+
+- [ ] B.10 Discrepancy rows show the user's e-mail (B.8), with EN/ES copy, ES in "usted". Nothing else changes: `SignInGate` still stops a non-admin, because the pages a user can use arrive with PR C and later.
+
+### Owner-run (production)
+
+- [ ] B.11 Before the deploy: a fresh backup, then rehearse 0030 on a throwaway restore.
+  - counts per owned table, unchanged;
+  - every `user_id` and `author_id` the owner's;
+  - the ledger's `xmin` unchanged;
+  - the new constraints present;
+  - downgrade to `0029`, then upgrade again.
+- [ ] B.12 Deploy:
+  - pull as `strategy`;
+  - `alembic upgrade head`;
+  - restart both services;
+  - pps.6 for the panel.
+  - Check:
+    - the panel and every page load as before;
+    - one balance sync per exchange in the worker's log, with no new WARNING or ERROR;
+    - a reconciliation scan runs clean;
+    - the webhook still answers.
+
+### Delivery
+
+- [ ] B.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [ ] B.D.2 Push and open the PR (on the owner's word).
+- [ ] B.D.3 Merge (owner), with a merge commit.
+- [ ] B.D.4 Deploy (B.11, B.12).
+- [ ] B.D.5 Delivery log row and "Production now".
+
+## PR C-G
 
 Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is.
