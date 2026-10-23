@@ -84,6 +84,10 @@ from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 LOGGER ="strategy_manager.accounts.application.save_credential"
 
+#: How long a save that would be blocked by another transaction's open insert is
+#: given before it is judged as waiting.
+WAIT_FOR_A_BLOCKED_SAVE = 1.0
+
 
 
 class Harness:
@@ -600,7 +604,7 @@ async def test_concurrent_save_second_refused_409_by_constraint_name_not_message
 
     async with pg_session_factory() as winner:
         vault = SqlAlchemyCredentialVault(winner, EnvelopeCipher(master_key), clock)
-        await vault.store(bybit_credential("BYBIT-WINNER-KEY-1111"), winner_facts)
+        await vault.store(OWNER_ID, bybit_credential("BYBIT-WINNER-KEY-1111"), winner_facts)
 
         task = asyncio.create_task(loser())
         await asyncio.wait({task}, timeout=1.0)
@@ -615,6 +619,56 @@ async def test_concurrent_save_second_refused_409_by_constraint_name_not_message
 
     rows = await _rows(pg_session_factory, "bybit")
     assert [(row.api_key_last4, row.is_active) for row in rows] == [("1111", True)]
+
+
+@pytest.mark.integration
+@pytest.mark.usefixtures("clean_credentials")
+async def test_another_users_save_on_the_same_exchange_is_not_a_race_and_supersedes_nothing(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    """One active key per USER and exchange (0030, AD8). The owner holds an
+    active key and is rotating it in a transaction still open, which holds the
+    row lock on that key. A second user's save for the same exchange is not
+    blocked by any of it (it supersedes nothing of the owner's), is stored, and
+    the owner's rotation lands as it would alone."""
+    clock = TickingClock(NOW)
+    facts = KeyFacts.unrecorded(trade_capable=True)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other, enabled=False)
+        await SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), clock).store(
+            OWNER_ID, bybit_credential("BYBIT-OWNER-KEY-1111"), facts
+        )
+        await session.commit()
+
+    async def others_save() -> SaveResult:
+        async with pg_session_factory() as session:
+            return await _real_use_case(
+                session, master_key, RecordingInspector(TRADING_SNAPSHOT), clock
+            ).execute(other, bybit_credential("BYBIT-OTHER-KEY-2222"), NEITHER)
+
+    async with pg_session_factory() as owner:
+        vault = SqlAlchemyCredentialVault(owner, EnvelopeCipher(master_key), clock)
+        await vault.store(OWNER_ID, bybit_credential("BYBIT-OWNER-KEY-3333"), facts)
+
+        task = asyncio.create_task(others_save())
+        await asyncio.wait({task}, timeout=WAIT_FOR_A_BLOCKED_SAVE)
+        finished_while_held = task.done()
+
+        await owner.commit()
+        (outcome,) = await asyncio.gather(task, return_exceptions=True)
+
+    assert finished_while_held, "another user's save waited on the owner's open rotation"
+    assert not isinstance(outcome, BaseException), type(outcome).__name__
+    _saved(outcome)
+    rows = await _rows(pg_session_factory, "bybit")
+    assert sorted((str(row.user_id), row.api_key_last4, row.is_active) for row in rows) == sorted(
+        [
+            (str(OWNER_ID), "1111", False),
+            (str(OWNER_ID), "3333", True),
+            (str(other), "2222", True),
+        ]
+    )
 
 
 # --------------------------------------------------------------------------
@@ -651,6 +705,17 @@ async def test_the_pool_enabled_is_the_saving_users_never_another_users() -> Non
     _saved(await h.save(bybit_credential()))
 
     assert h.pools.users == [other]
+
+
+async def test_the_key_is_stored_as_the_saving_users_never_another_users() -> None:
+    """The key becomes the signed-in user's active key (AD8), so the writer is
+    told whose it is."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    h = Harness(RecordingInspector(TRADING_SNAPSHOT), user_id=other)
+
+    _saved(await h.save(bybit_credential()))
+
+    assert h.writer.users == [other]
 
 
 @pytest.mark.parametrize(
@@ -936,7 +1001,7 @@ async def test_a_lost_race_leaves_the_pool_untouched_even_inside_the_open_transa
 
     async with pg_session_factory() as winner:
         vault = SqlAlchemyCredentialVault(winner, EnvelopeCipher(master_key), clock)
-        await vault.store(bybit_credential("BYBIT-WINNER-KEY-1111"), winner_facts)
+        await vault.store(OWNER_ID, bybit_credential("BYBIT-WINNER-KEY-1111"), winner_facts)
 
         task = asyncio.create_task(loser())
         await asyncio.wait({task}, timeout=1.0)

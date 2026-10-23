@@ -40,7 +40,7 @@ import sys
 from decimal import Decimal
 from uuid import uuid4
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.execution.application.ports import ExchangeError, OpenOrderSpec
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
@@ -106,6 +106,7 @@ async def _assert_nothing_at_stake(
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -113,7 +114,7 @@ async def main() -> int:
     print(f"Symbol: {args.symbol}")
     print("This probe DOES send an order. It cannot fill: the wallet is empty.\n")
 
-    async with vault_credentials(settings) as credentials:
+    async with vault_credentials(settings, user_email=args.user_email) as credentials:
         announce(credentials, "vault")
         await _assert_nothing_at_stake(settings, credentials)
 

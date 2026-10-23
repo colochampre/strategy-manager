@@ -91,7 +91,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -132,10 +132,13 @@ def _cipher() -> EnvelopeCipher:
 
 
 async def _store_key(
-    factory: async_sessionmaker[AsyncSession], exchange: str = "bybit"
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str = "bybit",
+    user_id: UUID = OWNER_ID,
 ) -> None:
     async with factory() as session:
         await SqlAlchemyCredentialVault(session, _cipher(), TickingClock()).store(
+            user_id,
             ExchangeCredential(
                 exchange=exchange, label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),
@@ -145,17 +148,26 @@ async def _store_key(
 
 
 async def _credential_flags(
-    factory: async_sessionmaker[AsyncSession], exchange: str = "bybit"
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str = "bybit",
+    user_id: UUID = OWNER_ID,
 ) -> list[bool]:
     async with factory() as session:
         rows = await session.execute(
             text(
                 "SELECT is_active FROM exchange_credentials WHERE exchange = :e "
-                "ORDER BY created_at, id"
+                "AND user_id = :u ORDER BY created_at, id"
             ),
-            {"e": exchange},
+            {"e": exchange, "u": user_id},
         )
         return [row[0] for row in rows.all()]
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
 
 
 async def _pool_enabled(
@@ -288,6 +300,35 @@ async def test_a_second_deletion_finds_no_active_credential(
 
     with pytest.raises(NoActiveCredential):
         await _delete(factory)
+
+
+async def test_a_user_with_no_key_cannot_delete_another_users_key_on_the_same_exchange(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: only the owner holds a Bybit key. Another user's delete finds no key
+    of their own and leaves the owner's active."""
+    other = await _other_user(factory)
+    await _store_key(factory)
+
+    async with factory() as session:
+        with pytest.raises(NoActiveCredential):
+            await _build(session).execute(other, "bybit")
+
+    assert await _credential_flags(factory) == [True]
+
+
+async def test_deleting_a_key_leaves_another_users_key_on_the_same_exchange_active(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other = await _other_user(factory)
+    await _store_key(factory)
+    await _store_key(factory, user_id=other)
+
+    result = await _delete(factory)
+
+    assert result.last4 == BYBIT_KEY[-4:]
+    assert await _credential_flags(factory) == [False]
+    assert await _credential_flags(factory, user_id=other) == [True]
 
 
 # --- 6e.3: success, one transaction ---------------------------------------------------------

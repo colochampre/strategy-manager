@@ -124,9 +124,11 @@ class SaveCredential:
         credential: ExchangeCredential,
         confirmations: OwnerConfirmations,
     ) -> SaveResult:
-        """``user_id`` is the signed-in user saving the key. Today it selects
-        only WHOSE pool the save switches on (multi-user design AD8); the key
-        itself is not scoped to it yet."""
+        """``user_id`` is the signed-in user saving the key, and the whole save
+        is scoped to it (multi-user design AD8): the key becomes THAT user's
+        active key on the exchange, superseding only that user's previous one,
+        and the pool switched on is that user's pool. Another user's key and
+        pool on the same exchange are never touched."""
         exchange = credential.exchange
 
         premature = check_confirmations(exchange, confirmations)
@@ -146,7 +148,7 @@ class SaveCredential:
 
         facts = self._stamp(verdict)
         try:
-            await self._writer.store(credential, facts)
+            await self._writer.store(user_id, credential, facts)
         except ConcurrentCredentialSave as exc:
             return self._refused_with(exchange, SaveOutcome.CONCURRENT_SAVE, str(exc))
         # Decision 21: the same transaction as the credential, after it. Nothing

@@ -22,9 +22,11 @@ exchange -- superseding decision 9's earlier Bybit-vault/Binance-`.env`
 split). Which key is running is printed before any call, via
 `probe_credentials.announce` (CLAUDE.md's two-keys lesson).
 
+The keys are those of the user `--user-email` names (multi-user design AD8).
+
 Usage (from `backend/`):
-    uv run python scripts/check_venue_fill_windows.py
-    uv run python scripts/check_venue_fill_windows.py --symbol ETHUSDT --lookback-days 30
+    uv run python scripts/check_venue_fill_windows.py --user-email <e-mail>
+    uv run python scripts/check_venue_fill_windows.py --user-email <e-mail> --symbol ETHUSDT
 
 **Run on the worker's host** -- Binance weight is counted per IP, so a
 measurement from anywhere else is not about production (same rule
@@ -81,7 +83,11 @@ else:
         "for the exact VPS command) so the working directory carries it."
     )
 
-from probe_credentials import announce, vault_credentials  # noqa: E402
+from probe_credentials import (  # noqa: E402
+    add_user_email_argument,
+    announce,
+    vault_credentials,
+)
 
 from strategy_manager.shared.config import get_settings  # noqa: E402
 from strategy_manager.shared.infrastructure.alert_redaction import redact  # noqa: E402
@@ -168,6 +174,7 @@ class Args:
     lookback_days: int
     span_candidates_days: tuple[int, ...]
     page_limit: int
+    user_email: str
 
 
 # --- pure helpers (RED-tested; no venue I/O) --------------------------------
@@ -309,6 +316,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         default=DEFAULT_PAGE_LIMIT,
         help=f"page size requested for item (b)/(c)/(d) calls (default: {DEFAULT_PAGE_LIMIT})",
     )
+    add_user_email_argument(parser)
     parsed = parser.parse_args(argv)
     if parsed.lookback_days <= 0:
         raise ValueError("--lookback-days must be positive")
@@ -321,6 +329,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         lookback_days=parsed.lookback_days,
         span_candidates_days=tuple(sorted(set(parsed.span_days))),
         page_limit=parsed.page_limit,
+        user_email=parsed.user_email,
     )
 
 
@@ -929,7 +938,9 @@ async def _run(args: Args) -> int:
     print(f"\n=== BYBIT ({BYBIT_EXCHANGE}) ===")
     bybit_results: dict[str, ItemVerdict] = {}
     try:
-        async with vault_credentials(settings, BYBIT_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BYBIT_EXCHANGE, user_email=args.user_email
+        ) as vaulted:
             announce(vaulted, f"vault ({BYBIT_EXCHANGE})")
             bybit_signer = BybitSigner(
                 BybitCredentials(api_key=vaulted.api_key, api_secret=vaulted.api_secret),
@@ -957,7 +968,9 @@ async def _run(args: Args) -> int:
     print(f"\n=== BINANCE ({BINANCE_EXCHANGE}) ===")
     binance_results: dict[str, ItemVerdict] = {}
     try:
-        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BINANCE_EXCHANGE, user_email=args.user_email
+        ) as vaulted:
             announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
             binance_signer = BinanceSigner(
                 BinanceCredentials(api_key=vaulted.api_key, api_secret=vaulted.api_secret),

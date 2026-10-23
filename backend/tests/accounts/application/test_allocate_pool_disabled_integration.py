@@ -182,7 +182,7 @@ async def test_allocation_that_waited_while_the_pool_was_disabled_skips_pool_dis
             text("UPDATE capital_pools SET enabled = false WHERE exchange = :e"),
             {"e": POOL[0]},
         )
-        await SqlAlchemyCredentialRevoker(held, FixedClock()).deactivate(POOL[0])
+        await SqlAlchemyCredentialRevoker(held, FixedClock()).deactivate(OWNER_ID, POOL[0])
 
         allocation = _Allocation(factory, strategy_id, signal_id)
         await _allocation_is_queued_on_the_pool_lock(factory, allocation.task)

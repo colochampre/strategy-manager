@@ -40,15 +40,16 @@ Keep this script. It is the reproducible evidence for asking them.
 
 Usage:
     cd backend
-    uv run python scripts/check_pionex_trade_permission.py
+    uv run python scripts/check_pionex_trade_permission.py --user-email <e-mail>
 """
 
+import argparse
 import asyncio
 import sys
 from typing import Any
 from uuid import uuid4
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.pionex.errors import PionexApiError
@@ -88,11 +89,15 @@ async def _attempt(
 
 
 async def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_user_email_argument(parser)
+    args = parser.parse_args()
+
     settings = get_settings()
     print(f"Pionex base URL: {settings.pionex_base_url}")
     print("Both orders are below the venue minimums and cannot fill.\n")
 
-    async with vault_credentials(settings) as credentials:
+    async with vault_credentials(settings, user_email=args.user_email) as credentials:
         announce(credentials, "vault")
         async with signed_transport(settings, credentials) as transport:
             spot = await _attempt(

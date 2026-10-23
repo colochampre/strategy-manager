@@ -90,9 +90,11 @@ def test_binance_booking_prepare_signs_with_vault_key_not_settings() -> None:
     # SAME vault instance both branches load from) -- so the proof that both
     # actually load through it is each exchange's own ``vault.load(...)``
     # call, not a count of constructions.
+    # Since multi-user design AD9 a load names its user too: the interim key
+    # holder's, until reconciliation runs per user's pool (tasks.md B.8).
     assert "SqlAlchemyCredentialVault(" in body
-    assert "vault.load(BYBIT_EXCHANGE)" in body
-    assert "vault.load(BINANCE_EXCHANGE)" in body
+    assert "vault.load(bybit_holder, BYBIT_EXCHANGE)" in body
+    assert "vault.load(binance_holder, BINANCE_EXCHANGE)" in body
 
 
 # --- PR 15, cd.1.22: the worker books what it prepares (owner decision 66 Q1) --
@@ -179,7 +181,8 @@ def test_binance_balance_refresh_signs_with_vault_key() -> None:
     assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
+    # The job owner's key (AD8): ``owner`` is the strategy author.
+    assert "vault.load(owner, BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_venue_position_signs_with_vault_key() -> None:
@@ -196,22 +199,27 @@ def test_binance_venue_position_signs_with_vault_key() -> None:
     assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_position_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
+    assert "vault.load(owner, BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_balance_sync_signs_with_vault_key() -> None:
-    """``handle_balance_sync``'s Binance branch (site ``main.py:960``)."""
+    """``handle_balance_sync``'s Binance branch. Since multi-user design AD9
+    every pair, Binance's included, is read through ``_open_balance_reader``
+    with that pair's user's vault key."""
     from strategy_manager import main
 
     source = inspect.getsource(main.build_worker_runner)
     body = source[source.index("async def handle_balance_sync") :]
     body = body[: body.index("async def handle_reservation_sweep")]
+    opener = source[source.index("async def _open_balance_reader") :]
+    opener = opener[: opener.index("async def exchange_for")]
 
     assert "SqlAlchemyCredentialVault(" in body
-    assert "if binance_pools and BINANCE_EXCHANGE in active:" in body
-    binance_block = body[body.index("if binance_pools and BINANCE_EXCHANGE in active:") :]
-    assert "binance_credentials_from_settings" not in binance_block
-    assert "vault.load(BINANCE_EXCHANGE)" in binance_block
+    assert "for exchange in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):" in body
+    assert "_open_balance_reader(" in body
+    assert "binance_credentials_from_settings" not in opener
+    assert "vault.load(user_id, exchange)" in opener
+    assert "binance_read_only_client(" in opener
 
 
 def test_binance_reconciliation_scan_signs_with_vault_key() -> None:
@@ -223,7 +231,7 @@ def test_binance_reconciliation_scan_signs_with_vault_key() -> None:
     body = body[: body.index("async def handle_reconciliation_prepare_booking")]
 
     assert "SqlAlchemyCredentialVault(" in body
-    assert "if binance_pools:" in body
-    binance_block = body[body.index("if binance_pools:") :]
+    assert "if binance_holder is not None and binance_pools:" in body
+    binance_block = body[body.index("if binance_holder is not None and binance_pools:") :]
     assert "binance_credentials_from_settings" not in binance_block
-    assert "vault.load(BINANCE_EXCHANGE)" in binance_block
+    assert "vault.load(binance_holder, BINANCE_EXCHANGE)" in binance_block

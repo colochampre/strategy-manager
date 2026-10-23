@@ -37,15 +37,62 @@ from tests.accounts.fakes import (
     RecordingInspector,
     binance_credential,
 )
-from tests.scripts.store_fakes import ScriptSession
+from tests.owner import OWNER_ID
+from tests.scripts.store_fakes import OWNER_EMAIL, ScriptSession
 
 WITHDRAWALS_FLAG = "--confirm-withdrawals-disabled"
 FUTURES_FLAG = "--confirm-futures-enabled"
 BOTH_FLAGS = [WITHDRAWALS_FLAG, FUTURES_FLAG]
+USER = ["--user-email", OWNER_EMAIL]
 
 
-async def _run(session: ScriptSession, argv: list[str]) -> int:
-    return await script.main(argv, prompt=session.prompt, make_saver=session.make_saver)
+async def _run(session: ScriptSession, argv: list[str], *, user: list[str] = USER) -> int:
+    """``--user-email`` names whose key this is (multi-user design AD8)."""
+    return await script.main(
+        [*user, *argv], prompt=session.prompt, make_saver=session.make_saver
+    )
+
+
+async def test_the_key_is_saved_for_the_user_the_email_names(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(binance_credential())
+
+    code = await _run(session, BOTH_FLAGS)
+
+    capsys.readouterr()
+    assert code == 0
+    assert session.emails == [OWNER_EMAIL]
+    assert session.users == [OWNER_ID]
+
+
+async def test_without_a_user_email_it_exits_2_before_the_secret_prompt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(binance_credential())
+
+    code = await _run(session, BOTH_FLAGS, user=[])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--user-email" in captured.err
+    assert session.prompt_calls == 0
+    assert session.saver_requests == 0
+    assert session.writer.stored == []
+
+
+async def test_an_unknown_user_email_stores_nothing_and_never_prompts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(binance_credential())
+
+    code = await _run(session, BOTH_FLAGS, user=["--user-email", "nobody@example.com"])
+
+    capsys.readouterr()
+    assert code == 1
+    assert session.emails == ["nobody@example.com"]
+    assert session.prompt_calls == 0
+    assert session.writer.stored == []
 
 
 def _leaks(*texts: str) -> list[str]:
@@ -185,7 +232,7 @@ async def test_no_other_flag_confirms_and_abbreviations_are_refused(
 
 
 def test_no_flag_defaults_to_confirmed() -> None:
-    parsed = script.build_parser().parse_args([])
+    parsed = script.build_parser().parse_args(USER)
 
     assert parsed.confirm_withdrawals_disabled is False
     assert parsed.confirm_futures_enabled is False
@@ -328,7 +375,7 @@ async def test_a_saved_result_is_printed_without_the_key(
 
 
 def test_confirmations_are_the_only_input_the_flags_build() -> None:
-    parsed = script.build_parser().parse_args(BOTH_FLAGS)
+    parsed = script.build_parser().parse_args([*USER, *BOTH_FLAGS])
 
     assert script.confirmations_from(parsed) == OwnerConfirmations(
         withdrawals_disabled=True, futures_enabled=True

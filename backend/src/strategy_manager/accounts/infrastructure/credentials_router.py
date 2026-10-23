@@ -347,8 +347,9 @@ async def put_credential(
 
 
 @router.get("", response_model=list[CredentialEntry])
-async def list_credentials(session: SessionDep) -> list[CredentialEntry]:
-    overviews = await SqlAlchemyCredentialListing(session).list_overview()
+async def list_credentials(session: SessionDep, user: CurrentUserDep) -> list[CredentialEntry]:
+    """The signed-in user's keys and pools only (multi-user design AD8)."""
+    overviews = await SqlAlchemyCredentialListing(session).list_overview(user.id)
     return [CredentialEntry.of(overview) for overview in overviews]
 
 

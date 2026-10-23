@@ -40,9 +40,13 @@ Idempotent: running it again supersedes the stored credential rather than
 duplicating it, so it doubles as the key-rotation path. A rotation inherits no
 confirmation: the new key is confirmed on its own.
 
+The key is a user's (multi-user design AD8): ``--user-email`` is required,
+names a user who has signed in to the panel once, and is refused before the
+prompt when nobody is registered with it.
+
 Usage -- run it yourself, in your own terminal, since it prompts:
     cd backend
-    uv run python scripts/store_binance_credentials.py
+    uv run python scripts/store_binance_credentials.py --user-email <e-mail>
         --confirm-withdrawals-disabled --confirm-futures-enabled
     (one line; wrapped here)
 """
@@ -53,6 +57,7 @@ import sys
 from collections.abc import Sequence
 
 from credential_cli import (
+    USER_EMAIL_HELP,
     PromptFn,
     RoundTripFailed,
     SaverFactory,
@@ -93,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help='you checked in Binance that this key has "Enable Futures"',
     )
+    parser.add_argument("--user-email", required=True, help=USER_EMAIL_HELP)
     return parser
 
 
@@ -141,7 +147,10 @@ async def main(
         return 2
 
     return await run_store(
-        confirmations=confirmations_from(parsed), prompt=prompt, make_saver=make_saver
+        confirmations=confirmations_from(parsed),
+        user_email=parsed.user_email,
+        prompt=prompt,
+        make_saver=make_saver,
     )
 
 

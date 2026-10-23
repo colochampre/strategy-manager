@@ -40,7 +40,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE as BYBIT_EXCHANGE
@@ -227,6 +227,7 @@ async def _run(symbol: str, client: BybitReadOnlyClient) -> bool:
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -235,7 +236,9 @@ async def main() -> int:
     print(f"Symbol under inspection: {args.symbol}")
     print("This probe is GET-only: it places nothing and changes no setting.")
 
-    async with vault_credentials(settings, BYBIT_EXCHANGE) as vaulted:
+    async with vault_credentials(
+        settings, BYBIT_EXCHANGE, user_email=args.user_email
+    ) as vaulted:
         announce(vaulted, f"vault ({BYBIT_EXCHANGE})")
         credentials = BybitCredentials(
             api_key=vaulted.api_key, api_secret=vaulted.api_secret

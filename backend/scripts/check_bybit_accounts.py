@@ -25,9 +25,10 @@ transfer this system cannot perform is a manual step someone has to remember.
 
 Usage:
     cd backend
-    uv run python scripts/check_bybit_accounts.py
+    uv run python scripts/check_bybit_accounts.py --user-email <e-mail>
 """
 
+import argparse
 import asyncio
 import json
 import sys
@@ -35,7 +36,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
     BybitBalanceReader,
@@ -213,6 +214,10 @@ async def _report_pool_view(client: BybitReadOnlyClient) -> None:
 
 
 async def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_user_email_argument(parser)
+    args = parser.parse_args()
+
     settings = get_settings()
 
     print(f"Bybit base URL: {settings.bybit_base_url}")
@@ -222,7 +227,7 @@ async def main() -> int:
     # perform a transfer, so it is the one whose permissions matter here. The
     # environment holds the read-only key, which would answer a different
     # question and look like the same one.
-    async with vault_credentials(settings, EXCHANGE) as credentials:
+    async with vault_credentials(settings, EXCHANGE, user_email=args.user_email) as credentials:
         bybit = BybitCredentials(
             api_key=credentials.api_key, api_secret=credentials.api_secret
         )

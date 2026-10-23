@@ -799,6 +799,7 @@ async def test_get_credentials_an_exchange_with_only_a_history_row_is_listed_emp
     async with factory() as session:
         vault = SqlAlchemyCredentialVault(session, _cipher(), TickingClock())
         await vault.store(
+            await seed_admin(session),
             ExchangeCredential(
                 exchange="binance", label="default", api_key=BINANCE_KEY, api_secret=BINANCE_SECRET
             ),
@@ -863,6 +864,7 @@ async def test_get_credentials_a_legacy_row_reads_unrecorded_with_no_validation_
     async with factory() as session:
         vault = SqlAlchemyCredentialVault(session, _cipher(), TickingClock())
         await vault.store(
+            await seed_admin(session),
             ExchangeCredential(
                 exchange="pionex", label="default", api_key="PIONEX-KEY-9999", api_secret="x-secret"
             ),
@@ -882,6 +884,33 @@ async def test_get_credentials_a_legacy_row_reads_unrecorded_with_no_validation_
     assert entry["validated_at"] is None
     assert entry["trade_confirmed_at"] is None
     assert entry["withdraw_confirmed_at"] is None
+
+
+@pytest.mark.integration
+async def test_get_credentials_lists_only_the_signed_in_users_keys_and_pools_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: another user holds active Bybit and Binance keys and an enabled
+    Binance pool. The admin, who has stored no key, sees only their own pools,
+    each EMPTY: no other user's exchange, key or last four."""
+    other_bybit, other_binance = "OTHER-BYBIT-KEY-7531", "OTHER-BINANCE-KEY-8642"
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other, enabled=True)
+        await session.commit()
+    await _store(factory, "bybit", key=other_bybit, user_id=other)
+    await _store(factory, "binance", key=other_binance, user_id=other)
+
+    async with _serve_db(factory) as served:
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
+
+    assert listed.status_code == 200
+    assert [(entry["exchange"], entry["status"]) for entry in listed.json()] == [
+        ("bybit", "EMPTY"),
+        ("pionex", "EMPTY"),
+    ]
+    assert other_bybit[-4:] not in listed.text
+    assert other_binance[-4:] not in listed.text
 
 
 # --- the router never decrypts --------------------------------------------------------------
@@ -1001,10 +1030,16 @@ async def _serve_delete(
 
 
 async def _store(
-    factory: async_sessionmaker[AsyncSession], exchange: str, key: str = BYBIT_KEY
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str,
+    key: str = BYBIT_KEY,
+    user_id: UUID | None = None,
 ) -> None:
+    """A key stored for the signed-in admin unless another user is named."""
     async with factory() as session:
+        owner = user_id or await seed_admin(session)
         await SqlAlchemyCredentialVault(session, _cipher(), TickingClock()).store(
+            owner,
             ExchangeCredential(
                 exchange=exchange, label="default", api_key=key, api_secret=BYBIT_SECRET
             ),
@@ -1202,6 +1237,40 @@ async def test_delete_and_save_switch_only_the_signed_in_users_pool_never_anothe
     assert await _pool_enabled(factory, other, "bybit") is True
     assert await _pool_enabled(factory, admin, "binance") is True
     assert await _pool_enabled(factory, other, "binance") is False
+
+
+async def _flags_by_user(
+    factory: async_sessionmaker[AsyncSession], exchange: str
+) -> set[tuple[str, bool]]:
+    async with factory() as session:
+        rows = await session.execute(
+            text("SELECT user_id, is_active FROM exchange_credentials WHERE exchange = :e"),
+            {"e": exchange},
+        )
+        return {(str(row[0]), bool(row[1])) for row in rows.all()}
+
+
+@pytest.mark.integration
+async def test_delete_credentials_switches_off_only_the_signed_in_users_key_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: with only another user's Bybit key stored, the admin's DELETE is a
+    404 and that key stays active. Once the admin stores their own, deleting it
+    switches off the admin's key alone."""
+    async with factory() as session:
+        admin = await seed_admin(session)
+        other = await seed_other_user(session)
+        await session.commit()
+    await _store(factory, "bybit", key="OTHER-BYBIT-KEY-2222", user_id=other)
+
+    async with _serve_delete(factory) as served:
+        refused = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+    await _store(factory, "bybit")
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+
+    assert (refused.status_code, deleted.status_code) == (404, 200)
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), False), (str(other), True)}
 
 
 @pytest.mark.integration

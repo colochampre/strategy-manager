@@ -33,8 +33,10 @@ from strategy_manager.shared.infrastructure.crypto import (
     SealedValue,
 )
 
-# The partial unique index behind "one active key per exchange" (migration 0010).
-# A second concurrent save is recognised by THIS name, never by message text.
+# The partial unique index behind "one active key per user and exchange"
+# (migration 0010, made per user by 0030 under the same name). A second
+# concurrent save by the same user is recognised by THIS name, never by message
+# text.
 ONE_ACTIVE_PER_EXCHANGE_CONSTRAINT = "ux_exchange_credentials_one_active_per_exchange"
 
 API_KEY = "api_key"
@@ -55,16 +57,19 @@ class SqlAlchemyCredentialVault:
         self._cipher = cipher
         self._clock = clock
 
-    async def load(self, exchange: str) -> ExchangeCredential:
-        """Decrypts the active credential for an exchange.
+    async def load(self, user_id: UUID, exchange: str) -> ExchangeCredential:
+        """Decrypts ``user_id``'s active credential for an exchange. Another
+        user's key on the same exchange is never opened, even when this user
+        has none.
 
         Called on the worker at signing time and nowhere else.
         """
-        row = await self._active_row(exchange)
+        row = await self._active_row(user_id, exchange)
         if row is None:
             raise CredentialNotFound(
-                f"no active credential stored for '{exchange}'; seal one with "
-                "scripts/store_pionex_credentials.py"
+                f"no active credential stored for '{exchange}' of user "
+                f"{str(user_id)[:8]}; save one from the panel or with "
+                f"scripts/store_{exchange}_credentials.py"
             )
 
         opened = self._cipher.unseal(_envelope_of(row), _context(row.id))
@@ -75,12 +80,16 @@ class SqlAlchemyCredentialVault:
             api_secret=opened[API_SECRET],
         )
 
-    async def hints(self) -> list[CredentialHint]:
-        """Every stored credential, as much of it as may be shown."""
+    async def hints(self, user_id: UUID) -> list[CredentialHint]:
+        """Every active credential of ``user_id``, as much of it as may be
+        shown."""
         rows = (
             await self._session.execute(
                 select(ExchangeCredentialRow)
-                .where(ExchangeCredentialRow.is_active.is_(True))
+                .where(
+                    ExchangeCredentialRow.user_id == user_id,
+                    ExchangeCredentialRow.is_active.is_(True),
+                )
                 .order_by(ExchangeCredentialRow.exchange, ExchangeCredentialRow.label)
             )
         ).scalars()
@@ -94,8 +103,12 @@ class SqlAlchemyCredentialVault:
             for row in rows
         ]
 
-    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint:
-        """Seals a credential and makes it the active one for its exchange.
+    async def store(
+        self, user_id: UUID, credential: ExchangeCredential, facts: KeyFacts
+    ) -> CredentialHint:
+        """Seals a credential and makes it ``user_id``'s active one for its
+        exchange. Only THAT user's previous active key steps down; another
+        user's key on the same exchange is never touched.
 
         The row id is generated here rather than by the database, because it
         is the encryption context: the ciphertexts must be bound to the row
@@ -110,6 +123,7 @@ class SqlAlchemyCredentialVault:
         )
         row = ExchangeCredentialRow(
             id=row_id,
+            user_id=user_id,
             exchange=credential.exchange,
             label=credential.label,
             is_active=True,
@@ -133,7 +147,7 @@ class SqlAlchemyCredentialVault:
             # A SAVEPOINT, so a lost race undoes its own deactivation and
             # leaves the caller's transaction usable instead of aborted.
             async with self._session.begin_nested():
-                await self._deactivate_existing(credential.exchange, self._clock.now())
+                await self._deactivate_existing(user_id, credential.exchange, self._clock.now())
                 self._session.add(row)
                 await self._session.flush()
         except IntegrityError as error:
@@ -144,19 +158,21 @@ class SqlAlchemyCredentialVault:
             raise
         return credential.hint(facts)
 
-    async def _active_row(self, exchange: str) -> ExchangeCredentialRow | None:
+    async def _active_row(self, user_id: UUID, exchange: str) -> ExchangeCredentialRow | None:
         result = await self._session.execute(
             select(ExchangeCredentialRow).where(
+                ExchangeCredentialRow.user_id == user_id,
                 ExchangeCredentialRow.exchange == exchange,
                 ExchangeCredentialRow.is_active.is_(True),
             )
         )
         return result.scalar_one_or_none()
 
-    async def _deactivate_existing(self, exchange: str, at: datetime) -> None:
+    async def _deactivate_existing(self, user_id: UUID, exchange: str, at: datetime) -> None:
         await self._session.execute(
             update(ExchangeCredentialRow)
             .where(
+                ExchangeCredentialRow.user_id == user_id,
                 ExchangeCredentialRow.exchange == exchange,
                 ExchangeCredentialRow.is_active.is_(True),
             )

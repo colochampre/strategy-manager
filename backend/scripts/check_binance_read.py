@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
@@ -332,6 +332,7 @@ async def _run(symbols: list[str], spot: BinanceTransport, futures: BinanceTrans
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", action="append", dest="symbols")
+    add_user_email_argument(parser)
     args = parser.parse_args()
     symbols = [s.upper() for s in (args.symbols or [DEFAULT_SYMBOL])]
 
@@ -342,7 +343,9 @@ async def main() -> int:
     print(f"Symbols under inspection: {', '.join(symbols)}")
     print("This probe is GET-only: it places nothing and changes no setting.")
 
-    async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+    async with vault_credentials(
+        settings, BINANCE_EXCHANGE, user_email=args.user_email
+    ) as vaulted:
         announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
         credentials = BinanceCredentials(
             api_key=vaulted.api_key, api_secret=vaulted.api_secret

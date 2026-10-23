@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models owned by ``accounts``. Mirror migrations
 ``0003_strategies_pools``, ``0009_pool_balance_snapshots``,
-``0010_exchange_credentials``, ``0027_credential_snapshot`` and, for the two
-pool tables, ``0030_ownership``.
+``0010_exchange_credentials``, ``0027_credential_snapshot`` and, for every
+table here, ``0030_ownership``.
 """
 
 from datetime import datetime
@@ -119,7 +119,10 @@ class PoolBalanceSnapshotRow(Base):
 class ExchangeCredentialRow(Base):
     """Mirrors ``exchange_credentials``. Every secret column is ciphertext;
     ``api_key_last4`` is the only readable value in the table, and the only
-    one a client may ever be shown (CLAUDE.md rule 8)."""
+    one a client may ever be shown (CLAUDE.md rule 8).
+
+    A key belongs to a user (``user_id``, migration ``0030``): every read and
+    write of this table names that user (multi-user design AD8)."""
 
     __tablename__ = "exchange_credentials"
     __table_args__ = (
@@ -165,16 +168,27 @@ class ExchangeCredentialRow(Base):
             "AND withdraw_check <> 'OWNER_CONFIRMED')",
             name="ck_exchange_credentials_bybit_not_owner_confirmed",
         ),
+        # One active key per USER and exchange (migration ``0030``, multi-user
+        # design AD2): two users may each hold an active key on one exchange.
+        # The name is 0029's, kept because the vault recognises a lost save race
+        # by it.
         Index(
             "ux_exchange_credentials_one_active_per_exchange",
+            "user_id",
             "exchange",
             unique=True,
             postgresql_where=text("is_active"),
         ),
+        Index("ix_exchange_credentials_user_id", "user_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_exchange_credentials_user"),
+        nullable=False,
     )
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)

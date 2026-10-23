@@ -6,8 +6,12 @@ secret: deleting a key never needs to open it. The row is DEACTIVATED, never
 removed, because rotation history is retained (a superseded key is a row to
 reactivate, not a secret that no longer exists anywhere).
 
-Both methods run in the caller's transaction and never commit.
+Both methods run in the caller's transaction and never commit, and both name
+the user whose key they lock or deactivate (multi-user design AD8): another
+user's key on the same exchange is never touched.
 """
+
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,11 +28,15 @@ class SqlAlchemyCredentialRevoker:
         self._session = session
         self._clock = clock
 
-    async def lock_active(self, exchange: str) -> ActiveCredential | None:
+    async def lock_active(self, user_id: UUID, exchange: str) -> ActiveCredential | None:
         row = (
             await self._session.execute(
                 select(_ROW.exchange, _ROW.label, _ROW.api_key_last4)
-                .where(_ROW.exchange == exchange, _ROW.is_active.is_(True))
+                .where(
+                    _ROW.user_id == user_id,
+                    _ROW.exchange == exchange,
+                    _ROW.is_active.is_(True),
+                )
                 .with_for_update()
             )
         ).one_or_none()
@@ -36,9 +44,13 @@ class SqlAlchemyCredentialRevoker:
             return None
         return ActiveCredential(exchange=row.exchange, label=row.label, last4=row.api_key_last4)
 
-    async def deactivate(self, exchange: str) -> None:
+    async def deactivate(self, user_id: UUID, exchange: str) -> None:
         await self._session.execute(
             update(_ROW)
-            .where(_ROW.exchange == exchange, _ROW.is_active.is_(True))
+            .where(
+                _ROW.user_id == user_id,
+                _ROW.exchange == exchange,
+                _ROW.is_active.is_(True),
+            )
             .values(is_active=False, updated_at=self._clock.now())
         )

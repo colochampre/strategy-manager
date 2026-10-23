@@ -28,11 +28,61 @@ from tests.accounts.fakes import (
     RecordingInspector,
     bybit_credential,
 )
-from tests.scripts.store_fakes import ScriptSession
+from tests.owner import OWNER_ID
+from tests.scripts.store_fakes import OWNER_EMAIL, ScriptSession
 
 
-async def _run(session: ScriptSession, argv: list[str] | None = None) -> int:
-    return await script.main(argv or [], prompt=session.prompt, make_saver=session.make_saver)
+async def _run(
+    session: ScriptSession, argv: list[str] | None = None, *, email: str | None = OWNER_EMAIL
+) -> int:
+    """``email`` is passed as ``--user-email`` (multi-user design AD8); ``None``
+    leaves the flag out."""
+    named = ["--user-email", email] if email is not None else []
+    return await script.main(
+        [*named, *(argv or [])], prompt=session.prompt, make_saver=session.make_saver
+    )
+
+
+async def test_the_key_is_saved_for_the_user_the_email_names(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(bybit_credential(), inspector=RecordingInspector(TRANSFER_SNAPSHOT))
+
+    code = await _run(session)
+
+    capsys.readouterr()
+    assert code == 0
+    assert session.emails == [OWNER_EMAIL]
+    assert session.users == [OWNER_ID]
+
+
+async def test_without_a_user_email_it_exits_2_before_the_secret_prompt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(bybit_credential(), inspector=RecordingInspector(TRANSFER_SNAPSHOT))
+
+    code = await _run(session, email=None)
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--user-email" in captured.err
+    assert session.prompt_calls == 0
+    assert session.saver_requests == 0
+    assert session.writer.stored == []
+
+
+async def test_an_unknown_user_email_stores_nothing_and_never_prompts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = ScriptSession(bybit_credential(), inspector=RecordingInspector(TRANSFER_SNAPSHOT))
+
+    code = await _run(session, email="nobody@example.com")
+
+    capsys.readouterr()
+    assert code == 1
+    assert session.emails == ["nobody@example.com"]
+    assert session.prompt_calls == 0
+    assert session.writer.stored == []
 
 
 def _leaks(*texts: str) -> list[str]:

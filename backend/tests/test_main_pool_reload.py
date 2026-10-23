@@ -190,14 +190,15 @@ def test_an_exchange_with_no_configured_pool_left_is_dropped_without_an_info(
     must leave the DEGRADED tracker -- but silently, never with the
     "reads resume" INFO ``_track_degraded_exchanges`` logs for an actual
     recovery. It did not recover; it stopped mattering."""
-    tracker = {"binance"}  # still degraded, but no longer configured below
+    # Pairs since multi-user design AD9.
+    tracker = {(OWNER_ID, "binance")}  # still degraded, but no longer configured below
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=frozenset({"bybit"}), active=frozenset()
+            tracker, configured=frozenset({(OWNER_ID, "bybit")}), active=frozenset()
         )
 
-    assert "binance" not in tracker
+    assert (OWNER_ID, "binance") not in tracker
     assert not any("resume" in record.getMessage() for record in caplog.records)
 
 
@@ -206,14 +207,16 @@ def test_a_degraded_exchange_still_configured_is_not_dropped(
 ) -> None:
     """Triangulation: the cleanup must be scoped to exchanges that left
     ``configured`` entirely, never a blanket wipe of the tracker."""
-    tracker = {"binance"}
+    tracker = {(OWNER_ID, "binance")}
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=frozenset({"bybit", "binance"}), active=frozenset({"bybit"})
+            tracker,
+            configured=frozenset({(OWNER_ID, "bybit"), (OWNER_ID, "binance")}),
+            active=frozenset({(OWNER_ID, "bybit")}),
         )
 
-    assert "binance" in tracker
+    assert (OWNER_ID, "binance") in tracker
 
 
 # --- wiring pins: balance.sync is the ONE reload point, every other site ----

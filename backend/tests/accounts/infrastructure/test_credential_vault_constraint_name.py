@@ -23,6 +23,7 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from tests.owner import OWNER_ID
 
 OTHER_CONSTRAINT = "ck_exchange_credentials_last4_length"
 
@@ -92,6 +93,7 @@ def _vault(error: IntegrityError) -> SqlAlchemyCredentialVault:
 
 async def _store(vault: SqlAlchemyCredentialVault) -> None:
     await vault.store(
+        OWNER_ID,
         ExchangeCredential(
             exchange="pionex", label="default", api_key="PIONEX-FAKE-KEY-abcd", api_secret="s"
         ),

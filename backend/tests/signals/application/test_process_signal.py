@@ -3000,6 +3000,25 @@ async def test_a_trade_capable_exchange_opens_exactly_as_before() -> None:
     assert trade_capability.asked == ["bybit"]
 
 
+async def test_the_capability_asked_about_is_the_strategy_authors_key() -> None:
+    """Multi-user design AD8, tasks.md B.5: a signal is worked with its strategy
+    author's key, so the author's key is the one asked about."""
+    author = UUID("00000000-0000-4000-8000-0000000000a7")
+    trade_capability = FakeTradeCapability(TradeCapability.TRADE_CAPABLE)
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(author_id=author),
+        tradable_pools=_BYBIT_POOLS,
+        trade_capability=trade_capability,
+    )
+
+    await handler.handle(uuid4())
+
+    assert trade_capability.users == [author]
+
+
 async def test_the_unlisted_pair_refusal_comes_before_the_capability_check() -> None:
     """Order (design.md § 4a): the allowlist refusal is decided first, so an
     unlisted pair on a keyless exchange says ``PAIR_NOT_ALLOWED`` and the
@@ -3085,6 +3104,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
         await SqlAlchemyCredentialVault(
             session, EnvelopeCipher(os.urandom(MASTER_KEY_BYTES)), TickingClock()
         ).store(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="bybit", label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),

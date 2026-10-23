@@ -57,12 +57,16 @@ import signal
 import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import CredentialVaultPort
-from strategy_manager.accounts.domain.exchange_credential import CredentialHint
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
+)
+from strategy_manager.accounts.infrastructure.key_coverage import (
+    UserExchange,
+    read_key_coverage,
 )
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
@@ -199,20 +203,21 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
         with _startup_refusal():
             cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+        # The users holding an active key, and the pairs that hold one, from
+        # one statement with no decrypt (multi-user design AD9). Kept apart
+        # from ``opened``: that list is the DECRYPT self-test's own evidence,
+        # and re-purposing it here would tie a MISSING-key report to a decrypt
+        # attempt that never happened for the pair in question.
+        active = (await read_key_coverage(session)).active
+        users = sorted({user_id for user_id, _ in active}, key=str)
         with _startup_refusal():
-            opened = await _assert_sealed_credentials_open(vault)
-        # ``hints()`` is a second, cheap call (no decrypt) on the same
-        # already-open session, deliberately kept separate from ``opened``:
-        # that list is the DECRYPT self-test's own evidence, and re-purposing
-        # it here would tie a MISSING-key report to a decrypt attempt that
-        # never happened for the exchange in question.
-        hints = await vault.hints()
+            opened = await _assert_sealed_credentials_open(vault, users)
     _log_vault_self_test(opened, dry_run=settings.dry_run)
 
-    # Which CONFIGURED exchanges have no active key AT ALL — DEGRADED
+    # Which CONFIGURED pairs have no active key AT ALL — DEGRADED
     # (decision 20), never a startup refusal (see ``_assert_keys_present``'s
     # own docstring for the full reasoning and its per-job continuation).
-    degraded = _assert_keys_present(hints, pools)
+    degraded = _assert_keys_present(active, pools)
 
     # Registers the handlers and asserts the DRY_RUN invariant, so an unsafe
     # configuration fails here rather than on the first claimed signal.
@@ -273,7 +278,7 @@ async def _seed_recurring_chains(settings: Settings) -> list[JobKind]:
         ).seed()
 
 
-def _log_vault_self_test(opened: list[str], *, dry_run: bool) -> None:
+def _log_vault_self_test(opened: Sequence[UserExchange], *, dry_run: bool) -> None:
     """An EMPTY vault is not a failure. A fresh deployment has sealed nothing
     yet, and the sealing scripts need this database and this configuration to
     run at all — refusing here would make the first boot impossible.
@@ -288,7 +293,7 @@ def _log_vault_self_test(opened: list[str], *, dry_run: bool) -> None:
         logger.info(
             "vault self-test: %d sealed credential(s) opened (%s)",
             len(opened),
-            ", ".join(opened),
+            ", ".join(f"{exchange} of user {str(user_id)[:8]}" for user_id, exchange in opened),
         )
     elif dry_run:
         logger.warning(
@@ -304,8 +309,16 @@ def _log_vault_self_test(opened: list[str], *, dry_run: bool) -> None:
         )
 
 
-async def _assert_sealed_credentials_open(vault: CredentialVaultPort) -> list[str]:
-    """Opens every active credential once and names the exchanges it opened.
+async def _assert_sealed_credentials_open(
+    vault: CredentialVaultPort, users: Sequence[UUID]
+) -> list[UserExchange]:
+    """Opens every active credential of every user in ``users`` once, each as
+    its own user (multi-user design AD9), and names the pairs it opened.
+
+    One key that does not open still refuses the whole start, whoever it
+    belongs to (tasks.md B.7: unchanged): the master key is the process's, not
+    a user's, so a row it cannot open says the same about every row. The
+    refusal names the user by the first 8 hex of their id, never an e-mail.
 
     ``hints`` is already the enumeration of active credentials and is the only
     listing that may be rendered, so the failure can name the exchange and the
@@ -318,28 +331,32 @@ async def _assert_sealed_credentials_open(vault: CredentialVaultPort) -> list[st
     right one is what must be supplied — or the rows were altered, in which case
     nothing here should be used.
     """
-    opened: list[str] = []
-    for hint in await vault.hints():
-        try:
-            await vault.load(hint.exchange)
-        except DecryptionFailed as exc:
-            raise InvariantViolation(
-                f"the sealed credential for '{hint.exchange}' (key ***"
-                f"{hint.api_key_last4}) cannot be decrypted. Refusing to start: "
-                "MASTER_ENCRYPTION_KEY does not match the key these rows were "
-                "sealed with, or the rows were altered. Supply the original key "
-                "— a different one cannot be made to read them, and re-sealing "
-                "means storing every exchange credential again."
-            ) from exc
-        opened.append(hint.exchange)
+    opened: list[UserExchange] = []
+    for user_id in users:
+        for hint in await vault.hints(user_id):
+            try:
+                await vault.load(user_id, hint.exchange)
+            except DecryptionFailed as exc:
+                raise InvariantViolation(
+                    f"the sealed credential for '{hint.exchange}' (key ***"
+                    f"{hint.api_key_last4}) of user {str(user_id)[:8]} cannot be "
+                    "decrypted. Refusing to start: MASTER_ENCRYPTION_KEY does not "
+                    "match the key these rows were sealed with, or the rows were "
+                    "altered. Supply the original key — a different one cannot be "
+                    "made to read them, and re-sealing means storing every "
+                    "exchange credential again."
+                ) from exc
+            opened.append((user_id, hint.exchange))
     return opened
 
 
 def _assert_keys_present(
-    hints: Sequence[CredentialHint], pools: Sequence[PoolConfig]
-) -> frozenset[str]:
-    """Which CONFIGURED exchanges (an enabled pool exists) have NO active
-    vault credential at all, right now.
+    active: frozenset[UserExchange], pools: Sequence[PoolConfig]
+) -> frozenset[UserExchange]:
+    """Which CONFIGURED ``(user, exchange)`` pairs (that user holds an enabled
+    pool there) have NO active vault credential of that user's, right now.
+    Another user's key never covers a pair (multi-user design AD9), and the
+    ERROR names the user by the first 8 hex of their id, never an e-mail.
 
     Never raises: a missing key is DEGRADED (decision 20), not a startup
     refusal. The worker still starts, still trades every OTHER exchange, and
@@ -361,15 +378,15 @@ def _assert_keys_present(
     seen on the next job -- not only after a restart -- and the very first
     per-job check never repeats what this function already logged.
     """
-    configured = {pool.exchange.value for pool in pools}
-    active = {hint.exchange for hint in hints}
+    configured = {(pool.user_id, pool.exchange.value) for pool in pools}
     degraded = frozenset(configured - active)
-    for exchange in sorted(degraded):
+    for user_id, exchange in sorted(degraded, key=lambda pair: (pair[1], str(pair[0]))):
         logger.error(
-            "'%s' has an enabled pool but no active vault credential; its "
-            "reads and orders are skipped until one is stored "
-            "(uv run python scripts/store_%s_credentials.py)",
+            "'%s' has an enabled pool but no active vault credential for user %s; "
+            "that user's reads and orders there are skipped until one is stored "
+            "(uv run python scripts/store_%s_credentials.py --user-email <theirs>)",
             exchange,
+            str(user_id)[:8],
             exchange,
         )
     return degraded

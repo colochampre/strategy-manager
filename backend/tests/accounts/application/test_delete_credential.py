@@ -56,13 +56,16 @@ class FakeRevoker:
         self._events = events
         self._active = active
         self.deactivated: list[str] = []
+        self.users: list[UUID] = []
 
-    async def lock_active(self, exchange: str) -> ActiveCredential | None:
+    async def lock_active(self, user_id: UUID, exchange: str) -> ActiveCredential | None:
         self._events.log.append("lock_active")
+        self.users.append(user_id)
         return self._active
 
-    async def deactivate(self, exchange: str) -> None:
+    async def deactivate(self, user_id: UUID, exchange: str) -> None:
         self._events.log.append("deactivate")
+        self.users.append(user_id)
         self.deactivated.append(exchange)
 
 
@@ -161,6 +164,17 @@ async def test_the_pool_disabled_is_the_deleting_users_never_another_users() -> 
     await built.use_case.execute(other, "bybit")
 
     assert built.pools.users == [other]
+
+
+async def test_the_key_locked_and_deactivated_is_the_deleting_users() -> None:
+    """AD8: the row locked and then deactivated is the signed-in user's key,
+    never another user's on the same exchange."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    built = Built()
+
+    await built.use_case.execute(other, "bybit")
+
+    assert built.revoker.users == [other, other]
 
 
 @pytest.mark.parametrize("exchange", ["pionex", "kraken", ""])

@@ -114,9 +114,17 @@ class DeleteCredential:
         self._commit = commit
 
     async def execute(self, user_id: UUID, exchange: str) -> Deleted:
-        """``user_id`` is the signed-in user deleting the key. Today it selects
-        only WHOSE pool the delete switches off (multi-user design AD8); the key,
-        the lock and the exposure are not scoped to it yet."""
+        """``user_id`` is the signed-in user deleting the key (multi-user design
+        AD8). The key locked and deactivated is THAT user's, and the pool
+        switched off is that user's pool; another user's key on the same
+        exchange is never touched, and a user with no key of their own gets
+        ``NoActiveCredential`` even when someone else holds one.
+
+        Not scoped yet, and deliberately left as they are: the advisory lock is
+        still the market's (one user's pool lock is tasks.md B.4), and the
+        exposure read still covers every strategy, reservation, attempt and
+        ledger row on the market (it reads reservations and the ledger, which
+        gain their owner in later units). Both err on the side of refusing."""
         # Step 1: nothing below runs for an exchange without a known pool.
         try:
             known = known_pool_for(exchange)
@@ -128,7 +136,7 @@ class DeleteCredential:
         await self._pool_lock.acquire(*pool)
 
         # Step 3: the row lock, second.
-        active = await self._credentials.lock_active(exchange)
+        active = await self._credentials.lock_active(user_id, exchange)
         if active is None:
             raise NoActiveCredential(f"no active credential for exchange {exchange!r}")
 
@@ -146,7 +154,7 @@ class DeleteCredential:
             )
 
         # Step 5 and 6: deactivate, disable, commit.
-        await self._credentials.deactivate(exchange)
+        await self._credentials.deactivate(user_id, exchange)
         flipped = await self._pools.disable(user_id, exchange)
         await self._commit.commit()
 

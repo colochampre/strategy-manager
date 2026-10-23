@@ -283,4 +283,7 @@ class TradeCapabilityPort(Protocol):
     ``VaultTradeCapabilityAdapter`` for a live worker and
     ``DryRunTradeCapability`` under ``DRY_RUN``."""
 
-    async def capability(self, exchange: str) -> TradeCapability: ...
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
+        """``user_id``'s active key on the exchange: the strategy author's, on
+        the signal path (multi-user design AD8)."""
+        ...

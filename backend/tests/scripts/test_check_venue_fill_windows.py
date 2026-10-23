@@ -139,20 +139,33 @@ def test_header_call_cost_is_none_for_a_non_integer_value() -> None:
 # --- parse_args ----------------------------------------------------------------
 
 
+USER = ["--user-email", "owner@example.com"]
+
+
 def test_parse_args_defaults() -> None:
-    args = parse_args([])
+    args = parse_args(USER)
 
     assert args == Args(
         symbol="BTCUSDT",
         lookback_days=7,
         span_candidates_days=(1, 7, 8, 30, 90),
         page_limit=50,
+        user_email="owner@example.com",
     )
+
+
+def test_parse_args_requires_the_user_whose_keys_sign() -> None:
+    """Multi-user design AD8: a key is a user's, so the probe names whose."""
+    with pytest.raises(SystemExit) as missing:
+        parse_args([])
+
+    assert missing.value.code == 2
 
 
 def test_parse_args_uppercases_the_symbol_and_sorts_span_days() -> None:
     args = parse_args(
         [
+            *USER,
             "--symbol",
             "ethusdt",
             "--lookback-days",
@@ -174,17 +187,17 @@ def test_parse_args_uppercases_the_symbol_and_sorts_span_days() -> None:
 
 def test_parse_args_refuses_a_nonpositive_lookback() -> None:
     with pytest.raises(ValueError):
-        parse_args(["--lookback-days", "0"])
+        parse_args([*USER, "--lookback-days", "0"])
 
 
 def test_parse_args_refuses_a_nonpositive_page_limit() -> None:
     with pytest.raises(ValueError):
-        parse_args(["--page-limit", "-1"])
+        parse_args([*USER, "--page-limit", "-1"])
 
 
 def test_parse_args_refuses_a_nonpositive_span_day() -> None:
     with pytest.raises(ValueError):
-        parse_args(["--span-days", "1", "0", "7"])
+        parse_args([*USER, "--span-days", "1", "0", "7"])
 
 
 # --- format_item_verdict --------------------------------------------------------

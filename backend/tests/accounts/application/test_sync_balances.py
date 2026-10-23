@@ -5,6 +5,7 @@ failed read would refresh ``observed_at`` and reset the staleness clock,
 turning an exchange outage into a snapshot that looks perfectly healthy.
 """
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -136,9 +137,12 @@ async def test_a_failed_read_writes_nothing_and_commits_nothing() -> None:
 
 
 class StubSync:
-    def __init__(self, synced: int, raises: Exception | None = None) -> None:
+    def __init__(
+        self, synced: int, raises: Exception | None = None, label: str = "'bybit' of user 0a1b2c3d"
+    ) -> None:
         self._synced = synced
         self._raises = raises
+        self.label = label
         self.calls = 0
 
     async def sync(self) -> SyncResult:
@@ -157,14 +161,46 @@ async def test_every_exchange_is_synced_and_the_counts_add_up() -> None:
     assert result.synced == 3
 
 
-async def test_one_exchange_failing_fails_the_whole_job() -> None:
-    """Reporting partial success would leave a dead exchange looking healthy.
-    The job fails, the queue retries, and the snapshots that were not written
-    keep ageing until they halt their own pools."""
+async def test_one_pair_failing_degrades_only_that_pair(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Multi-user design AD9 (tasks.md B.7), replacing the rule that one
+    exchange failing failed the whole job: with one sync per (user, exchange),
+    that rule let one user's broken key stall every user's balances. Now the
+    failing pair is skipped with a WARNING naming it, every other pair is still
+    synced, and the job succeeds. The pair that failed wrote nothing, so its
+    snapshot keeps ageing until it halts its own pool and the staleness
+    watchdog reports it: the outage is still not hidden behind fresh data."""
     boom = RuntimeError("binance unreachable")
+    before = StubSync(1, label="'bybit' of user 0a1b2c3d")
+    failing = StubSync(0, raises=boom, label="'binance' of user 5ec0d0b2")
+    after = StubSync(2, label="'binance' of user 0a1b2c3d")
 
-    with pytest.raises(RuntimeError, match="binance unreachable"):
-        await CompositeBalanceSync([StubSync(1), StubSync(0, raises=boom)]).sync()
+    with caplog.at_level(logging.WARNING):
+        result = await CompositeBalanceSync([before, failing, after]).sync()
+
+    assert (before.calls, failing.calls, after.calls) == (1, 1, 1)
+    assert result.synced == 3
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "'binance' of user 5ec0d0b2" in warnings[0]
+    assert "binance unreachable" in warnings[0]
+    assert not [r for r in caplog.records if r.exc_info]
+
+
+def test_a_sync_is_labelled_by_its_exchange_and_its_users_id_prefix() -> None:
+    """What the WARNING above names: never an e-mail, which a sync does not
+    even know."""
+    other = UUID("5ec0d0b2-0000-4000-8000-0000000000b2")
+    sync = SyncBalances(
+        user_id=other,
+        pools=[("binance", "usdt-m", "USDT")],
+        reader=StubReader(),
+        snapshots=SpyWriter(),
+        commit=SpyCommit(),
+    )
+
+    assert sync.label == "'binance' of user 5ec0d0b2"
 
 
 async def test_no_exchanges_is_a_no_op_rather_than_an_error() -> None:

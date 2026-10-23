@@ -37,7 +37,7 @@ import asyncio
 import sys
 from decimal import Decimal
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
@@ -83,6 +83,7 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
     parser.add_argument("--granted", default="5", type=Decimal)
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -90,7 +91,7 @@ async def main() -> int:
     print(f"Alert symbol: {args.symbol}")
     print("This probe builds orders and prints them. It places NOTHING.\n")
 
-    async with vault_credentials(settings, EXCHANGE) as vaulted:
+    async with vault_credentials(settings, EXCHANGE, user_email=args.user_email) as vaulted:
         announce(vaulted, f"vault ({EXCHANGE})")
         credentials = BybitCredentials(
             api_key=vaulted.api_key, api_secret=vaulted.api_secret

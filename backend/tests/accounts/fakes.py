@@ -89,10 +89,14 @@ class RecordingWriter:
         self._error = error
         self._events = events
         self.stored: list[tuple[ExchangeCredential, KeyFacts]] = []
+        self.users: list[UUID] = []
 
-    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint:
+    async def store(
+        self, user_id: UUID, credential: ExchangeCredential, facts: KeyFacts
+    ) -> CredentialHint:
         if self._error is not None:
             raise self._error
+        self.users.append(user_id)
         self.stored.append((credential, facts))
         if self._events is not None:
             self._events.append("store")

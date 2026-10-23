@@ -492,8 +492,9 @@ class ProcessSignalHandler:
         # refusal and before the guard, the refresh and the lock, and only in
         # this method, so a close is never refused by it and ``open_now`` (the
         # REVERSE continuation) is covered. Under DRY_RUN the wired port
-        # answers TRADE_CAPABLE, so nothing is refused.
-        capability = await self._trade_capability.capability(policy.exchange)
+        # answers TRADE_CAPABLE, so nothing is refused. The key asked about is
+        # the strategy author's (multi-user design AD8, tasks.md B.5).
+        capability = await self._trade_capability.capability(policy.author_id, policy.exchange)
         if capability is not TradeCapability.TRADE_CAPABLE:
             return await self._refuse_read_only_exchange(
                 signal_id, context, transition, policy, capability, close_executed=close_executed

@@ -12,6 +12,7 @@ raise, and one that selected a ciphertext column shows up in the captured SQL.
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from sqlalchemy import event, text
@@ -23,6 +24,7 @@ from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
     VaultTradeCapabilityAdapter,
 )
 from strategy_manager.signals.application.ports import TradeCapability
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -43,12 +45,14 @@ def _row(
     trade_capable: bool,
     source: str = "VERIFIED",
     active: bool = True,
+    user_id: UUID = OWNER_ID,
 ) -> ExchangeCredentialRow:
     """A row whose every secret column is garbage. ``source`` decides which of
     the table's CHECK constraints the remaining fact columns must satisfy."""
     unrecorded = source == "UNRECORDED"
     confirmed = source == "OWNER_CONFIRMED"
     return ExchangeCredentialRow(
+        user_id=user_id,
         exchange=exchange,
         label="default",
         is_active=active,
@@ -79,9 +83,18 @@ async def _seed(
         await session.commit()
 
 
-async def _answer(factory: async_sessionmaker[AsyncSession], exchange: str) -> TradeCapability:
+async def _answer(
+    factory: async_sessionmaker[AsyncSession], exchange: str, user_id: UUID = OWNER_ID
+) -> TradeCapability:
     async with factory() as session:
-        return await VaultTradeCapabilityAdapter(session).capability(exchange)
+        return await VaultTradeCapabilityAdapter(session).capability(user_id, exchange)
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
 
 
 @contextmanager
@@ -175,6 +188,32 @@ async def test_only_the_asked_exchanges_active_row_counts(
     assert await _answer(pg_session_factory, "pionex") is TradeCapability.TRADE_CAPABLE
 
 
+async def test_another_users_trade_capable_key_does_not_vouch_for_this_user(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: the signal path asks for the strategy author's key. Another user's
+    key on the same exchange is not that key."""
+    other = await _other_user(pg_session_factory)
+    await _seed(pg_session_factory, _row("bybit", trade_capable=True, user_id=other))
+
+    assert await _answer(pg_session_factory, "bybit") is TradeCapability.NO_KEY
+    assert await _answer(pg_session_factory, "bybit", other) is TradeCapability.TRADE_CAPABLE
+
+
+async def test_each_user_is_answered_from_their_own_active_row(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other = await _other_user(pg_session_factory)
+    await _seed(
+        pg_session_factory,
+        _row("bybit", trade_capable=False),
+        _row("bybit", trade_capable=True, user_id=other),
+    )
+
+    assert await _answer(pg_session_factory, "bybit") is TradeCapability.READ_ONLY
+    assert await _answer(pg_session_factory, "bybit", other) is TradeCapability.TRADE_CAPABLE
+
+
 async def test_a_deactivated_row_is_no_key_immediately_after_the_delete(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -206,4 +245,4 @@ async def test_the_dry_run_adapter_always_answers_trade_capable() -> None:
     adapter = DryRunTradeCapability()
 
     for exchange in ("bybit", "binance", "pionex", "anything"):
-        assert await adapter.capability(exchange) is TradeCapability.TRADE_CAPABLE
+        assert await adapter.capability(OWNER_ID, exchange) is TradeCapability.TRADE_CAPABLE

@@ -33,6 +33,7 @@ from strategy_manager.accounts.domain.exchange_credential import (
     KeyFacts,
 )
 from strategy_manager.accounts.domain.pool_config import PoolConfig
+from strategy_manager.accounts.infrastructure.key_coverage import KeyCoverage
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
 )
@@ -104,14 +105,17 @@ class FakePoolRepository:
 
 
 class FakeVault:
-    """One sealed bybit credential, which opens unless told otherwise."""
+    """One sealed bybit credential of the owner's, which opens unless told
+    otherwise."""
 
     opens = True
 
     def __init__(self, *_: object) -> None:
         pass
 
-    async def hints(self) -> list[CredentialHint]:
+    async def hints(self, user_id: UUID) -> list[CredentialHint]:
+        if user_id != OWNER_ID:
+            return []
         return [CredentialHint(
                 exchange="bybit",
                 label="default",
@@ -119,7 +123,7 @@ class FakeVault:
                 facts=KeyFacts.unrecorded(trade_capable=True),
             )]
 
-    async def load(self, exchange: str) -> ExchangeCredential:
+    async def load(self, user_id: UUID, exchange: str) -> ExchangeCredential:
         if not type(self).opens:
             raise DecryptionFailed(f"could not unwrap the data key for '{exchange}'")
         return ExchangeCredential(
@@ -141,6 +145,12 @@ class FakeRunner:
 
 async def _no_op(*_: object, **__: object) -> None:
     return None
+
+
+async def _owner_holds_the_bybit_key(_session: object) -> KeyCoverage:
+    """``read_key_coverage`` without PostgreSQL: the vault above's one key."""
+    pair = frozenset({(OWNER_ID, "bybit")})
+    return KeyCoverage(configured=pair, active=pair)
 
 
 async def _no_seeds(*_: object, **__: object) -> list[object]:
@@ -175,6 +185,7 @@ def startup(monkeypatch: pytest.MonkeyPatch, alerter: RecordingAlerter) -> Setti
     monkeypatch.setattr(worker, "session_factory", lambda: _AsyncContext())
     monkeypatch.setattr(worker, "CapitalPoolRepository", FakePoolRepository)
     monkeypatch.setattr(worker, "SqlAlchemyCredentialVault", FakeVault)
+    monkeypatch.setattr(worker, "read_key_coverage", _owner_holds_the_bybit_key)
     monkeypatch.setattr(worker, "assert_pool_lock_keys_distinct", _no_op)
     monkeypatch.setattr(worker, "assert_dry_run_matches_ledger", _no_op)
     monkeypatch.setattr(worker, "build_worker_runner", lambda *a, **k: FakeRunner())

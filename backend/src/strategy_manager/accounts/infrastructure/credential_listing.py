@@ -6,11 +6,17 @@ row), OR an enabled pool. The last is the DEGRADED case: an exchange the system
 is meant to trade with that has no key, which the panel must be able to show.
 An exchange with none of the three does not exist as far as this list goes.
 
+**It is one user's list (multi-user design AD8).** Both reads filter by the
+signed-in user: another user's key, history or pool never lists an exchange
+here, and never fills one in.
+
 **It reads the snapshot and nothing else.** No venue is asked, and nothing is
 decrypted: the query names the columns the panel shows, and there is no cipher
 here to decrypt with. A key is visible only as its last four characters and the
 facts recorded when it was saved (rule 8).
 """
+
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +32,7 @@ class SqlAlchemyCredentialListing:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_overview(self) -> list[CredentialOverview]:
+    async def list_overview(self, user_id: UUID) -> list[CredentialOverview]:
         rows = (
             await self._session.execute(
                 select(
@@ -42,13 +48,15 @@ class SqlAlchemyCredentialListing:
                     _ROW.withdraw_confirmed_at,
                     _ROW.validated_at,
                     _ROW.internal_transfer,
-                )
+                ).where(_ROW.user_id == user_id)
             )
         ).all()
         with_enabled_pool = set(
             (
                 await self._session.execute(
-                    select(CapitalPoolRow.exchange).where(CapitalPoolRow.enabled.is_(True))
+                    select(CapitalPoolRow.exchange).where(
+                        CapitalPoolRow.user_id == user_id, CapitalPoolRow.enabled.is_(True)
+                    )
                 )
             ).scalars()
         )

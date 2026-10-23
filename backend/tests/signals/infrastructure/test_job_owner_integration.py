@@ -1,0 +1,110 @@
+"""``signal_owner`` and ``attempt_owner`` against real PostgreSQL.
+
+A worker job trades and reads with its strategy author's key (multi-user design
+AD8, tasks.md B.5 and B.7). Two authors each own a strategy with a signal, a
+reservation and attempts, so an answer that picked the wrong row, or the first
+row, names the wrong user.
+"""
+
+from dataclasses import dataclass
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from strategy_manager.signals.infrastructure.job_owner import attempt_owner, signal_owner
+from tests.ledger.infrastructure.conftest import (  # noqa: F401
+    pg_engine,
+    pg_session_factory,
+    seed_execution_attempt,
+    seed_reservation,
+    seed_signal,
+    seed_strategy,
+)
+from tests.owner import OWNER_ID, seed_other_user
+
+pytestmark = pytest.mark.integration
+
+
+@dataclass(frozen=True)
+class Authored:
+    signal_id: UUID
+    open_attempt: UUID
+    close_attempt: UUID
+
+
+async def _authored(factory: async_sessionmaker[AsyncSession], author: UUID) -> Authored:
+    strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
+    open_attempt, close_attempt = uuid4(), uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id, author_id=author)
+    await seed_signal(
+        factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"k-{signal_id}"
+    )
+    await seed_reservation(
+        factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        status="FILLED",
+    )
+    await seed_execution_attempt(
+        factory, attempt_id=open_attempt, reservation_id=reservation_id, status="FILLED"
+    )
+    await seed_execution_attempt(
+        factory, attempt_id=close_attempt, closes_allocation_id=reservation_id
+    )
+    return Authored(signal_id, open_attempt, close_attempt)
+
+
+@pytest.fixture
+async def two_authors(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> tuple[Authored, Authored, UUID]:
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    owners = await _authored(pg_session_factory, OWNER_ID)
+    others = await _authored(pg_session_factory, other)
+    return owners, others, other
+
+
+async def test_a_signal_belongs_to_its_strategys_author_never_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    two_authors: tuple[Authored, Authored, UUID],
+) -> None:
+    owners, others, other = two_authors
+
+    async with pg_session_factory() as session:
+        answers = [
+            await signal_owner(session, owners.signal_id),
+            await signal_owner(session, others.signal_id),
+        ]
+
+    assert answers == [OWNER_ID, other]
+
+
+async def test_an_opening_and_a_closing_attempt_belong_to_their_strategys_author(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    two_authors: tuple[Authored, Authored, UUID],
+) -> None:
+    owners, others, other = two_authors
+
+    async with pg_session_factory() as session:
+        answers = [
+            await attempt_owner(session, owners.open_attempt),
+            await attempt_owner(session, owners.close_attempt),
+            await attempt_owner(session, others.open_attempt),
+            await attempt_owner(session, others.close_attempt),
+        ]
+
+    assert answers == [OWNER_ID, OWNER_ID, other, other]
+
+
+async def test_an_unknown_signal_or_attempt_has_no_owner(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    two_authors: tuple[Authored, Authored, UUID],
+) -> None:
+    async with pg_session_factory() as session:
+        answers = [await signal_owner(session, uuid4()), await attempt_owner(session, uuid4())]
+
+    assert answers == [None, None]

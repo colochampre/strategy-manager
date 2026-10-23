@@ -275,9 +275,11 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
     async with factory() as session:
         # An active key, so ``GET /api/credentials`` answers a STORED entry and
-        # not only the empty ones an enabled pool produces.
+        # not only the empty ones an enabled pool produces. The admin's own key:
+        # the listing answers only the signed-in user's keys (AD8).
         await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
         await SqlAlchemyCredentialVault(session, cipher, TickingClock()).store(
+            admin,
             ExchangeCredential(
                 exchange="bybit",
                 label="default",

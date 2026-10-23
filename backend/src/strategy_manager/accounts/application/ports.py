@@ -120,23 +120,30 @@ class CredentialVaultPort(Protocol):
     ``load`` returns a live secret and must only ever be called on the worker,
     immediately before signing (CLAUDE.md rule 8). Anything that merely needs
     to display or enumerate credentials calls ``hints`` instead.
+
+    Every call names the user whose key it reads (multi-user design AD8): one
+    user's key is never opened or listed for another, even on the same
+    exchange.
     """
 
-    async def load(self, exchange: str) -> ExchangeCredential: ...
+    async def load(self, user_id: UUID, exchange: str) -> ExchangeCredential: ...
 
-    async def hints(self) -> list[CredentialHint]: ...
+    async def hints(self, user_id: UUID) -> list[CredentialHint]: ...
 
 
 class CredentialWriterPort(Protocol):
-    """Stores a credential and makes it the active one for its exchange.
+    """Stores a credential and makes it ``user_id``'s active one for its
+    exchange, superseding only THAT user's previous active key (AD8).
 
     Deliberately has NO ``load``: the save path seals and never opens. Only the
     worker decrypts, at signing time (CLAUDE.md rule 8, decision 5). Raises
-    ``ConcurrentCredentialSave`` when another save for the same exchange won the
-    race.
+    ``ConcurrentCredentialSave`` when another save by the same user for the same
+    exchange won the race.
     """
 
-    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint: ...
+    async def store(
+        self, user_id: UUID, credential: ExchangeCredential, facts: KeyFacts
+    ) -> CredentialHint: ...
 
 
 class CapitalPoolWriterPort(Protocol):
@@ -266,15 +273,16 @@ class ActiveCredential:
 
 
 class CredentialRevokerPort(Protocol):
-    """Deactivates an exchange's active credential, keeping the row (rotation
-    history is retained, decision 22). It has no ``load``: it never opens a
-    secret."""
+    """Deactivates a user's active credential on an exchange, keeping the row
+    (rotation history is retained, decision 22). It has no ``load``: it never
+    opens a secret. Another user's key on the same exchange is never locked or
+    deactivated (multi-user design AD8)."""
 
-    async def lock_active(self, exchange: str) -> ActiveCredential | None:
-        """``SELECT ... FOR UPDATE`` of the exchange's active row. ``None`` when
-        there is none."""
+    async def lock_active(self, user_id: UUID, exchange: str) -> ActiveCredential | None:
+        """``SELECT ... FOR UPDATE`` of ``user_id``'s active row on the exchange.
+        ``None`` when there is none."""
         ...
 
-    async def deactivate(self, exchange: str) -> None:
-        """Marks the active row inactive. The row is kept."""
+    async def deactivate(self, user_id: UUID, exchange: str) -> None:
+        """Marks ``user_id``'s active row inactive. The row is kept."""
         ...
