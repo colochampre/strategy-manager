@@ -98,6 +98,8 @@ from tests.accounts.pool_seed import (
 from tests.identity_auth import (
     ADMIN_HEADERS,
     FORGED_HEADERS,
+    OTHER_EMAIL,
+    OTHER_HEADERS,
     SIGNED_IN_ID,
     hand_owner_pools_to_admin,
     seed_admin,
@@ -1478,3 +1480,86 @@ async def test_the_delete_route_is_behind_the_admin_guard_like_the_others(
 
     assert [missing.status_code, wrong.status_code] == [401, 401]
     assert missing.json() == wrong.json() == {"detail": UNAUTHORIZED_DETAIL}
+
+
+# --- cross-user: a signed-in non-admin against the admin's resources (B.6) -------------------
+#
+# The admin is user A and holds a key and an enabled pool. User B is the e-mail
+# ``OTHER_HEADERS`` signs in, who is NOT the admin: ``current_user`` resolves and
+# creates their own row, so these tests reach the scoped code through the real
+# sign-in instead of an overridden dependency.
+
+
+async def _a_store_with_an_enabled_pool(
+    factory: async_sessionmaker[AsyncSession], key: str
+) -> UUID:
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
+    await _store(factory, "bybit", key=key)
+    await _set_pool_enabled(factory, "bybit", True)
+    return admin
+
+
+@pytest.mark.integration
+async def test_cross_user_b_lists_none_of_a_keys_or_pools(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    admin_key = "ADMIN-BYBIT-KEY-QZXW"
+    await _a_store_with_an_enabled_pool(factory, admin_key)
+
+    async with _serve_db(factory) as served:
+        listed = await served.api.get("/api/credentials", headers=OTHER_HEADERS)
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+    assert admin_key[-4:] not in listed.text
+
+
+@pytest.mark.integration
+async def test_cross_user_b_delete_of_a_key_is_404_and_a_key_and_pool_stay_active(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+
+    async with _serve_delete(factory) as served:
+        refused = await served.api.delete("/api/credentials/bybit", headers=OTHER_HEADERS)
+
+    assert refused.status_code == 404
+    assert await _is_active(factory, "bybit") == [True]
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True)}
+    assert await _pool_enabled(factory, admin, "bybit") is True
+
+
+@pytest.mark.integration
+async def test_cross_user_b_save_on_a_market_leaves_a_key_and_pool_as_they_were(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """B stores their OWN key on the exchange A already has one on: it is B's,
+    and A's stays active, with its pool enabled."""
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+
+    async with _serve_db(factory) as served:
+        saved = await served.api.put(
+            "/api/credentials/bybit", json=_bybit_body(), headers=OTHER_HEADERS
+        )
+
+    assert saved.status_code == 200
+    async with factory() as session:
+        other = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"), {"email": OTHER_EMAIL}
+            )
+        ).scalar_one()
+        admin_last4 = (
+            await session.execute(
+                text(
+                    "SELECT api_key_last4 FROM exchange_credentials "
+                    "WHERE user_id = :user_id AND is_active"
+                ),
+                {"user_id": admin},
+            )
+        ).scalars().all()
+    assert admin_last4 == ["QZXW"]
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True), (str(other), True)}
+    assert await _pool_enabled(factory, admin, "bybit") is True

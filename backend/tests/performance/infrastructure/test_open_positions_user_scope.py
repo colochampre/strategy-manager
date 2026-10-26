@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, act_as, sign_in_as_admin
 from tests.owner import OWNER_ID, seed_other_user
 from tests.performance.infrastructure.conftest import seed_execution_attempt
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -89,3 +89,33 @@ async def test_each_user_sees_only_their_own_positions_and_orders(
     # ``_seed_allocation`` also leaves each user's own SUBMITTED opening attempt.
     assert {o["attempt_id"] for o in owner_body["orders"]} == {str(my_order), str(my_attempt)}
     assert {o["attempt_id"] for o in other_body["orders"]} == {str(their_order), str(their_attempt)}
+
+
+async def test_cross_user_b_is_a_non_admin_who_sees_none_of_a_positions_or_orders(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """B.6. B signs in as ``OTHER_HEADERS`` (not the admin) through the real
+    ``current_user``: an empty book, while the owner's position and orders stay."""
+    strategy_id, mine, my_attempt = await _seed_allocation(pg_session_factory)
+    await _record(
+        pg_session_factory,
+        _fill(
+            strategy_id=strategy_id, allocation_id=mine, attempt_id=my_attempt,
+            side="BUY", quantity="1", symbol="SOLUSDT.P",
+        ),
+    )
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/positions/open", headers=OTHER_HEADERS)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["positions"] == []
+    assert response.json()["orders"] == []
+    owner_body = await _get(pg_session_factory, OWNER_ID)
+    assert [p["allocation_id"] for p in owner_body["positions"]] == [str(mine)]

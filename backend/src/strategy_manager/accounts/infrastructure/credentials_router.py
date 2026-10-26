@@ -71,7 +71,7 @@ from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemy
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import KeyInspectorRegistry
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/credentials",
     tags=["credentials"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

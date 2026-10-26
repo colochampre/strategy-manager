@@ -59,7 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.performance.application.ports import (
     AllocationFillsSourcePort,
     OperationFillsSourcePort,
@@ -107,7 +107,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/performance",
     tags=["performance"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

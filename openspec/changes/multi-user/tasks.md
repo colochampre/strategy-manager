@@ -201,11 +201,27 @@ It needs an independent verifier before the PR.
   - **Tests.** `tests/allocation/infrastructure/test_pool_lock_per_user.py` checks that the same user waits while another user and a third user complete. Each call site's user is proven by a fixed-UUID mutation.
   - **Why it was needed.** Before this, two users on one market made the startup invariant refuse to start.
 - [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
-- [ ] B.6 Routers (decision 16):
+- [x] B.6 Routers (decision 16):
   - credentials, pools, performance and open positions depend on `current_user` and pass its id down;
   - the other routers keep `require_admin`, and strategies stamp `author_id` from the admin's `User`.
   - `test_every_api_route_is_guarded.py` lists the scoped routes explicitly, and every other `/api` route still forbids a non-admin with 403.
   - **Cross-user tests**, one per scoped endpoint: user B asks for user A's resource and receives 404, or an empty list. No row changes, which includes B's DELETE leaving A's key active.
+  - **What was done.** The four routers now take `dependencies=[Depends(current_user)]` in place of `require_admin`. An unsigned or forged request is still 401.
+  - **Strategies.** They already stamped `author_id=user.id` (U1), so they needed no change.
+  - **The scoped routes**, 9 of them, as `SCOPED_TO_THE_SIGNED_IN_USER` in the guard test:
+    - `PUT`, `GET` and `DELETE` on credentials;
+    - `GET /api/pools`;
+    - the pool report, the strategy report, the trades and the fills under performance;
+    - `GET /api/positions/open`.
+  - **The guard test** checks that this set equals exactly the `/api` routes without `require_admin`, in both directions.
+  - **Cross-user tests** use a real non-admin created by `current_user` (`OTHER_HEADERS`):
+    - credentials list, delete and save;
+    - pools list;
+    - performance;
+    - open positions.
+
+    Each was red on a 403 before the swap and is proven by a mutation of its scoping filter. There is no pool update endpoint.
+  - **Production.** Unchanged until Access admits another user.
 - [ ] B.7 Worker per `(user_id, exchange)` (AD9):
   - `read_key_coverage` returns sets of pairs, in one statement;
   - one `SyncBalances` per pair with an active key;

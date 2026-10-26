@@ -29,6 +29,7 @@ from strategy_manager.shared.config import get_settings
 from tests.identity_auth import (
     ADMIN_HEADERS,
     FORGED_HEADERS,
+    OTHER_HEADERS,
     hand_owner_pools_to_admin,
     seed_admin,
     sign_in_as_admin,
@@ -411,3 +412,22 @@ async def test_get_pools_reserved_counts_only_the_signed_in_users_reservations(
     bybit = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
     assert Decimal(bybit["reserved"]) == Decimal("30")
     assert Decimal(bybit["allocatable"]) == Decimal("70")
+
+
+async def test_cross_user_b_lists_none_of_a_pools_and_a_pools_are_untouched(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """B.6. A non-admin who holds no pool is told there are none, though A has a
+    snapshot and a reservation on the very markets; A reads the same pools after."""
+    await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="100")
+    await _reserve(pg_session_factory, "bybit", "usdt-m", "USDT", "30")
+    before = await client.get("/api/pools", headers=ADMIN_HEADERS)
+
+    response = await client.get("/api/pools", headers=OTHER_HEADERS)
+
+    after = await client.get("/api/pools", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    assert response.json() == []
+    assert len(before.json()) == 4
+    assert after.json() == before.json()

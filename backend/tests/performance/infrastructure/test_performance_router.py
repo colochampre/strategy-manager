@@ -43,6 +43,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.identity_auth import (
     ADMIN_HEADERS,
     FORGED_HEADERS,
+    OTHER_HEADERS,
     act_as,
     sign_in_as_admin,
 )
@@ -971,3 +972,47 @@ async def test_a_second_users_rows_on_the_same_strategy_and_market_are_not_serve
     assert Decimal(strategy["total_pnl"]) == Decimal("50")
     assert [t["allocation_id"] for t in trades["trades"]] == [str(theirs)]
     assert mine_fills.status_code == 404
+
+
+async def test_cross_user_b_reads_nothing_of_a_ledger_and_a_still_reads_all_of_it(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """B.6. B is the e-mail ``OTHER_HEADERS`` signs in, not the admin and not the
+    fixtures' owner, through the real ``current_user``. A (the owner) holds a
+    pool and a closed trade of a strategy B can name. B's pool report is the
+    pool 404, B's strategy report and trade list are empty, A's operation is
+    the one 404 an unknown one gets. A reads the same trade afterwards."""
+    strategy_id = await _strategy(pg_session_factory)
+    mine = await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    app.dependency_overrides[get_clock] = lambda: FixedClock(NOW)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as b:
+        pool = await b.get(POOL_URL, headers=OTHER_HEADERS)
+        strategy = await b.get(
+            f"/api/performance/strategies/{strategy_id}", headers=OTHER_HEADERS
+        )
+        trades = await b.get(
+            f"/api/performance/strategies/{strategy_id}/trades", headers=OTHER_HEADERS
+        )
+        fills = await b.get(
+            f"/api/performance/strategies/{strategy_id}/trades/{mine}/fills",
+            headers=OTHER_HEADERS,
+        )
+
+    assert pool.status_code == 404
+    assert pool.json() == {"detail": "no such pool"}
+    assert strategy.status_code == 200
+    assert Decimal(_json(strategy)["total_pnl"]) == Decimal("0")
+    assert trades.status_code == 200
+    assert _json(trades)["trades"] == []
+    assert fills.status_code == 404
+    kept = await client.get(
+        f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
+    )
+    assert [t["allocation_id"] for t in _json(kept)["trades"]] == [str(mine)]

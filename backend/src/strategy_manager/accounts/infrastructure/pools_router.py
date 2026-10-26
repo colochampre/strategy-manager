@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.accounts.domain.pool_overview import BalanceView, PoolOverview
 from strategy_manager.accounts.infrastructure.pool_overview import SqlAlchemyPoolOverview
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.clock import SystemClock
@@ -30,7 +30,7 @@ from strategy_manager.shared.infrastructure.wire import Instant, Money
 router = APIRouter(
     prefix="/pools",
     tags=["pools"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

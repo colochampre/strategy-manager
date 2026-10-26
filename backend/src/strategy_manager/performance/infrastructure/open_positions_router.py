@@ -15,7 +15,7 @@ A source built on any other session would read another state.
 The route writes nothing, takes no lock a writer waits on, needs no credential
 and returns none. A read that fails is a 500 with the usual trace (the panel
 shows its error state, never an empty list). Authentication is attached to the
-ROUTER, as on every admin router.
+ROUTER, as the signed-in user it answers for (owner decision 16), not the admin.
 """
 
 from collections.abc import AsyncIterator
@@ -32,7 +32,7 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
     SqlAlchemyModeOriginReader,
 )
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.performance.application.ports import (
     ConfirmedDisagreementSourcePort,
     OpenPositionFactsSourcePort,
@@ -61,7 +61,7 @@ from strategy_manager.shared.infrastructure.wire import Instant, Money, Price
 router = APIRouter(
     prefix="/positions",
     tags=["positions"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

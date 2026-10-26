@@ -1,10 +1,10 @@
-"""Every ``/api`` route requires the admin, except ``/api/me`` (multi-user
-design AD1; tasks.md A.7).
+"""Every ``/api`` route requires the admin, except ``/api/me`` and the routes
+scoped to the signed-in user (multi-user design AD1; tasks.md A.7, B.6).
 
-In PR A nothing is scoped by user yet, so a route open to any signed-in user
-would show the owner's money to whoever Access lets in once sign-up opens. This
-reads the routes the app actually serves, so a router added later without the
-guard fails here, not in production.
+A route open to any signed-in user must answer that user's own rows only (owner
+decision 16), so the set that skips ``require_admin`` is listed explicitly and
+every other route keeps it. This reads the routes the app actually serves, so a
+router added later without the guard fails here, not in production.
 
 ``/webhook/tradingview`` and ``/health`` stay outside Access entirely: TradingView
 cannot sign in, and rule 3 must not depend on Cloudflare.
@@ -22,13 +22,29 @@ from httpx import ASGITransport, AsyncClient
 
 from strategy_manager.identity.infrastructure.dependencies import (
     FORBIDDEN_DETAIL,
+    UNAUTHORIZED_DETAIL,
+    current_user,
     require_admin,
     verified_email,
 )
 from strategy_manager.main import create_app
-from tests.identity_auth import OTHER_HEADERS, sign_in_as_admin
+from tests.identity_auth import FORGED_HEADERS, OTHER_HEADERS, sign_in_as_admin
 
 OPEN_TO_ANY_USER = {"/api/me"}
+#: Owner decision 16: the routes any signed-in user reaches, each answering that
+#: user's own rows only. Listed explicitly, so a new route cannot join the set by
+#: forgetting ``require_admin``: it fails the first test below instead.
+SCOPED_TO_THE_SIGNED_IN_USER = {
+    ("PUT", "/api/credentials/{exchange}"),
+    ("GET", "/api/credentials"),
+    ("DELETE", "/api/credentials/{exchange}"),
+    ("GET", "/api/pools"),
+    ("GET", "/api/performance/pools/{exchange}/{venue}/{ccy}"),
+    ("GET", "/api/performance/strategies/{strategy_id}"),
+    ("GET", "/api/performance/strategies/{strategy_id}/trades"),
+    ("GET", "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills"),
+    ("GET", "/api/positions/open"),
+}
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
 
 
@@ -62,18 +78,64 @@ def _admin_only() -> list[tuple[str, str]]:
     return sorted(
         (method, path)
         for method, path in _routes()
-        if path.startswith("/api/") and path not in OPEN_TO_ANY_USER
+        if path.startswith("/api/")
+        and path not in OPEN_TO_ANY_USER
+        and (method, path) not in SCOPED_TO_THE_SIGNED_IN_USER
     )
 
 
-def test_every_api_route_but_me_requires_the_admin() -> None:
+def test_every_api_route_but_me_and_the_scoped_ones_requires_the_admin() -> None:
     routes = _routes()
     admin_only = _admin_only()
 
     unguarded = [key for key in admin_only if require_admin not in routes[key]]
 
-    assert len(admin_only) >= 20  # a walk that found nothing would pass for free
+    assert len(admin_only) >= 10  # a walk that found nothing would pass for free
     assert unguarded == []
+
+
+def test_the_scoped_routes_are_exactly_the_api_routes_that_do_not_require_the_admin() -> None:
+    """The explicit set and the walk agree both ways: no listed route is missing
+    from the app, and no route skips ``require_admin`` without being listed."""
+    routes = _routes()
+
+    without_admin = {
+        key
+        for key, calls in routes.items()
+        if key[1].startswith("/api/")
+        and key[1] not in OPEN_TO_ANY_USER
+        and require_admin not in calls
+    }
+
+    assert without_admin == SCOPED_TO_THE_SIGNED_IN_USER
+
+
+def test_every_scoped_route_resolves_the_signed_in_user_and_not_the_admin() -> None:
+    routes = _routes()
+
+    for key in sorted(SCOPED_TO_THE_SIGNED_IN_USER):
+        assert key in routes, key
+        assert verified_email in routes[key], key
+        assert current_user in routes[key], key
+        assert require_admin not in routes[key], key
+
+
+async def test_every_scoped_route_refuses_a_missing_or_forged_assertion_with_401(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authorization loosened, authentication did not: no lifespan and no
+    database run, so the 401 is the sign-in's own."""
+    sign_in_as_admin(monkeypatch)
+    transport = ASGITransport(app=create_app())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for method, path in sorted(SCOPED_TO_THE_SIGNED_IN_USER):
+            concrete = re.sub(r"\{[^}]+\}", str(uuid4()), path)
+            for headers in ({}, FORGED_HEADERS):
+                response = await client.request(method, concrete, headers=headers)
+
+                assert response.status_code == 401, f"{method} {path}"
+                assert response.json() == {"detail": UNAUTHORIZED_DETAIL}, f"{method} {path}"
 
 
 async def test_every_api_route_but_me_forbids_a_signed_in_user_who_is_not_the_admin(
@@ -94,7 +156,7 @@ async def test_every_api_route_but_me_forbids_a_signed_in_user_who_is_not_the_ad
             assert response.status_code == 403, f"{method} {path}"
             assert response.json() == {"detail": FORBIDDEN_DETAIL}, f"{method} {path}"
 
-    assert len(admin_only) >= 20
+    assert len(admin_only) >= 10
 
 
 def test_me_requires_a_signed_in_user_and_not_the_admin() -> None:
