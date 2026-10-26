@@ -70,6 +70,9 @@ class StrategyExposureAdapter:
                 symbols.add(market)
                 allocations.append(holding.allocation_id)
 
+        # Every user's live reservation on this strategy, by design: archiving
+        # is the admin's, and a strategy is one object for every user
+        # (multi-user design AD8, owner decision 16).
         live_reservations = await self._reservations.live_for_strategy(
             exchange, venue, settlement_currency, strategy_id
         )

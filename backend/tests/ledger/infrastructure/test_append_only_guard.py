@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -32,7 +33,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
-from tests.owner import seed_owner
+from tests.owner import seed_owner, seed_reservation_row
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -130,15 +131,14 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
         {"id": signal_id, "strategy_id": strategy_id, "signal_type": str(strategy_id)},
     )
     reservation_id = uuid4()
-    await conn.execute(
-        text(
-            "INSERT INTO reservations "
-            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-            "amount, status, expires_at) "
-            "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 200, "
-            "'SUBMITTED', now() + interval '1 hour')"
-        ),
-        {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
+    await seed_reservation_row(
+        conn,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        market=("pionex", "spot", "USDT"),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        user_id=author,
     )
     attempt_id = uuid4()
     await conn.execute(

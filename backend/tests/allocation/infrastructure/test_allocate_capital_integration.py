@@ -4,6 +4,7 @@ the locked transaction (spec: capital-allocation § Serialized Allocation
 Decision, § Pool Availability; tasks.md 4.11).
 """
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -28,7 +29,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, seed_other_user, seed_pool, seed_reservation_row
 
 pytestmark = pytest.mark.integration
 
@@ -90,6 +91,84 @@ async def test_full_allocation_writes_a_pending_reservation_inside_txn_a(
         ).scalar_one()
         assert row.status == "PENDING"
         assert row.amount == Decimal("200")
+
+
+async def test_the_reservation_is_the_authors_in_the_authors_pool_and_ignores_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8 (B.5): both users hold a pool on this market, and
+    the owner already reserves 900 of a balance of 1000 there. The other
+    user's strategy is allocated in the other user's pool: the owner's 900 does
+    not shrink it, and the row written carries the author and the author's
+    pool."""
+    async with pg_session_factory() as session:
+        author = await seed_other_user(session)
+        author_pool = await seed_pool(session, ("pionex", "spot", "USDT"), user_id=author)
+        await session.commit()
+    owner_strategy, owner_signal = uuid4(), uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=owner_strategy)
+    await seed_signal(
+        pg_session_factory, signal_id=owner_signal, strategy_id=owner_strategy, idempotency_key="o1"
+    )
+    async with pg_session_factory() as session:
+        await seed_reservation_row(
+            session,
+            reservation_id=uuid4(),
+            strategy_id=owner_strategy,
+            signal_id=owner_signal,
+            market=("pionex", "spot", "USDT"),
+            amount=Decimal("900"),
+            status="PENDING",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+        await session.commit()
+    strategy_id, signal_id = uuid4(), uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id, author_id=author)
+    await seed_signal(
+        pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="a1"
+    )
+    pools = {
+        **_SPOT_USDT_POOL,
+        (author, ("pionex", "spot", "USDT")): PoolConfig(
+            exchange=Exchange.PIONEX,
+            venue=Venue.SPOT,
+            settlement_currency=Currency.USDT,
+            user_id=author,
+            min_order_size=Decimal("10"),
+        ),
+    }
+    balance_source = FakeBalanceSource()
+    balance_source.set_balance("pionex", "spot", "USDT", Decimal("1000"))
+
+    async with pg_session_factory() as session:
+        use_case = AllocateCapital(
+            strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
+            pool_balance=PoolBalanceAdapter(pools, balance_source),
+            lock=PgAdvisoryLockAdapter(session),
+            reservations=SqlAlchemyReservationRepository(session),
+            commit=session,
+            clock=SystemClock(),
+            reservation_ttl_seconds=30,
+            skip_recorder=RecordingSkipRecorder(),
+            pool_status=AlwaysEnabledPool(),
+        )
+        result = await use_case.allocate(
+            AllocateCommand(
+                signal_id=signal_id,
+                strategy_id=strategy_id,
+                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            )
+        )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert result.granted == Decimal("200")
+    async with pg_session_factory() as session:
+        row = (
+            await session.execute(
+                select(ReservationRow).where(ReservationRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+    assert (row.user_id, row.pool_id) == (author, author_pool)
 
 
 async def test_partial_allocation_grants_only_the_available_remainder(

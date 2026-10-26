@@ -248,9 +248,13 @@ class PoolExposure:
 class PoolExposurePort(Protocol):
     """Widens ``StrategyExposurePort`` from one strategy to every strategy bound
     to the pool. Implemented by
-    ``accounts.infrastructure.pool_exposure_adapter.PoolExposureAdapter``."""
+    ``accounts.infrastructure.pool_exposure_adapter.PoolExposureAdapter``.
 
-    async def exposure(self, pool: PoolKey) -> PoolExposure: ...
+    ``user_id`` is the user whose key is being deleted (multi-user design AD8):
+    the live reservations read are that user's only. The other reads are not
+    scoped yet (their tables gain their owner in later units of PR B)."""
+
+    async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure: ...
 
 
 class PoolLockPort(Protocol):

@@ -116,11 +116,16 @@ class AllocateCapital:
         self._pool_status = pool_status
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
-        existing = await self._reservations.find_by_signal_id(command.signal_id)
+        # The policy is read first because it names the strategy's AUTHOR, whose
+        # reservations these are (multi-user design AD8, B.5): the resume below
+        # looks only among that user's. It is a plain read and takes no lock.
+        policy = await self._strategy_policy.policy_for(command.strategy_id)
+
+        existing = await self._reservations.find_by_signal_id(
+            policy.author_id, command.signal_id
+        )
         if existing is not None:
             return self._resume(existing, command)
-
-        policy = await self._strategy_policy.policy_for(command.strategy_id)
 
         if not policy.enabled:
             # 2f.1 (orchestrator's outcome map, finding 8): the ONLY record
@@ -245,7 +250,7 @@ class AllocateCapital:
 
         now = self._clock.now()
         reserved_active = await self._reservations.sum_active(
-            policy.exchange, policy.venue, policy.settlement_currency, now
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency, now
         )
         pool = CapitalPool(
             key=pool_key, balance=pool_balance.available, reserved_active=reserved_active
@@ -261,7 +266,10 @@ class AllocateCapital:
             pool_total_at_open = self._pool_total_to_record(
                 pool_balance.total, command.signal_id, command.strategy_id
             )
+            # The author's reservation, in the author's pool (B.5): the same
+            # user whose balance and reservations the decision was made from.
             await self._reservations.insert(
+                policy.author_id,
                 Reservation(
                     id=reservation_id,
                     strategy_id=command.strategy_id,

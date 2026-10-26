@@ -102,7 +102,14 @@ async def _reserve(
     status: str = "PENDING",
     expires_in: timedelta = timedelta(hours=1),
     strategy_id: UUID | None = None,
+    user_id: UUID | None = None,
 ) -> None:
+    """A reservation of ``user_id``, by default the signed-in admin's, in that
+    user's pool on the market."""
+    if user_id is None:
+        async with factory() as session:
+            user_id = await seed_admin(session)
+            await session.commit()
     if strategy_id is None:
         strategy_id = uuid4()
         await seed_strategy(
@@ -127,6 +134,7 @@ async def _reserve(
         amount=Decimal(amount),
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
+        user_id=user_id,
     )
 
 
@@ -381,3 +389,25 @@ async def test_get_pools_lists_only_the_signed_in_users_pools(
     pools = _by_pool(body)
     assert ("binance", "usdt-m", "USDT") not in pools
     assert Decimal(pools[("bybit", "usdt-m", "USDT")]["balance"]["total"]) == Decimal("500")
+
+
+async def test_get_pools_reserved_counts_only_the_signed_in_users_reservations(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8. A second user reserves 60 on bybit, the admin's
+    market too: that is the second user's capital. The admin's reserved is the
+    admin's own 30."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+    await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="100")
+    await _reserve(pg_session_factory, "bybit", "usdt-m", "USDT", "30")
+    await _reserve(pg_session_factory, "bybit", "usdt-m", "USDT", "60", user_id=other)
+
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
+
+    bybit = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
+    assert Decimal(bybit["reserved"]) == Decimal("30")
+    assert Decimal(bybit["allocatable"]) == Decimal("70")

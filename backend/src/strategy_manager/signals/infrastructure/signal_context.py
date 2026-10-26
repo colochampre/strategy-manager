@@ -42,10 +42,14 @@ class SignalContextAdapter:
         if strategy is None:
             raise UnknownStrategyError(f"no strategy registered for id {signal.strategy_id}")
 
-        prior_position_size, prior_reservation_id = await self._prior_state(signal)
+        # The reservations are the strategy AUTHOR's (multi-user design AD8,
+        # B.5): until subscriptions exist, a signal is worked in its author's pool.
+        prior_position_size, prior_reservation_id = await self._prior_state(
+            strategy.author_id, signal
+        )
 
         assert signal.received_at is not None
-        own_reservation = await self._reservations.find_by_signal_id(signal_id)
+        own_reservation = await self._reservations.find_by_signal_id(strategy.author_id, signal_id)
 
         return SignalContext(
             strategy_id=signal.strategy_id,
@@ -60,7 +64,7 @@ class SignalContextAdapter:
         )
 
     async def _prior_state(
-        self, signal: WebhookSignal
+        self, user_id: UUID, signal: WebhookSignal
     ) -> tuple[Decimal | None, UUID | None]:
         assert signal.received_at is not None
         prior_signal = await self._signals.find_prior(
@@ -70,6 +74,6 @@ class SignalContextAdapter:
             return None, None
 
         assert prior_signal.id is not None
-        prior_reservation = await self._reservations.find_by_signal_id(prior_signal.id)
+        prior_reservation = await self._reservations.find_by_signal_id(user_id, prior_signal.id)
         prior_reservation_id = prior_reservation.id if prior_reservation is not None else None
         return prior_signal.position_size, prior_reservation_id

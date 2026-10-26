@@ -27,6 +27,8 @@ from strategy_manager.signals.domain.holding import HeldAllocation
 POOL: PoolKey = ("bybit", "usdt-m", "USDT")
 NOW = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 MAX_AGE_SECONDS = 600.0
+# The strategy's author, in whose pool the signal is worked.
+AUTHOR = UUID("0a1b2c3d-0000-4000-8000-0000000e0e0e")
 
 
 class FrozenClock:
@@ -53,10 +55,13 @@ class FakeInFlightWorkPort:
     closing_allocations: list[UUID] = field(default_factory=list)
     calls: list[tuple[PoolKey, UUID, str, datetime]] = field(default_factory=list)
     closing_allocation_calls: list[tuple[PoolKey, UUID, str]] = field(default_factory=list)
+    # Whose in-flight work each call asked about (multi-user design AD8).
+    users: list[UUID] = field(default_factory=list)
 
     async def in_flight(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
+        self.users.append(user_id)
         self.calls.append((pool, strategy_id, symbol, now))
         return self.result
 
@@ -115,6 +120,7 @@ async def test_an_own_reservation_resumes_without_checking_anything() -> None:
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=uuid4(),
         symbol="ETHUSDT",
@@ -129,6 +135,23 @@ async def test_an_own_reservation_resumes_without_checking_anything() -> None:
     assert venue.calls == []
 
 
+async def test_the_in_flight_read_asks_about_the_authors_work() -> None:
+    """Multi-user design AD8 (B.5): the in-flight read is the strategy
+    author's, whose pool the signal is worked in."""
+    guard, _, in_flight_work, _ = _guard()
+
+    await guard.check(
+        user_id=AUTHOR,
+        pool=POOL,
+        strategy_id=uuid4(),
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW,
+    )
+
+    assert in_flight_work.users == [AUTHOR]
+
+
 async def test_in_flight_within_the_age_bound_defers_by_seeding_a_continuation() -> None:
     """design.md § S5, amending S2: the in-flight branch no longer raises
     into the queue's failure backoff. It defers instead, naming which
@@ -139,6 +162,7 @@ async def test_in_flight_within_the_age_bound_defers_by_seeding_a_continuation()
     guard, holdings, _, venue = _guard(in_flight_work=in_flight_work)
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",
@@ -162,6 +186,7 @@ async def test_in_flight_within_the_age_bound_with_no_closing_attempt_defers_emp
     guard, holdings, _, venue = _guard(in_flight_work=FakeInFlightWorkPort(result=True))
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=uuid4(),
         symbol="ETHUSDT",
@@ -184,6 +209,7 @@ async def test_in_flight_past_the_age_bound_abandons_with_a_warning(
 
     with caplog.at_level("WARNING"):
         outcome = await guard.check(
+            user_id=AUTHOR,
             pool=POOL,
             strategy_id=strategy_id,
             symbol="ETHUSDT",
@@ -211,6 +237,7 @@ async def test_a_flat_strategy_proceeds() -> None:
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",
@@ -239,6 +266,7 @@ async def test_only_the_strategys_own_net_decides_divergence() -> None:
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",
@@ -274,6 +302,7 @@ async def test_a_real_orphan_is_reported_for_the_caller_to_close_not_refused() -
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",
@@ -305,6 +334,7 @@ async def test_a_real_orphan_reports_only_the_calling_strategys_own_holdings() -
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",
@@ -333,6 +363,7 @@ async def test_a_ghost_orphan_refuses_with_an_error_naming_the_details(
 
     with caplog.at_level("WARNING"):
         outcome = await guard.check(
+            user_id=AUTHOR,
             pool=POOL,
             strategy_id=strategy_id,
             symbol="ETHUSDT",
@@ -369,6 +400,7 @@ async def test_an_ambiguous_orphan_refuses_naming_the_details(
 
     with caplog.at_level("WARNING"):
         outcome = await guard.check(
+            user_id=AUTHOR,
             pool=POOL,
             strategy_id=strategy_id,
             symbol="ETHUSDT",
@@ -399,6 +431,7 @@ async def test_a_failed_venue_read_classifies_as_ambiguous() -> None:
     )
 
     outcome = await guard.check(
+        user_id=AUTHOR,
         pool=POOL,
         strategy_id=strategy_id,
         symbol="ETHUSDT",

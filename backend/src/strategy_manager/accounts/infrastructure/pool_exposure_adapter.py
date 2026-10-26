@@ -60,7 +60,11 @@ class PoolExposureAdapter:
             SqlAlchemyExecutionAttemptRepository(session),
         )
 
-    async def exposure(self, pool: PoolKey) -> PoolExposure:
+    async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
+        """``user_id`` is the user whose key is being deleted (multi-user design
+        AD8): only that user's live reservations stand in the way. The other
+        reads still cover the whole market until their tables gain their owner
+        (later units of PR B), which errs on the side of refusing."""
         exchange, venue, settlement_currency = pool
 
         enabled = await self._session.execute(
@@ -115,7 +119,9 @@ class PoolExposureAdapter:
             symbols=frozenset(symbols),
             allocations=tuple(allocations),
             live_reservations=tuple(
-                await self._reservations.live_for_pool(exchange, venue, settlement_currency)
+                await self._reservations.live_for_pool(
+                    user_id, exchange, venue, settlement_currency
+                )
             ),
             in_flight_attempts=tuple(
                 await self._attempts.submitted_for_pool(exchange, venue, settlement_currency)

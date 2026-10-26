@@ -59,6 +59,7 @@ class _Recorded:
         self.master_key = master_key
         self.signed_with: list[str] = []
         self.handled: list[object] = []
+        self.settled_as: list[UUID] = []
 
 
 @pytest.fixture
@@ -103,9 +104,9 @@ async def _store(
 
 async def _the_other_users_signal(
     factory: async_sessionmaker[AsyncSession], master_key: bytes
-) -> tuple[UUID, UUID]:
+) -> tuple[UUID, UUID, UUID]:
     """Both users hold a key; the second user's strategy has a signal and the
-    attempt it opened. Returns ``(signal_id, attempt_id)``."""
+    attempt it opened. Returns ``(signal_id, attempt_id, second user's id)``."""
     async with factory() as session:
         other = await seed_other_user(session)
         await session.commit()
@@ -117,10 +118,14 @@ async def _the_other_users_signal(
         factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"k-{signal_id}"
     )
     await seed_reservation(
-        factory, reservation_id=reservation_id, strategy_id=strategy_id, signal_id=signal_id
+        factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        user_id=other,
     )
     await seed_execution_attempt(factory, attempt_id=attempt_id, reservation_id=reservation_id)
-    return signal_id, attempt_id
+    return signal_id, attempt_id, other
 
 
 def _job(kind: JobKind, payload: dict[str, str]) -> ClaimedJob:
@@ -132,10 +137,11 @@ async def test_a_settle_job_trades_with_the_attempts_author_key_never_another_us
     recorded: _Recorded,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, attempt_id = await _the_other_users_signal(pg_session_factory, recorded.master_key)
+    _, attempt_id, other = await _the_other_users_signal(pg_session_factory, recorded.master_key)
 
     class _Settle:
-        async def settle(self, attempt: UUID) -> None:
+        async def settle(self, user_id: UUID, attempt: UUID) -> None:
+            recorded.settled_as.append(user_id)
             recorded.handled.append(attempt)
 
     monkeypatch.setattr(main, "_build_settle_execution", lambda session, exchanges: _Settle())
@@ -147,6 +153,8 @@ async def test_a_settle_job_trades_with_the_attempts_author_key_never_another_us
 
     assert recorded.handled == [attempt_id]
     assert recorded.signed_with == [OTHER_KEY]
+    # The reservation is read and marked as the same user's (AD8, B.5).
+    assert recorded.settled_as == [other]
 
 
 async def test_a_signal_job_trades_with_the_strategy_authors_key_never_another_users(
@@ -154,7 +162,7 @@ async def test_a_signal_job_trades_with_the_strategy_authors_key_never_another_u
     recorded: _Recorded,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    signal_id, _ = await _the_other_users_signal(pg_session_factory, recorded.master_key)
+    signal_id, _, _ = await _the_other_users_signal(pg_session_factory, recorded.master_key)
 
     class _Handler:
         async def handle(self, signal: UUID) -> None:

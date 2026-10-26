@@ -76,7 +76,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -159,7 +159,9 @@ async def _seed_open_fill(
     signal_id = uuid4()
     await _seed_signal(session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -243,7 +245,9 @@ async def _seed_open_short_fill(
     signal_id = uuid4()
     await _seed_signal(session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -725,7 +729,9 @@ async def test_live_reservation_with_no_fill_yet_still_refuses_archive(
     signal_id = uuid4()
     await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with pg_session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=reservation_id,
                 strategy_id=strategy_id,

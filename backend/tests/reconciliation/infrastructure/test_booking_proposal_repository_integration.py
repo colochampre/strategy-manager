@@ -50,7 +50,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 )
 from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
 from strategy_manager.shared.config import get_settings
-from tests.owner import seed_owner
+from tests.owner import ensure_pool, seed_owner
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -194,16 +194,20 @@ async def _seed_discrepancy(
             "symbol": symbol,
         },
     )
+    # The author's reservation in the author's pool (migration 0030).
+    pool_id = await ensure_pool(session, _POOL, user_id=author)
     await session.execute(
         text(
             "INSERT INTO reservations "
-            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-            "amount, status, expires_at) "
-            "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
+            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
+            "settlement_currency, amount, status, expires_at) "
+            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :exchange, :venue, "
             ":settlement_currency, 100, 'FILLED', now() + interval '1 hour')"
         ),
         {
             "id": allocation_id,
+            "user_id": author,
+            "pool_id": pool_id,
             "strategy_id": strategy_id,
             "signal_id": signal_id,
             "exchange": _POOL[0],

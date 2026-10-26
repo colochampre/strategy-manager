@@ -111,17 +111,21 @@ class HoldingGuard:
 
     async def check(
         self,
+        user_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
         own_reservation_id: UUID | None,
         received_at: datetime,
     ) -> GuardOutcome:
+        """``user_id`` is the strategy's author, in whose pool the signal is
+        worked (multi-user design AD10, B.5). The in-flight read asks about
+        that user's reservations only."""
         if own_reservation_id is not None:
             return GuardOutcome(proceed=True)
 
         now = self._clock.now()
-        if await self._in_flight_work.in_flight(pool, strategy_id, symbol, now):
+        if await self._in_flight_work.in_flight(user_id, pool, strategy_id, symbol, now):
             return await self._on_in_flight(pool, strategy_id, symbol, now, received_at)
 
         holdings = await self._holdings.symbol_holdings(pool, symbol)

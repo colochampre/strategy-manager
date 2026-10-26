@@ -21,7 +21,8 @@ pools number in the single digits. Nothing here sums across pools (rule 7).
 **Only ``user_id``'s pools** (multi-user design AD8): another user's pool on the
 same market is never listed, and a snapshot is joined to its pool by ``pool_id``
 (migration ``0030``), so it is always that pool's own. The reservations summed
-per pool are still read by market until they carry their pool's owner.
+per pool are that user's too: another user's reservations on the same market
+hold that user's capital, not this pool's.
 """
 
 from datetime import timedelta
@@ -73,7 +74,7 @@ class SqlAlchemyPoolOverview:
         pools: list[PoolOverview] = []
         for pool, snapshot in rows:
             reserved = await reservations.sum_active(
-                pool.exchange, pool.venue, pool.settlement_currency, now
+                user_id, pool.exchange, pool.venue, pool.settlement_currency, now
             )
             balance = (
                 None

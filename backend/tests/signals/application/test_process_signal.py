@@ -128,18 +128,25 @@ class SpyAdvisoryLock:
 class FakeReservationRepository:
     inserted: list[Reservation] = field(default_factory=list)
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
         return None
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
         return Decimal("0")
 
-    async def insert(self, reservation: Reservation) -> None:
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
         self.inserted.append(reservation)
 
-    async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None:
         pass
 
 
@@ -211,10 +218,12 @@ class FakeSymbolHoldingsPort:
 class FakeInFlightWorkPort:
     result: bool = False
     closing_allocations: list[UUID] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def in_flight(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
+        self.users.append(user_id)
         return self.result
 
     async def submitted_closing_allocations(
@@ -1698,6 +1707,47 @@ async def test_the_refresh_and_the_sizing_read_are_the_strategy_authors_pool() -
 
     assert balance_refresh.users == [author]
     assert sizing.users == [author]
+
+
+async def test_the_in_flight_read_and_the_placement_are_the_strategy_authors() -> None:
+    """AD8 (B.5): the guard asks about the author's in-flight reservations, and
+    the reservation is placed as the author's, never another user's."""
+    author = UUID("00000000-0000-4000-8000-0000000000b3")
+    policy = _snapshot(author_id=author)
+    in_flight_work = FakeInFlightWorkPort()
+    place_order = SpyPlaceOrder()
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(_open_long_context()),
+        strategy_policy=FakeStrategyPolicyPort(policy),
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+            )
+        ),
+        holding_guard=HoldingGuard(
+            holdings=FakeSymbolHoldingsPort([]),
+            in_flight_work=in_flight_work,
+            venue_net_position=FakeVenueNetPositionPort(None),
+            clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+            delayed_open_max_signal_age_seconds=600.0,
+        ),
+        balance_refresh=FakeBalanceRefreshPort(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), policy=policy),
+        place_order=place_order,
+        close_position=SpyClosePosition(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=FakeCommit(),
+        closing_attempts=FakeClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
+        tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
+    )
+
+    await handler.handle(uuid4())
+
+    assert in_flight_work.users == [author]
+    assert [call.user_id for call in place_order.calls] == [author]
 
 
 # --- S3 correction: lazy, per-exchange credential/client construction -------

@@ -90,7 +90,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
-from tests.owner import OWNER_ID, seed_snapshot
+from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -265,7 +265,9 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     )
     async with pg_session_factory() as session:
         reservations = SqlAlchemyReservationRepository(session)
+        await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
         await reservations.insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -541,7 +543,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 commit=session,
                 outcomes=RecordingSettleOutcomes(),
             )
-            await settle.settle(UUID(str(job.payload["execution_attempt_id"])))
+            await settle.settle(OWNER_ID, UUID(str(job.payload["execution_attempt_id"])))
 
     async def handle_signal_open_after_close(job: ClaimedJob) -> None:
         async with pg_session_factory() as session:
@@ -584,7 +586,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                     close_attempt_id
                 )
                 mid_reservation = await SqlAlchemyReservationRepository(session).find_by_signal_id(
-                    signal_id
+                    OWNER_ID, signal_id
                 )
             assert mid_close.status.value == "SUBMITTED"
             assert mid_reservation is None
@@ -595,7 +597,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     async with pg_session_factory() as session:
         final_close = await SqlAlchemyExecutionAttemptRepository(session).get(close_attempt_id)
         final_reservation = await SqlAlchemyReservationRepository(session).find_by_signal_id(
-            signal_id
+            OWNER_ID, signal_id
         )
 
     assert final_close.status.value == "FILLED"

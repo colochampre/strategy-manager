@@ -92,6 +92,74 @@ async def seed_pool(
     return int(pool_id)
 
 
+async def ensure_pool(
+    executor: AsyncConnection | AsyncSession,
+    market: tuple[str, str, str],
+    *,
+    user_id: UUID = OWNER_ID,
+) -> int:
+    """The id of ``user_id``'s pool on ``market``, seeded with ``seed_pool``'s
+    defaults when that user holds none. The owner's row is seeded too when the
+    pool is the owner's. Not committed."""
+    exchange, venue, currency = market
+    existing = (
+        await executor.execute(
+            text(
+                "SELECT id FROM capital_pools WHERE user_id = :user_id "
+                "AND exchange = :exchange AND venue = :venue AND settlement_currency = :currency"
+            ),
+            {"user_id": user_id, "exchange": exchange, "venue": venue, "currency": currency},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return int(existing)
+    if user_id == OWNER_ID:
+        await seed_owner(executor)
+    return await seed_pool(executor, market, user_id=user_id)
+
+
+async def seed_reservation_row(
+    executor: AsyncConnection | AsyncSession,
+    *,
+    reservation_id: UUID,
+    strategy_id: UUID,
+    signal_id: UUID,
+    market: tuple[str, str, str] = ("bybit", "usdt-m", "USDT"),
+    amount: Decimal = Decimal("200"),
+    status: str = "SUBMITTED",
+    expires_at: datetime,
+    user_id: UUID = OWNER_ID,
+) -> int:
+    """One ``reservations`` row of ``user_id``, in that user's pool on
+    ``market`` (seeded when missing, ``ensure_pool``), written raw. Returns the
+    pool's id. Not committed: the caller's transaction owns it."""
+    pool_id = await ensure_pool(executor, market, user_id=user_id)
+    exchange, venue, currency = market
+    await executor.execute(
+        text(
+            "INSERT INTO reservations "
+            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
+            "settlement_currency, amount, status, expires_at) "
+            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :exchange, :venue, "
+            ":settlement_currency, :amount, :status, :expires_at)"
+        ),
+        {
+            "id": reservation_id,
+            "user_id": user_id,
+            "pool_id": pool_id,
+            "strategy_id": strategy_id,
+            "signal_id": signal_id,
+            "exchange": exchange,
+            "venue": venue,
+            "settlement_currency": currency,
+            "amount": amount,
+            "status": status,
+            "expires_at": expires_at,
+        },
+    )
+    return pool_id
+
+
 async def seed_snapshot(
     executor: AsyncConnection | AsyncSession,
     market: tuple[str, str, str],

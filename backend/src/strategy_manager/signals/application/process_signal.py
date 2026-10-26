@@ -506,6 +506,7 @@ class ProcessSignalHandler:
         # ``AllocateCapital.allocate()`` (design.md § "Guard order").
         pool: PoolKey = (policy.exchange, policy.venue, policy.settlement_currency)
         guard_outcome = await self._holding_guard.check(
+            user_id=policy.author_id,
             pool=pool,
             strategy_id=context.strategy_id,
             symbol=context.symbol,
@@ -642,6 +643,7 @@ class ProcessSignalHandler:
 
         await self._place_order.place(
             PlaceCommand(
+                user_id=policy.author_id,
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),

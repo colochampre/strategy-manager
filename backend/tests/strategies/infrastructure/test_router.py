@@ -21,6 +21,8 @@ archived-strategy refusals in this unit).
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -56,7 +58,7 @@ from tests.identity_auth import (
     hand_owner_pools_to_admin,
     sign_in_as_admin,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, seed_reservation_row
 
 pytestmark = pytest.mark.integration
 
@@ -170,6 +172,17 @@ async def _archive_directly(
             {"id": strategy_id},
         )
         await session.commit()
+
+
+async def _author_of(session: AsyncSession, strategy_id: UUID) -> UUID:
+    """The strategy's author: a reservation seeded on it is that user's, in
+    that user's pool (migration 0030)."""
+    author: UUID = (
+        await session.execute(
+            text("SELECT author_id FROM strategies WHERE id = :id"), {"id": strategy_id}
+        )
+    ).scalar_one()
+    return author
 
 
 # --------------------------------------------------------------------------
@@ -459,14 +472,16 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
                 "signal_type": str(strategy_id),
             },
         )
-        await session.execute(
-            text(
-                "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
-                "settlement_currency, amount, status, expires_at) "
-                "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
-                "'PENDING', now() + interval '30 seconds')"
-            ),
-            {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
+        await seed_reservation_row(
+            session,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            market=("pionex", "spot", "USDT"),
+            amount=Decimal("100"),
+            status="PENDING",
+            expires_at=datetime.now(UTC) + timedelta(seconds=30),
+            user_id=await _author_of(session, strategy_id),
         )
         await session.commit()
 
@@ -891,14 +906,16 @@ async def _seed_signal(
             },
         )
         if reservation:
-            await session.execute(
-                text(
-                    "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
-                    "settlement_currency, amount, status, expires_at) "
-                    "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
-                    "'RELEASED', now() + interval '30 seconds')"
-                ),
-                {"id": uuid4(), "strategy_id": strategy_id, "signal_id": signal_id},
+            await seed_reservation_row(
+                session,
+                reservation_id=uuid4(),
+                strategy_id=strategy_id,
+                signal_id=signal_id,
+                market=("pionex", "spot", "USDT"),
+                amount=Decimal("100"),
+                status="RELEASED",
+                expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                user_id=await _author_of(session, strategy_id),
             )
         await session.commit()
 

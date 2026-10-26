@@ -120,11 +120,13 @@ class DeleteCredential:
         exchange is never touched, and a user with no key of their own gets
         ``NoActiveCredential`` even when someone else holds one.
 
+        The live reservations that refuse the delete are that user's only.
+
         Not scoped yet, and deliberately left as they are: the advisory lock is
         still the market's (one user's pool lock is tasks.md B.4), and the
-        exposure read still covers every strategy, reservation, attempt and
-        ledger row on the market (it reads reservations and the ledger, which
-        gain their owner in later units). Both err on the side of refusing."""
+        exposure read still covers every strategy, attempt and ledger row on
+        the market (those tables gain their owner in later units). Both err on
+        the side of refusing."""
         # Step 1: nothing below runs for an exchange without a known pool.
         try:
             known = known_pool_for(exchange)
@@ -141,7 +143,7 @@ class DeleteCredential:
             raise NoActiveCredential(f"no active credential for exchange {exchange!r}")
 
         # Step 4: exposure across EVERY strategy bound to the pool, inside the lock.
-        exposure = await self._exposure.exposure(pool)
+        exposure = await self._exposure.exposure(user_id, pool)
         if not exposure.is_empty():
             logger.warning(
                 "refused to delete the %s credential: the pool is not flat (%s)",

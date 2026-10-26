@@ -20,6 +20,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 
 __all__ = [
     "POOL",
@@ -87,7 +88,9 @@ async def seed_live_reservation(
     strategy_id: UUID,
     status: str = "PENDING",
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
+    """A reservation of ``user_id`` (the owner by default) in that user's pool."""
     reservation_id = uuid4()
     signal_id = uuid4()
     await seed_signal(
@@ -102,6 +105,7 @@ async def seed_live_reservation(
         venue=pool[1],
         settlement_currency=pool[2],
         status=status,
+        user_id=user_id,
     )
     return reservation_id
 

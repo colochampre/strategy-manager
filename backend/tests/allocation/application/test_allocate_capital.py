@@ -95,22 +95,37 @@ class FakeAdvisoryLock:
 
 @dataclass
 class FakeReservationRepository:
+    """Records whose reservations each call was for (multi-user design AD8)."""
+
     existing: Reservation | None = None
     inserted: list[Reservation] = field(default_factory=list)
     sum_active_return: Decimal = Decimal("0")
+    found_for: list[UUID] = field(default_factory=list)
+    summed_for: list[UUID] = field(default_factory=list)
+    inserted_for: list[UUID] = field(default_factory=list)
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
+        self.found_for.append(user_id)
         return self.existing
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
+        self.summed_for.append(user_id)
         return self.sum_active_return
 
-    async def insert(self, reservation: Reservation) -> None:
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
+        self.inserted_for.append(user_id)
         self.inserted.append(reservation)
 
-    async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None:
         raise NotImplementedError
 
 
@@ -196,6 +211,34 @@ async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
     assert result.outcome is DecisionOutcome.FULL
     assert balance.users == [author]
     assert status.users == [author]
+
+
+async def test_the_reservations_read_and_written_are_the_strategy_authors() -> None:
+    """Multi-user design AD8 (B.5): the resume lookup, the active sum the
+    decision is made from and the reservation written all belong to the
+    strategy's author, never to another user on the same market."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b2b2")
+    reservations = FakeReservationRepository()
+    use_case, _, _, _ = _build_use_case(
+        policy=_enabled_snapshot(author_id=author),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+        reservations=reservations,
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert reservations.found_for == [author]
+    assert reservations.summed_for == [author]
+    assert reservations.inserted_for == [author]
 
 
 async def test_resume_returns_existing_reservation_without_taking_the_lock() -> None:

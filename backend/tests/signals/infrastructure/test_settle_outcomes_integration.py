@@ -63,6 +63,7 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
     SignalSettleOutcomeRecorder,
 )
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -224,6 +225,7 @@ async def _place_open(
     async with factory() as session:
         result = await _place_order(session, exchange).place(
             PlaceCommand(
+                user_id=OWNER_ID,
                 reservation_id=reservation_id,
                 symbol=_TRADINGVIEW,
                 side=OrderSide.BUY,
@@ -392,7 +394,7 @@ async def test_a_filled_open_processes_its_signal_in_the_commit_that_records_the
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _settle(session, commit, exchange).settle(attempt.id)
+        result = await _settle(session, commit, exchange).settle(OWNER_ID, attempt.id)
 
     assert result.status == "FILLED"
     assert commit.calls == 1  # the outcome is NOT on a commit of its own
@@ -417,7 +419,7 @@ async def test_a_failed_settle_commit_loses_the_fills_and_the_processed_status_t
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
-            await _settle(session, commit, exchange).settle(attempt.id)
+            await _settle(session, commit, exchange).settle(OWNER_ID, attempt.id)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "PROCESSING"
     assert await _ledger_rows(pg_session_factory) == 0
@@ -440,7 +442,9 @@ async def test_a_legacy_open_attempt_with_no_link_still_resolves_through_its_res
         await session.commit()
 
     async with pg_session_factory() as session:
-        await _settle(session, _FaultyCommit(session, fail_on=None), exchange).settle(attempt.id)
+        await _settle(session, _FaultyCommit(session, fail_on=None), exchange).settle(
+            OWNER_ID, attempt.id
+        )
 
     assert (await _signal(pg_session_factory, signal_id)).status == "PROCESSED"
 
@@ -467,7 +471,7 @@ async def test_a_filled_plain_close_processes_the_closing_signal_not_the_opening
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _settle(session, commit, exchange).settle(attempt.id)
+        result = await _settle(session, commit, exchange).settle(OWNER_ID, attempt.id)
 
     assert result.status == "FILLED"
     assert commit.calls == 1
@@ -490,7 +494,7 @@ async def test_a_failed_close_settle_commit_loses_the_fills_and_the_processed_st
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
-            await _settle(session, commit, exchange).settle(attempt.id)
+            await _settle(session, commit, exchange).settle(OWNER_ID, attempt.id)
 
     assert (await _signal(pg_session_factory, closing_signal)).status == "PROCESSING"
     assert await _ledger_rows(pg_session_factory) == 1  # only the seeded open
@@ -511,7 +515,7 @@ async def test_a_filled_reverse_close_leaves_the_signal_processing_and_writes_no
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _settle(session, commit, exchange).settle(attempt.id)
+        result = await _settle(session, commit, exchange).settle(OWNER_ID, attempt.id)
 
     assert result.status == "FILLED"
     signal = await _signal(pg_session_factory, reverse_signal)
@@ -547,7 +551,9 @@ async def test_a_filled_close_of_a_spot_reverse_already_rejected_writes_nothing_
     before = await _signal(pg_session_factory, reverse_signal)
 
     async with pg_session_factory() as session:
-        await _settle(session, _FaultyCommit(session, fail_on=None), exchange).settle(attempt.id)
+        await _settle(session, _FaultyCommit(session, fail_on=None), exchange).settle(
+            OWNER_ID, attempt.id
+        )
 
     after = await _signal(pg_session_factory, reverse_signal)
     assert (after.status, after.outcome_reason, after.outcome_detail, after.decided_at) == (
@@ -582,7 +588,7 @@ async def test_a_never_placed_open_rejects_its_signal_in_the_commit_that_release
             exchange="bybit",
             fee_rate=Decimal("0"),
         )).settle(
-            attempt_id
+            OWNER_ID, attempt_id
         )
 
     assert result.status == "NEVER_PLACED"
@@ -616,7 +622,7 @@ async def test_a_failed_release_commit_loses_the_release_and_the_rejection_toget
         with pytest.raises(RuntimeError, match="injected commit failure"):
             await _settle(
                 session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
-            ).settle(attempt_id)
+            ).settle(OWNER_ID, attempt_id)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
     assert (await _reservation(pg_session_factory, reservation_id)).status == "PENDING"
@@ -646,7 +652,7 @@ async def test_a_never_placed_close_rejects_the_closing_signal_only(
             exchange="bybit",
             fee_rate=Decimal("0"),
         )).settle(
-            attempt_id
+            OWNER_ID, attempt_id
         )
 
     assert result.status == "NEVER_PLACED"
@@ -680,7 +686,7 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
             session,
             _FaultyCommit(session, fail_on=None),
             FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0")),
-        ).settle(attempt_id)
+        ).settle(OWNER_ID, attempt_id)
 
     assert result.status == "NEVER_PLACED"
     assert (await _signal(pg_session_factory, closing_signal)).status == "ACCEPTED"

@@ -13,7 +13,7 @@ queries ``in_flight`` under a different one, or it proves nothing.
 """
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,6 +25,7 @@ from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
+from tests.owner import OWNER_ID, seed_other_user
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -39,14 +40,17 @@ NOW = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 
 
 async def _in_flight(
-    session_factory: async_sessionmaker[AsyncSession], strategy_id, symbol: str
+    session_factory: async_sessionmaker[AsyncSession],
+    strategy_id,
+    symbol: str,
+    user_id: UUID = OWNER_ID,
 ) -> bool:
     async with session_factory() as session:
         adapter = InFlightWorkAdapter(
             attempts=SqlAlchemyExecutionAttemptRepository(session),
             reservations=SqlAlchemyReservationRepository(session),
         )
-        return await adapter.in_flight(POOL, strategy_id, symbol, NOW)
+        return await adapter.in_flight(user_id, POOL, strategy_id, symbol, NOW)
 
 
 async def _submitted_closing_allocations(
@@ -226,6 +230,37 @@ async def test_a_pending_reservation_within_its_ttl_is_in_flight(
     )
 
     assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT") is True
+
+
+async def test_another_users_pending_reservation_is_not_this_users_in_flight_work(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8: a PENDING reservation of another user, on the
+    same strategy and market, is that user's work. It does not defer this
+    user's opening signal, while it does defer that user's."""
+    strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        status="PENDING",
+        expires_at=NOW + timedelta(seconds=30),
+        user_id=other,
+    )
+
+    assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT") is False
+    assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT", user_id=other) is True
 
 
 async def test_an_expired_pending_reservation_is_not_in_flight(

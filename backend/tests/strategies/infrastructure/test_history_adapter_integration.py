@@ -47,7 +47,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -71,7 +71,17 @@ def _history(**counts: int) -> StrategyHistory:
 
 
 async def _seed(factory: Factory, *rows: object) -> None:
+    """Adds ``rows`` in one commit. A reservation is placed in its user's pool
+    on its market, seeded when missing (migration 0030), so ``_reservation``
+    can stay a plain constructor."""
     async with factory() as session:
+        for row in rows:
+            if isinstance(row, ReservationRow):
+                row.pool_id = await ensure_pool(
+                    session,
+                    (row.exchange, row.venue, row.settlement_currency),
+                    user_id=row.user_id,
+                )
         session.add_all(rows)
         await session.commit()
 
@@ -122,6 +132,7 @@ def _reservation(
     exchange, venue, currency = pool
     return ReservationRow(
         id=uuid4(),
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         signal_id=signal_id,
         exchange=exchange,

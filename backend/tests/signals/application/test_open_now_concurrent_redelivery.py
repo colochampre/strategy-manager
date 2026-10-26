@@ -98,7 +98,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
-from tests.owner import OWNER_ID, seed_snapshot
+from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -190,8 +190,8 @@ class RaceSyncedReservations:
         self._observed = observed
         self._synced = False
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
-        found = await self._inner.find_by_signal_id(signal_id)
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
+        found = await self._inner.find_by_signal_id(user_id, signal_id)
         if not self._synced:
             self._synced = True
             self._observed.append(found)
@@ -199,17 +199,22 @@ class RaceSyncedReservations:
         return found
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
-        return await self._inner.sum_active(exchange, venue, settlement_currency, now)
+        return await self._inner.sum_active(user_id, exchange, venue, settlement_currency, now)
 
-    async def insert(self, reservation: Reservation) -> None:
-        await self._inner.insert(reservation)
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
+        await self._inner.insert(user_id, reservation)
 
     async def mark(
-        self, reservation_id: UUID, status: ReservationStatus, at: datetime
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
     ) -> None:
-        await self._inner.mark(reservation_id, status, at)
+        await self._inner.mark(user_id, reservation_id, status, at)
 
 
 class NeverCalledVenueNetPosition:
@@ -307,7 +312,9 @@ async def _seed_settled_flat_holding(
     allocation_id, opening_id, closing_id = uuid4(), uuid4(), uuid4()
 
     async with session_factory() as session:
+        await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,

@@ -976,9 +976,9 @@ class _SpyExposure:
         self._inner = inner
         self.calls: list[tuple[str, str, str]] = []
 
-    async def exposure(self, pool: tuple[str, str, str]) -> PoolExposure:
+    async def exposure(self, user_id: UUID, pool: tuple[str, str, str]) -> PoolExposure:
         self.calls.append(pool)
-        return await self._inner.exposure(pool)
+        return await self._inner.exposure(user_id, pool)
 
 
 @dataclass

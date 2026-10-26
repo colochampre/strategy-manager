@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
-from tests.owner import seed_owner
+from tests.owner import ensure_pool, seed_owner
 from tests.pg_drop import drop_database_on
 
 pytestmark = pytest.mark.integration
@@ -122,16 +122,20 @@ async def _seed_active_reservation(conn: AsyncConnection) -> str:
             "sig_type": str(strategy_id),
         },
     )
+    # The owner's reservation in the owner's pool (migration 0030).
+    pool_id = await ensure_pool(conn, ("pionex", "spot", "USDT"), user_id=author)
     await conn.execute(
         text(
             "INSERT INTO reservations "
-            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-            "amount, status, expires_at) VALUES "
-            "(:id, :sid, :sig, 'pionex', 'spot', 'USDT', :amount, 'PENDING', "
-            "now() + interval '1 hour')"
+            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
+            "settlement_currency, amount, status, expires_at) VALUES "
+            "(:id, :user_id, :pool_id, :sid, :sig, 'pionex', 'spot', 'USDT', :amount, "
+            "'PENDING', now() + interval '1 hour')"
         ),
         {
             "id": reservation_id,
+            "user_id": author,
+            "pool_id": pool_id,
             "sid": strategy_id,
             "sig": signal_id,
             "amount": Decimal("100"),

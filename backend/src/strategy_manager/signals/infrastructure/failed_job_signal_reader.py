@@ -7,6 +7,10 @@ carries an attempt id, and the attempt is resolved the way ``execution.settle``
 itself resolves it: a CLOSE through ``execution_attempts.signal_id`` (its
 ``allocation_id`` is the OPENING allocation, so that reservation names the
 opening signal), an OPEN through ``reservation.signal_id``.
+
+**Global by design** (multi-user design AD8): the queue's failure hook has no
+user context, and the reservation is followed by primary key from the attempt
+the job itself names, never searched for, so no other user's row can answer.
 """
 
 from uuid import UUID

@@ -2,6 +2,9 @@
 the ``reservations`` table ``allocation`` already owns — provider owns the
 adapter, execution is the consumer that declared the port (design.md's
 cross-module wiring rule).
+
+Both methods name the user whose reservation it is (multi-user design AD8):
+another user's reservation under the same id is neither read nor marked.
 """
 
 from datetime import datetime
@@ -18,8 +21,8 @@ class ReservationGatewayAdapter:
     def __init__(self, repository: SqlAlchemyReservationRepository) -> None:
         self._repository = repository
 
-    async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot:
-        reservation = await self._repository.get_for_update(reservation_id)
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot:
+        reservation = await self._repository.get_for_update(user_id, reservation_id)
         return ReservationSnapshot(
             id=reservation.id,
             strategy_id=reservation.strategy_id,
@@ -32,5 +35,5 @@ class ReservationGatewayAdapter:
             expires_at=reservation.expires_at,
         )
 
-    async def mark(self, reservation_id: UUID, status: str, at: datetime) -> None:
-        await self._repository.mark(reservation_id, ReservationStatus(status), at)
+    async def mark(self, user_id: UUID, reservation_id: UUID, status: str, at: datetime) -> None:
+        await self._repository.mark(user_id, reservation_id, ReservationStatus(status), at)

@@ -1535,10 +1535,16 @@ def build_worker_runner(
     async def handle_execution_settle(job: ClaimedJob) -> None:
         attempt_id = UUID(str(job.payload["execution_attempt_id"]))
         async with factory() as session:
-            # Settled with the key the order was placed with: its author's.
+            # Settled with the key the order was placed with: its author's, and
+            # the reservation read and marked is that same user's (AD8, B.5).
             owner = await attempt_owner(session, attempt_id)
+            if owner is None:
+                raise LookupError(
+                    f"execution attempt {attempt_id} has no owner: the attempt, its "
+                    "reservation or its strategy is gone"
+                )
             async with exchange_for(session, owner) as exchanges:
-                await _build_settle_execution(session, exchanges).settle(attempt_id)
+                await _build_settle_execution(session, exchanges).settle(owner, attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault

@@ -67,7 +67,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, ensure_pool, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -283,10 +283,11 @@ async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
     assert "uptime_seconds=5400" in message
 
 
-def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
+def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[object]:
     """A ledger entry that belongs to ``strategy_id`` and hangs off a signal, a
     reservation and an attempt of ANOTHER strategy, so it is the only kind the
-    strategy owns."""
+    strategy owns. The reservation is the owner's, in the owner's pool
+    ``pool_id`` (migration 0030)."""
     exchange, venue, currency = _POOL
     signal = SignalRow(
         id=uuid4(),
@@ -302,6 +303,8 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
     )
     reservation = ReservationRow(
         id=uuid4(),
+        user_id=OWNER_ID,
+        pool_id=pool_id,
         strategy_id=other,
         signal_id=signal.id,
         exchange=exchange,
@@ -353,7 +356,9 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
 ) -> None:
     strategy_id = await _strategy(factory)
     other = await _strategy(factory)
-    signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other)
+    async with factory() as session:
+        pool_id = await ensure_pool(session, _POOL)
+    signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other, pool_id)
     await _seed(factory, signal)
     await _seed(factory, reservation)
     await _seed(factory, attempt)

@@ -1,5 +1,17 @@
 """SQLAlchemy implementation of ``ReservationRepositoryPort`` against the
 ``reservations`` table (migration ``0004``).
+
+**A reservation belongs to a user and to that user's pool** (migration ``0030``,
+multi-user design AD2 and AD8). ``insert`` writes the owner and the id of the
+owner's pool on the reservation's market, and refuses a market that user holds no
+pool on. Every read a scoped caller makes takes ``user_id`` and filters on it, so
+another user's reservation on the same market is never returned, counted or
+changed.
+
+Three methods stay global, each by design and each saying so: ``expire_due`` is
+the worker's sweep over every user's reservations, and ``live_for_strategy`` and
+``count_for_strategy`` serve the admin's archive and delete of a strategy, which
+is one object for every user.
 """
 
 from datetime import datetime
@@ -10,6 +22,7 @@ from uuid import UUID
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import (
     ReleaseReason,
@@ -17,6 +30,7 @@ from strategy_manager.allocation.domain.reservation import (
     ReservationStatus,
 )
 from strategy_manager.allocation.infrastructure.models import ReservationRow
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 _ACTIVE_STATUSES = (ReservationStatus.PENDING.value, ReservationStatus.SUBMITTED.value)
@@ -47,32 +61,45 @@ class SqlAlchemyReservationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
         row = (
             await self._session.execute(
-                select(ReservationRow).where(ReservationRow.signal_id == signal_id)
+                select(ReservationRow).where(
+                    ReservationRow.user_id == user_id, ReservationRow.signal_id == signal_id
+                )
             )
         ).scalar_one_or_none()
         return _to_domain(row) if row is not None else None
 
-    async def get_for_update(self, reservation_id: UUID) -> Reservation:
-        """Row-locks the reservation (spec: trade-execution; design.md §
-        TXN-B1). Used by ``execution``'s pre-submit expiry re-check via
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> Reservation:
+        """Row-locks ``user_id``'s reservation (spec: trade-execution; design.md
+        § TXN-B1). Used by ``execution``'s pre-submit expiry re-check via
         ``ReservationGatewayAdapter``, which owns this method's cross-module
-        boundary."""
+        boundary. Another user's reservation under that id raises exactly as a
+        missing one does."""
 
         row = (
             await self._session.execute(
-                select(ReservationRow).where(ReservationRow.id == reservation_id).with_for_update()
+                select(ReservationRow)
+                .where(ReservationRow.id == reservation_id, ReservationRow.user_id == user_id)
+                .with_for_update()
             )
         ).scalar_one()
         return _to_domain(row)
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
+        """What ``user_id``'s pool on this market has reserved: another user's
+        reservations on the same market hold that user's capital, not this one's."""
         result = await self._session.execute(
             select(func.coalesce(func.sum(ReservationRow.amount), 0)).where(
+                ReservationRow.user_id == user_id,
                 ReservationRow.exchange == exchange,
                 ReservationRow.venue == venue,
                 ReservationRow.settlement_currency == settlement_currency,
@@ -82,10 +109,34 @@ class SqlAlchemyReservationRepository:
         )
         return Decimal(result.scalar_one())
 
-    async def insert(self, reservation: Reservation) -> None:
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
+        """Writes ``reservation`` as ``user_id``'s, in that user's pool on its
+        market. Raises, before writing anything, when the user holds no pool
+        there: the composite FK would refuse the row anyway, and naming the user
+        and the market says why."""
+        pool_id = (
+            await self._session.execute(
+                select(CapitalPoolRow.id).where(
+                    CapitalPoolRow.user_id == user_id,
+                    CapitalPoolRow.exchange == reservation.pool_key.exchange.value,
+                    CapitalPoolRow.venue == reservation.pool_key.venue.value,
+                    CapitalPoolRow.settlement_currency
+                    == reservation.pool_key.settlement_currency.value,
+                )
+            )
+        ).scalar_one_or_none()
+        if pool_id is None:
+            raise InvariantViolation(
+                f"user {str(user_id)[:8]} has no pool on "
+                f"({reservation.pool_key.exchange.value}, {reservation.pool_key.venue.value}, "
+                f"{reservation.pool_key.settlement_currency.value}); reservation "
+                f"{reservation.id} cannot hold capital in a pool that does not exist"
+            )
         self._session.add(
             ReservationRow(
                 id=reservation.id,
+                user_id=user_id,
+                pool_id=pool_id,
                 strategy_id=reservation.strategy_id,
                 signal_id=reservation.signal_id,
                 exchange=reservation.pool_key.exchange.value,
@@ -105,6 +156,11 @@ class SqlAlchemyReservationRepository:
         write loop: loading each row and transitioning it individually would
         reintroduce exactly the read-then-write race the advisory lock exists
         to prevent, on the one path that deliberately runs without it.
+
+        **Global by design** (multi-user design AD8): the sweeper is the
+        worker's own housekeeping over every user's reservations. Expiry is a
+        property of the row, not of whose it is, and no user context exists on
+        this path.
 
         Idempotent by construction: the WHERE clause only matches rows that
         still hold capital, so a second pass over the same rows matches nothing
@@ -141,15 +197,31 @@ class SqlAlchemyReservationRepository:
         )
         return result.rowcount
 
-    async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
-        await self._session.execute(
-            update(ReservationRow)
-            .where(ReservationRow.id == reservation_id)
-            .values(status=status.value, updated_at=at)
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None:
+        """Sets the status of ``user_id``'s reservation. Raises when no such
+        row exists: every caller has just read it with ``get_for_update`` under
+        the same user, so a miss is a mismatched owner, and a status left
+        unwritten would hold capital until the reservation expires with
+        nothing saying why."""
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(
+                update(ReservationRow)
+                .where(ReservationRow.id == reservation_id, ReservationRow.user_id == user_id)
+                .values(status=status.value, updated_at=at)
+            ),
         )
+        if result.rowcount != 1:
+            raise InvariantViolation(
+                f"no reservation {reservation_id} of user {str(user_id)[:8]} to mark "
+                f"{status.value}"
+            )
 
     async def has_pending_for_strategy(
         self,
+        user_id: UUID,
         exchange: str,
         venue: str,
         settlement_currency: str,
@@ -160,7 +232,9 @@ class SqlAlchemyReservationRepository:
         the "In flight vs orphan" check (design.md § "the query"):
         strategy-level rather than per-symbol, because reservations carry no
         symbol -- bounded by the reservation's own TTL, so it cannot block an
-        opening signal for longer than that.
+        opening signal for longer than that. Only ``user_id``'s reservations
+        count: another user's work on the same strategy and market is not this
+        user's in-flight work (multi-user design AD8).
 
         Only PENDING counts here, not SUBMITTED: once a reservation reaches
         SUBMITTED, an execution attempt row exists for it, and that is what
@@ -175,6 +249,7 @@ class SqlAlchemyReservationRepository:
         result = await self._session.execute(
             select(ReservationRow.id)
             .where(
+                ReservationRow.user_id == user_id,
                 ReservationRow.exchange == exchange,
                 ReservationRow.venue == venue,
                 ReservationRow.settlement_currency == settlement_currency,
@@ -187,15 +262,17 @@ class SqlAlchemyReservationRepository:
         return result.first() is not None
 
     async def live_for_pool(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> list[UUID]:
-        """Every reservation still holding capital in this pool, whichever
-        strategy owns it: ``live_for_strategy`` without the strategy filter,
-        with the same ``terminal_at IS NULL`` reading and for the same reason.
-        Used by the pool-wide exposure check that guards deleting an exchange's
-        key (owner decision 22)."""
+        """Every reservation still holding capital in ``user_id``'s pool on this
+        market, whichever strategy owns it: ``live_for_strategy`` without the
+        strategy filter, with the same ``terminal_at IS NULL`` reading and for
+        the same reason. Used by the pool-wide exposure check that guards
+        deleting an exchange's key (owner decision 22): the key deleted is that
+        user's, so only that user's reservations stand in its way."""
         result = await self._session.execute(
             select(ReservationRow.id).where(
+                ReservationRow.user_id == user_id,
                 ReservationRow.exchange == exchange,
                 ReservationRow.venue == venue,
                 ReservationRow.settlement_currency == settlement_currency,
@@ -212,6 +289,11 @@ class SqlAlchemyReservationRepository:
         pool -- ``status IN (PENDING, SUBMITTED) AND terminal_at IS NULL``
         (design.md § 8's exposure query shape, tasks.md 2c.11/2c.12),
         exactly ``StrategyExposurePort.exposure``'s ``live_reservations``.
+
+        **Global by design, whoever's the reservation** (multi-user design AD8,
+        owner decision 16): its one caller is the admin's archive of a
+        strategy, and a strategy is one object for every user, so any user's
+        live reservation on it must still refuse the archive.
 
         Deliberately NOT ``has_pending_for_strategy``'s ``expires_at > now``
         criterion: that method exists to bound how long an OPENING signal
@@ -240,7 +322,12 @@ class SqlAlchemyReservationRepository:
         """How many reservations exist for this strategy, in any status and in
         ANY pool -- terminal rows and a row in another pool count too.
         Read-only: ``StrategyHistoryPort``'s ``reservations`` count
-        (design.md addendum 9x, § C)."""
+        (design.md addendum 9x, § C).
+
+        **Global by design, whoever's the reservation** (multi-user design AD8,
+        owner decision 16): its one caller is the admin's delete of a strategy,
+        and any user's reservation is history that refuses it (and that the FK
+        would refuse at the delete itself)."""
         result = await self._session.execute(
             select(func.count())
             .select_from(ReservationRow)

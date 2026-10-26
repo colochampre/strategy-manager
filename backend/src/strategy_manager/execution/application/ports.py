@@ -242,11 +242,17 @@ class ReservationSnapshot:
 class ReservationGatewayPort(Protocol):
     """``get_for_update`` MUST take a row lock (``FOR UPDATE``) so the
     pre-submit expiry re-check and the subsequent status write are atomic
-    within the caller's open transaction (design.md § TXN-B1)."""
+    within the caller's open transaction (design.md § TXN-B1).
 
-    async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot: ...
+    Both methods name the user whose reservation it is (multi-user design AD8):
+    the strategy author whose signal opened it. Another user's reservation
+    under the same id is neither read nor marked."""
 
-    async def mark(self, reservation_id: UUID, status: str, at: datetime) -> None: ...
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot: ...
+
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: str, at: datetime
+    ) -> None: ...
 
 
 class ExecutionAttemptRepositoryPort(Protocol):

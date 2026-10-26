@@ -74,9 +74,11 @@ class FakeExposure:
         self._events = events
         self._exposure = exposure
         self.pools: list[PoolKey] = []
+        self.users: list[UUID] = []
 
-    async def exposure(self, pool: PoolKey) -> PoolExposure:
+    async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
         self._events.log.append("exposure")
+        self.users.append(user_id)
         self.pools.append(pool)
         return self._exposure
 
@@ -175,6 +177,17 @@ async def test_the_key_locked_and_deactivated_is_the_deleting_users() -> None:
     await built.use_case.execute(other, "bybit")
 
     assert built.revoker.users == [other, other]
+
+
+async def test_the_exposure_read_is_the_deleting_users() -> None:
+    """AD8: the live reservations that stand in the way of deleting a key are
+    the signed-in user's, never another user's on the same market."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    built = Built()
+
+    await built.use_case.execute(other, "bybit")
+
+    assert built.exposure.users == [other]
 
 
 @pytest.mark.parametrize("exchange", ["pionex", "kraken", ""])

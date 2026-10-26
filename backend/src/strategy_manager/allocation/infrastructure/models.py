@@ -1,12 +1,21 @@
 """SQLAlchemy ORM model owned by ``allocation``. Mirrors migration
-``0004_reservations``.
+``0004_reservations`` as later migrations left it (``0030``: its owner and pool).
 """
 
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    Numeric,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -15,14 +24,30 @@ from strategy_manager.shared.db import Base
 
 
 class ReservationRow(Base):
-    """Mirrors the ``reservations`` table created by migration ``0004``."""
+    """Mirrors the ``reservations`` table created by migration ``0004``.
+
+    A reservation belongs to a user and holds capital in that user's pool
+    (migration ``0030``, multi-user design AD2): ``user_id`` names the owner and
+    ``pool_id`` the pool, and their FK is ``(pool_id, user_id)``, so the database
+    refuses one user's reservation in another user's pool. The market columns
+    stay as data."""
 
     __tablename__ = "reservations"
-    # No pool FK here yet: 0030 moved it to (pool_id, user_id), which U3 adds.
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["pool_id", "user_id"],
+            ["capital_pools.id", "capital_pools.user_id"],
+            name="fk_reservations_capital_pool",
+        ),
+        ForeignKeyConstraint(["user_id"], ["users.id"], name="fk_reservations_user"),
+        Index("ix_reservations_user_id", "user_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    pool_id: Mapped[int] = mapped_column(Integer, nullable=False)
     strategy_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("strategies.id"), nullable=False
     )

@@ -201,7 +201,9 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     assert placed.execution_attempt_id is not None
     async with pg_session_factory() as session:
         commit = settle_h._FaultyCommit(session, fail_on=None)
-        await settle_h._settle(session, commit, exchange).settle(placed.execution_attempt_id)
+        await settle_h._settle(session, commit, exchange).settle(
+            OWNER_ID, placed.execution_attempt_id
+        )
     async with pg_session_factory() as session:
         rows = list(
             (
@@ -309,6 +311,7 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
         commit = order_h._FaultyCommit(session, fail_on=None)
         await order_h._place_order(session, commit, exchange).place(
             PlaceCommand(
+                user_id=OWNER_ID,
                 reservation_id=reservation_id,
                 symbol="ETHBTC",
                 side=OrderSide.BUY,

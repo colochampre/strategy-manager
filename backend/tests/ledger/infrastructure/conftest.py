@@ -33,7 +33,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -201,30 +201,24 @@ async def seed_reservation(
     amount: Decimal = Decimal("200"),
     status: str = "SUBMITTED",
     expires_at: datetime | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """``user_id``'s reservation, in that user's pool on the market (seeded
+    when missing; migration ``0030``)."""
     resolved_expires_at = expires_at if expires_at is not None else datetime.now(UTC) + timedelta(
         hours=1
     )
     async with session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO reservations "
-                "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-                "amount, status, expires_at) "
-                "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
-                ":settlement_currency, :amount, :status, :expires_at)"
-            ),
-            {
-                "id": reservation_id,
-                "strategy_id": strategy_id,
-                "signal_id": signal_id,
-                "exchange": exchange,
-                "venue": venue,
-                "settlement_currency": settlement_currency,
-                "amount": amount,
-                "status": status,
-                "expires_at": resolved_expires_at,
-            },
+        await seed_reservation_row(
+            session,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            market=(exchange, venue, settlement_currency),
+            amount=amount,
+            status=status,
+            expires_at=resolved_expires_at,
+            user_id=user_id,
         )
         await session.commit()
 

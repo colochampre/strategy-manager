@@ -147,16 +147,26 @@ class AdvisoryLockPort(Protocol):
 
 
 class ReservationRepositoryPort(Protocol):
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None: ...
+    """Every method names the user whose reservations it reads or writes
+    (multi-user design AD8): another user's reservation on the same market is
+    never returned, counted or changed, and ``insert`` writes the reservation
+    as that user's, in that user's pool on its market."""
+
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None: ...
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal: ...
 
-    async def insert(self, reservation: Reservation) -> None: ...
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None: ...
 
     async def mark(
-        self, reservation_id: UUID, status: ReservationStatus, at: datetime
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
     ) -> None: ...
 
 
@@ -164,7 +174,11 @@ class ReservationSweepPort(Protocol):
     """Batch expiry for the sweeper (design.md § Transaction Boundaries,
     TXN-C). Separate from ``ReservationRepositoryPort`` because the sweeper
     needs none of the per-signal reads and must not be handed the ability to
-    insert — a set-based UPDATE is its whole vocabulary."""
+    insert — a set-based UPDATE is its whole vocabulary.
+
+    Global by design: it sweeps every user's reservations (multi-user design
+    AD8), since expiry is a property of the row and the worker's housekeeping
+    has no user context."""
 
     async def expire_due(self, now: datetime, limit: int) -> int:
         """Terminates up to ``limit`` reservations whose ``expires_at`` has
