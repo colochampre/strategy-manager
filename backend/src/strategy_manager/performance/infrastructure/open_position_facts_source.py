@@ -11,6 +11,10 @@ Three statements, each ONE statement however many rows it answers:
 * ``position_facts``, 2 of 2: each reservation's grant, status, strategy, pool
   and the leverage of its OPENING attempt.
 
+**One user's rows** (multi-user design AD8): every statement filters the ledger
+entries, reservations and execution attempts on ``user_id``. Strategies stay
+global: a strategy's name and archive flag are the same for every user.
+
 **The origin is not decided here.** Nothing in these statements tests the
 rehearsal prefix; a position's origin is the guard's two flags and nowhere else.
 **Nothing filters the guard's answer.** An allocation these statements know
@@ -25,7 +29,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -45,7 +49,9 @@ class SqlAlchemyOpenPositionFactsSource:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def position_facts(self, allocation_ids: Sequence[UUID]) -> Mapping[UUID, PositionFacts]:
+    async def position_facts(
+        self, user_id: UUID, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, PositionFacts]:
         if not allocation_ids:
             return {}
 
@@ -66,7 +72,10 @@ class SqlAlchemyOpenPositionFactsSource:
                 func.min(LedgerEntryRow.filled_at),
                 func.count(),
             )
-            .where(LedgerEntryRow.allocation_id.in_(allocation_ids))
+            .where(
+                LedgerEntryRow.user_id == user_id,
+                LedgerEntryRow.allocation_id.in_(allocation_ids),
+            )
             .group_by(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.strategy_id,
@@ -115,8 +124,14 @@ class SqlAlchemyOpenPositionFactsSource:
                 ReservationRow.settlement_currency,
             )
             .join(StrategyRow, StrategyRow.id == ReservationRow.strategy_id)
-            .outerjoin(ExecutionAttemptRow, ExecutionAttemptRow.reservation_id == ReservationRow.id)
-            .where(ReservationRow.id.in_(allocation_ids))
+            .outerjoin(
+                ExecutionAttemptRow,
+                and_(
+                    ExecutionAttemptRow.reservation_id == ReservationRow.id,
+                    ExecutionAttemptRow.user_id == user_id,
+                ),
+            )
+            .where(ReservationRow.user_id == user_id, ReservationRow.id.in_(allocation_ids))
         )
         facts: dict[UUID, PositionFacts] = {}
         for row in reservations.all():
@@ -133,7 +148,7 @@ class SqlAlchemyOpenPositionFactsSource:
             )
         return facts
 
-    async def submitted_orders(self) -> Sequence[SubmittedOrder]:
+    async def submitted_orders(self, user_id: UUID) -> Sequence[SubmittedOrder]:
         reservation = aliased(ReservationRow)
         result = await self._session.execute(
             select(
@@ -155,13 +170,16 @@ class SqlAlchemyOpenPositionFactsSource:
             .select_from(ExecutionAttemptRow)
             .outerjoin(
                 reservation,
-                reservation.id
-                == func.coalesce(
-                    ExecutionAttemptRow.reservation_id, ExecutionAttemptRow.closes_allocation_id
+                and_(
+                    reservation.id
+                    == func.coalesce(
+                        ExecutionAttemptRow.reservation_id, ExecutionAttemptRow.closes_allocation_id
+                    ),
+                    reservation.user_id == user_id,
                 ),
             )
             .outerjoin(StrategyRow, StrategyRow.id == reservation.strategy_id)
-            .where(ExecutionAttemptRow.status == _SUBMITTED)
+            .where(ExecutionAttemptRow.user_id == user_id, ExecutionAttemptRow.status == _SUBMITTED)
         )
         orders: list[SubmittedOrder] = []
         for row in result.all():

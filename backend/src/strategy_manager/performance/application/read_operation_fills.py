@@ -79,9 +79,13 @@ class ReadOperationFills:
     def __init__(self, source: OperationFillsSourcePort) -> None:
         self._source = source
 
-    async def read(self, strategy_id: UUID, pool: PoolKey, allocation_id: UUID) -> OperationFills:
+    async def read(
+        self, user_id: UUID, strategy_id: UUID, pool: PoolKey, allocation_id: UUID
+    ) -> OperationFills:
         found = tuple(
-            await self._source.operation_fills(strategy_id, allocation_id, MAX_OPERATION_FILLS + 1)
+            await self._source.operation_fills(
+                user_id, strategy_id, allocation_id, MAX_OPERATION_FILLS + 1
+            )
         )
         if not found:
             logger.warning(

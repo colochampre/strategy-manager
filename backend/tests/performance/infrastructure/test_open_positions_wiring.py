@@ -21,7 +21,8 @@ from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_D
 from strategy_manager.main import create_app
 from strategy_manager.performance.infrastructure import open_positions_router
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
+from tests.owner import OWNER_ID
 
 
 def test_the_router_wires_the_guards_own_sql_reader() -> None:
@@ -51,6 +52,7 @@ async def test_the_application_serves_the_route_under_api(
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
+    act_as(app, OWNER_ID)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         unauthorized = await client.get("/api/positions/open")

@@ -268,7 +268,10 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         await session.commit()
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
-    allocation_id = await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    # The fills route answers the signed-in admin's own operation (AD8).
+    allocation_id = await _trade(
+        factory, strategy_id, datetime.now(UTC) - timedelta(hours=2), user_id=admin
+    )
     # One open discrepancy, so the list's row serializer is inspected too (W3).
     await clear_discrepancies(factory)
     await seed_discrepancy(factory, symbol="STXUSDT")

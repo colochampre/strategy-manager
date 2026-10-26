@@ -84,6 +84,20 @@ def without_a_database(app: FastAPI) -> FastAPI:
     return app
 
 
+def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
+    """Make ``current_user`` resolve to ``user_id`` on an app that keeps its
+    database and its real ``require_admin``. For a scoped route's test, whose
+    fixtures own their rows as ``OWNER_ID`` (or as a second user) and need the
+    signed-in user to be that owner without moving every seeded row."""
+
+    async def _user(email: Annotated[str, Depends(dependencies.verified_email)]) -> User:
+        now = datetime.now(UTC)
+        return User(id=user_id, email=email, created_at=now, last_seen_at=now)
+
+    app.dependency_overrides[dependencies.current_user] = _user
+    return app
+
+
 async def seed_admin(executor: AsyncConnection | AsyncSession) -> UUID:
     """The admin's ``users`` row, inserted unless it is already there; returns
     its id. Not committed. ``current_user`` resolves ``ADMIN_HEADERS`` to this

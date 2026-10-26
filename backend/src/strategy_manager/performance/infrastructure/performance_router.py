@@ -415,16 +415,22 @@ async def pool_performance(
     pool = await SqlAlchemyPoolLookup(session).find(user.id, exchange, venue, ccy)
     if pool is None:
         raise HTTPException(status_code=404, detail="no such pool")
-    report = await _guarded(ReadPoolPerformance(fills, clock).read(pool))
+    report = await _guarded(ReadPoolPerformance(fills, clock).read(user.id, pool))
     return PerformanceBody.of(report)
 
 
 @router.get("/strategies/{strategy_id}", response_model=StrategyPerformanceBody)
 async def strategy_performance(
-    strategy_id: UUID, session: SessionDep, fills: FillsDep, clock: ClockDep
+    strategy_id: UUID,
+    session: SessionDep,
+    fills: FillsDep,
+    clock: ClockDep,
+    user: Annotated[User, Depends(current_user)],
 ) -> StrategyPerformanceBody:
+    """The strategy row is global; the figures are the signed-in user's own
+    ledger rows on it (multi-user design AD8)."""
     pool = await _strategy_pool(session, strategy_id)
-    result = await _guarded(ReadStrategyPerformance(fills, clock).read(strategy_id, pool))
+    result = await _guarded(ReadStrategyPerformance(fills, clock).read(user.id, strategy_id, pool))
     return StrategyPerformanceBody.from_strategy(result)
 
 
@@ -434,6 +440,7 @@ async def strategy_trades(
     session: SessionDep,
     fills: FillsDep,
     pricing: PricingDep,
+    user: Annotated[User, Depends(current_user)],
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     before_closed_at: datetime | None = None,
     before_allocation_id: UUID | None = None,
@@ -457,7 +464,12 @@ async def strategy_trades(
         )
         page = await _guarded(
             ReadStrategyTrades(fills, pricing).read(
-                strategy_id, pool, limit=limit, before=before, include_rehearsal=include_rehearsal
+                user.id,
+                strategy_id,
+                pool,
+                limit=limit,
+                before=before,
+                include_rehearsal=include_rehearsal,
             )
         )
     except InvalidPageRequest as exc:
@@ -469,11 +481,17 @@ async def strategy_trades(
     "/strategies/{strategy_id}/trades/{allocation_id}/fills", response_model=OperationFillsBody
 )
 async def operation_fills(
-    strategy_id: UUID, allocation_id: UUID, session: SessionDep, source: OperationFillsDep
+    strategy_id: UUID,
+    allocation_id: UUID,
+    session: SessionDep,
+    source: OperationFillsDep,
+    user: Annotated[User, Depends(current_user)],
 ) -> OperationFillsBody:
     pool = await _strategy_pool(session, strategy_id)
     try:
-        result = await _guarded(ReadOperationFills(source).read(strategy_id, pool, allocation_id))
+        result = await _guarded(
+            ReadOperationFills(source).read(user.id, strategy_id, pool, allocation_id)
+        )
     except UnknownOperation as exc:
         # One answer for an id that does not exist, another strategy's operation and
         # an allocation that never had a fill: it must not say which one it was.

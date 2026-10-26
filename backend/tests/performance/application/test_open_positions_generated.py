@@ -23,6 +23,7 @@ from strategy_manager.execution.application.assert_mode_matches_ledger import (
 from strategy_manager.execution.domain.mode_origin import find_mismatches, fold_open_allocations
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
 from strategy_manager.shared.domain.startup_refusal import StartupRefused
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
 from tests.performance.generated_ledger import GeneratedState, generate_states
 
@@ -56,7 +57,9 @@ def test_the_generator_reaches_every_shape_the_invariant_has_to_cover() -> None:
 async def test_the_answer_holds_the_readers_elements_one_for_one(state: GeneratedState) -> None:
     reader = FakeOpenStateReader(fold_open_allocations(state.ledger_groups()), state.in_flight)
 
-    answer = await ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource()).read()
+    answer = await ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource()).read(
+        OWNER_ID
+    )
 
     assert [p.allocation_id for p in answer.positions] == [
         e.allocation_id for e in await reader.open_allocations()
@@ -73,7 +76,9 @@ async def test_nothing_the_guard_refuses_on_is_missing_and_an_empty_answer_is_ac
 ) -> None:
     reader = FakeOpenStateReader(fold_open_allocations(state.ledger_groups()), state.in_flight)
 
-    answer = await ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource()).read()
+    answer = await ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource()).read(
+        OWNER_ID
+    )
 
     ids = {p.allocation_id for p in answer.positions} | {o.attempt_id for o in answer.orders}
     mismatches = find_mismatches(

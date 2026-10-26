@@ -31,7 +31,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
     SqlAlchemyAllocationFillsSource,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from tests.owner import OWNER_ID, seed_pool
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +48,7 @@ async def _seed_allocation(
     pool: PoolKey = BYBIT,
     pool_total_at_open: str | None = "1000",
     strategy_id: UUID | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> tuple[UUID, UUID, UUID]:
     """Strategy + signal + reservation (the allocation) + its opening attempt.
     Returns ``(strategy_id, allocation_id, attempt_id)``. Pass ``strategy_id``
@@ -81,6 +82,7 @@ async def _seed_allocation(
         exchange=pool.exchange.value,
         venue=pool.venue.value,
         settlement_currency=pool.settlement_currency.value,
+        user_id=user_id,
     )
     if pool_total_at_open is not None:
         async with factory() as session:
@@ -114,9 +116,10 @@ def _fill(
     filled_at: datetime = T0,
     fill_id: str | None = None,
     pool: PoolKey = BYBIT,
+    user_id: UUID = OWNER_ID,
 ) -> FillRecord:
     return FillRecord(
-        user_id=OWNER_ID,
+        user_id=user_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -146,10 +149,12 @@ async def _record(factory: async_sessionmaker[AsyncSession], *fills: FillRecord)
 
 
 async def _read(
-    factory: async_sessionmaker[AsyncSession], pool: PoolKey = BYBIT
+    factory: async_sessionmaker[AsyncSession],
+    pool: PoolKey = BYBIT,
+    user_id: UUID = OWNER_ID,
 ) -> PoolFills:
     async with factory() as session:
-        return await SqlAlchemyAllocationFillsSource(session).pool_fills(pool)
+        return await SqlAlchemyAllocationFillsSource(session).pool_fills(user_id, pool)
 
 
 async def test_source_excludes_fake_fill_prefix_rows(
@@ -558,3 +563,86 @@ async def test_an_allocation_with_fills_of_both_origins_yields_groups_in_both_se
 
     assert [(g.side, g.rehearsal) for g in result.groups] == [("BUY", False)]
     assert [(g.side, g.rehearsal) for g in result.rehearsal_groups] == [("SELL", True)]
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
+
+
+async def test_a_second_users_fills_on_the_same_market_and_strategy_are_not_returned(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8: the same strategy and the same market hold two
+    users' allocations, one live and one rehearsal each. Each user reads only
+    their own groups and their own rehearsal count; the other's are neither
+    summed nor counted."""
+    other = await _other_user(pg_session_factory)
+    strategy_id, mine, mine_attempt = await _seed_allocation(pg_session_factory)
+    _, theirs, theirs_attempt = await _seed_allocation(
+        pg_session_factory, strategy_id=strategy_id, user_id=other
+    )
+    await _record(
+        pg_session_factory,
+        _fill(
+            strategy_id=strategy_id,
+            allocation_id=mine,
+            attempt_id=mine_attempt,
+            side="BUY",
+            quantity="1",
+            symbol="SOLUSDT.P",
+        ),
+        _fill(
+            strategy_id=strategy_id,
+            allocation_id=mine,
+            attempt_id=mine_attempt,
+            side="SELL",
+            quantity="1",
+            symbol="SOLUSDT.P",
+            filled_at=T0 + timedelta(minutes=1),
+            fill_id=_rehearsal_fill_id(),
+        ),
+        _fill(
+            strategy_id=strategy_id,
+            allocation_id=theirs,
+            attempt_id=theirs_attempt,
+            side="BUY",
+            quantity="7",
+            symbol="SOLUSDT",
+            user_id=other,
+        ),
+        _fill(
+            strategy_id=strategy_id,
+            allocation_id=theirs,
+            attempt_id=theirs_attempt,
+            side="SELL",
+            quantity="7",
+            symbol="SOLUSDT",
+            filled_at=T0 + timedelta(minutes=1),
+            fill_id=_rehearsal_fill_id(),
+            user_id=other,
+        ),
+        _fill(
+            strategy_id=strategy_id,
+            allocation_id=theirs,
+            attempt_id=theirs_attempt,
+            side="SELL",
+            quantity="7",
+            symbol="SOLUSDT",
+            filled_at=T0 + timedelta(minutes=2),
+            fill_id=_rehearsal_fill_id(),
+            user_id=other,
+        ),
+    )
+
+    owner_view = await _read(pg_session_factory)
+    other_view = await _read(pg_session_factory, user_id=other)
+
+    assert [g.allocation_id for g in owner_view.groups] == [mine]
+    assert [g.allocation_id for g in owner_view.rehearsal_groups] == [mine]
+    assert owner_view.rehearsal_fill_count == 1
+    assert owner_view.rehearsal_by_strategy == ((strategy_id, 1),)
+    assert [g.allocation_id for g in other_view.groups] == [theirs]
+    assert other_view.rehearsal_fill_count == 2

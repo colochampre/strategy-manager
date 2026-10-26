@@ -36,6 +36,7 @@ from strategy_manager.performance.domain.open_position import (
     PoolLabel,
 )
 from strategy_manager.performance.domain.operation import FeeAmount
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
 from tests.performance.open_state_cases import (
     POOL,
@@ -62,7 +63,7 @@ async def _read(
     reader = FakeOpenStateReader(opened, in_flight, calls=calls)
     facts_source = FakeFactsSource(facts, submitted, calls=calls)
     disagreements = FakeDisagreementSource(rows, calls=calls)
-    return await ReadOpenPositions(reader, facts_source, disagreements).read()
+    return await ReadOpenPositions(reader, facts_source, disagreements).read(OWNER_ID)
 
 
 # --- a position, decorated -----------------------------------------------------
@@ -460,7 +461,7 @@ async def test_with_nothing_open_the_facts_statements_do_not_run() -> None:
 
     await ReadOpenPositions(
         reader, FakeFactsSource(calls=calls), FakeDisagreementSource(calls=calls)
-    ).read()
+    ).read(OWNER_ID)
 
     assert calls == ["in_flight", "open", "submitted"]
 
@@ -478,7 +479,7 @@ async def test_the_statements_run_in_the_designs_order_once_each() -> None:
     )
     facts = FakeFactsSource(calls=calls)
 
-    await ReadOpenPositions(reader, facts, FakeDisagreementSource(calls=calls)).read()
+    await ReadOpenPositions(reader, facts, FakeDisagreementSource(calls=calls)).read(OWNER_ID)
 
     assert calls == ["in_flight", "open", "submitted", "facts", "disagreements"]
     assert facts.asked_ids == [[first, second]]

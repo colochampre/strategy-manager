@@ -11,7 +11,9 @@ columns of the shared aggregate on purpose: that aggregate is what every report
 reads, and a join to another module's table has no business under a total. This
 statement runs only when a rehearsal row is on the page.
 
-**The strategy and the pool are in the WHERE.** An allocation of another
+**The user, the strategy and the pool are in the WHERE.** The strategy row is
+global; the ledger and the reservations are one user's (multi-user design AD8).
+An allocation of another
 strategy, or of another pool, is simply absent from the answer: the port cannot
 be used to read what the caller's path does not own.
 
@@ -46,7 +48,7 @@ class SqlAlchemyRehearsalPricingSource:
         self._session = session
 
     async def pricing_facts(
-        self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PricingFacts]:
         if not allocation_ids:
             return {}
@@ -62,6 +64,8 @@ class SqlAlchemyRehearsalPricingSource:
             .join(ReservationRow, ReservationRow.id == LedgerEntryRow.allocation_id)
             .join(SignalRow, SignalRow.id == ReservationRow.signal_id)
             .where(
+                LedgerEntryRow.user_id == user_id,
+                ReservationRow.user_id == user_id,
                 LedgerEntryRow.allocation_id.in_(allocation_ids),
                 LedgerEntryRow.strategy_id == strategy_id,
                 LedgerEntryRow.exchange == pool.exchange.value,

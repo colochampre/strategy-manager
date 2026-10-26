@@ -31,6 +31,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
     SqlAlchemyRehearsalPricingSource,
 )
+from tests.owner import OWNER_ID
 from tests.performance.infrastructure.conftest import OPERATIONS_T0, OperationsLedger
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
@@ -92,7 +93,7 @@ async def _page(
         reader = ReadStrategyTrades(
             SqlAlchemyAllocationFillsSource(session), SqlAlchemyRehearsalPricingSource(session)
         )
-        return await reader.read(strategy_id, BYBIT, limit=limit, before=before)
+        return await reader.read(OWNER_ID, strategy_id, BYBIT, limit=limit, before=before)
 
 
 def _ids(page: TradesPage) -> list[UUID]:
@@ -206,7 +207,12 @@ async def test_a_trade_closing_between_two_page_reads_neither_repeats_nor_hides_
                 SqlAlchemyRehearsalPricingSource(session),
             )
             return await reader.read(
-                ledger.strategy_id, BYBIT, limit=limit, before=before, include_rehearsal=True
+                OWNER_ID,
+                ledger.strategy_id,
+                BYBIT,
+                limit=limit,
+                before=before,
+                include_rehearsal=True,
             )
 
     first = await read(2)

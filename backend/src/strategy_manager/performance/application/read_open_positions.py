@@ -72,17 +72,17 @@ class ReadOpenPositions:
         self._facts = facts
         self._disagreements = disagreements
 
-    async def read(self) -> OpenState:
+    async def read(self, user_id: UUID) -> OpenState:
         # Step 1, then step 2: in that order on purpose (section C).
-        in_flight = await self._state.in_flight_attempts()
-        opened = await self._state.open_allocations()
-        submitted = await self._facts.submitted_orders()
+        in_flight = await self._state.in_flight_attempts(user_id)
+        opened = await self._state.open_allocations(user_id)
+        submitted = await self._facts.submitted_orders(user_id)
 
         facts: Mapping[UUID, PositionFacts] = {}
         rows: Sequence[DiscrepancyRow] = ()
         if opened:
-            facts = await self._facts.position_facts([e.allocation_id for e in opened])
-            rows = await self._disagreements.confirmed_open()
+            facts = await self._facts.position_facts(user_id, [e.allocation_id for e in opened])
+            rows = await self._disagreements.confirmed_open(user_id)
 
         # One row per element, unconditionally. Do not add a branch here.
         positions = tuple(

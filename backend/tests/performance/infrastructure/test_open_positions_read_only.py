@@ -31,7 +31,8 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.performance.fakes import HeldOpenStateSource
 from tests.performance.infrastructure.guard_cases import seed_guard_cases
 from tests.performance.infrastructure.test_open_positions_snapshot import (
@@ -66,7 +67,7 @@ def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
-    return app
+    return act_as(app, OWNER_ID)
 
 
 @pytest.fixture(autouse=True)

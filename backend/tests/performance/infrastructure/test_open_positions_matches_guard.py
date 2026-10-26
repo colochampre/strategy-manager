@@ -30,7 +30,8 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
 )
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.performance.infrastructure.guard_cases import GuardCases, seed_guard_cases
 
 pytestmark = pytest.mark.integration
@@ -63,6 +64,7 @@ async def _route(
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
+    act_as(app, OWNER_ID)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with _statements_with_connection(engine) as statements:
             response = await client.get("/api/positions/open", headers=ADMIN_HEADERS)

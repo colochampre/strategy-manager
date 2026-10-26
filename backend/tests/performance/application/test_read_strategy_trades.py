@@ -46,6 +46,7 @@ from strategy_manager.performance.domain.operation import (
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeFillsSource, FakePricingSource
 
 POOL = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
@@ -124,7 +125,7 @@ async def _walk(reader: ReadStrategyTrades, limit: int) -> list[TradesPage]:
     pages: list[TradesPage] = []
     cursor: TradeCursor | None = None
     while True:
-        page = await reader.read(S1, POOL, limit=limit, before=cursor)
+        page = await reader.read(OWNER_ID, S1, POOL, limit=limit, before=cursor)
         pages.append(page)
         if page.next_cursor is None:
             return pages
@@ -141,11 +142,11 @@ async def test_keyset_pagination_on_closed_at_and_allocation_id_two_trades_same_
     groups = _closed(_id(1), T0) + _closed(_id(2), T0) + _closed(_id(3), T0)
     reader = ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource())
 
-    first = await reader.read(S1, POOL, limit=2)
+    first = await reader.read(OWNER_ID, S1, POOL, limit=2)
     assert _ids(first) == [_id(3), _id(2)]
     assert first.next_cursor == TradeCursor(closed_at=T0, allocation_id=_id(2))
 
-    second = await reader.read(S1, POOL, limit=2, before=first.next_cursor)
+    second = await reader.read(OWNER_ID, S1, POOL, limit=2, before=first.next_cursor)
     assert _ids(second) == [_id(1)]
     assert second.next_cursor is None
 
@@ -169,7 +170,7 @@ async def test_a_cursor_inside_a_tie_keeps_the_lower_ids_and_drops_the_higher() 
     groups = _closed(_id(1), T0) + _closed(_id(2), T0) + _closed(_id(3), T0)
     reader = ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource())
 
-    page = await reader.read(S1, POOL, limit=10, before=TradeCursor(T0, _id(2)))
+    page = await reader.read(OWNER_ID, S1, POOL, limit=10, before=TradeCursor(T0, _id(2)))
 
     assert _ids(page) == [_id(1)]
 
@@ -190,7 +191,7 @@ async def test_an_exactly_full_last_page_has_no_next_cursor() -> None:
     groups = _closed(_id(1), T0) + _closed(_id(2), T0 + timedelta(seconds=1))
 
     page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
-        S1, POOL, limit=2
+        OWNER_ID, S1, POOL, limit=2
     )
 
     assert len(page.trades) == 2
@@ -205,14 +206,14 @@ async def test_a_trade_that_closes_between_two_page_reads_neither_repeats_nor_hi
     old = _closed(_id(1), T0) + _closed(_id(2), T0 + timedelta(minutes=1))
     old += _closed(_id(3), T0 + timedelta(minutes=2))
     first = await ReadStrategyTrades(FakeFillsSource(old), FakePricingSource()).read(
-        S1, POOL, limit=2
+        OWNER_ID, S1, POOL, limit=2
     )
     assert _ids(first) == [_id(3), _id(2)]
 
     grown = old + _closed(_id(4), T0 + timedelta(minutes=10))
     reader = ReadStrategyTrades(FakeFillsSource(grown), FakePricingSource())
-    second = await reader.read(S1, POOL, limit=2, before=first.next_cursor)
-    from_top = await reader.read(S1, POOL, limit=5)
+    second = await reader.read(OWNER_ID, S1, POOL, limit=2, before=first.next_cursor)
+    from_top = await reader.read(OWNER_ID, S1, POOL, limit=5)
 
     assert _ids(second) == [_id(1)]
     assert _ids(from_top) == [_id(4), _id(3), _id(2), _id(1)]
@@ -226,13 +227,13 @@ async def test_a_late_booked_close_older_than_the_cursor_appears_when_reached() 
     in the ordering is missed until the next read from the top."""
     base = _closed(_id(5), T0 + timedelta(minutes=5)) + _closed(_id(4), T0 + timedelta(minutes=4))
     first = await ReadStrategyTrades(FakeFillsSource(base), FakePricingSource()).read(
-        S1, POOL, limit=1
+        OWNER_ID, S1, POOL, limit=1
     )
     assert _ids(first) == [_id(5)]
 
     booked = base + _closed(_id(1), T0 + timedelta(minutes=1))
     second = await ReadStrategyTrades(FakeFillsSource(booked), FakePricingSource()).read(
-        S1, POOL, limit=5, before=first.next_cursor
+        OWNER_ID, S1, POOL, limit=5, before=first.next_cursor
     )
 
     assert _ids(second) == [_id(4), _id(1)]
@@ -245,7 +246,9 @@ async def test_only_this_strategys_closed_trades_are_listed() -> None:
         + [_group(S1, _id(3), "BUY", "100", symbol="STXUSDT.P", at=T0)]  # open, not a trade
     )
 
-    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+        OWNER_ID, S1, POOL
+    )
 
     assert _ids(page) == [_id(1)]
 
@@ -254,7 +257,9 @@ async def test_a_row_from_another_pool_is_refused_not_listed() -> None:
     groups = _closed(_id(1), T0) + _closed(_id(2), T0, exchange="binance")
 
     with pytest.raises(InvariantViolation):
-        await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
 
 async def test_an_item_carries_the_return_on_pool_capital_at_open_or_none() -> None:
@@ -263,7 +268,9 @@ async def test_an_item_carries_the_return_on_pool_capital_at_open_or_none() -> N
         + _closed(_id(2), T0, pnl="7", capital=None)
     )
 
-    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+        OWNER_ID, S1, POOL
+    )
 
     first, second = page.trades
     assert (first.trade.pair, first.trade.pnl, first.value) == (
@@ -280,11 +287,13 @@ async def test_an_item_carries_the_return_on_pool_capital_at_open_or_none() -> N
 
 
 async def test_no_trades_returns_an_empty_page_not_an_error() -> None:
-    empty = await ReadStrategyTrades(FakeFillsSource([]), FakePricingSource()).read(S1, POOL)
+    empty = await ReadStrategyTrades(FakeFillsSource([]), FakePricingSource()).read(
+        OWNER_ID, S1, POOL
+    )
     rehearsal_only = await ReadStrategyTrades(
         FakeFillsSource([], rehearsal_fill_count=3, rehearsal_by_strategy={S1: 3}),
         FakePricingSource(),
-    ).read(S1, POOL)
+    ).read(OWNER_ID, S1, POOL)
 
     assert empty == TradesPage((), None)
     assert rehearsal_only == TradesPage((), None)
@@ -295,14 +304,14 @@ async def test_a_page_size_outside_the_bounds_is_refused(limit: int) -> None:
     reader = ReadStrategyTrades(FakeFillsSource(_closed(_id(1), T0)), FakePricingSource())
 
     with pytest.raises(InvalidPageRequest):
-        await reader.read(S1, POOL, limit=limit)
+        await reader.read(OWNER_ID, S1, POOL, limit=limit)
 
 
 async def test_the_default_and_maximum_page_sizes_are_accepted() -> None:
     reader = ReadStrategyTrades(FakeFillsSource(_closed(_id(1), T0)), FakePricingSource())
 
-    assert len((await reader.read(S1, POOL)).trades) == 1
-    assert len((await reader.read(S1, POOL, limit=MAX_PAGE_SIZE)).trades) == 1
+    assert len((await reader.read(OWNER_ID, S1, POOL)).trades) == 1
+    assert len((await reader.read(OWNER_ID, S1, POOL, limit=MAX_PAGE_SIZE)).trades) == 1
     assert 1 <= DEFAULT_PAGE_SIZE <= MAX_PAGE_SIZE
 
 
@@ -319,14 +328,14 @@ async def test_a_cursor_survives_a_round_trip_through_its_wire_form() -> None:
     resumes at exactly the same place."""
     groups = _closed(_id(1), T0) + _closed(_id(2), T0) + _closed(_id(3), T0)
     reader = ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource())
-    first = await reader.read(S1, POOL, limit=1)
+    first = await reader.read(OWNER_ID, S1, POOL, limit=1)
     assert first.next_cursor is not None
 
     rebuilt = TradeCursor(
         closed_at=datetime.fromisoformat(first.next_cursor.closed_at.isoformat()),
         allocation_id=UUID(str(first.next_cursor.allocation_id)),
     )
-    second = await reader.read(S1, POOL, limit=10, before=rebuilt)
+    second = await reader.read(OWNER_ID, S1, POOL, limit=10, before=rebuilt)
 
     assert _ids(second) == [_id(2), _id(1)]
 
@@ -336,14 +345,16 @@ async def test_an_unresolvable_symbol_is_a_warning_and_a_clean_page_is_silent(
 ) -> None:
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         await ReadStrategyTrades(FakeFillsSource(_closed(_id(1), T0)), FakePricingSource()).read(
-            S1, POOL
+            OWNER_ID, S1, POOL
         )
     assert caplog.records == []
 
     bad = _id(99)
     groups = _closed(_id(1), T0) + [_group(S1, bad, "BUY", "1", symbol="BTCEUR", at=T0)]
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert _ids(page) == [_id(1)]
     assert [r.levelno for r in caplog.records] == [logging.WARNING]
@@ -394,7 +405,7 @@ async def test_include_rehearsal_lists_the_closed_rehearsal_operations_marked() 
     )
 
     page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-        S1, POOL, include_rehearsal=True
+        OWNER_ID, S1, POOL, include_rehearsal=True
     )
 
     assert len(page.trades) == 2
@@ -412,7 +423,7 @@ async def test_a_rehearsal_only_strategy_lists_its_operations() -> None:
     )
 
     page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-        S1, POOL, include_rehearsal=True
+        OWNER_ID, S1, POOL, include_rehearsal=True
     )
 
     assert _ids(page) == [_id(2), _id(1)]
@@ -426,8 +437,8 @@ async def test_the_default_request_serves_no_rehearsal_row() -> None:
     )
     reader = ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS))
 
-    default = await reader.read(S1, POOL)
-    explicit_off = await reader.read(S1, POOL, include_rehearsal=False)
+    default = await reader.read(OWNER_ID, S1, POOL)
+    explicit_off = await reader.read(OWNER_ID, S1, POOL, include_rehearsal=False)
 
     assert _ids(default) == [_id(1)]
     assert _flags(default) == [False]
@@ -446,7 +457,7 @@ async def test_a_mixed_allocation_is_listed_once_from_its_real_fills_and_one_war
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
         page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-            S1, POOL, include_rehearsal=True
+            OWNER_ID, S1, POOL, include_rehearsal=True
         )
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -473,10 +484,10 @@ async def test_a_real_and_a_rehearsal_operation_closing_at_the_same_instant_stra
     )
     reader = ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS))
 
-    first = await reader.read(S1, POOL, limit=1, include_rehearsal=True)
+    first = await reader.read(OWNER_ID, S1, POOL, limit=1, include_rehearsal=True)
     assert first.next_cursor is not None
     second = await reader.read(
-        S1, POOL, limit=1, before=first.next_cursor, include_rehearsal=True
+        OWNER_ID, S1, POOL, limit=1, before=first.next_cursor, include_rehearsal=True
     )
 
     assert (_ids(first), _flags(first)) == ([_id(2)], [True])
@@ -496,9 +507,11 @@ async def test_a_cursor_minted_without_rehearsal_rows_resumes_correctly_with_the
         FakeFillsSource(real, rehearsal_groups=rehearsal), FakePricingSource(default=ALERT_FACTS)
     )
 
-    minted = await reader.read(S1, POOL, limit=1)
+    minted = await reader.read(OWNER_ID, S1, POOL, limit=1)
     assert minted.next_cursor is not None
-    resumed = await reader.read(S1, POOL, before=minted.next_cursor, include_rehearsal=True)
+    resumed = await reader.read(
+        OWNER_ID, S1, POOL, before=minted.next_cursor, include_rehearsal=True
+    )
 
     assert _ids(minted) == [_id(1)]
     assert _ids(resumed) == [_id(4), _id(2)]
@@ -518,7 +531,7 @@ async def test_a_rehearsal_operation_still_open_is_not_listed() -> None:
     )
 
     page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-        S1, POOL, include_rehearsal=True
+        OWNER_ID, S1, POOL, include_rehearsal=True
     )
 
     assert _ids(page) == [_id(8)]
@@ -535,7 +548,7 @@ async def test_a_rehearsal_row_with_a_non_positive_pool_capital_is_refused_like_
     for source in (real, rehearsal):
         try:
             await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-                S1, POOL, include_rehearsal=True
+                OWNER_ID, S1, POOL, include_rehearsal=True
             )
             caught.append(None)
         except InvariantViolation:
@@ -582,7 +595,9 @@ def _fills(
 async def test_a_row_carries_its_figures_and_fees_derived_from_its_own_fills() -> None:
     source = FakeFillsSource(_fills(_id(1), T0))
 
-    page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(S1, POOL)
+    page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
+        OWNER_ID, S1, POOL
+    )
 
     item = page.trades[0]
     assert item.fees == OperationFees(fees=Decimal("0.63"), other_fees=())
@@ -602,7 +617,7 @@ async def test_a_rehearsal_row_carries_the_figures_of_its_own_fills() -> None:
     source = FakeFillsSource([], rehearsal_groups=rehearsal)
 
     page = await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
-        S1, POOL, include_rehearsal=True
+        OWNER_ID, S1, POOL, include_rehearsal=True
     )
 
     assert page.trades[0].rehearsal is True
@@ -631,7 +646,7 @@ async def test_the_figures_are_derived_for_the_rows_of_the_page_only(
         groups += _closed(_id(n), T0 + timedelta(minutes=n))
 
     page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
-        S1, POOL, limit=2
+        OWNER_ID, S1, POOL, limit=2
     )
 
     assert len(page.trades) == 2
@@ -647,7 +662,9 @@ async def test_a_third_currency_fee_is_listed_and_fees_complete_is_false() -> No
         close_fee_currency="BNB",
     )
 
-    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+        OWNER_ID, S1, POOL
+    )
 
     item = page.trades[0]
     assert item.fees == OperationFees(
@@ -667,7 +684,9 @@ async def test_a_base_currency_fee_is_listed_and_fees_complete_stays_true() -> N
         open_fee_currency="STX",
     )
 
-    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+    page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+        OWNER_ID, S1, POOL
+    )
 
     item = page.trades[0]
     assert item.fees == OperationFees(
@@ -687,7 +706,9 @@ async def test_a_figure_that_cannot_be_derived_logs_one_warning_naming_pool_stra
     ]
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert len(caplog.records) == 1
     record = caplog.records[0]
@@ -708,7 +729,9 @@ async def test_two_spellings_of_one_market_log_nothing(
     )
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert caplog.records == []
     assert [item.figures is not None for item in page.trades] == [True, True]
@@ -731,7 +754,9 @@ async def test_a_side_with_no_notional_logs_one_warning_and_the_row_stays_listed
     ]
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
@@ -754,7 +779,9 @@ async def test_an_overlap_of_the_two_sides_logs_one_warning(
     ]
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(S1, POOL)
+        page = await ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
@@ -775,7 +802,9 @@ async def test_no_line_carries_a_price_a_payload_or_a_credential(
     source = FakeFillsSource(disagreeing + overlapping)
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(S1, POOL)
+        await ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS)).read(
+            OWNER_ID, S1, POOL
+        )
 
     assert len(caplog.records) == 2
     # Ids are hex, so a digit run can occur in one by chance; a decimal point cannot.
@@ -816,14 +845,16 @@ async def test_a_page_with_rehearsal_rows_asks_for_pricing_facts_once_with_their
 ):
     pricing = FakePricingSource(default=ALERT_FACTS)
 
-    await ReadStrategyTrades(_mixed_page_source(), pricing).read(S1, POOL, include_rehearsal=True)
+    await ReadStrategyTrades(_mixed_page_source(), pricing).read(
+        OWNER_ID, S1, POOL, include_rehearsal=True
+    )
 
     assert pricing.calls == [(POOL, S1, [_id(2), _id(3)])]
 
     # A page that ends before the second rehearsal row never asks for its facts.
     short = FakePricingSource(default=ALERT_FACTS)
     await ReadStrategyTrades(_mixed_page_source(), short).read(
-        S1, POOL, limit=2, include_rehearsal=True
+        OWNER_ID, S1, POOL, limit=2, include_rehearsal=True
     )
 
     assert short.calls == [(POOL, S1, [_id(2)])]
@@ -831,11 +862,11 @@ async def test_a_page_with_rehearsal_rows_asks_for_pricing_facts_once_with_their
 
 async def test_a_page_without_rehearsal_rows_never_asks_for_facts() -> None:
     not_asked = FakePricingSource(default=ALERT_FACTS)
-    await ReadStrategyTrades(_mixed_page_source(), not_asked).read(S1, POOL)
+    await ReadStrategyTrades(_mixed_page_source(), not_asked).read(OWNER_ID, S1, POOL)
 
     only_real_on_the_page = FakePricingSource(default=ALERT_FACTS)
     page = await ReadStrategyTrades(_mixed_page_source(), only_real_on_the_page).read(
-        S1, POOL, limit=1, include_rehearsal=True
+        OWNER_ID, S1, POOL, limit=1, include_rehearsal=True
     )
 
     assert _flags(page) == [False]
@@ -850,7 +881,7 @@ async def test_each_rehearsal_row_carries_its_classification_and_a_real_row_none
     )
 
     page = await ReadStrategyTrades(_mixed_page_source(), pricing).read(
-        S1, POOL, include_rehearsal=True
+        OWNER_ID, S1, POOL, include_rehearsal=True
     )
 
     assert [(item.trade.allocation_id, item.pricing) for item in page.trades] == [
@@ -867,7 +898,7 @@ async def test_missing_facts_read_undetermined_and_log_one_warning_naming_pool_s
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
         page = await ReadStrategyTrades(_mixed_page_source(), pricing).read(
-            S1, POOL, include_rehearsal=True
+            OWNER_ID, S1, POOL, include_rehearsal=True
         )
 
     assert [item.pricing for item in page.trades] == [
@@ -895,7 +926,9 @@ async def test_undetermined_rows_log_one_info_line_with_the_count_per_page(
     pricing = FakePricingSource({_id(4): FIXED_ONE_FACTS}, default=UNDETERMINED_FACTS)
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        page = await ReadStrategyTrades(source, pricing).read(S1, POOL, include_rehearsal=True)
+        page = await ReadStrategyTrades(source, pricing).read(
+            OWNER_ID, S1, POOL, include_rehearsal=True
+        )
 
     assert [item.pricing for item in page.trades] == [
         None,

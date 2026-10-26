@@ -31,7 +31,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.execution.infrastructure.mode_origin_reader import (
     SqlAlchemyModeOriginReader,
 )
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.performance.application.ports import (
     ConfirmedDisagreementSourcePort,
     OpenPositionFactsSourcePort,
@@ -66,14 +67,24 @@ router = APIRouter(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def get_snapshot_session(session: SessionDep) -> AsyncIterator[AsyncSession]:
+async def get_snapshot_session(
+    session: SessionDep, user: Annotated[User, Depends(current_user)]
+) -> AsyncIterator[AsyncSession]:
     """The session of ONE request, in a read-only ``REPEATABLE READ`` transaction.
 
     The statement must be the transaction's FIRST: PostgreSQL refuses to change
     the isolation level after a query ("must be called before any query"), and
     that refusal propagates as a 500 and the panel's error state. A snapshot that
     is not in force is never silently dropped (design K row 15). The use case and
-    the ports know nothing of this."""
+    the ports know nothing of this.
+
+    ``user`` is a parameter only for its ORDER: ``current_user`` resolves the
+    signed-in user, which may INSERT the row of a first-time user, and commits it
+    before the route runs. That must happen before this transaction starts, or
+    the insert is refused (read only) and the isolation statement is no longer
+    first. FastAPI runs a dependency once per request, so the route's own
+    ``current_user`` is this very result."""
+    del user
     await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
     yield session
 
@@ -255,11 +266,12 @@ async def read_open_positions(
     facts: FactsDep,
     disagreements: DisagreementDep,
     clock: ClockDep,
+    user: Annotated[User, Depends(current_user)],
 ) -> OpenPositionsBody:
     # The instant of the snapshot: taken before the first read, after the
     # snapshot dependency has opened the transaction.
     as_of = clock.now()
-    answer = await ReadOpenPositions(state, facts, disagreements).read()
+    answer = await ReadOpenPositions(state, facts, disagreements).read(user.id)
     return OpenPositionsBody(
         as_of=as_of,
         positions=[_position_body(p) for p in sorted(answer.positions, key=_position_order)],

@@ -8,12 +8,17 @@ no venue is read and nothing is written. The reconciliation's own record
 (``DiscrepancyRecord``) is known to this file alone; the use case sees
 ``DiscrepancyRow``.
 
+Only ``user_id``'s rows are asked for (multi-user design AD8): the repository
+filters on it, so another user's confirmed disagreement on the same market and
+symbol is never marked on this user's position.
+
 The repository's filter is not trusted for the mark's rule: the row carries its
 status and its ``resolved_at`` so that ``venue_disagreement_for`` still decides
 (an OBSERVED or a resolved row marks nothing, whoever hands it over).
 """
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from strategy_manager.performance.domain.open_position import DiscrepancyRow, PoolLabel
 from strategy_manager.reconciliation.application.ports import (
@@ -29,9 +34,9 @@ class ConfirmedDisagreementSource:
     def __init__(self, discrepancies: DiscrepancyRepositoryPort) -> None:
         self._discrepancies = discrepancies
 
-    async def confirmed_open(self) -> Sequence[DiscrepancyRow]:
+    async def confirmed_open(self, user_id: UUID) -> Sequence[DiscrepancyRow]:
         records = await self._discrepancies.list_discrepancies(
-            status=DiscrepancyStatus.CONFIRMED, open_only=True
+            status=DiscrepancyStatus.CONFIRMED, open_only=True, user_id=user_id
         )
         return [_row(record) for record in records]
 

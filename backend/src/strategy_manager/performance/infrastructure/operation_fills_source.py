@@ -5,6 +5,10 @@ addendum "a strategy's operations", sections D and E).
 filled_at, id LIMIT :n`` on ``ledger_entries``, which ``ix_ledger_allocation``
 (migration 0012) serves. The statement count does not grow with the fills.
 
+**The user predicate is in the statement** (multi-user design AD8): the
+strategy is shared by users, the ledger rows are one user's, so another user's
+fills of the same strategy are never read.
+
 **The strategy predicate is in the statement.** ``ledger_entries.strategy_id`` is
 on every fill (CLAUDE.md rule 6), so no row of another strategy leaves the
 database: there is nothing for the application to filter and nothing to leak by
@@ -40,7 +44,7 @@ class SqlAlchemyOperationFillsSource:
         self._session = session
 
     async def operation_fills(
-        self, strategy_id: UUID, allocation_id: UUID, limit: int
+        self, user_id: UUID, strategy_id: UUID, allocation_id: UUID, limit: int
     ) -> Sequence[OperationFill]:
         is_rehearsal = LedgerEntryRow.exchange_fill_id.startswith(
             REHEARSAL_FILL_ID_PREFIX, autoescape=True
@@ -59,6 +63,7 @@ class SqlAlchemyOperationFillsSource:
                 LedgerEntryRow.settlement_currency,
             )
             .where(
+                LedgerEntryRow.user_id == user_id,
                 LedgerEntryRow.allocation_id == allocation_id,
                 LedgerEntryRow.strategy_id == strategy_id,
             )

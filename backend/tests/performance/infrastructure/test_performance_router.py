@@ -43,10 +43,10 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.identity_auth import (
     ADMIN_HEADERS,
     FORGED_HEADERS,
-    hand_owner_pools_to_admin,
+    act_as,
     sign_in_as_admin,
 )
-from tests.owner import seed_other_user, seed_pool
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 from tests.performance.fakes import FakeFillsSource, FixedClock
 from tests.performance.infrastructure.conftest import seed_strategy
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -84,7 +84,7 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
 
 
-def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
+def _app(factory: async_sessionmaker[AsyncSession], user_id: UUID = OWNER_ID) -> FastAPI:
     app = create_app()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
@@ -93,16 +93,15 @@ def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
 
     app.dependency_overrides[shared_db.get_session] = _override_get_session
     app.dependency_overrides[get_clock] = lambda: FixedClock(NOW)
-    return app
+    return act_as(app, user_id)
 
 
 @pytest.fixture
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncClient]:
-    """The seeded pools are the signed-in admin's: the pool report finds only
-    the signed-in user's pool (multi-user design AD8)."""
-    await hand_owner_pools_to_admin(pg_session_factory)
+    """The signed-in user is the fixtures' owner, who holds the seeded pools,
+    the strategies' reservations and the ledger (multi-user design AD8)."""
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as api:
@@ -136,11 +135,12 @@ async def _trade(
     quantity: str = "1",
     capital: str | None = "1000",
     symbols: tuple[str, str] = ("STXUSDT.P", "STXUSDT"),
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     """One closed allocation of ``strategy_id``: opened one hour before
     ``closed_at`` by ``opened_by`` at ``entry`` and closed at ``exit_``."""
     _, allocation_id, attempt_id = await _seed_allocation(
-        factory, pool=pool, pool_total_at_open=capital, strategy_id=strategy_id
+        factory, pool=pool, pool_total_at_open=capital, strategy_id=strategy_id, user_id=user_id
     )
     closing = "SELL" if opened_by == "BUY" else "BUY"
     await _record(
@@ -155,6 +155,7 @@ async def _trade(
             symbol=symbols[0],
             filled_at=closed_at - timedelta(hours=1),
             pool=pool,
+            user_id=user_id,
         ),
         _fill(
             strategy_id=strategy_id,
@@ -166,6 +167,7 @@ async def _trade(
             symbol=symbols[1],
             filled_at=closed_at,
             pool=pool,
+            user_id=user_id,
         ),
     )
     return allocation_id
@@ -902,7 +904,6 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
         pool_total_at_open=Decimal("1000"),
         rehearsal=False,
     )
-    await hand_owner_pools_to_admin(pg_session_factory)
     app = _app(pg_session_factory)
     app.dependency_overrides[get_fills_source] = lambda: FakeFillsSource([stray])
 
@@ -915,3 +916,58 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "pools are never blended" in errors[0].getMessage()
+
+
+async def test_a_second_users_rows_on_the_same_strategy_and_market_are_not_served_to_the_owner(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8. ONE strategy and ONE market hold two users'
+    closed operations (the second one spelled ``STXUSDT_PERP`` / ``STXUSDT.P``).
+    Each signed-in user's pool report, strategy report, trade list and operation
+    fills hold only that user's own rows, and the other's allocation is the same
+    404 as an unknown one."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id = await _strategy(pg_session_factory)
+    mine = await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
+    theirs = await _trade(
+        pg_session_factory,
+        strategy_id,
+        DAY1,
+        exit_="150",
+        symbols=("STXUSDT_PERP", "STXUSDT.P"),
+        user_id=other,
+    )
+
+    async def view(user_id: UUID, allocation_id: UUID) -> tuple[Any, ...]:
+        async with AsyncClient(
+            transport=ASGITransport(app=_app(pg_session_factory, user_id)),
+            base_url="http://test",
+        ) as api:
+            pool = _json(await api.get(POOL_URL, headers=ADMIN_HEADERS))
+            strategy = _json(
+                await api.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+            )
+            trades = _json(
+                await api.get(
+                    f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
+                )
+            )
+            fills = await api.get(
+                f"/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
+                headers=ADMIN_HEADERS,
+            )
+        return pool, strategy, trades, fills
+
+    pool, strategy, trades, theirs_fills = await view(OWNER_ID, theirs)
+    assert Decimal(pool["total_pnl"]) == Decimal("10")
+    assert Decimal(strategy["total_pnl"]) == Decimal("10")
+    assert [t["allocation_id"] for t in trades["trades"]] == [str(mine)]
+    assert theirs_fills.status_code == 404
+
+    pool, strategy, trades, mine_fills = await view(other, mine)
+    assert Decimal(pool["total_pnl"]) == Decimal("50")
+    assert Decimal(strategy["total_pnl"]) == Decimal("50")
+    assert [t["allocation_id"] for t in trades["trades"]] == [str(theirs)]
+    assert mine_fills.status_code == 404

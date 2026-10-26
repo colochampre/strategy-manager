@@ -28,7 +28,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
-from tests.identity_auth import ADMIN_HEADERS, hand_owner_pools_to_admin
+from tests.identity_auth import ADMIN_HEADERS
 from tests.owner import seed_pool
 from tests.performance.infrastructure.conftest import _rehearsal_id
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -59,9 +59,8 @@ PIONEX_SPELLINGS = ("STXUSDT_PERP", "STXUSDT_PERP")
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncClient]:
-    """The seeded pools are the signed-in admin's: the pool report finds only
-    the signed-in user's pool (multi-user design AD8)."""
-    await hand_owner_pools_to_admin(pg_session_factory)
+    """The signed-in user is the fixtures' owner, who holds the seeded pools and
+    the ledger (multi-user design AD8)."""
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as api:

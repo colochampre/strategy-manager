@@ -58,8 +58,8 @@ class ReadStrategyPerformance:
         self._fills = fills
         self._clock = clock
 
-    async def read(self, strategy_id: UUID, pool: PoolKey) -> StrategyPerformance:
-        pool_fills = await self._fills.pool_fills(pool)
+    async def read(self, user_id: UUID, strategy_id: UUID, pool: PoolKey) -> StrategyPerformance:
+        pool_fills = await self._fills.pool_fills(user_id, pool)
         groups = strategy_groups(pool, strategy_id, pool_fills.groups)
         require_live_only(pool_fills.groups)
 

@@ -195,6 +195,7 @@ class ReadStrategyTrades:
 
     async def read(
         self,
+        user_id: UUID,
         strategy_id: UUID,
         pool: PoolKey,
         *,
@@ -205,7 +206,7 @@ class ReadStrategyTrades:
         if not 1 <= limit <= MAX_PAGE_SIZE:
             raise InvalidPageRequest(f"limit must be 1..{MAX_PAGE_SIZE}, got {limit}")
 
-        pool_fills = await self._fills.pool_fills(pool)
+        pool_fills = await self._fills.pool_fills(user_id, pool)
         live_groups = strategy_groups(pool, strategy_id, pool_fills.groups)
         require_live_only(live_groups)
         derived = derive_trades(live_groups)
@@ -253,7 +254,7 @@ class ReadStrategyTrades:
                 page_groups[group.allocation_id].append(group)
 
         pricing = await self._classify(
-            pool, strategy_id, [trade for trade, rehearsal in page if rehearsal]
+            user_id, pool, strategy_id, [trade for trade, rehearsal in page if rehearsal]
         )
         return TradesPage(
             trades=tuple(
@@ -271,7 +272,11 @@ class ReadStrategyTrades:
         )
 
     async def _classify(
-        self, pool: PoolKey, strategy_id: UUID, rehearsal_trades: list[ClosedTrade]
+        self,
+        user_id: UUID,
+        pool: PoolKey,
+        strategy_id: UUID,
+        rehearsal_trades: list[ClosedTrade],
     ) -> dict[UUID, RehearsalPricing]:
         """How each rehearsal row of the page was priced, from ONE call to the
         pricing source with the ids of those rows only, and none at all when the
@@ -284,7 +289,7 @@ class ReadStrategyTrades:
         if not rehearsal_trades:
             return {}
         facts = await self._pricing.pricing_facts(
-            pool, strategy_id, [trade.allocation_id for trade in rehearsal_trades]
+            user_id, pool, strategy_id, [trade.allocation_id for trade in rehearsal_trades]
         )
         pricing: dict[UUID, RehearsalPricing] = {}
         missing: list[UUID] = []

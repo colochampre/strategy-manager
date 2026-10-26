@@ -41,7 +41,8 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
     get_open_state_source,
     get_snapshot_session,
 )
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, act_as, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.performance.fakes import (
     FakeDisagreementSource,
     FakeFactsSource,
@@ -98,7 +99,7 @@ def _app(
         lambda: disagreements or FakeDisagreementSource()
     )
     app.dependency_overrides[get_clock] = lambda: FixedClock(NOW)
-    return app
+    return act_as(app, OWNER_ID)
 
 
 async def _get(app: FastAPI, url: str = URL, *, headers: dict[str, str] | None = None) -> Any:

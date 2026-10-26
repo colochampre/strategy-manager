@@ -381,7 +381,8 @@ async def test_no_performance_total_counts_the_rehearsal_operation(stack: Stack)
 
     async with stack.factory() as session:
         fills = await SqlAlchemyAllocationFillsSource(session).pool_fills(
-            PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
+            OWNER_ID,
+            PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT),
         )
     assert fills.groups == ()
     assert fills.rehearsal_fill_count == 2
