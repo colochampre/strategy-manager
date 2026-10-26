@@ -181,14 +181,7 @@ async def list_discrepancies(
         records = [record for record in records if market_key(record.symbol) == wanted]
 
     page = records[:limit]
-    # One query for every row's user, never one per row.
-    emails: dict[UUID, str] = {}
-    user_ids = {record.user_id for record in page}
-    if user_ids:
-        result = await session.execute(
-            select(UserRow.id, UserRow.email).where(UserRow.id.in_(user_ids))
-        )
-        emails = {row.id: row.email for row in result}
+    emails = await _user_emails(session, {record.user_id for record in page})
     return [DiscrepancyView.of(record, emails[record.user_id]) for record in page]
 
 
@@ -211,6 +204,7 @@ class ConfirmedDiscrepancyBody(BaseModel):
     allocations: list[AllocationBody]
     confirmed_at: datetime | None
     last_observed_at: datetime
+    user_email: str
 
 
 class BookedBody(BaseModel):
@@ -247,8 +241,19 @@ class ConfirmedBody(BaseModel):
     booked: list[BookedBody]
 
 
-def _discrepancy_body(item: ConfirmedDiscrepancy) -> ConfirmedDiscrepancyBody:
+async def _user_emails(session: AsyncSession, user_ids: set[UUID]) -> dict[UUID, str]:
+    """The e-mail of each of ``user_ids``, in one query, never one per row.
+    The query runs even for no ids, so a route's statement count stays the
+    same whatever it serves (``test_the_statement_count_is_the_same...``)."""
+    result = await session.execute(
+        select(UserRow.id, UserRow.email).where(UserRow.id.in_(user_ids))
+    )
+    return {row.id: row.email for row in result}
+
+
+def _discrepancy_body(item: ConfirmedDiscrepancy, user_email: str) -> ConfirmedDiscrepancyBody:
     return ConfirmedDiscrepancyBody(
+        user_email=user_email,
         discrepancy_id=item.discrepancy_id,
         exchange=item.exchange,
         venue=item.venue,
@@ -287,12 +292,15 @@ async def read_confirmed(
         grace_seconds=settings.reconciliation_auto_booking_grace_seconds,
         dry_run=settings.dry_run,
     ).read()
+    emails = await _user_emails(
+        session, {i.user_id for i in (*reading.needs_owner, *reading.being_booked)}
+    )
     return ConfirmedBody(
         read_at=reading.read_at,
         dry_run=reading.dry_run,
         needs_owner_count=reading.needs_owner_count,
-        needs_owner=[_discrepancy_body(i) for i in reading.needs_owner],
-        being_booked=[_discrepancy_body(i) for i in reading.being_booked],
+        needs_owner=[_discrepancy_body(i, emails[i.user_id]) for i in reading.needs_owner],
+        being_booked=[_discrepancy_body(i, emails[i.user_id]) for i in reading.being_booked],
         booked=[
             BookedBody(
                 proposal_id=b.proposal_id,

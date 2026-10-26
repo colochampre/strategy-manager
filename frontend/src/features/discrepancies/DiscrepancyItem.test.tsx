@@ -282,6 +282,19 @@ describe("an item being booked", () => {
     expect(within(article).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
   });
 
+  it("names the user whose discrepancy it is (multi-user AD10)", () => {
+    const article = mount(discrepancy({ user_email: "second@example.com" }), "beingBooked");
+
+    expect(valueOf(article, "User")).toHaveTextContent("second@example.com");
+  });
+
+  it("names the user on an item that needs someone too, in Spanish as well", async () => {
+    await i18n.changeLanguage("es");
+    const article = mount(discrepancy({ user_email: "second@example.com" }));
+
+    expect(valueOf(article, "Usuario")).toHaveTextContent("second@example.com");
+  });
+
   it("ignores a reason it may carry: it says 'Being booked automatically.' and not the refusal", () => {
     const article = mount(discrepancy({ reason: "NOT_BOOKED" }), "beingBooked");
 

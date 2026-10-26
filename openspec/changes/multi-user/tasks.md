@@ -238,6 +238,11 @@ It needs an independent verifier before the PR.
     - `20b71ef` adds `ScanUsers`, which runs one `ScanPools` per user with that user's key. Prepare reads each discrepancy with its own user's fill reader, and `DiscrepancyView.user_email` is joined in one query. The interim `_reconciliation_key_holder` is removed.
   - A user with a pool but no key is skipped on that exchange with a WARNING on every scan cycle. The other users still scan.
   - The panel rendering of the e-mail is B.10.
+  - **Correction, found while doing B.10.** `20b71ef` put `user_email` only on `GET /reconciliation/discrepancies`, but the panel reads `GET /reconciliation/confirmed`.
+    - `ConfirmedDiscrepancy` now carries `user_id`.
+    - Both routes look up the users' e-mails through one shared helper (`_user_emails`), in one query.
+    - The query runs even when no item needs it, so `/confirmed` stays at a constant 4 statements, for one discrepancy or twenty.
+    - The booked list carries no e-mail: B.10 asks for discrepancy rows only.
 - [x] B.9 Tests: one fixture creates the owner's `User`, and the suites that insert owned rows directly pass its id (about 100 files).
   - `backend/tests/owner.py` (`OWNER_ID`, `seed_owner`, `seed_pool`, `seed_other_user` and others).
   - `tests/identity_auth.py` `act_as`, which signs a router test in as the fixtures' owner and keeps the real `require_admin`.
@@ -245,7 +250,10 @@ It needs an independent verifier before the PR.
 
 ### Frontend
 
-- [ ] B.10 Discrepancy rows show the user's e-mail (B.8), with EN/ES copy, ES in "usted". Nothing else changes: `SignInGate` still stops a non-admin, because the pages a user can use arrive with PR C and later.
+- [x] B.10 Discrepancy rows show the user's e-mail (B.8), with EN/ES copy, ES in "usted". Nothing else changes: `SignInGate` still stops a non-admin, because the pages a user can use arrive with PR C and later.
+  - `DiscrepancyItem` shows a "User" / "Usuario" fact for both variants.
+  - `fetchConfirmed` refuses a whole body whose discrepancy lacks `user_email`, the same as for every other field.
+  - Tests: two in `DiscrepancyItem.test.tsx`, one in `discrepancies.test.ts`. All three were red before the code.
 
 ### Owner-run (production)
 

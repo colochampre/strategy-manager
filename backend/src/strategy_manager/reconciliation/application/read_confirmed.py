@@ -46,6 +46,9 @@ class AllocationView:
 @dataclass(frozen=True, slots=True)
 class ConfirmedDiscrepancy:
     discrepancy_id: UUID
+    # Whose discrepancy it is (multi-user AD10); the router turns it into the
+    # user's e-mail for the admin's view.
+    user_id: UUID
     exchange: str
     venue: str
     settlement_currency: str
@@ -172,6 +175,7 @@ class ReadConfirmed:
         def view(row: DiscrepancyRecord, reason: NeedsOwnerReason | None) -> ConfirmedDiscrepancy:
             return ConfirmedDiscrepancy(
                 discrepancy_id=row.id,
+                user_id=row.user_id,
                 exchange=row.exchange,
                 venue=row.venue,
                 settlement_currency=row.settlement_currency,

@@ -78,6 +78,7 @@
       "unknownStrategy": "unknown strategy",
       "confirmed": "Confirmed",
       "lastCompared": "Last compared",
+      "user": "User",
       "whatYouCanDo": "What you can do"
     },
     "action": {

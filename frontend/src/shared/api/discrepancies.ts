@@ -34,6 +34,8 @@ export interface ConfirmedDiscrepancy {
   allocations: AllocationRef[];
   confirmed_at: string | null;
   last_observed_at: string;
+  /** Whose discrepancy it is (multi-user AD10): the admin's view names the user beside each one. */
+  user_email: string;
 }
 
 export interface BookedItem {
@@ -117,7 +119,8 @@ function isDiscrepancy(value: unknown): value is ConfirmedDiscrepancy {
     Array.isArray(value.allocations) &&
     value.allocations.every(isAllocation) &&
     (value.confirmed_at === null || isInstant(value.confirmed_at)) &&
-    isInstant(value.last_observed_at)
+    isInstant(value.last_observed_at) &&
+    isText(value.user_email)
   );
 }
 
