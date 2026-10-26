@@ -23,6 +23,7 @@ class FakeLedgerRepository:
 
 def _fill_record(**overrides: object) -> FillRecord:
     defaults: dict[str, object] = dict(
+        user_id=uuid4(),
         strategy_id=uuid4(),
         allocation_id=uuid4(),
         execution_attempt_id=uuid4(),
@@ -47,10 +48,12 @@ def _fill_record(**overrides: object) -> FillRecord:
 async def test_record_maps_fill_record_to_a_ledger_entry_and_inserts_it() -> None:
     repository = FakeLedgerRepository()
     record_fill = RecordFill(repository)
+    user_id = uuid4()
     strategy_id = uuid4()
     allocation_id = uuid4()
     execution_attempt_id = uuid4()
     fill_record = _fill_record(
+        user_id=user_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=execution_attempt_id,
@@ -61,6 +64,7 @@ async def test_record_maps_fill_record_to_a_ledger_entry_and_inserts_it() -> Non
 
     assert len(repository.inserted) == 1
     entry = repository.inserted[0]
+    assert entry.user_id == user_id
     assert entry.strategy_id == strategy_id
     assert entry.allocation_id == allocation_id
     assert entry.execution_attempt_id == execution_attempt_id

@@ -60,6 +60,13 @@ from strategy_manager.shared.domain.money import Currency
 
 logger = logging.getLogger(__name__)
 
+# A booking proposal does not name its user yet (reconciliation per user is the
+# next unit of PR B, multi-user AD10), so the fills built here cannot carry one.
+# ``SqlAlchemyBookingWriter`` stamps every fill with the user of the reservation
+# the attempt belongs to before it reaches the ledger; this nil id never does,
+# and would fail the ``ledger_entries.user_id`` foreign key if it did.
+WRITER_STAMPS_THE_USER = UUID(int=0)
+
 _PENDING = "PENDING"
 _APPROVED = "APPROVED"
 _SUPERSEDED = "SUPERSEDED"
@@ -313,6 +320,7 @@ def _build_write(
     )
     fill_records = [
         FillRecord(
+            user_id=WRITER_STAMPS_THE_USER,
             strategy_id=proposal.strategy_id,
             allocation_id=proposal.allocation_id,
             execution_attempt_id=attempt_id,

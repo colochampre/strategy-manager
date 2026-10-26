@@ -25,6 +25,7 @@ class RecordFill:
     async def record(self, fill: FillRecord) -> None:
         entry = LedgerEntry(
             id=uuid4(),
+            user_id=fill.user_id,
             strategy_id=fill.strategy_id,
             allocation_id=fill.allocation_id,
             execution_attempt_id=fill.execution_attempt_id,

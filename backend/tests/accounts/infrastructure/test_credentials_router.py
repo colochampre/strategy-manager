@@ -1278,13 +1278,22 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await _store(factory, "bybit")
+    # The signed-in admin is the user whose key is deleted, so the positions and
+    # reservations that block it are the admin's own (multi-user design AD8).
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
     enabled_id = uuid4()
     holder_id = uuid4()
     await seed_strategy(factory, strategy_id=enabled_id, enabled=True)
     await seed_strategy(factory, strategy_id=holder_id, enabled=False)
-    allocation = await seed_open_position(factory, strategy_id=holder_id, symbol="ETHUSDT")
-    reservation = await seed_live_reservation(factory, strategy_id=holder_id)
-    submitted = await seed_live_reservation(factory, strategy_id=holder_id, status="SUBMITTED")
+    allocation = await seed_open_position(
+        factory, strategy_id=holder_id, symbol="ETHUSDT", user_id=admin
+    )
+    reservation = await seed_live_reservation(factory, strategy_id=holder_id, user_id=admin)
+    submitted = await seed_live_reservation(
+        factory, strategy_id=holder_id, status="SUBMITTED", user_id=admin
+    )
     attempt = uuid4()
     await seed_execution_attempt(factory, attempt_id=attempt, reservation_id=submitted)
     await seed_discrepancy(factory, symbol="STXUSDT")

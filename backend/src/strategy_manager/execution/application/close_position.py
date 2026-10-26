@@ -154,7 +154,7 @@ class ClosePosition:
         # does not. Deciding it here would have hard-coded spot's limitation
         # into every venue.
         base_currency = base_currency_of(command.symbol, command.settlement_currency)
-        net = await self._held.net_base(command.allocation_id, base_currency)
+        net = await self._held.net_base(command.user_id, command.allocation_id, base_currency)
         if net == 0:
             raise NothingRecordedYet(
                 f"the ledger holds no {base_currency} position for allocation "

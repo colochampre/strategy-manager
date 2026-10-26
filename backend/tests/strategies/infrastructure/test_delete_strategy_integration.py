@@ -331,6 +331,7 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[objec
     entry_id = uuid4()
     entry = LedgerEntryRow(
         id=entry_id,
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=reservation.id,
         execution_attempt_id=attempt_id,

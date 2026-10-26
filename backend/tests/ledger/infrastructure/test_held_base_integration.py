@@ -24,6 +24,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -32,12 +33,13 @@ FILLED_AT = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 
 async def _seed_position(
     session_factory: async_sessionmaker[AsyncSession],
+    user_id: UUID = OWNER_ID,
 ) -> tuple[UUID, UUID, UUID]:
     """One strategy, one signal, one reservation, one opening attempt."""
     strategy_id, signal_id = uuid4(), uuid4()
     reservation_id, attempt_id = uuid4(), uuid4()
 
-    await seed_strategy(session_factory, strategy_id=strategy_id)
+    await seed_strategy(session_factory, strategy_id=strategy_id, author_id=user_id)
     await seed_signal(
         session_factory,
         signal_id=signal_id,
@@ -49,6 +51,7 @@ async def _seed_position(
         reservation_id=reservation_id,
         strategy_id=strategy_id,
         signal_id=signal_id,
+        user_id=user_id,
     )
     await seed_execution_attempt(
         session_factory, attempt_id=attempt_id, reservation_id=reservation_id
@@ -58,6 +61,7 @@ async def _seed_position(
 
 def _fill(
     *,
+    user_id: UUID = OWNER_ID,
     strategy_id: UUID,
     allocation_id: UUID,
     attempt_id: UUID,
@@ -67,7 +71,8 @@ def _fill(
     fee_currency: str,
 ) -> FillRecord:
     price = Decimal("50000")
-    return FillRecord(exchange="bybit", 
+    return FillRecord(exchange="bybit",
+        user_id=user_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -111,7 +116,7 @@ async def test_a_base_currency_fee_reduces_what_can_be_sold(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0.00199800")
@@ -138,7 +143,7 @@ async def test_a_quote_currency_fee_does_not_touch_the_base_holding(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0.00200000")
@@ -169,7 +174,7 @@ async def test_a_market_order_filled_in_pieces_sums_to_the_whole_position(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0.00175000")
@@ -216,7 +221,7 @@ async def test_a_sell_already_recorded_is_subtracted(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0.00150000")
@@ -263,7 +268,7 @@ async def test_a_fully_closed_position_holds_nothing(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0")
@@ -306,10 +311,42 @@ async def test_another_allocations_rows_are_never_counted(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0.00200000")
+
+
+async def test_another_users_rows_on_the_same_allocation_id_are_never_counted(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Scoped by user as well as by allocation (multi-user AD8): asked as
+    another user, the owner's rows on this allocation do not count."""
+    async with pg_session_factory() as session:
+        other_user = await seed_other_user(session)
+        await session.commit()
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+
+    async with pg_session_factory() as session:
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                side="BUY",
+                quantity="0.00200000",
+                fee="0",
+                fee_currency="USDT",
+            )
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        held_by_other = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
+            other_user, allocation_id, "BTC"
+        )
+
+    assert held_by_other == Decimal("0")
 
 
 async def test_an_allocation_with_no_rows_holds_nothing(
@@ -321,7 +358,7 @@ async def test_an_allocation_with_no_rows_holds_nothing(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0")
@@ -355,7 +392,7 @@ async def test_a_short_reads_back_as_a_negative_position_not_as_nothing(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("-0.00780000")
@@ -386,7 +423,7 @@ async def test_a_short_bought_back_in_full_reads_back_flat(
 
     async with pg_session_factory() as session:
         held = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            allocation_id, "BTC"
+            OWNER_ID, allocation_id, "BTC"
         )
 
     assert held == Decimal("0")

@@ -33,6 +33,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -115,6 +116,7 @@ async def _record(
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
                 exchange=exchange,
+                user_id=OWNER_ID,
                 strategy_id=allocation.strategy_id,
                 allocation_id=allocation.allocation_id,
                 execution_attempt_id=allocation.attempt_id,

@@ -34,6 +34,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -43,11 +44,12 @@ POOL = ("bybit", "usdt-m", "USDT")
 
 async def _seed_position(
     session_factory: async_sessionmaker[AsyncSession],
+    user_id: UUID = OWNER_ID,
 ) -> tuple[UUID, UUID, UUID]:
     strategy_id, signal_id = uuid4(), uuid4()
     reservation_id, attempt_id = uuid4(), uuid4()
 
-    await seed_strategy(session_factory, strategy_id=strategy_id)
+    await seed_strategy(session_factory, strategy_id=strategy_id, author_id=user_id)
     await seed_signal(
         session_factory,
         signal_id=signal_id,
@@ -59,6 +61,7 @@ async def _seed_position(
         reservation_id=reservation_id,
         strategy_id=strategy_id,
         signal_id=signal_id,
+        user_id=user_id,
     )
     await seed_execution_attempt(
         session_factory, attempt_id=attempt_id, reservation_id=reservation_id
@@ -68,6 +71,7 @@ async def _seed_position(
 
 def _fill(
     *,
+    user_id: UUID = OWNER_ID,
     strategy_id: UUID,
     allocation_id: UUID,
     attempt_id: UUID,
@@ -79,6 +83,7 @@ def _fill(
 ) -> FillRecord:
     price = Decimal("2")
     return FillRecord(
+        user_id=user_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -100,11 +105,61 @@ def _fill(
 
 
 async def _read(
-    session_factory: async_sessionmaker[AsyncSession], symbol: str
+    session_factory: async_sessionmaker[AsyncSession],
+    symbol: str,
+    user_id: UUID = OWNER_ID,
 ) -> list[HeldAllocation]:
     async with session_factory() as session:
         reader = ReadSymbolHoldings(SqlAlchemyLedgerRepository(session))
-        return await reader.symbol_holdings(POOL, symbol)
+        return await reader.symbol_holdings(user_id, POOL, symbol)
+
+
+async def test_another_users_holding_on_the_same_market_is_never_returned(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A market is one pool PER USER (multi-user AD8)."""
+    async with pg_session_factory() as session:
+        other_user = await seed_other_user(session)
+        await session.commit()
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+    other_strategy, other_allocation, other_attempt = await _seed_position(
+        pg_session_factory, other_user
+    )
+
+    async with pg_session_factory() as session:
+        recorder = RecordFill(SqlAlchemyLedgerRepository(session))
+        await recorder.record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                symbol="STXUSDT_PERP",
+                side="BUY",
+                quantity="0.5",
+            )
+        )
+        await recorder.record(
+            _fill(
+                user_id=other_user,
+                strategy_id=other_strategy,
+                allocation_id=other_allocation,
+                attempt_id=other_attempt,
+                symbol="STXUSDT_PERP",
+                side="BUY",
+                quantity="7",
+            )
+        )
+        await session.commit()
+
+    owners = await _read(pg_session_factory, "STXUSDT.P")
+    others = await _read(pg_session_factory, "STXUSDT.P", other_user)
+
+    assert [(h.strategy_id, h.allocation_id, h.net_base) for h in owners] == [
+        (strategy_id, allocation_id, Decimal("0.5"))
+    ]
+    assert [(h.strategy_id, h.allocation_id, h.net_base) for h in others] == [
+        (other_strategy, other_allocation, Decimal("7"))
+    ]
 
 
 async def test_a_holding_recorded_under_a_different_spelling_is_found(

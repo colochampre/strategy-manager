@@ -67,8 +67,11 @@ class FakeHeld:
     def __init__(self, net_base: Decimal) -> None:
         self._net_base = net_base
         self.asked: list[tuple[UUID, str]] = []
+        # Whose position each read was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal:
+    async def net_base(self, user_id: UUID, allocation_id: UUID, base_currency: str) -> Decimal:
+        self.users.append(user_id)
         self.asked.append((allocation_id, base_currency))
         return self._net_base
 
@@ -243,6 +246,7 @@ async def test_the_close_size_comes_from_the_ledger_not_from_a_price() -> None:
     assert order.base_size == Decimal("0.00199960")
     assert result.base_size == Decimal("0.00199960")
     assert held.asked == [(ALLOCATION_ID, "BTC")]
+    assert held.users == [OWNER]  # the position is read as the close's user
 
 
 async def test_the_closing_alerts_price_reaches_the_order_spec() -> None:

@@ -124,7 +124,7 @@ class SettleExecution:
             Currency(attempt.settlement_currency)
         )
         for fill in fills:
-            await self._record(attempt, reservation.strategy_id, usd_rate, fill)
+            await self._record(user_id, attempt, reservation.strategy_id, usd_rate, fill)
 
         await self._attempts.mark_filled(user_id, attempt_id, fills[0].exchange_order_id)
         if not attempt.is_closing:
@@ -204,6 +204,7 @@ class SettleExecution:
 
     async def _record(
         self,
+        user_id: UUID,
         attempt: ExecutionAttempt,
         strategy_id: UUID,
         usd_rate: Decimal,
@@ -222,6 +223,7 @@ class SettleExecution:
         """
         await self._fill_recorder.record(
             FillRecord(
+                user_id=user_id,
                 strategy_id=strategy_id,
                 allocation_id=attempt.allocation_id,
                 execution_attempt_id=attempt.id,

@@ -76,6 +76,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -261,6 +262,7 @@ def _fill(
 ) -> FillRecord:
     price = Decimal("2.5")
     return FillRecord(
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -291,6 +293,7 @@ async def _scan(
     async with session_factory() as session:
         use_case = ScanPools(
             pools=[POOL],
+            pool_users={POOL: OWNER_ID},
             venue_readers=_FakeVenuePositionReaderRegistry(
                 _FakeVenuePositionReader(venue_positions)
             ),
@@ -336,6 +339,7 @@ async def _prepare(
             proposal_expiry_seconds=86400,
             dry_run=False,
             system_order_ids=SystemOrderIdsAdapter(session),
+            pool_users={POOL: OWNER_ID},
         )
         return await use_case.sweep(job_id)
 

@@ -328,6 +328,7 @@ async def _seed_close(
     async with factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=opening_attempt_id,

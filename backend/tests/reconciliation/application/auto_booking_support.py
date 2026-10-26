@@ -81,6 +81,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 from tests.pg_drop import drop_database_if_exists
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
@@ -290,6 +291,7 @@ def build_prepare_booking(
         proposal_expiry_seconds=86400,
         dry_run=False,
         system_order_ids=SystemOrderIdsAdapter(session),
+        pool_users={POOL: OWNER_ID},
     )
 
 
@@ -406,6 +408,7 @@ async def seed_open_allocation(
     async with session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -631,7 +634,7 @@ async def held_base(
 
     async with session_factory() as session:
         holdings = await SqlAlchemyLedgerRepository(session).symbol_holdings(
-            POOL[0], POOL[1], POOL[2], MARKET_SYMBOL
+            OWNER_ID, POOL[0], POOL[1], POOL[2], MARKET_SYMBOL
         )
     return sum(
         (h.net_base for h in holdings if h.strategy_id == strategy_id), start=Decimal("0")

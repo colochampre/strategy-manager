@@ -103,7 +103,13 @@ class PrepareBooking:
         proposal_expiry_seconds: int,
         dry_run: bool,
         system_order_ids: SystemOrderIdsPort,
+        pool_users: Mapping[PoolKey, UUID],
     ) -> None:
+        """``pool_users`` names, per pool, the user whose pool it is: the
+        recorded-fill lookup counts that user's ledger rows only (multi-user
+        AD8). Today the caller fills it from the interim key holder; reconciliation
+        per user (AD10) makes each sweep a user's own."""
+        self._pool_users = pool_users
         self._discrepancies = discrepancies
         self._proposals = proposals
         self._venue_fills = venue_fills
@@ -235,7 +241,10 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.MARKET_MISMATCH
                 continue
 
+            if pool not in self._pool_users:
+                raise InvariantViolation(f"prepare booking: no user owns the pool {pool}")
             recorded_ids = await self._recorded_fill_ids.recorded_fill_ids(
+                self._pool_users[pool],
                 discrepancy.exchange,
                 discrepancy.venue,
                 [fill.exchange_fill_id for fill in fills],

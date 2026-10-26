@@ -367,6 +367,7 @@ async def _seed_settled_flat_holding(
         for attempt_id, side in ((opening_id, "BUY"), (closing_id, "SELL")):
             await record.record(
                 FillRecord(
+                    user_id=OWNER_ID,
                     strategy_id=strategy_id,
                     allocation_id=allocation_id,
                     execution_attempt_id=attempt_id,

@@ -52,6 +52,7 @@ from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
 from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.reconciliation.application.auto_booking_support import (
     GRACE_SECONDS,
     MARKET_SYMBOL,
@@ -376,7 +377,9 @@ class _NothingOpenInTheLedger:
     module, so the ledger's side of the comparison is held fixed: no open
     position at all."""
 
-    async def net_positions_by_symbol(self, pool: PoolKey) -> list[LedgerPosition]:
+    async def net_positions_by_symbol(
+        self, user_id: UUID, pool: PoolKey
+    ) -> list[LedgerPosition]:
         return []
 
 
@@ -418,6 +421,7 @@ async def test_a_discrepancy_resolved_by_the_scan_is_in_no_list_and_the_scan_cou
         with caplog.at_level(logging.INFO, logger=_SCANNER):
             result = await ScanPools(
                 pools=[POOL],
+                pool_users={POOL: OWNER_ID},
                 venue_readers=_VenueReaders(_VenueReader([])),  # type: ignore[arg-type]
                 ledger_positions=_NothingOpenInTheLedger(),
                 discrepancies=SqlAlchemyDiscrepancyRepository(session),

@@ -283,6 +283,7 @@ class FillRecord:
     ``usd_rate_at_fill`` already resolved at fill time (CLAUDE.md rule 7 —
     the rate can never be backfilled)."""
 
+    user_id: UUID
     strategy_id: UUID
     allocation_id: UUID
     execution_attempt_id: UUID
@@ -334,7 +335,9 @@ class HeldPositionPort(Protocol):
     it is on.
     """
 
-    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
+    async def net_base(
+        self, user_id: UUID, allocation_id: UUID, base_currency: str
+    ) -> Decimal: ...
 
 
 class CommitPort(Protocol):

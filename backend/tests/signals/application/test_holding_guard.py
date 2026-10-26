@@ -43,8 +43,13 @@ class FrozenClock:
 class FakeSymbolHoldingsPort:
     holdings: list[HeldAllocation] = field(default_factory=list)
     calls: list[tuple[PoolKey, str]] = field(default_factory=list)
+    # Whose holdings each call asked about (multi-user design AD8).
+    users: list[UUID] = field(default_factory=list)
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
+        self.users.append(user_id)
         self.calls.append((pool, symbol))
         return self.holdings
 
@@ -253,6 +258,7 @@ async def test_a_flat_strategy_proceeds() -> None:
     assert outcome.refused is None
     assert in_flight_work.calls == [(POOL, strategy_id, "ETHUSDT", NOW)]
     assert holdings.calls == [(POOL, "ETHUSDT")]
+    assert holdings.users == [AUTHOR]  # the strategy author's holdings, nobody else's
     assert venue.calls == []
 
 

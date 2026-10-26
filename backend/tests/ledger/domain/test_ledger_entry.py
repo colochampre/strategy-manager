@@ -17,6 +17,7 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 def _entry(**overrides: object) -> LedgerEntry:
     defaults: dict[str, object] = dict(
         id=uuid4(),
+        user_id=uuid4(),
         strategy_id=uuid4(),
         allocation_id=uuid4(),
         execution_attempt_id=uuid4(),

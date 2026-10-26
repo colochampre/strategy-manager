@@ -115,7 +115,12 @@ class LedgerSymbolPositionPort(Protocol):
     for a future spot/COIN-M pool where a fee IS paid in the base currency.
     """
 
-    async def net_positions_by_symbol(self, pool: PoolKey) -> list[LedgerPosition]: ...
+    async def net_positions_by_symbol(
+        self, user_id: UUID, pool: PoolKey
+    ) -> list[LedgerPosition]:
+        """``user_id`` is the user whose pool is read: a market is one pool PER
+        USER, so only that user's ledger rows are counted (multi-user AD8)."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -498,8 +503,12 @@ class RecordedFillIdsPort(Protocol):
     """
 
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
-    ) -> frozenset[str]: ...
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+    ) -> frozenset[str]:
+        """Only ``user_id``'s ledger rows count: ``ux_ledger_exchange_fill`` is
+        per user since migration ``0030``, so another user's row with the same
+        fill id is not a duplicate."""
+        ...
 
 
 class AllocationOwnerPort(Protocol):

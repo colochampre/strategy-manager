@@ -48,6 +48,9 @@ class ReadHeldBase:
     def __init__(self, reader: LedgerPositionReaderPort) -> None:
         self._reader = reader
 
-    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal:
-        """Positive is long, negative is short, zero is flat."""
-        return await self._reader.net_base_quantity(allocation_id, base_currency)
+    async def net_base(
+        self, user_id: UUID, allocation_id: UUID, base_currency: str
+    ) -> Decimal:
+        """Positive is long, negative is short, zero is flat. Only ``user_id``'s
+        rows count."""
+        return await self._reader.net_base_quantity(user_id, allocation_id, base_currency)

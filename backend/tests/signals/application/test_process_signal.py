@@ -210,7 +210,9 @@ class FakeSignalContextPort:
 class FakeSymbolHoldingsPort:
     holdings: list[HeldAllocation] = field(default_factory=list)
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
         return self.holdings
 
 
@@ -1321,7 +1323,9 @@ class _SequencedSymbolHoldingsPort:
     rounds: list[list[HeldAllocation]]
     call_count: int = 0
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
         holdings = self.rounds[min(self.call_count, len(self.rounds) - 1)]
         self.call_count += 1
         return holdings

@@ -34,7 +34,7 @@ not). The Phase 5 ``ReconciliationScanHandler`` owns both, wrapping
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -63,6 +63,7 @@ from strategy_manager.reconciliation.domain.positions import (
     VenuePosition,
 )
 from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ class ScanPools:
     def __init__(
         self,
         pools: Sequence[PoolKey],
+        pool_users: Mapping[PoolKey, UUID],
         venue_readers: VenuePositionReaderRegistryPort,
         ledger_positions: LedgerSymbolPositionPort,
         discrepancies: DiscrepancyRepositoryPort,
@@ -88,7 +90,12 @@ class ScanPools:
         commit: CommitPort,
         confirmations_required: int,
     ) -> None:
+        """``pool_users`` names, per pool, the user whose pool it is: the
+        ledger read counts that user's rows only (multi-user AD8). Today the
+        caller fills it from the interim key holder; reconciliation per user
+        (AD10) makes each scan a user's own."""
         self._pools = pools
+        self._pool_users = pool_users
         self._venue_readers = venue_readers
         self._ledger_positions = ledger_positions
         self._discrepancies = discrepancies
@@ -126,7 +133,11 @@ class ScanPools:
                 pools_skipped += 1
                 continue
 
-            ledger_positions = await self._ledger_positions.net_positions_by_symbol(pool)
+            if pool not in self._pool_users:
+                raise InvariantViolation(f"reconciliation scan: no user owns the pool {pool}")
+            ledger_positions = await self._ledger_positions.net_positions_by_symbol(
+                self._pool_users[pool], pool
+            )
             previous = await self._discrepancies.list_discrepancies(
                 pool=pool, open_only=True
             )

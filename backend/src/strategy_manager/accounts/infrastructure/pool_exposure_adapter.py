@@ -62,9 +62,10 @@ class PoolExposureAdapter:
 
     async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
         """``user_id`` is the user whose key is being deleted (multi-user design
-        AD8): only that user's live reservations stand in the way. The other
-        reads still cover the whole market until their tables gain their owner
-        (later units of PR B), which errs on the side of refusing."""
+        AD8): only that user's live reservations and ledger rows stand in the
+        way. The remaining reads still cover the whole market until their
+        tables are scoped (later units of PR B), which errs on the side of
+        refusing."""
         exchange, venue, settlement_currency = pool
 
         enabled = await self._session.execute(
@@ -83,7 +84,7 @@ class PoolExposureAdapter:
         # not), so a market opened under one spelling and closable under
         # another is checked once, under all of them.
         raw_symbols = await self._ledger.distinct_symbols_for_pool(
-            exchange, venue, settlement_currency
+            user_id, exchange, venue, settlement_currency
         )
         markets = {market_key(symbol) for symbol in raw_symbols}
 
@@ -94,7 +95,9 @@ class PoolExposureAdapter:
         symbols: set[str] = set()
         allocations: list[UUID] = []
         for market in sorted(markets):
-            for holding in await self._symbol_holdings.symbol_holdings(pool, market):
+            for holding in await self._symbol_holdings.symbol_holdings(
+                user_id, pool, market
+            ):
                 symbols.add(market)
                 allocations.append(holding.allocation_id)
 

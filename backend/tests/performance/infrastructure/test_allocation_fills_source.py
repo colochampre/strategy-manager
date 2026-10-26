@@ -31,7 +31,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
     SqlAlchemyAllocationFillsSource,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from tests.owner import seed_pool
+from tests.owner import OWNER_ID, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -116,6 +116,7 @@ def _fill(
     pool: PoolKey = BYBIT,
 ) -> FillRecord:
     return FillRecord(
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,

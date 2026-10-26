@@ -49,6 +49,7 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.application.approve_booking import (
+    WRITER_STAMPS_THE_USER,
     ApproveBooking,
     ApproveOutcome,
     ApproveResult,
@@ -80,6 +81,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -264,6 +266,7 @@ async def _seed_open_allocation(
     async with session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -489,7 +492,7 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
         ledger_rows = (
             await session.execute(
                 text(
-                    "SELECT strategy_id, allocation_id, symbol, side, quantity, "
+                    "SELECT user_id, strategy_id, allocation_id, symbol, side, quantity, "
                     "usd_rate_at_fill FROM ledger_entries WHERE execution_attempt_id = :id"
                 ),
                 {"id": result.execution_attempt_id},
@@ -497,6 +500,9 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
         ).mappings().all()
     assert len(ledger_rows) == 1
     row = ledger_rows[0]
+    # The writer stamps the reservation's user, never the placeholder the use
+    # case builds the fill with.
+    assert row["user_id"] == OWNER_ID
     assert row["strategy_id"] == scenario.strategy_id
     assert row["allocation_id"] == scenario.allocation_id
     assert row["symbol"] == scenario.market_symbol
@@ -515,7 +521,7 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
     # (``market_symbol``, the bare venue spelling) -- design.md § 13.
     async with session_factory() as session:
         holdings = await SqlAlchemyLedgerRepository(session).symbol_holdings(
-            POOL[0], POOL[1], POOL[2], scenario.market_symbol
+            OWNER_ID, POOL[0], POOL[1], POOL[2], scenario.market_symbol
         )
     assert [h for h in holdings if h.strategy_id == scenario.strategy_id] == []
 
@@ -819,7 +825,9 @@ def _attempt(
 
 
 def _fill_record(scenario: _Scenario, *, attempt_id: UUID, exchange_fill_id: str) -> FillRecord:
+    # Built the way ``ApproveBooking`` builds it: the writer stamps the user.
     return FillRecord(
+        user_id=WRITER_STAMPS_THE_USER,
         strategy_id=scenario.strategy_id,
         allocation_id=scenario.allocation_id,
         execution_attempt_id=attempt_id,

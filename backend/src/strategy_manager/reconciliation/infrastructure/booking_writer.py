@@ -18,6 +18,7 @@ failure the proposal forbids.
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -38,12 +39,13 @@ from strategy_manager.reconciliation.application.ports import (
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
 
-# The live name of ``ledger_entries.ux_ledger_exchange_fill`` (migration
-# ``0019``), verified against ``ledger/infrastructure/repository.py``'s own
-# ``_FILL_INDEX`` constant and the migration itself -- recorded here (this
-# module's own copy, not an import of that module-private name) so this
-# writer can identify the collision by CONSTRAINT NAME, never message text,
-# the same discipline ``CLIENT_ORDER_ID_UNIQUE_CONSTRAINT`` already applies.
+# The live name of ``ledger_entries.ux_ledger_exchange_fill`` (migrations
+# ``0019``, ``0030``; the name survived the per-user rebuild), verified against
+# ``ledger/infrastructure/repository.py``'s own ``_FILL_INDEX`` constant and the
+# migration itself -- recorded here (this module's own copy, not an import of
+# that module-private name) so this writer can identify the collision by
+# CONSTRAINT NAME, never message text, the same discipline
+# ``CLIENT_ORDER_ID_UNIQUE_CONSTRAINT`` already applies.
 LEDGER_EXCHANGE_FILL_UNIQUE_CONSTRAINT = "ux_ledger_exchange_fill"
 
 _EXPECTED_CONSTRAINTS = frozenset(
@@ -100,7 +102,8 @@ class SqlAlchemyBookingWriter:
             async with self._session.begin_nested():
                 await self._attempts.insert(user_id, attempt)
                 for fill in fill_records:
-                    await self._record_fill.record(fill)
+                    # The ledger row is the reservation's user's, like the attempt.
+                    await self._record_fill.record(replace(fill, user_id=user_id))
         except IntegrityError as error:
             name = _constraint_name(error)
             if name not in _EXPECTED_CONSTRAINTS:

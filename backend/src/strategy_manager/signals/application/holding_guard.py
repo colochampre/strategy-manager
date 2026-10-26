@@ -128,7 +128,7 @@ class HoldingGuard:
         if await self._in_flight_work.in_flight(user_id, pool, strategy_id, symbol, now):
             return await self._on_in_flight(user_id, pool, strategy_id, symbol, now, received_at)
 
-        holdings = await self._holdings.symbol_holdings(pool, symbol)
+        holdings = await self._holdings.symbol_holdings(user_id, pool, symbol)
         net = strategy_net(holdings, strategy_id)
         if net == 0:
             return GuardOutcome(proceed=True)

@@ -309,6 +309,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     async with pg_session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=opening_attempt_id,

@@ -159,7 +159,7 @@ class SymbolHoldingsPort(Protocol):
     """
 
     async def symbol_holdings(
-        self, pool: PoolKey, symbol: str
+        self, user_id: UUID, pool: PoolKey, symbol: str
     ) -> list[HeldAllocation]: ...
 
 

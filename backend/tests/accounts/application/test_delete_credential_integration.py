@@ -433,6 +433,7 @@ async def _close(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,

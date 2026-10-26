@@ -9,6 +9,8 @@ and the fee rule live in ``LedgerSymbolPositionReaderPort``'s implementation,
 not here.
 """
 
+from uuid import UUID
+
 from strategy_manager.ledger.application.ports import LedgerSymbolPositionReaderPort
 from strategy_manager.reconciliation.application.ports import PoolKey
 from strategy_manager.reconciliation.domain.positions import LedgerPosition
@@ -20,8 +22,10 @@ class ReadSymbolPositions:
     def __init__(self, reader: LedgerSymbolPositionReaderPort) -> None:
         self._reader = reader
 
-    async def net_positions_by_symbol(self, pool: PoolKey) -> list[LedgerPosition]:
+    async def net_positions_by_symbol(
+        self, user_id: UUID, pool: PoolKey
+    ) -> list[LedgerPosition]:
         exchange, venue, settlement_currency = pool
         return await self._reader.net_positions_by_symbol(
-            exchange, venue, settlement_currency
+            user_id, exchange, venue, settlement_currency
         )

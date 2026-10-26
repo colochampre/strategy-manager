@@ -190,7 +190,7 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     assert refused.status == "FAILED"
     async with pg_session_factory() as session:
         held = ReadHeldBase(SqlAlchemyLedgerRepository(session))
-        assert await held.net_base(allocation_id, "STX") == Decimal("1")  # still open
+        assert await held.net_base(OWNER_ID, allocation_id, "STX") == Decimal("1")  # still open
 
     placed = await _close(
         pg_session_factory,
@@ -218,7 +218,7 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
         assert [row.price for row in rows][-1] == Decimal("0.4633")
         assert len(rows) == 2
         held = ReadHeldBase(SqlAlchemyLedgerRepository(session))
-        assert await held.net_base(allocation_id, "STX") == Decimal("0")
+        assert await held.net_base(OWNER_ID, allocation_id, "STX") == Decimal("0")
 
 
 async def test_an_orphan_close_refused_for_its_price_writes_no_outcome_on_any_signal(

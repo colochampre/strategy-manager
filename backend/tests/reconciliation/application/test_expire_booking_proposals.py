@@ -80,6 +80,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -284,6 +285,7 @@ async def _seed_open_allocation(
     async with session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -472,6 +474,7 @@ async def test_pending_past_24h_expires_and_is_reproposable(
             proposal_expiry_seconds=86_400,
             dry_run=False,
             system_order_ids=SystemOrderIdsAdapter(session),
+            pool_users={POOL: OWNER_ID},
         )
         sweep_result = await prepare.sweep(uuid4())
 

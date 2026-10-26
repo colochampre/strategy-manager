@@ -69,6 +69,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -184,7 +185,9 @@ class _FakeLedgerPositions:
     def __init__(self, positions: Sequence[LedgerPosition]) -> None:
         self._positions = list(positions)
 
-    async def net_positions_by_symbol(self, pool: PoolKey) -> list[LedgerPosition]:
+    async def net_positions_by_symbol(
+        self, user_id: UUID, pool: PoolKey
+    ) -> list[LedgerPosition]:
         return list(self._positions)
 
 
@@ -240,6 +243,7 @@ def _fill(
 ) -> FillRecord:
     price = Decimal("50000")
     return FillRecord(
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -319,6 +323,7 @@ async def _scan(
     async with session_factory() as session:
         use_case = ScanPools(
             pools=[POOL],
+            pool_users={POOL: OWNER_ID},
             venue_readers=_FakeVenueReaderRegistry(_FakeVenueReader(venue_positions)),
             ledger_positions=(
                 ledger_positions

@@ -32,6 +32,7 @@ class SqlAlchemyLedgerRepository:
         self._session.add(
             LedgerEntryRow(
                 id=entry.id,
+                user_id=entry.user_id,
                 strategy_id=entry.strategy_id,
                 allocation_id=entry.allocation_id,
                 execution_attempt_id=entry.execution_attempt_id,
@@ -54,9 +55,10 @@ class SqlAlchemyLedgerRepository:
         await self._session.flush()
 
     async def net_base_quantity(
-        self, allocation_id: UUID, base_currency: str
+        self, user_id: UUID, allocation_id: UUID, base_currency: str
     ) -> Decimal:
-        """Implements ``LedgerPositionReaderPort``.
+        """Implements ``LedgerPositionReaderPort``. Only ``user_id``'s rows count
+        (multi-user AD8).
 
         One aggregate over one allocation's rows: buys add, sells subtract, and
         fees charged in the base currency subtract because that much of the
@@ -83,16 +85,20 @@ class SqlAlchemyLedgerRepository:
         result = await self._session.execute(
             select(
                 func.coalesce(func.sum(signed_quantity - base_fee), 0)
-            ).where(LedgerEntryRow.allocation_id == allocation_id)
+            ).where(
+                LedgerEntryRow.user_id == user_id,
+                LedgerEntryRow.allocation_id == allocation_id,
+            )
         )
         return Decimal(result.scalar_one())
 
     async def net_positions_by_symbol(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> list[LedgerPosition]:
         """Implements ``LedgerSymbolPositionReaderPort``.
 
-        One aggregate over the WHOLE pool's rows, grouped by symbol and
+        One aggregate over the WHOLE pool's rows of ``user_id`` (a market is
+        one pool PER USER; multi-user AD8), grouped by symbol and
         allocation — ``net_base_quantity``'s twin, generalised from one
         allocation to every allocation in the pool at once.
 
@@ -129,6 +135,7 @@ class SqlAlchemyLedgerRepository:
         result = await self._session.execute(
             select(LedgerEntryRow.symbol, LedgerEntryRow.allocation_id, net_base)
             .where(
+                LedgerEntryRow.user_id == user_id,
                 LedgerEntryRow.exchange == exchange,
                 LedgerEntryRow.venue == venue,
                 LedgerEntryRow.settlement_currency == settlement_currency,
@@ -147,12 +154,12 @@ class SqlAlchemyLedgerRepository:
         ]
 
     async def symbol_holdings(
-        self, exchange: str, venue: str, settlement_currency: str, symbol: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str, symbol: str
     ) -> list[HeldAllocation]:
         """Implements ``LedgerSymbolHoldingsReaderPort``.
 
-        One aggregate over one MARKET's rows -- merged across every spelling
-        it wears (``market_spellings``) -- grouped by strategy AND
+        One aggregate over one MARKET's rows of ``user_id`` (multi-user AD8) --
+        merged across every spelling it wears (``market_spellings``) -- grouped by strategy AND
         allocation, across the WHOLE pool (every strategy that has ever
         touched this market, not just one). The caller reads out its own
         strategy's figure for the Existing-Position Guard (S2) and sums
@@ -197,6 +204,7 @@ class SqlAlchemyLedgerRepository:
         result = await self._session.execute(
             select(LedgerEntryRow.strategy_id, LedgerEntryRow.allocation_id, net_base)
             .where(
+                LedgerEntryRow.user_id == user_id,
                 LedgerEntryRow.exchange == exchange,
                 LedgerEntryRow.venue == venue,
                 LedgerEntryRow.settlement_currency == settlement_currency,
@@ -227,6 +235,10 @@ class SqlAlchemyLedgerRepository:
         Backed by ``ix_ledger_pool_symbol`` (migration ``0020``), whose
         leading columns are ``(exchange, venue, settlement_currency)`` --
         the same index every other query in this file already relies on.
+
+        Deliberately NOT scoped to a user: a strategy has exactly one author,
+        and this serves the admin's archive/delete of a strategy, which is
+        global by design (multi-user AD8).
         """
         result = await self._session.execute(
             select(LedgerEntryRow.symbol)
@@ -240,18 +252,36 @@ class SqlAlchemyLedgerRepository:
         )
         return frozenset(row[0] for row in result.all())
 
-    async def distinct_symbols_for_pool(
-        self, exchange: str, venue: str, settlement_currency: str
-    ) -> frozenset[str]:
-        """Every RAW symbol any strategy has ever recorded a fill under in this
-        pool: ``distinct_symbols_for_strategy`` without the strategy filter, for
-        the pool-wide exposure check that guards deleting an exchange's key
-        (owner decision 22). Normalizing into markets is the caller's job.
-
-        Same ``ix_ledger_pool_symbol`` prefix as every other query here.
-        """
+    async def distinct_users_for_strategy(
+        self, exchange: str, venue: str, settlement_currency: str, strategy_id: UUID
+    ) -> frozenset[UUID]:
+        """Every user that has recorded a fill for this strategy on this market:
+        normally the strategy's author alone, but read from the ledger rather
+        than assumed. Deliberately NOT scoped to a user, like
+        ``distinct_symbols_for_strategy``: it lets the admin's archive of a
+        strategy ask ``symbol_holdings`` about each owner's rows (multi-user
+        AD8)."""
         result = await self._session.execute(
-            select(LedgerEntryRow.symbol)
+            select(LedgerEntryRow.user_id)
+            .where(
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+                LedgerEntryRow.strategy_id == strategy_id,
+            )
+            .distinct()
+        )
+        return frozenset(row[0] for row in result.all())
+
+    async def distinct_users_for_pool(
+        self, exchange: str, venue: str, settlement_currency: str
+    ) -> frozenset[UUID]:
+        """Every user that has recorded a fill on this market. Deliberately NOT
+        scoped to a user: the DRY_RUN fake venue book is one process-wide book
+        per exchange, so its start-up seed has to read every user's rows
+        (``net_positions_by_symbol`` once per user)."""
+        result = await self._session.execute(
+            select(LedgerEntryRow.user_id)
             .where(
                 LedgerEntryRow.exchange == exchange,
                 LedgerEntryRow.venue == venue,
@@ -261,13 +291,36 @@ class SqlAlchemyLedgerRepository:
         )
         return frozenset(row[0] for row in result.all())
 
+    async def distinct_symbols_for_pool(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> frozenset[str]:
+        """Every RAW symbol any strategy has ever recorded a fill under in
+        ``user_id``'s pool on this market: ``distinct_symbols_for_strategy``
+        with the user filter in place of the strategy filter, for
+        the pool-wide exposure check that guards deleting an exchange's key
+        (owner decision 22). Normalizing into markets is the caller's job.
+
+        Same ``ix_ledger_pool_symbol`` prefix as every other query here.
+        """
+        result = await self._session.execute(
+            select(LedgerEntryRow.symbol)
+            .where(
+                LedgerEntryRow.user_id == user_id,
+                LedgerEntryRow.exchange == exchange,
+                LedgerEntryRow.venue == venue,
+                LedgerEntryRow.settlement_currency == settlement_currency,
+            )
+            .distinct()
+        )
+        return frozenset(row[0] for row in result.all())
+
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:
         """Implements ``RecordedFillIdsReaderPort``.
 
-        Keyed on ``(exchange, venue, exchange_fill_id)`` --
-        ``ux_ledger_exchange_fill`` (migration ``0019``) exactly, never
+        Keyed on ``(user_id, exchange, venue, exchange_fill_id)`` --
+        ``ux_ledger_exchange_fill`` (migrations ``0019``, ``0030``) exactly, never
         symbol (design.md § 13's booking-domain testing rule: a booked close
         may legitimately carry a different spelling than the open it nets
         against, and keying this lookup on symbol would silently treat an
@@ -284,6 +337,7 @@ class SqlAlchemyLedgerRepository:
 
         result = await self._session.execute(
             select(LedgerEntryRow.exchange_fill_id).where(
+                LedgerEntryRow.user_id == user_id,
                 LedgerEntryRow.exchange == exchange,
                 LedgerEntryRow.venue == venue,
                 LedgerEntryRow.exchange_fill_id.in_(exchange_fill_ids),
@@ -295,7 +349,9 @@ class SqlAlchemyLedgerRepository:
         """How many ledger entries record a fill for this strategy, in ANY
         pool. Read-only: ``StrategyHistoryPort``'s ``ledger_entries`` count
         (design.md addendum 9x, § C). The ledger is append-only, so a count
-        above zero is permanent."""
+        above zero is permanent. Deliberately NOT scoped to a user: it serves
+        the admin's archive/delete of a strategy, global by design
+        (multi-user AD8)."""
         result = await self._session.execute(
             select(func.count())
             .select_from(LedgerEntryRow)

@@ -10,6 +10,8 @@ Both are thin -- the actual SQL aggregate and the fee rule live in
 ``LedgerSymbolHoldingsReaderPort``'s implementation, not here.
 """
 
+from uuid import UUID
+
 from strategy_manager.ledger.application.ports import LedgerSymbolHoldingsReaderPort
 from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.domain.holding import HeldAllocation
@@ -21,6 +23,10 @@ class ReadSymbolHoldings:
     def __init__(self, reader: LedgerSymbolHoldingsReaderPort) -> None:
         self._reader = reader
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
         exchange, venue, settlement_currency = pool
-        return await self._reader.symbol_holdings(exchange, venue, settlement_currency, symbol)
+        return await self._reader.symbol_holdings(
+            user_id, exchange, venue, settlement_currency, symbol
+        )

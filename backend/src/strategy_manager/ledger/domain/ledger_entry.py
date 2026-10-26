@@ -22,6 +22,7 @@ class LedgerEntry:
     currency — never blended into a cross-pool USD total (CLAUDE.md rule 7)."""
 
     id: UUID
+    user_id: UUID
     strategy_id: UUID
     allocation_id: UUID
     execution_attempt_id: UUID

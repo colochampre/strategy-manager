@@ -20,7 +20,7 @@ import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 
@@ -40,10 +40,17 @@ from strategy_manager.reconciliation.domain.positions import (
     OpenAllocation,
     VenuePosition,
 )
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 NOW = datetime(2026, 9, 18, 12, 0, 0, tzinfo=UTC)
 POOL_A: PoolKey = ("bybit", "usdt-m", "USDT")
 POOL_B: PoolKey = ("pionex", "spot", "USDT")
+
+
+def _user_of(pool: PoolKey) -> UUID:
+    """A different user per pool, so a scan that read the wrong user's rows
+    shows in what the ledger fake was asked for."""
+    return uuid5(NAMESPACE_URL, "|".join(pool))
 
 
 class FakeVenueReader:
@@ -80,8 +87,13 @@ class FakeLedgerPositions:
     def __init__(self, positions_by_pool: dict[PoolKey, list[LedgerPosition]]) -> None:
         self._positions_by_pool = positions_by_pool
         self.requested: list[PoolKey] = []
+        # Whose rows each read was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def net_positions_by_symbol(self, pool: PoolKey) -> list[LedgerPosition]:
+    async def net_positions_by_symbol(
+        self, user_id: UUID, pool: PoolKey
+    ) -> list[LedgerPosition]:
+        self.users.append(user_id)
         self.requested.append(pool)
         return list(self._positions_by_pool.get(pool, []))
 
@@ -206,6 +218,7 @@ def _build(
     commit = SpyCommit()
     use_case = ScanPools(
         pools=pools,
+        pool_users={pool: _user_of(pool) for pool in pools},
         venue_readers=registry,
         ledger_positions=ledger,
         discrepancies=discrepancies,
@@ -214,6 +227,39 @@ def _build(
         confirmations_required=confirmations_required,
     )
     return use_case, registry, ledger, discrepancies, commit
+
+
+async def test_each_pool_is_read_as_the_user_that_owns_it() -> None:
+    """Multi-user AD8: the ledger read of a pool is its user's rows only."""
+    use_case, _, ledger, _, _ = _build(
+        [POOL_A, POOL_B],
+        {("bybit", "usdt-m"): FakeVenueReader([]), ("pionex", "spot"): FakeVenueReader([])},
+        {},
+    )
+
+    await use_case.scan(uuid4())
+
+    assert ledger.requested == [POOL_A, POOL_B]
+    assert ledger.users == [_user_of(POOL_A), _user_of(POOL_B)]
+
+
+async def test_a_pool_with_no_user_is_refused_loudly() -> None:
+    ledger = FakeLedgerPositions({})
+    unowned = ScanPools(
+        pools=[POOL_A],
+        pool_users={},
+        venue_readers=FakeVenueReaderRegistry({("bybit", "usdt-m"): FakeVenueReader([])}),
+        ledger_positions=ledger,
+        discrepancies=FakeDiscrepancyRepository(),
+        clock=FrozenClock(NOW),
+        commit=SpyCommit(),
+        confirmations_required=2,
+    )
+
+    with pytest.raises(InvariantViolation):
+        await unowned.scan(uuid4())
+
+    assert ledger.requested == []
 
 
 # --- Agreement: no discrepancy at all ----------------------------------------

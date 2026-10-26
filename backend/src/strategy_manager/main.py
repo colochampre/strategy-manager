@@ -1006,11 +1006,19 @@ def build_worker_runner(
     async def _fake_venue_book_ledger_reader(
         pool: tuple[str, str, str],
     ) -> list[tuple[str, Decimal]]:
+        # One book per exchange, not per user: it is seeded from every user's
+        # rows on the pool, summed per symbol.
         async with factory() as seed_session:
-            positions = await ReadSymbolPositions(
-                SqlAlchemyLedgerRepository(seed_session)
-            ).net_positions_by_symbol(pool)
-            return [(position.symbol, position.net_base) for position in positions]
+            repository = SqlAlchemyLedgerRepository(seed_session)
+            net_by_symbol: dict[str, Decimal] = {}
+            for seed_user in sorted(await repository.distinct_users_for_pool(*pool)):
+                for position in await ReadSymbolPositions(repository).net_positions_by_symbol(
+                    seed_user, pool
+                ):
+                    net_by_symbol[position.symbol] = (
+                        net_by_symbol.get(position.symbol, Decimal("0")) + position.net_base
+                    )
+            return list(net_by_symbol.items())
 
     fake_venue_book = FakeVenueBook(_fake_venue_book_ledger_reader)
 
@@ -1747,6 +1755,12 @@ def build_worker_runner(
                 handler = ReconciliationScanHandler(
                     scan_pools=ScanPools(
                         pools=bybit_pools + binance_pools,
+                        # INTERIM, like the key: the holder's pools are the holder's
+                        # (B.8 makes each scan a user's own).
+                        pool_users={
+                            **{pool: bybit_holder for pool in bybit_pools if bybit_holder},
+                            **{pool: binance_holder for pool in binance_pools if binance_holder},
+                        },
                         venue_readers=VenuePositionReaderRegistry(readers),
                         ledger_positions=ReadSymbolPositions(
                             SqlAlchemyLedgerRepository(session)
@@ -1888,6 +1902,12 @@ def build_worker_runner(
                         recorded_fill_ids=ReadRecordedFillIds(
                             SqlAlchemyLedgerRepository(session)
                         ),
+                        # INTERIM, like the key: the holder's pools are the holder's
+                        # (B.8 makes each sweep a user's own).
+                        pool_users={
+                            **{pool: bybit_holder for pool in bybit_pools if bybit_holder},
+                            **{pool: binance_holder for pool in binance_pools if binance_holder},
+                        },
                         allocation_owner=AllocationOwnerAdapter(session),
                         clock=SystemClock(),
                         commit=session,

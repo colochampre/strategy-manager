@@ -205,6 +205,7 @@ def _fill(
     strategy_id: UUID, allocation_id: UUID, attempt_id: UUID, side: str, at: datetime
 ) -> FillRecord:
     return FillRecord(
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,

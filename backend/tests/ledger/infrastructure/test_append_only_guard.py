@@ -159,16 +159,17 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     ledger_id = uuid4()
     await conn.execute(
         text(
-            "INSERT INTO ledger_entries (id, strategy_id, allocation_id, execution_attempt_id, "
-            "exchange, venue, settlement_currency, symbol, side, quantity, price, fee, "
-            "fee_currency, notional, exchange_order_id, exchange_fill_id, filled_at, "
-            "usd_rate_at_fill) "
-            "VALUES (:id, :strategy_id, :allocation_id, :execution_attempt_id, 'pionex', "
+            "INSERT INTO ledger_entries (id, user_id, strategy_id, allocation_id, "
+            "execution_attempt_id, exchange, venue, settlement_currency, symbol, side, "
+            "quantity, price, fee, fee_currency, notional, exchange_order_id, "
+            "exchange_fill_id, filled_at, usd_rate_at_fill) "
+            "VALUES (:id, :user_id, :strategy_id, :allocation_id, :execution_attempt_id, 'pionex', "
             "'spot', 'USDT', 'BTCUSDT', 'BUY', 0.004, 50000, 0.02, 'USDT', 200, "
             ":exchange_order_id, :exchange_fill_id, now(), 1)"
         ),
         {
             "id": ledger_id,
+            "user_id": author,
             "strategy_id": strategy_id,
             "allocation_id": reservation_id,
             "execution_attempt_id": attempt_id,

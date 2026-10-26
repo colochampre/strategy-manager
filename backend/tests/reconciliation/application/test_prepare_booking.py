@@ -25,7 +25,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 
@@ -192,10 +192,13 @@ class FakeRecordedFillIds:
     def __init__(self, recorded: frozenset[str] = frozenset()) -> None:
         self._recorded = recorded
         self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+        # Whose ledger rows each lookup counted (multi-user design AD8).
+        self.users: list[UUID] = []
 
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:
+        self.users.append(user_id)
         self.calls.append((exchange, venue, tuple(exchange_fill_ids)))
         return frozenset(fid for fid in exchange_fill_ids if fid in self._recorded)
 
@@ -238,6 +241,12 @@ class SpyCommit:
 
 
 # --- Builders ------------------------------------------------------------
+
+
+def _user_of(pool: PoolKey) -> UUID:
+    """A different user per pool, so a lookup made as the wrong user shows in
+    what the recorded-ids fake was asked as."""
+    return uuid5(NAMESPACE_URL, "|".join(pool))
 
 
 def _discrepancy(
@@ -336,6 +345,12 @@ def _build(
         proposal_expiry_seconds=proposal_expiry_seconds,
         dry_run=dry_run,
         system_order_ids=system_order_ids or FakeSystemOrderIds(),
+        pool_users={
+            (d.exchange, d.venue, d.settlement_currency): _user_of(
+                (d.exchange, d.venue, d.settlement_currency)
+            )
+            for d in discrepancies
+        },
     )
     return use_case, discrepancy_repo, proposals, registry, recorded_ids, commit
 
@@ -366,6 +381,22 @@ async def test_a_confirmed_discrepancy_yields_a_prepared_proposal() -> None:
     assert proposal.client_order_id == "vnu:bybit:fill:f1"
     assert result.proposals_prepared == 1
     assert commit.commits == 1
+
+
+async def test_the_recorded_fills_are_looked_up_as_the_user_that_owns_the_pool() -> None:
+    """Multi-user AD8: ``ux_ledger_exchange_fill`` is per user, so another
+    user's row with the same fill id must not make a fill look recorded."""
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    use_case, _, _, _, recorded_ids, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): FakeVenueFillReader([_fill()])},
+        owners={allocation_id: uuid4()},
+    )
+
+    await use_case.sweep(uuid4())
+
+    assert recorded_ids.users == [_user_of(POOL_A)]
 
 
 # --- Money-critical: unbookable kinds never proposed ----------------------

@@ -117,12 +117,14 @@ async def seed_open_position(
     symbol: str,
     quantity: Decimal = Decimal("1"),
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
-    """One FILLED reservation, one FILLED opening attempt and one BUY ledger row:
-    an allocation open on ``symbol``. Returns the allocation id."""
+    """One FILLED reservation, one FILLED opening attempt and one BUY ledger row,
+    all of ``user_id`` (the owner by default): an allocation open on ``symbol``.
+    Returns the allocation id."""
     exchange, venue, currency = pool
     allocation_id = await seed_live_reservation(
-        factory, strategy_id=strategy_id, status="FILLED", pool=pool
+        factory, strategy_id=strategy_id, status="FILLED", pool=pool, user_id=user_id
     )
     attempt_id = uuid4()
     await seed_execution_attempt(
@@ -140,6 +142,7 @@ async def seed_open_position(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=user_id,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,

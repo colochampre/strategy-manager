@@ -38,7 +38,7 @@ class LedgerPositionReaderPort(Protocol):
     """
 
     async def net_base_quantity(
-        self, allocation_id: UUID, base_currency: str
+        self, user_id: UUID, allocation_id: UUID, base_currency: str
     ) -> Decimal: ...
 
 
@@ -62,7 +62,7 @@ class LedgerSymbolPositionReaderPort(Protocol):
     """
 
     async def net_positions_by_symbol(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> list[LedgerPosition]: ...
 
 
@@ -89,7 +89,7 @@ class LedgerSymbolHoldingsReaderPort(Protocol):
     """
 
     async def symbol_holdings(
-        self, exchange: str, venue: str, settlement_currency: str, symbol: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str, symbol: str
     ) -> list[HeldAllocation]: ...
 
     async def distinct_symbols_for_strategy(
@@ -109,6 +109,10 @@ class LedgerSymbolHoldingsReaderPort(Protocol):
         A strategy with no ledger rows at all in this pool returns an empty
         set -- the ordinary case for one that never opened a position, not
         an error.
+
+        Deliberately NOT scoped to a user: a strategy has one author, and this
+        serves the admin's archive/delete of a strategy, which is global by
+        design (multi-user AD8).
         """
         ...
 
@@ -126,5 +130,5 @@ class RecordedFillIdsReaderPort(Protocol):
     """
 
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]: ...

@@ -205,6 +205,7 @@ async def _seed_open_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -292,6 +293,7 @@ async def _seed_open_short_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -354,6 +356,7 @@ async def _seed_close_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
