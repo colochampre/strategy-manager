@@ -169,7 +169,27 @@ It needs an independent verifier before the PR.
     - a second user may hold an active key on the same exchange and the same pool triple;
     - the downgrade and the upgrade again.
 - [x] B.2 The `current_user` dependency returns the `User` (through `ResolveUser`) for `verified_email`. `/api/me` uses it instead of resolving inline. `require_admin` is unchanged.
-- [ ] B.3 Scoped persistence (AD8): every repository and adapter that reads or writes owned rows takes `user_id` and filters on it. That covers the accounts, allocation, execution, ledger, reconciliation, performance and strategies adapters in the map of 2026-10-21. No unscoped read remains outside an admin use case or the worker's per-user loop. Each scoped method gets one test where a second user's row is present and not returned.
+- [x] B.3 Scoped persistence (AD8): every repository and adapter that reads or writes owned rows takes `user_id` and filters on it. That covers the accounts, allocation, execution, ledger, reconciliation, performance and strategies adapters in the map of 2026-10-21. No unscoped read remains outside an admin use case or the worker's per-user loop. Each scoped method gets one test where a second user's row is present and not returned.
+  - Done in one unit per table:
+    - `9416441` strategies;
+    - `b5e69b3` pools and snapshots;
+    - `b84bace` keys and the worker per pair;
+    - `7b54c41` reservations;
+    - `e9cf2f3` execution attempts;
+    - `43e6372` ledger;
+    - `4564300` discrepancies and proposals;
+    - `20b71ef` reconciliation per user;
+    - `e460b3e` performance.
+  - The red baseline at `1a8201d` was 309 failing tests, not 132: the 132 counted FAILED only and left out ERROR. After `e460b3e` the full backend suite is green, with ruff and mypy clean (2026-10-26).
+  - Global by design, for admin use cases and worker sweeps:
+    - the strategy list;
+    - the per-strategy counts and lists behind archive and delete;
+    - `expire_due` and `expire_pending`;
+    - the failed-job signal reader;
+    - the worker's startup mode check (`SqlAlchemyModeOriginReader` without a user);
+    - the admin discrepancy list;
+    - `get_for_update` and the auto-booking sweeps, which take the user from the proposal itself.
+  - Two filters are defense in depth and not provable by mutation, because the ledger filter beside them already excludes the other user's rows: the reservation filter in `allocation_fills_source` and the ledger filter in `position_facts`.
 - [ ] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
 - [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
 - [ ] B.6 Routers (decision 16):
@@ -184,11 +204,19 @@ It needs an independent verifier before the PR.
   - `exchange_for`, the balance reader and the venue reader load the key of the row's user.
   - The startup refusal on a key that does not open is unchanged.
   - A Telegram alert names the user's id prefix, never an e-mail.
-- [ ] B.8 Reconciliation per user's pool (AD10):
+- [x] B.8 Reconciliation per user's pool (AD10):
   - the venue's net position is read with that user's key;
   - the ledger side is filtered by `user_id`;
   - discrepancies and booking proposals carry it, and the admin's discrepancy view shows the user's e-mail beside each row.
-- [ ] B.9 Tests: one fixture creates the owner's `User`, and the suites that insert owned rows directly pass its id (about 100 files).
+  - Commits:
+    - `4564300` gives discrepancies and proposals their user and pool;
+    - `20b71ef` adds `ScanUsers`, which runs one `ScanPools` per user with that user's key. Prepare reads each discrepancy with its own user's fill reader, and `DiscrepancyView.user_email` is joined in one query. The interim `_reconciliation_key_holder` is removed.
+  - A user with a pool but no key is skipped on that exchange with a WARNING on every scan cycle. The other users still scan.
+  - The panel rendering of the e-mail is B.10.
+- [x] B.9 Tests: one fixture creates the owner's `User`, and the suites that insert owned rows directly pass its id (about 100 files).
+  - `backend/tests/owner.py` (`OWNER_ID`, `seed_owner`, `seed_pool`, `seed_other_user` and others).
+  - `tests/identity_auth.py` `act_as`, which signs a router test in as the fixtures' owner and keeps the real `require_admin`.
+  - Seeds were updated unit by unit with B.3.
 
 ### Frontend
 
