@@ -224,6 +224,10 @@ class FakeVenueFillReaderRegistry:
     def for_pool(self, exchange: str, venue: str) -> FakeVenueFillReader:
         return self._reader
 
+    def for_user(self, user_id: UUID) -> "FakeVenueFillReaderRegistry":
+        """One reader serves every user (``UserVenueFillReadersPort``)."""
+        return self
+
 
 def venue_fill(quantity: str, *, side: str = "SELL", price: str = "2.6") -> VenueFill:
     """A fill spelled the way the venue spells the market (``STXUSDT``)."""
@@ -294,7 +298,6 @@ def build_prepare_booking(
         proposal_expiry_seconds=86400,
         dry_run=False,
         system_order_ids=SystemOrderIdsAdapter(session),
-        pool_users={POOL: OWNER_ID},
     )
 
 

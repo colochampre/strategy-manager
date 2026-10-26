@@ -92,9 +92,9 @@ class ScanPools:
     ) -> None:
         """``pool_users`` names, per pool, the user whose pool it is: the
         ledger read, the open discrepancies read and every discrepancy written
-        are that user's only (multi-user AD8). Today the caller fills it from
-        the interim key holder; reconciliation per user (AD10) makes each scan a
-        user's own."""
+        are that user's only (multi-user AD8). The caller builds one
+        ``ScanPools`` per user, with that user's pools and venue readers (their
+        key), and runs them through ``ScanUsers`` (AD10)."""
         self._pools = pools
         self._pool_users = pool_users
         self._venue_readers = venue_readers

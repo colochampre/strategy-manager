@@ -53,7 +53,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 )
 from strategy_manager.shared.config import get_settings
 from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
-from tests.owner import OWNER_ID, ensure_pool
+from tests.owner import OWNER_EMAIL, OWNER_ID, ensure_pool, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -191,13 +191,14 @@ async def _seed(
     status: DiscrepancyStatus = DiscrepancyStatus.OBSERVED,
     resolve: bool = False,
     observation: Observation | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> None:
     scan_id = uuid4()
     async with session_factory() as session:
-        await ensure_pool(session, pool)
+        await ensure_pool(session, pool, user_id=user_id)
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
-            OWNER_ID,
+            user_id,
             pool,
             symbol,
             observation or _observation(),
@@ -208,8 +209,35 @@ async def _seed(
             at=NOW,
         )
         if resolve:
-            await repo.resolve_absent(OWNER_ID, pool, [symbol], scan_id, NOW)
+            await repo.resolve_absent(user_id, pool, [symbol], scan_id, NOW)
         await session.commit()
+
+
+async def test_each_row_carries_the_e_mail_of_the_user_it_belongs_to(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    authenticated_client: AsyncClient,
+) -> None:
+    """B.8 / AD10: the admin's global view tells whose row each one is. Two
+    users hold a discrepancy on the SAME market; each row names its own user."""
+    market = ("bybit", "usdt-m", "USDT")
+    async with pg_session_factory() as session:
+        other_id = await seed_other_user(session)
+        other_email = (
+            await session.execute(
+                text("SELECT email FROM users WHERE id = :id"), {"id": other_id}
+            )
+        ).scalar_one()
+        await session.commit()
+    await _seed(pg_session_factory, pool=market, symbol="BTCUSDT")
+    await _seed(pg_session_factory, pool=market, symbol="BTCUSDT", user_id=other_id)
+
+    response = await authenticated_client.get(
+        "/reconciliation/discrepancies", headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    emails = sorted(row["user_email"] for row in response.json())
+    assert emails == sorted([OWNER_EMAIL, other_email])
 
 
 async def test_there_is_at_least_one_route_to_protect() -> None:

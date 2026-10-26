@@ -221,6 +221,9 @@ class _FakeVenueFillReaderRegistry:
     def for_pool(self, exchange: str, venue: str) -> _FakeVenueFillReader:
         return self._reader
 
+    def for_user(self, user_id: UUID) -> "_FakeVenueFillReaderRegistry":
+        return self
+
 
 # --- Scenario builder ---------------------
 
@@ -481,7 +484,6 @@ async def test_pending_past_24h_expires_and_is_reproposable(
             proposal_expiry_seconds=86_400,
             dry_run=False,
             system_order_ids=SystemOrderIdsAdapter(session),
-            pool_users={POOL: OWNER_ID},
         )
         sweep_result = await prepare.sweep(uuid4())
 

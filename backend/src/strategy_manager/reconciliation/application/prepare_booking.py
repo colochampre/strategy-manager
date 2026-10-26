@@ -57,8 +57,8 @@ from strategy_manager.reconciliation.application.ports import (
     ProposedFillSnapshot,
     RecordedFillIdsPort,
     SystemOrderIdsPort,
+    UserVenueFillReadersPort,
     VenueFill,
-    VenueFillReaderRegistryPort,
     VenueFillReadError,
 )
 from strategy_manager.reconciliation.domain.booking import (
@@ -93,7 +93,7 @@ class PrepareBooking:
         self,
         discrepancies: DiscrepancyRepositoryPort,
         proposals: BookingProposalRepositoryPort,
-        venue_fills: VenueFillReaderRegistryPort,
+        venue_fills: UserVenueFillReadersPort,
         recorded_fill_ids: RecordedFillIdsPort,
         allocation_owner: AllocationOwnerPort,
         clock: ClockPort,
@@ -103,15 +103,12 @@ class PrepareBooking:
         proposal_expiry_seconds: int,
         dry_run: bool,
         system_order_ids: SystemOrderIdsPort,
-        pool_users: Mapping[PoolKey, UUID],
     ) -> None:
-        """``pool_users`` names, per pool, the user whose pool it is: only that
-        user's discrepancies are prepared, and every lookup (rejections, recorded
-        fills, system orders, the allocation's strategy) and the proposal itself
-        are that user's (multi-user AD8). Today the caller fills it from the
-        interim key holder; reconciliation per user (AD10) makes each sweep a
-        user's own."""
-        self._pool_users = pool_users
+        """Every CONFIRMED discrepancy is prepared as the user it belongs to
+        (``DiscrepancyRecord.user_id``): the fills are read with THAT user's
+        reader (``venue_fills.for_user``), and every lookup (rejections,
+        recorded fills, system orders, the allocation's strategy) and the
+        proposal itself are that user's (multi-user AD8, AD10)."""
         self._discrepancies = discrepancies
         self._proposals = proposals
         self._venue_fills = venue_fills
@@ -160,19 +157,7 @@ class PrepareBooking:
                 discrepancy.venue,
                 discrepancy.settlement_currency,
             )
-            if pool not in self._pool_users:
-                raise InvariantViolation(f"prepare booking: no user owns the pool {pool}")
-            user_id = self._pool_users[pool]
-            if discrepancy.user_id != user_id:
-                # Another user's discrepancy on a market this sweep serves for
-                # someone else: not this sweep's to book (multi-user AD8).
-                logger.warning(
-                    "prepare booking: discrepancy %s belongs to another user than the "
-                    "one this sweep serves on %s, leaving it alone",
-                    discrepancy.id,
-                    pool,
-                )
-                continue
+            user_id = discrepancy.user_id
             considered += 1
 
             observation = Observation(
@@ -227,7 +212,9 @@ class PrepareBooking:
                 continue
 
             try:
-                reader = self._venue_fills.for_pool(discrepancy.exchange, discrepancy.venue)
+                reader = self._venue_fills.for_user(user_id).for_pool(
+                    discrepancy.exchange, discrepancy.venue
+                )
                 fills = await reader.fills_in_window(pool, expected_market, window_start, now)
             except VenueFillReadError as exc:
                 logger.warning(

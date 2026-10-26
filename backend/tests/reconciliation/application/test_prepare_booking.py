@@ -195,6 +195,25 @@ class FakeVenueFillReaderRegistry:
         return reader
 
 
+class FakeUserFillReaders:
+    """Models ``UserVenueFillReadersPort``: a registry per user, falling back
+    to ``default`` for a user nobody registered. Records whose registry each
+    lookup asked for (multi-user AD10)."""
+
+    def __init__(
+        self,
+        default: FakeVenueFillReaderRegistry,
+        by_user: dict[UUID, FakeVenueFillReaderRegistry] | None = None,
+    ) -> None:
+        self._default = default
+        self._by_user = by_user or {}
+        self.users: list[UUID] = []
+
+    def for_user(self, user_id: UUID) -> FakeVenueFillReaderRegistry:
+        self.users.append(user_id)
+        return self._by_user.get(user_id, self._default)
+
+
 class FakeRecordedFillIds:
     def __init__(self, recorded: frozenset[str] = frozenset()) -> None:
         self._recorded = recorded
@@ -333,6 +352,7 @@ def _build(
     max_span_seconds: int = MAX_SPAN_SECONDS,
     proposal_expiry_seconds: int = PROPOSAL_EXPIRY_SECONDS,
     system_order_ids: FakeSystemOrderIds | None = None,
+    user_fill_readers: FakeUserFillReaders | None = None,
 ) -> tuple[
     PrepareBooking,
     FakeDiscrepancyRepository,
@@ -350,7 +370,7 @@ def _build(
     use_case = PrepareBooking(
         discrepancies=discrepancy_repo,
         proposals=proposals,
-        venue_fills=registry,
+        venue_fills=user_fill_readers or FakeUserFillReaders(registry),
         recorded_fill_ids=recorded_ids,
         allocation_owner=allocation_owner,
         clock=FrozenClock(NOW),
@@ -360,12 +380,6 @@ def _build(
         proposal_expiry_seconds=proposal_expiry_seconds,
         dry_run=dry_run,
         system_order_ids=system_order_ids or FakeSystemOrderIds(),
-        pool_users={
-            (d.exchange, d.venue, d.settlement_currency): _user_of(
-                (d.exchange, d.venue, d.settlement_currency)
-            )
-            for d in discrepancies
-        },
     )
     return use_case, discrepancy_repo, proposals, registry, recorded_ids, commit
 
@@ -436,26 +450,84 @@ async def test_every_lookup_and_the_proposal_are_the_pools_users() -> None:
     assert [proposal.user_id for proposal in proposals.inserted] == [user]
 
 
-async def test_another_users_discrepancy_on_the_served_market_is_left_alone() -> None:
-    """The sweep lists every user's CONFIRMED rows; one that is not the served
-    user's is neither looked up nor booked, whatever market it names."""
-    allocation_id = uuid4()
-    served = _discrepancy(open_allocation_ids=(allocation_id,), symbol="MINEUSDT")
-    someone_elses = _discrepancy(
-        open_allocation_ids=(allocation_id,), symbol="THEIRSUSDT", user_id=uuid4()
+ALICE = UUID("a11ce000-0000-4000-8000-000000000001")
+BOB = UUID("b0b00000-0000-4000-8000-000000000002")
+
+
+async def test_each_discrepancy_is_read_with_its_own_users_fill_reader() -> None:
+    """AD10: two users hold a CONFIRMED discrepancy on the SAME market. A fill
+    is an account's, so each is read through the reader of the user it belongs
+    to (their key) and each proposal carries only that user's fills. The venue
+    echoes ``.P`` spellings, the discrepancy the bare market key."""
+    alice_alloc, bob_alloc = uuid4(), uuid4()
+    alice_row = _discrepancy(
+        user_id=ALICE, open_allocation_ids=(alice_alloc,), symbol="STXUSDT"
     )
-    reader = FakeVenueFillReader([_fill(symbol="MINEUSDT")])
-    use_case, _, proposals, registry, _, _ = _build(
-        discrepancies=[someone_elses, served],
-        venue_readers={("bybit", "usdt-m"): reader},
-        owners={allocation_id: uuid4()},
+    bob_row = _discrepancy(user_id=BOB, open_allocation_ids=(bob_alloc,), symbol="STXUSDT")
+    alice_reader = FakeVenueFillReader(
+        [_fill(exchange_fill_id="alice-fill", symbol="STXUSDT.P")]
+    )
+    bob_reader = FakeVenueFillReader(
+        [_fill(exchange_fill_id="bob-fill", symbol="STXUSDT.P")]
+    )
+    user_readers = FakeUserFillReaders(
+        # An unknown user reads an empty window: a wrong lookup shows in the
+        # assertions, not as a LookupError.
+        FakeVenueFillReaderRegistry({("bybit", "usdt-m"): FakeVenueFillReader([])}),
+        {
+            ALICE: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): alice_reader}),
+            BOB: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): bob_reader}),
+        },
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[alice_row, bob_row],
+        owners={alice_alloc: uuid4(), bob_alloc: uuid4()},
+        user_fill_readers=user_readers,
     )
 
     result = await use_case.sweep(uuid4())
 
-    assert [proposal.discrepancy_id for proposal in proposals.inserted] == [served.id]
-    assert result.discrepancies_considered == 1
-    assert registry.requested == [("bybit", "usdt-m")]
+    assert user_readers.users == [ALICE, BOB]
+    assert (len(alice_reader.calls), len(bob_reader.calls)) == (1, 1)
+    assert result.proposals_prepared == 2
+    by_user = {
+        proposal.user_id: [f.exchange_fill_id for f in proposal.fills]
+        for proposal in proposals.inserted
+    }
+    assert by_user == {ALICE: ["alice-fill"], BOB: ["bob-fill"]}
+
+
+async def test_a_user_with_no_key_is_skipped_while_the_other_user_is_still_prepared(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AD10: a user without an active key resolves to readers that fail with
+    the tolerated ``VenueFillReadError``; that discrepancy is skipped with a
+    WARNING and the sweep goes on to the next user's."""
+    alice_alloc, bob_alloc = uuid4(), uuid4()
+    keyless = _discrepancy(user_id=ALICE, open_allocation_ids=(alice_alloc,))
+    keyed = _discrepancy(user_id=BOB, open_allocation_ids=(bob_alloc,))
+    failing = FakeVenueFillReader(raises=VenueFillReadError("no key this cycle"))
+    user_readers = FakeUserFillReaders(
+        FakeVenueFillReaderRegistry({("bybit", "usdt-m"): FakeVenueFillReader([])}),
+        {
+            ALICE: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): failing}),
+            BOB: FakeVenueFillReaderRegistry(
+                {("bybit", "usdt-m"): FakeVenueFillReader([_fill()])}
+            ),
+        },
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[keyless, keyed],
+        owners={alice_alloc: uuid4(), bob_alloc: uuid4()},
+        user_fill_readers=user_readers,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert [proposal.user_id for proposal in proposals.inserted] == [BOB]
+    assert result.proposals_skipped == 1
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 # --- Money-critical: unbookable kinds never proposed ----------------------

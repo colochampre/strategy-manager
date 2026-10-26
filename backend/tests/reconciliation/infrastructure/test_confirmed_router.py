@@ -532,5 +532,7 @@ async def test_the_discrepancies_route_answers_as_before(
         "last_observed_at",
         "confirmed_at",
         "resolved_at",
+        # B.8: whose row it is, beside the row.
+        "user_email",
     }
     assert row["symbol"] == "KKKUSDT"

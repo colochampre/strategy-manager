@@ -210,6 +210,9 @@ class _FakeVenueFillReaderRegistry:
     def for_pool(self, exchange: str, venue: str) -> _FakeVenueFillReader:
         return self._reader
 
+    def for_user(self, user_id: UUID) -> "_FakeVenueFillReaderRegistry":
+        return self
+
 
 class _FrozenClock:
     def __init__(self, at: datetime) -> None:
@@ -339,7 +342,6 @@ async def _prepare(
             proposal_expiry_seconds=86400,
             dry_run=False,
             system_order_ids=SystemOrderIdsAdapter(session),
-            pool_users={POOL: OWNER_ID},
         )
         return await use_case.sweep(job_id)
 

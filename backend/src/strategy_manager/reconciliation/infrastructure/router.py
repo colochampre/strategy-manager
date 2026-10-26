@@ -45,9 +45,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.reconciliation.application.market_key import market_key
 from strategy_manager.reconciliation.application.ports import DiscrepancyRecord
 from strategy_manager.reconciliation.application.read_confirmed import (
@@ -115,10 +117,12 @@ class DiscrepancyView(BaseModel):
     last_observed_at: datetime
     confirmed_at: datetime | None
     resolved_at: datetime | None
+    user_email: str
 
     @classmethod
-    def of(cls, record: DiscrepancyRecord) -> "DiscrepancyView":
+    def of(cls, record: DiscrepancyRecord, user_email: str) -> "DiscrepancyView":
         return cls(
+            user_email=user_email,
             id=record.id,
             exchange=record.exchange,
             venue=record.venue,
@@ -147,6 +151,8 @@ async def list_discrepancies(
     symbol: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[DiscrepancyView]:
+    """Admin-only and global by design (decision 16): every user's rows, each
+    with the e-mail of the user it belongs to."""
     repository = SqlAlchemyDiscrepancyRepository(session)
     # ``open_only`` is the one case the port already narrows at the DB level
     # -- it is also the default, so the common call stays a single indexed
@@ -174,7 +180,16 @@ async def list_discrepancies(
         wanted = market_key(symbol)
         records = [record for record in records if market_key(record.symbol) == wanted]
 
-    return [DiscrepancyView.of(record) for record in records[:limit]]
+    page = records[:limit]
+    # One query for every row's user, never one per row.
+    emails: dict[UUID, str] = {}
+    user_ids = {record.user_id for record in page}
+    if user_ids:
+        result = await session.execute(
+            select(UserRow.id, UserRow.email).where(UserRow.id.in_(user_ids))
+        )
+        emails = {row.id: row.email for row in result}
+    return [DiscrepancyView.of(record, emails[record.user_id]) for record in page]
 
 
 class AllocationBody(BaseModel):

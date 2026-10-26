@@ -326,6 +326,17 @@ class VenueFillReaderRegistryPort(Protocol):
     def for_pool(self, exchange: str, venue: str) -> VenueFillReaderPort: ...
 
 
+class UserVenueFillReadersPort(Protocol):
+    """Which fill readers read ONE user's account: a venue's fills are an
+    account's, so each is read with the key of the user the discrepancy
+    belongs to (multi-user design AD10). Never raises for a user it does not
+    know: that user gets a registry whose readers fail with the tolerated
+    ``VenueFillReadError`` ("no key this cycle"), not an unserved-pool error
+    that would kill the job."""
+
+    def for_user(self, user_id: UUID) -> VenueFillReaderRegistryPort: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProposedFillSnapshot:
     """One element of a booking proposal's frozen ``fills`` JSONB array

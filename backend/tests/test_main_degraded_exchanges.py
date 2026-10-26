@@ -205,68 +205,174 @@ def test_reconciliation_scan_gates_on_the_active_key_listing() -> None:
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    # Pools filtered OUT of the list before ScanPools ever sees them, not
-    # gated inline while building readers -- both collections must agree by
-    # construction, or an unregistered pool raises UnservedPoolError. Since
-    # AD9 the filter is the key holder's own markets: none when nobody holds
-    # an active key (``_markets_of`` with ``None``).
-    assert (
-        "bybit_pools = _markets_of(pool_set.by_key, bybit_holder, BYBIT_EXCHANGE)" in body
-    )
-    assert (
-        "binance_pools = _markets_of(pool_set.by_key, binance_holder, BINANCE_EXCHANGE)"
-        in body
-    )
+    # Markets filtered per USER before ScanPools ever sees them (a pool with no
+    # registered reader would raise UnservedPoolError), then one ScanPools per
+    # user behind the single handler (AD10).
+    assert "_reconciliation_markets_per_user(" in body
+    assert "ScanUsers(scans)" in body
+    assert "_user_position_readers(" in body
 
 
-def test_a_market_with_no_key_holder_is_filtered_out_entirely() -> None:
-    """The filter above, behaviorally: no holder, no markets; a holder, only
-    that holder's markets, sorted."""
-    market = ("bybit", "usdt-m", "USDT")
+# --- reconciliation per user's pool (multi-user design AD10, tasks.md B.8) ---
+
+BYBIT_MARKET = ("bybit", "usdt-m", "USDT")
+BINANCE_MARKET = ("binance", "usdt-m", "USDT")
+
+
+def test_two_users_on_one_market_are_both_scanned() -> None:
+    """The old arrangement picked ONE holder per exchange; a market maps to one
+    user there. Now each user with a pool and a key gets their own markets."""
     by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {
-        (OWNER_ID, market): object(),
-        (OTHER_ID, ("bybit", "coin-m", "BTC")): object(),
+        (OWNER_ID, BYBIT_MARKET): object(),
+        (OTHER_ID, BYBIT_MARKET): object(),
     }
+    active = frozenset({(OWNER_ID, "bybit"), (OTHER_ID, "bybit")})
 
-    assert main._markets_of(by_key, None, "bybit") == []  # type: ignore[arg-type]
-    assert main._markets_of(by_key, OWNER_ID, "bybit") == [market]  # type: ignore[arg-type]
+    per_user = main._reconciliation_markets_per_user(
+        by_key,  # type: ignore[arg-type]
+        active,
+        warn=True,
+    )
+
+    assert per_user == {OWNER_ID: [BYBIT_MARKET], OTHER_ID: [BYBIT_MARKET]}
 
 
-def test_the_reconciliation_key_holder_is_a_user_with_a_pool_and_a_key_there() -> None:
-    """INTERIM until B.8: the lowest id among users holding BOTH an enabled
-    pool and an active key on the exchange; ``None`` when nobody does. A key
-    alone, or a pool alone, never makes a holder."""
-    market = ("bybit", "usdt-m", "USDT")
-    pool_only = UUID("00000000-0000-4000-8000-000000000001")
+def test_a_user_with_a_pool_but_no_key_is_skipped_with_a_warning_and_the_others_still_scan(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    keyless_binance = UUID("5ec0d0b2-0000-4000-8000-0000000000b2")
     by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {
-        (pool_only, market): object(),
-        (OWNER_ID, market): object(),
-        (OTHER_ID, market): object(),
+        (OWNER_ID, BYBIT_MARKET): object(),
+        (OWNER_ID, BINANCE_MARKET): object(),  # the owner's Binance key is gone
+        (keyless_binance, BYBIT_MARKET): object(),  # another user holds no key at all
     }
-    active = frozenset({(OWNER_ID, "bybit"), (OTHER_ID, "bybit"), (pool_only, "binance")})
+    active = frozenset({(OWNER_ID, "bybit")})
 
-    holder = main._reconciliation_key_holder(by_key, active, "bybit")  # type: ignore[arg-type]
-    nobody = main._reconciliation_key_holder(by_key, active, "binance")  # type: ignore[arg-type]
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.main"):
+        per_user = main._reconciliation_markets_per_user(
+            by_key,  # type: ignore[arg-type]
+            active,
+            warn=True,
+        )
 
-    assert holder == OWNER_ID  # "0a1b..." sorts before "5ec0..."
-    assert nobody is None
+    # The owner still scans Bybit; the keyless user and the owner's Binance
+    # market are skipped, nobody else is affected.
+    assert per_user == {OWNER_ID: [BYBIT_MARKET]}
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    assert any("5ec0d0b2" in w and "bybit" in w for w in warnings)
+    assert any(str(OWNER_ID)[:8] in w and "binance" in w for w in warnings)
+    assert not any("@" in w for w in warnings)
+
+
+def test_the_booking_sweep_does_not_repeat_the_scans_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {(OTHER_ID, BYBIT_MARKET): object()}
+
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.main"):
+        per_user = main._reconciliation_markets_per_user(
+            by_key,  # type: ignore[arg-type]
+            frozenset(),
+            warn=False,
+        )
+
+    assert per_user == {}
+    assert caplog.records == []
+
+
+class _RecordingVault:
+    """Hands out a key that names the user it was loaded for."""
+
+    def __init__(self) -> None:
+        self.loads: list[tuple[UUID, str]] = []
+
+    async def load(self, user_id: UUID, exchange: str) -> object:
+        self.loads.append((user_id, exchange))
+
+        class _Credential:
+            api_key = f"key-of-{str(user_id)[:8]}"
+            api_secret = "secret"  # noqa: S105
+
+        return _Credential()
+
+
+async def test_each_users_position_reader_is_signed_with_that_users_own_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import AsyncExitStack, asynccontextmanager
+
+    signed_with: list[str] = []
+
+    @asynccontextmanager
+    async def _fake_client(settings: object, credentials: object):  # type: ignore[no-untyped-def]
+        signed_with.append(credentials.api_key)  # type: ignore[attr-defined]
+        yield object()
+
+    monkeypatch.setattr(main, "read_only_client", _fake_client)
+    vault = _RecordingVault()
+
+    async with AsyncExitStack() as clients:
+        for user in (OWNER_ID, OTHER_ID):
+            readers = await main._user_position_readers(
+                vault=vault,  # type: ignore[arg-type]
+                clients=clients,
+                settings=object(),  # type: ignore[arg-type]
+                user_id=user,
+                exchanges=["bybit"],
+            )
+            assert [reader.exchange for reader in readers] == ["bybit"]
+
+    assert vault.loads == [(OWNER_ID, "bybit"), (OTHER_ID, "bybit")]
+    assert signed_with == [f"key-of-{str(OWNER_ID)[:8]}", f"key-of-{str(OTHER_ID)[:8]}"]
+
+
+async def test_a_users_fill_readers_are_real_where_keyed_and_degraded_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import AsyncExitStack, asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_client(settings: object, credentials: object):  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(main, "read_only_client", _fake_client)
+
+    class _Settings:
+        reconciliation_booking_prepare_page_limit = 10
+        reconciliation_booking_prepare_max_pages = 2
+
+    vault = _RecordingVault()
+    async with AsyncExitStack() as clients:
+        readers = await main._user_fill_readers(
+            vault=vault,  # type: ignore[arg-type]
+            clients=clients,
+            settings=_Settings(),  # type: ignore[arg-type]
+            user_id=OTHER_ID,
+            keyed=["bybit"],
+        )
+
+    assert vault.loads == [(OTHER_ID, "bybit")]
+    by_exchange = {reader.exchange: type(reader).__name__ for reader in readers}
+    assert by_exchange == {"bybit": "BybitVenueFillReader", "binance": "_DegradedVenueFillReader"}
 
 
 def test_booking_prepare_registers_a_degraded_stand_in_reader() -> None:
     """``PrepareBooking.sweep`` reads discrepancies straight from the
     database, not from a pool list this composition root controls, so a
-    CONFIRMED discrepancy on a now-DEGRADED exchange can still be swept.
+    CONFIRMED discrepancy of a user who has lost the key can still be swept.
     Omitting the reader entirely would raise ``UnservedFillPoolError``,
-    which ``sweep`` does NOT swallow -- so a DEGRADED exchange gets a
-    stand-in reader that raises the ``VenueFillReadError`` sweep already
-    tolerates per discrepancy, instead of no reader at all."""
+    which ``sweep`` does NOT swallow -- so such a user gets stand-in readers
+    that raise the ``VenueFillReadError`` sweep already tolerates per
+    discrepancy, instead of no reader at all."""
     body = _sliced(
         "async def handle_reconciliation_prepare_booking", "async def handle_jobs_purge"
     )
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    assert "_DegradedVenueFillReader(" in body
+    assert "_degraded_fill_readers(" in body
+    assert "UserVenueFillReaders(" in body
 
 
 # --- _DegradedVenueFillReader: the stand-in itself --------------------------
