@@ -115,7 +115,7 @@ class DeleteStrategy:
 
         # Step 2: the pool's advisory lock FIRST, then the row lock (see the
         # module docstring, "Lock order").
-        await self._pool_lock.acquire(*pool)
+        await self._pool_lock.acquire(unlocked.author_id, *pool)
 
         # Step 3: the row lock, second, and a fresh read: everything below is
         # decided from it, never from the unlocked read.

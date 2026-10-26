@@ -213,6 +213,28 @@ async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
     assert status.users == [author]
 
 
+async def test_the_pool_lock_taken_is_the_strategy_authors() -> None:
+    """B.4: the advisory lock identifies the author's pool, so two users on one
+    market never serialize against each other."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b3b3")
+    use_case, lock, _, _ = _build_use_case(
+        policy=_enabled_snapshot(author_id=author),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+    )
+
+    await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert [key.user_id for key in lock.acquired] == [author]
+
+
 async def test_the_reservations_read_and_written_are_the_strategy_authors() -> None:
     """Multi-user design AD8 (B.5): the resume lookup, the active sum the
     decision is made from and the reservation written all belong to the
@@ -369,7 +391,9 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
     assert result.granted == Decimal("200")
     assert result.reservation_id is not None
     assert len(lock.acquired) == 1
-    assert lock.acquired[0] == LockKey(exchange="pionex", venue="spot", settlement_currency="USDT")
+    assert lock.acquired[0] == LockKey(
+        exchange="pionex", venue="spot", settlement_currency="USDT", user_id=OWNER_ID
+    )
     assert len(reservations.inserted) == 1
     assert reservations.inserted[0].amount == Decimal("200")
     assert commit.committed is True

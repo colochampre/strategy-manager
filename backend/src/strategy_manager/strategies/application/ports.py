@@ -276,4 +276,6 @@ class PoolLockPort(Protocol):
     reimplementing the SQL.
     """
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...

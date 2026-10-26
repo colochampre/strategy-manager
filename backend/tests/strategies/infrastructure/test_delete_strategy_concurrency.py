@@ -406,7 +406,9 @@ async def test_delete_waits_on_the_pool_advisory_lock_and_holds_no_row_lock_mean
     pool_key = PoolKey(Exchange(exchange), Venue(venue), Currency(currency))
 
     async with factory() as holder:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(pool_key))
+        await PgAdvisoryLockAdapter(holder).acquire(
+            LockKey.from_pool_key(OWNER_ID, pool_key)
+        )
 
         delete_task = asyncio.create_task(_outcome(factory, _delete(strategy_id)))
         async with _reaping([], [delete_task], holder):

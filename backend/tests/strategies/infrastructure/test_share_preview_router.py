@@ -597,7 +597,7 @@ async def test_the_preview_completes_while_the_pools_advisory_lock_is_held(
     await _synced(pg_session_factory)
 
     async with pg_session_factory() as holder:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(BYBIT_KEY))
+        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(OWNER_ID, BYBIT_KEY))
         task: asyncio.Task[Any] | None = None
         try:
             async with pg_session_factory() as watcher:

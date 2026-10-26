@@ -88,8 +88,8 @@ async def test_the_route_answers_while_another_transaction_holds_a_pools_advisor
     await seed_guard_cases(pg_session_factory)
     holder = pg_session_factory()
     try:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey("bybit", "usdt-m", "USDT"))
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey("pionex", "spot", "USDT"))
+        await PgAdvisoryLockAdapter(holder).acquire(LockKey("bybit", "usdt-m", "USDT", OWNER_ID))
+        await PgAdvisoryLockAdapter(holder).acquire(LockKey("pionex", "spot", "USDT", OWNER_ID))
 
         request = asyncio.create_task(_get(_app(pg_session_factory)))
         response = await asyncio.wait_for(request, WAIT)

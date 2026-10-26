@@ -2,6 +2,7 @@
 § Startup Lock-Key Collision Invariant; tasks.md 3.13)."""
 
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -42,6 +43,28 @@ def test_shared_pair_raises_collision_error() -> None:
 
     with pytest.raises(PoolLockKeyCollisionError):
         assert_lock_key_pairs_distinct(pairs)
+
+
+def test_the_collision_message_names_both_pools_and_both_users() -> None:
+    other = PoolConfig(
+        exchange=Exchange.BYBIT,
+        venue=Venue.USDT_M,
+        settlement_currency=Currency.USDT,
+        user_id=UUID("b2b2b2b2-0000-4000-8000-000000000001"),
+        min_order_size=Decimal("1"),
+    )
+    pairs = [
+        LockKeyPair(pool=_pool(Venue.USDT_M, Currency.USDT), k1=7, k2=8),
+        LockKeyPair(pool=other, k1=7, k2=8),
+    ]
+
+    with pytest.raises(PoolLockKeyCollisionError) as raised:
+        assert_lock_key_pairs_distinct(pairs)
+
+    message = str(raised.value)
+    assert str(OWNER_ID)[:8] in message
+    assert "b2b2b2b2" in message
+    assert str(OWNER_ID) not in message
 
 
 def test_shared_k1_with_different_k2_does_not_raise() -> None:

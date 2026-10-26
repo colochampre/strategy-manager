@@ -263,7 +263,9 @@ class PoolLockPort(Protocol):
     rollback). Implemented by ``strategies.infrastructure.pool_lock_adapter
     .PoolLockAdapter``, which derives the key through ``LockKey.from_pool_key``."""
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -135,7 +135,7 @@ class DeleteCredential:
         pool = (exchange, known.venue.value, known.settlement_currency.value)
 
         # Step 2: the advisory lock FIRST, the same key AllocateCapital takes.
-        await self._pool_lock.acquire(*pool)
+        await self._pool_lock.acquire(user_id, *pool)
 
         # Step 3: the row lock, second.
         active = await self._credentials.lock_active(user_id, exchange)

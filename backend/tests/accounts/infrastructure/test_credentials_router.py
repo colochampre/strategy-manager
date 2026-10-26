@@ -964,9 +964,11 @@ class _SpyLock:
         self._inner = inner
         self.calls: list[tuple[str, str, str]] = []
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         self.calls.append((exchange, venue, settlement_currency))
-        await self._inner.acquire(exchange, venue, settlement_currency)
+        await self._inner.acquire(user_id, exchange, venue, settlement_currency)
 
 
 class _SpyExposure:

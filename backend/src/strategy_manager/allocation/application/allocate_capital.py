@@ -171,7 +171,7 @@ class AllocateCapital:
 
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
-        await self._lock.acquire(LockKey.from_pool_key(pool_key))
+        await self._lock.acquire(LockKey.from_pool_key(policy.author_id, pool_key))
 
         # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
         # re-reads the policy inside the lock"): the pre-lock read above can

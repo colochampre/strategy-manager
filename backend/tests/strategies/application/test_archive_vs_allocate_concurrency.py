@@ -133,9 +133,13 @@ class _PausingPoolLock:
         self._inner = inner
         self._resume = resume
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         inner: object = self._inner
-        await inner.acquire(exchange, venue, settlement_currency)  # type: ignore[attr-defined]
+        await inner.acquire(  # type: ignore[attr-defined]
+            user_id, exchange, venue, settlement_currency
+        )
         await self._resume.wait()
 
 

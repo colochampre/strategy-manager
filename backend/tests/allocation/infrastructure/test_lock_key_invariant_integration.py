@@ -9,7 +9,9 @@ used instead of the shared ``strategy_manager_test``).
 
 import re
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from decimal import Decimal
+from uuid import UUID
 
 import asyncpg
 import pytest
@@ -18,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
+    PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
 )
 from strategy_manager.shared.config import get_settings
@@ -93,6 +96,29 @@ async def test_collision_check_passes_for_the_four_real_seeded_pools(
     pg_connection: AsyncConnection,
 ) -> None:
     await assert_pool_lock_keys_distinct(pg_connection, _CONFIGURED_POOLS)  # no raise
+
+
+async def test_two_users_on_the_same_market_do_not_collide(
+    pg_connection: AsyncConnection,
+) -> None:
+    """Two users each holding the owner's market are two pools and two locks;
+    the startup invariant must accept them (B.4)."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    pools = [
+        *_CONFIGURED_POOLS,
+        *(replace(pool, user_id=other) for pool in _CONFIGURED_POOLS),
+    ]
+
+    await assert_pool_lock_keys_distinct(pg_connection, pools)  # no raise
+
+
+async def test_the_same_users_pool_listed_twice_is_still_a_collision(
+    pg_connection: AsyncConnection,
+) -> None:
+    with pytest.raises(PoolLockKeyCollisionError):
+        await assert_pool_lock_keys_distinct(
+            pg_connection, [_CONFIGURED_POOLS[0], _CONFIGURED_POOLS[0]]
+        )
 
 
 async def test_coin_m_btc_and_eth_share_k1_but_differ_in_k2(

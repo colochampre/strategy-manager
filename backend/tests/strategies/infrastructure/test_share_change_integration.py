@@ -41,6 +41,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.identity_auth import ADMIN_HEADERS
 from tests.ledger.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
+from tests.owner import OWNER_ID
 from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
     _record,
@@ -194,7 +195,7 @@ async def test_a_share_change_completes_while_the_pools_advisory_lock_is_held(
     strategy_id, _ = await _strategy_holding_a_reservation(pg_session_factory, "10")
 
     async with pg_session_factory() as holder:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(BYBIT))
+        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(OWNER_ID, BYBIT))
         task: asyncio.Task[Any] | None = None
         try:
             async with pg_session_factory() as watcher:

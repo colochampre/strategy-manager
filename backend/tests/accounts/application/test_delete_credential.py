@@ -45,8 +45,12 @@ class FakeLock:
     def __init__(self, events: Events) -> None:
         self._events = events
         self.pools: list[tuple[str, str, str]] = []
+        self.users: list[UUID] = []
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        self.users.append(user_id)
         self.pools.append((exchange, venue, settlement_currency))
         self._events.log.append("lock")
 
@@ -177,6 +181,17 @@ async def test_the_key_locked_and_deactivated_is_the_deleting_users() -> None:
     await built.use_case.execute(other, "bybit")
 
     assert built.revoker.users == [other, other]
+
+
+async def test_the_pool_lock_taken_is_the_deleting_users() -> None:
+    """B.4: the advisory lock identifies ONE user's pool, so the delete takes the
+    signed-in user's, never a lock another user's allocations wait on."""
+    other = UUID("00000000-0000-4000-8000-0000000000b2")
+    built = Built()
+
+    await built.use_case.execute(other, "bybit")
+
+    assert built.lock.users == [other]
 
 
 async def test_the_exposure_read_is_the_deleting_users() -> None:

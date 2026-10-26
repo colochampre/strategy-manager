@@ -69,7 +69,9 @@ These exist because this system moves real money.
    does the rest.
 4. **Allocation is a transaction, not a calculation.** Availability read,
    allocation decision and reservation write happen inside one transaction,
-   serialized with `pg_advisory_xact_lock` keyed by `(venue, settlement_currency)`.
+   serialized with `pg_advisory_xact_lock` keyed by one user's pool:
+   `(exchange:venue, settlement_currency:user_id)`, folded by `LockKey`. Two
+   users on one market never share a lock.
 5. **Capital pools are per settlement currency.** There is no single "account
    capital" number. How many pools that produces is a property of the VENUE,
    not of this rule:

@@ -190,7 +190,16 @@ It needs an independent verifier before the PR.
     - the admin discrepancy list;
     - `get_for_update` and the auto-booking sweeps, which take the user from the proposal itself.
   - Two filters are defense in depth and not provable by mutation, because the ledger filter beside them already excludes the other user's rows: the reservation filter in `allocation_fills_source` and the ledger filter in `position_facts`.
-- [ ] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
+- [x] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
+  - **How the key is built.** `LockKey` carries `user_id` and folds it into the second hash input, as `settlement_currency:user_id`. The nil UUID is refused.
+  - **Why not the pool's id.** The callers hold the market and the user, not the pool row. Also, `recurring_jobs` takes single-bigint locks that small pool ids could collide with.
+  - **Where each caller gets the user:**
+    - `AllocateCapital`: the strategy's author.
+    - Archive and delete strategy: the strategy's author.
+    - `DeleteCredential`: the deleting user.
+    - The startup invariant: each `PoolConfig.user_id`, over every user's enabled pools.
+  - **Tests.** `tests/allocation/infrastructure/test_pool_lock_per_user.py` checks that the same user waits while another user and a third user complete. Each call site's user is proven by a fixed-UUID mutation.
+  - **Why it was needed.** Before this, two users on one market made the startup invariant refuse to start.
 - [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
 - [ ] B.6 Routers (decision 16):
   - credentials, pools, performance and open positions depend on `current_user` and pass its id down;

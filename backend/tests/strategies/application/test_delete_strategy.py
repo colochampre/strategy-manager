@@ -134,9 +134,13 @@ class FakePoolLock:
     def __init__(self, events: list[str]) -> None:
         self.events = events
         self.acquired: list[tuple[str, str, str]] = []
+        self.users: list[UUID] = []
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         self.events.append("pool_lock")
+        self.users.append(user_id)
         self.acquired.append((exchange, venue, settlement_currency))
 
 
@@ -253,6 +257,7 @@ async def test_the_pool_locked_is_the_strategys_own_exchange_venue_and_settlemen
     await harness.use_case.delete(STRATEGY_ID)
 
     assert harness.pool_lock.acquired == [("pionex", "coin-m", "BTC")]
+    assert harness.pool_lock.users == [OWNER_ID]  # the strategy's author, never a default
 
 
 async def test_a_row_gone_after_the_lock_raises_unknown_strategy() -> None:

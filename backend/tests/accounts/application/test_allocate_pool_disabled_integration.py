@@ -83,6 +83,7 @@ async def factory(
 
 
 _POOL_KEY = LockKey.from_pool_key(
+    OWNER_ID,
     PoolKey(
         exchange=Exchange(POOL[0]),
         venue=Venue(POOL[1]),
@@ -177,7 +178,7 @@ async def test_allocation_that_waited_while_the_pool_was_disabled_skips_pool_dis
     strategy_id, signal_id = await _seed(factory)
 
     async with factory() as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         await held.execute(
             text("UPDATE capital_pools SET enabled = false WHERE exchange = :e"),
             {"e": POOL[0]},
@@ -213,7 +214,7 @@ async def test_the_same_holder_without_disabling_the_pool_lets_the_allocation_re
     strategy_id, signal_id = await _seed(factory)
 
     async with factory() as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         allocation = _Allocation(factory, strategy_id, signal_id)
         await _allocation_is_queued_on_the_pool_lock(factory, allocation.task)
         await held.commit()
@@ -241,7 +242,9 @@ async def test_another_users_pool_disabled_under_the_lock_never_skips_this_alloc
         await session.commit()
 
     async with factory() as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        # The owner's own lock, so the allocation queues: the other user's pool
+        # has a lock of its own since B.4 and would not hold this allocation.
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         await held.execute(
             text("UPDATE capital_pools SET enabled = false WHERE user_id = :u"), {"u": other}
         )

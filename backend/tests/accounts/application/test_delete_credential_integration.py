@@ -492,6 +492,7 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
 
 
 _POOL_KEY = LockKey.from_pool_key(
+    OWNER_ID,
     PoolKey(
         exchange=Exchange(POOL[0]),
         venue=Venue(POOL[1]),
@@ -550,7 +551,7 @@ async def test_deletion_takes_the_pool_lock_before_the_row_lock_so_a_waiting_del
 
     holder = factory()
     async with holder as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         task = asyncio.create_task(_delete(factory))
         await _a_waiter_is_blocked_on_the_advisory_lock(factory)
         assert not task.done()
@@ -599,8 +600,10 @@ class _HoldingPoolLock:
         self._acquired = acquired
         self._resume = resume
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
-        await self._inner.acquire(exchange, venue, settlement_currency)
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        await self._inner.acquire(user_id, exchange, venue, settlement_currency)
         self._acquired.set()
         await self._resume.wait()
 
