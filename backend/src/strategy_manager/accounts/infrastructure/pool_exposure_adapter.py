@@ -62,10 +62,10 @@ class PoolExposureAdapter:
 
     async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
         """``user_id`` is the user whose key is being deleted (multi-user design
-        AD8): only that user's live reservations and ledger rows stand in the
-        way. The remaining reads still cover the whole market until their
-        tables are scoped (later units of PR B), which errs on the side of
-        refusing."""
+        AD8): only that user's live reservations, ledger rows and open
+        discrepancies stand in the way. The enabled-strategies read still covers
+        the whole market until strategies are scoped (a later unit of PR B),
+        which errs on the side of refusing."""
         exchange, venue, settlement_currency = pool
 
         enabled = await self._session.execute(
@@ -110,6 +110,7 @@ class PoolExposureAdapter:
         # any of its pools, not only the one the delete locks.
         discrepancies = await self._session.execute(
             select(ReconciliationDiscrepancyRow.symbol).where(
+                ReconciliationDiscrepancyRow.user_id == user_id,
                 ReconciliationDiscrepancyRow.exchange == exchange,
                 ReconciliationDiscrepancyRow.resolved_at.is_(None),
             )

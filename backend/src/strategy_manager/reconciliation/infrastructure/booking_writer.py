@@ -77,8 +77,8 @@ class SqlAlchemyBookingWriter:
     ) -> BookingWriteResult:
         # The attempt is its reservation's user's, whichever side it is on (an
         # open through ``reservation_id``, a close through
-        # ``closes_allocation_id``). Read, not scoped: reconciliation per user
-        # is a later unit of PR B (multi-user design AD10).
+        # ``closes_allocation_id``), which is also the proposal's user:
+        # ``ApproveBooking`` builds the fills with ``proposal.user_id``.
         user_id = (
             await self._session.execute(
                 select(ReservationRow.user_id).where(

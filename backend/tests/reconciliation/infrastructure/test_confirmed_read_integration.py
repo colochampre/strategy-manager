@@ -30,6 +30,7 @@ from strategy_manager.reconciliation.infrastructure.repository import (
 from strategy_manager.reconciliation.infrastructure.strategy_name_adapter import (
     StrategyNameAdapter,
 )
+from tests.owner import OWNER_ID
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -113,6 +114,7 @@ async def _discrepancy(
     async with factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             symbol,
             Observation(DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE, Decimal("0"), Decimal("0.5")),
@@ -127,7 +129,7 @@ async def _discrepancy(
             r.id for r in await repo.list_discrepancies(open_only=True) if r.symbol == symbol
         )
         if resolved:
-            await repo.resolve_absent(POOL, [symbol], scan_id, NOW)
+            await repo.resolve_absent(OWNER_ID, POOL, [symbol], scan_id, NOW)
             await session.commit()
     return discrepancy_id
 
@@ -156,6 +158,7 @@ async def _proposal(
         repo = SqlAlchemyBookingProposalRepository(session)
         record = await repo.insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -178,7 +181,7 @@ async def _proposal(
         assert record is not None
         if state != "PENDING":
             assert await repo.mark_state(
-                record.id, state, decided_at, decided_by="system:auto-booking",
+                OWNER_ID, record.id, state, decided_at, decided_by="system:auto-booking",
                 decision_reason="reason",
             )
         await session.commit()

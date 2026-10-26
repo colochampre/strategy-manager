@@ -105,14 +105,22 @@ class FakeDiscrepancyRepository:
         self._open_by_pool = {k: list(v) for k, v in (open_by_pool or {}).items()}
         self.upserts: list[tuple] = []
         self.resolves: list[tuple] = []
+        # The user each call was made for (multi-user AD8), kept apart from the
+        # tuples above so their layout stays what the tests assert.
+        self.list_users: list[UUID | None] = []
+        self.upsert_users: list[UUID] = []
+        self.resolve_users: list[UUID] = []
 
     async def list_discrepancies(
         self,
         pool: PoolKey | None = None,
         status: DiscrepancyStatus | None = None,
         open_only: bool = False,
+        *,
+        user_id: UUID | None = None,
     ) -> list[DiscrepancyRecord]:
         del status  # unused by ScanPools; exercised only by future callers
+        self.list_users.append(user_id)
         if pool is None:
             records: list[DiscrepancyRecord] = []
             for values in self._open_by_pool.values():
@@ -122,6 +130,7 @@ class FakeDiscrepancyRepository:
 
     async def upsert_open(
         self,
+        user_id: UUID,
         pool: PoolKey,
         symbol: str,
         observation: Observation,
@@ -131,6 +140,7 @@ class FakeDiscrepancyRepository:
         scan_id: UUID,
         at: datetime,
     ) -> None:
+        self.upsert_users.append(user_id)
         self.upserts.append(
             (
                 pool,
@@ -145,8 +155,9 @@ class FakeDiscrepancyRepository:
         )
 
     async def resolve_absent(
-        self, pool: PoolKey, symbols: Sequence[str], scan_id: UUID, at: datetime
+        self, user_id: UUID, pool: PoolKey, symbols: Sequence[str], scan_id: UUID, at: datetime
     ) -> int:
+        self.resolve_users.append(user_id)
         self.resolves.append((pool, tuple(symbols), scan_id, at))
         return len(symbols)
 
@@ -179,6 +190,7 @@ def _record(
     exchange, venue, settlement_currency = pool
     return DiscrepancyRecord(
         id=uuid4(),
+        user_id=_user_of(pool),
         exchange=exchange,
         venue=venue,
         settlement_currency=settlement_currency,
@@ -241,6 +253,30 @@ async def test_each_pool_is_read_as_the_user_that_owns_it() -> None:
 
     assert ledger.requested == [POOL_A, POOL_B]
     assert ledger.users == [_user_of(POOL_A), _user_of(POOL_B)]
+
+
+async def test_every_discrepancy_read_and_write_is_the_pools_users() -> None:
+    """Multi-user AD8: the open rows read, the row opened and the row resolved
+    all belong to the user whose pool is scanned."""
+    venue_reader = FakeVenueReader([VenuePosition("BTCUSDT", Decimal("2.0"))])
+    ledger = {
+        POOL_A: [
+            LedgerPosition("BTCUSDT", (OpenAllocation(uuid4(), Decimal("1.5")),))
+        ]
+    }
+    gone = _record(
+        POOL_A, "GONEUSDT", DiscrepancyKind.NO_MATCHING_ALLOCATION, Decimal("1"), Decimal("0")
+    )
+    use_case, _, _, discrepancies, _ = _build(
+        [POOL_A], {("bybit", "usdt-m"): venue_reader}, ledger, {POOL_A: [gone]}
+    )
+
+    await use_case.scan(uuid4())
+
+    user = _user_of(POOL_A)
+    assert discrepancies.list_users == [user]
+    assert discrepancies.upsert_users == [user]
+    assert discrepancies.resolve_users == [user]
 
 
 async def test_a_pool_with_no_user_is_refused_loudly() -> None:

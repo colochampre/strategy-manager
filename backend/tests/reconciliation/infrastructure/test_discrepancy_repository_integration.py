@@ -22,7 +22,7 @@ from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
@@ -44,6 +44,8 @@ from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_owner
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -119,6 +121,11 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 @pytest.fixture(autouse=True)
 async def _clean_table(engine: AsyncEngine) -> AsyncIterator[None]:
+    # Migration 0030 leaves a database nobody signed into with no pools: the
+    # owner and the pool the tests write against are seeded here.
+    async with engine.begin() as conn:
+        await seed_owner(conn)
+        await ensure_pool(conn, POOL)
     yield
     async with engine.begin() as conn:
         # CASCADE: migration 0023's booking_proposals FKs into this table
@@ -127,6 +134,10 @@ async def _clean_table(engine: AsyncEngine) -> AsyncIterator[None]:
         # runs against a real `alembic upgrade head` database, so the table
         # exists here even though this file never writes to it directly.
         await conn.execute(text("TRUNCATE reconciliation_discrepancies CASCADE"))
+        # DELETE, not TRUNCATE: TRUNCATE ... CASCADE would reach the append-only
+        # ledger. Nothing else here references a pool once the discrepancies
+        # (and their proposals) are gone.
+        await conn.execute(text("DELETE FROM capital_pools"))
 
 
 def _observation(
@@ -149,6 +160,7 @@ async def test_upsert_open_inserts_a_fresh_row_with_the_generated_delta(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "BTCUSDT",
             _observation(),
@@ -186,6 +198,7 @@ async def test_upsert_open_a_second_time_updates_the_same_row_in_place(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "ETHUSDT",
             _observation(venue_net_base=Decimal("2.0")),
@@ -200,6 +213,7 @@ async def test_upsert_open_a_second_time_updates_the_same_row_in_place(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "ETHUSDT",
             _observation(venue_net_base=Decimal("2.0")),
@@ -231,6 +245,7 @@ async def test_upsert_open_sets_confirmed_at_exactly_once(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "SOLUSDT",
             _observation(),
@@ -251,6 +266,7 @@ async def test_upsert_open_sets_confirmed_at_exactly_once(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "SOLUSDT",
             _observation(),
@@ -280,6 +296,7 @@ async def test_resolve_absent_closes_the_open_row_and_a_fresh_one_can_reopen(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "AVAXUSDT",
             _observation(),
@@ -293,7 +310,7 @@ async def test_resolve_absent_closes_the_open_row_and_a_fresh_one_can_reopen(
 
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
-        resolved_count = await repo.resolve_absent(POOL, ["AVAXUSDT"], scan_id, NOW)
+        resolved_count = await repo.resolve_absent(OWNER_ID, POOL, ["AVAXUSDT"], scan_id, NOW)
         await session.commit()
 
     assert resolved_count == 1
@@ -309,6 +326,7 @@ async def test_resolve_absent_closes_the_open_row_and_a_fresh_one_can_reopen(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "AVAXUSDT",
             _observation(),
@@ -332,7 +350,7 @@ async def test_resolve_absent_on_a_symbol_with_no_open_row_is_a_no_op(
 ) -> None:
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
-        resolved_count = await repo.resolve_absent(POOL, ["NEVERUSDT"], uuid4(), NOW)
+        resolved_count = await repo.resolve_absent(OWNER_ID, POOL, ["NEVERUSDT"], uuid4(), NOW)
         await session.commit()
 
     assert resolved_count == 0
@@ -347,6 +365,7 @@ async def test_deleting_a_pool_with_an_open_discrepancy_is_refused(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "XRPUSDT",
             _observation(),
@@ -376,6 +395,7 @@ async def test_list_discrepancies_filters_by_status(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "OBSERVEDCOIN",
             _observation(),
@@ -386,6 +406,7 @@ async def test_list_discrepancies_filters_by_status(
             at=NOW,
         )
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "CONFIRMEDCOIN",
             _observation(),
@@ -411,6 +432,7 @@ async def test_list_discrepancies_with_no_filters_reads_everything(
     async with session_factory() as session:
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             POOL,
             "ALLCOIN",
             _observation(),
@@ -426,3 +448,141 @@ async def test_list_discrepancies_with_no_filters_reads_everything(
         records = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies()
 
     assert any(r.symbol == "ALLCOIN" for r in records)
+
+
+# -- Multi-user ownership (migration 0030; design AD8, AD10) ------------------
+
+
+async def _two_users_each_with_an_open_discrepancy(
+    session_factory: async_sessionmaker[AsyncSession], symbol: str
+) -> tuple[UUID, UUID]:
+    """The owner and a second user, each holding a pool on ``POOL`` and an open
+    discrepancy on ``symbol``. Returns the second user's id and that user's
+    discrepancy id."""
+    async with session_factory() as session:
+        other = await seed_other_user(session)
+        await ensure_pool(session, POOL, user_id=other)
+        await session.commit()
+    async with session_factory() as session:
+        repo = SqlAlchemyDiscrepancyRepository(session)
+        for user_id in (OWNER_ID, other):
+            await repo.upsert_open(
+                user_id,
+                POOL,
+                symbol,
+                _observation(),
+                [uuid4()],
+                consecutive_scans=1,
+                status=DiscrepancyStatus.OBSERVED,
+                scan_id=uuid4(),
+                at=NOW,
+            )
+        await session.commit()
+    async with session_factory() as session:
+        theirs = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies(
+            user_id=other
+        )
+    return other, theirs[0].id
+
+
+async def test_two_users_may_each_hold_an_open_discrepancy_on_the_same_symbol(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """``ux_reconciliation_open_per_symbol`` is per user (0030), and the upsert's
+    ON CONFLICT target follows it: the second user's first observation is a new
+    row, not an update of the owner's, and each user's next observation updates
+    their own."""
+    other, _ = await _two_users_each_with_an_open_discrepancy(session_factory, "SHAREDUSDT")
+
+    async with session_factory() as session:
+        await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            other,
+            POOL,
+            "SHAREDUSDT",
+            _observation(),
+            [uuid4()],
+            consecutive_scans=2,
+            status=DiscrepancyStatus.OBSERVED,
+            scan_id=uuid4(),
+            at=NOW,
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        records = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies(pool=POOL)
+    by_user = {record.user_id: record for record in records}
+    assert len(records) == 2
+    assert by_user[OWNER_ID].consecutive_scans == 1
+    assert by_user[other].consecutive_scans == 2
+
+
+async def test_list_discrepancies_with_a_user_returns_only_that_users_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, _ = await _two_users_each_with_an_open_discrepancy(session_factory, "LISTUSDT")
+
+    async with session_factory() as session:
+        repo = SqlAlchemyDiscrepancyRepository(session)
+        owners = await repo.list_discrepancies(pool=POOL, open_only=True, user_id=OWNER_ID)
+        everyone = await repo.list_discrepancies(pool=POOL, open_only=True)
+
+    assert [record.user_id for record in owners] == [OWNER_ID]
+    # The admin's view (decision 16) is global, and says whose each row is.
+    assert {record.user_id for record in everyone} == {OWNER_ID, other}
+
+
+async def test_resolve_absent_resolves_only_the_given_users_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, _ = await _two_users_each_with_an_open_discrepancy(session_factory, "RESOLVEUSDT")
+
+    async with session_factory() as session:
+        resolved = await SqlAlchemyDiscrepancyRepository(session).resolve_absent(
+            OWNER_ID, POOL, ["RESOLVEUSDT"], uuid4(), NOW
+        )
+        await session.commit()
+
+    assert resolved == 1
+    async with session_factory() as session:
+        still_open = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies(
+            pool=POOL, open_only=True
+        )
+    assert [record.user_id for record in still_open] == [other]
+
+
+async def test_get_finds_only_the_given_users_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, others_id = await _two_users_each_with_an_open_discrepancy(
+        session_factory, "GETUSDT"
+    )
+
+    async with session_factory() as session:
+        repo = SqlAlchemyDiscrepancyRepository(session)
+        found = await repo.get(other, others_id)
+        with pytest.raises(InvariantViolation):
+            await repo.get(OWNER_ID, others_id)
+
+    assert found.user_id == other
+
+
+async def test_upsert_open_for_a_user_without_a_pool_there_is_refused(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        stranger = await seed_other_user(session)
+        await session.commit()
+
+    async with session_factory() as session:
+        with pytest.raises(InvariantViolation, match="has no pool"):
+            await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+                stranger,
+                POOL,
+                "NOPOOLUSDT",
+                _observation(),
+                [uuid4()],
+                consecutive_scans=1,
+                status=DiscrepancyStatus.OBSERVED,
+                scan_id=uuid4(),
+                at=NOW,
+            )

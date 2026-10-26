@@ -36,6 +36,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from strategy_manager.execution.application.ports import FillRecord
+from strategy_manager.execution.infrastructure.repository import (
+    SqlAlchemyExecutionAttemptRepository,
+)
 from strategy_manager.ledger.application.read_recorded_fill_ids import ReadRecordedFillIds
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -80,7 +83,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_pool
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -324,18 +327,21 @@ async def _seed_scenario(
 
     discrepancy_id, scan_id = uuid4(), uuid4()
     async with session_factory() as session:
+        pool_id = await ensure_pool(session, POOL, user_id=OWNER_ID)
         await session.execute(
             text(
                 "INSERT INTO reconciliation_discrepancies "
-                "(id, exchange, venue, settlement_currency, symbol, kind, "
+                "(id, user_id, pool_id, exchange, venue, settlement_currency, symbol, kind, "
                 "venue_net_base, ledger_net_base, open_allocation_ids, status, "
                 "confirmed_at, first_scan_id, last_scan_id) "
-                "VALUES (:id, :exchange, :venue, :settlement_currency, :symbol, "
-                "'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, ARRAY[:allocation_id]::uuid[], "
+                "VALUES (:id, :user_id, :pool_id, :exchange, :venue, :settlement_currency, "
+                ":symbol, 'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, ARRAY[:allocation_id]::uuid[], "
                 "'CONFIRMED', now(), :scan_id, :scan_id)"
             ),
             {
                 "id": discrepancy_id,
+                "user_id": OWNER_ID,
+                "pool_id": pool_id,
                 "exchange": POOL[0],
                 "venue": POOL[1],
                 "settlement_currency": POOL[2],
@@ -352,6 +358,7 @@ async def _seed_scenario(
     async with session_factory() as session:
         inserted = await SqlAlchemyBookingProposalRepository(session).insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -519,7 +526,7 @@ async def test_approve_refuses_expired_but_unswept_proposal(
         use_case = ApproveBooking(
             proposals=SqlAlchemyBookingProposalRepository(session),
             discrepancies=SqlAlchemyDiscrepancyRepository(session),
-            in_flight_close=InFlightCloseAdapter(session),
+            in_flight_close=InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session)),
             writer=SqlAlchemyBookingWriter(session),
             usd_rate_provider=_FixedUsdRate(Decimal("1")),
             clock=_FrozenClock(NOW),

@@ -105,10 +105,12 @@ class PrepareBooking:
         system_order_ids: SystemOrderIdsPort,
         pool_users: Mapping[PoolKey, UUID],
     ) -> None:
-        """``pool_users`` names, per pool, the user whose pool it is: the
-        recorded-fill lookup counts that user's ledger rows only (multi-user
-        AD8). Today the caller fills it from the interim key holder; reconciliation
-        per user (AD10) makes each sweep a user's own."""
+        """``pool_users`` names, per pool, the user whose pool it is: only that
+        user's discrepancies are prepared, and every lookup (rejections, recorded
+        fills, system orders, the allocation's strategy) and the proposal itself
+        are that user's (multi-user AD8). Today the caller fills it from the
+        interim key holder; reconciliation per user (AD10) makes each sweep a
+        user's own."""
         self._pool_users = pool_users
         self._discrepancies = discrepancies
         self._proposals = proposals
@@ -152,6 +154,25 @@ class PrepareBooking:
                 # database CHECK is the real guard; this is what keeps an
                 # unbookable kind from ever reaching it.
                 continue
+
+            pool: PoolKey = (
+                discrepancy.exchange,
+                discrepancy.venue,
+                discrepancy.settlement_currency,
+            )
+            if pool not in self._pool_users:
+                raise InvariantViolation(f"prepare booking: no user owns the pool {pool}")
+            user_id = self._pool_users[pool]
+            if discrepancy.user_id != user_id:
+                # Another user's discrepancy on a market this sweep serves for
+                # someone else: not this sweep's to book (multi-user AD8).
+                logger.warning(
+                    "prepare booking: discrepancy %s belongs to another user than the "
+                    "one this sweep serves on %s, leaving it alone",
+                    discrepancy.id,
+                    pool,
+                )
+                continue
             considered += 1
 
             observation = Observation(
@@ -159,7 +180,9 @@ class PrepareBooking:
                 venue_net_base=discrepancy.venue_net_base,
                 ledger_net_base=discrepancy.ledger_net_base,
             )
-            if await self._proposals.has_matching_rejection(discrepancy.id, observation):
+            if await self._proposals.has_matching_rejection(
+                user_id, discrepancy.id, observation
+            ):
                 logger.info(
                     "prepare booking: discrepancy %s suppressed -- a rejected "
                     "proposal already covers this exact observation",
@@ -203,11 +226,6 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.WINDOW_TOO_LONG
                 continue
 
-            pool: PoolKey = (
-                discrepancy.exchange,
-                discrepancy.venue,
-                discrepancy.settlement_currency,
-            )
             try:
                 reader = self._venue_fills.for_pool(discrepancy.exchange, discrepancy.venue)
                 fills = await reader.fills_in_window(pool, expected_market, window_start, now)
@@ -241,10 +259,8 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.MARKET_MISMATCH
                 continue
 
-            if pool not in self._pool_users:
-                raise InvariantViolation(f"prepare booking: no user owns the pool {pool}")
             recorded_ids = await self._recorded_fill_ids.recorded_fill_ids(
-                self._pool_users[pool],
+                user_id,
                 discrepancy.exchange,
                 discrepancy.venue,
                 [fill.exchange_fill_id for fill in fills],
@@ -317,7 +333,7 @@ class PrepareBooking:
             order_ids = sorted(
                 {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
             )
-            if await self._system_order_ids.holds_any(pool, order_ids):
+            if await self._system_order_ids.holds_any(user_id, pool, order_ids):
                 logger.warning(
                     "prepare booking: discrepancy %s matched fills of an order "
                     "this system placed, which is not a venue-originated "
@@ -328,10 +344,11 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
                 continue
             allocation_id = discrepancy.open_allocation_ids[0]
-            strategy_id = await self._allocation_owner.strategy_for(allocation_id)
+            strategy_id = await self._allocation_owner.strategy_for(user_id, allocation_id)
             client_order_id = build_client_order_id(discrepancy.exchange, matched.fills)
 
             proposal = NewBookingProposal(
+                user_id=user_id,
                 discrepancy_id=discrepancy.id,
                 exchange=discrepancy.exchange,
                 venue=discrepancy.venue,

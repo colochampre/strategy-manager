@@ -47,6 +47,7 @@ from strategy_manager.reconciliation.infrastructure.models import (
     BookingProposalRow,
     ReconciliationDiscrepancyRow,
 )
+from strategy_manager.reconciliation.infrastructure.pool_lookup import pool_id_for
 
 PENDING_PER_DISCREPANCY_CONSTRAINT = "ux_booking_proposals_pending_per_discrepancy"
 
@@ -108,6 +109,7 @@ def _fill_from_json(payload: dict[str, Any]) -> ProposedFillSnapshot:
 def _to_domain(row: BookingProposalRow) -> BookingProposalRecord:
     return BookingProposalRecord(
         id=row.id,
+        user_id=row.user_id,
         discrepancy_id=row.discrepancy_id,
         exchange=row.exchange,
         venue=row.venue,
@@ -142,7 +144,14 @@ class SqlAlchemyBookingProposalRepository:
 
     async def insert(self, proposal: NewBookingProposal) -> BookingProposalRecord | None:
         _require_aware(proposal.expires_at, "expires_at")
+        pool_id = await pool_id_for(
+            self._session,
+            proposal.user_id,
+            (proposal.exchange, proposal.venue, proposal.settlement_currency),
+        )
         row = _Row(
+            user_id=proposal.user_id,
+            pool_id=pool_id,
             discrepancy_id=proposal.discrepancy_id,
             exchange=proposal.exchange,
             venue=proposal.venue,
@@ -175,6 +184,9 @@ class SqlAlchemyBookingProposalRepository:
         return _to_domain(row)
 
     async def get_for_update(self, proposal_id: UUID) -> BookingProposalRecord:
+        # Unscoped by design: the caller holds only the proposal's id and learns
+        # the user from the record returned (see the port's docstring).
+        #
         # ``FOR UPDATE`` is load-bearing for the CALLER's transaction, not
         # for this table's own CAS: ``mark_state``'s ``WHERE ... AND
         # state='PENDING'`` already re-evaluates against the committed row
@@ -206,6 +218,7 @@ class SqlAlchemyBookingProposalRepository:
 
     async def mark_state(
         self,
+        user_id: UUID,
         proposal_id: UUID,
         state: str,
         at: datetime,
@@ -219,7 +232,7 @@ class SqlAlchemyBookingProposalRepository:
         # style -- see module docstring and design.md § 3.
         stmt = (
             update(_Row)
-            .where(_Row.id == proposal_id, _Row.state == _PENDING)
+            .where(_Row.id == proposal_id, _Row.user_id == user_id, _Row.state == _PENDING)
             .values(
                 state=state,
                 decided_at=at,
@@ -233,6 +246,8 @@ class SqlAlchemyBookingProposalRepository:
         return result.rowcount == 1
 
     async def list_pending(self, limit: int = 100) -> list[BookingProposalRecord]:
+        """Every user's PENDING rows: the worker's global sweep, which approves
+        each by its own record's user."""
         stmt = (
             select(_Row).where(_Row.state == _PENDING).order_by(_Row.expires_at.asc()).limit(limit)
         )
@@ -240,11 +255,12 @@ class SqlAlchemyBookingProposalRepository:
         return [_to_domain(row) for row in result.scalars().all()]
 
     async def has_matching_rejection(
-        self, discrepancy_id: UUID, observation: Observation
+        self, user_id: UUID, discrepancy_id: UUID, observation: Observation
     ) -> bool:
         stmt = (
             select(_Row.id)
             .where(
+                _Row.user_id == user_id,
                 _Row.discrepancy_id == discrepancy_id,
                 _Row.state == _REJECTED,
                 _Row.kind == observation.kind.value,

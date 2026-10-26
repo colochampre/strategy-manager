@@ -91,9 +91,10 @@ class ScanPools:
         confirmations_required: int,
     ) -> None:
         """``pool_users`` names, per pool, the user whose pool it is: the
-        ledger read counts that user's rows only (multi-user AD8). Today the
-        caller fills it from the interim key holder; reconciliation per user
-        (AD10) makes each scan a user's own."""
+        ledger read, the open discrepancies read and every discrepancy written
+        are that user's only (multi-user AD8). Today the caller fills it from
+        the interim key holder; reconciliation per user (AD10) makes each scan a
+        user's own."""
         self._pools = pools
         self._pool_users = pool_users
         self._venue_readers = venue_readers
@@ -135,15 +136,14 @@ class ScanPools:
 
             if pool not in self._pool_users:
                 raise InvariantViolation(f"reconciliation scan: no user owns the pool {pool}")
-            ledger_positions = await self._ledger_positions.net_positions_by_symbol(
-                self._pool_users[pool], pool
-            )
+            user_id = self._pool_users[pool]
+            ledger_positions = await self._ledger_positions.net_positions_by_symbol(user_id, pool)
             previous = await self._discrepancies.list_discrepancies(
-                pool=pool, open_only=True
+                pool=pool, open_only=True, user_id=user_id
             )
 
             pool_opened, pool_resolved = await self._scan_pool(
-                pool, venue_positions, ledger_positions, previous, scan_id, at
+                user_id, pool, venue_positions, ledger_positions, previous, scan_id, at
             )
             opened += pool_opened
             resolved += pool_resolved
@@ -158,6 +158,7 @@ class ScanPools:
 
     async def _scan_pool(
         self,
+        user_id: UUID,
         pool: PoolKey,
         venue_positions: Sequence[VenuePosition],
         ledger_positions: Sequence[LedgerPosition],
@@ -264,6 +265,7 @@ class ScanPools:
                 )
 
             await self._discrepancies.upsert_open(
+                user_id,
                 pool,
                 symbol,
                 observation,
@@ -278,7 +280,7 @@ class ScanPools:
         resolved = 0
         if resolved_symbols:
             resolved = await self._discrepancies.resolve_absent(
-                pool, resolved_symbols, scan_id, at
+                user_id, pool, resolved_symbols, scan_id, at
             )
             if resolved > 0:
                 exchange, venue, settlement_currency = pool

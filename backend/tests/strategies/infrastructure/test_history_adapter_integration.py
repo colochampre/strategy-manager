@@ -71,12 +71,12 @@ def _history(**counts: int) -> StrategyHistory:
 
 
 async def _seed(factory: Factory, *rows: object) -> None:
-    """Adds ``rows`` in one commit. A reservation is placed in its user's pool
-    on its market, seeded when missing (migration 0030), so ``_reservation``
-    can stay a plain constructor."""
+    """Adds ``rows`` in one commit. A reservation or a booking proposal is placed
+    in its user's pool on its market, seeded when missing (migration 0030), so
+    ``_reservation`` and ``_proposal`` can stay plain constructors."""
     async with factory() as session:
         for row in rows:
-            if isinstance(row, ReservationRow):
+            if isinstance(row, ReservationRow | BookingProposalRow):
                 row.pool_id = await ensure_pool(
                     session,
                     (row.exchange, row.venue, row.settlement_currency),
@@ -200,6 +200,7 @@ def _proposal(strategy_id: UUID, *, state: str = "PENDING") -> BookingProposalRo
     exchange, venue, currency = _POOL
     return BookingProposalRow(
         id=uuid4(),
+        user_id=OWNER_ID,
         discrepancy_id=uuid4(),
         exchange=exchange,
         venue=venue,

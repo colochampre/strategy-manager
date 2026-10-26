@@ -318,6 +318,23 @@ async def test_an_open_discrepancy_on_another_pool_of_the_same_exchange_is_expos
     assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset({"SOLUSDT"})
 
 
+async def test_another_users_open_discrepancy_on_the_same_market_is_not_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user AD8: deleting the owner's key is blocked by the owner's open
+    discrepancies, not by a second user's on the same exchange and pool."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_discrepancy(pg_session_factory, symbol="SOLUSDT", user_id=other)
+    await seed_discrepancy(pg_session_factory, symbol="XRPUSDT")
+
+    assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset({"XRPUSDT"})
+    assert (await _exposure(pg_session_factory, user_id=other)).open_discrepancies == frozenset(
+        {"SOLUSDT"}
+    )
+
+
 async def test_another_exchanges_open_discrepancy_is_not_this_pools(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> None:

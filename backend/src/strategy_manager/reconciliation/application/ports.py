@@ -131,6 +131,8 @@ class DiscrepancyRecord:
     reconstructs it."""
 
     id: UUID
+    user_id: UUID
+    """The user whose pool the discrepancy describes (migration ``0030``)."""
     exchange: str
     venue: str
     settlement_currency: str
@@ -169,10 +171,17 @@ class DiscrepancyRepositoryPort(Protocol):
         pool: PoolKey | None = None,
         status: DiscrepancyStatus | None = None,
         open_only: bool = False,
-    ) -> list[DiscrepancyRecord]: ...
+        *,
+        user_id: UUID | None = None,
+    ) -> list[DiscrepancyRecord]:
+        """``user_id`` given: only that user's rows (what ``ScanPools`` reads
+        per pool, multi-user AD8). ``None``: every user's, which is the admin's
+        view (owner decision 16) and the worker's global sweeps; each record
+        carries its ``user_id``."""
+        ...
 
-    async def get(self, discrepancy_id: UUID) -> DiscrepancyRecord:
-        """Re-reads one row by id -- what ``ApproveBooking``'s freshness
+    async def get(self, user_id: UUID, discrepancy_id: UUID) -> DiscrepancyRecord:
+        """Re-reads one of ``user_id``'s rows by id -- what ``ApproveBooking``'s freshness
         re-check (design.md § 7) compares a booking proposal's frozen
         columns against. Not in this port's original inventory (that
         document only lists ``upsert_open``/``resolve_absent``/
@@ -180,11 +189,13 @@ class DiscrepancyRepositoryPort(Protocol):
         of those three answers "re-read THIS discrepancy by id" without
         scanning the whole table. Raises ``InvariantViolation`` if the row
         is gone -- a discrepancy is never deleted, only ``resolved_at``-
-        stamped, so a missing row here is a bug, not a business outcome."""
+        stamped, so a missing row here is a bug, not a business outcome --
+        or if it belongs to another user."""
         ...
 
     async def upsert_open(
         self,
+        user_id: UUID,
         pool: PoolKey,
         symbol: str,
         observation: Observation,
@@ -194,11 +205,13 @@ class DiscrepancyRepositoryPort(Protocol):
         scan_id: UUID,
         at: datetime,
     ) -> None:
-        """Writes the single OPEN (``resolved_at IS NULL``) row for
-        ``pool``+``symbol`` — insert on the first observation, update in
-        place afterward; the partial unique index
-        (``ux_reconciliation_open_per_symbol``) enforces there is ever only
-        one. ``consecutive_scans`` and ``status`` are already decided by the
+        """Writes the single OPEN (``resolved_at IS NULL``) row of
+        ``user_id`` for ``pool``+``symbol`` — insert on the first
+        observation, update in place afterward; the partial unique index
+        (``ux_reconciliation_open_per_symbol``, per user since migration
+        ``0030``) enforces there is ever only one. The row points at that
+        user's pool on the market; the user holding none is an
+        ``InvariantViolation``. ``consecutive_scans`` and ``status`` are already decided by the
         caller via ``next_consecutive_scans``/``derive_status``; this port
         only persists that decision. Implementations MUST set
         ``confirmed_at`` the first time ``status`` becomes ``CONFIRMED`` and
@@ -208,12 +221,14 @@ class DiscrepancyRepositoryPort(Protocol):
 
     async def resolve_absent(
         self,
+        user_id: UUID,
         pool: PoolKey,
         symbols: Sequence[str],
         scan_id: UUID,
         at: datetime,
     ) -> int:
-        """Resolves the OPEN row, if any, for every symbol in ``symbols`` —
+        """Resolves the OPEN row of ``user_id``, if any, for every symbol in
+        ``symbols`` (another user's row on the same market is left open) —
         called the moment a scan finds a symbol back in agreement, or finds
         it vanished entirely from both the venue and the ledger (spec:
         reconciliation-scan's automatic-resolution requirement). A no-op,
@@ -340,6 +355,9 @@ class NewBookingProposal:
     assigns them, and the repository reads them back on a successful
     write."""
 
+    user_id: UUID
+    """The discrepancy's user: the proposal is theirs, and sits in their pool
+    on the market (migration ``0030``)."""
     discrepancy_id: UUID
     exchange: str
     venue: str
@@ -371,6 +389,7 @@ class BookingProposalRecord:
     plus the five mutable ones (design.md § 3)."""
 
     id: UUID
+    user_id: UUID
     discrepancy_id: UUID
     exchange: str
     venue: str
@@ -426,11 +445,17 @@ class BookingProposalRepositoryPort(Protocol):
         lock table") — the shape ``ReservationGatewayPort.get_for_update``
         already documents: ``SELECT ... FOR UPDATE``, preceding the one
         conditional UPDATE ``mark_state`` performs, inside the same
-        transaction."""
+        transaction.
+
+        Unscoped by design: the caller (the admin's approval, the worker's
+        auto-booking) holds only the proposal's id and learns the user from the
+        record this returns (``BookingProposalRecord.user_id``), which every
+        later call carries."""
         ...
 
     async def mark_state(
         self,
+        user_id: UUID,
         proposal_id: UUID,
         state: str,
         at: datetime,
@@ -439,8 +464,9 @@ class BookingProposalRepositoryPort(Protocol):
         decision_reason: str | None = None,
         execution_attempt_id: UUID | None = None,
     ) -> bool:
-        """The repository's ONLY UPDATE: ``... WHERE id=:id AND
-        state='PENDING'``, meant to follow ``get_for_update`` in the same
+        """The repository's ONLY UPDATE: ``... WHERE id=:id AND user_id=:user
+        AND state='PENDING'`` (another user's proposal is never changed, and the
+        answer is ``False``), meant to follow ``get_for_update`` in the same
         transaction. Returns whether a row actually changed — ``False``
         means a racing decision already won (design.md § 3's
         ``ALREADY_DECIDED`` outcome), and the caller MUST inspect this
@@ -453,20 +479,22 @@ class BookingProposalRepositoryPort(Protocol):
         """PENDING rows only, ordered by ``expires_at`` ascending — the
         admin list endpoint and the expiry sweep are the only two readers
         of ``ix_booking_proposals_pending``, and neither ever needs a
-        non-PENDING row (migration ``0023``'s own index docstring)."""
+        non-PENDING row (migration ``0023``'s own index docstring). Every
+        user's: the worker's global sweep, which approves each by its own
+        record's user."""
         ...
 
     async def count_pending(self) -> int:
-        """How many PENDING rows exist right now -- read-only. What
+        """How many PENDING rows exist right now, every user's -- read-only. What
         ``AutoBookPending`` counts after its loop to name EXACTLY how many
         the limit left for the next run (design § C6)."""
         ...
 
     async def has_matching_rejection(
-        self, discrepancy_id: UUID, observation: Observation
+        self, user_id: UUID, discrepancy_id: UUID, observation: Observation
     ) -> bool:
         """design.md § 11's suppression lookup: ``True`` when a REJECTED
-        proposal exists for ``discrepancy_id`` whose frozen ``(kind,
+        proposal of ``user_id`` exists for ``discrepancy_id`` whose frozen ``(kind,
         observed_venue_net_base, observed_ledger_net_base)`` equals
         ``observation`` by DECIMAL VALUE equality — reusing the exact
         ``Observation`` triple ``next_consecutive_scans`` already compares
@@ -480,7 +508,7 @@ class BookingProposalRepositoryPort(Protocol):
         """Marks every PENDING row with ``expires_at <= now`` as EXPIRED.
         Returns how many rows actually changed. Called by
         ``ExpireBookingProposals`` (Unit 6b) inside the prepare handler,
-        before the sweep."""
+        before the sweep. Every user's: expiry is the worker's global sweep."""
         ...
 
 
@@ -524,7 +552,10 @@ class AllocationOwnerPort(Protocol):
     own infrastructure models.
     """
 
-    async def strategy_for(self, allocation_id: UUID) -> UUID: ...
+    async def strategy_for(self, user_id: UUID, allocation_id: UUID) -> UUID:
+        """The strategy of ``user_id``'s reservation ``allocation_id``; another
+        user's reservation is not found (multi-user AD8)."""
+        ...
 
 
 class InFlightClosePort(Protocol):
@@ -539,7 +570,11 @@ class InFlightClosePort(Protocol):
     exactly this question for the signals side's own in-flight check.
     """
 
-    async def submitted_for(self, pool: PoolKey, strategy_id: UUID, symbol: str) -> bool: ...
+    async def submitted_for(
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
+    ) -> bool:
+        """Only ``user_id``'s attempts count: the proposal's own user."""
+        ...
 
 
 class ApprovePort(Protocol):
@@ -560,7 +595,12 @@ class SystemOrderIdsPort(Protocol):
     ``SqlAlchemyExecutionAttemptRepository``; the consumer (this module)
     declares the port, the provider owns the adapter."""
 
-    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool: ...
+    async def holds_any(
+        self, user_id: UUID, pool: PoolKey, exchange_order_ids: Sequence[str]
+    ) -> bool:
+        """Only ``user_id``'s attempts count: an order id of another user's
+        attempt on the same market is not a fill of an order this user placed."""
+        ...
 
 
 class ApprovedObservationsPort(Protocol):

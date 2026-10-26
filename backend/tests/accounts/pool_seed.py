@@ -20,7 +20,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_pool
 
 __all__ = [
     "POOL",
@@ -54,12 +54,18 @@ async def seed_discrepancy(
     status: str = "OBSERVED",
     resolved: bool = False,
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """A discrepancy of ``user_id`` (the owner by default) in that user's pool on
+    ``pool``, seeded when the user holds none."""
     observed_at = datetime(2026, 10, 12, 8, 0, 0, tzinfo=UTC)
     async with factory() as session:
+        pool_id = await ensure_pool(session, pool, user_id=user_id)
         session.add(
             ReconciliationDiscrepancyRow(
                 id=uuid4(),
+                user_id=user_id,
+                pool_id=pool_id,
                 exchange=pool[0],
                 venue=pool[1],
                 settlement_currency=pool[2],

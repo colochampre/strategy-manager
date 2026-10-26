@@ -10,7 +10,7 @@ the pool, never on a symbol.
 """
 
 from collections.abc import Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event, text
@@ -20,7 +20,7 @@ from strategy_manager.reconciliation.application.ports import PoolKey
 from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
     SystemOrderIdsAdapter,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -96,9 +96,10 @@ async def _holds_any(
     session_factory: async_sessionmaker[AsyncSession],
     order_ids: Sequence[str],
     pool: PoolKey = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> bool:
     async with session_factory() as session:
-        return await SystemOrderIdsAdapter(session).holds_any(pool, order_ids)
+        return await SystemOrderIdsAdapter(session).holds_any(user_id, pool, order_ids)
 
 
 async def test_an_order_id_of_an_attempt_of_the_same_pool_is_found(
@@ -107,6 +108,20 @@ async def test_an_order_id_of_an_attempt_of_the_same_pool_is_found(
     await _seed_attempt(pg_session_factory, exchange_order_id="ord-1")
 
     assert await _holds_any(pg_session_factory, ["ord-9", "ord-1"]) is True
+
+
+async def test_another_users_attempt_on_the_same_pool_is_not_found(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user AD8: the owner's order id on a market is not a fill of an
+    order the second user placed there."""
+    await _seed_attempt(pg_session_factory, exchange_order_id="ord-1")
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+
+    assert await _holds_any(pg_session_factory, ["ord-1"]) is True
+    assert await _holds_any(pg_session_factory, ["ord-1"], user_id=other) is False
 
 
 async def test_an_order_id_nobody_placed_is_not_found(

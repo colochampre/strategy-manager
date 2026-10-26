@@ -101,11 +101,14 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         # constraints. ``upsert_open``'s ``ON CONFLICT`` needs this partial
         # unique index to exist to have a target to infer, exactly the index
         # migration ``0020`` creates, so it is (re)created here too.
+        # Per user since migration 0030, so the old one is dropped first: a
+        # database this fixture built before would otherwise keep it.
+        await conn.execute(text("DROP INDEX IF EXISTS ux_reconciliation_open_per_symbol"))
         await conn.execute(
             text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_reconciliation_open_per_symbol "
+                "CREATE UNIQUE INDEX ux_reconciliation_open_per_symbol "
                 "ON reconciliation_discrepancies "
-                "(exchange, venue, settlement_currency, symbol) "
+                "(user_id, exchange, venue, settlement_currency, symbol) "
                 "WHERE resolved_at IS NULL"
             )
         )

@@ -27,6 +27,7 @@ from strategy_manager.reconciliation.infrastructure.models import Reconciliation
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from tests.owner import OWNER_ID, ensure_pool
 from tests.performance.infrastructure.conftest import pg_session_factory  # noqa: F401
 
 pytestmark = pytest.mark.integration
@@ -46,9 +47,12 @@ async def _insert(
 ) -> UUID:
     row_id = uuid4()
     async with factory() as session:
+        pool_id = await ensure_pool(session, pool)
         session.add(
             ReconciliationDiscrepancyRow(
                 id=row_id,
+                user_id=OWNER_ID,
+                pool_id=pool_id,
                 exchange=pool[0],
                 venue=pool[1],
                 settlement_currency=pool[2],

@@ -10,14 +10,18 @@ The cross-spelling case here inserts a SUBMITTED closing attempt under one
 spelling and queries under a different one, or it proves nothing.
 """
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.execution.infrastructure.repository import (
+    SqlAlchemyExecutionAttemptRepository,
+)
 from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter import (
     InFlightCloseAdapter,
 )
+from tests.owner import OWNER_ID, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -31,11 +35,14 @@ POOL = ("bybit", "usdt-m", "USDT")
 
 
 async def _submitted_for(
-    session_factory: async_sessionmaker[AsyncSession], strategy_id, symbol: str
+    session_factory: async_sessionmaker[AsyncSession],
+    strategy_id,
+    symbol: str,
+    user_id: UUID = OWNER_ID,
 ) -> bool:
     async with session_factory() as session:
-        adapter = InFlightCloseAdapter(session)
-        return await adapter.submitted_for(POOL, strategy_id, symbol)
+        adapter = InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session))
+        return await adapter.submitted_for(user_id, POOL, strategy_id, symbol)
 
 
 async def test_nothing_submitted_is_not_in_flight(
@@ -77,6 +84,13 @@ async def test_a_submitted_closing_attempt_is_in_flight_under_a_different_spelli
     )
 
     assert await _submitted_for(pg_session_factory, strategy_id, "STXUSDT.P") is True
+
+    # The same strategy, market and symbol asked for another user: their
+    # attempts are what count (multi-user AD8), and they have none.
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    assert await _submitted_for(pg_session_factory, strategy_id, "STXUSDT.P", other) is False
 
 
 async def test_a_filled_closing_attempt_is_not_in_flight(

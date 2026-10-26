@@ -1939,7 +1939,9 @@ def build_worker_runner(
                         approver=ApproveBooking(
                             proposals=SqlAlchemyBookingProposalRepository(session),
                             discrepancies=SqlAlchemyDiscrepancyRepository(session),
-                            in_flight_close=InFlightCloseAdapter(session),
+                            in_flight_close=InFlightCloseAdapter(
+                                SqlAlchemyExecutionAttemptRepository(session)
+                            ),
                             writer=SqlAlchemyBookingWriter(session),
                             usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
                             clock=SystemClock(),

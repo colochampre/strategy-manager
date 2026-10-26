@@ -30,6 +30,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.application.ports import FillRecord
+from strategy_manager.execution.infrastructure.repository import (
+    SqlAlchemyExecutionAttemptRepository,
+)
 from strategy_manager.ledger.application.read_recorded_fill_ids import ReadRecordedFillIds
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -81,7 +84,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_pool
 from tests.pg_drop import drop_database_if_exists
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
@@ -266,7 +269,7 @@ def build_approve_booking(
     return ApproveBooking(
         proposals=proposals or SqlAlchemyBookingProposalRepository(session),
         discrepancies=SqlAlchemyDiscrepancyRepository(session),
-        in_flight_close=InFlightCloseAdapter(session),
+        in_flight_close=InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session)),
         writer=SqlAlchemyBookingWriter(session),
         usd_rate_provider=FixedUsdRate(),
         clock=FrozenClock(at),
@@ -441,6 +444,7 @@ async def seed_confirmed_discrepancy(
     ledger_net: str,
     confirmed_at: datetime = CONFIRMED_AT,
     symbol: str = MARKET_SYMBOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     """A CONFIRMED, open discrepancy row for ``symbol`` (``MARKET_SYMBOL`` by
     default; only one open row exists per market, so a second one in the same
@@ -448,19 +452,23 @@ async def seed_confirmed_discrepancy(
 
     discrepancy_id, scan_id = uuid4(), uuid4()
     async with session_factory() as session:
+        pool_id = await ensure_pool(session, POOL, user_id=user_id)
         await session.execute(
             text(
                 "INSERT INTO reconciliation_discrepancies "
-                "(id, exchange, venue, settlement_currency, symbol, kind, "
+                "(id, user_id, pool_id, exchange, venue, settlement_currency, symbol, kind, "
                 "venue_net_base, ledger_net_base, open_allocation_ids, status, "
                 "first_observed_at, last_observed_at, confirmed_at, "
                 "first_scan_id, last_scan_id) "
-                "VALUES (:id, :exchange, :venue, :settlement_currency, :symbol, :kind, "
+                "VALUES (:id, :user_id, :pool_id, :exchange, :venue, :settlement_currency, "
+                ":symbol, :kind, "
                 ":venue_net, :ledger_net, ARRAY[:allocation_id]::uuid[], 'CONFIRMED', "
                 ":first_observed_at, :first_observed_at, :confirmed_at, :scan_id, :scan_id)"
             ),
             {
                 "id": discrepancy_id,
+                "user_id": user_id,
+                "pool_id": pool_id,
                 "exchange": POOL[0],
                 "venue": POOL[1],
                 "settlement_currency": POOL[2],
@@ -520,6 +528,7 @@ async def insert_pending_proposal(
     async with session_factory() as session:
         inserted = await SqlAlchemyBookingProposalRepository(session).insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=scenario.discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],

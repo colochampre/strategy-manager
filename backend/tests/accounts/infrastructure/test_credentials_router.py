@@ -1296,7 +1296,13 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     )
     attempt = uuid4()
     await seed_execution_attempt(factory, attempt_id=attempt, reservation_id=submitted)
-    await seed_discrepancy(factory, symbol="STXUSDT")
+    await seed_discrepancy(factory, symbol="STXUSDT", user_id=admin)
+    # Another user's open discrepancy on the same exchange is not this user's
+    # exposure (multi-user design AD8).
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_discrepancy(factory, symbol="OTHERSUSDT", user_id=other)
 
     async with _serve_delete(factory) as served:
         response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
@@ -1334,7 +1340,10 @@ async def test_delete_credentials_409_for_an_open_discrepancy_alone_keeps_the_ke
 ) -> None:
     """Owner decision 70: nothing else is exposed, yet the key stays."""
     await _store(factory, "bybit")
-    await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED")
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
+    await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED", user_id=admin)
 
     async with _serve_delete(factory) as served:
         response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)

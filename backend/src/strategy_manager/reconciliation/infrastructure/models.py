@@ -19,7 +19,16 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Computed, DateTime, Integer, Numeric, Text, text
+from sqlalchemy import (
+    Computed,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    Numeric,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -34,6 +43,26 @@ class ReconciliationDiscrepancyRow(Base):
     migration ``0020``."""
 
     __tablename__ = "reconciliation_discrepancies"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["pool_id", "user_id"],
+            ["capital_pools.id", "capital_pools.user_id"],
+            name="fk_reconciliation_discrepancies_capital_pool",
+        ),
+    )
+
+    # Migration ``0030`` (multi-user design AD2): a discrepancy belongs to a user
+    # and describes that user's pool. The FK is ``(pool_id, user_id)``, so the
+    # database refuses one user's discrepancy in another user's pool, and
+    # ``ux_reconciliation_open_per_symbol`` is per user: two users may each hold
+    # an open discrepancy on the same symbol. The market columns stay as data.
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_reconciliation_discrepancies_user"),
+        nullable=False,
+        index=True,
+    )
+    pool_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -112,10 +141,27 @@ class BookingProposalRow(Base):
     """
 
     __tablename__ = "booking_proposals"
+    __table_args__ = (
+        # A proposal belongs to a user and to that user's pool (migration
+        # ``0030``): the database refuses a proposal pointing at another
+        # user's pool.
+        ForeignKeyConstraint(
+            ["pool_id", "user_id"],
+            ["capital_pools.id", "capital_pools.user_id"],
+            name="fk_booking_proposals_capital_pool",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_booking_proposals_user"),
+        nullable=False,
+        index=True,
+    )
+    pool_id: Mapped[int] = mapped_column(Integer, nullable=False)
     # -- Frozen at prepare, never updated again. --
     discrepancy_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     exchange: Mapped[str] = mapped_column(Text, nullable=False)

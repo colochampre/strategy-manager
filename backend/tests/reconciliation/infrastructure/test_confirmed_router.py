@@ -43,6 +43,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -136,6 +137,7 @@ async def _discrepancy(
 ) -> UUID:
     async with factory() as session:
         await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            OWNER_ID,
             POOL,
             symbol,
             Observation(kind, venue_net_base, ledger_net_base),
@@ -195,6 +197,7 @@ async def _approved_proposal(
         repo = SqlAlchemyBookingProposalRepository(session)
         record = await repo.insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -216,7 +219,7 @@ async def _approved_proposal(
         )
         assert record is not None
         assert await repo.mark_state(
-            record.id, "APPROVED", datetime.now(UTC), decided_by=decided_by
+            OWNER_ID, record.id, "APPROVED", datetime.now(UTC), decided_by=decided_by
         )
         await session.commit()
     return record.id
@@ -382,6 +385,7 @@ async def test_a_resolved_or_observed_discrepancy_is_in_no_list(
 ) -> None:
     async with pg_session_factory() as session:
         await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            OWNER_ID,
             POOL,
             "GGGUSDT",
             Observation(DiscrepancyKind.NO_MATCHING_ALLOCATION, Decimal("1"), Decimal("0")),

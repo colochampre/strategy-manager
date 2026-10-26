@@ -42,6 +42,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 from strategy_manager.reconciliation.infrastructure.models import ReconciliationDiscrepancyRow
 from strategy_manager.shared import db as shared_db
 from tests.identity_auth import ADMIN_HEADERS
+from tests.owner import OWNER_ID, ensure_pool
 from tests.performance.fakes import HeldOpenStateSource
 from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
@@ -226,6 +227,8 @@ async def test_the_facts_and_the_disagreements_are_read_in_the_same_snapshot_as_
             session.add(
                 ReconciliationDiscrepancyRow(
                     id=uuid4(),
+                    user_id=OWNER_ID,
+                    pool_id=await ensure_pool(session, ("bybit", "usdt-m", "USDT")),
                     exchange="bybit",
                     venue="usdt-m",
                     settlement_currency="USDT",

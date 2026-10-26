@@ -53,6 +53,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 )
 from strategy_manager.shared.config import get_settings
 from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.owner import OWNER_ID, ensure_pool
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -193,8 +194,10 @@ async def _seed(
 ) -> None:
     scan_id = uuid4()
     async with session_factory() as session:
+        await ensure_pool(session, pool)
         repo = SqlAlchemyDiscrepancyRepository(session)
         await repo.upsert_open(
+            OWNER_ID,
             pool,
             symbol,
             observation or _observation(),
@@ -205,7 +208,7 @@ async def _seed(
             at=NOW,
         )
         if resolve:
-            await repo.resolve_absent(pool, [symbol], scan_id, NOW)
+            await repo.resolve_absent(OWNER_ID, pool, [symbol], scan_id, NOW)
         await session.commit()
 
 
@@ -491,6 +494,7 @@ async def _seed_bookable_discrepancy(
     scan_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            OWNER_ID,
             pool,
             symbol,
             _observation(
@@ -528,6 +532,7 @@ async def _seed_pending_proposal(
     fills: list[ProposedFillSnapshot] | None = None,
 ) -> UUID:
     proposal = NewBookingProposal(
+        user_id=OWNER_ID,
         discrepancy_id=discrepancy_id,
         exchange=pool[0],
         venue=pool[1],
