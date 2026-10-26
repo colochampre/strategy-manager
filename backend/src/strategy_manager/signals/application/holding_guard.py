@@ -126,7 +126,7 @@ class HoldingGuard:
 
         now = self._clock.now()
         if await self._in_flight_work.in_flight(user_id, pool, strategy_id, symbol, now):
-            return await self._on_in_flight(pool, strategy_id, symbol, now, received_at)
+            return await self._on_in_flight(user_id, pool, strategy_id, symbol, now, received_at)
 
         holdings = await self._holdings.symbol_holdings(pool, symbol)
         net = strategy_net(holdings, strategy_id)
@@ -137,6 +137,7 @@ class HoldingGuard:
 
     async def _on_in_flight(
         self,
+        user_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -146,7 +147,7 @@ class HoldingGuard:
         age_seconds = (now - received_at).total_seconds()
         if age_seconds <= self._delayed_open_max_signal_age_seconds:
             awaited_allocation_ids = await self._in_flight_work.submitted_closing_allocations(
-                pool, strategy_id, symbol
+                user_id, pool, strategy_id, symbol
             )
             logger.info(
                 "deferring open for strategy %s on %s in pool %s: work still in "

@@ -227,8 +227,9 @@ class FakeInFlightWorkPort:
         return self.result
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
+        self.users.append(user_id)
         return self.closing_allocations
 
 
@@ -273,8 +274,12 @@ class FakeClosingAttemptsPort:
 
     latest: ExecutionAttempt | None = None
     calls: list[UUID] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
+        self.users.append(user_id)
         self.calls.append(allocation_id)
         return self.latest
 
@@ -293,6 +298,7 @@ class SpyCloseOrphans:
         default_factory=list
     )
     reference_prices: list[Decimal | None] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def close(
         self,
@@ -303,10 +309,12 @@ class SpyCloseOrphans:
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
         self.reference_prices.append(reference_price)
+        self.users.append(user_id)
 
 
 @dataclass
@@ -574,6 +582,36 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
     assert result.transition_kind == "close_long"
     assert len(close_position.calls) == 1
     assert close_position.calls[0].allocation_id == prior_reservation_id
+
+
+async def test_a_close_looks_up_and_places_as_the_strategy_author() -> None:
+    """AD8 (B.5): the closing-attempt read and the close command both carry
+    the strategy's author, the user whose allocation is being closed."""
+    author = UUID("00000000-0000-4000-8000-0000000000b4")
+    close_position = SpyClosePosition()
+    closing_attempts = FakeClosingAttemptsPort()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_snapshot(author_id=author),
+        closing_attempts=closing_attempts,
+    )
+
+    await handler.handle(uuid4())
+
+    assert closing_attempts.users == [author]
+    assert [call.user_id for call in close_position.calls] == [author]
 
 
 async def test_a_close_never_goes_through_the_opening_path() -> None:
@@ -1309,7 +1347,9 @@ class _FakeClosingAttemptsByAllocation:
 
     by_allocation: dict[UUID, ExecutionAttempt | None] = field(default_factory=dict)
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
         return self.by_allocation.get(allocation_id)
 
 

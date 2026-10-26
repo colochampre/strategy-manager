@@ -135,22 +135,27 @@ class FakeAttempts:
         self._attempt = attempt
         self.filled: list[tuple[UUID, str]] = []
         self.failed: list[tuple[UUID, str]] = []
+        # Whose attempt each call was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def insert(self, attempt: ExecutionAttempt) -> None:  # pragma: no cover
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None:  # pragma: no cover
         raise NotImplementedError
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt:
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt:
+        self.users.append(user_id)
         return self._attempt
 
     async def mark_placed(  # pragma: no cover
-        self, attempt_id: UUID, exchange_order_id: str
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
     ) -> None:
         raise NotImplementedError
 
-    async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_filled(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
+        self.users.append(user_id)
         self.filled.append((attempt_id, exchange_order_id))
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None:
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None:
+        self.users.append(user_id)
         self.failed.append((attempt_id, error))
 
 
@@ -276,6 +281,19 @@ async def test_the_reservation_read_and_marked_is_the_job_owners() -> None:
 
     assert filled_reservations.users == [OWNER, OWNER]
     assert released_reservations.users == [OWNER, OWNER]
+
+
+async def test_the_attempt_read_and_marked_is_the_job_owners() -> None:
+    """Multi-user design AD8 (B.5): settling reads the attempt and marks it
+    filled, or failed when the venue never saw it, as the job owner's."""
+    filled, _, filled_attempts, _, _ = _build(FakeExchange(fills=[_fill("2", "50")]))
+    await filled.settle(OWNER, ATTEMPT_ID)
+
+    released, _, released_attempts, _, _ = _build(FakeExchange(raises=OrderNotFound("x")))
+    await released.settle(OWNER, ATTEMPT_ID)
+
+    assert filled_attempts.users == [OWNER, OWNER]  # get, mark_filled
+    assert released_attempts.users == [OWNER, OWNER]  # get, mark_failed
 
 
 async def test_every_ledger_row_carries_its_strategy_and_allocation() -> None:

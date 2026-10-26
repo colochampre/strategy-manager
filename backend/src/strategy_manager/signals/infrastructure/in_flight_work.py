@@ -35,7 +35,7 @@ class InFlightWorkAdapter:
         exchange, venue, settlement_currency = pool
 
         submitted = await self._attempts.submitted_for_strategy_symbol(
-            exchange, venue, settlement_currency, strategy_id, symbol
+            user_id, exchange, venue, settlement_currency, strategy_id, symbol
         )
         if submitted:
             return True
@@ -45,9 +45,10 @@ class InFlightWorkAdapter:
         )
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
         exchange, venue, settlement_currency = pool
         return await self._attempts.submitted_closing_allocations(
+            user_id,
             exchange, venue, settlement_currency, strategy_id, symbol
         )

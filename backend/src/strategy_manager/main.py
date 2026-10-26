@@ -1529,7 +1529,7 @@ def build_worker_runner(
                     balance_refresh_reader,
                     venue_position_readers,
                 )
-                await open_after_close.poll(job)
+                await open_after_close.poll(job, owner)
                 await session.commit()
 
     async def handle_execution_settle(job: ClaimedJob) -> None:
@@ -1919,9 +1919,7 @@ def build_worker_runner(
                         approver=ApproveBooking(
                             proposals=SqlAlchemyBookingProposalRepository(session),
                             discrepancies=SqlAlchemyDiscrepancyRepository(session),
-                            in_flight_close=InFlightCloseAdapter(
-                                SqlAlchemyExecutionAttemptRepository(session)
-                            ),
+                            in_flight_close=InFlightCloseAdapter(session),
                             writer=SqlAlchemyBookingWriter(session),
                             usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
                             clock=SystemClock(),

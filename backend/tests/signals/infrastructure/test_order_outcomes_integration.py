@@ -355,6 +355,7 @@ def _close_command(
     strategy_id: UUID, allocation_id: UUID, signal_id: UUID | None
 ) -> CloseCommand:
     return CloseCommand(
+        user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
         exchange="bybit",

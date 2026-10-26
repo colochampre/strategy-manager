@@ -66,8 +66,9 @@ class FakeInFlightWorkPort:
         return self.result
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
+        self.users.append(user_id)
         self.closing_allocation_calls.append((pool, strategy_id, symbol))
         return self.closing_allocations
 
@@ -174,6 +175,9 @@ async def test_in_flight_within_the_age_bound_defers_by_seeding_a_continuation()
     assert outcome.refused is None
     assert outcome.awaited_allocation_ids == [allocation_id]
     assert in_flight_work.closing_allocation_calls == [(POOL, strategy_id, "ETHUSDT")]
+    # Both reads of the deferral (is it in flight, which close to await) ask as
+    # the strategy's author (multi-user design AD8).
+    assert in_flight_work.users == [AUTHOR, AUTHOR]
     assert holdings.calls == []
     assert venue.calls == []
 

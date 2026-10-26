@@ -54,14 +54,17 @@ async def _in_flight(
 
 
 async def _submitted_closing_allocations(
-    session_factory: async_sessionmaker[AsyncSession], strategy_id, symbol: str
+    session_factory: async_sessionmaker[AsyncSession],
+    strategy_id,
+    symbol: str,
+    user_id: UUID = OWNER_ID,
 ) -> list:
     async with session_factory() as session:
         adapter = InFlightWorkAdapter(
             attempts=SqlAlchemyExecutionAttemptRepository(session),
             reservations=SqlAlchemyReservationRepository(session),
         )
-        return await adapter.submitted_closing_allocations(POOL, strategy_id, symbol)
+        return await adapter.submitted_closing_allocations(user_id, POOL, strategy_id, symbol)
 
 
 async def test_nothing_recorded_is_not_in_flight(
@@ -261,6 +264,65 @@ async def test_another_users_pending_reservation_is_not_this_users_in_flight_wor
 
     assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT") is False
     assert await _in_flight(pg_session_factory, strategy_id, "ETHUSDT", user_id=other) is True
+
+
+async def test_another_users_submitted_attempts_are_not_this_users_in_flight_work(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8: a SUBMITTED opening attempt and a SUBMITTED
+    closing attempt of another user, on the same strategy and market, are that
+    user's work. Neither defers this user's signal nor is awaited by it, while
+    both are the other user's."""
+    strategy_id = uuid4()
+    open_signal, open_reservation, close_signal, close_allocation = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    for signal_id, reservation_id in (
+        (open_signal, open_reservation),
+        (close_signal, close_allocation),
+    ):
+        await seed_signal_row(
+            pg_session_factory,
+            signal_id=signal_id,
+            strategy_id=strategy_id,
+            idempotency_key=f"k-{signal_id}",
+        )
+        await seed_reservation(
+            pg_session_factory,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            status="FILLED",
+            user_id=other,
+        )
+    await seed_execution_attempt(
+        pg_session_factory,
+        attempt_id=uuid4(),
+        reservation_id=open_reservation,
+        symbol="STXUSDT",
+        status="SUBMITTED",
+    )
+    await seed_execution_attempt(
+        pg_session_factory,
+        attempt_id=uuid4(),
+        closes_allocation_id=close_allocation,
+        symbol="STXUSDT",
+        status="SUBMITTED",
+    )
+
+    assert await _in_flight(pg_session_factory, strategy_id, "STXUSDT") is False
+    assert await _in_flight(pg_session_factory, strategy_id, "STXUSDT", user_id=other) is True
+    assert await _submitted_closing_allocations(pg_session_factory, strategy_id, "STXUSDT") == []
+    assert await _submitted_closing_allocations(
+        pg_session_factory, strategy_id, "STXUSDT", user_id=other
+    ) == [close_allocation]
 
 
 async def test_an_expired_pending_reservation_is_not_in_flight(

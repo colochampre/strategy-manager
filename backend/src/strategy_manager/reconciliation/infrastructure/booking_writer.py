@@ -19,9 +19,11 @@ failure the proposal forbids.
 
 from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.infrastructure.repository import (
@@ -34,6 +36,7 @@ from strategy_manager.reconciliation.application.ports import (
     BookingWriteOutcome,
     BookingWriteResult,
 )
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 # The live name of ``ledger_entries.ux_ledger_exchange_fill`` (migration
 # ``0019``), verified against ``ledger/infrastructure/repository.py``'s own
@@ -70,12 +73,32 @@ class SqlAlchemyBookingWriter:
     async def write(
         self, attempt: ExecutionAttempt, fill_records: Sequence[FillRecord]
     ) -> BookingWriteResult:
+        # The attempt is its reservation's user's, whichever side it is on (an
+        # open through ``reservation_id``, a close through
+        # ``closes_allocation_id``). Read, not scoped: reconciliation per user
+        # is a later unit of PR B (multi-user design AD10).
+        user_id = (
+            await self._session.execute(
+                select(ReservationRow.user_id).where(
+                    ReservationRow.id
+                    == (
+                        attempt.reservation_id
+                        if attempt.reservation_id is not None
+                        else attempt.closes_allocation_id
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+        if user_id is None:
+            raise InvariantViolation(
+                f"booking attempt {attempt.id} names a reservation that does not exist"
+            )
         try:
             # A SAVEPOINT, not the outer transaction -- see module
             # docstring. ``ApproveBooking`` still needs to call
             # ``mark_state`` in the SAME transaction after either outcome.
             async with self._session.begin_nested():
-                await self._attempts.insert(attempt)
+                await self._attempts.insert(user_id, attempt)
                 for fill in fill_records:
                     await self._record_fill.record(fill)
         except IntegrityError as error:

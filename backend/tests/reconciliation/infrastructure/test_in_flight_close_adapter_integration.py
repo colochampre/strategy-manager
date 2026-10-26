@@ -15,9 +15,6 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from strategy_manager.execution.infrastructure.repository import (
-    SqlAlchemyExecutionAttemptRepository,
-)
 from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter import (
     InFlightCloseAdapter,
 )
@@ -37,7 +34,7 @@ async def _submitted_for(
     session_factory: async_sessionmaker[AsyncSession], strategy_id, symbol: str
 ) -> bool:
     async with session_factory() as session:
-        adapter = InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session))
+        adapter = InFlightCloseAdapter(session)
         return await adapter.submitted_for(POOL, strategy_id, symbol)
 
 

@@ -259,6 +259,7 @@ class NeverCalledCloseOrphans:
         holdings: object,
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         raise AssertionError("there is no orphan here -- the prior holding nets to zero")
@@ -341,6 +342,7 @@ async def _seed_settled_flat_holding(
             (closing_id, OrderSide.SELL, None, allocation_id),
         ):
             await attempts.insert(
+                OWNER_ID,
                 ExecutionAttempt(
                     id=attempt_id,
                     reservation_id=reservation_id,
@@ -356,7 +358,7 @@ async def _seed_settled_flat_holding(
                     status=ExecutionStatus.FILLED,
                     origin=ExecutionOrigin.SYSTEM,
                     client_order_id=f"prior-{attempt_id}",
-                )
+                ),
             )
         await session.commit()
 

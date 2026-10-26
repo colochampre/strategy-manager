@@ -88,7 +88,7 @@ class SettleExecution:
         """``user_id`` is the job's owner: the author of the strategy behind the
         attempt, whose key placed the order (multi-user design AD8, B.5). The
         reservation is read and marked as that user's only."""
-        attempt = await self._attempts.get(attempt_id)
+        attempt = await self._attempts.get(user_id, attempt_id)
         now = self._clock.now()
 
         if attempt.status is not ExecutionStatus.SUBMITTED:
@@ -126,7 +126,7 @@ class SettleExecution:
         for fill in fills:
             await self._record(attempt, reservation.strategy_id, usd_rate, fill)
 
-        await self._attempts.mark_filled(attempt_id, fills[0].exchange_order_id)
+        await self._attempts.mark_filled(user_id, attempt_id, fills[0].exchange_order_id)
         if not attempt.is_closing:
             # A closing order has no reservation of its own, and the one it is
             # unwinding went FILLED when the position opened. Re-marking it
@@ -184,7 +184,7 @@ class SettleExecution:
             ).signal_id
             await self._reservations.mark(user_id, attempt.allocation_id, RELEASED, now)
         await self._attempts.mark_failed(
-            attempt.id, "the exchange has no order under this client order id"
+            user_id, attempt.id, "the exchange has no order under this client order id"
         )
         # 2f.4 (orchestrator's outcome map, finding 17): same silent file --
         # WARNING, since an order that never reached the exchange is worth

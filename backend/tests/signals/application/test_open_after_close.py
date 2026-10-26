@@ -59,6 +59,8 @@ from tests.signals.application.test_process_signal import (
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
+# The job's owner: the author of the signal's strategy (multi-user design AD8).
+OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000a1a1a")
 SETTLE_TIMEOUT_SECONDS = 300.0
 POLL_INTERVAL_SECONDS = 5.0
 MAX_SIGNAL_AGE_SECONDS = 600.0
@@ -95,8 +97,12 @@ class FakeSignalLookupPort:
 class FakeClosingAttemptsPort:
     closes: dict[UUID, ExecutionAttempt | None] = field(default_factory=dict)
     calls: list[UUID] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
+        self.users.append(user_id)
         self.calls.append(allocation_id)
         return self.closes.get(allocation_id)
 
@@ -284,10 +290,23 @@ async def test_seed_enqueues_the_expected_payload_and_dedupe_key() -> None:
 async def test_signal_no_longer_existing_abandons_without_raising() -> None:
     continuation, _, queue, open_now = _continuation(signals=FakeSignalLookupPort(signal=None))
 
-    await continuation.poll(_job(uuid4(), [uuid4()]))
+    await continuation.poll(_job(uuid4(), [uuid4()]), None)
 
     assert queue.enqueued == []
     assert open_now.calls == []
+
+
+async def test_the_awaited_closes_are_read_as_the_jobs_owner() -> None:
+    """Multi-user design AD8 (B.5): each awaited closing attempt is read as the
+    owner the job was resolved for, never another user's close of the same id."""
+    signal = _signal()
+    first, second = uuid4(), uuid4()
+    continuation, attempts, _, _ = _continuation(signals=FakeSignalLookupPort(signal=signal))
+
+    await continuation.poll(_job(signal.id, [first, second]), OWNER)
+
+    assert attempts.calls == [first, second]
+    assert attempts.users == [OWNER, OWNER]
 
 
 async def test_a_newer_signal_abandons_the_continuation(
@@ -299,7 +318,7 @@ async def test_a_newer_signal_abandons_the_continuation(
     allocation_id = uuid4()
 
     with caplog.at_level("WARNING"):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert queue.enqueued == []
     assert open_now.calls == []
@@ -325,7 +344,7 @@ async def test_an_awaited_close_that_failed_abandons_with_an_error(
     )
 
     with caplog.at_level("ERROR"):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert queue.enqueued == []
     assert open_now.calls == []
@@ -346,7 +365,7 @@ async def test_all_filled_within_the_age_bound_calls_open_now() -> None:
         signals=FakeSignalLookupPort(signal=signal), attempts=attempts
     )
 
-    await continuation.poll(_job(signal.id, [allocation_id], poll=2))
+    await continuation.poll(_job(signal.id, [allocation_id], poll=2), OWNER)
 
     # ``open_now`` is handed the CURRENT poll (2), not a bare "it's ready"
     # signal -- it needs this to thread ``poll + 1`` forward if it has to
@@ -372,7 +391,7 @@ async def test_all_filled_but_past_the_age_bound_abandons_with_a_warning(
     )
 
     with caplog.at_level("WARNING"):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert open_now.calls == []
     assert queue.enqueued == []
@@ -388,7 +407,7 @@ async def test_empty_awaited_allocations_is_vacuously_filled_and_calls_open_now(
         signals=FakeSignalLookupPort(signal=signal)
     )
 
-    await continuation.poll(_job(signal.id, []))
+    await continuation.poll(_job(signal.id, []), OWNER)
 
     assert open_now.calls == [(signal.id, 0)]
     assert attempts.calls == []
@@ -409,7 +428,7 @@ async def test_not_yet_filled_and_not_timed_out_reschedules_the_next_poll() -> N
         signals=FakeSignalLookupPort(signal=signal), attempts=attempts
     )
 
-    await continuation.poll(_job(signal.id, [allocation_id], poll=3))
+    await continuation.poll(_job(signal.id, [allocation_id], poll=3), OWNER)
 
     assert open_now.calls == []
     assert len(queue.enqueued) == 1
@@ -438,7 +457,7 @@ async def test_not_yet_filled_past_the_settle_timeout_abandons_with_an_error(
     )
 
     with caplog.at_level("ERROR"):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert open_now.calls == []
     assert queue.enqueued == []
@@ -464,7 +483,7 @@ async def test_not_yet_filled_past_the_signal_age_bound_abandons_with_an_error(
     )
 
     with caplog.at_level("ERROR"):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert open_now.calls == []
     assert queue.enqueued == []
@@ -482,7 +501,7 @@ async def test_no_closing_attempt_yet_never_times_out_on_the_settle_bound_alone(
         signals=FakeSignalLookupPort(signal=signal), attempts=attempts
     )
 
-    await continuation.poll(_job(signal.id, [allocation_id], poll=0))
+    await continuation.poll(_job(signal.id, [allocation_id], poll=0), OWNER)
 
     assert open_now.calls == []
     assert len(queue.enqueued) == 1
@@ -560,9 +579,9 @@ async def test_a_redelivered_poll_reseeding_the_same_next_step_does_not_log_an_e
     )
     job = _job(signal.id, [allocation_id], poll=3)
 
-    await continuation.poll(job)
+    await continuation.poll(job, OWNER)
     with caplog.at_level("ERROR"):
-        await continuation.poll(job)  # redelivered: the exact same job re-runs
+        await continuation.poll(job, OWNER)  # redelivered: the exact same job re-runs
 
     assert len(queue.enqueued) == 2
     assert queue.enqueued[0].payload["poll"] == 4
@@ -583,7 +602,7 @@ async def test_in_flight_persisting_across_several_polls_still_opens_exactly_onc
 
     job = _job(signal.id, [], poll=0)
     for _ in range(5):
-        await continuation.poll(job)
+        await continuation.poll(job, OWNER)
         if open_now.opened_calls:
             break
         assert queue.enqueued, "the chain must reschedule, never die silently"
@@ -625,7 +644,7 @@ async def test_in_flight_that_never_clears_keeps_rescheduling_until_the_age_boun
     previous_count = 0
     for _ in range(10):
         with caplog.at_level("WARNING"):
-            await continuation.poll(job)
+            await continuation.poll(job, OWNER)
         if len(queue.enqueued) == previous_count:
             break
         previous_count = len(queue.enqueued)
@@ -663,7 +682,7 @@ async def test_awaited_closes_filled_but_other_work_in_flight_continues_rather_t
 
     job = _job(signal.id, [allocation_id], poll=0)
     for _ in range(5):
-        await continuation.poll(job)
+        await continuation.poll(job, OWNER)
         if open_now.opened_calls:
             break
         assert queue.enqueued, "the chain must reschedule, never die silently"

@@ -34,7 +34,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, seed_owner, seed_reservation_row
+from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -249,6 +249,11 @@ async def seed_execution_attempt(
         session.add(
             ExecutionAttemptRow(
                 id=attempt_id,
+                user_id=await attempt_user_id(
+                    session,
+                    reservation_id=reservation_id,
+                    closes_allocation_id=closes_allocation_id,
+                ),
                 reservation_id=reservation_id,
                 closes_allocation_id=closes_allocation_id,
                 exchange=exchange,

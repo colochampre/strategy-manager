@@ -181,6 +181,7 @@ async def _seed_open_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=allocation_id,
@@ -196,7 +197,7 @@ async def _seed_open_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"open-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 
@@ -267,6 +268,7 @@ async def _seed_open_short_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=allocation_id,
@@ -282,7 +284,7 @@ async def _seed_open_short_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"open-short-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 
@@ -328,6 +330,7 @@ async def _seed_close_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=None,
@@ -343,7 +346,7 @@ async def _seed_close_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"close-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 

@@ -210,7 +210,9 @@ class ClosingAttemptsPort(Protocol):
     narrow-Protocol-per-consumer convention ``ContinuationSeederPort``
     already follows in this file."""
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None: ...
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None: ...
 
 
 class ContinuationSeederPort(Protocol):
@@ -280,6 +282,7 @@ class CloseOrphansPort(Protocol):
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None: ...
 
@@ -558,6 +561,7 @@ class ProcessSignalHandler:
                     symbol=context.symbol,
                     holdings=guard_outcome.real_orphan_holdings,
                     next_poll=next_poll,
+                    user_id=policy.author_id,
                     reference_price=context.price,
                 )
                 return ProcessSignalResult(transition.kind.value, None, False)
@@ -718,7 +722,7 @@ class ProcessSignalHandler:
         )
 
         existing_close = await self._closing_attempts.latest_close_for(
-            context.prior_reservation_id
+            policy.author_id, context.prior_reservation_id
         )
         if existing_close is not None:
             if existing_close.status is not ExecutionStatus.FAILED:
@@ -771,6 +775,7 @@ class ProcessSignalHandler:
 
         close_result = await self._close_position.close(
             CloseCommand(
+                user_id=policy.author_id,
                 allocation_id=context.prior_reservation_id,
                 strategy_id=context.strategy_id,
                 exchange=policy.exchange,

@@ -155,6 +155,7 @@ def _attempt(
     attempt_id = uuid4()
     return ExecutionAttemptRow(
         id=attempt_id,
+        user_id=OWNER_ID,
         reservation_id=reservation_id,
         closes_allocation_id=closes_allocation_id,
         signal_id=signal_id,

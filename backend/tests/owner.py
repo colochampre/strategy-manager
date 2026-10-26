@@ -160,6 +160,31 @@ async def seed_reservation_row(
     return pool_id
 
 
+async def attempt_user_id(
+    executor: AsyncConnection | AsyncSession,
+    *,
+    reservation_id: UUID | None,
+    closes_allocation_id: UUID | None,
+    user_id: UUID | None = None,
+) -> UUID:
+    """The user an ``execution_attempts`` seed is written as: ``user_id`` when
+    given, else the user of the reservation the attempt spends (an open) or
+    unwinds (a close), else the owner. That is how production writes it, so a
+    seeded attempt and its reservation never disagree unless a test says so."""
+    if user_id is not None:
+        return user_id
+    origin = reservation_id if reservation_id is not None else closes_allocation_id
+    if origin is not None:
+        found = (
+            await executor.execute(
+                text("SELECT user_id FROM reservations WHERE id = :id"), {"id": origin}
+            )
+        ).scalar_one_or_none()
+        if found is not None:
+            return UUID(str(found))
+    return OWNER_ID
+
+
 async def seed_snapshot(
     executor: AsyncConnection | AsyncSession,
     market: tuple[str, str, str],

@@ -69,6 +69,7 @@ class TimelineCloseOrphans(SpyCloseOrphans):
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         self._timeline.log.append("close_orphans")
@@ -79,6 +80,7 @@ class TimelineCloseOrphans(SpyCloseOrphans):
             symbol,
             holdings,
             next_poll,
+            user_id=user_id,
             reference_price=reference_price,
         )
 

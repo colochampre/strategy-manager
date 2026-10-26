@@ -46,6 +46,7 @@ async def _authored(factory: async_sessionmaker[AsyncSession], author: UUID) -> 
         strategy_id=strategy_id,
         signal_id=signal_id,
         status="FILLED",
+        user_id=author,
     )
     await seed_execution_attempt(
         factory, attempt_id=open_attempt, reservation_id=reservation_id, status="FILLED"

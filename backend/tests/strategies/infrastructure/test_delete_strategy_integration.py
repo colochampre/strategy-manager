@@ -317,6 +317,7 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[objec
     attempt_id = uuid4()
     attempt = ExecutionAttemptRow(
         id=attempt_id,
+        user_id=OWNER_ID,
         reservation_id=reservation.id,
         exchange=exchange,
         venue=venue,

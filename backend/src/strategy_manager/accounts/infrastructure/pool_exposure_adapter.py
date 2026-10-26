@@ -124,7 +124,9 @@ class PoolExposureAdapter:
                 )
             ),
             in_flight_attempts=tuple(
-                await self._attempts.submitted_for_pool(exchange, venue, settlement_currency)
+                await self._attempts.submitted_for_pool(
+                    user_id, exchange, venue, settlement_currency
+                )
             ),
             open_discrepancies=frozenset(discrepancies.scalars().all()),
         )

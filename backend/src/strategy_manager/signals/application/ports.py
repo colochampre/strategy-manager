@@ -174,10 +174,9 @@ class InFlightWorkPort(Protocol):
     module owns the whole answer on its own, since attempts carry no
     ``strategy_id`` and reservations carry no ``symbol``.
 
-    ``in_flight`` reads ``user_id``'s reservations only: the strategy author's,
-    in whose pool the signal is worked (multi-user design AD8, B.5). The
-    attempt half is not scoped yet (``execution_attempts`` gains its owner in a
-    later unit of PR B).
+    ``in_flight`` and ``submitted_closing_allocations`` read ``user_id``'s
+    reservations and attempts only: the strategy author's, in whose pool the
+    signal is worked (multi-user design AD8, B.5).
     """
 
     async def in_flight(
@@ -185,7 +184,7 @@ class InFlightWorkPort(Protocol):
     ) -> bool: ...
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
         """The allocation id(s) whose closing execution attempt is currently
         SUBMITTED for this strategy and symbol -- what the rewired in-flight

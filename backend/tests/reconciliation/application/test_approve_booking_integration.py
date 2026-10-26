@@ -46,9 +46,6 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.order import OrderSide
-from strategy_manager.execution.infrastructure.repository import (
-    SqlAlchemyExecutionAttemptRepository,
-)
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.application.approve_booking import (
@@ -380,7 +377,7 @@ async def _approve(
         use_case = ApproveBooking(
             proposals=SqlAlchemyBookingProposalRepository(session),
             discrepancies=SqlAlchemyDiscrepancyRepository(session),
-            in_flight_close=InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session)),
+            in_flight_close=InFlightCloseAdapter(session),
             writer=SqlAlchemyBookingWriter(session),
             usd_rate_provider=_FixedUsdRate(Decimal("1")),
             clock=_FrozenClock(at),

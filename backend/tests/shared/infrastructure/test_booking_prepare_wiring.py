@@ -125,7 +125,7 @@ def test_the_automatic_step_approves_with_the_use_case_the_route_built() -> None
 
     assert "proposals=SqlAlchemyBookingProposalRepository(session)" in approve
     assert "discrepancies=SqlAlchemyDiscrepancyRepository(session)" in approve
-    assert "InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session))" in approve
+    assert "InFlightCloseAdapter(session)" in approve
     assert "writer=SqlAlchemyBookingWriter(session)" in approve
     assert 'FixedUsdRateProvider({Currency.USDT:Decimal("1")})' in approve
     assert "clock=SystemClock()" in approve

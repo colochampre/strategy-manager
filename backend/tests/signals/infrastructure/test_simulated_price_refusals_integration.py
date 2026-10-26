@@ -68,6 +68,7 @@ def _close_command(
     reference_price: Decimal | None,
 ) -> CloseCommand:
     return CloseCommand(
+        user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
         exchange="bybit",

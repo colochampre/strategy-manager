@@ -30,9 +30,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.application.ports import FillRecord
-from strategy_manager.execution.infrastructure.repository import (
-    SqlAlchemyExecutionAttemptRepository,
-)
 from strategy_manager.ledger.application.read_recorded_fill_ids import ReadRecordedFillIds
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -268,7 +265,7 @@ def build_approve_booking(
     return ApproveBooking(
         proposals=proposals or SqlAlchemyBookingProposalRepository(session),
         discrepancies=SqlAlchemyDiscrepancyRepository(session),
-        in_flight_close=InFlightCloseAdapter(SqlAlchemyExecutionAttemptRepository(session)),
+        in_flight_close=InFlightCloseAdapter(session),
         writer=SqlAlchemyBookingWriter(session),
         usd_rate_provider=FixedUsdRate(),
         clock=FrozenClock(at),

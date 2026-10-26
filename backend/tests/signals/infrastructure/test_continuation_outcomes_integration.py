@@ -262,7 +262,8 @@ async def _run_continuation(
                 },
                 attempts=1,
                 max_attempts=5,
-            )
+            ),
+            OWNER_ID,
         )
         await session.commit()
 

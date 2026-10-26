@@ -319,6 +319,7 @@ async def _place_close(
     async with factory() as session:
         result = await _close_position(session, exchange).close(
             CloseCommand(
+                user_id=OWNER_ID,
                 allocation_id=allocation_id,
                 strategy_id=strategy_id,
                 exchange="bybit",
@@ -642,7 +643,7 @@ async def test_a_never_placed_close_rejects_the_closing_signal_only(
     attempt_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
-            _submitted_close(attempt_id, allocation_id, reverse_signal)
+            OWNER_ID, _submitted_close(attempt_id, allocation_id, reverse_signal)
         )
         await session.commit()
 
@@ -677,7 +678,7 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
     attempt_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
-            _submitted_close(attempt_id, allocation_id, None)
+            OWNER_ID, _submitted_close(attempt_id, allocation_id, None)
         )
         await session.commit()
 

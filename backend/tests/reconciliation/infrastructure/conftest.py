@@ -41,7 +41,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, seed_owner, seed_reservation_row
+from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -256,15 +256,20 @@ async def seed_execution_attempt(
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
-                "(id, reservation_id, closes_allocation_id, exchange, venue, "
+                "(id, user_id, reservation_id, closes_allocation_id, exchange, venue, "
                 "settlement_currency, symbol, side, quantity, status, client_order_id, "
                 "exchange_order_id) "
-                "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
-                ":settlement_currency, :symbol, 'BUY', 0.004, :status, "
+                "VALUES (:id, :user_id, :reservation_id, :closes_allocation_id, :exchange, "
+                ":venue, :settlement_currency, :symbol, 'BUY', 0.004, :status, "
                 ":client_order_id, :exchange_order_id)"
             ),
             {
                 "id": attempt_id,
+                "user_id": await attempt_user_id(
+                    session,
+                    reservation_id=reservation_id,
+                    closes_allocation_id=closes_allocation_id,
+                ),
                 "reservation_id": reservation_id,
                 "closes_allocation_id": closes_allocation_id,
                 "exchange": exchange,

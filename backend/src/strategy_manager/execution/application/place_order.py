@@ -191,6 +191,7 @@ class PlaceOrder:
 
         await self._reservations.mark(command.user_id, reservation.id,SUBMITTED, now)
         await self._attempts.insert(
+            command.user_id,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=reservation.id,
@@ -210,7 +211,7 @@ class PlaceOrder:
                 # reservation for an open, but the attempt carries it too so
                 # every attempt is resolvable without a join.
                 signal_id=reservation.signal_id,
-            )
+            ),
         )
         await self._queue.enqueue(
             Job(
@@ -232,7 +233,7 @@ class PlaceOrder:
             # refused it, so the reservation can be released now rather than
             # waiting for settlement to reach the same conclusion.
             await self._reservations.mark(command.user_id, reservation.id,RELEASED, now)
-            await self._attempts.mark_failed(attempt_id, str(exc))
+            await self._attempts.mark_failed(command.user_id, attempt_id, str(exc))
             # Row 11: staged on THIS commit (release + mark_failed, after the
             # network call), not the pre-network SUBMITTED one above, which
             # was written before the venue had said anything.
@@ -256,7 +257,7 @@ class PlaceOrder:
                 status="FAILED", execution_attempt_id=attempt_id, error=str(exc)
             )
 
-        await self._attempts.mark_placed(attempt_id, placed.exchange_order_id)
+        await self._attempts.mark_placed(command.user_id, attempt_id, placed.exchange_order_id)
         # Row 12: the order is only SUBMITTED to the exchange; its fate is
         # decided by ``execution.settle``, so the signal is PROCESSING, never
         # PROCESSED. Staged on the ``mark_placed`` commit.

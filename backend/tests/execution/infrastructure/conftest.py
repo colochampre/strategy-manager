@@ -28,7 +28,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, seed_owner, seed_reservation_row
+from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -210,31 +210,40 @@ async def seed_execution_attempt(
     symbol: str = "BTCUSDT",
     status: str = "SUBMITTED",
     created_at: datetime | None = None,
+    user_id: UUID | None = None,
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
-    unwinds. Exactly one of the two ids belongs on a row.
+    unwinds. Exactly one of the two ids belongs on a row. The attempt is its
+    reservation's user's unless ``user_id`` says otherwise.
 
     ``created_at`` is settable directly (bypassing the ``server_default``)
     so ``latest_close_for``'s ordering tests have a deterministic boundary
     instead of racing the wall clock across separate transactions.
     """
     async with session_factory() as session:
+        owner_id = await attempt_user_id(
+            session,
+            reservation_id=reservation_id,
+            closes_allocation_id=closes_allocation_id,
+            user_id=user_id,
+        )
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
-                "(id, reservation_id, closes_allocation_id, exchange, venue, "
+                "(id, user_id, reservation_id, closes_allocation_id, exchange, venue, "
                 "settlement_currency, symbol, side, quantity, status, client_order_id"
                 + (", created_at" if created_at is not None else "")
                 + ") "
-                "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
-                ":settlement_currency, :symbol, 'BUY', 0.004, :status, "
+                "VALUES (:id, :user_id, :reservation_id, :closes_allocation_id, :exchange, "
+                ":venue, :settlement_currency, :symbol, 'BUY', 0.004, :status, "
                 ":client_order_id"
                 + (", :created_at" if created_at is not None else "")
                 + ")"
             ),
             {
                 "id": attempt_id,
+                "user_id": owner_id,
                 "reservation_id": reservation_id,
                 "closes_allocation_id": closes_allocation_id,
                 "exchange": exchange,
