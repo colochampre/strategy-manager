@@ -443,7 +443,10 @@ It needs an independent verifier before the PR.
     - every reservation's `delivery_id` matches its signal's delivery;
     - an attempt without `signal_id` still gets its delivery through its reservation;
     - the downgrade and the upgrade again.
-- [ ] C.3 `subscriptions/domain`: the `Subscription` aggregate (a new top-level module, by the screaming rule).
+- [x] C.3 `subscriptions/domain`: the `Subscription` aggregate (a new top-level module, by the screaming rule). Done on 2026-10-27, with `leave(now)` and `end(now)`.
+  - 7 tests are in `tests/subscriptions/domain/test_subscription.py`, and 6 of them were red on assertions against a no-op skeleton.
+  - The default-status test passed at once. A mutation, a default of LEAVING, first stayed green because the test passed the status explicitly. The test was fixed to build the default, and then the mutation turned it red.
+  - A LEAVING subscription that ends keeps its `left_at`.
   - The states are ACTIVE, LEAVING and ENDED. The legal moves are ACTIVE to LEAVING, ACTIVE to ENDED and LEAVING to ENDED; any other raises.
   - The share reuses the strategies domain's `AllocationPercent`.
   - Pure unit tests.
