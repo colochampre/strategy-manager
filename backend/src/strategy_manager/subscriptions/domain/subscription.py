@@ -57,6 +57,16 @@ class Subscription:
 
         return replace(self._move_to(SubscriptionStatus.ENDED), ended_at=now)
 
+    def change_share(self, allocation_percent: AllocationPercent) -> "Subscription":
+        """A new share, for an ACTIVE subscription only: a LEAVING one takes no
+        new openings, so a share would size nothing, and an ENDED one is over."""
+
+        if self.status is not SubscriptionStatus.ACTIVE:
+            raise InvariantViolation(
+                f"only an ACTIVE subscription changes its share, this one is {self.status}"
+            )
+        return replace(self, allocation_percent=allocation_percent)
+
     def _move_to(self, new_status: SubscriptionStatus) -> "Subscription":
         if new_status not in _LEGAL_TRANSITIONS[self.status]:
             raise InvariantViolation(

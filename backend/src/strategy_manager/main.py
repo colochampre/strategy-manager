@@ -294,6 +294,9 @@ from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStra
 from strategy_manager.strategies.infrastructure.router import (
     router as strategies_router,
 )
+from strategy_manager.subscriptions.infrastructure.router import (
+    router as subscriptions_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2149,6 +2152,7 @@ def create_app() -> FastAPI:
     # directly, and never inside ``api_router``.
     api_router = APIRouter(prefix="/api")
     api_router.include_router(strategies_router)
+    api_router.include_router(subscriptions_router)
     api_router.include_router(pair_catalog_router)
     api_router.include_router(reconciliation_router)
     api_router.include_router(pools_router)

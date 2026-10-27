@@ -44,6 +44,10 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/performance/strategies/{strategy_id}/trades"),
     ("GET", "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills"),
     ("GET", "/api/positions/open"),
+    ("POST", "/api/subscriptions"),
+    ("GET", "/api/subscriptions"),
+    ("POST", "/api/subscriptions/{subscription_id}/leave"),
+    ("PATCH", "/api/subscriptions/{subscription_id}"),
 }
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
 

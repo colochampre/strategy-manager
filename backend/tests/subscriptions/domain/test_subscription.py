@@ -65,6 +65,24 @@ def test_a_leaving_subscription_ends_and_keeps_when_it_left() -> None:
     assert ended.ended_at == _NOW
 
 
+def test_an_active_subscription_changes_its_share() -> None:
+    subscription = _subscription()
+
+    changed = subscription.change_share(AllocationPercent(Decimal("45")))
+
+    assert changed.allocation_percent == AllocationPercent(Decimal("45"))
+    assert changed.status is SubscriptionStatus.ACTIVE
+    assert subscription.allocation_percent == AllocationPercent(Decimal("30"))
+
+
+@pytest.mark.parametrize("status", [SubscriptionStatus.LEAVING, SubscriptionStatus.ENDED])
+def test_only_an_active_subscription_changes_its_share(status: SubscriptionStatus) -> None:
+    subscription = _subscription(status)
+
+    with pytest.raises(InvariantViolation, match="only an ACTIVE subscription"):
+        subscription.change_share(AllocationPercent(Decimal("45")))
+
+
 @pytest.mark.parametrize(
     ("status", "move"),
     [

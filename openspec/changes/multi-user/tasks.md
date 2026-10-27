@@ -463,6 +463,22 @@ It needs an independent verifier before the PR.
     - `RegisterStrategy` creates the author's subscription in the same transaction (assumption above).
     - `UpdateStrategy` and `StrategyView` lose `allocation_percent`. The view gains the signed-in user's subscription for that strategy, or null.
     - The share preview (`strategies/infrastructure/router.py:522`) previews against the signed-in user's pool.
+  - Done in two units:
+    - **C.4a** is the subscriptions module: the use cases, repository and router. Done on 2026-10-27.
+      - **Routes:**
+        - `POST /api/subscriptions` answers 201. Its refusals are 404, 409 `STRATEGY_ARCHIVED`, `NO_POOL_FOR_MARKET` and `ALREADY_SUBSCRIBED` (the unique index's race included), and 422.
+        - `GET /api/subscriptions` lists only the user's own subscriptions.
+        - `POST /api/subscriptions/{id}/leave` sets LEAVING or ENDED. It answers 409 `SUBSCRIPTION_NOT_ACTIVE` when the subscription is not active.
+        - `PATCH /api/subscriptions/{id}` answers 409 `SUBSCRIPTION_NOT_ACTIVE` when the subscription is not active, and 422 for a bad share.
+      - "Holds an open allocation" counts the user's ledger holdings of the strategy, under every spelling of the symbol, plus a live (PENDING or SUBMITTED) reservation. It is the archive's exposure question, asked for one user.
+      - **RED:**
+        - The router tests failed on assertions against a skeleton that answered 501.
+        - The 422 tests pass on pydantic before the handler runs, so they were proven by mutating the body type.
+        - Mutations proved each of these guards: the lock, the user filter on get, `get_for_update` and update, `has_live`, the race translation, and the user filter on reservations.
+        - Not mutation-proved: the user argument passed to the ledger's `symbol_holdings`. `test_another_users_open_allocation_does_not_keep_this_user_leaving` covers it.
+      - The full gate found that `test_webhook_secret_router`'s sweep had no body for the new write routes and no data for the list. It now seeds the admin's subscription, and it sends real bodies to POST and PATCH. Leave is in `_NO_BODY`.
+    - **C.4b** is the strategies side above. It needs C.4a's repository.
+  - `strategies.allocation_percent` stays on the domain's `AllocationPolicy` and on `StrategyRow` until C.6. `process_signal` still sizes from it, and C.6 moves that read to the subscription. Until then `RegisterStrategy` writes the share to both the strategy and the author's subscription. Only the API stops exposing it on the strategy. The branch is never deployed in between, so the interim gap does not reach production: `ChangeShare` does not move sizing before C.6.
 - [ ] C.5 `FanOutSignal` (`signals/application`) replaces the body of the `signal.process` handler. In one transaction:
   1. archived refusal and effect classification, as today, per (strategy, symbol);
   2. a delivery for each eligible subscription, `INSERT ... ON CONFLICT (signal_id, subscription_id) DO NOTHING`;
