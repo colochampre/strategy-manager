@@ -6,7 +6,8 @@ test has nothing worth keeping, and archiving it would keep its name and its id
 forever. A strategy that ever acted (a signal, a reservation, an execution attempt,
 a ledger entry, a booking proposal) cannot be removed without breaking a record, so
 it is refused and archiving stays the only path. Enablement events are NOT history
-(owner decision 42, Q1): migration 0028 deletes them with their strategy.
+(owner decision 42, Q1): migration 0028 deletes them with their strategy. Neither are
+subscriptions (owner decision 19): migration 0031 deletes them with it too.
 
 **The sequence, in order:**
 
@@ -20,8 +21,8 @@ it is refused and archiving stays the only path. Enablement events are NOT histo
 5. Archived? Nothing to decide (owner decision 42, Q3): an archived strategy is
    disabled by construction and the history alone decides. It is never un-archived.
 6. The history, read inside both locks. Any non-zero BLOCKING count refuses
-   (``StrategyHasHistory``); the enablement events never do. Then the events are read,
-   while they still exist, for the INFO line.
+   (``StrategyHasHistory``); the enablement events and the subscriptions never do.
+   Then the events are read, while they still exist, for the INFO line.
 7. The ``DELETE``. A foreign-key refusal here means the count missed something: it is
    logged at ERROR naming the constraint and answered as ``StrategyHasHistory``.
 8. Commit, releasing both locks, then one INFO line. The events went with the strategy
@@ -181,12 +182,13 @@ class DeleteStrategy:
         await self._commit.commit()
         logger.info(
             "strategy deleted: id=%s name=%r pool=%s/%s/%s archived=%s "
-            "enablement_events=%d first_enabled_at=%s uptime_seconds=%d",
+            "enablement_events=%d subscriptions=%d first_enabled_at=%s uptime_seconds=%d",
             strategy_id,
             strategy.name,
             *pool,
             strategy.archived_at is not None,
             history.enablement_events,
+            history.subscriptions,
             enablement.first_enabled_at.isoformat() if enablement.first_enabled_at else "never",
             round(enablement.seconds),
         )

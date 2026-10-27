@@ -421,6 +421,7 @@ def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
             ledger=SqlAlchemyLedgerRepository(session),
             proposals=SqlAlchemyBookingProposalRepository(session),
             enablement_log=SqlAlchemyEnablementLog(session),
+            session=session,
         ),
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),

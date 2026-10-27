@@ -111,7 +111,7 @@ class ZeroHistory:
     still be able to overrule."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory:
-        return StrategyHistory(0, 0, 0, 0, 0, 0)
+        return StrategyHistory(0, 0, 0, 0, 0, 0, 0)
 
 
 def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
@@ -122,6 +122,7 @@ def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
         ledger=SqlAlchemyLedgerRepository(session),
         proposals=SqlAlchemyBookingProposalRepository(session),
         enablement_log=SqlAlchemyEnablementLog(session),
+        session=session,
     )
 
 
@@ -216,7 +217,8 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
         "reservations",
         "signals",
         "strategy_enablement_events",
-    ]  # the five tables of design addendum 9x, § A
+        "subscriptions",
+    ]  # the five tables of design addendum 9x, § A, and the subscriptions of 0031
     for table in tables:
         count = await _scalar(
             factory, f"SELECT count(*) FROM {table} WHERE strategy_id = :id", id=strategy_id
@@ -281,6 +283,59 @@ async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
     assert "enablement_events=2" in message
     assert f"first_enabled_at={enabled_at.isoformat()}" in message
     assert "uptime_seconds=5400" in message
+
+
+async def test_a_subscribed_strategy_is_deleted_with_its_subscriptions_and_no_others(
+    factory: Factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Migration 0031: the subscriptions go with their strategy, through the real
+    foreign key; another strategy's subscription stays. The INFO line counts them."""
+    strategy_id = await _strategy(factory)
+    kept = await _strategy(factory)
+    for subscribed in (strategy_id, strategy_id, kept):
+        await _scalar_insert_subscription(factory, subscribed, ended=subscribed == strategy_id)
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(factory, strategy_id)
+
+    assert refusal is None, repr(refusal)
+    assert await _strategy_rows(factory, strategy_id) == 0
+    gone = await _scalar(
+        factory, "SELECT count(*) FROM subscriptions WHERE strategy_id = :id", id=strategy_id
+    )
+    stayed = await _scalar(
+        factory, "SELECT count(*) FROM subscriptions WHERE strategy_id = :id", id=kept
+    )
+    assert gone == 0
+    assert stayed == 1
+    records = [record for record in caplog.records if record.name == LOGGER]
+    assert [record.levelno for record in records] == [logging.INFO]
+    assert "subscriptions=2" in records[0].getMessage()
+
+
+async def _scalar_insert_subscription(
+    factory: Factory, strategy_id: UUID, *, ended: bool
+) -> None:
+    """The owner's subscription, in the owner's pool on the strategy's market.
+    Two ENDED ones for one strategy are allowed by the partial unique."""
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+                "allocation_percent, status) SELECT gen_random_uuid(), :owner, :strategy, p.id, "
+                "20, :status FROM capital_pools AS p WHERE p.user_id = :owner "
+                "AND (p.exchange, p.venue, p.settlement_currency) = (:e, :v, :c)"
+            ),
+            {
+                "owner": OWNER_ID,
+                "strategy": strategy_id,
+                "status": "ENDED" if ended else "ACTIVE",
+                "e": _POOL[0],
+                "v": _POOL[1],
+                "c": _POOL[2],
+            },
+        )
+        await session.commit()
 
 
 def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[object]:

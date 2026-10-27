@@ -129,6 +129,13 @@ These come from the owner's own words above. They are not asked again.
     - The question came from the code. The system keeps a strategy's position per (strategy, symbol) (`signals/infrastructure/repository.py:108`), but AD4 armed a subscription on "the last processed signal of the strategy", whatever its symbol. In a strategy that trades several pairs, the whole strategy may never be flat at once.
     - Example: a user subscribes while the strategy holds BTC and is flat on ETH. They enter at ETH's next opening, and at BTC's only after BTC closes.
     - This keeps decision 3's reason: every entry is at the strategy's own price.
-    - It replaces AD4's `armed_at`, which is not built. `PositionTransition` has no scale-in: every consuming effect is an entry at the signal's price, either an opening from flat or the opening half of a reverse. So every consuming effect goes to every ACTIVE subscription, and every releasing effect goes only to the subscriptions that hold that symbol's open allocation.
+    - It replaces AD4's `armed_at`, which is not built.
+
+19. **Deleting a strategy takes its subscriptions with it (PR C, C.1, 2026-10-27).** The owner chose "Si" to the recommendation over letting subscriptions block the delete.
+    - The delete still requires a strategy that never traded: no signals, reservations, ledger entries or booking proposals. The subscriptions are not part of that.
+    - `fk_subscriptions_strategy` is `ON DELETE CASCADE`. The history check counts the subscriptions for the response body and the log line, and never blocks on them. Enablement events work the same way (decision 42).
+    - Why not block: from 0031 on, every strategy carries its author's subscription, so a blocking count would make every delete impossible.
+    - Once other users exist, their subscriptions to a strategy that never emitted a signal go with it too. They lose nothing, because nothing traded.
+    - The question came from `test_strategy_references_guard`, which refuses any new reference into `strategies` that the delete check does not count. `PositionTransition` has no scale-in: every consuming effect is an entry at the signal's price, either an opening from flat or the opening half of a reverse. So every consuming effect goes to every ACTIVE subscription, and every releasing effect goes only to the subscriptions that hold that symbol's open allocation.
 
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

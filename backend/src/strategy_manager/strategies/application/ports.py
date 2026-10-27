@@ -20,8 +20,9 @@ from strategy_manager.strategies.domain.strategy import Strategy
 PoolKey = tuple[str, str, str]
 
 
-# The history kinds that are reported but never refuse a delete (migration 0028).
-_NEVER_BLOCKING = frozenset({"enablement_events"})
+# The history kinds that are reported but never refuse a delete (migrations 0028
+# and 0031).
+_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions"})
 
 
 class StrategyRepositoryPort(Protocol):
@@ -218,17 +219,20 @@ class StrategyHistory:
     of ``signals``, ``allocation``, ``execution``, ``ledger`` or
     ``reconciliation`` appears here, so this port stays free of those modules.
 
-    The six kinds are the five foreign keys into ``strategies`` plus the
+    The seven kinds are the six foreign keys into ``strategies`` plus the
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
 
     **Enablement events are counted but never block** (owner decision 42, Q1;
     migration 0028 deletes them with their strategy). They stay a field so the
-    refusal's body keeps its six keys and the delete's INFO line can name how
+    refusal's body keeps its keys and the delete's INFO line can name how
     many went; ``blocking()`` and ``is_empty()`` leave them out. Before 0028 is
     applied the foreign key still refuses a strategy that has events: the
     database says so, and ``DeleteStrategy`` answers it as ``HAS_HISTORY``.
+
+    **Subscriptions are the same** (owner decision 19; migration 0031 cascades
+    ``fk_subscriptions_strategy``): every status is counted, none refuses.
     """
 
     signals: int
@@ -237,10 +241,11 @@ class StrategyHistory:
     ledger_entries: int
     booking_proposals: int
     enablement_events: int
+    subscriptions: int
 
     def blocking(self) -> dict[str, int]:
         """The non-zero kinds that refuse a delete, in the fixed order of the
-        fields. Never ``enablement_events``."""
+        fields. Never ``enablement_events`` or ``subscriptions``."""
         return {
             field.name: count
             for field in fields(self)

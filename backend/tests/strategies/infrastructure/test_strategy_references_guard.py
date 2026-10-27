@@ -85,19 +85,22 @@ async def test_every_foreign_key_into_strategies_is_one_the_history_check_counts
         "fk_ledger_entries_strategy",
         "fk_booking_proposals_strategy",
         "fk_strategy_enablement_events_strategy",
+        "fk_subscriptions_strategy",
     }
     assert await uncounted_references(conn) == set(), _message(await uncounted_references(conn))
     assert set(COUNTED_STRATEGY_REFERENCES) == set(present), (
         "COUNTED_STRATEGY_REFERENCES names a constraint the database no longer has"
     )
     # Migration 0028 (owner decision 42, Q1): the enablement events go with their
-    # strategy, so that one key cascades; every other key is NO ACTION and refuses.
+    # strategy, so that one key cascades; so do the subscriptions (migration 0031,
+    # owner decision 19). Every other key is NO ACTION and refuses.
     assert {name: on_delete for name, (_, on_delete) in present.items()} == {
         "fk_signals_strategy": _NO_ACTION,
         "fk_reservations_strategy": _NO_ACTION,
         "fk_ledger_entries_strategy": _NO_ACTION,
         "fk_booking_proposals_strategy": _NO_ACTION,
         "fk_strategy_enablement_events_strategy": _CASCADE,
+        "fk_subscriptions_strategy": _CASCADE,
     }
     assert {name: table for name, (table, _) in present.items()} == {
         name: table for name, (table, _) in COUNTED_STRATEGY_REFERENCES.items()

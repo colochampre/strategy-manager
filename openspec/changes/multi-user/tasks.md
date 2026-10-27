@@ -382,11 +382,25 @@ It needs an independent verifier before the PR.
 
 ### Backend
 
-- [ ] C.1 Migration 0031, `subscriptions` (AD3; decision 18 drops `armed_at`).
+- [x] C.1 Migration 0031, `subscriptions` (AD3; decision 18 drops `armed_at`). Done on 2026-10-27, with the gate green: ruff 0, mypy 0, full pytest exit 0 with no failing test.
+  - 22 migration tests in `tests/migrations/test_0031_subscriptions.py`. Mutations proved each guard non-vacuous:
+    - the trigger, both on insert and on update;
+    - the no-pool refusal;
+    - the author in the refusal and in the backfill join;
+    - both CHECKs and the partial unique, where LEAVING counts as live;
+    - the pool FK without `user_id`;
+    - both downgrade refusals;
+    - the cascade.
+  - The writers' first RED was a missing table, not an assertion. The mutations above are the proof that stands in for it.
+  - Two additions beyond the text:
+    - the backfill copies the strategy's `created_at`;
+    - the downgrade also refuses a strategy that has no share and no subscription.
+  - Decision 19 came from `test_strategy_references_guard`: `StrategyHistory.subscriptions` counts and never blocks. `SubscriptionRow` mirrors 0031 for ORM-built schemas. The adapter counts directly until C.4 adds a repository.
+  - Not changed: the `StrategyRow` model still declares `allocation_percent` `NOT NULL`. Every write still sets it, and C.4 removes it from the model.
   - Columns: `id uuid pk`, `user_id`, `strategy_id`, `pool_id`, `allocation_percent numeric` with CHECK `> 0 AND <= 100`, `status` CHECK in `ACTIVE | LEAVING | ENDED`, `created_at`, `left_at`, `ended_at`.
   - Constraints:
     - FK `(pool_id, user_id)` to `capital_pools (id, user_id)`, so the database refuses one user's subscription in another user's pool;
-    - FK to `strategies` and to `users`;
+    - FK to `users`, and FK to `strategies` `ON DELETE CASCADE` (decision 19). `StrategyHistory` gains a `subscriptions` count that never blocks, in the response body and the delete log, like `enablement_events`. `COUNTED_STRATEGY_REFERENCES` gains the key;
     - partial unique `(user_id, strategy_id) WHERE status <> 'ENDED'`;
     - indexes on `user_id` and `strategy_id`.
   - A trigger refuses a row whose pool's `(exchange, venue, settlement_currency)` differs from its strategy's. That holds on insert, and on an update of `pool_id` or `strategy_id`.

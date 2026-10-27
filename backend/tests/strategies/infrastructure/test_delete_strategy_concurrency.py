@@ -170,6 +170,7 @@ def _history(session: AsyncSession) -> StrategyHistoryAdapter:
         ledger=SqlAlchemyLedgerRepository(session),
         proposals=SqlAlchemyBookingProposalRepository(session),
         enablement_log=SqlAlchemyEnablementLog(session),
+        session=session,
     )
 
 

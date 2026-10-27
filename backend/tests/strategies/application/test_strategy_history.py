@@ -17,6 +17,7 @@ _KINDS = [
     "ledger_entries",
     "booking_proposals",
     "enablement_events",
+    "subscriptions",
 ]
 
 
@@ -35,8 +36,10 @@ def test_a_history_of_zeros_is_empty() -> None:
 
 
 # Migration 0028 (owner decision 42, Q1): enablement events are counted and
-# reported, and they never block.
-_BLOCKING_KINDS = [kind for kind in _KINDS if kind != "enablement_events"]
+# reported, and they never block. Migration 0031 (decision 19): neither do
+# subscriptions, which go with their strategy the same way.
+_NEVER_BLOCKING_KINDS = ["enablement_events", "subscriptions"]
+_BLOCKING_KINDS = [kind for kind in _KINDS if kind not in _NEVER_BLOCKING_KINDS]
 
 
 @pytest.mark.parametrize("kind", _BLOCKING_KINDS)
@@ -52,8 +55,16 @@ def test_enablement_events_alone_do_not_block() -> None:
     assert history.enablement_events == 2  # still counted, for the body and the log
 
 
+def test_subscriptions_alone_do_not_block() -> None:
+    history = _history(subscriptions=3)
+
+    assert history.is_empty() is True
+    assert history.blocking() == {}
+    assert history.subscriptions == 3  # still counted, for the body and the log
+
+
 def test_blocking_names_only_the_nonzero_blocking_kinds_in_a_fixed_order() -> None:
-    history = _history(enablement_events=4, signals=3, ledger_entries=2)
+    history = _history(enablement_events=4, subscriptions=1, signals=3, ledger_entries=2)
 
     blocking = history.blocking()
 

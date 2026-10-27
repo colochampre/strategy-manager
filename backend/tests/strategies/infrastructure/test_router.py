@@ -791,6 +791,7 @@ _HISTORY_KEYS = {
     "ledger_entries",
     "booking_proposals",
     "enablement_events",
+    "subscriptions",
 }
 
 
@@ -810,7 +811,27 @@ class _NoHistory:
             ledger_entries=0,
             booking_proposals=0,
             enablement_events=0,
+            subscriptions=0,
         )
+
+
+async def _subscribe_author(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> None:
+    """One ACTIVE subscription of the strategy's author, in the author's pool on
+    the strategy's market."""
+    async with pg_session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+                "allocation_percent) SELECT gen_random_uuid(), s.author_id, s.id, p.id, 20 "
+                "FROM strategies AS s JOIN capital_pools AS p ON p.user_id = s.author_id "
+                "AND p.exchange = s.exchange AND p.venue = s.venue "
+                "AND p.settlement_currency = s.settlement_currency WHERE s.id = :id"
+            ),
+            {"id": strategy_id},
+        )
+        await session.commit()
 
 
 async def _delete_client(
@@ -1025,6 +1046,38 @@ async def test_delete_a_toggled_strategy_with_a_signal_409_still_reports_its_eve
 
     assert response.status_code == 409
     assert response.json()["detail"]["history"] == _history_body(signals=1, enablement_events=2)
+
+
+async def test_delete_a_subscribed_strategy_with_a_signal_409_reports_its_subscriptions(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await _subscribe_author(pg_session_factory, strategy_id)
+    await _seed_signal(pg_session_factory, strategy_id)
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["history"] == _history_body(signals=1, subscriptions=1)
+
+
+async def test_delete_a_subscribed_strategy_with_nothing_else_is_204(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])
+    await _subscribe_author(pg_session_factory, strategy_id)
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 204
+    async with pg_session_factory() as session:
+        remaining = (
+            await session.execute(
+                text("SELECT count(*) FROM subscriptions WHERE strategy_id = :id"),
+                {"id": strategy_id},
+            )
+        ).scalar_one()
+    assert remaining == 0
 
 
 async def test_delete_database_refusal_is_409_has_history_never_500(
