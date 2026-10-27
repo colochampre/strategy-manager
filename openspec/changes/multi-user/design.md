@@ -132,7 +132,12 @@ The author trades their own strategy only by subscribing to it, like anyone else
 
 ### AD4. The lifecycle: joining at the next opening, leaving after the close
 
-**Joining (decision 3).** A subscription opens only once it is **armed**. It is armed at creation when the strategy is flat, meaning the last processed signal of the strategy reported `position_size = 0`, or no signal exists yet. Otherwise it is armed by the first processed signal that reports `position_size = 0`.
+**Joining (decision 3, revised by decision 18).** Decision 18 replaces the arming below, which applied to the whole strategy, with a per-symbol rule:
+- Every consuming effect, whether an opening from flat or the opening half of a reverse, goes to every ACTIVE subscription.
+- A releasing effect goes only to the subscriptions that hold that symbol's open allocation.
+- `armed_at` is not built. The original text follows, for the record.
+
+A subscription opens only once it is **armed**. It is armed at creation when the strategy is flat, meaning the last processed signal of the strategy reported `position_size = 0`, or no signal exists yet. Otherwise it is armed by the first processed signal that reports `position_size = 0`.
 
 `position_size` is the strategy's own position as TradingView reports it (`signals/domain/alert.py:148`). So arming does not depend on any account, and every subscriber enters on the same signal as the author.
 
@@ -325,7 +330,7 @@ The fakes stay process-lifetime, as today.
 | --- | --- | --- |
 | 0029 | `users`, empty; the owner's row is created by their first `GET /api/me` | drop `users` |
 | 0030 | `user_id` on owned tables (AD2; ledger by constant default), filled with the one existing user (refuses unless exactly one exists); keys' unique per user; pools' surrogate id and FK moves; strategy's pool FK dropped for AD3's CHECK; ledger fill unique with `user_id` | reversible while only the owner exists |
-| 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then dropped from `strategies` | reversible while only the owner exists |
+| 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then made nullable on `strategies` and dropped by 0033 (expand and contract, `tasks.md` PR C) | reversible while only the owner exists |
 | 0032 | `signal_deliveries`; one per existing signal for the owner's subscription; `reservations.delivery_id` backfilled, `signal_id UNIQUE` dropped | reversible while only the owner exists |
 | 0033 | `strategies.webhook_secret_hash` (the current global secret hashed by the migration from settings); `users.mode` (the owner's set to `LIVE` if `DRY_RUN=false` at migration time, else `SIMULATION`); `reservations.mode` backfilled from each row's recorded mode origin | reversible while only the owner exists |
 

@@ -334,6 +334,192 @@ It needs an independent verifier before the PR.
    - A POST to `/webhook/tradingview` answered `401`.
    - The owner loaded every page of the panel. Discrepancies is empty: its one row is `OBSERVED` and resolved, and the view lists only open, confirmed ones.
 
-## PR C-G
+## PR C: subscriptions and fan-out
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is.
+Design AD3-AD5 and decision 18. Written 2026-10-27 from production at `0030` (main `7f67fc3`), a read-only map of the code, and a read-only pre-check of production. Paths are relative to `backend/src/strategy_manager/`.
+
+A subscription becomes the only way to trade a strategy, the author included. One signal fans out into one delivery per eligible subscription, and each delivery is worked in its subscriber's pool, with the subscriber's key and share. Strategies stay admin-only until PR D (decision 16). Subscribing opens to any signed-in user, but a non-admin has no list of strategies to pick from until PR F, so production does not change in practice.
+
+**Production at planning (pre-check, 2026-10-27):**
+- 6 strategies, all on `binance/usdt-m/USDT`, each with exactly one pool of its author for that market:
+  - 3 enabled, not archived, at 30 %: AAVE, SFP and STX "4h - RSI Divergences";
+  - 3 disabled and archived, at 5 %: the three "... Test".
+- 48 signals: 17 `ACCEPTED`, 16 `PROCESSED`, 15 `REJECTED`. None lacks its strategy.
+- 10 reservations, all `FILLED`.
+- 4 execution attempts have no `signal_id`. They predate 0025.
+- The `jobs` table holds only finished signal jobs: 7 `DONE`, 4 `FAILED`.
+
+**What the map found that the design did not say** (each is resolved in the tasks below):
+- **a.** The position is kept per (strategy, symbol) (`signals/infrastructure/repository.py:108`). AD4's arming read the whole strategy. Decision 18 resolves this.
+- **b.** A close works the prior signal's reservation (`signals/infrastructure/signal_context.py:77`). Per delivery, it has to work that subscription's open reservation for the symbol (C.6).
+- **c.** The worker is serial. It claims one job at a time (`shared/infrastructure/worker_runner.py:32`, `job_queue.py` `.limit(1)`), and one runner is started (`worker.py:256`). AD5 called this unverified. Readiness D.3 now plans the concurrency change instead of discovering it.
+- **d.** Every outcome write locks the signals row `FOR UPDATE` (`signals/infrastructure/outcome_repository.py:71`). All its writers move to the delivery (C.7).
+- **e.** Archive and delete take only the author's pool lock (`strategies/application/archive_strategy.py:163`, `delete_strategy.py:118`). A subscriber's opening in another pool is not serialized against them (C.9).
+- **f.** `signal.process` has no `dedupe_key` (`signals/application/ingest_signal.py:98-103`). Only the new `delivery.process` jobs get one.
+- **g.** More code reaches one execution through `signal_id` than AD5 listed:
+  - `execution_attempts.signal_id`;
+  - `CloseOrphans` (`signals/application/close_orphans.py:197`);
+  - `failed_job_signal_reader.py`;
+  - `performance/infrastructure/rehearsal_pricing_source.py:65`;
+  - the history count that blocks delete.
+
+  All of them are covered by C.8.
+
+**Deploy shape: expand now, contract later.**
+- No column that the running code reads is dropped in 0031 or 0032.
+  - `strategies.allocation_percent` becomes nullable and unused.
+  - `signals.status`, `outcome_reason`, `outcome_detail` and `decided_at` stay in place, unused.
+  - A later migration drops them (planned for PR D's 0033), once no deployed code touches them.
+- The API's old code can then keep ingesting through the migration. Only the worker is stopped, as in PR B, because `reservations.delivery_id` becomes `NOT NULL` and the old worker does not write it.
+
+**Assumption, stated rather than asked:** creating a strategy creates the author's ACTIVE subscription at the share the form sends, in the same transaction. Today, creating a strategy with a share means trading it, and this keeps that behaviour. PR D, which opens authoring to everyone, may revisit it.
+
+**Risk:**
+- item 1: two migrations move live data;
+- item 4: the fan-out, the per-delivery lock and archive's locks.
+
+It needs an independent verifier before the PR.
+
+### Backend
+
+- [ ] C.1 Migration 0031, `subscriptions` (AD3; decision 18 drops `armed_at`).
+  - Columns: `id uuid pk`, `user_id`, `strategy_id`, `pool_id`, `allocation_percent numeric` with CHECK `> 0 AND <= 100`, `status` CHECK in `ACTIVE | LEAVING | ENDED`, `created_at`, `left_at`, `ended_at`.
+  - Constraints:
+    - FK `(pool_id, user_id)` to `capital_pools (id, user_id)`, so the database refuses one user's subscription in another user's pool;
+    - FK to `strategies` and to `users`;
+    - partial unique `(user_id, strategy_id) WHERE status <> 'ENDED'`;
+    - indexes on `user_id` and `strategy_id`.
+  - A trigger refuses a row whose pool's `(exchange, venue, settlement_currency)` differs from its strategy's. That holds on insert, and on an update of `pool_id` or `strategy_id`.
+  - Backfill: one subscription per strategy, for its `author_id`, in that author's pool for the strategy's market, at the strategy's `allocation_percent`.
+    - It is ACTIVE when the strategy is not archived. It is ENDED, with `ended_at = archived_at`, when it is.
+    - It refuses, naming the strategy, when the author has no pool or more than one for that market. Production has exactly one for each of the 6.
+  - `strategies.allocation_percent` becomes nullable. Its CHECK stays; it is no longer read or written (expand and contract, above).
+  - Downgrade: refuses unless exactly one user exists, then copies each strategy's share back from its latest subscription and drops the table.
+  - Tests on real PostgreSQL, through `migrated_database(name, "0030")` (`tests/pg_head_schema.py:101`):
+    - the backfill, with both ACTIVE and ENDED;
+    - the refusal with no pool;
+    - the cross-user pool FK and the market trigger;
+    - the partial unique: a second ACTIVE row is refused, while a new row after ENDED is allowed;
+    - the downgrade and the upgrade again.
+- [ ] C.2 Migration 0032, `signal_deliveries` (AD5).
+  - Columns: `id uuid pk`, `signal_id`, `subscription_id`, `user_id`, `status` (default `ACCEPTED`), `outcome_reason`, `outcome_detail`, `decided_at`, `created_at`.
+  - Constraints: `UNIQUE (signal_id, subscription_id)`, an index on `user_id`, and FKs to `signals`, `subscriptions` and `users`.
+  - Backfill: one delivery per existing signal, for its strategy author's subscription from 0031. Each delivery copies the signal's `status`, `outcome_reason`, `outcome_detail` and `decided_at`.
+  - `reservations.delivery_id uuid NOT NULL`, FK to `signal_deliveries`, `UNIQUE`. It is filled through `reservations.signal_id`.
+    - The column-level unique on `reservations.signal_id` (from 0004, default name, nothing catches it by name) is dropped. The column itself stays.
+  - `execution_attempts.delivery_id uuid NULL`, FK to `signal_deliveries`. It is filled through the attempt's reservation, because 4 production rows have no `signal_id`.
+  - The signals' outcome columns are copied, not dropped.
+  - Downgrade: refuses unless exactly one user exists, then restores the `signal_id` unique and drops the new columns and the table.
+  - Tests:
+    - every signal has exactly one delivery;
+    - the outcome columns are equal to the signal's;
+    - every reservation's `delivery_id` matches its signal's delivery;
+    - an attempt without `signal_id` still gets its delivery through its reservation;
+    - the downgrade and the upgrade again.
+- [ ] C.3 `subscriptions/domain`: the `Subscription` aggregate (a new top-level module, by the screaming rule).
+  - The states are ACTIVE, LEAVING and ENDED. The legal moves are ACTIVE to LEAVING, ACTIVE to ENDED and LEAVING to ENDED; any other raises.
+  - The share reuses the strategies domain's `AllocationPercent`.
+  - Pure unit tests.
+- [ ] C.4 `subscriptions/application` and `infrastructure`: the use cases `Subscribe`, `Leave` and `ChangeShare`, a repository scoped by `user_id`, and a router under `/api/subscriptions` open to any signed-in user.
+  - **Subscribe** needs:
+    - a strategy that exists and is not archived;
+    - the user's own pool for the strategy's market, or 409 `NO_POOL_FOR_MARKET`;
+    - no non-ENDED subscription of that user to that strategy, or 409.
+  - **Leave** runs under that user's pool lock. It sets LEAVING when the user holds an open allocation of the strategy, and ENDED otherwise (decision 4).
+  - **ChangeShare** is refused unless the subscription is ACTIVE.
+  - A user can list their own subscriptions.
+  - Another user's subscription answers 404 (AD8), with a cross-user test for each route, and no row changes.
+  - **Strategies:**
+    - `RegisterStrategy` creates the author's subscription in the same transaction (assumption above).
+    - `UpdateStrategy` and `StrategyView` lose `allocation_percent`. The view gains the signed-in user's subscription for that strategy, or null.
+    - The share preview (`strategies/infrastructure/router.py:522`) previews against the signed-in user's pool.
+- [ ] C.5 `FanOutSignal` (`signals/application`) replaces the body of the `signal.process` handler. In one transaction:
+  1. archived refusal and effect classification, as today, per (strategy, symbol);
+  2. a delivery for each eligible subscription, `INSERT ... ON CONFLICT (signal_id, subscription_id) DO NOTHING`;
+  3. one `delivery.process` job per inserted delivery, `dedupe_key` `delivery:<id>`.
+  - **Eligibility (decision 18):**
+    - an opening effect, or a reverse, goes to every ACTIVE subscription;
+    - a closing effect goes to the ACTIVE or LEAVING subscriptions that hold that symbol's open allocation of the strategy;
+    - for a reverse, a subscription that holds the allocation gets both halves, and one that does not gets only the opening half.
+  - **Tests:**
+    - a retried `signal.process` makes no second delivery and no second job;
+    - an opening reaches all ACTIVE subscriptions and no LEAVING or ENDED one;
+    - a close reaches only the holders;
+    - a new subscriber gets the next opening of a symbol, but not the close of a position it never opened;
+    - two users' symbols are spelled differently on each side of the boundary (working agreement).
+- [ ] C.6 `ProcessDelivery`, today's `ProcessSignalHandler` body taking a delivery. Each use of `policy.author_id` (`process_signal.py:500-778`, `allocate_capital.py:124-272`) becomes the delivery's `user_id`:
+  - the pool is the subscription's pool;
+  - the share is the subscription's `allocation_percent` (`process_signal.py:625-628`);
+  - the key is the subscriber's: `job_owner.py` gains `delivery_owner`;
+  - the prior reservation is that subscription's open reservation for the symbol, not the prior signal's (finding b);
+  - the reservation is written with `delivery_id`;
+  - in the same transaction, a LEAVING subscription whose last open allocation of the strategy closes becomes ENDED.
+  - **Tests:**
+    - two subscribers to one strategy, each sized from their own pool and share, each placed with their own key (the fake, per pool);
+    - a close works only that subscriber's reservation;
+    - LEAVING turns into ENDED on the last close.
+- [ ] C.7 Outcomes per delivery (finding d). `SqlAlchemySignalOutcomeRepository` writes `signal_deliveries` and locks the delivery row, not the signal's. Every writer the map listed moves with it: `process_signal`, `skip_recorder`, `place_order`, `close_position`, `settle_execution`, `open_after_close` and `exhausted_job_recorder`.
+  - A test proves that two deliveries of one signal record their outcomes independently.
+  - The signals' own outcome columns are no longer written.
+- [ ] C.8 Every job and reader that reaches one execution through `signal_id` takes `delivery_id` instead (finding g):
+  - `signal.open_after_close` carries `delivery_id`, with `dedupe_key` `signal.open_after_close:{delivery_id}:{poll}`;
+  - `place_order` and `close_position` write `execution_attempts.delivery_id`;
+  - `execution.settle` and `attempt_owner` resolve through it;
+  - `CloseOrphans` seeds by delivery;
+  - `failed_job_signal_reader` maps a failed job to its delivery;
+  - `rehearsal_pricing_source` reaches the signal's price through the delivery.
+  - The history count that blocks delete keeps counting signals.
+  - `reservations.signal_id` is still written, for reads only.
+- [ ] C.9 Archive and delete against every subscriber (finding e, decision 5).
+  - Archive takes the pool advisory lock of every pool that holds a non-ENDED subscription of the strategy, in ascending `pool_id` order so two callers cannot deadlock, and only then the row locks (working agreement). It refuses while any subscriber holds an open allocation, and ends every subscription in the same transaction.
+  - Delete takes the same locks.
+  - The lock-hold harness on real PostgreSQL proves that an opening delivery in a subscriber's pool waits for archive (`not task.done()`) and is then refused as archived. The template is `tests/allocation/infrastructure/test_pool_lock_per_user.py`.
+- [ ] C.10 The delete-key exposure (`accounts/infrastructure/pool_exposure_adapter.py:71-80`) reads the user's non-ENDED subscriptions on that market, instead of the strategies they author. The cross-user test from B.D.1 stays green, and one new test proves that a subscription blocks the delete.
+- [ ] C.11 Concurrency on real PostgreSQL, with the lock-hold harness:
+  - two deliveries of one signal for two users take two different pool locks, and neither waits for the other;
+  - two deliveries for one user's pool serialize.
+
+### Frontend
+
+- [ ] C.12 The share editor (`features/strategies/PoolShareEditor.tsx`) edits the signed-in user's subscription (`PATCH /api/subscriptions/{id}`), not the strategy.
+  - The strategy page shows that subscription's state, with Subscribe and Leave. LEAVING reads as "closes with the strategy's next close".
+  - `NewStrategyDialog` still sends the share, which now becomes the author's subscription.
+  - `types.ts` and `strategies.ts` follow the API.
+  - EN and ES copy, with ES in "usted".
+  - Each changed behaviour gets its test, red first.
+
+### Owner-run (production)
+
+- [x] C.0 The read-only pre-check (2026-10-27). Its results are above, under "Production at planning".
+- [ ] C.13 Before the deploy: a fresh backup, then rehearse 0031 and 0032 on a throwaway restore.
+  - Counts unchanged on every existing table.
+  - 6 subscriptions: 3 ACTIVE at 30 and 3 ENDED at 5.
+  - 48 deliveries, with outcomes equal to their signals'.
+  - Every reservation and every attempt has its `delivery_id`.
+  - The ledger's `(id, xmin)` unchanged.
+  - Downgrade to `0030`, then upgrade again.
+  - Every query in the script is run on a local throwaway database at `head` before it is handed over.
+- [ ] C.14 Deploy:
+  1. pull as `strategy`;
+  2. stop `strategy-worker`;
+  3. `alembic upgrade head`;
+  4. restart both services;
+  5. pps.6 for the panel.
+  - Check:
+    - the panel and every page load;
+    - the strategy page shows the owner's subscription at 30 %;
+    - the worker's log has no new WARNING or ERROR;
+    - the webhook still answers;
+    - the first real signal after the deploy makes exactly one delivery.
+
+### Delivery
+
+- [ ] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [ ] C.D.2 Push and open the PR (on the owner's word).
+- [ ] C.D.3 Merge (owner), with a merge commit.
+- [ ] C.D.4 Deploy (C.13, C.14).
+- [ ] C.D.5 Delivery log row and "Production now".
+
+## PR D-G
+
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR D's 0033 also drops what PR C left unused: `strategies.allocation_percent`, and the signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at`.
