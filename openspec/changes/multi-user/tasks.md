@@ -6,10 +6,11 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-22: main `a1295e0`, panel bundle `a1295e08340b`, alembic `0029`.
+- 2026-10-27: main `5632e76`, panel bundle `5632e763deb5`, alembic `0030`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
-- `users` holds one row, the owner's, created by their first `/api/me`.
+- `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
+- The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
 
@@ -17,6 +18,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | --- | --- | --- | --- |
 | #84 | Multi-user decisions 1-15, proposal and design; operator-panel PR 25's delivery record | `7a006fc` (parents `2e137f1`, `c4513d1`) | 2026-10-21, pull only (docs) |
 | #85 | PR A: identity from Cloudflare Access, `/api/me`, the panel without the token, migration 0029 | `a1295e0` (parents `7a006fc`, `7f878ca`) | 2026-10-22, see "PR A's delivery" |
+| #86 | PR B: every owned row belongs to its user, scoped reads, the per-user lock, worker and reconciliation, migration 0030 | `5632e76` (parents `a1295e0`, `814f1eb`) | 2026-10-27, see "PR B's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -266,13 +268,13 @@ It needs an independent verifier before the PR.
 
 ### Owner-run (production)
 
-- [ ] B.11 Before the deploy: a fresh backup, then rehearse 0030 on a throwaway restore.
+- [x] B.11 Before the deploy: a fresh backup, then rehearse 0030 on a throwaway restore.
   - counts per owned table, unchanged;
   - every `user_id` and `author_id` the owner's;
   - the ledger's `xmin` unchanged;
   - the new constraints present;
   - downgrade to `0029`, then upgrade again.
-- [ ] B.12 Deploy:
+- [x] B.12 Deploy:
   - pull as `strategy`;
   - `alembic upgrade head`;
   - restart both services;
@@ -285,17 +287,51 @@ It needs an independent verifier before the PR.
 
 ### Delivery
 
-- [ ] B.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [x] B.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. After `814f1eb`: ruff 0, mypy 0, pytest exit 0 with no failing test; frontend lint 0, vitest 2,920 passed.
   - **Verifier, 2026-10-26.** B.1-B.9 pass. B.10 is frontend and was outside its brief; the parent's frontend lint and tests are green. It found one blocker:
     - The scoped `DELETE /api/credentials/{exchange}` read enabled strategies for the whole market. A non-admin with their own key got a 409 that named the admin's strategy id and name, and could not delete the key while anyone had an enabled strategy on that market.
     - Fixed: `PoolExposureAdapter` filters `StrategyRow.author_id`. The regression test is `test_cross_user_b_delete_of_their_own_key_is_neither_blocked_by_nor_told_of_a_strategies`, red on the 409 before the fix. Two older delete tests now seed their strategy as the signed-in admin.
   - **Advisories, not fixed in PR B:**
     - `performance_router._strategy_pool` answers 404 for an unknown strategy id and 200 with empty figures for a real one, to any signed-in user. That reveals whether an id exists, but no figures or names.
     - Reconciliation scan and prepare build each user's readers with `vault.load` outside a per-user `try`. A key deleted between the coverage read and the load raises before the successor job is enqueued, which stops the chain for every user. `balance.sync` isolates each pair. The race is narrow, and the same failure existed with one key at the baseline.
-- [ ] B.D.2 Push and open the PR (on the owner's word).
-- [ ] B.D.3 Merge (owner), with a merge commit.
-- [ ] B.D.4 Deploy (B.11, B.12).
-- [ ] B.D.5 Delivery log row and "Production now".
+- [x] B.D.2 Push and open the PR (on the owner's word): #86, on "Dale, push y PR".
+- [x] B.D.3 Merge (owner), with a merge commit: `5632e76`.
+- [x] B.D.4 Deploy (B.11, B.12).
+- [x] B.D.5 Delivery log row and "Production now".
+
+### PR B's delivery
+
+**PR B's deploy, 2026-10-27** (owner-run, one step at a time):
+1. Pull as `strategy`, fast-forward `a1295e0..5632e76`. No dependency changed, so no `uv sync`.
+2. **Backup and rehearsal (B.11).** The backup is `/root/sm_pre0030_20261027_1356.dump`, and the rehearsal ran on `sm_rehearsal_0030`, restored from it.
+   - Production was at `0029`, with 1 user.
+   - Counts, the same in production and in the copy, and unchanged after `upgrade head`, after `downgrade -1` and after the second upgrade:
+     - `exchange_credentials` 8, `capital_pools` 5, `pool_balance_snapshots` 2;
+     - `reservations` 10, `execution_attempts` 20, `ledger_entries` 65;
+     - `reconciliation_discrepancies` 1, `booking_proposals` 0;
+     - `strategies` 6, `signals` 48.
+   - The ledger's `(id, xmin)` fingerprint was unchanged by the upgrade.
+   - Every `user_id` and `author_id` was the owner's.
+   - Present:
+     - `ck_strategies_venue`, `fk_strategies_author`;
+     - the four `fk_*_capital_pool`;
+     - `ux_capital_pools_id_user`, `ux_capital_pools_user_market`.
+   - Both ledger triggers stayed enabled (`O`).
+   - The copy was dropped.
+   - The first two runs stopped on two bugs in the rehearsal script itself, before and after the upgrade of the copy, and never touched production. The second run left the copy at `0030`, and a follow-up script finished from there.
+3. The worker was stopped (`inactive`) before the migration. The old code writes no `user_id`, which 0030 makes `NOT NULL`. The API stayed up, because ingress writes only `signals`.
+4. `alembic upgrade head`: `0029 -> 0030`.
+5. Both services restarted, both `active`.
+6. **pps.6.** The bundle was built from a clean worktree of `origin/main` at `5632e763deb5`: `npm ci` 0, build 0, 22 entries, SHA-256 `a2c00a3e80d4be674344661bcab758eccc8e90d76613c7154492057f1772ab5e`. The VPS printed `OK`, `readable`, and `5632e763deb5` for both bundle and checkout.
+7. **Checks.**
+   - No WARNING or ERROR from either service since the restart. The two lines the grep counted are the INFO "operator alerts are on: ERROR and above..." line.
+   - The worker logged:
+     - `1 enabled pools, dry_run=False`;
+     - `vault self-test: 1 sealed credential(s) opened (binance of user a90b5f44)`, which names the user's id prefix and no e-mail (B.7);
+     - `recurring chains already alive`;
+     - the watchdog: every enabled pool fresh, every chain scheduled, nothing failed.
+   - A POST to `/webhook/tradingview` answered `401`.
+   - The owner loaded every page of the panel. Discrepancies is empty: its one row is `OBSERVED` and resolved, and the view lists only open, confirmed ones.
 
 ## PR C-G
 
