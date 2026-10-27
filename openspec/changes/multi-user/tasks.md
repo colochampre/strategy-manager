@@ -188,7 +188,8 @@ It needs an independent verifier before the PR.
     - the failed-job signal reader;
     - the worker's startup mode check (`SqlAlchemyModeOriginReader` without a user);
     - the admin discrepancy list;
-    - `get_for_update` and the auto-booking sweeps, which take the user from the proposal itself.
+    - `get_for_update` and the auto-booking sweeps, which take the user from the proposal itself;
+    - `signal_owner` and `attempt_owner` (`job_owner.py`), which find the user a worker job runs as.
   - Two filters are defense in depth and not provable by mutation, because the ledger filter beside them already excludes the other user's rows: the reservation filter in `allocation_fills_source` and the ledger filter in `position_facts`.
 - [x] B.4 The advisory lock identifies one user's pool. Two users with the same `(exchange, venue, settlement_currency)` never share a lock: proven with the lock-hold harness (`not task.done()` for the same user, done for the other). `assert_pool_lock_keys_distinct` covers every user's pools, or becomes unnecessary if the key is the pool's id. The lock order stays pool lock first, then row locks.
   - **How the key is built.** `LockKey` carries `user_id` and folds it into the second hash input, as `settlement_currency:user_id`. The nil UUID is refused.
@@ -200,7 +201,11 @@ It needs an independent verifier before the PR.
     - The startup invariant: each `PoolConfig.user_id`, over every user's enabled pools.
   - **Tests.** `tests/allocation/infrastructure/test_pool_lock_per_user.py` checks that the same user waits while another user and a third user complete. Each call site's user is proven by a fixed-UUID mutation.
   - **Why it was needed.** Before this, two users on one market made the startup invariant refuse to start.
-- [ ] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
+- [x] B.5 Signal processing: a signal is allocated and executed in its strategy author's pool, with the author's key. Its reservation, execution attempt and ledger rows carry the author's `user_id`. The holding guard reads that user's holdings.
+  - Done inside U1-U5 and confirmed by the verifier (B.D.1).
+  - `ProcessSignalHandler` passes `policy.author_id` to the capability check, the holding guard, the balance read and `PlaceCommand.user_id`. `AllocateCapital` reserves with it.
+  - The worker finds the job's user through `signal_owner` or `attempt_owner` before `exchange_for`.
+  - `test_the_capability_asked_about_is_the_strategy_authors_key` was proven by an in-memory mutation: the author's id swapped for another turns it red.
 - [x] B.6 Routers (decision 16):
   - credentials, pools, performance and open positions depend on `current_user` and pass its id down;
   - the other routers keep `require_admin`, and strategies stamp `author_id` from the admin's `User`.
@@ -222,13 +227,17 @@ It needs an independent verifier before the PR.
 
     Each was red on a 403 before the swap and is proven by a mutation of its scoping filter. There is no pool update endpoint.
   - **Production.** Unchanged until Access admits another user.
-- [ ] B.7 Worker per `(user_id, exchange)` (AD9):
+- [x] B.7 Worker per `(user_id, exchange)` (AD9):
   - `read_key_coverage` returns sets of pairs, in one statement;
   - one `SyncBalances` per pair with an active key;
   - `_degraded` is keyed by the pair, and one user's failure degrades only that user;
   - `exchange_for`, the balance reader and the venue reader load the key of the row's user.
   - The startup refusal on a key that does not open is unchanged.
   - A Telegram alert names the user's id prefix, never an e-mail.
+  - Done in `b84bace` (U2b) and confirmed by the verifier (B.D.1):
+    - `read_key_coverage` is one `UNION ALL` statement;
+    - a pair whose key does not open is skipped with a WARNING, and the other pairs still sync;
+    - every alert and log names `str(user_id)[:8]`, and none names an e-mail.
 - [x] B.8 Reconciliation per user's pool (AD10):
   - the venue's net position is read with that user's key;
   - the ledger side is filtered by `user_id`;
@@ -277,6 +286,12 @@ It needs an independent verifier before the PR.
 ### Delivery
 
 - [ ] B.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+  - **Verifier, 2026-10-26.** B.1-B.9 pass. B.10 is frontend and was outside its brief; the parent's frontend lint and tests are green. It found one blocker:
+    - The scoped `DELETE /api/credentials/{exchange}` read enabled strategies for the whole market. A non-admin with their own key got a 409 that named the admin's strategy id and name, and could not delete the key while anyone had an enabled strategy on that market.
+    - Fixed: `PoolExposureAdapter` filters `StrategyRow.author_id`. The regression test is `test_cross_user_b_delete_of_their_own_key_is_neither_blocked_by_nor_told_of_a_strategies`, red on the 409 before the fix. Two older delete tests now seed their strategy as the signed-in admin.
+  - **Advisories, not fixed in PR B:**
+    - `performance_router._strategy_pool` answers 404 for an unknown strategy id and 200 with empty figures for a real one, to any signed-in user. That reveals whether an id exists, but no figures or names.
+    - Reconciliation scan and prepare build each user's readers with `vault.load` outside a per-user `try`. A key deleted between the coverage read and the load raises before the successor job is enqueued, which stops the chain for every user. `balance.sync` isolates each pair. The race is narrow, and the same failure existed with one key at the baseline.
 - [ ] B.D.2 Push and open the PR (on the owner's word).
 - [ ] B.D.3 Merge (owner), with a merge commit.
 - [ ] B.D.4 Deploy (B.11, B.12).

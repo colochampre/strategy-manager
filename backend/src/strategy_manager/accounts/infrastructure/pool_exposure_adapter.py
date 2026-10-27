@@ -62,15 +62,16 @@ class PoolExposureAdapter:
 
     async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
         """``user_id`` is the user whose key is being deleted (multi-user design
-        AD8): only that user's live reservations, ledger rows and open
-        discrepancies stand in the way. The enabled-strategies read still covers
-        the whole market until strategies are scoped (a later unit of PR B),
-        which errs on the side of refusing."""
+        AD8): only that user's enabled strategies, live reservations, ledger rows
+        and open discrepancies stand in the way. Another user's strategy works in
+        its author's pool with its author's key, never this one, and its id and
+        name are not this user's to read."""
         exchange, venue, settlement_currency = pool
 
         enabled = await self._session.execute(
             select(StrategyRow.id, StrategyRow.name)
             .where(
+                StrategyRow.author_id == user_id,
                 StrategyRow.exchange == exchange,
                 StrategyRow.venue == venue,
                 StrategyRow.settlement_currency == settlement_currency,

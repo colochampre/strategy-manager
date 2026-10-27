@@ -120,13 +120,10 @@ class DeleteCredential:
         exchange is never touched, and a user with no key of their own gets
         ``NoActiveCredential`` even when someone else holds one.
 
-        The live reservations that refuse the delete are that user's only.
-
-        Not scoped yet, and deliberately left as they are: the advisory lock is
-        still the market's (one user's pool lock is tasks.md B.4), and the
-        exposure read still covers every strategy, attempt and ledger row on
-        the market (those tables gain their owner in later units). Both err on
-        the side of refusing."""
+        The advisory lock taken is that user's pool lock (tasks.md B.4), and
+        every exposure that refuses the delete is that user's own: their enabled
+        strategies, live reservations, in-flight attempts, ledger holdings and
+        open discrepancies."""
         # Step 1: nothing below runs for an exchange without a known pool.
         try:
             known = known_pool_for(exchange)

@@ -1289,8 +1289,8 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
         await session.commit()
     enabled_id = uuid4()
     holder_id = uuid4()
-    await seed_strategy(factory, strategy_id=enabled_id, enabled=True)
-    await seed_strategy(factory, strategy_id=holder_id, enabled=False)
+    await seed_strategy(factory, strategy_id=enabled_id, enabled=True, author_id=admin)
+    await seed_strategy(factory, strategy_id=holder_id, enabled=False, author_id=admin)
     allocation = await seed_open_position(
         factory, strategy_id=holder_id, symbol="ETHUSDT", user_id=admin
     )
@@ -1450,8 +1450,10 @@ async def test_every_delete_answer_carries_no_store(
             "/api/credentials/bybit", headers=FORGED_HEADERS
         )
         await _store(factory, "bybit")
+        async with factory() as session:
+            admin = await seed_admin(session)
         strategy_id = uuid4()
-        await seed_strategy(factory, strategy_id=strategy_id, enabled=True)
+        await seed_strategy(factory, strategy_id=strategy_id, enabled=True, author_id=admin)
         answers["409"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
         await set_strategy_enabled(factory, strategy_id, False)
         answers["200"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
@@ -1529,6 +1531,33 @@ async def test_cross_user_b_delete_of_a_key_is_404_and_a_key_and_pool_stay_activ
     assert await _is_active(factory, "bybit") == [True]
     assert await _flags_by_user(factory, "bybit") == {(str(admin), True)}
     assert await _pool_enabled(factory, admin, "bybit") is True
+
+
+@pytest.mark.integration
+async def test_cross_user_b_delete_of_their_own_key_is_neither_blocked_by_nor_told_of_a_strategies(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A's enabled strategy on the market works in A's pool with A's key, never
+    B's, so it does not stand in B's way, and its id and name never reach B."""
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id, enabled=True, author_id=admin)
+    async with _serve_db(factory) as served:
+        await served.api.get("/api/credentials", headers=OTHER_HEADERS)
+    async with factory() as session:
+        other = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :e"), {"e": OTHER_EMAIL}
+            )
+        ).scalar_one()
+    await _store(factory, "bybit", key="OTHER-BYBIT-KEY-9999", user_id=other)
+
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=OTHER_HEADERS)
+
+    assert deleted.status_code == 200, deleted.text
+    assert str(strategy_id) not in deleted.text
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True), (str(other), False)}
 
 
 @pytest.mark.integration
