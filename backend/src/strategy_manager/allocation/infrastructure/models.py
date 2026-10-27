@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from strategy_manager.shared.db import Base
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow  # noqa: F401
 
 
 class ReservationRow(Base):
@@ -77,3 +78,12 @@ class ReservationRow(Base):
     # every row written before that migration -- it cannot be backfilled. A
     # CHECK there enforces NULL-or-positive; nothing sums it across pools.
     pool_total_at_open: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+    # Added by migration 0032: the delivery (one signal reaching one subscription)
+    # this reservation serves. NULLABLE until C.6, which makes it NOT NULL and
+    # drops the unique on ``signal_id``; nothing writes it before then.
+    delivery_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("signal_deliveries.id", name="fk_reservations_delivery"),
+        nullable=True,
+        unique=True,
+    )

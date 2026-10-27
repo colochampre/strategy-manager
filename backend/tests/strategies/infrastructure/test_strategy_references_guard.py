@@ -156,7 +156,10 @@ async def test_execution_attempts_reach_a_strategy_only_through_reservations_and
     )
 
     # ``users`` is the attempt's owner (migration 0030), not a way to a strategy.
-    assert targets == {"reservations", "signals", "users"}, (
+    # ``signal_deliveries`` (0032) is not a new way either: a delivery belongs
+    # to one signal, and every attempt that carries one also carries that
+    # signal or a reservation of it, which the history already counts.
+    assert targets == {"reservations", "signal_deliveries", "signals", "users"}, (
         f"execution_attempts now references {sorted(targets)}; "
         f"{_EXTEND_THE_HISTORY}"
     )

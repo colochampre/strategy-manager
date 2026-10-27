@@ -415,12 +415,25 @@ It needs an independent verifier before the PR.
     - the cross-user pool FK and the market trigger;
     - the partial unique: a second ACTIVE row is refused, while a new row after ENDED is allowed;
     - the downgrade and the upgrade again.
-- [ ] C.2 Migration 0032, `signal_deliveries` (AD5).
+- [x] C.2 Migration 0032, `signal_deliveries` (AD5). Done on 2026-10-27.
+  - 21 migration tests are in `tests/migrations/test_0032_signal_deliveries.py`. On a no-op skeleton they failed on assertions, except for two that guard something already true: the signals keep their outcome columns, and the `reservations.signal_id` unique stays. Those two were proven by mutation.
+  - Mutations proved each guard non-vacuous:
+    - the refusal;
+    - picking the author's subscription;
+    - the `reservations.delivery_id` unique;
+    - the downgrade's user guard.
+  - Added beyond the text: each attempt takes its delivery from its own `signal_id` first. Only an attempt written before 0025 falls back to the reservation it opened, or to the one it closed. The writer had left closing attempts with no delivery. Three tests went red on assertions before the fix: the closing attempt, the pre-0025 closing attempt, and every attempt having a delivery.
+  - The delivery's `created_at` is the signal's `received_at`.
+  - The full gate found two things:
+    - The downgrade refused an empty database, which broke `test_0029_users`' downgrade of the whole chain. It now refuses only with more than one user, as 0031's does. The test was red first.
+    - `test_strategy_references_guard` saw the new FK from `execution_attempts` to `signal_deliveries`. It is not a new way to a strategy: an attempt that carries a delivery also carries its signal or a reservation of that signal, and the history counts those. The guard now names that FK. C.8 must keep writing `execution_attempts.signal_id` beside `delivery_id` for this to stay true.
+  - The ORM mirrors 0032: `SignalDeliveryRow` is new, and `ReservationRow` and `ExecutionAttemptRow` gain `delivery_id`.
   - Columns: `id uuid pk`, `signal_id`, `subscription_id`, `user_id`, `status` (default `ACCEPTED`), `outcome_reason`, `outcome_detail`, `decided_at`, `created_at`.
   - Constraints: `UNIQUE (signal_id, subscription_id)`, an index on `user_id`, and FKs to `signals`, `subscriptions` and `users`.
   - Backfill: one delivery per existing signal, for its strategy author's subscription from 0031. Each delivery copies the signal's `status`, `outcome_reason`, `outcome_detail` and `decided_at`.
-  - `reservations.delivery_id uuid NOT NULL`, FK to `signal_deliveries`, `UNIQUE`. It is filled through `reservations.signal_id`.
-    - The column-level unique on `reservations.signal_id` (from 0004, default name, nothing catches it by name) is dropped. The column itself stays.
+  - `reservations.delivery_id uuid`, FK to `signal_deliveries`, `UNIQUE`. It is filled through `reservations.signal_id`.
+    - It stays NULLABLE here, and C.6 adds `NOT NULL` to this same migration, together with the code that writes it (owner's choice, 2026-10-27). Until C.6 the reservation repository does not write it, so a `NOT NULL` now would turn every test that reserves on the head schema red. 0032 is not in production, so editing it is safe. The deploy shape does not change.
+    - The column-level unique on `reservations.signal_id` (from 0004, default name, nothing catches it by name) stays until C.6 too. While `delivery_id` can be NULL, its `UNIQUE` refuses nothing, so dropping the old one here would leave the head schema with no guard against a second reservation for one signal. C.6 drops it, in this same migration, when two subscribers first get a reservation each for one signal. The column itself stays.
   - `execution_attempts.delivery_id uuid NULL`, FK to `signal_deliveries`. It is filled through the attempt's reservation, because 4 production rows have no `signal_id`.
   - The signals' outcome columns are copied, not dropped.
   - Downgrade: refuses unless exactly one user exists, then restores the `signal_id` unique and drops the new columns and the table.
@@ -450,13 +463,14 @@ It needs an independent verifier before the PR.
 - [ ] C.5 `FanOutSignal` (`signals/application`) replaces the body of the `signal.process` handler. In one transaction:
   1. archived refusal and effect classification, as today, per (strategy, symbol);
   2. a delivery for each eligible subscription, `INSERT ... ON CONFLICT (signal_id, subscription_id) DO NOTHING`;
-  3. one `delivery.process` job per inserted delivery, `dedupe_key` `delivery:<id>`.
+  3. one `delivery.process` job per eligible delivery, through `enqueue_unique` with `dedupe_key` `delivery:<id>`. That includes a delivery that already existed: a `signal.process` job left queued across the deploy finds its signal's delivery made by the 0032 backfill, and enqueuing only for inserted rows would drop that signal without a log line.
   - **Eligibility (decision 18):**
     - an opening effect, or a reverse, goes to every ACTIVE subscription;
     - a closing effect goes to the ACTIVE or LEAVING subscriptions that hold that symbol's open allocation of the strategy;
     - for a reverse, a subscription that holds the allocation gets both halves, and one that does not gets only the opening half.
   - **Tests:**
     - a retried `signal.process` makes no second delivery and no second job;
+    - a signal whose delivery already exists, as after the backfill, still gets its one `delivery.process` job;
     - an opening reaches all ACTIVE subscriptions and no LEAVING or ENDED one;
     - a close reaches only the holders;
     - a new subscriber gets the next opening of a symbol, but not the close of a position it never opened;
@@ -466,18 +480,19 @@ It needs an independent verifier before the PR.
   - the share is the subscription's `allocation_percent` (`process_signal.py:625-628`);
   - the key is the subscriber's: `job_owner.py` gains `delivery_owner`;
   - the prior reservation is that subscription's open reservation for the symbol, not the prior signal's (finding b);
-  - the reservation is written with `delivery_id`;
+  - the reservation is written with `delivery_id`, and 0032 is edited in the same unit (see C.2): `reservations.delivery_id` becomes `NOT NULL`, and the unique on `reservations.signal_id` is dropped. Migration tests: a reservation without `delivery_id` is refused, and two reservations for one signal on two deliveries are accepted;
   - in the same transaction, a LEAVING subscription whose last open allocation of the strategy closes becomes ENDED.
   - **Tests:**
     - two subscribers to one strategy, each sized from their own pool and share, each placed with their own key (the fake, per pool);
     - a close works only that subscriber's reservation;
-    - LEAVING turns into ENDED on the last close.
+    - LEAVING turns into ENDED on the last close;
+    - a position opened before the upgrade, whose reservation got its `delivery_id` from the backfill, is closed by the first close signal after it. Production may hold an open position across the deploy.
 - [ ] C.7 Outcomes per delivery (finding d). `SqlAlchemySignalOutcomeRepository` writes `signal_deliveries` and locks the delivery row, not the signal's. Every writer the map listed moves with it: `process_signal`, `skip_recorder`, `place_order`, `close_position`, `settle_execution`, `open_after_close` and `exhausted_job_recorder`.
   - A test proves that two deliveries of one signal record their outcomes independently.
   - The signals' own outcome columns are no longer written.
 - [ ] C.8 Every job and reader that reaches one execution through `signal_id` takes `delivery_id` instead (finding g):
   - `signal.open_after_close` carries `delivery_id`, with `dedupe_key` `signal.open_after_close:{delivery_id}:{poll}`;
-  - `place_order` and `close_position` write `execution_attempts.delivery_id`;
+  - `place_order` and `close_position` write `execution_attempts.delivery_id`, and keep writing `signal_id` beside it: the strategy history counts attempts through the signal (see C.2);
   - `execution.settle` and `attempt_owner` resolve through it;
   - `CloseOrphans` seeds by delivery;
   - `failed_job_signal_reader` maps a failed job to its delivery;

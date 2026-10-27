@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from strategy_manager.shared.db import Base
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow  # noqa: F401
 
 
 class ExecutionAttemptRow(Base):
@@ -79,6 +80,13 @@ class ExecutionAttemptRow(Base):
     # so this column threads it in directly (design.md § C).
     signal_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("signals.id"), nullable=True
+    )
+    # Migration ``0032``: the delivery this attempt serves, backfilled from its
+    # signal or its reservation. Nothing writes it until C.8.
+    delivery_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("signal_deliveries.id", name="fk_execution_attempts_delivery"),
+        nullable=True,
     )
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
