@@ -23,6 +23,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -52,7 +53,8 @@ async def test_successful_fill_is_recorded_in_full(
     async with pg_session_factory() as session:
         record_fill = RecordFill(SqlAlchemyLedgerRepository(session))
         await record_fill.record(
-            FillRecord(exchange="bybit", 
+            FillRecord(exchange="bybit",
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -80,6 +82,7 @@ async def test_successful_fill_is_recorded_in_full(
             )
         ).scalar_one()
 
+    assert row.user_id == OWNER_ID
     assert row.strategy_id == strategy_id
     assert row.allocation_id == reservation_id
     assert row.venue == "usdt-m"

@@ -36,6 +36,7 @@ from strategy_manager.strategies.domain.strategy import (
     FillMode,
     Strategy,
 )
+from tests.owner import OWNER_ID
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 
@@ -51,6 +52,7 @@ def _strategy(**overrides: object) -> Strategy:
         "id": STRATEGY_ID,
         "name": "BAT - RSI Divergences v1.3",
         "policy": policy,
+        "author_id": OWNER_ID,
         "allowed_pairs": AllowedPairs(frozenset({"ETHUSDT"})),
     }
     fields.update(overrides)

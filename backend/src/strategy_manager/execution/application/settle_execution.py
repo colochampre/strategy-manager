@@ -84,8 +84,11 @@ class SettleExecution:
         self._commit = commit
         self._outcomes = outcomes
 
-    async def settle(self, attempt_id: UUID) -> SettleResult:
-        attempt = await self._attempts.get(attempt_id)
+    async def settle(self, user_id: UUID, attempt_id: UUID) -> SettleResult:
+        """``user_id`` is the job's owner: the author of the strategy behind the
+        attempt, whose key placed the order (multi-user design AD8, B.5). The
+        reservation is read and marked as that user's only."""
+        attempt = await self._attempts.get(user_id, attempt_id)
         now = self._clock.now()
 
         if attempt.status is not ExecutionStatus.SUBMITTED:
@@ -103,7 +106,7 @@ class SettleExecution:
                 attempt.exchange, attempt.venue
             ).fetch_fills(attempt.client_order_id, attempt.symbol)
         except OrderNotFound:
-            return await self._release_never_placed(attempt, now)
+            return await self._release_never_placed(user_id, attempt, now)
 
         if not fills:
             raise NotSettledYet(
@@ -116,19 +119,19 @@ class SettleExecution:
         # for an opening one. ``allocation_id`` resolves to the reservation
         # that funded an open, or to the allocation a close is unwinding, and
         # both carry the same strategy.
-        reservation = await self._reservations.get_for_update(attempt.allocation_id)
+        reservation = await self._reservations.get_for_update(user_id, attempt.allocation_id)
         usd_rate = await self._usd_rate_provider.usd_rate(
             Currency(attempt.settlement_currency)
         )
         for fill in fills:
-            await self._record(attempt, reservation.strategy_id, usd_rate, fill)
+            await self._record(user_id, attempt, reservation.strategy_id, usd_rate, fill)
 
-        await self._attempts.mark_filled(attempt_id, fills[0].exchange_order_id)
+        await self._attempts.mark_filled(user_id, attempt_id, fills[0].exchange_order_id)
         if not attempt.is_closing:
             # A closing order has no reservation of its own, and the one it is
             # unwinding went FILLED when the position opened. Re-marking it
             # would rewrite settled history to say something it already says.
-            await self._reservations.mark(attempt.allocation_id, FILLED, now)
+            await self._reservations.mark(user_id, attempt.allocation_id, FILLED, now)
         # Decision 25, rows 16-17 (5c.1, 5c.3): the signal's outcome rides the
         # SAME commit as the fills, staged last so its row lock is the last
         # one taken. An open resolves its signal through the reservation; a
@@ -158,7 +161,7 @@ class SettleExecution:
         )
 
     async def _release_never_placed(
-        self, attempt: ExecutionAttempt, now: datetime
+        self, user_id: UUID, attempt: ExecutionAttempt, now: datetime
     ) -> SettleResult:
         """The exchange never saw this order.
 
@@ -177,11 +180,11 @@ class SettleExecution:
             # Read before the release so the reservation's row lock is taken
             # first; an open resolves its signal through the reservation.
             signal_id = (
-                await self._reservations.get_for_update(attempt.allocation_id)
+                await self._reservations.get_for_update(user_id, attempt.allocation_id)
             ).signal_id
-            await self._reservations.mark(attempt.allocation_id, RELEASED, now)
+            await self._reservations.mark(user_id, attempt.allocation_id, RELEASED, now)
         await self._attempts.mark_failed(
-            attempt.id, "the exchange has no order under this client order id"
+            user_id, attempt.id, "the exchange has no order under this client order id"
         )
         # 2f.4 (orchestrator's outcome map, finding 17): same silent file --
         # WARNING, since an order that never reached the exchange is worth
@@ -201,6 +204,7 @@ class SettleExecution:
 
     async def _record(
         self,
+        user_id: UUID,
         attempt: ExecutionAttempt,
         strategy_id: UUID,
         usd_rate: Decimal,
@@ -219,6 +223,7 @@ class SettleExecution:
         """
         await self._fill_recorder.record(
             FillRecord(
+                user_id=user_id,
                 strategy_id=strategy_id,
                 allocation_id=attempt.allocation_id,
                 execution_attempt_id=attempt.id,

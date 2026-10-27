@@ -20,6 +20,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, ensure_pool
 
 __all__ = [
     "POOL",
@@ -53,12 +54,18 @@ async def seed_discrepancy(
     status: str = "OBSERVED",
     resolved: bool = False,
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """A discrepancy of ``user_id`` (the owner by default) in that user's pool on
+    ``pool``, seeded when the user holds none."""
     observed_at = datetime(2026, 10, 12, 8, 0, 0, tzinfo=UTC)
     async with factory() as session:
+        pool_id = await ensure_pool(session, pool, user_id=user_id)
         session.add(
             ReconciliationDiscrepancyRow(
                 id=uuid4(),
+                user_id=user_id,
+                pool_id=pool_id,
                 exchange=pool[0],
                 venue=pool[1],
                 settlement_currency=pool[2],
@@ -87,7 +94,9 @@ async def seed_live_reservation(
     strategy_id: UUID,
     status: str = "PENDING",
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
+    """A reservation of ``user_id`` (the owner by default) in that user's pool."""
     reservation_id = uuid4()
     signal_id = uuid4()
     await seed_signal(
@@ -102,6 +111,7 @@ async def seed_live_reservation(
         venue=pool[1],
         settlement_currency=pool[2],
         status=status,
+        user_id=user_id,
     )
     return reservation_id
 
@@ -113,12 +123,14 @@ async def seed_open_position(
     symbol: str,
     quantity: Decimal = Decimal("1"),
     pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
-    """One FILLED reservation, one FILLED opening attempt and one BUY ledger row:
-    an allocation open on ``symbol``. Returns the allocation id."""
+    """One FILLED reservation, one FILLED opening attempt and one BUY ledger row,
+    all of ``user_id`` (the owner by default): an allocation open on ``symbol``.
+    Returns the allocation id."""
     exchange, venue, currency = pool
     allocation_id = await seed_live_reservation(
-        factory, strategy_id=strategy_id, status="FILLED", pool=pool
+        factory, strategy_id=strategy_id, status="FILLED", pool=pool, user_id=user_id
     )
     attempt_id = uuid4()
     await seed_execution_attempt(
@@ -136,6 +148,7 @@ async def seed_open_position(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=user_id,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,

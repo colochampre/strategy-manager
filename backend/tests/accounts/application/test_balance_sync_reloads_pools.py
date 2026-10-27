@@ -22,7 +22,8 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from decimal import Decimal
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -40,6 +41,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -47,6 +49,7 @@ _BYBIT_POOL = PoolConfig(
     exchange=Exchange.BYBIT,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 
@@ -55,18 +58,40 @@ class _FakeVenueClient:
     """Stands in for ``BybitReadOnlyClient``/``BinanceReadOnlyClient``: the
     ONLY thing this suite fakes, so a real read/write round trip is proved
     everywhere else (real Postgres, real vault decrypt, real reader/writer
-    classes)."""
+    classes).
+
+    ``signed_with`` records the API key each client was opened with, and a
+    read through a key in ``fails_for`` raises, as a venue refusing that one
+    account would."""
 
     def __init__(self) -> None:
         self.calls = 0
+        self.signed_with: list[str] = []
+        self.fails_for: set[str] = set()
+
+    def opened_with(self, api_key: str) -> "_SignedClient":
+        self.signed_with.append(api_key)
+        return _SignedClient(self, api_key)
+
+    def read_as(self, api_key: str) -> list[object]:
+        self.calls += 1
+        if api_key in self.fails_for:
+            raise RuntimeError("the venue refused this account's read")
+        return []
+
+
+class _SignedClient:
+    """One client opened with one key: several are open at once in a cycle."""
+
+    def __init__(self, venue: _FakeVenueClient, api_key: str) -> None:
+        self._venue = venue
+        self._api_key = api_key
 
     async def unified_balances(self) -> list[object]:
-        self.calls += 1
-        return []
+        return self._venue.read_as(self._api_key)
 
     async def futures_assets(self) -> list[object]:
-        self.calls += 1
-        return []
+        return self._venue.read_as(self._api_key)
 
 
 def _claimed_job() -> ClaimedJob:
@@ -76,18 +101,37 @@ def _claimed_job() -> ClaimedJob:
 
 
 async def _seed_pool(
-    session_factory: async_sessionmaker[AsyncSession], *, exchange: str, enabled: bool
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    exchange: str,
+    enabled: bool,
+    user_id: UUID = OWNER_ID,
 ) -> None:
     async with session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size, enabled) "
-                "VALUES (:exchange, 'usdt-m', 'USDT', 10, :enabled)"
-            ),
-            {"exchange": exchange, "enabled": enabled},
+        await seed_pool(
+            session,
+            (exchange, "usdt-m", "USDT"),
+            user_id=user_id,
+            enabled=enabled,
+            min_order_size=Decimal("10"),
         )
         await session.commit()
+
+
+async def _snapshot_owners(
+    session_factory: async_sessionmaker[AsyncSession], *, exchange: str
+) -> list[UUID]:
+    """The owners of the snapshots on ``exchange``, one per row."""
+    async with session_factory() as session:
+        result = await session.execute(
+            text(
+                "SELECT s.user_id FROM pool_balance_snapshots s "
+                "JOIN capital_pools p ON p.id = s.pool_id AND p.user_id = s.user_id "
+                "WHERE s.exchange = :exchange ORDER BY s.user_id"
+            ),
+            {"exchange": exchange},
+        )
+        return [UUID(str(row[0])) for row in result.all()]
 
 
 async def _set_pool_enabled(
@@ -115,9 +159,11 @@ async def _snapshot_count(
 @pytest.fixture
 async def _seeded_vault(
     pg_session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
-) -> AsyncIterator[None]:
-    """A real sealed credential for BOTH exchanges, so key availability is
-    never the variable under test -- only the pool's ``enabled`` flag is."""
+) -> AsyncIterator[bytes]:
+    """A real sealed credential of the owner's for BOTH exchanges, so key
+    availability is never the variable under test -- only the pool's
+    ``enabled`` flag is. Yields the master key, for a test that seals another
+    user's key with it."""
     master_key = os.urandom(MASTER_KEY_BYTES)
     settings = get_settings()
     monkeypatch.setattr(settings, "master_encryption_key", base64.b64encode(master_key).decode())
@@ -125,19 +171,38 @@ async def _seeded_vault(
     async with pg_session_factory() as session:
         vault = SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), SystemClock())
         await vault.store(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="bybit", label="default", api_key="BYBIT-KEY-abcd", api_secret="s"
             ),
             KeyFacts.unrecorded(trade_capable=True),
         )
         await vault.store(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="binance", label="default", api_key="BINANCE-KEY-wxyz", api_secret="s"
             ),
             KeyFacts.unrecorded(trade_capable=True),
         )
         await session.commit()
-    yield
+    yield master_key
+
+
+async def _store_key(
+    session_factory: async_sessionmaker[AsyncSession],
+    master_key: bytes,
+    *,
+    user_id: UUID,
+    api_key: str,
+    exchange: str = "bybit",
+) -> None:
+    async with session_factory() as session:
+        await SqlAlchemyCredentialVault(session, EnvelopeCipher(master_key), SystemClock()).store(
+            user_id,
+            ExchangeCredential(exchange=exchange, label="default", api_key=api_key, api_secret="s"),
+            KeyFacts.unrecorded(trade_capable=True),
+        )
+        await session.commit()
 
 
 @pytest.fixture
@@ -147,15 +212,15 @@ def _fake_clients(monkeypatch: pytest.MonkeyPatch) -> tuple[_FakeVenueClient, _F
 
     @asynccontextmanager
     async def _bybit_ctx(
-        settings: object, credentials: object, clock: object = None
-    ) -> AsyncIterator[_FakeVenueClient]:
-        yield bybit_client
+        settings: object, credentials: Any, clock: object = None
+    ) -> AsyncIterator[_SignedClient]:
+        yield bybit_client.opened_with(credentials.api_key)
 
     @asynccontextmanager
     async def _binance_ctx(
-        settings: object, credentials: object, clock: object = None
-    ) -> AsyncIterator[_FakeVenueClient]:
-        yield binance_client
+        settings: object, credentials: Any, clock: object = None
+    ) -> AsyncIterator[_SignedClient]:
+        yield binance_client.opened_with(credentials.api_key)
 
     monkeypatch.setattr(main, "read_only_client", _bybit_ctx)
     monkeypatch.setattr(main, "binance_read_only_client", _binance_ctx)
@@ -221,6 +286,150 @@ async def test_pool_disabled_while_running_stops_being_read_on_the_next_cycle(
     await handler(_claimed_job())
     assert bybit_client.calls == 2
     assert binance_client.calls == 1  # unchanged: not read this cycle
+
+
+async def _two_users_on_bybit(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> UUID:
+    """The owner and a second user each hold an enabled bybit pool; the second
+    user's binance pool is disabled. Returns the second user's id.
+
+    ``assert_pool_lock_keys_distinct`` is replaced, as in the collision test
+    below: it still keys a lock by market, so two users on one market read as a
+    collision and the reload is refused. Making the lock identify one user's
+    pool is tasks.md B.4, not this unit."""
+    monkeypatch.setattr(main, "engine", pg_engine)
+
+    async def _distinct(conn: object, pools: object) -> None:
+        return None
+
+    monkeypatch.setattr(main, "assert_pool_lock_keys_distinct", _distinct)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+
+    await _seed_pool(pg_session_factory, exchange="bybit", enabled=True)
+    await _seed_pool(pg_session_factory, exchange="bybit", enabled=True, user_id=other)
+    await _seed_pool(pg_session_factory, exchange="binance", enabled=False, user_id=other)
+    return other
+
+
+async def test_each_users_enabled_pool_gets_its_own_snapshot(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    _seeded_vault: bytes,
+    _fake_clients: tuple[_FakeVenueClient, _FakeVenueClient],
+) -> None:
+    """Multi-user design AD9: one sync per (user, exchange), each with that
+    user's own key. One cycle writes one bybit snapshot per user, each on that
+    user's own pool, and none on binance."""
+    bybit_client, binance_client = _fake_clients
+    other = await _two_users_on_bybit(pg_engine, pg_session_factory, monkeypatch)
+    await _store_key(pg_session_factory, _seeded_vault, user_id=other, api_key="OTHER-KEY-7777")
+
+    runner = main.build_worker_runner(
+        [_BYBIT_POOL], session_factory_override=pg_session_factory
+    )
+    await runner._handlers[JobKind.BALANCE_SYNC](_claimed_job())  # noqa: SLF001
+
+    assert await _snapshot_owners(pg_session_factory, exchange="bybit") == sorted(
+        [OWNER_ID, other], key=str
+    )
+    assert await _snapshot_owners(pg_session_factory, exchange="binance") == []
+    assert binance_client.calls == 0
+    assert sorted(bybit_client.signed_with) == ["BYBIT-KEY-abcd", "OTHER-KEY-7777"]
+
+
+async def test_a_user_with_no_key_is_never_read_with_another_users_key(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    _seeded_vault: bytes,
+    _fake_clients: tuple[_FakeVenueClient, _FakeVenueClient],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AD9: the second user holds a pool and no key. Their pair is DEGRADED,
+    with one ERROR naming their id prefix and no e-mail, and their pool is not
+    read at all: the owner's key reads the owner's pool only."""
+    bybit_client, _ = _fake_clients
+    other = await _two_users_on_bybit(pg_engine, pg_session_factory, monkeypatch)
+
+    runner = main.build_worker_runner(
+        [_BYBIT_POOL], session_factory_override=pg_session_factory
+    )
+    with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
+        await runner._handlers[JobKind.BALANCE_SYNC](_claimed_job())  # noqa: SLF001
+
+    assert await _snapshot_owners(pg_session_factory, exchange="bybit") == [OWNER_ID]
+    assert bybit_client.signed_with == ["BYBIT-KEY-abcd"]
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert str(other)[:8] in errors[0]
+    assert "@" not in errors[0]
+
+
+async def test_a_users_key_that_does_not_open_degrades_only_that_user(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    _seeded_vault: bytes,
+    _fake_clients: tuple[_FakeVenueClient, _FakeVenueClient],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """B.7: the second user's key was sealed under another master key, so it
+    does not open. The owner is still read and stored, the cycle still
+    schedules its successor, and the WARNING names that user's id prefix."""
+    bybit_client, _ = _fake_clients
+    other = await _two_users_on_bybit(pg_engine, pg_session_factory, monkeypatch)
+    await _store_key(
+        pg_session_factory, os.urandom(MASTER_KEY_BYTES), user_id=other, api_key="OTHER-KEY-7777"
+    )
+
+    runner = main.build_worker_runner(
+        [_BYBIT_POOL], session_factory_override=pg_session_factory
+    )
+    before = await _job_count(pg_session_factory)
+    with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
+        await runner._handlers[JobKind.BALANCE_SYNC](_claimed_job())  # noqa: SLF001
+
+    assert await _snapshot_owners(pg_session_factory, exchange="bybit") == [OWNER_ID]
+    assert bybit_client.signed_with == ["BYBIT-KEY-abcd"]
+    assert await _job_count(pg_session_factory) == before + 1
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(other)[:8] in message and "bybit" in message for message in warnings)
+
+
+async def test_a_users_failing_read_degrades_only_that_user(
+    pg_engine: AsyncEngine,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    _seeded_vault: bytes,
+    _fake_clients: tuple[_FakeVenueClient, _FakeVenueClient],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """B.7: the venue refuses the second user's read. The owner is still read
+    and stored, the cycle still schedules its successor, and the WARNING names
+    that user's id prefix; the second user's pool keeps its old snapshot (here,
+    none), which the staleness watchdog reports."""
+    bybit_client, _ = _fake_clients
+    bybit_client.fails_for.add("OTHER-KEY-7777")
+    other = await _two_users_on_bybit(pg_engine, pg_session_factory, monkeypatch)
+    await _store_key(pg_session_factory, _seeded_vault, user_id=other, api_key="OTHER-KEY-7777")
+
+    runner = main.build_worker_runner(
+        [_BYBIT_POOL], session_factory_override=pg_session_factory
+    )
+    before = await _job_count(pg_session_factory)
+    with caplog.at_level(logging.INFO, logger="strategy_manager"):
+        await runner._handlers[JobKind.BALANCE_SYNC](_claimed_job())  # noqa: SLF001
+
+    assert await _snapshot_owners(pg_session_factory, exchange="bybit") == [OWNER_ID]
+    assert await _job_count(pg_session_factory) == before + 1
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(other)[:8] in message and "bybit" in message for message in warnings)
 
 
 async def _job_count(session_factory: async_sessionmaker[AsyncSession]) -> int:

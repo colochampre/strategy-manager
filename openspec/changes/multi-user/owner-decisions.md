@@ -115,4 +115,14 @@ These come from the owner's own words above. They are not asked again.
     - Beside it, the list shows the number of subscribers trading the strategy live. This replaces decision 9's "simulation vs live" label: a record taken from signals is neither.
     - Decision 9's other items stay: the strategy's age and its closed trades.
 
+16. **PR B opens the owned endpoints that need no later PR to any signed-in user, scoped by `user_id`; the rest stay admin-only (PR B planning, 2026-10-21).** The owner chose "Si, vamos con esa división".
+    - Open, scoped: keys (credentials), pools, performance and open positions. A resource of another user answers 404 (AD8), and each one has its cross-user test, which a 403 would make vacuous.
+    - Admin-only: strategies and the pair catalogue (authoring is PR D, subscribing PR C), the webhook secret and origin, and discrepancies (R5).
+    - Production does not change: Access still admits only the owner.
+
+17. **The header keeps showing the signed-in user's e-mail until users choose a display name (owner question, 2026-10-26).** The owner chose "Esperamos" over masking the e-mail now.
+    - The owner asked whether the header could show a masked e-mail, or a name each user chooses, instead of the full e-mail.
+    - Masking in the panel hides only the user's own e-mail, which `/api/me` and the Access cookie carry to that same browser anyway. It guards against screenshots and screen sharing, not against the user.
+    - Other users' e-mails are a different matter. A public strategy's author, for example, must never reach the client at all, so the backend sends a display name instead. That name arrives with the public strategies work (PR D). The header switches to it then.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

@@ -42,6 +42,8 @@ SETTLE_DELAY = 2.0
 RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
+# The reservation's owner: the author of the strategy whose signal allocated it.
+OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000d0d0d")
 
 
 class FrozenClock:
@@ -62,11 +64,15 @@ class FakeReservations:
             expires_at=expires_at,
         )
         self.marks: list[tuple[UUID, str]] = []
+        # Whose reservation each call was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot:
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot:
+        self.users.append(user_id)
         return self._snapshot
 
-    async def mark(self, reservation_id: UUID, status: str, at: datetime) -> None:
+    async def mark(self, user_id: UUID, reservation_id: UUID, status: str, at: datetime) -> None:
+        self.users.append(user_id)
         self.marks.append((reservation_id, status))
 
 
@@ -76,21 +82,28 @@ class SpyAttempts:
         self.placed: list[tuple[UUID, str]] = []
         self.failed: list[tuple[UUID, str]] = []
         self._log = log
+        # Whose attempt each call was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def insert(self, attempt: ExecutionAttempt) -> None:
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None:
+        self.users.append(user_id)
         self.inserted.append(attempt)
         self._log.append("attempt.insert")
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt:  # pragma: no cover
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt:  # pragma: no cover
         raise NotImplementedError
 
-    async def mark_placed(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_placed(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
+        self.users.append(user_id)
         self.placed.append((attempt_id, exchange_order_id))
 
-    async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_filled(
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
+    ) -> None:
         raise NotImplementedError  # pragma: no cover
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None:
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None:
+        self.users.append(user_id)
         self.failed.append((attempt_id, error))
 
 
@@ -206,11 +219,42 @@ def _command(
     price: Decimal = Decimal("50"), side: OrderSide = OrderSide.BUY
 ) -> PlaceCommand:
     return PlaceCommand(
+        user_id=OWNER,
         reservation_id=RESERVATION_ID,
         symbol="BTC_USDT",
         side=side,
         price=price,
     )
+
+
+async def test_the_reservation_read_and_marked_is_the_commands_user() -> None:
+    """Multi-user design AD8 (B.5): the reservation is read and marked as the
+    command's user, the strategy author whose signal allocated it, on the
+    placed path and on the expired release."""
+    placed, placed_reservations, _, _, _, _ = _build()
+    await placed.place(_command())
+
+    expired, expired_reservations, _, _, _, _ = _build(expires_at=NOW - timedelta(seconds=1))
+    await expired.place(_command())
+
+    assert placed_reservations.users == [OWNER, OWNER]
+    assert expired_reservations.users == [OWNER, OWNER]
+
+
+async def test_the_attempt_is_written_and_marked_as_the_commands_user() -> None:
+    """Multi-user design AD2/AD8 (B.5): the attempt is inserted as the user of
+    the reservation it spends, and marked placed as the same user; a venue
+    rejection marks it failed as that user too."""
+    placed, _, placed_attempts, _, _, _ = _build()
+    await placed.place(_command())
+
+    rejected, _, rejected_attempts, _, _, _ = _build(
+        exchange_raises=ExchangeError("insufficient balance")
+    )
+    await rejected.place(_command())
+
+    assert placed_attempts.users == [OWNER, OWNER]  # insert, mark_placed
+    assert rejected_attempts.users == [OWNER, OWNER]  # insert, mark_failed
 
 
 async def test_settlement_is_scheduled_before_the_exchange_is_contacted() -> None:

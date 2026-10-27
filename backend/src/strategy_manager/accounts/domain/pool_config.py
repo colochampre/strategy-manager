@@ -17,6 +17,7 @@ rejected identically.
 
 from dataclasses import dataclass
 from decimal import Decimal
+from uuid import UUID
 
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
@@ -31,11 +32,17 @@ class PoolConfig:
     named exchange, and a default would let a pool be created without anyone
     deciding where its money is — the one fact that selects both the wallet it
     is sized from and the key its orders are signed with.
+
+    ``user_id`` is the pool's owner (multi-user design AD2). The market
+    ``(exchange, venue, settlement_currency)`` is not a pool's identity on its
+    own: two users may each hold a pool on the same market, and they are
+    different money.
     """
 
     exchange: Exchange
     venue: Venue
     settlement_currency: Currency
+    user_id: UUID
     min_order_size: Decimal
     enabled: bool = True
 

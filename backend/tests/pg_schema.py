@@ -19,10 +19,16 @@ flag for one database, called by every fixture that opens it.
 It is not a substitute for the migrations. Those are exercised against a real
 ``alembic upgrade head`` database by the tier B fixtures, which is also why the
 raw-SQL triggers live there and not here.
+
+``UserRow`` is imported here because the owned tables reference ``users``
+(migration ``0030``): ``create_all`` cannot build ``strategies.author_id``'s
+foreign key unless ``users`` is on the same metadata, and every fixture that
+builds this schema imports this module.
 """
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from strategy_manager.identity.infrastructure.models import UserRow  # noqa: F401
 from strategy_manager.shared.db import Base
 
 _rebuilt = False

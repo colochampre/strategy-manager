@@ -21,12 +21,18 @@ condition once (``worker._assert_keys_present``, seeded into this tracker via
 
 import inspect
 import logging
+from uuid import UUID
 
 import pytest
 
 from strategy_manager import main
+from tests.owner import OWNER_ID
 
-_CONFIGURED = frozenset({"bybit", "binance"})
+# Pairs since multi-user design AD9: ``(user_id, exchange)``.
+BYBIT = (OWNER_ID, "bybit")
+BINANCE = (OWNER_ID, "binance")
+OTHER_ID = UUID("5ec0d0b2-0000-4000-8000-0000000000b2")
+_CONFIGURED = frozenset({BYBIT, BINANCE})
 
 
 def _sliced(start_marker: str, end_marker: str) -> str:
@@ -38,27 +44,51 @@ def _sliced(start_marker: str, end_marker: str) -> str:
 def test_a_newly_degraded_exchange_logs_one_error_and_is_tracked(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    tracker: set[str] = set()
+    tracker: set[tuple[UUID, str]] = set()
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=_CONFIGURED, active=frozenset({"bybit"})
+            tracker, configured=_CONFIGURED, active=frozenset({BYBIT})
         )
 
-    assert tracker == {"binance"}
+    assert tracker == {BINANCE}
     error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(error_records) == 1
     assert "binance" in error_records[0].getMessage()
+    assert str(OWNER_ID)[:8] in error_records[0].getMessage()
+
+
+def test_one_users_missing_key_degrades_only_that_users_pair(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AD9: the owner and another user each hold a Bybit pool; only the owner
+    holds a key. The other user's pair alone is degraded, and the ERROR names
+    their id prefix, never an e-mail and never the owner's."""
+    tracker: set[tuple[UUID, str]] = set()
+
+    with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
+        main._track_degraded_exchanges(
+            tracker,
+            configured=frozenset({BYBIT, (OTHER_ID, "bybit")}),
+            active=frozenset({BYBIT}),
+        )
+
+    assert tracker == {(OTHER_ID, "bybit")}
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "5ec0d0b2" in errors[0]
+    assert str(OWNER_ID)[:8] not in errors[0]
+    assert "@" not in errors[0]
 
 
 def test_a_recovered_exchange_logs_one_info_and_is_untracked(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    tracker: set[str] = {"binance"}
+    tracker: set[tuple[UUID, str]] = {BINANCE}
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=_CONFIGURED, active=frozenset({"bybit", "binance"})
+            tracker, configured=_CONFIGURED, active=frozenset({BYBIT, BINANCE})
         )
 
     assert tracker == set()
@@ -75,15 +105,15 @@ def test_steady_state_across_several_cycles_logs_nothing(
     re-reported every cycle -- balance.sync alone runs every 60s, and an
     ERROR reaching Telegram on every one of them is exactly the flood this
     tracker exists to prevent."""
-    tracker: set[str] = {"binance"}
+    tracker: set[tuple[UUID, str]] = {BINANCE}
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         for _ in range(5):
             main._track_degraded_exchanges(
-                tracker, configured=_CONFIGURED, active=frozenset({"bybit"})
+                tracker, configured=_CONFIGURED, active=frozenset({BYBIT})
             )
 
-    assert tracker == {"binance"}
+    assert tracker == {BINANCE}
     assert caplog.records == []
 
 
@@ -94,11 +124,11 @@ def test_a_seeded_startup_degraded_set_is_not_re_logged_on_the_first_check(
     (``build_worker_runner``'s ``initial_degraded``), so the exchange it
     already reported is not reported a second time by the first per-job
     check after boot."""
-    tracker: set[str] = {"binance"}  # as if seeded from initial_degraded
+    tracker: set[tuple[UUID, str]] = {BINANCE}  # as if seeded from initial_degraded
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=_CONFIGURED, active=frozenset({"bybit"})
+            tracker, configured=_CONFIGURED, active=frozenset({BYBIT})
         )
 
     assert caplog.records == []
@@ -109,12 +139,12 @@ def test_two_configured_exchanges_missing_at_once_each_log_their_own_error(
 ) -> None:
     """Triangulation: not a single hardcoded 'binance' string -- BOTH
     exchanges must be named correctly when both lose their key at once."""
-    tracker: set[str] = set()
+    tracker: set[tuple[UUID, str]] = set()
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(tracker, configured=_CONFIGURED, active=frozenset())
 
-    assert tracker == {"bybit", "binance"}
+    assert tracker == {BYBIT, BINANCE}
     error_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert len(error_messages) == 2
     assert any("bybit" in message for message in error_messages)
@@ -135,8 +165,9 @@ def test_balance_refresh_reader_gates_on_the_active_key_listing() -> None:
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    assert "BYBIT_EXCHANGE in active" in body
-    assert "BINANCE_EXCHANGE in active" in body
+    # The job owner's own pair, never the exchange alone (AD9).
+    assert "(owner, BYBIT_EXCHANGE) in active" in body
+    assert "(owner, BINANCE_EXCHANGE) in active" in body
 
 
 def test_venue_net_position_reader_gates_on_the_active_key_listing() -> None:
@@ -144,8 +175,8 @@ def test_venue_net_position_reader_gates_on_the_active_key_listing() -> None:
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    assert "BYBIT_EXCHANGE in active" in body
-    assert "BINANCE_EXCHANGE in active" in body
+    assert "(owner, BYBIT_EXCHANGE) in active" in body
+    assert "(owner, BINANCE_EXCHANGE) in active" in body
 
 
 def test_balance_sync_gates_on_the_active_key_listing_before_building_syncs() -> None:
@@ -157,8 +188,9 @@ def test_balance_sync_gates_on_the_active_key_listing_before_building_syncs() ->
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    assert "BYBIT_EXCHANGE in active" in body
-    assert "BINANCE_EXCHANGE in active" in body
+    # One sync per pair holding an active key (AD9), both exchanges.
+    assert "for exchange in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):" in body
+    assert "if (user_id, exchange) not in active:" in body
 
 
 def test_reconciliation_scan_gates_on_the_active_key_listing() -> None:
@@ -173,30 +205,174 @@ def test_reconciliation_scan_gates_on_the_active_key_listing() -> None:
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    # Pools filtered OUT of the list before ScanPools ever sees them, not
-    # gated inline while building readers -- both collections must agree by
-    # construction, or an unregistered pool raises UnservedPoolError.
-    assert "BYBIT_EXCHANGE not in active" in body
-    assert "bybit_pools = []" in body
-    assert "BINANCE_EXCHANGE not in active" in body
-    assert "binance_pools = []" in body
+    # Markets filtered per USER before ScanPools ever sees them (a pool with no
+    # registered reader would raise UnservedPoolError), then one ScanPools per
+    # user behind the single handler (AD10).
+    assert "_reconciliation_markets_per_user(" in body
+    assert "ScanUsers(scans)" in body
+    assert "_user_position_readers(" in body
+
+
+# --- reconciliation per user's pool (multi-user design AD10, tasks.md B.8) ---
+
+BYBIT_MARKET = ("bybit", "usdt-m", "USDT")
+BINANCE_MARKET = ("binance", "usdt-m", "USDT")
+
+
+def test_two_users_on_one_market_are_both_scanned() -> None:
+    """The old arrangement picked ONE holder per exchange; a market maps to one
+    user there. Now each user with a pool and a key gets their own markets."""
+    by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {
+        (OWNER_ID, BYBIT_MARKET): object(),
+        (OTHER_ID, BYBIT_MARKET): object(),
+    }
+    active = frozenset({(OWNER_ID, "bybit"), (OTHER_ID, "bybit")})
+
+    per_user = main._reconciliation_markets_per_user(
+        by_key,  # type: ignore[arg-type]
+        active,
+        warn=True,
+    )
+
+    assert per_user == {OWNER_ID: [BYBIT_MARKET], OTHER_ID: [BYBIT_MARKET]}
+
+
+def test_a_user_with_a_pool_but_no_key_is_skipped_with_a_warning_and_the_others_still_scan(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    keyless_binance = UUID("5ec0d0b2-0000-4000-8000-0000000000b2")
+    by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {
+        (OWNER_ID, BYBIT_MARKET): object(),
+        (OWNER_ID, BINANCE_MARKET): object(),  # the owner's Binance key is gone
+        (keyless_binance, BYBIT_MARKET): object(),  # another user holds no key at all
+    }
+    active = frozenset({(OWNER_ID, "bybit")})
+
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.main"):
+        per_user = main._reconciliation_markets_per_user(
+            by_key,  # type: ignore[arg-type]
+            active,
+            warn=True,
+        )
+
+    # The owner still scans Bybit; the keyless user and the owner's Binance
+    # market are skipped, nobody else is affected.
+    assert per_user == {OWNER_ID: [BYBIT_MARKET]}
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    assert any("5ec0d0b2" in w and "bybit" in w for w in warnings)
+    assert any(str(OWNER_ID)[:8] in w and "binance" in w for w in warnings)
+    assert not any("@" in w for w in warnings)
+
+
+def test_the_booking_sweep_does_not_repeat_the_scans_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {(OTHER_ID, BYBIT_MARKET): object()}
+
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.main"):
+        per_user = main._reconciliation_markets_per_user(
+            by_key,  # type: ignore[arg-type]
+            frozenset(),
+            warn=False,
+        )
+
+    assert per_user == {}
+    assert caplog.records == []
+
+
+class _RecordingVault:
+    """Hands out a key that names the user it was loaded for."""
+
+    def __init__(self) -> None:
+        self.loads: list[tuple[UUID, str]] = []
+
+    async def load(self, user_id: UUID, exchange: str) -> object:
+        self.loads.append((user_id, exchange))
+
+        class _Credential:
+            api_key = f"key-of-{str(user_id)[:8]}"
+            api_secret = "secret"  # noqa: S105
+
+        return _Credential()
+
+
+async def test_each_users_position_reader_is_signed_with_that_users_own_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import AsyncExitStack, asynccontextmanager
+
+    signed_with: list[str] = []
+
+    @asynccontextmanager
+    async def _fake_client(settings: object, credentials: object):  # type: ignore[no-untyped-def]
+        signed_with.append(credentials.api_key)  # type: ignore[attr-defined]
+        yield object()
+
+    monkeypatch.setattr(main, "read_only_client", _fake_client)
+    vault = _RecordingVault()
+
+    async with AsyncExitStack() as clients:
+        for user in (OWNER_ID, OTHER_ID):
+            readers = await main._user_position_readers(
+                vault=vault,  # type: ignore[arg-type]
+                clients=clients,
+                settings=object(),  # type: ignore[arg-type]
+                user_id=user,
+                exchanges=["bybit"],
+            )
+            assert [reader.exchange for reader in readers] == ["bybit"]
+
+    assert vault.loads == [(OWNER_ID, "bybit"), (OTHER_ID, "bybit")]
+    assert signed_with == [f"key-of-{str(OWNER_ID)[:8]}", f"key-of-{str(OTHER_ID)[:8]}"]
+
+
+async def test_a_users_fill_readers_are_real_where_keyed_and_degraded_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import AsyncExitStack, asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_client(settings: object, credentials: object):  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(main, "read_only_client", _fake_client)
+
+    class _Settings:
+        reconciliation_booking_prepare_page_limit = 10
+        reconciliation_booking_prepare_max_pages = 2
+
+    vault = _RecordingVault()
+    async with AsyncExitStack() as clients:
+        readers = await main._user_fill_readers(
+            vault=vault,  # type: ignore[arg-type]
+            clients=clients,
+            settings=_Settings(),  # type: ignore[arg-type]
+            user_id=OTHER_ID,
+            keyed=["bybit"],
+        )
+
+    assert vault.loads == [(OTHER_ID, "bybit")]
+    by_exchange = {reader.exchange: type(reader).__name__ for reader in readers}
+    assert by_exchange == {"bybit": "BybitVenueFillReader", "binance": "_DegradedVenueFillReader"}
 
 
 def test_booking_prepare_registers_a_degraded_stand_in_reader() -> None:
     """``PrepareBooking.sweep`` reads discrepancies straight from the
     database, not from a pool list this composition root controls, so a
-    CONFIRMED discrepancy on a now-DEGRADED exchange can still be swept.
+    CONFIRMED discrepancy of a user who has lost the key can still be swept.
     Omitting the reader entirely would raise ``UnservedFillPoolError``,
-    which ``sweep`` does NOT swallow -- so a DEGRADED exchange gets a
-    stand-in reader that raises the ``VenueFillReadError`` sweep already
-    tolerates per discrepancy, instead of no reader at all."""
+    which ``sweep`` does NOT swallow -- so such a user gets stand-in readers
+    that raise the ``VenueFillReadError`` sweep already tolerates per
+    discrepancy, instead of no reader at all."""
     body = _sliced(
         "async def handle_reconciliation_prepare_booking", "async def handle_jobs_purge"
     )
 
     assert "read_key_coverage(session)" in body
     assert "_track_degraded_exchanges(" in body
-    assert "_DegradedVenueFillReader(" in body
+    assert "_degraded_fill_readers(" in body
+    assert "UserVenueFillReaders(" in body
 
 
 # --- _DegradedVenueFillReader: the stand-in itself --------------------------

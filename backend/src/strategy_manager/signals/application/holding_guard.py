@@ -111,20 +111,24 @@ class HoldingGuard:
 
     async def check(
         self,
+        user_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
         own_reservation_id: UUID | None,
         received_at: datetime,
     ) -> GuardOutcome:
+        """``user_id`` is the strategy's author, in whose pool the signal is
+        worked (multi-user design AD10, B.5). The in-flight read asks about
+        that user's reservations only."""
         if own_reservation_id is not None:
             return GuardOutcome(proceed=True)
 
         now = self._clock.now()
-        if await self._in_flight_work.in_flight(pool, strategy_id, symbol, now):
-            return await self._on_in_flight(pool, strategy_id, symbol, now, received_at)
+        if await self._in_flight_work.in_flight(user_id, pool, strategy_id, symbol, now):
+            return await self._on_in_flight(user_id, pool, strategy_id, symbol, now, received_at)
 
-        holdings = await self._holdings.symbol_holdings(pool, symbol)
+        holdings = await self._holdings.symbol_holdings(user_id, pool, symbol)
         net = strategy_net(holdings, strategy_id)
         if net == 0:
             return GuardOutcome(proceed=True)
@@ -133,6 +137,7 @@ class HoldingGuard:
 
     async def _on_in_flight(
         self,
+        user_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -142,7 +147,7 @@ class HoldingGuard:
         age_seconds = (now - received_at).total_seconds()
         if age_seconds <= self._delayed_open_max_signal_age_seconds:
             awaited_allocation_ids = await self._in_flight_work.submitted_closing_allocations(
-                pool, strategy_id, symbol
+                user_id, pool, strategy_id, symbol
             )
             logger.info(
                 "deferring open for strategy %s on %s in pool %s: work still in "

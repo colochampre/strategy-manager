@@ -67,6 +67,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID, ensure_pool, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -87,11 +88,14 @@ def head_database_url() -> Iterator[str]:
 async def engine(head_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(head_database_url, pool_pre_ping=True)
     async with engine.begin() as conn:
+        owner = await seed_owner(conn)
         await conn.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:owner, 'bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": owner},
         )
     yield engine
     await engine.dispose()
@@ -146,6 +150,7 @@ def _strategy_row(strategy_id: UUID, *, archived: bool = False) -> StrategyRow:
         exchange=exchange,
         venue=venue,
         settlement_currency=currency,
+        author_id=OWNER_ID,
         enabled=False,
         fill_mode="PARTIAL",
         allowed_pairs=["STXUSDT"],
@@ -278,10 +283,11 @@ async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
     assert "uptime_seconds=5400" in message
 
 
-def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
+def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[object]:
     """A ledger entry that belongs to ``strategy_id`` and hangs off a signal, a
     reservation and an attempt of ANOTHER strategy, so it is the only kind the
-    strategy owns."""
+    strategy owns. The reservation is the owner's, in the owner's pool
+    ``pool_id`` (migration 0030)."""
     exchange, venue, currency = _POOL
     signal = SignalRow(
         id=uuid4(),
@@ -297,6 +303,8 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
     )
     reservation = ReservationRow(
         id=uuid4(),
+        user_id=OWNER_ID,
+        pool_id=pool_id,
         strategy_id=other,
         signal_id=signal.id,
         exchange=exchange,
@@ -309,6 +317,7 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
     attempt_id = uuid4()
     attempt = ExecutionAttemptRow(
         id=attempt_id,
+        user_id=OWNER_ID,
         reservation_id=reservation.id,
         exchange=exchange,
         venue=venue,
@@ -322,6 +331,7 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID) -> list[object]:
     entry_id = uuid4()
     entry = LedgerEntryRow(
         id=entry_id,
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=reservation.id,
         execution_attempt_id=attempt_id,
@@ -348,7 +358,9 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
 ) -> None:
     strategy_id = await _strategy(factory)
     other = await _strategy(factory)
-    signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other)
+    async with factory() as session:
+        pool_id = await ensure_pool(session, _POOL)
+    signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other, pool_id)
     await _seed(factory, signal)
     await _seed(factory, reservation)
     await _seed(factory, attempt)
@@ -415,7 +427,7 @@ async def test_the_database_refuses_a_delete_the_count_wrongly_allowed(
 
 
 class _Pools:
-    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]:
+    async def enabled_pools(self, user_id: UUID) -> list[tuple[Exchange, Venue, Currency]]:
         return [(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)]
 
 
@@ -453,6 +465,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
                 fill_mode=FillMode.PARTIAL,
                 allocation_percent=Decimal("100"),
                 allowed_pairs=["STXUSDT"],
+                author_id=OWNER_ID,
             )
         )
 

@@ -25,7 +25,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 
@@ -67,6 +67,8 @@ class FakeDiscrepancyRepository:
         pool: PoolKey | None = None,
         status: DiscrepancyStatus | None = None,
         open_only: bool = False,
+        *,
+        user_id: UUID | None = None,
     ) -> list[DiscrepancyRecord]:
         self.list_calls.append((pool, status, open_only))
         return list(self._discrepancies)
@@ -88,6 +90,8 @@ class FakeBookingProposalRepository:
         self.inserted: list[NewBookingProposal] = []
         self._pending_discrepancy_ids: set[UUID] = set()
         self.mark_state_calls: list[tuple] = []
+        # Whose rejections each suppression lookup counted (multi-user AD8).
+        self.rejection_users: list[UUID] = []
         self._rejection_matches: dict[UUID, Observation] = {}
 
     def configure_matching_rejection(
@@ -102,6 +106,7 @@ class FakeBookingProposalRepository:
         self.inserted.append(proposal)
         return BookingProposalRecord(
             id=uuid4(),
+            user_id=proposal.user_id,
             discrepancy_id=proposal.discrepancy_id,
             exchange=proposal.exchange,
             venue=proposal.venue,
@@ -132,6 +137,7 @@ class FakeBookingProposalRepository:
 
     async def mark_state(
         self,
+        user_id: UUID,
         proposal_id: UUID,
         state: str,
         at: datetime,
@@ -149,8 +155,9 @@ class FakeBookingProposalRepository:
         return []
 
     async def has_matching_rejection(
-        self, discrepancy_id: UUID, observation: Observation
+        self, user_id: UUID, discrepancy_id: UUID, observation: Observation
     ) -> bool:
+        self.rejection_users.append(user_id)
         configured = self._rejection_matches.get(discrepancy_id)
         return configured is not None and configured == observation
 
@@ -188,14 +195,36 @@ class FakeVenueFillReaderRegistry:
         return reader
 
 
+class FakeUserFillReaders:
+    """Models ``UserVenueFillReadersPort``: a registry per user, falling back
+    to ``default`` for a user nobody registered. Records whose registry each
+    lookup asked for (multi-user AD10)."""
+
+    def __init__(
+        self,
+        default: FakeVenueFillReaderRegistry,
+        by_user: dict[UUID, FakeVenueFillReaderRegistry] | None = None,
+    ) -> None:
+        self._default = default
+        self._by_user = by_user or {}
+        self.users: list[UUID] = []
+
+    def for_user(self, user_id: UUID) -> FakeVenueFillReaderRegistry:
+        self.users.append(user_id)
+        return self._by_user.get(user_id, self._default)
+
+
 class FakeRecordedFillIds:
     def __init__(self, recorded: frozenset[str] = frozenset()) -> None:
         self._recorded = recorded
         self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+        # Whose ledger rows each lookup counted (multi-user design AD8).
+        self.users: list[UUID] = []
 
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:
+        self.users.append(user_id)
         self.calls.append((exchange, venue, tuple(exchange_fill_ids)))
         return frozenset(fid for fid in exchange_fill_ids if fid in self._recorded)
 
@@ -203,8 +232,10 @@ class FakeRecordedFillIds:
 class FakeAllocationOwner:
     def __init__(self, owners: dict[UUID, UUID]) -> None:
         self._owners = owners
+        self.users: list[UUID] = []
 
-    async def strategy_for(self, allocation_id: UUID) -> UUID:
+    async def strategy_for(self, user_id: UUID, allocation_id: UUID) -> UUID:
+        self.users.append(user_id)
         return self._owners[allocation_id]
 
 
@@ -215,8 +246,12 @@ class FakeSystemOrderIds:
     def __init__(self, held: dict[PoolKey, frozenset[str]] | None = None) -> None:
         self._held = held or {}
         self.calls: list[tuple[PoolKey, tuple[str, ...]]] = []
+        self.users: list[UUID] = []
 
-    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool:
+    async def holds_any(
+        self, user_id: UUID, pool: PoolKey, exchange_order_ids: Sequence[str]
+    ) -> bool:
+        self.users.append(user_id)
         self.calls.append((pool, tuple(exchange_order_ids)))
         return bool(self._held.get(pool, frozenset()) & set(exchange_order_ids))
 
@@ -240,6 +275,12 @@ class SpyCommit:
 # --- Builders ------------------------------------------------------------
 
 
+def _user_of(pool: PoolKey) -> UUID:
+    """A different user per pool, so a lookup made as the wrong user shows in
+    what the recorded-ids fake was asked as."""
+    return uuid5(NAMESPACE_URL, "|".join(pool))
+
+
 def _discrepancy(
     *,
     pool: PoolKey = POOL_A,
@@ -249,10 +290,12 @@ def _discrepancy(
     ledger_net_base: Decimal = Decimal("0.5"),
     open_allocation_ids: tuple[UUID, ...] = (),
     first_observed_at: datetime = NOW,
+    user_id: UUID | None = None,
 ) -> DiscrepancyRecord:
     exchange, venue, settlement_currency = pool
     return DiscrepancyRecord(
         id=uuid4(),
+        user_id=user_id if user_id is not None else _user_of(pool),
         exchange=exchange,
         venue=venue,
         settlement_currency=settlement_currency,
@@ -309,6 +352,7 @@ def _build(
     max_span_seconds: int = MAX_SPAN_SECONDS,
     proposal_expiry_seconds: int = PROPOSAL_EXPIRY_SECONDS,
     system_order_ids: FakeSystemOrderIds | None = None,
+    user_fill_readers: FakeUserFillReaders | None = None,
 ) -> tuple[
     PrepareBooking,
     FakeDiscrepancyRepository,
@@ -326,7 +370,7 @@ def _build(
     use_case = PrepareBooking(
         discrepancies=discrepancy_repo,
         proposals=proposals,
-        venue_fills=registry,
+        venue_fills=user_fill_readers or FakeUserFillReaders(registry),
         recorded_fill_ids=recorded_ids,
         allocation_owner=allocation_owner,
         clock=FrozenClock(NOW),
@@ -366,6 +410,124 @@ async def test_a_confirmed_discrepancy_yields_a_prepared_proposal() -> None:
     assert proposal.client_order_id == "vnu:bybit:fill:f1"
     assert result.proposals_prepared == 1
     assert commit.commits == 1
+
+
+async def test_the_recorded_fills_are_looked_up_as_the_user_that_owns_the_pool() -> None:
+    """Multi-user AD8: ``ux_ledger_exchange_fill`` is per user, so another
+    user's row with the same fill id must not make a fill look recorded."""
+    allocation_id = uuid4()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    use_case, _, _, _, recorded_ids, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): FakeVenueFillReader([_fill()])},
+        owners={allocation_id: uuid4()},
+    )
+
+    await use_case.sweep(uuid4())
+
+    assert recorded_ids.users == [_user_of(POOL_A)]
+
+
+async def test_every_lookup_and_the_proposal_are_the_pools_users() -> None:
+    """Multi-user AD8: the rejection lookup, the system-order lookup, the
+    allocation's strategy and the proposal written all belong to the user whose
+    pool the sweep serves."""
+    allocation_id = uuid4()
+    system_order_ids = FakeSystemOrderIds()
+    discrepancy = _discrepancy(open_allocation_ids=(allocation_id,))
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[discrepancy],
+        venue_readers={("bybit", "usdt-m"): FakeVenueFillReader([_fill()])},
+        owners={allocation_id: uuid4()},
+        system_order_ids=system_order_ids,
+    )
+
+    await use_case.sweep(uuid4())
+
+    user = _user_of(POOL_A)
+    assert proposals.rejection_users == [user]
+    assert system_order_ids.users == [user]
+    assert [proposal.user_id for proposal in proposals.inserted] == [user]
+
+
+ALICE = UUID("a11ce000-0000-4000-8000-000000000001")
+BOB = UUID("b0b00000-0000-4000-8000-000000000002")
+
+
+async def test_each_discrepancy_is_read_with_its_own_users_fill_reader() -> None:
+    """AD10: two users hold a CONFIRMED discrepancy on the SAME market. A fill
+    is an account's, so each is read through the reader of the user it belongs
+    to (their key) and each proposal carries only that user's fills. The venue
+    echoes ``.P`` spellings, the discrepancy the bare market key."""
+    alice_alloc, bob_alloc = uuid4(), uuid4()
+    alice_row = _discrepancy(
+        user_id=ALICE, open_allocation_ids=(alice_alloc,), symbol="STXUSDT"
+    )
+    bob_row = _discrepancy(user_id=BOB, open_allocation_ids=(bob_alloc,), symbol="STXUSDT")
+    alice_reader = FakeVenueFillReader(
+        [_fill(exchange_fill_id="alice-fill", symbol="STXUSDT.P")]
+    )
+    bob_reader = FakeVenueFillReader(
+        [_fill(exchange_fill_id="bob-fill", symbol="STXUSDT.P")]
+    )
+    user_readers = FakeUserFillReaders(
+        # An unknown user reads an empty window: a wrong lookup shows in the
+        # assertions, not as a LookupError.
+        FakeVenueFillReaderRegistry({("bybit", "usdt-m"): FakeVenueFillReader([])}),
+        {
+            ALICE: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): alice_reader}),
+            BOB: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): bob_reader}),
+        },
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[alice_row, bob_row],
+        owners={alice_alloc: uuid4(), bob_alloc: uuid4()},
+        user_fill_readers=user_readers,
+    )
+
+    result = await use_case.sweep(uuid4())
+
+    assert user_readers.users == [ALICE, BOB]
+    assert (len(alice_reader.calls), len(bob_reader.calls)) == (1, 1)
+    assert result.proposals_prepared == 2
+    by_user = {
+        proposal.user_id: [f.exchange_fill_id for f in proposal.fills]
+        for proposal in proposals.inserted
+    }
+    assert by_user == {ALICE: ["alice-fill"], BOB: ["bob-fill"]}
+
+
+async def test_a_user_with_no_key_is_skipped_while_the_other_user_is_still_prepared(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AD10: a user without an active key resolves to readers that fail with
+    the tolerated ``VenueFillReadError``; that discrepancy is skipped with a
+    WARNING and the sweep goes on to the next user's."""
+    alice_alloc, bob_alloc = uuid4(), uuid4()
+    keyless = _discrepancy(user_id=ALICE, open_allocation_ids=(alice_alloc,))
+    keyed = _discrepancy(user_id=BOB, open_allocation_ids=(bob_alloc,))
+    failing = FakeVenueFillReader(raises=VenueFillReadError("no key this cycle"))
+    user_readers = FakeUserFillReaders(
+        FakeVenueFillReaderRegistry({("bybit", "usdt-m"): FakeVenueFillReader([])}),
+        {
+            ALICE: FakeVenueFillReaderRegistry({("bybit", "usdt-m"): failing}),
+            BOB: FakeVenueFillReaderRegistry(
+                {("bybit", "usdt-m"): FakeVenueFillReader([_fill()])}
+            ),
+        },
+    )
+    use_case, _, proposals, _, _, _ = _build(
+        discrepancies=[keyless, keyed],
+        owners={alice_alloc: uuid4(), bob_alloc: uuid4()},
+        user_fill_readers=user_readers,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await use_case.sweep(uuid4())
+
+    assert [proposal.user_id for proposal in proposals.inserted] == [BOB]
+    assert result.proposals_skipped == 1
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 # --- Money-critical: unbookable kinds never proposed ----------------------

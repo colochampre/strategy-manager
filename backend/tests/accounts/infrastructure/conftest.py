@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.strategies.infrastructure.models import StrategyRow  # noqa: F401
+from tests.owner import seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -96,14 +97,16 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         await rebuild_schema_once(conn)
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("TRUNCATE strategies, capital_pools RESTART IDENTITY CASCADE"))
+        owner = await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
                     "INSERT INTO capital_pools "
-                    "(exchange, venue, settlement_currency, min_order_size) "
-                    "VALUES (:exchange, :venue, :settlement_currency, :min_order_size)"
+                    "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                    "VALUES (:user_id, :exchange, :venue, :settlement_currency, "
+                    ":min_order_size)"
                 ),
-                pool,
+                {"user_id": owner, **pool},
             )
 
     yield engine

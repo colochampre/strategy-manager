@@ -50,6 +50,8 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 )
 from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_owner
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -140,6 +142,8 @@ async def _clean_tables(engine: AsyncEngine) -> AsyncIterator[None]:
 
 async def _seed_discrepancy(
     session: AsyncSession,
+    user_id: UUID = OWNER_ID,
+    symbol: str | None = None,
 ) -> tuple[UUID, UUID, UUID]:
     """Seeds a strategy + signal + reservation (the allocation) and a
     CONFIRMED ``reconciliation_discrepancies`` row, returning
@@ -159,12 +163,16 @@ async def _seed_discrepancy(
         uuid4(),
     )
     scan_id = uuid4()
-    symbol = f"STX{uuid4().hex[:10].upper()}USDT.P"
+    symbol = symbol or f"STX{uuid4().hex[:10].upper()}USDT.P"
+    author = user_id
+    if user_id == OWNER_ID:
+        await seed_owner(session)
     await session.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, :exchange, :venue, :settlement_currency, true, 'PARTIAL')"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, :exchange, :venue, :settlement_currency, true, 'PARTIAL', "
+            ":author)"
         ),
         {
             "id": strategy_id,
@@ -172,6 +180,7 @@ async def _seed_discrepancy(
             "exchange": _POOL[0],
             "venue": _POOL[1],
             "settlement_currency": _POOL[2],
+            "author": author,
         },
     )
     await session.execute(
@@ -190,16 +199,20 @@ async def _seed_discrepancy(
             "symbol": symbol,
         },
     )
+    # The author's reservation in the author's pool (migration 0030).
+    pool_id = await ensure_pool(session, _POOL, user_id=author)
     await session.execute(
         text(
             "INSERT INTO reservations "
-            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-            "amount, status, expires_at) "
-            "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
+            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
+            "settlement_currency, amount, status, expires_at) "
+            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :exchange, :venue, "
             ":settlement_currency, 100, 'FILLED', now() + interval '1 hour')"
         ),
         {
             "id": allocation_id,
+            "user_id": author,
+            "pool_id": pool_id,
             "strategy_id": strategy_id,
             "signal_id": signal_id,
             "exchange": _POOL[0],
@@ -210,15 +223,17 @@ async def _seed_discrepancy(
     await session.execute(
         text(
             "INSERT INTO reconciliation_discrepancies "
-            "(id, exchange, venue, settlement_currency, symbol, kind, "
+            "(id, user_id, pool_id, exchange, venue, settlement_currency, symbol, kind, "
             "venue_net_base, ledger_net_base, status, confirmed_at, "
             "first_scan_id, last_scan_id) "
-            "VALUES (:id, :exchange, :venue, :settlement_currency, :symbol, "
-            "'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, 'CONFIRMED', now(), "
+            "VALUES (:id, :user_id, :pool_id, :exchange, :venue, :settlement_currency, "
+            ":symbol, 'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, 'CONFIRMED', now(), "
             ":scan_id, :scan_id)"
         ),
         {
             "id": discrepancy_id,
+            "user_id": author,
+            "pool_id": pool_id,
             "scan_id": scan_id,
             "symbol": symbol,
             "exchange": _POOL[0],
@@ -254,6 +269,7 @@ def _proposal(
     **overrides: object,
 ) -> NewBookingProposal:
     defaults: dict[str, object] = {
+        "user_id": OWNER_ID,
         "discrepancy_id": discrepancy_id,
         "exchange": _POOL[0],
         "venue": _POOL[1],
@@ -484,7 +500,7 @@ async def test_get_for_update_reads_fresh_when_the_session_already_holds_the_row
         assert held is not None and held.state == "PENDING"
 
         await SqlAlchemyBookingProposalRepository(other).mark_state(
-            inserted.id, "REJECTED", NOW, decided_by="other", decision_reason="decided"
+            OWNER_ID, inserted.id, "REJECTED", NOW, decided_by="other", decision_reason="decided"
         )
         await other.commit()
 
@@ -532,6 +548,7 @@ async def test_mark_state_transitions_pending_to_rejected_and_returns_true(
     async with session_factory() as session:
         repo = SqlAlchemyBookingProposalRepository(session)
         changed = await repo.mark_state(
+            OWNER_ID,
             inserted.id,
             "REJECTED",
             NOW,
@@ -576,7 +593,7 @@ async def test_mark_state_a_second_time_returns_false_and_does_not_overwrite(
     async with session_factory() as session:
         repo = SqlAlchemyBookingProposalRepository(session)
         first = await repo.mark_state(
-            inserted.id, "REJECTED", NOW, decided_by="owner", decision_reason="first"
+            OWNER_ID, inserted.id, "REJECTED", NOW, decided_by="owner", decision_reason="first"
         )
         await session.commit()
     assert first is True
@@ -584,6 +601,7 @@ async def test_mark_state_a_second_time_returns_false_and_does_not_overwrite(
     async with session_factory() as session:
         repo = SqlAlchemyBookingProposalRepository(session)
         second = await repo.mark_state(
+            OWNER_ID,
             inserted.id,
             "REJECTED",
             NOW + timedelta(minutes=1),
@@ -627,7 +645,7 @@ async def test_mark_state_to_approved_with_no_execution_attempt_is_permitted_by_
 
     async with session_factory() as session:
         repo = SqlAlchemyBookingProposalRepository(session)
-        changed = await repo.mark_state(inserted.id, "APPROVED", NOW)
+        changed = await repo.mark_state(OWNER_ID, inserted.id, "APPROVED", NOW)
         await session.commit()
 
     assert changed is True
@@ -668,7 +686,12 @@ async def test_concurrent_decisions_the_second_transaction_sees_non_pending_and_
             await barrier.wait()
             await repo.get_for_update(proposal_id)
             changed = await repo.mark_state(
-                proposal_id, "REJECTED", NOW, decided_by="race", decision_reason=reason
+                OWNER_ID,
+                proposal_id,
+                "REJECTED",
+                NOW,
+                decided_by="race",
+                decision_reason=reason,
             )
             await session.commit()
             return changed
@@ -732,7 +755,7 @@ async def test_list_pending_excludes_decided_rows_and_orders_by_expiry(
         assert later is not None
         assert decided is not None
 
-        await repo.mark_state(decided.id, "REJECTED", NOW, decision_reason="not real")
+        await repo.mark_state(OWNER_ID, decided.id, "REJECTED", NOW, decision_reason="not real")
         await session.commit()
 
         pending = await repo.list_pending(limit=10)
@@ -762,7 +785,7 @@ async def test_has_matching_rejection_true_for_the_identical_observation_triple(
         )
         await session.commit()
         assert inserted is not None
-        await repo.mark_state(inserted.id, "REJECTED", NOW, decision_reason="not real")
+        await repo.mark_state(OWNER_ID, inserted.id, "REJECTED", NOW, decision_reason="not real")
         await session.commit()
 
         # Scale-independent Decimal VALUE equality, proven against real
@@ -770,6 +793,7 @@ async def test_has_matching_rejection_true_for_the_identical_observation_triple(
         # padded to 18 decimal places, yet an unpadded Decimal("2.5") still
         # matches it -- true numeric equality, never string equality.
         suppressed = await repo.has_matching_rejection(
+            OWNER_ID,
             discrepancy_id,
             Observation(
                 kind=DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
@@ -801,10 +825,11 @@ async def test_has_matching_rejection_false_when_the_observation_moved(
         )
         await session.commit()
         assert inserted is not None
-        await repo.mark_state(inserted.id, "REJECTED", NOW, decision_reason="not real")
+        await repo.mark_state(OWNER_ID, inserted.id, "REJECTED", NOW, decision_reason="not real")
         await session.commit()
 
         suppressed = await repo.has_matching_rejection(
+            OWNER_ID,
             discrepancy_id,
             Observation(
                 kind=DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
@@ -839,6 +864,7 @@ async def test_has_matching_rejection_false_when_the_proposal_is_still_pending(
         assert inserted is not None
 
         suppressed = await repo.has_matching_rejection(
+            OWNER_ID,
             discrepancy_id,
             Observation(
                 kind=DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
@@ -893,7 +919,9 @@ async def test_expire_pending_marks_only_overdue_pending_rows(
         assert not_yet is not None
         assert already_rejected is not None
 
-        await repo.mark_state(already_rejected.id, "REJECTED", NOW, decision_reason="not real")
+        await repo.mark_state(
+            OWNER_ID, already_rejected.id, "REJECTED", NOW, decision_reason="not real"
+        )
         await session.commit()
 
         expired_count = await repo.expire_pending(NOW)
@@ -952,7 +980,7 @@ async def test_mark_state_refuses_a_naive_decision_time(
     async with session_factory() as session:
         with pytest.raises(ValueError, match="decided_at"):
             await SqlAlchemyBookingProposalRepository(session).mark_state(
-                uuid4(), "REJECTED", _NAIVE, decision_reason="not mine"
+                OWNER_ID, uuid4(), "REJECTED", _NAIVE, decision_reason="not mine"
             )
 
 
@@ -990,7 +1018,7 @@ async def _insert_in_state(
     assert record is not None
     if state != "PENDING":
         assert await repo.mark_state(
-            record.id, state, NOW, decided_by="t", decision_reason="reason"
+            OWNER_ID, record.id, state, NOW, decided_by="t", decision_reason="reason"
         )
     await session.commit()
 
@@ -1085,3 +1113,173 @@ async def test_count_pending_counts_only_pending_rows(
             await _insert_in_state(session, repo, await _seed_discrepancy(session), state)
 
         assert await repo.count_pending() == 2
+
+
+# --------------------------------------------------------------------------
+# Multi-user ownership (migration 0030; design AD8)
+# --------------------------------------------------------------------------
+
+
+async def _a_proposal_of_each_user_on_the_same_market_and_symbol(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[UUID, BookingProposalRecord, BookingProposalRecord]:
+    """The owner and a second user, each with a CONFIRMED discrepancy and a
+    PENDING proposal on the same market and the same symbol. Returns the second
+    user's id, then the owner's proposal and the second user's."""
+    symbol = f"SHR{uuid4().hex[:8].upper()}USDT.P"
+    async with session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    records: list[BookingProposalRecord] = []
+    for user_id in (OWNER_ID, other):
+        async with session_factory() as session:
+            discrepancy_id, strategy_id, allocation_id = await _seed_discrepancy(
+                session, user_id, symbol=symbol
+            )
+            inserted = await SqlAlchemyBookingProposalRepository(session).insert(
+                _proposal(
+                    user_id=user_id,
+                    discrepancy_id=discrepancy_id,
+                    strategy_id=strategy_id,
+                    allocation_id=allocation_id,
+                    symbol=symbol,
+                    observed_venue_net_base=Decimal("2.5"),
+                    observed_ledger_net_base=Decimal("0"),
+                )
+            )
+            await session.commit()
+        assert inserted is not None
+        records.append(inserted)
+    return other, records[0], records[1]
+
+
+async def test_insert_stamps_the_proposals_user_and_that_users_pool(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, owners, theirs = await _a_proposal_of_each_user_on_the_same_market_and_symbol(
+        session_factory
+    )
+
+    assert owners.user_id == OWNER_ID
+    assert theirs.user_id == other
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT p.user_id, p.pool_id, c.user_id AS pool_user "
+                    "FROM booking_proposals p JOIN capital_pools c ON c.id = p.pool_id"
+                )
+            )
+        ).all()
+    assert len(rows) == 2
+    assert all(row.user_id == row.pool_user for row in rows)
+
+
+async def test_insert_for_a_user_without_a_pool_there_is_refused(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        discrepancy_id, strategy_id, allocation_id = await _seed_discrepancy(session)
+        stranger = await seed_other_user(session)
+        await session.commit()
+        with pytest.raises(InvariantViolation, match="has no pool"):
+            await SqlAlchemyBookingProposalRepository(session).insert(
+                _proposal(
+                    user_id=stranger,
+                    discrepancy_id=discrepancy_id,
+                    strategy_id=strategy_id,
+                    allocation_id=allocation_id,
+                )
+            )
+
+
+async def test_the_database_refuses_a_proposal_in_another_users_pool(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """``fk_booking_proposals_capital_pool`` is ``(pool_id, user_id)``: even a
+    write that bypasses the repository cannot put one user's proposal in
+    another's pool."""
+    async with session_factory() as session:
+        discrepancy_id, strategy_id, allocation_id = await _seed_discrepancy(session)
+        owners_pool = await ensure_pool(session, _POOL)
+        stranger = await seed_other_user(session)
+        await session.commit()
+
+    async with session_factory() as session:
+        with pytest.raises(IntegrityError, match="fk_booking_proposals_capital_pool"):
+            await session.execute(
+                text(
+                    "INSERT INTO booking_proposals "
+                    "(user_id, pool_id, discrepancy_id, exchange, venue, settlement_currency, "
+                    "symbol, kind, allocation_id, strategy_id, side, quantity, "
+                    "observed_venue_net_base, observed_ledger_net_base, "
+                    "observed_allocation_ids, fills, client_order_id, expires_at, "
+                    "prepared_by_job_id) "
+                    "VALUES (:user_id, :pool_id, :discrepancy_id, 'pionex', 'spot', 'USDT', "
+                    "'XUSDT.P', 'ATTRIBUTABLE_FULL_CLOSE', :allocation_id, :strategy_id, "
+                    "'SELL', 1, 0, 1, ARRAY[:allocation_id]::uuid[], '[{}]'::jsonb, :coid, "
+                    "now() + interval '1 day', :job)"
+                ),
+                {
+                    "user_id": stranger,
+                    "pool_id": owners_pool,
+                    "discrepancy_id": discrepancy_id,
+                    "allocation_id": allocation_id,
+                    "strategy_id": strategy_id,
+                    "coid": f"vnu:{uuid4()}",
+                    "job": uuid4(),
+                },
+            )
+
+
+async def test_mark_state_changes_only_the_given_users_proposal(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    _, owners, theirs = await _a_proposal_of_each_user_on_the_same_market_and_symbol(
+        session_factory
+    )
+
+    async with session_factory() as session:
+        repo = SqlAlchemyBookingProposalRepository(session)
+        # The owner naming the second user's proposal changes nothing.
+        crossed = await repo.mark_state(
+            OWNER_ID, theirs.id, "REJECTED", NOW, decision_reason="not real"
+        )
+        own = await repo.mark_state(
+            OWNER_ID, owners.id, "REJECTED", NOW, decision_reason="not real"
+        )
+        await session.commit()
+
+    assert crossed is False
+    assert own is True
+    async with session_factory() as session:
+        states = dict(
+            (await session.execute(text("SELECT id, state FROM booking_proposals"))).all()
+        )
+    assert states[theirs.id] == "PENDING"
+    assert states[owners.id] == "REJECTED"
+
+
+async def test_has_matching_rejection_sees_only_the_given_users_rejection(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, owners, theirs = await _a_proposal_of_each_user_on_the_same_market_and_symbol(
+        session_factory
+    )
+    observation = Observation(
+        kind=DiscrepancyKind.ATTRIBUTABLE_FULL_CLOSE,
+        venue_net_base=Decimal("2.5"),
+        ledger_net_base=Decimal("0"),
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyBookingProposalRepository(session)
+        assert await repo.mark_state(
+            OWNER_ID, owners.id, "REJECTED", NOW, decision_reason="not real"
+        )
+        await session.commit()
+
+        assert await repo.has_matching_rejection(OWNER_ID, owners.discrepancy_id, observation)
+        # The second user holds no rejection for that discrepancy, and the
+        # owner's does not suppress theirs.
+        assert not await repo.has_matching_rejection(other, owners.discrepancy_id, observation)
+        assert not await repo.has_matching_rejection(other, theirs.discrepancy_id, observation)

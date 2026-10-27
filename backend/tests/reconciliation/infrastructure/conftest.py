@@ -41,6 +41,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -100,11 +101,14 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
         # constraints. ``upsert_open``'s ``ON CONFLICT`` needs this partial
         # unique index to exist to have a target to infer, exactly the index
         # migration ``0020`` creates, so it is (re)created here too.
+        # Per user since migration 0030, so the old one is dropped first: a
+        # database this fixture built before would otherwise keep it.
+        await conn.execute(text("DROP INDEX IF EXISTS ux_reconciliation_open_per_symbol"))
         await conn.execute(
             text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_reconciliation_open_per_symbol "
+                "CREATE UNIQUE INDEX ux_reconciliation_open_per_symbol "
                 "ON reconciliation_discrepancies "
-                "(exchange, venue, settlement_currency, symbol) "
+                "(user_id, exchange, venue, settlement_currency, symbol) "
                 "WHERE resolved_at IS NULL"
             )
         )
@@ -124,13 +128,14 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "capital_pools RESTART IDENTITY CASCADE"
             )
         )
+        owner = await seed_owner(conn)
         await conn.execute(
             text(
                 "INSERT INTO capital_pools "
-                "(exchange, venue, settlement_currency, min_order_size) "
-                "VALUES (:exchange, :venue, :settlement_currency, :min_order_size)"
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:user_id, :exchange, :venue, :settlement_currency, :min_order_size)"
             ),
-            _SEEDED_POOL,
+            {"user_id": owner, **_SEEDED_POOL},
         )
 
     yield engine
@@ -152,10 +157,13 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
+    author_id: UUID = OWNER_ID,
 ) -> None:
     """Duplicated from ``tests/ledger/infrastructure/conftest.py``'s helper
     of the same name -- see this file's own docstring for why."""
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -163,6 +171,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
             )
@@ -207,30 +216,24 @@ async def seed_reservation(
     amount: Decimal = Decimal("200"),
     status: str = "SUBMITTED",
     expires_at: datetime | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """``user_id``'s reservation, in that user's pool on the market (seeded
+    when missing; migration ``0030``)."""
     resolved_expires_at = expires_at if expires_at is not None else datetime.now(UTC) + timedelta(
         hours=1
     )
     async with session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO reservations "
-                "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-                "amount, status, expires_at) "
-                "VALUES (:id, :strategy_id, :signal_id, :exchange, :venue, "
-                ":settlement_currency, :amount, :status, :expires_at)"
-            ),
-            {
-                "id": reservation_id,
-                "strategy_id": strategy_id,
-                "signal_id": signal_id,
-                "exchange": exchange,
-                "venue": venue,
-                "settlement_currency": settlement_currency,
-                "amount": amount,
-                "status": status,
-                "expires_at": resolved_expires_at,
-            },
+        await seed_reservation_row(
+            session,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            market=(exchange, venue, settlement_currency),
+            amount=amount,
+            status=status,
+            expires_at=resolved_expires_at,
+            user_id=user_id,
         )
         await session.commit()
 
@@ -256,15 +259,20 @@ async def seed_execution_attempt(
         await session.execute(
             text(
                 "INSERT INTO execution_attempts "
-                "(id, reservation_id, closes_allocation_id, exchange, venue, "
+                "(id, user_id, reservation_id, closes_allocation_id, exchange, venue, "
                 "settlement_currency, symbol, side, quantity, status, client_order_id, "
                 "exchange_order_id) "
-                "VALUES (:id, :reservation_id, :closes_allocation_id, :exchange, :venue, "
-                ":settlement_currency, :symbol, 'BUY', 0.004, :status, "
+                "VALUES (:id, :user_id, :reservation_id, :closes_allocation_id, :exchange, "
+                ":venue, :settlement_currency, :symbol, 'BUY', 0.004, :status, "
                 ":client_order_id, :exchange_order_id)"
             ),
             {
                 "id": attempt_id,
+                "user_id": await attempt_user_id(
+                    session,
+                    reservation_id=reservation_id,
+                    closes_allocation_id=closes_allocation_id,
+                ),
                 "reservation_id": reservation_id,
                 "closes_allocation_id": closes_allocation_id,
                 "exchange": exchange,

@@ -138,7 +138,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -301,7 +301,7 @@ def test_seeding_uses_distinct_market_key_normalized_symbols_from_signals(
         )
     )
 
-    result = _run_alembic(url, "upgrade", "head")
+    result = _run_alembic(url, "upgrade", "0029")
     assert result.returncode == 0, result.stdout + result.stderr
 
     # Orchestrator point 3: the seeding WARNING must actually reach
@@ -323,7 +323,7 @@ def test_strategy_with_no_signals_seeded_empty(
     strategy_id = uuid4()
     asyncio.run(_seed_pre_migration_strategy(url, strategy_id, enabled=False, symbols=()))
 
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     allowed_pairs = asyncio.run(_read_allowed_pairs(url, strategy_id))
     assert allowed_pairs == []
@@ -346,7 +346,7 @@ def test_unparseable_signal_symbol_logs_warning_and_is_skipped_during_seeding(
         )
     )
 
-    result = _run_alembic(url, "upgrade", "head")
+    result = _run_alembic(url, "upgrade", "0029")
     assert result.returncode == 0, result.stdout + result.stderr
 
     output = result.stdout + result.stderr
@@ -527,7 +527,7 @@ def test_baseline_event_written_for_every_currently_enabled_strategy_at_migratio
     asyncio.run(_seed_pre_migration_strategy(url, enabled_id, enabled=True))
     asyncio.run(_seed_pre_migration_strategy(url, disabled_id, enabled=False))
 
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     enabled_events = asyncio.run(_read_events(url, enabled_id))
     assert len(enabled_events) == 1
@@ -596,7 +596,7 @@ def test_downgrade_logs_discarded_allowed_pairs_and_archived_at_without_refusing
         _seed_pre_migration_strategy(url, strategy_id, enabled=False, symbols=["ETHUSDT.P"])
     )
 
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
     asyncio.run(_set_archived_at(url, strategy_id))
 
     result = _run_alembic(url, "downgrade", "0023")

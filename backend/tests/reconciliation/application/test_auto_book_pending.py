@@ -23,6 +23,7 @@ from strategy_manager.reconciliation.application.auto_book_pending import (
 from strategy_manager.reconciliation.application.ports import BookingProposalRecord
 from strategy_manager.reconciliation.domain.booking import BookingRefusal
 from strategy_manager.reconciliation.domain.discrepancy import DiscrepancyKind
+from tests.owner import OWNER_ID
 
 NOW = datetime(2026, 10, 16, 12, 0, 0, tzinfo=UTC)
 
@@ -30,6 +31,7 @@ NOW = datetime(2026, 10, 16, 12, 0, 0, tzinfo=UTC)
 def _proposal() -> BookingProposalRecord:
     return BookingProposalRecord(
         id=uuid4(),
+        user_id=OWNER_ID,
         discrepancy_id=uuid4(),
         exchange="bybit",
         venue="usdt-m",

@@ -20,6 +20,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
+from tests.owner import OWNER_ID
 
 RECEIVED_AT = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -54,9 +55,15 @@ class FakeStrategyRepository:
 
 @dataclass
 class FakeReservationRepository:
-    by_signal_id: dict[UUID, Reservation]
+    """Holds reservations of ``owner`` only: another user's lookup finds
+    nothing, as ``SqlAlchemyReservationRepository`` scopes it (AD8)."""
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    by_signal_id: dict[UUID, Reservation]
+    owner: UUID = OWNER_ID
+
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
+        if user_id != self.owner:
+            return None
         return self.by_signal_id.get(signal_id)
 
 
@@ -77,7 +84,7 @@ def _signal(signal_id: UUID, strategy_id: UUID) -> WebhookSignal:
     )
 
 
-def _strategy(strategy_id: UUID) -> Strategy:
+def _strategy(strategy_id: UUID, author_id: UUID = OWNER_ID) -> Strategy:
     return Strategy(
         id=strategy_id,
         name="s",
@@ -87,6 +94,7 @@ def _strategy(strategy_id: UUID) -> Strategy:
             settlement_currency=Currency.USDT,
             fill_mode=FillMode.PARTIAL,
         ),
+        author_id=author_id,
         enabled=True,
     )
 
@@ -135,3 +143,21 @@ async def test_own_reservation_id_is_populated_when_this_signal_already_has_one(
     context = await adapter.load(signal_id)
 
     assert context.own_reservation_id == reservation_id
+
+
+async def test_own_reservation_id_is_looked_up_among_the_strategy_authors() -> None:
+    """Multi-user design AD8 (B.5): the reservations are the strategy author's.
+    A reservation held by another user is not this signal's own."""
+    strategy_id, signal_id = uuid4(), uuid4()
+    author = UUID("0a1b2c3d-0000-4000-8000-0000000f0f0f")
+    adapter = SignalContextAdapter(
+        signals=FakeSignalRepository({signal_id: _signal(signal_id, strategy_id)}),
+        strategies=FakeStrategyRepository(_strategy(strategy_id, author_id=author)),
+        reservations=FakeReservationRepository(
+            {signal_id: _reservation(uuid4(), strategy_id, signal_id)}, owner=author
+        ),
+    )
+
+    context = await adapter.load(signal_id)
+
+    assert context.own_reservation_id is not None

@@ -14,6 +14,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.application.ports import FillRecord
@@ -26,6 +27,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -34,11 +36,12 @@ FILLED_AT = datetime(2026, 9, 23, 12, 0, 0, tzinfo=UTC)
 
 async def _seed_position(
     session_factory: async_sessionmaker[AsyncSession],
+    user_id: UUID = OWNER_ID,
 ) -> tuple[UUID, UUID, UUID]:
     strategy_id, signal_id = uuid4(), uuid4()
     reservation_id, attempt_id = uuid4(), uuid4()
 
-    await seed_strategy(session_factory, strategy_id=strategy_id)
+    await seed_strategy(session_factory, strategy_id=strategy_id, author_id=user_id)
     await seed_signal(
         session_factory,
         signal_id=signal_id,
@@ -50,6 +53,7 @@ async def _seed_position(
         reservation_id=reservation_id,
         strategy_id=strategy_id,
         signal_id=signal_id,
+        user_id=user_id,
     )
     await seed_execution_attempt(
         session_factory, attempt_id=attempt_id, reservation_id=reservation_id
@@ -59,6 +63,7 @@ async def _seed_position(
 
 def _fill(
     *,
+    user_id: UUID = OWNER_ID,
     strategy_id: UUID,
     allocation_id: UUID,
     attempt_id: UUID,
@@ -70,6 +75,7 @@ def _fill(
     price = Decimal("50000")
     quantity = Decimal("0.002")
     return FillRecord(
+        user_id=user_id,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -95,10 +101,85 @@ async def _recorded(
     exchange: str,
     venue: str,
     candidates: list[str],
+    user_id: UUID = OWNER_ID,
 ) -> frozenset[str]:
     async with session_factory() as session:
         reader = ReadRecordedFillIds(SqlAlchemyLedgerRepository(session))
-        return await reader.recorded_fill_ids(exchange, venue, candidates)
+        return await reader.recorded_fill_ids(user_id, exchange, venue, candidates)
+
+
+async def test_the_same_exchange_fill_id_is_recorded_once_per_user_and_read_per_user(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """``ux_ledger_exchange_fill`` is per user since migration ``0030``: two
+    users may each hold a row for one fill id, and each sees only its own."""
+    async with pg_session_factory() as session:
+        other_user = await seed_other_user(session)
+        await session.commit()
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+    other_strategy, other_allocation, other_attempt = await _seed_position(
+        pg_session_factory, other_user
+    )
+
+    async with pg_session_factory() as session:
+        recorder = RecordFill(SqlAlchemyLedgerRepository(session))
+        await recorder.record(
+            _fill(
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                attempt_id=attempt_id,
+                exchange_fill_id="F-SHARED",
+            )
+        )
+        await recorder.record(
+            _fill(
+                user_id=other_user,
+                strategy_id=other_strategy,
+                allocation_id=other_allocation,
+                attempt_id=other_attempt,
+                exchange_fill_id="F-SHARED",
+            )
+        )
+        await recorder.record(
+            _fill(
+                user_id=other_user,
+                strategy_id=other_strategy,
+                allocation_id=other_allocation,
+                attempt_id=other_attempt,
+                exchange_fill_id="F-OTHER-ONLY",
+            )
+        )
+        await session.commit()
+
+    owners = await _recorded(
+        pg_session_factory, "bybit", "usdt-m", ["F-SHARED", "F-OTHER-ONLY"]
+    )
+    others = await _recorded(
+        pg_session_factory, "bybit", "usdt-m", ["F-SHARED", "F-OTHER-ONLY"], other_user
+    )
+
+    assert owners == frozenset({"F-SHARED"})
+    assert others == frozenset({"F-SHARED", "F-OTHER-ONLY"})
+
+
+async def test_one_user_cannot_record_the_same_exchange_fill_id_twice(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    strategy_id, allocation_id, attempt_id = await _seed_position(pg_session_factory)
+
+    async with pg_session_factory() as session:
+        recorder = RecordFill(SqlAlchemyLedgerRepository(session))
+        fill = _fill(
+            strategy_id=strategy_id,
+            allocation_id=allocation_id,
+            attempt_id=attempt_id,
+            exchange_fill_id="F-TWICE",
+        )
+        await recorder.record(fill)
+        with pytest.raises(IntegrityError) as refused:
+            await recorder.record(fill)
+
+    assert refused.value.orig.__cause__.constraint_name == "ux_ledger_exchange_fill"  # type: ignore[union-attr]
 
 
 async def test_a_recorded_fill_id_is_returned(

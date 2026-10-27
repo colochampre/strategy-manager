@@ -42,14 +42,17 @@ credential into a terminal. Before every call, ``format_signing_line`` prints
 ``Signing as ***last4 (from the source)``.
 
 Usage (from ``backend/``):
-    uv run python scripts/check_key_permissions.py
+    uv run python scripts/check_key_permissions.py --user-email <e-mail>
+
+Both venues are probed with the keys of the user ``--user-email`` names
+(multi-user design AD8).
 
 **Exact VPS run command** (run AFTER this PR is merged and pulled; no restart
 needed -- this is a read-only script with no importers in ``src/``):
 
     cd /opt/strategy-manager/app/backend && \\
     sudo -u strategy -H /opt/strategy-manager/.local/bin/uv run python \\
-        scripts/check_key_permissions.py
+        scripts/check_key_permissions.py --user-email <e-mail>
 
 Paste the output into ``openspec/changes/operator-panel/tasks.md`` §
 "PR 1 -- Probe results". No line of ``key_policy.py`` is written before that
@@ -58,6 +61,7 @@ section carries P1-P3; PR 3 does not deploy before it carries P4.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import io
 import sys
@@ -66,7 +70,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
-from probe_credentials import vault_credentials
+from probe_credentials import add_user_email_argument, vault_credentials
 
 from strategy_manager.accounts.infrastructure.credential_vault import CredentialNotFound
 from strategy_manager.shared.config import Settings, get_settings
@@ -505,11 +509,11 @@ async def _binance_pass(
             _print_item("P5", await probe_binding_and_expiry_binance(restrictions), source=source)
 
 
-async def _run_bybit(settings: Settings) -> None:
+async def _run_bybit(settings: Settings, user_email: str) -> None:
     print(f"\n=== BYBIT ({BYBIT_EXCHANGE}) ===")
     clock = SystemClock()
     try:
-        async with vault_credentials(settings, BYBIT_EXCHANGE) as vaulted:
+        async with vault_credentials(settings, BYBIT_EXCHANGE, user_email=user_email) as vaulted:
             await _bybit_pass(
                 settings, vaulted.api_key, vaulted.api_secret, clock, "vault",
                 ("P1", "P2", "P4", "P5"),
@@ -520,11 +524,13 @@ async def _run_bybit(settings: Settings) -> None:
         print(f"  FAILED before any per-item verdict: {describe_failure(exc)}")
 
 
-async def _run_binance(settings: Settings) -> None:
+async def _run_binance(settings: Settings, user_email: str) -> None:
     print(f"\n=== BINANCE ({BINANCE_EXCHANGE}) ===")
     clock = SystemClock()
     try:
-        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BINANCE_EXCHANGE, user_email=user_email
+        ) as vaulted:
             await _binance_pass(
                 settings, vaulted.api_key, vaulted.api_secret, clock, "vault",
                 ("P3", "P4", "P5"),
@@ -535,16 +541,19 @@ async def _run_binance(settings: Settings) -> None:
         print(f"  FAILED before any per-item verdict: {describe_failure(exc)}")
 
 
-async def _run(settings: Settings) -> int:
+async def _run(settings: Settings, user_email: str) -> int:
     print("Key permission probe -- GET-only, places nothing, changes no setting")
-    await _run_bybit(settings)
-    await _run_binance(settings)
+    await _run_bybit(settings, user_email)
+    await _run_binance(settings, user_email)
     return 0
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_user_email_argument(parser)
+    args = parser.parse_args()
     settings = get_settings()
-    return asyncio.run(_run(settings))
+    return asyncio.run(_run(settings, args.user_email))
 
 
 if __name__ == "__main__":

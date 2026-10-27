@@ -37,7 +37,7 @@ import json
 import sys
 from typing import Any
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.pionex.errors import PionexApiError
@@ -105,6 +105,7 @@ async def _round_trip(
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -117,7 +118,7 @@ async def main() -> int:
     # key, and a write refused for the wrong key looks identical to one refused
     # because the venue does not allow it. That mistake has already been made
     # once here.
-    async with vault_credentials(settings) as credentials:
+    async with vault_credentials(settings, user_email=args.user_email) as credentials:
         announce(credentials, "vault")
         return await _run(args.symbol, settings, credentials)
 

@@ -84,6 +84,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, ensure_pool
 from tests.pg_drop import drop_database_if_exists
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
@@ -222,6 +223,10 @@ class FakeVenueFillReaderRegistry:
 
     def for_pool(self, exchange: str, venue: str) -> FakeVenueFillReader:
         return self._reader
+
+    def for_user(self, user_id: UUID) -> "FakeVenueFillReaderRegistry":
+        """One reader serves every user (``UserVenueFillReadersPort``)."""
+        return self
 
 
 def venue_fill(quantity: str, *, side: str = "SELL", price: str = "2.6") -> VenueFill:
@@ -409,6 +414,7 @@ async def seed_open_allocation(
     async with session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -441,6 +447,7 @@ async def seed_confirmed_discrepancy(
     ledger_net: str,
     confirmed_at: datetime = CONFIRMED_AT,
     symbol: str = MARKET_SYMBOL,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     """A CONFIRMED, open discrepancy row for ``symbol`` (``MARKET_SYMBOL`` by
     default; only one open row exists per market, so a second one in the same
@@ -448,19 +455,23 @@ async def seed_confirmed_discrepancy(
 
     discrepancy_id, scan_id = uuid4(), uuid4()
     async with session_factory() as session:
+        pool_id = await ensure_pool(session, POOL, user_id=user_id)
         await session.execute(
             text(
                 "INSERT INTO reconciliation_discrepancies "
-                "(id, exchange, venue, settlement_currency, symbol, kind, "
+                "(id, user_id, pool_id, exchange, venue, settlement_currency, symbol, kind, "
                 "venue_net_base, ledger_net_base, open_allocation_ids, status, "
                 "first_observed_at, last_observed_at, confirmed_at, "
                 "first_scan_id, last_scan_id) "
-                "VALUES (:id, :exchange, :venue, :settlement_currency, :symbol, :kind, "
+                "VALUES (:id, :user_id, :pool_id, :exchange, :venue, :settlement_currency, "
+                ":symbol, :kind, "
                 ":venue_net, :ledger_net, ARRAY[:allocation_id]::uuid[], 'CONFIRMED', "
                 ":first_observed_at, :first_observed_at, :confirmed_at, :scan_id, :scan_id)"
             ),
             {
                 "id": discrepancy_id,
+                "user_id": user_id,
+                "pool_id": pool_id,
                 "exchange": POOL[0],
                 "venue": POOL[1],
                 "settlement_currency": POOL[2],
@@ -520,6 +531,7 @@ async def insert_pending_proposal(
     async with session_factory() as session:
         inserted = await SqlAlchemyBookingProposalRepository(session).insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=scenario.discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -634,7 +646,7 @@ async def held_base(
 
     async with session_factory() as session:
         holdings = await SqlAlchemyLedgerRepository(session).symbol_holdings(
-            POOL[0], POOL[1], POOL[2], MARKET_SYMBOL
+            OWNER_ID, POOL[0], POOL[1], POOL[2], MARKET_SYMBOL
         )
     return sum(
         (h.net_base for h in holdings if h.strategy_id == strategy_id), start=Decimal("0")

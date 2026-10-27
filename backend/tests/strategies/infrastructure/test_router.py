@@ -21,6 +21,8 @@ archived-strategy refusals in this unit).
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -50,7 +52,13 @@ from strategy_manager.strategies.infrastructure.router import (
     get_delete_strategy,
 )
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_EMAIL,
+    ADMIN_HEADERS,
+    hand_owner_pools_to_admin,
+    sign_in_as_admin,
+)
+from tests.owner import OWNER_ID, seed_reservation_row
 
 pytestmark = pytest.mark.integration
 
@@ -111,6 +119,9 @@ async def _authenticated_client(
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE strategy_enablement_events"))
         await session.commit()
+    # A strategy is registered on its author's pools (multi-user design AD8), and
+    # the author is the signed-in admin: the seeded pools are made the admin's.
+    await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
 
@@ -161,6 +172,45 @@ async def _archive_directly(
             {"id": strategy_id},
         )
         await session.commit()
+
+
+async def _author_of(session: AsyncSession, strategy_id: UUID) -> UUID:
+    """The strategy's author: a reservation seeded on it is that user's, in
+    that user's pool (migration 0030)."""
+    author: UUID = (
+        await session.execute(
+            text("SELECT author_id FROM strategies WHERE id = :id"), {"id": strategy_id}
+        )
+    ).scalar_one()
+    return author
+
+
+# --------------------------------------------------------------------------
+# Multi-user B.3/B.6: a strategy is stamped with the signed-in admin as author
+# --------------------------------------------------------------------------
+
+
+async def test_a_strategy_created_by_the_signed_in_admin_carries_the_admins_user_id(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The admin's ``User`` is resolved by ``current_user`` on the request, with
+    its own id: not the fixture owner every seed defaults to."""
+    strategy_id = await _register(client)
+
+    async with pg_session_factory() as session:
+        admin_id = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"), {"email": ADMIN_EMAIL}
+            )
+        ).scalar_one()
+        author_id = (
+            await session.execute(
+                text("SELECT author_id FROM strategies WHERE id = :id"), {"id": strategy_id}
+            )
+        ).scalar_one()
+
+    assert admin_id != OWNER_ID
+    assert author_id == admin_id
 
 
 # --------------------------------------------------------------------------
@@ -422,14 +472,16 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
                 "signal_type": str(strategy_id),
             },
         )
-        await session.execute(
-            text(
-                "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
-                "settlement_currency, amount, status, expires_at) "
-                "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
-                "'PENDING', now() + interval '30 seconds')"
-            ),
-            {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
+        await seed_reservation_row(
+            session,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            market=("pionex", "spot", "USDT"),
+            amount=Decimal("100"),
+            status="PENDING",
+            expires_at=datetime.now(UTC) + timedelta(seconds=30),
+            user_id=await _author_of(session, strategy_id),
         )
         await session.commit()
 
@@ -777,6 +829,9 @@ async def _delete_client(
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE strategy_enablement_events"))
         await session.commit()
+    # A strategy is registered on its author's pools (multi-user design AD8), and
+    # the author is the signed-in admin: the seeded pools are made the admin's.
+    await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
     app.include_router(performance_router)
@@ -851,14 +906,16 @@ async def _seed_signal(
             },
         )
         if reservation:
-            await session.execute(
-                text(
-                    "INSERT INTO reservations (id, strategy_id, signal_id, exchange, venue, "
-                    "settlement_currency, amount, status, expires_at) "
-                    "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 100, "
-                    "'RELEASED', now() + interval '30 seconds')"
-                ),
-                {"id": uuid4(), "strategy_id": strategy_id, "signal_id": signal_id},
+            await seed_reservation_row(
+                session,
+                reservation_id=uuid4(),
+                strategy_id=strategy_id,
+                signal_id=signal_id,
+                market=("pionex", "spot", "USDT"),
+                amount=Decimal("100"),
+                status="RELEASED",
+                expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                user_id=await _author_of(session, strategy_id),
             )
         await session.commit()
 

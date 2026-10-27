@@ -60,10 +60,13 @@ class SqlAlchemyExecutionAttemptRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert(self, attempt: ExecutionAttempt) -> None:
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None:
+        """Writes ``attempt`` as ``user_id``'s: the user of the reservation it
+        spends or unwinds (multi-user design AD2)."""
         self._session.add(
             ExecutionAttemptRow(
                 id=attempt.id,
+                user_id=user_id,
                 reservation_id=attempt.reservation_id,
                 closes_allocation_id=attempt.closes_allocation_id,
                 exchange=attempt.exchange,
@@ -84,10 +87,15 @@ class SqlAlchemyExecutionAttemptRepository:
         )
         await self._session.flush()
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt:
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt:
+        """``user_id``'s attempt; another user's attempt under the same id is
+        not found (multi-user design AD8)."""
         row = (
             await self._session.execute(
-                select(ExecutionAttemptRow).where(ExecutionAttemptRow.id == attempt_id)
+                select(ExecutionAttemptRow).where(
+                    ExecutionAttemptRow.id == attempt_id,
+                    ExecutionAttemptRow.user_id == user_id,
+                )
             )
         ).scalar_one_or_none()
         if row is None:
@@ -95,8 +103,9 @@ class SqlAlchemyExecutionAttemptRepository:
 
         return _to_domain(row)
 
-    async def mark_placed(self, attempt_id: UUID, exchange_order_id: str) -> None:
-        """Records the exchange's id for an already-SUBMITTED attempt.
+    async def mark_placed(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
+        """Records the exchange's id for an already-SUBMITTED attempt of
+        ``user_id``.
 
         Bookkeeping, not a precondition: settlement finds the order by the
         client order id, so losing this write to a crash costs traceability
@@ -104,26 +113,27 @@ class SqlAlchemyExecutionAttemptRepository:
         """
         await self._session.execute(
             update(ExecutionAttemptRow)
-            .where(ExecutionAttemptRow.id == attempt_id)
+            .where(ExecutionAttemptRow.id == attempt_id, ExecutionAttemptRow.user_id == user_id)
             .values(exchange_order_id=exchange_order_id)
         )
 
-    async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_filled(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
         await self._session.execute(
             update(ExecutionAttemptRow)
-            .where(ExecutionAttemptRow.id == attempt_id)
+            .where(ExecutionAttemptRow.id == attempt_id, ExecutionAttemptRow.user_id == user_id)
             .values(status=ExecutionStatus.FILLED.value, exchange_order_id=exchange_order_id)
         )
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None:
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None:
         await self._session.execute(
             update(ExecutionAttemptRow)
-            .where(ExecutionAttemptRow.id == attempt_id)
+            .where(ExecutionAttemptRow.id == attempt_id, ExecutionAttemptRow.user_id == user_id)
             .values(status=ExecutionStatus.FAILED.value, error=error)
         )
 
     async def submitted_for_strategy_symbol(
         self,
+        user_id: UUID,
         exchange: str,
         venue: str,
         settlement_currency: str,
@@ -152,6 +162,7 @@ class SqlAlchemyExecutionAttemptRepository:
             select(ExecutionAttemptRow.id)
             .join(ReservationRow, ReservationRow.id == origin)
             .where(
+                ExecutionAttemptRow.user_id == user_id,
                 ExecutionAttemptRow.exchange == exchange,
                 ExecutionAttemptRow.venue == venue,
                 ExecutionAttemptRow.settlement_currency == settlement_currency,
@@ -165,6 +176,7 @@ class SqlAlchemyExecutionAttemptRepository:
 
     async def submitted_closing_allocations(
         self,
+        user_id: UUID,
         exchange: str,
         venue: str,
         settlement_currency: str,
@@ -196,6 +208,7 @@ class SqlAlchemyExecutionAttemptRepository:
                 ReservationRow, ReservationRow.id == ExecutionAttemptRow.closes_allocation_id
             )
             .where(
+                ExecutionAttemptRow.user_id == user_id,
                 ExecutionAttemptRow.exchange == exchange,
                 ExecutionAttemptRow.venue == venue,
                 ExecutionAttemptRow.settlement_currency == settlement_currency,
@@ -208,7 +221,7 @@ class SqlAlchemyExecutionAttemptRepository:
         return [row[0] for row in result.all()]
 
     async def submitted_for_pool(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> list[UUID]:
         """Every SUBMITTED execution attempt in this pool, opening or closing,
         across every strategy and symbol: the pool-wide twin of
@@ -217,6 +230,7 @@ class SqlAlchemyExecutionAttemptRepository:
         columns, so no join through the reservation is needed."""
         result = await self._session.execute(
             select(ExecutionAttemptRow.id).where(
+                ExecutionAttemptRow.user_id == user_id,
                 ExecutionAttemptRow.exchange == exchange,
                 ExecutionAttemptRow.venue == venue,
                 ExecutionAttemptRow.settlement_currency == settlement_currency,
@@ -242,6 +256,10 @@ class SqlAlchemyExecutionAttemptRepository:
         pool-wide reads generalise from one strategy's own concerns --
         archive must catch in-flight work on ANY market the strategy might
         be trading, not only the one a signal happens to name.
+
+        GLOBAL on purpose, like ``count_for_strategy``: it serves the admin's
+        archive of a strategy, which any user's in-flight attempt must still
+        refuse (multi-user design AD8), so it takes no ``user_id``.
         """
         origin = func.coalesce(
             ExecutionAttemptRow.reservation_id, ExecutionAttemptRow.closes_allocation_id
@@ -259,7 +277,9 @@ class SqlAlchemyExecutionAttemptRepository:
         )
         return [row[0] for row in result.all()]
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
         """The most recent closing execution attempt for ``allocation_id``,
         in ANY status, or ``None`` if it has never been closed -- what the
         S5 continuation's idempotent release half reads before re-submitting
@@ -276,7 +296,10 @@ class SqlAlchemyExecutionAttemptRepository:
         row = (
             await self._session.execute(
                 select(ExecutionAttemptRow)
-                .where(ExecutionAttemptRow.closes_allocation_id == allocation_id)
+                .where(
+                    ExecutionAttemptRow.closes_allocation_id == allocation_id,
+                    ExecutionAttemptRow.user_id == user_id,
+                )
                 .order_by(ExecutionAttemptRow.created_at.desc())
                 .limit(1)
             )
@@ -289,7 +312,11 @@ class SqlAlchemyExecutionAttemptRepository:
         the reservation it opens (``reservation_id``), the allocation it closes
         (``closes_allocation_id``), or the signal it answers (``signal_id``).
         Read-only: ``StrategyHistoryPort``'s ``execution_attempts`` count
-        (design.md addendum 9x, § C)."""
+        (design.md addendum 9x, § C).
+
+        GLOBAL on purpose: it serves the admin's delete of a strategy, which
+        any user's attempt must still refuse (multi-user design AD8), so it
+        takes no ``user_id``."""
         own_reservations = select(ReservationRow.id).where(
             ReservationRow.strategy_id == strategy_id
         )

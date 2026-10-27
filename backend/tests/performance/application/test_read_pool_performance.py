@@ -23,6 +23,7 @@ from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.curve import RangeName
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeFillsSource, FixedClock
 
 POOL = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
@@ -80,7 +81,7 @@ def _closed_trade(pnl: str, *, capital: str | None = "1000", **kwargs: object) -
 async def test_reads_one_pool_and_builds_the_report_with_now_from_the_clock() -> None:
     source = FakeFillsSource(_closed_trade("20") + _closed_trade("10"), rehearsal_fill_count=3)
 
-    report = await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+    report = await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
     assert source.asked == [POOL]
     assert report.pool == POOL
@@ -95,10 +96,10 @@ async def test_now_comes_from_the_clock_port_not_the_wall_clock() -> None:
     windows. Only an injected clock can make that observable."""
     groups = _closed_trade("20")
 
-    early = await ReadPoolPerformance(FakeFillsSource(groups), FixedClock(NOW)).read(POOL)
+    early = await ReadPoolPerformance(FakeFillsSource(groups), FixedClock(NOW)).read(OWNER_ID, POOL)
     late = await ReadPoolPerformance(
         FakeFillsSource(groups), FixedClock(NOW + timedelta(days=100))
-    ).read(POOL)
+    ).read(OWNER_ID, POOL)
 
     early_ranges = {r.range: r.trade_count for r in early.ranges}
     late_ranges = {r.range: r.trade_count for r in late.ranges}
@@ -115,7 +116,7 @@ async def test_a_source_that_returns_another_pools_rows_is_refused() -> None:
     source = FakeFillsSource(_closed_trade("20") + _closed_trade("10", exchange="binance"))
 
     with pytest.raises(InvariantViolation):
-        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
 
 async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_refused() -> None:
@@ -127,7 +128,7 @@ async def test_a_source_that_puts_a_rehearsal_group_in_the_live_set_is_refused()
 
     raised: BaseException | None = None
     try:
-        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
     except Exception as error:
         raised = error
 
@@ -142,7 +143,7 @@ async def test_a_stray_row_is_refused_even_when_it_would_only_count_as_open() ->
     source = FakeFillsSource(_closed_trade("20") + stray_open)
 
     with pytest.raises(InvariantViolation):
-        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
 
 async def test_two_pools_read_through_the_same_use_case_never_share_a_figure() -> None:
@@ -152,8 +153,8 @@ async def test_two_pools_read_through_the_same_use_case_never_share_a_figure() -
     bybit_source = FakeFillsSource(_closed_trade("20"))
     binance_source = FakeFillsSource(_closed_trade("50", exchange="binance"))
 
-    bybit = await ReadPoolPerformance(bybit_source, FixedClock(NOW)).read(POOL)
-    binance = await ReadPoolPerformance(binance_source, FixedClock(NOW)).read(other)
+    bybit = await ReadPoolPerformance(bybit_source, FixedClock(NOW)).read(OWNER_ID, POOL)
+    binance = await ReadPoolPerformance(binance_source, FixedClock(NOW)).read(OWNER_ID, other)
 
     assert bybit.total_pnl == Decimal("20")
     assert binance.total_pnl == Decimal("50")
@@ -168,7 +169,7 @@ async def test_a_pre_0026_reservation_is_reported_as_excluded_and_the_curve_stil
         _closed_trade("20") + _closed_trade("7", capital=None) + _closed_trade("5", capital=None)
     )
 
-    report = await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+    report = await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
     assert report.exclusions.no_capital_at_open == 2
     assert [p.index for p in report.curve] == [Decimal("1.02")]
@@ -182,7 +183,7 @@ async def test_an_allocation_with_no_base_currency_is_logged_as_a_warning_with_i
     source = FakeFillsSource(_closed_trade("20") + [_group(bad, "BUY", "1", symbol="BTCEUR")])
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        report = await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+        report = await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
     assert report.exclusions.unresolved_allocation_count == 1
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -199,7 +200,7 @@ async def test_missing_capital_and_unconverted_fees_are_logged_at_info_with_coun
     )
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        await ReadPoolPerformance(source, FixedClock(NOW)).read(POOL)
+        await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, POOL)
 
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
     assert any("no capital at open" in m and "1" in m for m in messages)
@@ -209,13 +210,15 @@ async def test_missing_capital_and_unconverted_fees_are_logged_at_info_with_coun
 
 async def test_a_clean_pool_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        await ReadPoolPerformance(FakeFillsSource(_closed_trade("20")), FixedClock(NOW)).read(POOL)
+        await ReadPoolPerformance(FakeFillsSource(_closed_trade("20")), FixedClock(NOW)).read(
+            OWNER_ID, POOL
+        )
 
     assert caplog.records == []
 
 
 async def test_an_empty_ledger_returns_the_empty_result_not_an_error() -> None:
-    report = await ReadPoolPerformance(FakeFillsSource([]), FixedClock(NOW)).read(POOL)
+    report = await ReadPoolPerformance(FakeFillsSource([]), FixedClock(NOW)).read(OWNER_ID, POOL)
 
     assert report.curve == ()
     assert report.closed_trade_count == 0
@@ -233,11 +236,11 @@ async def test_the_pool_report_is_identical_with_and_without_rehearsal_groups() 
 
     without = await ReadPoolPerformance(
         FakeFillsSource(live, rehearsal_fill_count=3), FixedClock(NOW)
-    ).read(POOL)
+    ).read(OWNER_ID, POOL)
     with_rehearsal = await ReadPoolPerformance(
         FakeFillsSource(live, rehearsal_fill_count=3, rehearsal_groups=closed_dry + open_dry),
         FixedClock(NOW),
-    ).read(POOL)
+    ).read(OWNER_ID, POOL)
 
     assert without.closed_trade_count == 2
     assert without.total_pnl == Decimal("16")

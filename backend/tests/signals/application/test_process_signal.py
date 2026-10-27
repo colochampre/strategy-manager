@@ -84,6 +84,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
@@ -106,10 +107,12 @@ class FakeStrategyPolicyPort:
 @dataclass
 class FakePoolBalancePort:
     balance: PoolBalance
+    users: list[UUID] = field(default_factory=list)
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
+        self.users.append(user_id)
         return self.balance
 
 
@@ -125,18 +128,25 @@ class SpyAdvisoryLock:
 class FakeReservationRepository:
     inserted: list[Reservation] = field(default_factory=list)
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
         return None
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
         return Decimal("0")
 
-    async def insert(self, reservation: Reservation) -> None:
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
         self.inserted.append(reservation)
 
-    async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None:
         pass
 
 
@@ -200,7 +210,9 @@ class FakeSignalContextPort:
 class FakeSymbolHoldingsPort:
     holdings: list[HeldAllocation] = field(default_factory=list)
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
         return self.holdings
 
 
@@ -208,15 +220,18 @@ class FakeSymbolHoldingsPort:
 class FakeInFlightWorkPort:
     result: bool = False
     closing_allocations: list[UUID] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def in_flight(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
+        self.users.append(user_id)
         return self.result
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
+        self.users.append(user_id)
         return self.closing_allocations
 
 
@@ -261,8 +276,12 @@ class FakeClosingAttemptsPort:
 
     latest: ExecutionAttempt | None = None
     calls: list[UUID] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
+        self.users.append(user_id)
         self.calls.append(allocation_id)
         return self.latest
 
@@ -281,6 +300,7 @@ class SpyCloseOrphans:
         default_factory=list
     )
     reference_prices: list[Decimal | None] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def close(
         self,
@@ -291,10 +311,12 @@ class SpyCloseOrphans:
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
         self.reference_prices.append(reference_price)
+        self.users.append(user_id)
 
 
 @dataclass
@@ -306,10 +328,12 @@ class FakeBalanceRefreshPort:
         default_factory=lambda: RefreshOutcome(status=RefreshStatus.FRESH)
     )
     calls: list[tuple[str, str, str]] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
     async def refresh(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome:
+        self.users.append(user_id)
         self.calls.append((exchange, venue, settlement_currency))
         return self.outcome
 
@@ -364,6 +388,7 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         # ``ReaderByExchange`` factory by).
         exchange=Exchange.PIONEX,
         strategy_id=uuid4(),
+        author_id=OWNER_ID,
         enabled=True,
         fill_mode="PARTIAL",
         venue="spot",
@@ -559,6 +584,36 @@ async def test_releases_signal_never_acquires_the_advisory_lock() -> None:
     assert result.transition_kind == "close_long"
     assert len(close_position.calls) == 1
     assert close_position.calls[0].allocation_id == prior_reservation_id
+
+
+async def test_a_close_looks_up_and_places_as_the_strategy_author() -> None:
+    """AD8 (B.5): the closing-attempt read and the close command both carry
+    the strategy's author, the user whose allocation is being closed."""
+    author = UUID("00000000-0000-4000-8000-0000000000b4")
+    close_position = SpyClosePosition()
+    closing_attempts = FakeClosingAttemptsPort()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_snapshot(author_id=author),
+        closing_attempts=closing_attempts,
+    )
+
+    await handler.handle(uuid4())
+
+    assert closing_attempts.users == [author]
+    assert [call.user_id for call in close_position.calls] == [author]
 
 
 async def test_a_close_never_goes_through_the_opening_path() -> None:
@@ -1268,7 +1323,9 @@ class _SequencedSymbolHoldingsPort:
     rounds: list[list[HeldAllocation]]
     call_count: int = 0
 
-    async def symbol_holdings(self, pool: PoolKey, symbol: str) -> list[HeldAllocation]:
+    async def symbol_holdings(
+        self, user_id: UUID, pool: PoolKey, symbol: str
+    ) -> list[HeldAllocation]:
         holdings = self.rounds[min(self.call_count, len(self.rounds) - 1)]
         self.call_count += 1
         return holdings
@@ -1294,7 +1351,9 @@ class _FakeClosingAttemptsByAllocation:
 
     by_allocation: dict[UUID, ExecutionAttempt | None] = field(default_factory=dict)
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None:
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None:
         return self.by_allocation.get(allocation_id)
 
 
@@ -1520,14 +1579,14 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
 
     class OrderingRefresh:
         async def refresh(
-            self, exchange: str, venue: str, settlement_currency: str
+            self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
         ) -> RefreshOutcome:
             order.append("refresh")
             return RefreshOutcome(status=RefreshStatus.FRESH)
 
     class OrderingPoolBalance:
         async def read(
-            self, exchange: str, venue: str, settlement_currency: str
+            self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
         ) -> PoolBalance:
             order.append("pool_balance")
             return PoolBalance(
@@ -1661,6 +1720,80 @@ async def test_a_fallback_balance_still_proceeds_to_allocate() -> None:
     assert len(place_order.calls) == 1
 
 
+async def test_the_refresh_and_the_sizing_read_are_the_strategy_authors_pool() -> None:
+    """AD8: two users may each hold a pool on this market. A signal is sized
+    from, and refreshes, its strategy author's pool, never another user's."""
+    author = UUID("00000000-0000-4000-8000-0000000000b2")
+    policy = _snapshot(author_id=author)
+    balance_refresh = FakeBalanceRefreshPort()
+    sizing = FakePoolBalancePort(
+        PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1"))
+    )
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(_open_long_context()),
+        strategy_policy=FakeStrategyPolicyPort(policy),
+        pool_balance=sizing,
+        holding_guard=_holding_guard(),
+        balance_refresh=balance_refresh,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), policy=policy),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=FakeCommit(),
+        closing_attempts=FakeClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
+        tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
+    )
+
+    await handler.handle(uuid4())
+
+    assert balance_refresh.users == [author]
+    assert sizing.users == [author]
+
+
+async def test_the_in_flight_read_and_the_placement_are_the_strategy_authors() -> None:
+    """AD8 (B.5): the guard asks about the author's in-flight reservations, and
+    the reservation is placed as the author's, never another user's."""
+    author = UUID("00000000-0000-4000-8000-0000000000b3")
+    policy = _snapshot(author_id=author)
+    in_flight_work = FakeInFlightWorkPort()
+    place_order = SpyPlaceOrder()
+    handler = ProcessSignalHandler(
+        signal_context=FakeSignalContextPort(_open_long_context()),
+        strategy_policy=FakeStrategyPolicyPort(policy),
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
+            )
+        ),
+        holding_guard=HoldingGuard(
+            holdings=FakeSymbolHoldingsPort([]),
+            in_flight_work=in_flight_work,
+            venue_net_position=FakeVenueNetPositionPort(None),
+            clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+            delayed_open_max_signal_age_seconds=600.0,
+        ),
+        balance_refresh=FakeBalanceRefreshPort(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), policy=policy),
+        place_order=place_order,
+        close_position=SpyClosePosition(),
+        open_after_close=SpyContinuationSeeder(),
+        commit=FakeCommit(),
+        closing_attempts=FakeClosingAttemptsPort(),
+        close_orphans=SpyCloseOrphans(),
+        tradable_pools=TRADABLE,
+        outcomes=RecordingSignalOutcomes(),
+        trade_capability=FakeTradeCapability(),
+    )
+
+    await handler.handle(uuid4())
+
+    assert in_flight_work.users == [author]
+    assert [call.user_id for call in place_order.calls] == [author]
+
+
 # --- S3 correction: lazy, per-exchange credential/client construction -------
 #
 # Orchestrator review of the first S3 commit (cb59825) found a regression:
@@ -1718,7 +1851,7 @@ class _SpyExchangeFactory:
 class _SpyWriter:
     written: list[Sequence[PoolBalanceReading]] = field(default_factory=list)
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None:
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None:
         self.written.append(readings)
 
 
@@ -1735,7 +1868,7 @@ class _StubAge:
     age: float | None
 
     async def age_seconds(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> float | None:
         return self.age
 
@@ -2961,6 +3094,25 @@ async def test_a_trade_capable_exchange_opens_exactly_as_before() -> None:
     assert trade_capability.asked == ["bybit"]
 
 
+async def test_the_capability_asked_about_is_the_strategy_authors_key() -> None:
+    """Multi-user design AD8, tasks.md B.5: a signal is worked with its strategy
+    author's key, so the author's key is the one asked about."""
+    author = UUID("00000000-0000-4000-8000-0000000000a7")
+    trade_capability = FakeTradeCapability(TradeCapability.TRADE_CAPABLE)
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(author_id=author),
+        tradable_pools=_BYBIT_POOLS,
+        trade_capability=trade_capability,
+    )
+
+    await handler.handle(uuid4())
+
+    assert trade_capability.users == [author]
+
+
 async def test_the_unlisted_pair_refusal_comes_before_the_capability_check() -> None:
     """Order (design.md § 4a): the allowlist refusal is decided first, so an
     unlisted pair on a keyless exchange says ``PAIR_NOT_ALLOWED`` and the
@@ -3046,6 +3198,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
         await SqlAlchemyCredentialVault(
             session, EnvelopeCipher(os.urandom(MASTER_KEY_BYTES)), TickingClock()
         ).store(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="bybit", label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),
@@ -3084,7 +3237,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
                 PoolExposureAdapter.over(deleter),
                 SqlAlchemyCapitalPoolWriter(deleter),
                 deleter,
-            ).execute("bybit")
+            ).execute(OWNER_ID, "bybit")
 
         lock = SpyAdvisoryLock()
         place_order = SpyPlaceOrder()

@@ -25,7 +25,11 @@ class LedgerEntryRow(Base):
         # and Bybit from issuing the same one, and keyed by venue alone the
         # second exchange's fill would be silently rejected as a duplicate of
         # the first's.
+        #
+        # Per user since migration ``0030``: two users may each record the same
+        # exchange fill id, one user may not record it twice.
         UniqueConstraint(
+            "user_id",
             "exchange",
             "venue",
             "exchange_fill_id",
@@ -35,6 +39,12 @@ class LedgerEntryRow(Base):
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_ledger_entries_user"),
+        nullable=False,
+        index=True,
     )
     strategy_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("strategies.id"), nullable=False

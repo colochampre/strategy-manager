@@ -12,6 +12,8 @@ itself makes is what makes the two locks provably the same lock, and
 moment this adapter's derivation drifts from allocation's own.
 """
 
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.lock_key import LockKey
@@ -26,10 +28,12 @@ class PoolLockAdapter:
     def __init__(self, session: AsyncSession) -> None:
         self._lock = PgAdvisoryLockAdapter(session)
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         pool_key = AllocationPoolKey(
             exchange=Exchange(exchange),
             venue=Venue(venue),
             settlement_currency=Currency(settlement_currency),
         )
-        await self._lock.acquire(LockKey.from_pool_key(pool_key))
+        await self._lock.acquire(LockKey.from_pool_key(user_id, pool_key))

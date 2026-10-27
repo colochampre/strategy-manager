@@ -242,23 +242,38 @@ class ReservationSnapshot:
 class ReservationGatewayPort(Protocol):
     """``get_for_update`` MUST take a row lock (``FOR UPDATE``) so the
     pre-submit expiry re-check and the subsequent status write are atomic
-    within the caller's open transaction (design.md § TXN-B1)."""
+    within the caller's open transaction (design.md § TXN-B1).
 
-    async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot: ...
+    Both methods name the user whose reservation it is (multi-user design AD8):
+    the strategy author whose signal opened it. Another user's reservation
+    under the same id is neither read nor marked."""
 
-    async def mark(self, reservation_id: UUID, status: str, at: datetime) -> None: ...
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot: ...
+
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: str, at: datetime
+    ) -> None: ...
 
 
 class ExecutionAttemptRepositoryPort(Protocol):
-    async def insert(self, attempt: ExecutionAttempt) -> None: ...
+    """Every method names the user whose attempt it is (multi-user design AD8):
+    the user of the reservation the attempt spends or unwinds, which on the
+    signal path is the strategy author. Another user's attempt under the same
+    id is neither read nor marked."""
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt: ...
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None: ...
 
-    async def mark_placed(self, attempt_id: UUID, exchange_order_id: str) -> None: ...
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt: ...
 
-    async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None: ...
+    async def mark_placed(
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
+    ) -> None: ...
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None: ...
+    async def mark_filled(
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
+    ) -> None: ...
+
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +283,7 @@ class FillRecord:
     ``usd_rate_at_fill`` already resolved at fill time (CLAUDE.md rule 7 —
     the rate can never be backfilled)."""
 
+    user_id: UUID
     strategy_id: UUID
     allocation_id: UUID
     execution_attempt_id: UUID
@@ -319,7 +335,9 @@ class HeldPositionPort(Protocol):
     it is on.
     """
 
-    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal: ...
+    async def net_base(
+        self, user_id: UUID, allocation_id: UUID, base_currency: str
+    ) -> Decimal: ...
 
 
 class CommitPort(Protocol):

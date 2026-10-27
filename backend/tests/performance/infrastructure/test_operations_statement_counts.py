@@ -22,6 +22,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
     SqlAlchemyRehearsalPricingSource,
 )
+from tests.owner import OWNER_ID
 from tests.performance.infrastructure.conftest import OPERATIONS_T0, OperationsLedger
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
@@ -92,7 +93,7 @@ async def _statements(
         )
         with _captured_sql(engine) as statements:
             page = await reader.read(
-                strategy_id, BYBIT, limit=limit, include_rehearsal=include_rehearsal
+                OWNER_ID, strategy_id, BYBIT, limit=limit, include_rehearsal=include_rehearsal
             )
     return len(statements), len(page.trades), sum(item.rehearsal for item in page.trades)
 

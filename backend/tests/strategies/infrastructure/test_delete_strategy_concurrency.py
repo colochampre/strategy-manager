@@ -80,6 +80,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -104,11 +105,14 @@ def head_database_url() -> Iterator[str]:
 async def engine(head_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(head_database_url, pool_pre_ping=True)
     async with engine.begin() as conn:
+        owner = await seed_owner(conn)
         await conn.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:owner, 'bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": owner},
         )
     yield engine
     await engine.dispose()
@@ -193,6 +197,7 @@ async def _seed_strategy(factory: Factory) -> UUID:
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=currency,
+                author_id=OWNER_ID,
                 enabled=False,
                 fill_mode="PARTIAL",
                 allowed_pairs=["STXUSDT"],
@@ -401,7 +406,9 @@ async def test_delete_waits_on_the_pool_advisory_lock_and_holds_no_row_lock_mean
     pool_key = PoolKey(Exchange(exchange), Venue(venue), Currency(currency))
 
     async with factory() as holder:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(pool_key))
+        await PgAdvisoryLockAdapter(holder).acquire(
+            LockKey.from_pool_key(OWNER_ID, pool_key)
+        )
 
         delete_task = asyncio.create_task(_outcome(factory, _delete(strategy_id)))
         async with _reaping([], [delete_task], holder):

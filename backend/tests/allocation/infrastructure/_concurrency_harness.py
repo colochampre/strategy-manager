@@ -27,16 +27,18 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 POOL_BALANCE = Decimal("1000")
 REQUEST_AMOUNT = Decimal("200")
 CONCURRENCY = 8
 
 SPOT_USDT_POOL = {
-    ("pionex", "spot", "USDT"): PoolConfig(
+    (OWNER_ID, ("pionex", "spot", "USDT")): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 }

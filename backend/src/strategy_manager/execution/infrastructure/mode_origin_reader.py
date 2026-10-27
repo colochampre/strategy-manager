@@ -2,9 +2,16 @@
 ``execution.application.ports.ModeOriginReaderPort`` for the ``DRY_RUN`` mode
 guard (owner decision 28).
 
-Two reads, both over the WHOLE database. Neither filters on a pool, and in
-particular neither joins ``capital_pools.enabled``: a position stays open at a
-venue whether or not anyone still trades the pool it sits in.
+Two reads. Neither filters on a pool, and in particular neither joins
+``capital_pools.enabled``: a position stays open at a venue whether or not
+anyone still trades the pool it sits in.
+
+**Whose rows** (multi-user design AD8, owner decision 16). ``user_id`` is
+optional on both reads. Absent, they cover the WHOLE database: that is the
+worker's startup guard, which must refuse on any user's rehearsal row. Given,
+they cover that user's rows only: that is the open-positions panel. One method
+with an optional argument keeps ONE definition of "open" and "in flight" for
+both callers; two methods would let the panel's and the guard's rules drift.
 
 **Open allocations.** The SQL only aggregates; whether an allocation is open is
 the domain's call (``fold_open_allocations``), because the base-fee rule needs
@@ -29,8 +36,9 @@ guard's design note for the gap.
 
 from collections.abc import Sequence
 from decimal import Decimal
+from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
@@ -47,13 +55,25 @@ from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 
+def _ledger_scope(user_id: UUID | None) -> tuple[ColumnElement[bool], ...]:
+    return () if user_id is None else (LedgerEntryRow.user_id == user_id,)
+
+
+def _attempt_scope(user_id: UUID | None) -> tuple[ColumnElement[bool], ...]:
+    if user_id is None:
+        return ()
+    return (ExecutionAttemptRow.user_id == user_id, ReservationRow.user_id == user_id)
+
+
 class SqlAlchemyModeOriginReader:
     """Read-only: this class has no method that writes."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+    async def open_allocations(
+        self, user_id: UUID | None = None
+    ) -> Sequence[OpenAllocationOrigin]:
         rehearsal = LedgerEntryRow.exchange_fill_id.startswith(
             REHEARSAL_FILL_ID_PREFIX, autoescape=True
         ).label("rehearsal")
@@ -74,6 +94,7 @@ class SqlAlchemyModeOriginReader:
                 func.sum(LedgerEntryRow.fee),
             )
             .join(StrategyRow, StrategyRow.id == LedgerEntryRow.strategy_id)
+            .where(*_ledger_scope(user_id))
             .group_by(
                 LedgerEntryRow.allocation_id,
                 StrategyRow.name,
@@ -118,7 +139,9 @@ class SqlAlchemyModeOriginReader:
             ]
         )
 
-    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
+    async def in_flight_attempts(
+        self, user_id: UUID | None = None
+    ) -> Sequence[InFlightAttemptOrigin]:
         result = await self._session.execute(
             select(
                 ExecutionAttemptRow.id,
@@ -144,6 +167,7 @@ class SqlAlchemyModeOriginReader:
             .where(
                 ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
                 ExecutionAttemptRow.exchange_order_id.is_not(None),
+                *_attempt_scope(user_id),
             )
         )
 

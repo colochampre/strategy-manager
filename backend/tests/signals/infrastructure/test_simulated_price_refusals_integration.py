@@ -31,6 +31,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure import test_order_outcomes_integration as order_h
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
 from tests.signals.infrastructure.conftest import (
@@ -67,6 +68,7 @@ def _close_command(
     reference_price: Decimal | None,
 ) -> CloseCommand:
     return CloseCommand(
+        user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
         exchange="bybit",
@@ -188,7 +190,7 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     assert refused.status == "FAILED"
     async with pg_session_factory() as session:
         held = ReadHeldBase(SqlAlchemyLedgerRepository(session))
-        assert await held.net_base(allocation_id, "STX") == Decimal("1")  # still open
+        assert await held.net_base(OWNER_ID, allocation_id, "STX") == Decimal("1")  # still open
 
     placed = await _close(
         pg_session_factory,
@@ -200,7 +202,9 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     assert placed.execution_attempt_id is not None
     async with pg_session_factory() as session:
         commit = settle_h._FaultyCommit(session, fail_on=None)
-        await settle_h._settle(session, commit, exchange).settle(placed.execution_attempt_id)
+        await settle_h._settle(session, commit, exchange).settle(
+            OWNER_ID, placed.execution_attempt_id
+        )
     async with pg_session_factory() as session:
         rows = list(
             (
@@ -214,7 +218,7 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
         assert [row.price for row in rows][-1] == Decimal("0.4633")
         assert len(rows) == 2
         held = ReadHeldBase(SqlAlchemyLedgerRepository(session))
-        assert await held.net_base(allocation_id, "STX") == Decimal("0")
+        assert await held.net_base(OWNER_ID, allocation_id, "STX") == Decimal("0")
 
 
 async def test_an_orphan_close_refused_for_its_price_writes_no_outcome_on_any_signal(
@@ -278,9 +282,11 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
         # The ORM test database seeds Bybit's pool only.
         await session.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size)"
-                " VALUES ('binance', 'usdt-m', 'USDT', 1) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size)"
+                " VALUES (:owner, 'binance', 'usdt-m', 'USDT', 1) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": OWNER_ID},
         )
         await session.commit()
     await seed_strategy(pg_session_factory, strategy_id=strategy_id, exchange="binance")
@@ -306,6 +312,7 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
         commit = order_h._FaultyCommit(session, fail_on=None)
         await order_h._place_order(session, commit, exchange).place(
             PlaceCommand(
+                user_id=OWNER_ID,
                 reservation_id=reservation_id,
                 symbol="ETHBTC",
                 side=OrderSide.BUY,

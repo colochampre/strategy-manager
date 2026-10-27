@@ -32,6 +32,7 @@ from strategy_manager.performance.application.read_operation_fills import (
 from strategy_manager.performance.domain.operation import OperationFill
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeOperationFillsSource
 
 POOL = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
@@ -73,7 +74,7 @@ def _source(fills: list[OperationFill]) -> FakeOperationFillsSource:
 async def test_it_asks_the_source_for_the_cap_plus_one() -> None:
     source = _source([_fill()])
 
-    await ReadOperationFills(source).read(STRATEGY, POOL, ALLOCATION)
+    await ReadOperationFills(source).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert [limit for _, _, limit in source.calls] == [MAX_OPERATION_FILLS + 1]
     assert MAX_OPERATION_FILLS == 200
@@ -82,7 +83,7 @@ async def test_it_asks_the_source_for_the_cap_plus_one() -> None:
 async def test_the_source_is_called_with_the_strategy_and_the_allocation_together() -> None:
     source = _source([_fill()])
 
-    await ReadOperationFills(source).read(STRATEGY, POOL, ALLOCATION)
+    await ReadOperationFills(source).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert [(strategy, allocation) for strategy, allocation, _ in source.calls] == [
         (STRATEGY, ALLOCATION)
@@ -92,7 +93,7 @@ async def test_the_source_is_called_with_the_strategy_and_the_allocation_togethe
 async def test_it_serves_the_fills_in_the_order_the_source_gave_them() -> None:
     fills = [_fill(0), _fill(1, side="SELL")]
 
-    result = await ReadOperationFills(_source(fills)).read(STRATEGY, POOL, ALLOCATION)
+    result = await ReadOperationFills(_source(fills)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert result == OperationFills(
         allocation_id=ALLOCATION, fills=tuple(fills), truncated=False
@@ -105,7 +106,7 @@ async def test_201_fills_answer_200_truncated_and_one_warning_naming_strategy_al
     fills = [_fill(n) for n in range(201)]
 
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        result = await ReadOperationFills(_source(fills)).read(STRATEGY, POOL, ALLOCATION)
+        result = await ReadOperationFills(_source(fills)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert (len(result.fills), result.truncated) == (200, True)
     assert result.fills == tuple(fills[:200])
@@ -124,7 +125,7 @@ async def test_exactly_200_fills_are_not_truncated_and_log_nothing(
     fills = [_fill(n) for n in range(200)]
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        result = await ReadOperationFills(_source(fills)).read(STRATEGY, POOL, ALLOCATION)
+        result = await ReadOperationFills(_source(fills)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert (len(result.fills), result.truncated) == (200, False)
     assert caplog.records == []
@@ -137,7 +138,7 @@ async def test_an_empty_answer_raises_unknown_operation_and_logs_one_warning(
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         try:
-            await ReadOperationFills(_source([])).read(STRATEGY, POOL, ALLOCATION)
+            await ReadOperationFills(_source([])).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
         except UnknownOperation as exc:
             caught = exc
 
@@ -151,7 +152,7 @@ async def test_an_operation_of_another_strategy_is_unknown_and_reads_nothing_of_
     caught: BaseException | None = None
 
     try:
-        await ReadOperationFills(source).read(STRATEGY, POOL, ALLOCATION)
+        await ReadOperationFills(source).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
     except UnknownOperation as exc:
         caught = exc
 
@@ -175,7 +176,7 @@ async def test_a_fill_of_another_pool_is_refused_as_an_invariant_violation_and_n
     caught: BaseException | None = None
 
     try:
-        result = await ReadOperationFills(_source(fills)).read(STRATEGY, POOL, ALLOCATION)
+        result = await ReadOperationFills(_source(fills)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
     except InvariantViolation as exc:
         caught = exc
 
@@ -194,7 +195,7 @@ async def test_a_mixed_allocation_returns_every_fill_each_with_its_own_flag_and_
     ]
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        result = await ReadOperationFills(_source(fills)).read(STRATEGY, POOL, ALLOCATION)
+        result = await ReadOperationFills(_source(fills)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert [fill.rehearsal for fill in result.fills] == [False, False, True, True]
     assert result.fills == tuple(fills)
@@ -210,9 +211,9 @@ async def test_an_operation_wholly_of_one_origin_logs_nothing(
 ) -> None:
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         rehearsal = _source([_fill(0, rehearsal=True), _fill(1, rehearsal=True)])
-        await ReadOperationFills(rehearsal).read(STRATEGY, POOL, ALLOCATION)
+        await ReadOperationFills(rehearsal).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
         live = _source([_fill(0), _fill(1)])
-        await ReadOperationFills(live).read(STRATEGY, POOL, ALLOCATION)
+        await ReadOperationFills(live).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert caplog.records == []
 
@@ -256,10 +257,10 @@ async def test_no_line_carries_a_price_a_quantity_or_a_fee(
     mixed = [_fill(0), _fill(1, rehearsal=True)]
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        await ReadOperationFills(_source(truncated)).read(STRATEGY, POOL, ALLOCATION)
-        await ReadOperationFills(_source(mixed)).read(STRATEGY, POOL, ALLOCATION)
+        await ReadOperationFills(_source(truncated)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
+        await ReadOperationFills(_source(mixed)).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
         with pytest.raises(UnknownOperation):
-            await ReadOperationFills(_source([])).read(STRATEGY, POOL, ALLOCATION)
+            await ReadOperationFills(_source([])).read(OWNER_ID, STRATEGY, POOL, ALLOCATION)
 
     assert len(caplog.records) == 3
     for record in caplog.records:

@@ -20,7 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
+from tests.owner import OWNER_ID
 from tests.performance.infrastructure.guard_cases import (
     record_fill,
     seed_allocation,
@@ -58,6 +59,7 @@ async def _request(
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
+    act_as(app, OWNER_ID)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with _captured_sql(engine) as statements:
             response = await client.get("/api/positions/open", headers=ADMIN_HEADERS)

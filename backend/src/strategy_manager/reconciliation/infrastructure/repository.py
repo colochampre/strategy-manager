@@ -1,9 +1,14 @@
 """SQLAlchemy implementation of ``DiscrepancyRepositoryPort`` against the
 ``reconciliation_discrepancies`` table (migration ``0020``).
 
+Every row belongs to a user (migration ``0030``, multi-user design AD2/AD8):
+``upsert_open``, ``resolve_absent`` and ``get`` act on one user's rows only, and
+``list_discrepancies`` is scoped when given a user and is the admin's global view
+(owner decision 16) when not.
+
 ``upsert_open`` is a single ``INSERT ... ON CONFLICT`` rather than a
 SELECT-then-branch: the partial unique index
-``ux_reconciliation_open_per_symbol`` (on ``(exchange, venue,
+``ux_reconciliation_open_per_symbol`` (on ``(user_id, exchange, venue,
 settlement_currency, symbol) WHERE resolved_at IS NULL``) is exactly the
 conflict target Postgres infers from ``index_elements``/``index_where``
 below, so "insert on the first observation, update in place afterward" is
@@ -37,6 +42,7 @@ from strategy_manager.reconciliation.domain.discrepancy import (
 from strategy_manager.reconciliation.infrastructure.models import (
     ReconciliationDiscrepancyRow,
 )
+from strategy_manager.reconciliation.infrastructure.pool_lookup import pool_id_for
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 _Row = ReconciliationDiscrepancyRow
@@ -45,6 +51,7 @@ _Row = ReconciliationDiscrepancyRow
 def _to_domain(row: ReconciliationDiscrepancyRow) -> DiscrepancyRecord:
     return DiscrepancyRecord(
         id=row.id,
+        user_id=row.user_id,
         exchange=row.exchange,
         venue=row.venue,
         settlement_currency=row.settlement_currency,
@@ -76,8 +83,15 @@ class SqlAlchemyDiscrepancyRepository:
         pool: PoolKey | None = None,
         status: DiscrepancyStatus | None = None,
         open_only: bool = False,
+        *,
+        user_id: UUID | None = None,
     ) -> list[DiscrepancyRecord]:
+        """``user_id`` given: that user's rows only. Absent: every user's, the
+        admin's view (owner decision 16) and the worker's global sweeps. Each
+        record carries its ``user_id``."""
         stmt = select(_Row)
+        if user_id is not None:
+            stmt = stmt.where(_Row.user_id == user_id)
         if pool is not None:
             exchange, venue, settlement_currency = pool
             stmt = stmt.where(
@@ -93,9 +107,11 @@ class SqlAlchemyDiscrepancyRepository:
         result = await self._session.execute(stmt)
         return [_to_domain(row) for row in result.scalars().all()]
 
-    async def get(self, discrepancy_id: UUID) -> DiscrepancyRecord:
+    async def get(self, user_id: UUID, discrepancy_id: UUID) -> DiscrepancyRecord:
         row = (
-            await self._session.execute(select(_Row).where(_Row.id == discrepancy_id))
+            await self._session.execute(
+                select(_Row).where(_Row.id == discrepancy_id, _Row.user_id == user_id)
+            )
         ).scalar_one_or_none()
         if row is None:
             raise InvariantViolation(f"no reconciliation discrepancy {discrepancy_id}")
@@ -103,6 +119,7 @@ class SqlAlchemyDiscrepancyRepository:
 
     async def upsert_open(
         self,
+        user_id: UUID,
         pool: PoolKey,
         symbol: str,
         observation: Observation,
@@ -113,11 +130,14 @@ class SqlAlchemyDiscrepancyRepository:
         at: datetime,
     ) -> None:
         exchange, venue, settlement_currency = pool
+        pool_id = await pool_id_for(self._session, user_id, pool)
         # Computed once, in Python: this is what ``excluded.confirmed_at``
         # resolves to below, on BOTH the insert and the conflict branch.
         confirmed_at = at if status is DiscrepancyStatus.CONFIRMED else None
 
         insert_stmt = pg_insert(_Row).values(
+            user_id=user_id,
+            pool_id=pool_id,
             exchange=exchange,
             venue=venue,
             settlement_currency=settlement_currency,
@@ -135,7 +155,13 @@ class SqlAlchemyDiscrepancyRepository:
             last_scan_id=scan_id,
         )
         stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[_Row.exchange, _Row.venue, _Row.settlement_currency, _Row.symbol],
+            index_elements=[
+                _Row.user_id,
+                _Row.exchange,
+                _Row.venue,
+                _Row.settlement_currency,
+                _Row.symbol,
+            ],
             index_where=_Row.resolved_at.is_(None),
             set_={
                 "kind": insert_stmt.excluded.kind,
@@ -161,6 +187,7 @@ class SqlAlchemyDiscrepancyRepository:
 
     async def resolve_absent(
         self,
+        user_id: UUID,
         pool: PoolKey,
         symbols: Sequence[str],
         scan_id: UUID,
@@ -172,6 +199,7 @@ class SqlAlchemyDiscrepancyRepository:
         stmt = (
             update(_Row)
             .where(
+                _Row.user_id == user_id,
                 _Row.exchange == exchange,
                 _Row.venue == venue,
                 _Row.settlement_currency == settlement_currency,

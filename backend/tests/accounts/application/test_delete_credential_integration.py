@@ -91,6 +91,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -100,10 +101,11 @@ POOL_BALANCE = Decimal("1000")
 WAIT_SECONDS = 5.0
 
 _POOL_CONFIG = {
-    POOL: PoolConfig(
+    (OWNER_ID, POOL): PoolConfig(
         exchange=Exchange.BYBIT,
         venue=Venue.USDT_M,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 }
@@ -130,10 +132,13 @@ def _cipher() -> EnvelopeCipher:
 
 
 async def _store_key(
-    factory: async_sessionmaker[AsyncSession], exchange: str = "bybit"
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str = "bybit",
+    user_id: UUID = OWNER_ID,
 ) -> None:
     async with factory() as session:
         await SqlAlchemyCredentialVault(session, _cipher(), TickingClock()).store(
+            user_id,
             ExchangeCredential(
                 exchange=exchange, label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),
@@ -143,17 +148,26 @@ async def _store_key(
 
 
 async def _credential_flags(
-    factory: async_sessionmaker[AsyncSession], exchange: str = "bybit"
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str = "bybit",
+    user_id: UUID = OWNER_ID,
 ) -> list[bool]:
     async with factory() as session:
         rows = await session.execute(
             text(
                 "SELECT is_active FROM exchange_credentials WHERE exchange = :e "
-                "ORDER BY created_at, id"
+                "AND user_id = :u ORDER BY created_at, id"
             ),
-            {"e": exchange},
+            {"e": exchange, "u": user_id},
         )
         return [row[0] for row in rows.all()]
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
 
 
 async def _pool_enabled(
@@ -163,8 +177,11 @@ async def _pool_enabled(
         return bool(
             (
                 await session.execute(
-                    text("SELECT enabled FROM capital_pools WHERE exchange = :e"),
-                    {"e": exchange},
+                    text(
+                        "SELECT enabled FROM capital_pools WHERE exchange = :e "
+                        "AND user_id = :owner"
+                    ),
+                    {"e": exchange, "owner": OWNER_ID},
                 )
             ).scalar_one()
         )
@@ -195,7 +212,7 @@ def _build(
 
 async def _delete(factory: async_sessionmaker[AsyncSession], exchange: str = "bybit") -> Any:
     async with factory() as session:
-        return await _build(session).execute(exchange)
+        return await _build(session).execute(OWNER_ID, exchange)
 
 
 # --- 6e.1, 6e.2: refusals ------------------------------------------------------------------
@@ -285,6 +302,35 @@ async def test_a_second_deletion_finds_no_active_credential(
         await _delete(factory)
 
 
+async def test_a_user_with_no_key_cannot_delete_another_users_key_on_the_same_exchange(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: only the owner holds a Bybit key. Another user's delete finds no key
+    of their own and leaves the owner's active."""
+    other = await _other_user(factory)
+    await _store_key(factory)
+
+    async with factory() as session:
+        with pytest.raises(NoActiveCredential):
+            await _build(session).execute(other, "bybit")
+
+    assert await _credential_flags(factory) == [True]
+
+
+async def test_deleting_a_key_leaves_another_users_key_on_the_same_exchange_active(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other = await _other_user(factory)
+    await _store_key(factory)
+    await _store_key(factory, user_id=other)
+
+    result = await _delete(factory)
+
+    assert result.last4 == BYBIT_KEY[-4:]
+    assert await _credential_flags(factory) == [False]
+    assert await _credential_flags(factory, user_id=other) == [True]
+
+
 # --- 6e.3: success, one transaction ---------------------------------------------------------
 
 
@@ -317,7 +363,7 @@ async def test_deletion_succeeds_when_flat_deactivates_credential_disables_pool_
 
     async with factory() as session:
         spy = _SpyCommit(session, factory)
-        result = await _build(session, commit=spy).execute("bybit")
+        result = await _build(session, commit=spy).execute(OWNER_ID, "bybit")
 
     assert result.exchange == "bybit"
     assert result.last4 == BYBIT_KEY[-4:]
@@ -335,10 +381,10 @@ async def test_a_failing_pool_write_rolls_the_credential_deactivation_back(
     await _store_key(factory)
 
     class _ExplodingPools:
-        async def enable(self, exchange: str) -> bool:
+        async def enable(self, user_id: UUID, exchange: str) -> bool:
             raise AssertionError
 
-        async def disable(self, exchange: str) -> bool:
+        async def disable(self, user_id: UUID, exchange: str) -> bool:
             raise RuntimeError("pool write failed")
 
     async with factory() as session:
@@ -350,7 +396,7 @@ async def test_a_failing_pool_write_rolls_the_credential_deactivation_back(
             session,
         )
         with pytest.raises(RuntimeError):
-            await use_case.execute("bybit")
+            await use_case.execute(OWNER_ID, "bybit")
 
     assert await _credential_flags(factory) == [True]
     assert await _pool_enabled(factory) is True
@@ -387,6 +433,7 @@ async def _close(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -429,6 +476,7 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
             session,
             clock,
         ).execute(
+            OWNER_ID,
             ExchangeCredential(
                 exchange="bybit", label="default", api_key=BYBIT_KEY, api_secret=BYBIT_SECRET
             ),
@@ -444,6 +492,7 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
 
 
 _POOL_KEY = LockKey.from_pool_key(
+    OWNER_ID,
     PoolKey(
         exchange=Exchange(POOL[0]),
         venue=Venue(POOL[1]),
@@ -502,7 +551,7 @@ async def test_deletion_takes_the_pool_lock_before_the_row_lock_so_a_waiting_del
 
     holder = factory()
     async with holder as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         task = asyncio.create_task(_delete(factory))
         await _a_waiter_is_blocked_on_the_advisory_lock(factory)
         assert not task.done()
@@ -551,8 +600,10 @@ class _HoldingPoolLock:
         self._acquired = acquired
         self._resume = resume
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
-        await self._inner.acquire(exchange, venue, settlement_currency)
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        await self._inner.acquire(user_id, exchange, venue, settlement_currency)
         self._acquired.set()
         await self._resume.wait()
 
@@ -662,7 +713,7 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
     async def run_delete() -> None:
         async with factory() as session:
             try:
-                deleted["value"] = await _build(session).execute("bybit")
+                deleted["value"] = await _build(session).execute(OWNER_ID, "bybit")
             except BaseException as exc:  # noqa: BLE001 -- captured for the assertion
                 failed["value"] = exc
 
@@ -727,7 +778,7 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
     async def run_delete() -> None:
         async with factory() as session:
             lock = _HoldingPoolLock(PoolLockAdapter(session), acquired, resume_delete)
-            deleted["value"] = await _build(session, pool_lock=lock).execute("bybit")
+            deleted["value"] = await _build(session, pool_lock=lock).execute(OWNER_ID, "bybit")
 
     task_delete = asyncio.create_task(run_delete())
     await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)  # the delete holds the pool lock

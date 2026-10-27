@@ -26,6 +26,7 @@ from strategy_manager.signals.domain.outcome import SignalOutcome
 from tests.signals.application.test_open_after_close import (
     MAX_SIGNAL_AGE_SECONDS,
     NOW,
+    OWNER,
     SETTLE_TIMEOUT_SECONDS,
     FakeClosingAttemptsPort,
     FakeSignalLookupPort,
@@ -54,7 +55,7 @@ async def test_a_superseded_signal_is_rejected_with_the_logged_message(
     )
 
     with caplog.at_level("WARNING", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, [uuid4()]))
+        await continuation.poll(_job(signal.id, [uuid4()]), OWNER)
 
     assert len(outcomes.unless_terminal_calls) == 1
     [(signal_id, outcome)] = outcomes.unless_terminal_calls
@@ -81,7 +82,7 @@ async def test_an_awaited_close_that_failed_rejects_the_signal(
     )
 
     with caplog.at_level("ERROR", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert len(outcomes.unless_terminal_calls) == 1
     [(signal_id, outcome)] = outcomes.unless_terminal_calls
@@ -112,7 +113,7 @@ async def test_a_signal_past_the_age_bound_after_its_closes_filled_is_timed_out(
     )
 
     with caplog.at_level("WARNING", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert open_now.calls == []
     assert len(outcomes.unless_terminal_calls) == 1
@@ -134,7 +135,7 @@ async def test_a_vacuous_await_past_the_age_bound_does_not_claim_a_close_execute
     )
 
     with caplog.at_level("WARNING", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, []))
+        await continuation.poll(_job(signal.id, []), OWNER)
 
     assert len(outcomes.unless_terminal_calls) == 1
     [(_, outcome)] = outcomes.unless_terminal_calls
@@ -168,7 +169,7 @@ async def test_a_close_still_unsettled_past_either_bound_is_timed_out(
     )
 
     with caplog.at_level("ERROR", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert queue.enqueued == []
     assert len(outcomes.unless_terminal_calls) == 1
@@ -189,7 +190,7 @@ async def test_a_deleted_signal_writes_nothing() -> None:
         signals=FakeSignalLookupPort(signal=None), outcomes=outcomes
     )
 
-    await continuation.poll(_job(uuid4(), [uuid4()]))
+    await continuation.poll(_job(uuid4(), [uuid4()]), None)
 
     assert outcomes.calls == [] and outcomes.unless_terminal_calls == []
 
@@ -219,6 +220,6 @@ async def test_a_poll_that_abandons_nothing_writes_nothing() -> None:
         continuation, _, _, _ = _continuation(
             signals=FakeSignalLookupPort(signal=signal), attempts=attempts, outcomes=outcomes
         )
-        await continuation.poll(_job(signal.id, [allocation_id]))
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
 
     assert outcomes.calls == [] and outcomes.unless_terminal_calls == []

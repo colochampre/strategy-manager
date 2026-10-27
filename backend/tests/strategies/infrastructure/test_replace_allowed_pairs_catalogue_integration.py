@@ -38,6 +38,7 @@ from strategy_manager.strategies.domain.pair_catalog import PairsChangedConcurre
 from strategy_manager.strategies.domain.strategy import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -74,6 +75,7 @@ async def _seed(
             StrategyRow(
                 id=strategy_id,
                 name=f"strategy-{strategy_id}",
+                author_id=OWNER_ID,
                 enabled=enabled,
                 fill_mode="PARTIAL",
                 allowed_pairs=pairs,

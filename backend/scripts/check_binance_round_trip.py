@@ -65,7 +65,7 @@ from decimal import ROUND_CEILING, ROUND_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.accounts.application.ports import PoolKey
 from strategy_manager.accounts.infrastructure.binance_balance_reader import (
@@ -498,13 +498,14 @@ async def main() -> int:
         choices=[OrderSide.BUY.value, OrderSide.SELL.value],
     )
     parser.add_argument("--confirm", action="store_true")
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     side = OrderSide(args.side)
     settings = get_settings()
     symbol = _venue_symbol(args.symbol)
 
-    async with vault_credentials(settings, EXCHANGE) as vaulted:
+    async with vault_credentials(settings, EXCHANGE, user_email=args.user_email) as vaulted:
         # Before anything else, including the URLs: an unattributed refusal has
         # already cost this project one wrong conclusion.
         announce(vaulted, f"vault ({EXCHANGE})")

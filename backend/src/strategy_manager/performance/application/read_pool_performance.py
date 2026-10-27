@@ -28,6 +28,7 @@ detail the count cannot carry, at the level the condition deserves:
 """
 
 import logging
+from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.application.ports import AllocationFillsSourcePort
@@ -49,8 +50,8 @@ class ReadPoolPerformance:
         self._fills = fills
         self._clock = clock
 
-    async def read(self, pool: PoolKey) -> PoolPerformance:
-        pool_fills = await self._fills.pool_fills(pool)
+    async def read(self, user_id: UUID, pool: PoolKey) -> PoolPerformance:
+        pool_fills = await self._fills.pool_fills(user_id, pool)
         require_single_pool(pool, pool_fills.groups)
         require_live_only(pool_fills.groups)
 

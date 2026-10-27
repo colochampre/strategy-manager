@@ -60,12 +60,18 @@ class PoolExposureAdapter:
             SqlAlchemyExecutionAttemptRepository(session),
         )
 
-    async def exposure(self, pool: PoolKey) -> PoolExposure:
+    async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
+        """``user_id`` is the user whose key is being deleted (multi-user design
+        AD8): only that user's enabled strategies, live reservations, ledger rows
+        and open discrepancies stand in the way. Another user's strategy works in
+        its author's pool with its author's key, never this one, and its id and
+        name are not this user's to read."""
         exchange, venue, settlement_currency = pool
 
         enabled = await self._session.execute(
             select(StrategyRow.id, StrategyRow.name)
             .where(
+                StrategyRow.author_id == user_id,
                 StrategyRow.exchange == exchange,
                 StrategyRow.venue == venue,
                 StrategyRow.settlement_currency == settlement_currency,
@@ -79,7 +85,7 @@ class PoolExposureAdapter:
         # not), so a market opened under one spelling and closable under
         # another is checked once, under all of them.
         raw_symbols = await self._ledger.distinct_symbols_for_pool(
-            exchange, venue, settlement_currency
+            user_id, exchange, venue, settlement_currency
         )
         markets = {market_key(symbol) for symbol in raw_symbols}
 
@@ -90,7 +96,9 @@ class PoolExposureAdapter:
         symbols: set[str] = set()
         allocations: list[UUID] = []
         for market in sorted(markets):
-            for holding in await self._symbol_holdings.symbol_holdings(pool, market):
+            for holding in await self._symbol_holdings.symbol_holdings(
+                user_id, pool, market
+            ):
                 symbols.add(market)
                 allocations.append(holding.allocation_id)
 
@@ -103,6 +111,7 @@ class PoolExposureAdapter:
         # any of its pools, not only the one the delete locks.
         discrepancies = await self._session.execute(
             select(ReconciliationDiscrepancyRow.symbol).where(
+                ReconciliationDiscrepancyRow.user_id == user_id,
                 ReconciliationDiscrepancyRow.exchange == exchange,
                 ReconciliationDiscrepancyRow.resolved_at.is_(None),
             )
@@ -115,10 +124,14 @@ class PoolExposureAdapter:
             symbols=frozenset(symbols),
             allocations=tuple(allocations),
             live_reservations=tuple(
-                await self._reservations.live_for_pool(exchange, venue, settlement_currency)
+                await self._reservations.live_for_pool(
+                    user_id, exchange, venue, settlement_currency
+                )
             ),
             in_flight_attempts=tuple(
-                await self._attempts.submitted_for_pool(exchange, venue, settlement_currency)
+                await self._attempts.submitted_for_pool(
+                    user_id, exchange, venue, settlement_currency
+                )
             ),
             open_discrepancies=frozenset(discrepancies.scalars().all()),
         )

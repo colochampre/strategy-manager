@@ -95,10 +95,11 @@ The keys are cached in process and refreshed on an unknown `kid`, at most once a
 **Constraints that change:**
 - `ux_exchange_credentials_one_active_per_exchange` becomes `(user_id, exchange) WHERE is_active` (R1).
 - `capital_pools` gets a surrogate `id INTEGER` (identity) as its primary key, plus `UNIQUE(user_id, exchange, venue, settlement_currency)`. Every pool FK (strategies excepted, see AD3) moves to `pool_id`.
+- The strategies FK is composite on `(exchange, venue, settlement_currency)`, which stops being unique once pools carry `user_id`. So 0030 drops it and adds AD3's CHECK, one migration earlier than first planned (PR B planning, 2026-10-21). A temporary unique on the three columns was the alternative: it would refuse a second user's pool and need undoing in 0031. Creating a strategy still checks that the pool exists.
 - `reconciliation_discrepancies`' open-row unique gains `user_id`.
 - `strategies.name` stays unique across everyone. Every strategy is public, and two "BTC Trend" entries in one list would let one author pass for another.
 
-**The append-only ledger.** The backfill must not UPDATE the ledger. The migration inserts the owner's user first. It then adds the column as `ADD COLUMN user_id uuid NOT NULL DEFAULT '<owner id literal>'`. On PostgreSQL 11+, a constant default is stored in the catalogue and no row is rewritten, so the append-only triggers never fire. The default is dropped in the same migration. The other tables are backfilled with a plain UPDATE.
+**The append-only ledger.** The backfill must not UPDATE the ledger. The migration inserts the owner's user first. It then adds the column as `ADD COLUMN user_id uuid NOT NULL DEFAULT '<owner id literal>'`. On PostgreSQL 11+, a constant default is stored in the catalogue and no row is rewritten, so the append-only triggers never fire. The default is dropped in the same migration. The other tables receive their owner the same way, since it costs nothing and rewrites nothing (B.1).
 
 ### AD3. A strategy names a market; a subscription names a pool
 
@@ -323,8 +324,8 @@ The fakes stay process-lifetime, as today.
 | Rev | What | Downgrade |
 | --- | --- | --- |
 | 0029 | `users`, empty; the owner's row is created by their first `GET /api/me` | drop `users` |
-| 0030 | `user_id` on owned tables (AD2; ledger by constant default), filled with the one existing user (refuses unless exactly one exists); keys' unique per user; pools' surrogate id and FK moves; ledger fill unique with `user_id` | reversible while only the owner exists |
-| 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then dropped from `strategies`; strategy's pool FK dropped | reversible while only the owner exists |
+| 0030 | `user_id` on owned tables (AD2; ledger by constant default), filled with the one existing user (refuses unless exactly one exists); keys' unique per user; pools' surrogate id and FK moves; strategy's pool FK dropped for AD3's CHECK; ledger fill unique with `user_id` | reversible while only the owner exists |
+| 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then dropped from `strategies` | reversible while only the owner exists |
 | 0032 | `signal_deliveries`; one per existing signal for the owner's subscription; `reservations.delivery_id` backfilled, `signal_id UNIQUE` dropped | reversible while only the owner exists |
 | 0033 | `strategies.webhook_secret_hash` (the current global secret hashed by the migration from settings); `users.mode` (the owner's set to `LIVE` if `DRY_RUN=false` at migration time, else `SIMULATION`); `reservations.mode` backfilled from each row's recorded mode origin | reversible while only the owner exists |
 

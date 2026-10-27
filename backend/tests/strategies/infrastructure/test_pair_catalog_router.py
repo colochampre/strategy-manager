@@ -36,7 +36,14 @@ from strategy_manager.strategies.infrastructure.pair_catalog_router import (
 from strategy_manager.strategies.infrastructure.pair_catalog_router import (
     router as pair_catalog_router,
 )
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    hand_owner_pools_to_admin,
+    seed_admin,
+    sign_in_as_admin,
+)
+from tests.owner import seed_other_user, seed_pool
 from tests.shared.infrastructure.binance.test_futures_rules import AAVE
 from tests.shared.infrastructure.bybit.test_read_client import BTC_PERP
 
@@ -68,6 +75,13 @@ class _Catalog:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+async def _pools_are_the_admins(pg_session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """The route answers only the signed-in user's pools (multi-user design
+    AD8); the seeded pools are made the signed-in admin's."""
+    await hand_owner_pools_to_admin(pg_session_factory)
 
 
 def _app(
@@ -128,6 +142,28 @@ async def test_unknown_pool_404_and_the_catalogue_is_never_asked(
         r for r in caplog.records if r.levelname == "WARNING" and "no such pool" in r.message
     ]
     assert len(refusals) == 3
+
+
+async def test_another_users_pool_is_a_404_and_the_catalogue_is_never_asked(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8. A second user holds a pool on ``binance/usdt-m/
+    USDT``; the signed-in admin holds none there. To the admin it is no such
+    pool, and no venue is asked about it."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+    catalog = _Catalog({("binance", "usdt-m", "USDT"): frozenset({"AAVEUSDT"})})
+
+    async with _client(_app(pg_session_factory, catalog)) as api:
+        response = await api.get(
+            "/pools/binance/usdt-m/USDT/available-pairs", headers=ADMIN_HEADERS
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "no such pool"}
+    assert catalog.asked == []
 
 
 async def test_disabled_pool_200(
@@ -298,12 +334,7 @@ async def test_binance_pool_reads_the_configured_futures_host_and_the_fixed_path
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with pg_session_factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('binance', 'usdt-m', 'USDT', 5)"
-            )
-        )
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=await seed_admin(session))
         await session.commit()
     recorded: list[httpx.Request] = []
     real = VenuePairCatalog.for_settings(

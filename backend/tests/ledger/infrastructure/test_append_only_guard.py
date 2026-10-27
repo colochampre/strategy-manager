@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -32,6 +33,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from strategy_manager.shared.config import get_settings
+from tests.owner import seed_owner, seed_reservation_row
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -110,13 +112,14 @@ def _pgcode(error: DBAPIError) -> str | None:
 
 async def _seed_full_chain(conn: AsyncConnection) -> UUID:
     strategy_id = uuid4()
+    author = await seed_owner(conn)
     await conn.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode) "
-            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL')"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL', :author)"
         ),
-        {"id": strategy_id, "name": f"strategy-{strategy_id}"},
+        {"id": strategy_id, "name": f"strategy-{strategy_id}", "author": author},
     )
     signal_id = uuid4()
     await conn.execute(
@@ -128,40 +131,45 @@ async def _seed_full_chain(conn: AsyncConnection) -> UUID:
         {"id": signal_id, "strategy_id": strategy_id, "signal_type": str(strategy_id)},
     )
     reservation_id = uuid4()
-    await conn.execute(
-        text(
-            "INSERT INTO reservations "
-            "(id, strategy_id, signal_id, exchange, venue, settlement_currency, "
-            "amount, status, expires_at) "
-            "VALUES (:id, :strategy_id, :signal_id, 'pionex', 'spot', 'USDT', 200, "
-            "'SUBMITTED', now() + interval '1 hour')"
-        ),
-        {"id": reservation_id, "strategy_id": strategy_id, "signal_id": signal_id},
+    await seed_reservation_row(
+        conn,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        market=("pionex", "spot", "USDT"),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        user_id=author,
     )
     attempt_id = uuid4()
     await conn.execute(
         text(
             "INSERT INTO execution_attempts "
-            "(id, reservation_id, exchange, venue, settlement_currency, "
+            "(id, user_id, reservation_id, exchange, venue, settlement_currency, "
             "symbol, side, quantity, status, client_order_id) "
-            "VALUES (:id, :reservation_id, 'pionex', 'spot', 'USDT', 'BTCUSDT', 'BUY', "
+            "VALUES (:id, :user_id, :reservation_id, 'pionex', 'spot', 'USDT', 'BTCUSDT', 'BUY', "
             "0.004, 'SUBMITTED', :client_order_id)"
         ),
-        {"id": attempt_id, "reservation_id": reservation_id, "client_order_id": f"c-{attempt_id}"},
+        {
+            "id": attempt_id,
+            "user_id": author,
+            "reservation_id": reservation_id,
+            "client_order_id": f"c-{attempt_id}",
+        },
     )
     ledger_id = uuid4()
     await conn.execute(
         text(
-            "INSERT INTO ledger_entries (id, strategy_id, allocation_id, execution_attempt_id, "
-            "exchange, venue, settlement_currency, symbol, side, quantity, price, fee, "
-            "fee_currency, notional, exchange_order_id, exchange_fill_id, filled_at, "
-            "usd_rate_at_fill) "
-            "VALUES (:id, :strategy_id, :allocation_id, :execution_attempt_id, 'pionex', "
+            "INSERT INTO ledger_entries (id, user_id, strategy_id, allocation_id, "
+            "execution_attempt_id, exchange, venue, settlement_currency, symbol, side, "
+            "quantity, price, fee, fee_currency, notional, exchange_order_id, "
+            "exchange_fill_id, filled_at, usd_rate_at_fill) "
+            "VALUES (:id, :user_id, :strategy_id, :allocation_id, :execution_attempt_id, 'pionex', "
             "'spot', 'USDT', 'BTCUSDT', 'BUY', 0.004, 50000, 0.02, 'USDT', 200, "
             ":exchange_order_id, :exchange_fill_id, now(), 1)"
         ),
         {
             "id": ledger_id,
+            "user_id": author,
             "strategy_id": strategy_id,
             "allocation_id": reservation_id,
             "execution_attempt_id": attempt_id,

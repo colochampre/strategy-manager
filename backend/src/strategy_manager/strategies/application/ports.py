@@ -84,24 +84,27 @@ class StrategyStillReferenced(DomainError):
 
 
 class PoolCatalogPort(Protocol):
-    """Whether a capital pool exists and is enabled.
+    """Whether one user's capital pool exists and is enabled.
 
-    ``strategies`` has a composite foreign key into ``capital_pools``, so the
-    database already refuses a strategy on a pool that does not exist. This
-    port is not that guarantee — it is the difference between an integrity
-    error nobody can read and a message naming the pool and the pools that
-    are available.
+    Migration ``0030`` dropped the strategies' foreign key into
+    ``capital_pools``, because pools now belong to users (multi-user design
+    AD3), so this port is the only thing left that refuses a strategy on a pool
+    that does not exist, with a message naming the pool and the pools that are
+    available.
 
-    It also catches what the FK cannot: a pool row that exists but is
-    DISABLED. The allocation engine reads only enabled pools, so a strategy
-    on a disabled one would register happily, accept signals, and fail to
-    size any of them.
+    It also catches a pool row that exists but is DISABLED. The allocation
+    engine reads only enabled pools, so a strategy on a disabled one would
+    register happily, accept signals, and fail to size any of them.
+
+    Both methods answer for ``user_id``'s pools only (AD8): another user's pool
+    on the same market is never an answer.
     """
 
-    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]: ...
+    async def enabled_pools(self, user_id: UUID) -> list[tuple[Exchange, Venue, Currency]]: ...
 
-    async def exists(self, pool: PoolKey) -> bool:
-        """Whether ``pool`` is a row of ``capital_pools``, enabled or not.
+    async def exists(self, user_id: UUID, pool: PoolKey) -> bool:
+        """Whether ``pool`` is a row of ``capital_pools`` of ``user_id``, enabled
+        or not.
 
         Only the read endpoint for available pairs asks: it must refuse a made-up
         pool BEFORE any venue is called, and a disabled pool is still answered
@@ -273,4 +276,6 @@ class PoolLockPort(Protocol):
     reimplementing the SQL.
     """
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...

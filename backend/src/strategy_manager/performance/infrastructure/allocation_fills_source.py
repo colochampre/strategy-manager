@@ -16,6 +16,10 @@ trades list reads the second set. The symbol is grouped too, so a fill written
 under another spelling of the market is a group of its own and the domain can
 tell two spellings of one market from two markets.
 
+**One user's pool per call** (multi-user design AD8): ``ledger_entries`` and
+``reservations`` are both filtered on ``user_id``, so a second user's fills on
+the same market and strategy are neither grouped nor counted.
+
 **One pool per call.** The WHERE is the pool's full identity, so the read
 rides ``ix_ledger_pool_symbol`` (leading columns exchange, venue,
 settlement_currency, migration 0020) and never sees another pool's money
@@ -27,6 +31,7 @@ UTC day of ``closed_at`` is taken in the domain, never by a session time zone.
 """
 
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,12 +50,13 @@ class SqlAlchemyAllocationFillsSource:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def pool_fills(self, pool: PoolKey) -> PoolFills:
+    async def pool_fills(self, user_id: UUID, pool: PoolKey) -> PoolFills:
         exchange = pool.exchange.value
         venue = pool.venue.value
         settlement_currency = pool.settlement_currency.value
 
         in_pool = (
+            LedgerEntryRow.user_id == user_id,
             LedgerEntryRow.exchange == exchange,
             LedgerEntryRow.venue == venue,
             LedgerEntryRow.settlement_currency == settlement_currency,
@@ -79,7 +85,7 @@ class SqlAlchemyAllocationFillsSource:
                 ReservationRow.pool_total_at_open,
             )
             .join(ReservationRow, ReservationRow.id == LedgerEntryRow.allocation_id)
-            .where(*in_pool)
+            .where(*in_pool, ReservationRow.user_id == user_id)
             .group_by(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.strategy_id,

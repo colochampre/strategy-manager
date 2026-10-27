@@ -40,8 +40,18 @@ def test_pionex_seals_with_unrecorded_facts_trade_capable_true() -> None:
 
     assert len(calls) == 1
     args = calls[0].args
-    assert len(args) == 2, "store_pionex_credentials.py must pass the facts to vault.store"
-    assert ast.unparse(args[1]) == "KeyFacts.unrecorded(trade_capable=True)"
+    assert len(args) == 3, "store_pionex_credentials.py must pass the owner and the facts"
+    assert ast.unparse(args[2]) == "KeyFacts.unrecorded(trade_capable=True)"
+
+
+def test_pionex_seals_the_key_as_the_user_named_by_email() -> None:
+    """Multi-user design AD8: the sealed key is the ``--user-email`` user's."""
+    (call,) = _store_calls("store_pionex_credentials.py")
+
+    assert ast.unparse(call.args[0]) == "user_id"
+    source = (_SCRIPTS_DIR / "store_pionex_credentials.py").read_text(encoding="utf-8")
+    assert "user_id_by_email(session, args.user_email)" in source
+    assert "vault.load(user_id, EXCHANGE)" in source
 
 
 @pytest.mark.parametrize("script", _FOLDED)

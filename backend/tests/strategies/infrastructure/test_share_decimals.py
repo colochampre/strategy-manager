@@ -27,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, seed_admin, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import seed_pool
 from tests.strategies.infrastructure.test_share_preview_router import _strategy, _synced
 
 pytestmark = pytest.mark.integration
@@ -66,6 +67,12 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # noqa: F811
+    """A registration's author is the signed-in admin, and a strategy is
+    registered on its author's pools (multi-user design AD8): the admin holds a
+    bybit pool of their own, beside the owner's that the previews read."""
+    async with pg_session_factory() as session:
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=await seed_admin(session))
+        await session.commit()
     app = create_app()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:

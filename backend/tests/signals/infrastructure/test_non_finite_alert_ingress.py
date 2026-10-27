@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
+from tests.owner import OWNER_ID, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -76,11 +77,14 @@ async def engine(head_database_url: str) -> AsyncIterator[AsyncEngine]:
         await conn.execute(text("DELETE FROM jobs"))
         await conn.execute(text("DELETE FROM signals"))
         await conn.execute(text("DELETE FROM strategies"))
+        await seed_owner(conn)
         await conn.execute(
             text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES ('bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
-            )
+                "INSERT INTO capital_pools "
+                "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                "VALUES (:owner, 'bybit', 'usdt-m', 'USDT', 5) ON CONFLICT DO NOTHING"
+            ),
+            {"owner": OWNER_ID},
         )
     yield engine
     await engine.dispose()
@@ -113,10 +117,10 @@ async def strategy_id(engine: AsyncEngine) -> UUID:
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs) VALUES (:id, :name, 'bybit', 'usdt-m', "
-                "'USDT', true, 'PARTIAL', ARRAY['STXUSDT'])"
+                "enabled, fill_mode, allowed_pairs, author_id) VALUES (:id, :name, 'bybit', "
+                "'usdt-m', 'USDT', true, 'PARTIAL', ARRAY['STXUSDT'], :author)"
             ),
-            {"id": registered, "name": f"strategy-{registered}"},
+            {"id": registered, "name": f"strategy-{registered}", "author": OWNER_ID},
         )
     return registered
 

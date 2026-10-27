@@ -81,7 +81,7 @@ function Net({ label, value, unit, className }: NetProps) {
 /**
  * One confirmed discrepancy (owner decision 66; prototype examples 5, 6, 8c, 10 and 11): the pair and its pool,
  * what is wrong in words, both nets and their signed difference, the strategies involved, when it was confirmed
- * and last compared, and what the owner can do.
+ * and last compared, whose discrepancy it is (multi-user AD10), and what the owner can do.
  *
  * A Needs-you item has a red border and a red headline: the words are the signal, the colour only follows them
  * (decision 65). An item being booked is neutral, says so, and offers nothing to do: nothing needs the owner.
@@ -147,6 +147,9 @@ export function DiscrepancyItem({ item, variant, readAt }: DiscrepancyItemProps)
         )}
         <Fact label={t("discrepancies.label.lastCompared")}>
           <span className="font-mono text-xs">{t("discrepancies.read.time", { time: lastCompared })}</span>
+        </Fact>
+        <Fact label={t("discrepancies.label.user")}>
+          <span className="break-all">{item.user_email}</span>
         </Fact>
       </dl>
       {!calm && (

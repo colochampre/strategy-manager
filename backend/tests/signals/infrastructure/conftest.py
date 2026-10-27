@@ -34,6 +34,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -101,14 +102,16 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "capital_pools, jobs RESTART IDENTITY CASCADE"
             )
         )
+        owner = await seed_owner(conn)
         for pool in SEEDED_POOLS:
             await conn.execute(
                 text(
                     "INSERT INTO capital_pools "
-                    "(exchange, venue, settlement_currency, min_order_size) "
-                    "VALUES (:exchange, :venue, :settlement_currency, :min_order_size)"
+                    "(user_id, exchange, venue, settlement_currency, min_order_size) "
+                    "VALUES (:user_id, :exchange, :venue, :settlement_currency, "
+                    ":min_order_size)"
                 ),
-                pool,
+                {"user_id": owner, **pool},
             )
 
     yield engine
@@ -136,8 +139,13 @@ async def seed_strategy(
     # explicitly, or the new allowlist gate (``process_signal.py``,
     # ``_refuse_unlisted_pair``) refuses every one of its opening signals.
     allowed_pairs: frozenset[str] | None = None,
+    author_id: UUID = OWNER_ID,
 ) -> None:
     async with session_factory() as session:
+        if author_id == OWNER_ID:
+            # Idempotent: the head-schema databases that reuse this helper have
+            # no ``pg_engine`` to seed the owner for them.
+            await seed_owner(session)
         session.add(
             StrategyRow(
                 id=strategy_id,
@@ -145,6 +153,7 @@ async def seed_strategy(
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=settlement_currency,
+                author_id=author_id,
                 enabled=enabled,
                 fill_mode=fill_mode,
                 allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],
@@ -198,23 +207,24 @@ async def seed_reservation(
     amount: Decimal = Decimal("200"),
     status: str = "SUBMITTED",
     expires_at: datetime | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """``user_id``'s reservation, in that user's pool on the market (seeded
+    when missing; migration ``0030``)."""
     resolved_expires_at = (
         expires_at if expires_at is not None else datetime.now(UTC) + timedelta(hours=1)
     )
     async with session_factory() as session:
-        session.add(
-            ReservationRow(
-                id=reservation_id,
-                strategy_id=strategy_id,
-                signal_id=signal_id,
-                exchange=exchange,
-                venue=venue,
-                settlement_currency=settlement_currency,
-                amount=amount,
-                status=status,
-                expires_at=resolved_expires_at,
-            )
+        await seed_reservation_row(
+            session,
+            reservation_id=reservation_id,
+            strategy_id=strategy_id,
+            signal_id=signal_id,
+            market=(exchange, venue, settlement_currency),
+            amount=amount,
+            status=status,
+            expires_at=resolved_expires_at,
+            user_id=user_id,
         )
         await session.commit()
 
@@ -239,6 +249,11 @@ async def seed_execution_attempt(
         session.add(
             ExecutionAttemptRow(
                 id=attempt_id,
+                user_id=await attempt_user_id(
+                    session,
+                    reservation_id=reservation_id,
+                    closes_allocation_id=closes_allocation_id,
+                ),
                 reservation_id=reservation_id,
                 closes_allocation_id=closes_allocation_id,
                 exchange=exchange,

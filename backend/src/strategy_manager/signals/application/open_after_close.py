@@ -81,7 +81,9 @@ class ClosingAttemptsPort(Protocol):
     """The narrow slice of ``SqlAlchemyExecutionAttemptRepository`` this
     continuation reads: one allocation's most recent closing attempt."""
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None: ...
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None: ...
 
 
 def _dedupe_key(signal_id: UUID, poll: int) -> str:
@@ -205,12 +207,17 @@ class OpenAfterClose:
         )
         return False
 
-    async def poll(self, job: ClaimedJob) -> None:
+    async def poll(self, job: ClaimedJob, user_id: UUID | None) -> None:
         """The ``signal.open_after_close`` job handler: reads the DATABASE
         ONLY, never the venue, in the exact precedence design.md § S5
         specifies. Every branch either abandons (logging and returning,
         never raising) or reschedules itself -- ``WorkerRunner`` always sees
-        this job succeed, because waiting is not a failure."""
+        this job succeed, because waiting is not a failure.
+
+        ``user_id`` is the job's owner, the author of the signal's strategy
+        (multi-user design AD8, B.5): the awaited closing attempts are read as
+        that user's. ``None`` only when the signal or its strategy is gone, and
+        the poll then ends on the missing signal before it reads an attempt."""
         signal_id = UUID(str(job.payload["signal_id"]))
         awaited_allocation_ids = [UUID(str(a)) for a in job.payload["awaited_allocation_ids"]]
         poll = int(job.payload["poll"])
@@ -235,7 +242,10 @@ class OpenAfterClose:
             await self._abandon(signal_id, "SIGNAL_SUPERSEDED", superseded, logging.WARNING)
             return
 
-        closes = [await self._attempts.latest_close_for(a) for a in awaited_allocation_ids]
+        assert user_id is not None  # the signal exists, so its strategy's author does
+        closes = [
+            await self._attempts.latest_close_for(user_id, a) for a in awaited_allocation_ids
+        ]
 
         # (2) Any awaited close that was definitively rejected ends this
         # continuation -- there is nothing left to wait for.

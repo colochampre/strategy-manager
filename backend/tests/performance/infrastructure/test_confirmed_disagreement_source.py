@@ -27,6 +27,7 @@ from strategy_manager.reconciliation.infrastructure.models import Reconciliation
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from tests.owner import OWNER_ID, ensure_pool, seed_other_user
 from tests.performance.infrastructure.conftest import pg_session_factory  # noqa: F401
 
 pytestmark = pytest.mark.integration
@@ -43,12 +44,16 @@ async def _insert(
     resolved: bool = False,
     symbol: str = "STXUSDT",
     pool: tuple[str, str, str] = ("bybit", "usdt-m", "USDT"),
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     row_id = uuid4()
     async with factory() as session:
+        pool_id = await ensure_pool(session, pool, user_id=user_id)
         session.add(
             ReconciliationDiscrepancyRow(
                 id=row_id,
+                user_id=user_id,
+                pool_id=pool_id,
                 exchange=pool[0],
                 venue=pool[1],
                 settlement_currency=pool[2],
@@ -82,10 +87,12 @@ async def _empty_discrepancies(
         await session.commit()
 
 
-async def _read(factory: async_sessionmaker[AsyncSession]) -> list[DiscrepancyRow]:
+async def _read(
+    factory: async_sessionmaker[AsyncSession], user_id: UUID = OWNER_ID
+) -> list[DiscrepancyRow]:
     async with factory() as session:
         source = ConfirmedDisagreementSource(SqlAlchemyDiscrepancyRepository(session))
-        return list(await source.confirmed_open())
+        return list(await source.confirmed_open(user_id))
 
 
 async def test_only_the_open_confirmed_row_is_answered_mapped_to_the_ports_record(
@@ -117,6 +124,27 @@ async def test_an_empty_table_answers_nothing(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> None:
     assert await _read(pg_session_factory) == []
+
+
+async def test_a_second_users_confirmed_row_on_the_same_market_and_symbol_is_not_answered(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8: both users hold an open CONFIRMED row on the same
+    market and symbol (two partial unique indexes, one per user). Each reads
+    only their own."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    mine = await _insert(pg_session_factory, status="CONFIRMED", allocations=[uuid4()])
+    theirs = await _insert(
+        pg_session_factory, status="CONFIRMED", allocations=[uuid4()], user_id=other
+    )
+
+    owner_rows = await _read(pg_session_factory)
+    other_rows = await _read(pg_session_factory, other)
+
+    assert [row.discrepancy_id for row in owner_rows] == [mine]
+    assert [row.discrepancy_id for row in other_rows] == [theirs]
 
 
 async def test_confirmed_rows_of_every_pool_are_answered(

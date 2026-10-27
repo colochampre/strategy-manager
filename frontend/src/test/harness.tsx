@@ -62,6 +62,7 @@ export function discrepancy(overrides: Partial<ConfirmedDiscrepancy> = {}): Conf
     ],
     confirmed_at: "2026-10-16T21:31:00Z",
     last_observed_at: "2026-10-16T21:39:42Z",
+    user_email: "owner@example.com",
     ...overrides,
   };
 }

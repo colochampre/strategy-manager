@@ -15,6 +15,7 @@ from strategy_manager.strategies.domain.strategy import (
     FillMode,
     Strategy,
 )
+from tests.owner import OWNER_ID
 
 
 def test_fill_mode_values_match_db_constraint() -> None:
@@ -38,7 +39,7 @@ def test_strategy_defaults_to_disabled_with_no_persisted_timestamps() -> None:
         venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
     )
 
-    strategy = Strategy(id=strategy_id, name="btc-scalper", policy=policy)
+    strategy = Strategy(id=strategy_id, name="btc-scalper", policy=policy, author_id=OWNER_ID)
 
     assert strategy.id == strategy_id
     assert strategy.enabled is False
@@ -55,7 +56,7 @@ def test_strategy_id_is_the_stable_public_identity_the_caller_supplies() -> None
         venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
     )
 
-    strategy = Strategy(id=signal_type_uuid, name="eth-trend", policy=policy)
+    strategy = Strategy(id=signal_type_uuid, name="eth-trend", policy=policy, author_id=OWNER_ID)
 
     assert strategy.id == signal_type_uuid
 
@@ -66,7 +67,7 @@ def test_strategy_rejects_empty_name() -> None:
     )
 
     with pytest.raises(InvariantViolation):
-        Strategy(id=uuid4(), name="", policy=policy)
+        Strategy(id=uuid4(), name="", policy=policy, author_id=OWNER_ID)
 
 
 def test_allocation_percent_accepts_the_open_half_open_range() -> None:

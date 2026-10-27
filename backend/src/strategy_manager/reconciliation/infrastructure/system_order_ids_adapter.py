@@ -5,8 +5,9 @@
 Whether any of a set of venue order ids is the ``exchange_order_id`` of an
 ``execution_attempts`` row of the SAME ``(exchange, venue,
 settlement_currency)`` -- a fill of an order THIS system placed. One statement
-for the whole set. An attempt with no order id (the venue never accepted it)
-matches nothing, because ``NULL = ANY(...)`` is never true.
+for the whole set, counting only the given user's attempts (multi-user AD8). An
+attempt with no order id (the venue never accepted it) matches nothing, because
+``NULL = ANY(...)`` is never true.
 
 ``SqlAlchemyExecutionAttemptRepository`` has no query for this and lives in
 ``execution``, so the adapter reads ``ExecutionAttemptRow`` through the session
@@ -14,6 +15,7 @@ directly, the way ``AllocationOwnerAdapter`` reads ``ReservationRow``.
 """
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,13 +30,16 @@ class SystemOrderIdsAdapter:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def holds_any(self, pool: PoolKey, exchange_order_ids: Sequence[str]) -> bool:
+    async def holds_any(
+        self, user_id: UUID, pool: PoolKey, exchange_order_ids: Sequence[str]
+    ) -> bool:
         if not exchange_order_ids:
             return False
         exchange, venue, settlement_currency = pool
         result = await self._session.execute(
             select(
                 exists().where(
+                    ExecutionAttemptRow.user_id == user_id,
                     ExecutionAttemptRow.exchange == exchange,
                     ExecutionAttemptRow.venue == venue,
                     ExecutionAttemptRow.settlement_currency == settlement_currency,

@@ -40,7 +40,14 @@ from strategy_manager.performance.infrastructure.performance_router import (
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    OTHER_HEADERS,
+    act_as,
+    sign_in_as_admin,
+)
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 from tests.performance.fakes import FakeFillsSource, FixedClock
 from tests.performance.infrastructure.conftest import seed_strategy
 from tests.performance.infrastructure.test_allocation_fills_source import (
@@ -78,7 +85,7 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
 
 
-def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
+def _app(factory: async_sessionmaker[AsyncSession], user_id: UUID = OWNER_ID) -> FastAPI:
     app = create_app()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
@@ -87,13 +94,15 @@ def _app(factory: async_sessionmaker[AsyncSession]) -> FastAPI:
 
     app.dependency_overrides[shared_db.get_session] = _override_get_session
     app.dependency_overrides[get_clock] = lambda: FixedClock(NOW)
-    return app
+    return act_as(app, user_id)
 
 
 @pytest.fixture
 async def client(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncClient]:
+    """The signed-in user is the fixtures' owner, who holds the seeded pools,
+    the strategies' reservations and the ledger (multi-user design AD8)."""
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as api:
@@ -127,11 +136,12 @@ async def _trade(
     quantity: str = "1",
     capital: str | None = "1000",
     symbols: tuple[str, str] = ("STXUSDT.P", "STXUSDT"),
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     """One closed allocation of ``strategy_id``: opened one hour before
     ``closed_at`` by ``opened_by`` at ``entry`` and closed at ``exit_``."""
     _, allocation_id, attempt_id = await _seed_allocation(
-        factory, pool=pool, pool_total_at_open=capital, strategy_id=strategy_id
+        factory, pool=pool, pool_total_at_open=capital, strategy_id=strategy_id, user_id=user_id
     )
     closing = "SELL" if opened_by == "BUY" else "BUY"
     await _record(
@@ -146,6 +156,7 @@ async def _trade(
             symbol=symbols[0],
             filled_at=closed_at - timedelta(hours=1),
             pool=pool,
+            user_id=user_id,
         ),
         _fill(
             strategy_id=strategy_id,
@@ -157,6 +168,7 @@ async def _trade(
             symbol=symbols[1],
             filled_at=closed_at,
             pool=pool,
+            user_id=user_id,
         ),
     )
     return allocation_id
@@ -218,6 +230,25 @@ async def test_get_pool_performance_404_unknown_pool(client: AsyncClient) -> Non
 
     known = await client.get(POOL_URL, headers=ADMIN_HEADERS)
     assert known.status_code == 200
+
+
+async def test_get_pool_performance_404_on_another_users_pool(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Multi-user design AD8. A second user holds a pool on ``binance/usdt-m/
+    USDT``, a market the signed-in admin has none on. To the admin it is the
+    same 404 as a pool nobody holds, so its existence is not disclosed."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+
+    response = await client.get(
+        "/api/performance/pools/binance/usdt-m/USDT", headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "no such pool"}
 
 
 async def test_pool_performance_of_a_disabled_pool_is_still_readable(
@@ -886,3 +917,102 @@ async def test_a_source_that_returns_another_pools_rows_is_a_500_and_one_logged_
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "pools are never blended" in errors[0].getMessage()
+
+
+async def test_a_second_users_rows_on_the_same_strategy_and_market_are_not_served_to_the_owner(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8. ONE strategy and ONE market hold two users'
+    closed operations (the second one spelled ``STXUSDT_PERP`` / ``STXUSDT.P``).
+    Each signed-in user's pool report, strategy report, trade list and operation
+    fills hold only that user's own rows, and the other's allocation is the same
+    404 as an unknown one."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id = await _strategy(pg_session_factory)
+    mine = await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
+    theirs = await _trade(
+        pg_session_factory,
+        strategy_id,
+        DAY1,
+        exit_="150",
+        symbols=("STXUSDT_PERP", "STXUSDT.P"),
+        user_id=other,
+    )
+
+    async def view(user_id: UUID, allocation_id: UUID) -> tuple[Any, ...]:
+        async with AsyncClient(
+            transport=ASGITransport(app=_app(pg_session_factory, user_id)),
+            base_url="http://test",
+        ) as api:
+            pool = _json(await api.get(POOL_URL, headers=ADMIN_HEADERS))
+            strategy = _json(
+                await api.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+            )
+            trades = _json(
+                await api.get(
+                    f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
+                )
+            )
+            fills = await api.get(
+                f"/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
+                headers=ADMIN_HEADERS,
+            )
+        return pool, strategy, trades, fills
+
+    pool, strategy, trades, theirs_fills = await view(OWNER_ID, theirs)
+    assert Decimal(pool["total_pnl"]) == Decimal("10")
+    assert Decimal(strategy["total_pnl"]) == Decimal("10")
+    assert [t["allocation_id"] for t in trades["trades"]] == [str(mine)]
+    assert theirs_fills.status_code == 404
+
+    pool, strategy, trades, mine_fills = await view(other, mine)
+    assert Decimal(pool["total_pnl"]) == Decimal("50")
+    assert Decimal(strategy["total_pnl"]) == Decimal("50")
+    assert [t["allocation_id"] for t in trades["trades"]] == [str(theirs)]
+    assert mine_fills.status_code == 404
+
+
+async def test_cross_user_b_reads_nothing_of_a_ledger_and_a_still_reads_all_of_it(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """B.6. B is the e-mail ``OTHER_HEADERS`` signs in, not the admin and not the
+    fixtures' owner, through the real ``current_user``. A (the owner) holds a
+    pool and a closed trade of a strategy B can name. B's pool report is the
+    pool 404, B's strategy report and trade list are empty, A's operation is
+    the one 404 an unknown one gets. A reads the same trade afterwards."""
+    strategy_id = await _strategy(pg_session_factory)
+    mine = await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    app.dependency_overrides[get_clock] = lambda: FixedClock(NOW)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as b:
+        pool = await b.get(POOL_URL, headers=OTHER_HEADERS)
+        strategy = await b.get(
+            f"/api/performance/strategies/{strategy_id}", headers=OTHER_HEADERS
+        )
+        trades = await b.get(
+            f"/api/performance/strategies/{strategy_id}/trades", headers=OTHER_HEADERS
+        )
+        fills = await b.get(
+            f"/api/performance/strategies/{strategy_id}/trades/{mine}/fills",
+            headers=OTHER_HEADERS,
+        )
+
+    assert pool.status_code == 404
+    assert pool.json() == {"detail": "no such pool"}
+    assert strategy.status_code == 200
+    assert Decimal(_json(strategy)["total_pnl"]) == Decimal("0")
+    assert trades.status_code == 200
+    assert _json(trades)["trades"] == []
+    assert fills.status_code == 404
+    kept = await client.get(
+        f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
+    )
+    assert [t["allocation_id"] for t in _json(kept)["trades"]] == [str(mine)]

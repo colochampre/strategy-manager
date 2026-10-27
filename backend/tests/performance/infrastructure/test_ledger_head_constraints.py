@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from tests.owner import OWNER_ID
 from tests.pg_head_schema import migrated_head_database
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -40,11 +41,11 @@ pytestmark = pytest.mark.integration
 Factory = async_sessionmaker[AsyncSession]
 
 _INSERT = text(
-    "INSERT INTO ledger_entries (strategy_id, allocation_id, execution_attempt_id, exchange, "
-    "venue, settlement_currency, symbol, side, quantity, price, fee, fee_currency, notional, "
-    "exchange_order_id, exchange_fill_id, filled_at, usd_rate_at_fill) "
-    "VALUES (:strategy_id, :allocation_id, :attempt_id, 'bybit', 'usdt-m', 'USDT', 'STXUSDT', "
-    "'BUY', :quantity, :price, 0, 'USDT', :notional, :order_id, :fill_id, :filled_at, 1)"
+    "INSERT INTO ledger_entries (user_id, strategy_id, allocation_id, execution_attempt_id, "
+    "exchange, venue, settlement_currency, symbol, side, quantity, price, fee, fee_currency, "
+    "notional, exchange_order_id, exchange_fill_id, filled_at, usd_rate_at_fill) "
+    "VALUES (:user_id, :strategy_id, :allocation_id, :attempt_id, 'bybit', 'usdt-m', 'USDT', "
+    "'STXUSDT', 'BUY', :quantity, :price, 0, 'USDT', :notional, :order_id, :fill_id, :filled_at, 1)"
 )
 
 
@@ -100,6 +101,7 @@ async def _insert(
         await session.execute(
             _INSERT,
             {
+                "user_id": OWNER_ID,
                 "strategy_id": strategy_id,
                 "allocation_id": allocation_id,
                 "attempt_id": attempt_id,

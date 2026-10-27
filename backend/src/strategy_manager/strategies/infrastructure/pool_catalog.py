@@ -11,7 +11,13 @@ It reads through the request-scoped ORM session rather than through
 connection because it runs in the startup lifespan before any session exists.
 Registering a strategy happens inside a request, where the session is what is
 available.
+
+**Only ``user_id``'s pools** (multi-user design AD8): two users may each hold a
+pool on one market, and whether one of them has it enabled says nothing about
+the other's.
 """
+
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,28 +33,27 @@ class SqlAlchemyPoolCatalog:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def enabled_pools(self) -> list[tuple[Exchange, Venue, Currency]]:
+    async def enabled_pools(self, user_id: UUID) -> list[tuple[Exchange, Venue, Currency]]:
         result = await self._session.execute(
             select(
                 CapitalPoolRow.exchange,
                 CapitalPoolRow.venue,
                 CapitalPoolRow.settlement_currency,
-            ).where(CapitalPoolRow.enabled.is_(True))
+            ).where(CapitalPoolRow.user_id == user_id, CapitalPoolRow.enabled.is_(True))
         )
         return [
             (Exchange(exchange), Venue(venue), Currency(currency))
             for exchange, venue, currency in result.all()
         ]
 
-    async def exists(self, pool: PoolKey) -> bool:
+    async def exists(self, user_id: UUID, pool: PoolKey) -> bool:
         exchange, venue, currency = pool
         found = await self._session.execute(
-            select(CapitalPoolRow.exchange)
-            .where(
+            select(CapitalPoolRow.exchange).where(
+                CapitalPoolRow.user_id == user_id,
                 CapitalPoolRow.exchange == exchange,
                 CapitalPoolRow.venue == venue,
                 CapitalPoolRow.settlement_currency == currency,
             )
-            .limit(1)
         )
         return found.first() is not None

@@ -20,12 +20,14 @@ needless DB load for a change that happens, at most, a few times a day.
 import inspect
 import logging
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
 from strategy_manager import main
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 
 
 def _sliced(start_marker: str, end_marker: str) -> str:
@@ -37,17 +39,28 @@ _BYBIT_POOL = PoolConfig(
     exchange=Exchange.BYBIT,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 _BINANCE_POOL = PoolConfig(
     exchange=Exchange.BINANCE,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
+_OTHER_ID = UUID("00000000-0000-4000-8000-0000000000b2")
+_OTHER_BYBIT_POOL = PoolConfig(
+    exchange=Exchange.BYBIT,
+    venue=Venue.USDT_M,
+    settlement_currency=Currency.USDT,
+    user_id=_OTHER_ID,
+    min_order_size=Decimal("20"),
+)
 
-_BYBIT_KEY = ("bybit", "usdt-m", "USDT")
-_BINANCE_KEY = ("binance", "usdt-m", "USDT")
+_BYBIT_KEY = (OWNER_ID, ("bybit", "usdt-m", "USDT"))
+_BINANCE_KEY = (OWNER_ID, ("binance", "usdt-m", "USDT"))
+_OTHER_BYBIT_KEY = (_OTHER_ID, ("bybit", "usdt-m", "USDT"))
 
 
 # --- _PoolSet: the shared holder ---------------------------------------------
@@ -59,6 +72,27 @@ def test_pool_set_indexes_by_exchange_venue_currency_at_construction() -> None:
     assert pool_set.pools == (_BYBIT_POOL,)
     assert pool_set.by_key == {_BYBIT_KEY: _BYBIT_POOL}
     assert pool_set.configured_exchanges == frozenset({"bybit"})
+
+
+def test_two_users_pools_on_one_market_are_two_entries_never_one() -> None:
+    """AD8: the market alone is not a pool's identity. Keyed by market only,
+    the second user's pool would silently replace the first's, and every read
+    of the first user's pool would answer with the other user's config."""
+    pool_set = main._PoolSet([_BYBIT_POOL, _OTHER_BYBIT_POOL])
+
+    assert pool_set.by_key == {_BYBIT_KEY: _BYBIT_POOL, _OTHER_BYBIT_KEY: _OTHER_BYBIT_POOL}
+    assert pool_set.configured_exchanges == frozenset({"bybit"})
+
+
+def test_another_users_newly_enabled_pool_on_a_known_market_logs_its_own_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
+        main._track_pool_changes(frozenset({_BYBIT_KEY}), frozenset({_BYBIT_KEY, _OTHER_BYBIT_KEY}))
+
+    info_records = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert len(info_records) == 1
+    assert f"of user {str(_OTHER_ID)[:8]}" in info_records[0]
 
 
 def test_pool_set_replace_adopts_a_wider_pool_list() -> None:
@@ -156,14 +190,15 @@ def test_an_exchange_with_no_configured_pool_left_is_dropped_without_an_info(
     must leave the DEGRADED tracker -- but silently, never with the
     "reads resume" INFO ``_track_degraded_exchanges`` logs for an actual
     recovery. It did not recover; it stopped mattering."""
-    tracker = {"binance"}  # still degraded, but no longer configured below
+    # Pairs since multi-user design AD9.
+    tracker = {(OWNER_ID, "binance")}  # still degraded, but no longer configured below
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=frozenset({"bybit"}), active=frozenset()
+            tracker, configured=frozenset({(OWNER_ID, "bybit")}), active=frozenset()
         )
 
-    assert "binance" not in tracker
+    assert (OWNER_ID, "binance") not in tracker
     assert not any("resume" in record.getMessage() for record in caplog.records)
 
 
@@ -172,14 +207,16 @@ def test_a_degraded_exchange_still_configured_is_not_dropped(
 ) -> None:
     """Triangulation: the cleanup must be scoped to exchanges that left
     ``configured`` entirely, never a blanket wipe of the tracker."""
-    tracker = {"binance"}
+    tracker = {(OWNER_ID, "binance")}
 
     with caplog.at_level(logging.INFO, logger="strategy_manager.main"):
         main._track_degraded_exchanges(
-            tracker, configured=frozenset({"bybit", "binance"}), active=frozenset({"bybit"})
+            tracker,
+            configured=frozenset({(OWNER_ID, "bybit"), (OWNER_ID, "binance")}),
+            active=frozenset({(OWNER_ID, "bybit")}),
         )
 
-    assert "binance" in tracker
+    assert (OWNER_ID, "binance") in tracker
 
 
 # --- wiring pins: balance.sync is the ONE reload point, every other site ----

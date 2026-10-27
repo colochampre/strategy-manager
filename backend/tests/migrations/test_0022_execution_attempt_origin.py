@@ -82,7 +82,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -229,7 +229,7 @@ def test_upgrade_backfills_system_default(database_url: str) -> None:
 
     _run_alembic_ok(database_url, "downgrade", "0021")
     attempt_id = asyncio.run(_insert_pre_migration_attempt())
-    _run_alembic_ok(database_url, "upgrade", "head")
+    _run_alembic_ok(database_url, "upgrade", "0029")
 
     assert asyncio.run(_read_origin(attempt_id)) == "SYSTEM"
 
@@ -318,5 +318,5 @@ def test_downgrade_succeeds_with_zero_venue_rows(database_url: str) -> None:
     _run_alembic_ok(database_url, "downgrade", "0021")
     assert asyncio.run(_origin_column_exists()) is False
 
-    _run_alembic_ok(database_url, "upgrade", "head")
+    _run_alembic_ok(database_url, "upgrade", "0029")
     assert asyncio.run(_origin_column_exists()) is True

@@ -11,17 +11,21 @@ reserve the same money twice, with every reservation looking perfectly valid
 on its own. ``BybitBalanceReader`` refuses that configuration outright, which
 means the balance sync fails until this is fixed.
 
-The pools left over from the Pionex era are DISABLED, not deleted. ``strategies``
-carries a composite foreign key into ``capital_pools``, so deleting a row would
-either fail or orphan a strategy -- and a disabled pool is recoverable, which a
+The pools left over from the Pionex era are DISABLED, not deleted. A strategy
+may still name their market, and a disabled pool is recoverable, which a
 deleted one is not.
 
 Idempotent: running it again changes nothing.
 
+**Whose pools.** A pool belongs to a user since migration ``0030``.
+``--user-email`` names the user, it is required, and every read and UPDATE here
+is filtered by that user's id: another user's pools are never touched. An e-mail
+with no ``users`` row is refused before anything is written.
+
 Usage:
     cd backend
-    uv run python scripts/configure_bybit_pools.py            # preview
-    uv run python scripts/configure_bybit_pools.py --confirm
+    uv run python scripts/configure_bybit_pools.py --user-email <e-mail>   # preview
+    uv run python scripts/configure_bybit_pools.py --user-email <e-mail> --confirm
 """
 
 import argparse
@@ -57,6 +61,11 @@ async def main() -> int:
         action="store_true",
         help="apply the change. Without it this only previews.",
     )
+    parser.add_argument(
+        "--user-email",
+        required=True,
+        help="the e-mail of the user whose pools this configures.",
+    )
     args = parser.parse_args()
 
     if args.min_order_size is not None and args.min_order_size <= 0:
@@ -64,16 +73,34 @@ async def main() -> int:
         return 1
 
     async with session_factory() as session:
+        user_id = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": args.user_email},
+            )
+        ).scalar_one_or_none()
+        if user_id is None:
+            print(
+                f"no user is registered with the e-mail {args.user_email!r}; they have "
+                "to sign in to the panel once before a pool can be theirs. Nothing "
+                "was changed.",
+                file=sys.stderr,
+            )
+            await engine.dispose()
+            return 1
+
         rows = (
             await session.execute(
                 text(
                     "SELECT venue, settlement_currency, enabled, min_order_size "
-                    "FROM capital_pools ORDER BY venue, settlement_currency"
-                )
+                    "FROM capital_pools WHERE user_id = :user_id "
+                    "ORDER BY venue, settlement_currency"
+                ),
+                {"user_id": user_id},
             )
         ).all()
 
-        print("capital_pools now:")
+        print(f"capital_pools of user {str(user_id)[:8]} now:")
         for venue, currency, enabled, minimum in rows:
             keep = venue == KEEP_VENUE and currency == KEEP_CURRENCY
             mark = "KEEP   " if keep else "disable"
@@ -82,10 +109,10 @@ async def main() -> int:
         strategies = (
             await session.execute(
                 text(
-                    "SELECT count(*) FROM strategies WHERE NOT "
+                    "SELECT count(*) FROM strategies WHERE author_id = :user_id AND NOT "
                     "(venue = :venue AND settlement_currency = :currency)"
                 ),
-                {"venue": KEEP_VENUE, "currency": KEEP_CURRENCY},
+                {"user_id": user_id, "venue": KEEP_VENUE, "currency": KEEP_CURRENCY},
             )
         ).scalar()
 
@@ -106,18 +133,20 @@ async def main() -> int:
         await session.execute(
             text(
                 "UPDATE capital_pools SET enabled = (venue = :venue AND "
-                "settlement_currency = :currency)"
+                "settlement_currency = :currency) WHERE user_id = :user_id"
             ),
-            {"venue": KEEP_VENUE, "currency": KEEP_CURRENCY},
+            {"user_id": user_id, "venue": KEEP_VENUE, "currency": KEEP_CURRENCY},
         )
         if args.min_order_size is not None:
             await session.execute(
                 text(
                     "UPDATE capital_pools SET min_order_size = :minimum "
-                    "WHERE venue = :venue AND settlement_currency = :currency"
+                    "WHERE user_id = :user_id AND venue = :venue "
+                    "AND settlement_currency = :currency"
                 ),
                 {
                     "minimum": args.min_order_size,
+                    "user_id": user_id,
                     "venue": KEEP_VENUE,
                     "currency": KEEP_CURRENCY,
                 },
@@ -128,8 +157,10 @@ async def main() -> int:
             await session.execute(
                 text(
                     "SELECT venue, settlement_currency, min_order_size "
-                    "FROM capital_pools WHERE enabled ORDER BY venue"
-                )
+                    "FROM capital_pools WHERE enabled AND user_id = :user_id "
+                    "ORDER BY venue"
+                ),
+                {"user_id": user_id},
             )
         ).all()
         print("enabled now:")

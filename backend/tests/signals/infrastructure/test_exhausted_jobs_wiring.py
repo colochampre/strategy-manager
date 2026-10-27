@@ -22,6 +22,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.infrastructure.models import SignalRow
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import seed_signal_row
 
 pytestmark = pytest.mark.integration
@@ -30,6 +31,7 @@ _POOL = PoolConfig(
     exchange=Exchange.BYBIT,
     venue=Venue.USDT_M,
     settlement_currency=Currency.USDT,
+    user_id=OWNER_ID,
     min_order_size=Decimal("10"),
 )
 

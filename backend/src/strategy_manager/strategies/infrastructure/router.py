@@ -47,7 +47,8 @@ from strategy_manager.allocation.infrastructure.repository import (
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
@@ -137,6 +138,7 @@ logger = logging.getLogger(__name__)
 SHARE_PREVIEW_FAULT_DETAIL = "share preview data failed an integrity check"
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+CurrentUserDep = Annotated[User, Depends(current_user)]
 
 
 class UptimeView(BaseModel):
@@ -430,8 +432,11 @@ def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
 async def register_strategy(
     body: RegisterRequest,
     session: SessionDep,
+    user: CurrentUserDep,
     use_case: Annotated[RegisterStrategy, Depends(get_register_strategy)],
 ) -> StrategyView:
+    """The signed-in ``User`` is the author (multi-user design AD2). The router
+    stays admin-only (owner decision 16), so the author is the admin."""
     try:
         strategy = await use_case.register(
             RegisterCommand(
@@ -443,6 +448,7 @@ async def register_strategy(
                 fill_mode=body.fill_mode,
                 allocation_percent=body.allocation_percent,
                 allowed_pairs=body.allowed_pairs,
+                author_id=user.id,
             )
         )
     except StrategyAlreadyRegistered as exc:
@@ -471,6 +477,9 @@ async def register_strategy(
 async def list_strategies(
     session: SessionDep, include_archived: bool = False
 ) -> list[StrategyView]:
+    """Every author's strategies, unscoped by design: an admin read (owner
+    decision 16 keeps strategies admin-only, and AD8 makes the strategy list a
+    public read once authoring opens). It takes no ``user_id``."""
     strategies = await SqlAlchemyStrategyRepository(session).list_all(
         include_archived=include_archived
     )
@@ -537,7 +546,9 @@ async def preview_share(
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
     previewed = policy.allocation_percent.value if share is None else share
     try:
-        preview = await use_case.preview(pool, previewed)
+        # The author's pool (B.5): the pool a signal of this strategy is
+        # allocated in, whoever is signed in to look at it.
+        preview = await use_case.preview(strategy.author_id, pool, previewed)
     except UnknownPoolError as exc:
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc

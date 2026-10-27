@@ -79,6 +79,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
@@ -88,10 +89,11 @@ REQUEST_AMOUNT = Decimal("200")
 FIXED_NOW = datetime(2026, 9, 28, 12, 0, 0, tzinfo=UTC)
 
 _POOL_CONFIG = {
-    POOL: PoolConfig(
+    (OWNER_ID, POOL): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     )
 }
@@ -131,9 +133,13 @@ class _PausingPoolLock:
         self._inner = inner
         self._resume = resume
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         inner: object = self._inner
-        await inner.acquire(exchange, venue, settlement_currency)  # type: ignore[attr-defined]
+        await inner.acquire(  # type: ignore[attr-defined]
+            user_id, exchange, venue, settlement_currency
+        )
         await self._resume.wait()
 
 
@@ -194,6 +200,7 @@ async def _seed_strategy(
                 exchange=POOL[0],
                 venue=POOL[1],
                 settlement_currency=POOL[2],
+                author_id=OWNER_ID,
                 enabled=True,
                 fill_mode="PARTIAL",
             )

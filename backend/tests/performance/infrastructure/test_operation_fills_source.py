@@ -16,6 +16,7 @@ spellings, and the fill it answers carries no symbol at all.
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import timedelta
+from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -26,6 +27,7 @@ from strategy_manager.performance.domain.operation import OperationFill
 from strategy_manager.performance.infrastructure.operation_fills_source import (
     SqlAlchemyOperationFillsSource,
 )
+from tests.owner import OWNER_ID, seed_other_user
 from tests.performance.infrastructure.conftest import (
     OPERATIONS_T0,
     OperationsLedger,
@@ -45,11 +47,12 @@ async def _read(
     strategy_id: UUID,
     allocation_id: UUID,
     limit: int = 201,
+    user_id: UUID = OWNER_ID,
 ) -> list[OperationFill]:
     async with factory() as session:
         return list(
             await SqlAlchemyOperationFillsSource(session).operation_fills(
-                strategy_id, allocation_id, limit
+                user_id, strategy_id, allocation_id, limit
             )
         )
 
@@ -228,11 +231,43 @@ async def test_it_issues_one_statement_for_one_fill_and_for_fifty(
         async with pg_session_factory() as session:
             with _captured_sql(pg_engine) as statements:
                 fills = await SqlAlchemyOperationFillsSource(session).operation_fills(
-                    strategy_id, allocation_id, 201
+                    OWNER_ID, strategy_id, allocation_id, 201
                 )
         counts.append((len(fills), len(statements)))
 
     assert counts == [(1, 1), (50, 1)]
+
+
+async def test_a_second_users_fills_on_the_same_strategy_are_not_returned(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8: the strategy is shared, the fills are not. Asked
+    as the owner for the second user's allocation, the source answers nothing;
+    asked for its own, it answers only its own fill."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id, mine, my_attempt = await _seed_allocation(pg_session_factory)
+    _, theirs, their_attempt = await _seed_allocation(
+        pg_session_factory, strategy_id=strategy_id, user_id=other
+    )
+    await _record(
+        pg_session_factory,
+        _fill(strategy_id=strategy_id, allocation_id=mine, attempt_id=my_attempt,
+              side="BUY", quantity="1", symbol="SOLUSDT.P"),
+        _fill(strategy_id=strategy_id, allocation_id=theirs, attempt_id=their_attempt,
+              side="BUY", quantity="9", symbol="SOLUSDT", user_id=other),
+    )
+
+    owner_asks_for_theirs = await _read(pg_session_factory, strategy_id, theirs)
+    owner_asks_for_mine = await _read(pg_session_factory, strategy_id, mine)
+    other_asks_for_theirs = await _read(pg_session_factory, strategy_id, theirs, user_id=other)
+    other_asks_for_mine = await _read(pg_session_factory, strategy_id, mine, user_id=other)
+
+    assert owner_asks_for_theirs == []
+    assert [fill.quantity for fill in owner_asks_for_mine] == [Decimal("1")]
+    assert [fill.quantity for fill in other_asks_for_theirs] == [Decimal("9")]
+    assert other_asks_for_mine == []
 
 
 async def test_an_open_allocations_fill_is_returned(

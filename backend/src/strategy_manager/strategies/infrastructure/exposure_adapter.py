@@ -62,14 +62,23 @@ class StrategyExposureAdapter:
         # open -- both surface here rather than netting each other out.
         symbols: set[str] = set()
         allocations: list[UUID] = []
-        for market in markets:
-            holdings = await self._symbol_holdings.symbol_holdings(pool, market)
-            for holding in holdings:
-                if holding.strategy_id != strategy_id:
-                    continue
-                symbols.add(market)
-                allocations.append(holding.allocation_id)
+        # Archiving is the admin's and global by design (multi-user AD8), so
+        # every user that holds rows of this strategy is asked, not one.
+        users = await self._ledger.distinct_users_for_strategy(
+            exchange, venue, settlement_currency, strategy_id
+        )
+        for user_id in sorted(users):
+            for market in markets:
+                holdings = await self._symbol_holdings.symbol_holdings(user_id, pool, market)
+                for holding in holdings:
+                    if holding.strategy_id != strategy_id:
+                        continue
+                    symbols.add(market)
+                    allocations.append(holding.allocation_id)
 
+        # Every user's live reservation on this strategy, by design: archiving
+        # is the admin's, and a strategy is one object for every user
+        # (multi-user design AD8, owner decision 16).
         live_reservations = await self._reservations.live_for_strategy(
             exchange, venue, settlement_currency, strategy_id
         )

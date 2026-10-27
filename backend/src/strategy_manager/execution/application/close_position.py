@@ -82,8 +82,13 @@ class CloseCommand:
     Required with no default, the rule ``signal_id`` follows: a caller that
     closes for an alert says so, and one that closes for none says ``None``.
     It sizes nothing (the size is the ledger's net) and reaches no venue; only
-    the simulated exchange reads it."""
+    the simulated exchange reads it.
 
+    ``user_id`` owns the allocation being closed: the author of the strategy
+    that opened it. The closing attempt is written as that user's (multi-user
+    design AD2, B.5)."""
+
+    user_id: UUID
     allocation_id: UUID
     strategy_id: UUID
     exchange: str
@@ -149,7 +154,7 @@ class ClosePosition:
         # does not. Deciding it here would have hard-coded spot's limitation
         # into every venue.
         base_currency = base_currency_of(command.symbol, command.settlement_currency)
-        net = await self._held.net_base(command.allocation_id, base_currency)
+        net = await self._held.net_base(command.user_id, command.allocation_id, base_currency)
         if net == 0:
             raise NothingRecordedYet(
                 f"the ledger holds no {base_currency} position for allocation "
@@ -209,6 +214,7 @@ class ClosePosition:
             )
 
         await self._attempts.insert(
+            command.user_id,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=None,
@@ -232,7 +238,7 @@ class ClosePosition:
                 # a close to the signal that asked for it. ``None`` (an orphan
                 # close) writes NULL, which records nothing at settle.
                 signal_id=command.signal_id,
-            )
+            ),
         )
         await self._queue.enqueue(
             Job(
@@ -253,7 +259,7 @@ class ClosePosition:
             # Definitive rejection. There is no reservation to release — the
             # capital was already spent and is sitting in the base currency,
             # where it stays until a later close succeeds.
-            await self._attempts.mark_failed(attempt_id, str(exc))
+            await self._attempts.mark_failed(command.user_id, attempt_id, str(exc))
             rejected = (
                 f"close rejected by venue: strategy={command.strategy_id} "
                 f"symbol={command.symbol} allocation={command.allocation_id} "
@@ -275,7 +281,7 @@ class ClosePosition:
                 error=str(exc),
             )
 
-        await self._attempts.mark_placed(attempt_id, placed.exchange_order_id)
+        await self._attempts.mark_placed(command.user_id, attempt_id, placed.exchange_order_id)
         # Row 15: submitted, not settled -- PROCESSING, never PROCESSED. For a
         # REVERSE this is also decision 26's rule: the close half moves the
         # signal to PROCESSING and only the open half ends it.

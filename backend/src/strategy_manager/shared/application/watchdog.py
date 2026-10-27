@@ -70,6 +70,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
+from uuid import UUID
 
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.application.ports import ClockPort
@@ -85,8 +86,13 @@ class StalePool:
     pool. That is a different incident from a lapsed sync — a misconfiguration
     rather than a failure — and flattening it to a very large age would hide
     which one the operator is looking at.
+
+    ``user_id`` is the pool's owner: two users may each hold a pool on one
+    market (multi-user design AD2). The message names only the id's first eight
+    characters, never an e-mail, because it goes to Telegram (AD9).
     """
 
+    user_id: UUID
     exchange: str
     venue: str
     settlement_currency: str
@@ -94,7 +100,10 @@ class StalePool:
 
     @property
     def key(self) -> str:
-        return f"{self.exchange}/{self.venue}/{self.settlement_currency}"
+        return (
+            f"{self.exchange}/{self.venue}/{self.settlement_currency} "
+            f"of user {str(self.user_id)[:8]}"
+        )
 
     def describe(self) -> str:
         if self.age_seconds is None:

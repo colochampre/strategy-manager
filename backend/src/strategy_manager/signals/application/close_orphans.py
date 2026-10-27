@@ -100,7 +100,9 @@ class ClosingAttemptsPort(Protocol):
     """The narrow slice of ``SqlAlchemyExecutionAttemptRepository`` this
     use case reads: one allocation's most recent closing attempt."""
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None: ...
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None: ...
 
 
 class ContinuationSeederPort(Protocol):
@@ -159,9 +161,13 @@ class CloseOrphans:
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
-        """``holdings`` is the strategy's own non-zero allocations on this
+        """``user_id`` owns the holdings: the strategy's author. The closing
+        attempts are read and written as that user's (multi-user design AD8).
+
+        ``holdings`` is the strategy's own non-zero allocations on this
         market, exactly as ``HoldingGuard`` reported them via
         ``GuardOutcome.real_orphan_holdings`` -- never queried again here,
         so this acts on precisely what was classified REAL a moment ago.
@@ -195,7 +201,7 @@ class CloseOrphans:
         unsafe_allocation_ids: list[UUID] = []
         for holding in holdings:
             existing_close = await self._closing_attempts.latest_close_for(
-                holding.allocation_id
+                user_id, holding.allocation_id
             )
             needs_fresh_close = (
                 existing_close is None or existing_close.status is ExecutionStatus.FAILED
@@ -217,6 +223,7 @@ class CloseOrphans:
             placed_a_close = True
             await self._close_position.close(
                 CloseCommand(
+                    user_id=user_id,
                     allocation_id=holding.allocation_id,
                     strategy_id=strategy_id,
                     exchange=exchange,

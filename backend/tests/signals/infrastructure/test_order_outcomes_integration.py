@@ -55,6 +55,7 @@ from strategy_manager.signals.infrastructure.order_outcome_recorder import (
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemySignalOutcomeAdapter,
 )
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -194,6 +195,7 @@ async def _seed_open(
 
 def _place_command(reservation_id: UUID) -> PlaceCommand:
     return PlaceCommand(
+        user_id=OWNER_ID,
         reservation_id=reservation_id,
         symbol=_TRADINGVIEW,
         side=OrderSide.BUY,
@@ -326,6 +328,7 @@ async def _seed_close(
     async with factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=opening_attempt_id,
@@ -353,6 +356,7 @@ def _close_command(
     strategy_id: UUID, allocation_id: UUID, signal_id: UUID | None
 ) -> CloseCommand:
     return CloseCommand(
+        user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
         exchange="bybit",

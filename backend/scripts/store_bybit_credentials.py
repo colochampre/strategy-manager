@@ -33,9 +33,13 @@ knowingly: orders on this exchange fail until a trading key is stored.
 Idempotent: running it again supersedes the stored credential rather than
 duplicating it, so it doubles as the key-rotation path.
 
+**The key is a user's** (multi-user design AD8): ``--user-email`` is required,
+names a user who has signed in to the panel once, and is refused before the
+prompt when nobody is registered with it.
+
 Usage -- run it yourself, in your own terminal, since it prompts:
     cd backend
-    uv run python scripts/store_bybit_credentials.py
+    uv run python scripts/store_bybit_credentials.py --user-email <e-mail>
 """
 
 import argparse
@@ -44,6 +48,7 @@ import sys
 from collections.abc import Sequence
 
 from credential_cli import (
+    USER_EMAIL_HELP,
     PromptFn,
     RoundTripFailed,
     SaverFactory,
@@ -62,13 +67,16 @@ __all__ = ["RoundTripFailed", "build_parser", "main"]
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """No flags at all: Bybit is verified server-side, and a confirmation the
-    server would drop is refused by the use case anyway."""
-    return argparse.ArgumentParser(
+    """No confirmation flag: Bybit is verified server-side, and a confirmation
+    the server would drop is refused by the use case anyway. The one flag is
+    the required ``--user-email``: whose key this is (multi-user design AD8)."""
+    parser = argparse.ArgumentParser(
         prog=SCRIPT,
         description="Store the Bybit trade credential. Bybit is checked by the venue.",
         allow_abbrev=False,
     )
+    parser.add_argument("--user-email", required=True, help=USER_EMAIL_HELP)
+    return parser
 
 
 def _prompt() -> ExchangeCredential | None:
@@ -82,12 +90,15 @@ async def main(
     make_saver: SaverFactory = vault_saver,
 ) -> int:
     try:
-        build_parser().parse_args(argv)
+        parsed = build_parser().parse_args(argv)
     except SystemExit as exit_:
         return exit_.code if isinstance(exit_.code, int) else 2
 
     return await run_store(
-        confirmations=OwnerConfirmations(), prompt=prompt, make_saver=make_saver
+        confirmations=OwnerConfirmations(),
+        user_email=parsed.user_email,
+        prompt=prompt,
+        make_saver=make_saver,
     )
 
 

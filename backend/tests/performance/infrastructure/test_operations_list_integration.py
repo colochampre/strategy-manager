@@ -41,6 +41,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
     SqlAlchemyRehearsalPricingSource,
 )
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FixedClock
 from tests.performance.infrastructure.conftest import (
     OPERATIONS_T0,
@@ -58,7 +59,7 @@ pytestmark = pytest.mark.integration
 
 async def _pool_fills(factory: async_sessionmaker[AsyncSession]) -> PoolFills:
     async with factory() as session:
-        return await SqlAlchemyAllocationFillsSource(session).pool_fills(BYBIT)
+        return await SqlAlchemyAllocationFillsSource(session).pool_fills(OWNER_ID, BYBIT)
 
 
 async def test_the_operations_ledger_holds_what_the_design_says(
@@ -159,10 +160,15 @@ async def _list(
             SqlAlchemyAllocationFillsSource(session), SqlAlchemyRehearsalPricingSource(session)
         )
         if include_rehearsal is None:
-            page = await reader.read(strategy_id, BYBIT, limit=limit, before=before)
+            page = await reader.read(OWNER_ID, strategy_id, BYBIT, limit=limit, before=before)
         else:
             page = await reader.read(
-                strategy_id, BYBIT, limit=limit, before=before, include_rehearsal=include_rehearsal
+                OWNER_ID,
+                strategy_id,
+                BYBIT,
+                limit=limit,
+                before=before,
+                include_rehearsal=include_rehearsal,
             )
         return list(page.trades)
 
@@ -246,9 +252,9 @@ async def test_the_reports_are_identical_with_and_without_the_rehearsal_rows_in_
     async def reports() -> tuple[PoolPerformance, PoolPerformance, tuple[object, ...]]:
         async with pg_session_factory() as session:
             source = SqlAlchemyAllocationFillsSource(session)
-            pool = await ReadPoolPerformance(source, FixedClock(NOW)).read(BYBIT)
+            pool = await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, BYBIT)
             strategy = await ReadStrategyPerformance(source, FixedClock(NOW)).read(
-                real.strategy_id, BYBIT
+                OWNER_ID, real.strategy_id, BYBIT
             )
             return pool, strategy.performance, strategy.by_pair
 
@@ -274,12 +280,12 @@ async def test_the_rehearsal_fill_count_still_counts_every_rehearsal_fill(
     round trips' 8. Open and mixed allocations are counted too."""
     async with pg_session_factory() as session:
         source = SqlAlchemyAllocationFillsSource(session)
-        pool = await ReadPoolPerformance(source, FixedClock(NOW)).read(BYBIT)
+        pool = await ReadPoolPerformance(source, FixedClock(NOW)).read(OWNER_ID, BYBIT)
         strategy = await ReadStrategyPerformance(source, FixedClock(NOW)).read(
-            operations_ledger.strategy_id, BYBIT
+            OWNER_ID, operations_ledger.strategy_id, BYBIT
         )
         other = await ReadStrategyPerformance(source, FixedClock(NOW)).read(
-            operations_ledger.other_strategy_id, BYBIT
+            OWNER_ID, operations_ledger.other_strategy_id, BYBIT
         )
 
     assert pool.exclusions.rehearsal_fill_count == 11
@@ -303,7 +309,12 @@ async def test_the_cursor_pages_across_both_kinds_exactly_once(
                 SqlAlchemyRehearsalPricingSource(session),
             )
             page = await reader.read(
-                ledger.strategy_id, BYBIT, limit=2, before=cursor, include_rehearsal=True
+                OWNER_ID,
+                ledger.strategy_id,
+                BYBIT,
+                limit=2,
+                before=cursor,
+                include_rehearsal=True,
             )
         walked += [item.trade.allocation_id for item in page.trades]
         pages.append(len(page.trades))

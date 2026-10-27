@@ -134,6 +134,7 @@ class ApproveBooking:
 
         if proposal.expires_at <= now:
             changed = await self._proposals.mark_state(
+                proposal.user_id,
                 proposal.id,
                 _EXPIRED,
                 now,
@@ -150,12 +151,17 @@ class ApproveBooking:
             await self._commit.commit()
             return ApproveResult(ApproveOutcome.EXPIRED, proposal.id)
 
-        discrepancy = await self._discrepancies.get(proposal.discrepancy_id)
+        discrepancy = await self._discrepancies.get(proposal.user_id, proposal.discrepancy_id)
         mismatches = await self._freshness_mismatches(proposal, discrepancy)
         if mismatches:
             reason = "; ".join(mismatches)
             changed = await self._proposals.mark_state(
-                proposal.id, _SUPERSEDED, now, decided_by=decided_by, decision_reason=reason
+                proposal.user_id,
+                proposal.id,
+                _SUPERSEDED,
+                now,
+                decided_by=decided_by,
+                decision_reason=reason,
             )
             require_marked(changed, proposal.id, _SUPERSEDED)
             logger.warning(
@@ -174,6 +180,7 @@ class ApproveBooking:
 
         if write_result.outcome is BookingWriteOutcome.WRITTEN:
             changed = await self._proposals.mark_state(
+                proposal.user_id,
                 proposal.id,
                 _APPROVED,
                 now,
@@ -200,7 +207,12 @@ class ApproveBooking:
         # re-tried and never double-booked.
         reason = f"already recorded ({write_result.reason})"
         changed = await self._proposals.mark_state(
-            proposal.id, _SUPERSEDED, now, decided_by=decided_by, decision_reason=reason
+            proposal.user_id,
+            proposal.id,
+            _SUPERSEDED,
+            now,
+            decided_by=decided_by,
+            decision_reason=reason,
         )
         require_marked(changed, proposal.id, _SUPERSEDED)
         logger.warning(
@@ -259,7 +271,7 @@ class ApproveBooking:
             )
         pool: PoolKey = (proposal.exchange, proposal.venue, proposal.settlement_currency)
         if await self._in_flight_close.submitted_for(  # (g)
-            pool, proposal.strategy_id, proposal.symbol
+            proposal.user_id, pool, proposal.strategy_id, proposal.symbol
         ):
             mismatches.append(
                 f"strategy {proposal.strategy_id} already has a SUBMITTED closing "
@@ -313,6 +325,7 @@ def _build_write(
     )
     fill_records = [
         FillRecord(
+            user_id=proposal.user_id,
             strategy_id=proposal.strategy_id,
             allocation_id=proposal.allocation_id,
             execution_attempt_id=attempt_id,

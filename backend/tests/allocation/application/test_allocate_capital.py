@@ -24,7 +24,12 @@ from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    RecordingPoolStatus,
+    RecordingSkipRecorder,
+)
+from tests.owner import OWNER_ID
 
 
 class FrozenClock:
@@ -64,11 +69,15 @@ class SequencedStrategyPolicyPort:
 
 @dataclass
 class FakePoolBalancePort:
+    """Records whose pool each read was for (multi-user design AD8)."""
+
     balance: PoolBalance | None = None
+    users: list[UUID] = field(default_factory=list)
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
+        self.users.append(user_id)
         if self.balance is None:
             raise InvariantViolation(
                 f"no configured pool for ({exchange}, {venue}, {settlement_currency})"
@@ -86,22 +95,37 @@ class FakeAdvisoryLock:
 
 @dataclass
 class FakeReservationRepository:
+    """Records whose reservations each call was for (multi-user design AD8)."""
+
     existing: Reservation | None = None
     inserted: list[Reservation] = field(default_factory=list)
     sum_active_return: Decimal = Decimal("0")
+    found_for: list[UUID] = field(default_factory=list)
+    summed_for: list[UUID] = field(default_factory=list)
+    inserted_for: list[UUID] = field(default_factory=list)
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
+        self.found_for.append(user_id)
         return self.existing
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
+        self.summed_for.append(user_id)
         return self.sum_active_return
 
-    async def insert(self, reservation: Reservation) -> None:
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
+        self.inserted_for.append(user_id)
         self.inserted.append(reservation)
 
-    async def mark(self, reservation_id: UUID, status: ReservationStatus, at: datetime) -> None:
+    async def mark(
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
+    ) -> None:
         raise NotImplementedError
 
 
@@ -121,6 +145,7 @@ def _enabled_snapshot(**overrides: object) -> StrategyPolicySnapshot:
         venue="spot",
         settlement_currency="USDT",
         allocation_percent=Decimal("100"),
+        author_id=OWNER_ID,
     )
     defaults.update(overrides)
     # Pionex, because the default venue is spot: the lock key these tests
@@ -152,6 +177,90 @@ def _build_use_case(
         pool_status=AlwaysEnabledPool(),
     )
     return use_case, lock, reservations, commit
+
+
+async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
+    """Multi-user design AD8 (B.5): a signal is allocated in its strategy's
+    author's pool. Both the in-lock balance read and the pool-status check ask
+    about the author's pool, never another user's on the same market."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b1b1")
+    balance = FakePoolBalancePort(
+        PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10"))
+    )
+    status = RecordingPoolStatus(disabled=False)
+    use_case = AllocateCapital(
+        strategy_policy=FakeStrategyPolicyPort(_enabled_snapshot(author_id=author)),
+        pool_balance=balance,
+        lock=FakeAdvisoryLock(),
+        reservations=FakeReservationRepository(),
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+        pool_status=status,
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert balance.users == [author]
+    assert status.users == [author]
+
+
+async def test_the_pool_lock_taken_is_the_strategy_authors() -> None:
+    """B.4: the advisory lock identifies the author's pool, so two users on one
+    market never serialize against each other."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b3b3")
+    use_case, lock, _, _ = _build_use_case(
+        policy=_enabled_snapshot(author_id=author),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+    )
+
+    await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert [key.user_id for key in lock.acquired] == [author]
+
+
+async def test_the_reservations_read_and_written_are_the_strategy_authors() -> None:
+    """Multi-user design AD8 (B.5): the resume lookup, the active sum the
+    decision is made from and the reservation written all belong to the
+    strategy's author, never to another user on the same market."""
+    author = UUID("5e6f7a8b-0000-4000-8000-00000000b2b2")
+    reservations = FakeReservationRepository()
+    use_case, _, _, _ = _build_use_case(
+        policy=_enabled_snapshot(author_id=author),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+        reservations=reservations,
+    )
+
+    result = await use_case.allocate(
+        AllocateCommand(
+            signal_id=uuid4(),
+            strategy_id=uuid4(),
+            requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        )
+    )
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert reservations.found_for == [author]
+    assert reservations.summed_for == [author]
+    assert reservations.inserted_for == [author]
 
 
 async def test_resume_returns_existing_reservation_without_taking_the_lock() -> None:
@@ -282,7 +391,9 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
     assert result.granted == Decimal("200")
     assert result.reservation_id is not None
     assert len(lock.acquired) == 1
-    assert lock.acquired[0] == LockKey(exchange="pionex", venue="spot", settlement_currency="USDT")
+    assert lock.acquired[0] == LockKey(
+        exchange="pionex", venue="spot", settlement_currency="USDT", user_id=OWNER_ID
+    )
     assert len(reservations.inserted) == 1
     assert reservations.inserted[0].amount == Decimal("200")
     assert commit.committed is True
@@ -579,7 +690,7 @@ class LockAwarePoolBalancePort:
     reads: int = 0
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolBalance:
         self.reads += 1
         return self.inside_lock if self.lock.acquired else self.before_lock

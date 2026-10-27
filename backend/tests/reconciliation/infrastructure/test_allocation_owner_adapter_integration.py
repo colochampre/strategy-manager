@@ -14,6 +14,7 @@ from strategy_manager.reconciliation.infrastructure.allocation_owner_adapter imp
     AllocationOwnerAdapter,
 )
 from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.owner import OWNER_ID, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -42,9 +43,37 @@ async def test_resolves_the_owning_strategy(
     )
 
     async with pg_session_factory() as session:
-        resolved = await AllocationOwnerAdapter(session).strategy_for(reservation_id)
+        resolved = await AllocationOwnerAdapter(session).strategy_for(OWNER_ID, reservation_id)
 
     assert resolved == strategy_id
+
+
+async def test_another_users_reservation_is_not_found(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user AD8: a second user asking for the owner's reservation gets
+    the same answer as for an id that does not exist."""
+    strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+    )
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        with pytest.raises(InvariantViolation):
+            await AllocationOwnerAdapter(session).strategy_for(other, reservation_id)
 
 
 async def test_a_different_reservations_strategy_is_not_returned(
@@ -84,7 +113,7 @@ async def test_a_different_reservations_strategy_is_not_returned(
     )
 
     async with pg_session_factory() as session:
-        resolved = await AllocationOwnerAdapter(session).strategy_for(reservation_b)
+        resolved = await AllocationOwnerAdapter(session).strategy_for(OWNER_ID, reservation_b)
 
     assert resolved == strategy_b
 
@@ -94,4 +123,4 @@ async def test_an_unknown_allocation_raises_invariant_violation(
 ) -> None:
     async with pg_session_factory() as session:
         with pytest.raises(InvariantViolation):
-            await AllocationOwnerAdapter(session).strategy_for(uuid4())
+            await AllocationOwnerAdapter(session).strategy_for(OWNER_ID, uuid4())

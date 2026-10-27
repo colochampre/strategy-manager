@@ -20,10 +20,10 @@ import base64
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -95,11 +95,22 @@ from tests.accounts.pool_seed import (
     seed_strategy,
     set_strategy_enabled,
 )
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    OTHER_EMAIL,
+    OTHER_HEADERS,
+    SIGNED_IN_ID,
+    hand_owner_pools_to_admin,
+    seed_admin,
+    sign_in_as_admin,
+    without_a_database,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import seed_other_user, seed_pool
 
 WITHDRAWALS = "withdrawals_disabled_confirmed"
 FUTURES = "futures_enabled_confirmed"
@@ -130,10 +141,13 @@ def _binance_body(**over: Any) -> dict[str, Any]:
 
 
 def _use_case(
-    inspector: RecordingInspector, writer: RecordingWriter, commit: RecordingCommit
+    inspector: RecordingInspector,
+    writer: RecordingWriter,
+    commit: RecordingCommit,
+    pools: RecordingPoolWriter | None = None,
 ) -> SaveCredential:
     return SaveCredential(
-        registry_for(inspector), writer, RecordingPoolWriter(), commit, TickingClock()
+        registry_for(inspector), writer, pools or RecordingPoolWriter(), commit, TickingClock()
     )
 
 
@@ -143,6 +157,7 @@ class Served:
     inspector: RecordingInspector
     writer: RecordingWriter
     commit: RecordingCommit
+    pools: RecordingPoolWriter = field(default_factory=RecordingPoolWriter)
 
 
 @asynccontextmanager
@@ -152,11 +167,12 @@ async def _serve(
     inspector = inspector or RecordingInspector(TRADING_SNAPSHOT)
     writer = writer or RecordingWriter()
     commit = RecordingCommit()
-    app = create_app()
-    use_case = _use_case(inspector, writer, commit)
+    pools = RecordingPoolWriter()
+    app = without_a_database(create_app())
+    use_case = _use_case(inspector, writer, commit, pools)
     app.dependency_overrides[get_save_credential] = lambda: use_case
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
-        yield Served(api, inspector, writer, commit)
+        yield Served(api, inspector, writer, commit, pools)
 
 
 async def _put_bybit(served: "Served", **over: Any) -> Response:
@@ -197,6 +213,16 @@ async def test_put_credentials_returns_last4_and_facts_never_the_key_or_secret_o
     assert "permissions" not in response.text
     assert served.commit.commits == 1
     assert [credential.api_key for credential, _ in served.writer.stored] == [BYBIT_KEY]
+
+
+async def test_put_credentials_enables_the_signed_in_users_pool() -> None:
+    """AD8: the pool switched on is the signed-in user's, never the fixtures'
+    owner nor anyone else holding a pool on the market."""
+    async with _serve() as served:
+        response = await _put_bybit(served)
+
+    assert response.status_code == 200
+    assert served.pools.users == [SIGNED_IN_ID]
 
 
 async def test_put_a_read_only_bybit_key_is_stored_with_the_warning_and_trade_capable_false() -> (
@@ -557,7 +583,7 @@ async def test_the_503_for_an_unusable_master_key_carries_no_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "master_encryption_key", "")
-    app = create_app()
+    app = without_a_database(create_app())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         response = await api.put(
             "/api/credentials/bybit", json=_bybit_body(), headers=ADMIN_HEADERS
@@ -604,7 +630,7 @@ async def test_an_unusable_master_key_answers_503_before_anything_else_and_says_
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr(get_settings(), "master_encryption_key", "")
-    app = create_app()
+    app = without_a_database(create_app())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         with caplog.at_level("DEBUG"):
             response = await api.put(
@@ -637,11 +663,14 @@ def _cipher() -> EnvelopeCipher:
 async def factory(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> async_sessionmaker[AsyncSession]:
-    """The test database with no credential rows left by another test."""
+    """The test database with no credential rows left by another test. The
+    seeded pools are the signed-in admin's: a save or a delete switches the
+    signed-in user's own pool (AD8)."""
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
         await session.commit()
     await clear_discrepancies(pg_session_factory)
+    await hand_owner_pools_to_admin(pg_session_factory)
     return pg_session_factory
 
 
@@ -772,6 +801,7 @@ async def test_get_credentials_an_exchange_with_only_a_history_row_is_listed_emp
     async with factory() as session:
         vault = SqlAlchemyCredentialVault(session, _cipher(), TickingClock())
         await vault.store(
+            await seed_admin(session),
             ExchangeCredential(
                 exchange="binance", label="default", api_key=BINANCE_KEY, api_secret=BINANCE_SECRET
             ),
@@ -836,6 +866,7 @@ async def test_get_credentials_a_legacy_row_reads_unrecorded_with_no_validation_
     async with factory() as session:
         vault = SqlAlchemyCredentialVault(session, _cipher(), TickingClock())
         await vault.store(
+            await seed_admin(session),
             ExchangeCredential(
                 exchange="pionex", label="default", api_key="PIONEX-KEY-9999", api_secret="x-secret"
             ),
@@ -855,6 +886,33 @@ async def test_get_credentials_a_legacy_row_reads_unrecorded_with_no_validation_
     assert entry["validated_at"] is None
     assert entry["trade_confirmed_at"] is None
     assert entry["withdraw_confirmed_at"] is None
+
+
+@pytest.mark.integration
+async def test_get_credentials_lists_only_the_signed_in_users_keys_and_pools_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: another user holds active Bybit and Binance keys and an enabled
+    Binance pool. The admin, who has stored no key, sees only their own pools,
+    each EMPTY: no other user's exchange, key or last four."""
+    other_bybit, other_binance = "OTHER-BYBIT-KEY-7531", "OTHER-BINANCE-KEY-8642"
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other, enabled=True)
+        await session.commit()
+    await _store(factory, "bybit", key=other_bybit, user_id=other)
+    await _store(factory, "binance", key=other_binance, user_id=other)
+
+    async with _serve_db(factory) as served:
+        listed = await served.api.get("/api/credentials", headers=ADMIN_HEADERS)
+
+    assert listed.status_code == 200
+    assert [(entry["exchange"], entry["status"]) for entry in listed.json()] == [
+        ("bybit", "EMPTY"),
+        ("pionex", "EMPTY"),
+    ]
+    assert other_bybit[-4:] not in listed.text
+    assert other_binance[-4:] not in listed.text
 
 
 # --- the router never decrypts --------------------------------------------------------------
@@ -908,9 +966,11 @@ class _SpyLock:
         self._inner = inner
         self.calls: list[tuple[str, str, str]] = []
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None:
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
         self.calls.append((exchange, venue, settlement_currency))
-        await self._inner.acquire(exchange, venue, settlement_currency)
+        await self._inner.acquire(user_id, exchange, venue, settlement_currency)
 
 
 class _SpyExposure:
@@ -920,9 +980,9 @@ class _SpyExposure:
         self._inner = inner
         self.calls: list[tuple[str, str, str]] = []
 
-    async def exposure(self, pool: tuple[str, str, str]) -> PoolExposure:
+    async def exposure(self, user_id: UUID, pool: tuple[str, str, str]) -> PoolExposure:
         self.calls.append(pool)
-        return await self._inner.exposure(pool)
+        return await self._inner.exposure(user_id, pool)
 
 
 @dataclass
@@ -974,10 +1034,16 @@ async def _serve_delete(
 
 
 async def _store(
-    factory: async_sessionmaker[AsyncSession], exchange: str, key: str = BYBIT_KEY
+    factory: async_sessionmaker[AsyncSession],
+    exchange: str,
+    key: str = BYBIT_KEY,
+    user_id: UUID | None = None,
 ) -> None:
+    """A key stored for the signed-in admin unless another user is named."""
     async with factory() as session:
+        owner = user_id or await seed_admin(session)
         await SqlAlchemyCredentialVault(session, _cipher(), TickingClock()).store(
+            owner,
             ExchangeCredential(
                 exchange=exchange, label="default", api_key=key, api_secret=BYBIT_SECRET
             ),
@@ -1128,21 +1194,119 @@ async def test_delete_credentials_disables_the_pool_and_a_new_save_enables_it_ag
     assert enabled is True
 
 
+async def _pool_enabled(
+    factory: async_sessionmaker[AsyncSession], user_id: UUID, exchange: str
+) -> bool:
+    async with factory() as session:
+        enabled = (
+            await session.execute(
+                text(
+                    "SELECT enabled FROM capital_pools "
+                    "WHERE user_id = :user_id AND exchange = :exchange"
+                ),
+                {"user_id": user_id, "exchange": exchange},
+            )
+        ).scalar_one()
+    return bool(enabled)
+
+
+@pytest.mark.integration
+async def test_delete_and_save_switch_only_the_signed_in_users_pool_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: another user holds an ENABLED Bybit pool and a DISABLED Binance
+    pool on the same markets as the admin's. Deleting the admin's Bybit key
+    switches off the admin's pool only; saving the admin's Binance key switches
+    on the admin's pool only."""
+    async with factory() as session:
+        admin = await seed_admin(session)
+        other = await seed_other_user(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other, enabled=True)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other, enabled=False)
+        await session.commit()
+    await _set_pool_enabled(factory, "binance", False)
+    await _store(factory, "bybit")
+
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+    async with _serve_db(factory, RecordingInspector(PermissionSnapshot())) as served_save:
+        saved = await served_save.api.put(
+            "/api/credentials/binance",
+            json=_binance_body(**{WITHDRAWALS: True, FUTURES: True}),
+            headers=ADMIN_HEADERS,
+        )
+
+    assert (deleted.status_code, saved.status_code) == (200, 200)
+    assert await _pool_enabled(factory, admin, "bybit") is False
+    assert await _pool_enabled(factory, other, "bybit") is True
+    assert await _pool_enabled(factory, admin, "binance") is True
+    assert await _pool_enabled(factory, other, "binance") is False
+
+
+async def _flags_by_user(
+    factory: async_sessionmaker[AsyncSession], exchange: str
+) -> set[tuple[str, bool]]:
+    async with factory() as session:
+        rows = await session.execute(
+            text("SELECT user_id, is_active FROM exchange_credentials WHERE exchange = :e"),
+            {"e": exchange},
+        )
+        return {(str(row[0]), bool(row[1])) for row in rows.all()}
+
+
+@pytest.mark.integration
+async def test_delete_credentials_switches_off_only_the_signed_in_users_key_never_another_users(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AD8: with only another user's Bybit key stored, the admin's DELETE is a
+    404 and that key stays active. Once the admin stores their own, deleting it
+    switches off the admin's key alone."""
+    async with factory() as session:
+        admin = await seed_admin(session)
+        other = await seed_other_user(session)
+        await session.commit()
+    await _store(factory, "bybit", key="OTHER-BYBIT-KEY-2222", user_id=other)
+
+    async with _serve_delete(factory) as served:
+        refused = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+    await _store(factory, "bybit")
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
+
+    assert (refused.status_code, deleted.status_code) == (404, 200)
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), False), (str(other), True)}
+
+
 @pytest.mark.integration
 async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await _store(factory, "bybit")
+    # The signed-in admin is the user whose key is deleted, so the positions and
+    # reservations that block it are the admin's own (multi-user design AD8).
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
     enabled_id = uuid4()
     holder_id = uuid4()
-    await seed_strategy(factory, strategy_id=enabled_id, enabled=True)
-    await seed_strategy(factory, strategy_id=holder_id, enabled=False)
-    allocation = await seed_open_position(factory, strategy_id=holder_id, symbol="ETHUSDT")
-    reservation = await seed_live_reservation(factory, strategy_id=holder_id)
-    submitted = await seed_live_reservation(factory, strategy_id=holder_id, status="SUBMITTED")
+    await seed_strategy(factory, strategy_id=enabled_id, enabled=True, author_id=admin)
+    await seed_strategy(factory, strategy_id=holder_id, enabled=False, author_id=admin)
+    allocation = await seed_open_position(
+        factory, strategy_id=holder_id, symbol="ETHUSDT", user_id=admin
+    )
+    reservation = await seed_live_reservation(factory, strategy_id=holder_id, user_id=admin)
+    submitted = await seed_live_reservation(
+        factory, strategy_id=holder_id, status="SUBMITTED", user_id=admin
+    )
     attempt = uuid4()
     await seed_execution_attempt(factory, attempt_id=attempt, reservation_id=submitted)
-    await seed_discrepancy(factory, symbol="STXUSDT")
+    await seed_discrepancy(factory, symbol="STXUSDT", user_id=admin)
+    # Another user's open discrepancy on the same exchange is not this user's
+    # exposure (multi-user design AD8).
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_discrepancy(factory, symbol="OTHERSUSDT", user_id=other)
 
     async with _serve_delete(factory) as served:
         response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
@@ -1180,7 +1344,10 @@ async def test_delete_credentials_409_for_an_open_discrepancy_alone_keeps_the_ke
 ) -> None:
     """Owner decision 70: nothing else is exposed, yet the key stays."""
     await _store(factory, "bybit")
-    await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED")
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
+    await seed_discrepancy(factory, symbol="STXUSDT", status="CONFIRMED", user_id=admin)
 
     async with _serve_delete(factory) as served:
         response = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
@@ -1283,8 +1450,10 @@ async def test_every_delete_answer_carries_no_store(
             "/api/credentials/bybit", headers=FORGED_HEADERS
         )
         await _store(factory, "bybit")
+        async with factory() as session:
+            admin = await seed_admin(session)
         strategy_id = uuid4()
-        await seed_strategy(factory, strategy_id=strategy_id, enabled=True)
+        await seed_strategy(factory, strategy_id=strategy_id, enabled=True, author_id=admin)
         answers["409"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
         await set_strategy_enabled(factory, strategy_id, False)
         answers["200"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
@@ -1313,3 +1482,113 @@ async def test_the_delete_route_is_behind_the_admin_guard_like_the_others(
 
     assert [missing.status_code, wrong.status_code] == [401, 401]
     assert missing.json() == wrong.json() == {"detail": UNAUTHORIZED_DETAIL}
+
+
+# --- cross-user: a signed-in non-admin against the admin's resources (B.6) -------------------
+#
+# The admin is user A and holds a key and an enabled pool. User B is the e-mail
+# ``OTHER_HEADERS`` signs in, who is NOT the admin: ``current_user`` resolves and
+# creates their own row, so these tests reach the scoped code through the real
+# sign-in instead of an overridden dependency.
+
+
+async def _a_store_with_an_enabled_pool(
+    factory: async_sessionmaker[AsyncSession], key: str
+) -> UUID:
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await session.commit()
+    await _store(factory, "bybit", key=key)
+    await _set_pool_enabled(factory, "bybit", True)
+    return admin
+
+
+@pytest.mark.integration
+async def test_cross_user_b_lists_none_of_a_keys_or_pools(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    admin_key = "ADMIN-BYBIT-KEY-QZXW"
+    await _a_store_with_an_enabled_pool(factory, admin_key)
+
+    async with _serve_db(factory) as served:
+        listed = await served.api.get("/api/credentials", headers=OTHER_HEADERS)
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+    assert admin_key[-4:] not in listed.text
+
+
+@pytest.mark.integration
+async def test_cross_user_b_delete_of_a_key_is_404_and_a_key_and_pool_stay_active(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+
+    async with _serve_delete(factory) as served:
+        refused = await served.api.delete("/api/credentials/bybit", headers=OTHER_HEADERS)
+
+    assert refused.status_code == 404
+    assert await _is_active(factory, "bybit") == [True]
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True)}
+    assert await _pool_enabled(factory, admin, "bybit") is True
+
+
+@pytest.mark.integration
+async def test_cross_user_b_delete_of_their_own_key_is_neither_blocked_by_nor_told_of_a_strategies(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A's enabled strategy on the market works in A's pool with A's key, never
+    B's, so it does not stand in B's way, and its id and name never reach B."""
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id, enabled=True, author_id=admin)
+    async with _serve_db(factory) as served:
+        await served.api.get("/api/credentials", headers=OTHER_HEADERS)
+    async with factory() as session:
+        other = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :e"), {"e": OTHER_EMAIL}
+            )
+        ).scalar_one()
+    await _store(factory, "bybit", key="OTHER-BYBIT-KEY-9999", user_id=other)
+
+    async with _serve_delete(factory) as served:
+        deleted = await served.api.delete("/api/credentials/bybit", headers=OTHER_HEADERS)
+
+    assert deleted.status_code == 200, deleted.text
+    assert str(strategy_id) not in deleted.text
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True), (str(other), False)}
+
+
+@pytest.mark.integration
+async def test_cross_user_b_save_on_a_market_leaves_a_key_and_pool_as_they_were(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """B stores their OWN key on the exchange A already has one on: it is B's,
+    and A's stays active, with its pool enabled."""
+    admin = await _a_store_with_an_enabled_pool(factory, "ADMIN-BYBIT-KEY-QZXW")
+
+    async with _serve_db(factory) as served:
+        saved = await served.api.put(
+            "/api/credentials/bybit", json=_bybit_body(), headers=OTHER_HEADERS
+        )
+
+    assert saved.status_code == 200
+    async with factory() as session:
+        other = (
+            await session.execute(
+                text("SELECT id FROM users WHERE email = :email"), {"email": OTHER_EMAIL}
+            )
+        ).scalar_one()
+        admin_last4 = (
+            await session.execute(
+                text(
+                    "SELECT api_key_last4 FROM exchange_credentials "
+                    "WHERE user_id = :user_id AND is_active"
+                ),
+                {"user_id": admin},
+            )
+        ).scalars().all()
+    assert admin_last4 == ["QZXW"]
+    assert await _flags_by_user(factory, "bybit") == {(str(admin), True), (str(other), True)}
+    assert await _pool_enabled(factory, admin, "bybit") is True

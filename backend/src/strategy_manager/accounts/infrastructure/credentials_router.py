@@ -70,7 +70,8 @@ from strategy_manager.accounts.infrastructure.credential_revoker import (
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import KeyInspectorRegistry
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -84,10 +85,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/credentials",
     tags=["credentials"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+CurrentUserDep = Annotated[User, Depends(current_user)]
 
 DEFAULT_LABEL = "default"
 
@@ -315,8 +317,9 @@ def _refusal(result: SaveRefused) -> JSONResponse:
     },
 )
 async def put_credential(
-    exchange: str, body: CredentialBody, use_case: SaveCredentialDep
+    exchange: str, body: CredentialBody, use_case: SaveCredentialDep, user: CurrentUserDep
 ) -> SavedBody | JSONResponse:
+    """The pool switched on is the signed-in user's (multi-user design AD8)."""
     credential = ExchangeCredential(
         exchange=exchange,
         label=body.label,
@@ -328,7 +331,7 @@ async def put_credential(
         futures_enabled=body.futures_enabled_confirmed,
     )
     try:
-        result = await use_case.execute(credential, confirmations)
+        result = await use_case.execute(user.id, credential, confirmations)
     except UnservedExchange:
         raise HTTPException(
             status_code=404, detail=f"exchange {exchange!r} is not served by this panel"
@@ -344,8 +347,9 @@ async def put_credential(
 
 
 @router.get("", response_model=list[CredentialEntry])
-async def list_credentials(session: SessionDep) -> list[CredentialEntry]:
-    overviews = await SqlAlchemyCredentialListing(session).list_overview()
+async def list_credentials(session: SessionDep, user: CurrentUserDep) -> list[CredentialEntry]:
+    """The signed-in user's keys and pools only (multi-user design AD8)."""
+    overviews = await SqlAlchemyCredentialListing(session).list_overview(user.id)
     return [CredentialEntry.of(overview) for overview in overviews]
 
 
@@ -358,10 +362,11 @@ async def list_credentials(session: SessionDep) -> list[CredentialEntry]:
     },
 )
 async def delete_credential(
-    exchange: str, use_case: DeleteCredentialDep
+    exchange: str, use_case: DeleteCredentialDep, user: CurrentUserDep
 ) -> CredentialEntry | JSONResponse:
+    """The pool switched off is the signed-in user's (multi-user design AD8)."""
     try:
-        await use_case.execute(exchange)
+        await use_case.execute(user.id, exchange)
     except ExchangeNotServed:
         # Owner decision 31: no lock, no read, no write happened.
         raise HTTPException(

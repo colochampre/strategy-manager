@@ -25,6 +25,7 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
 from strategy_manager.shared.domain.startup_refusal import StartupRefused
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
 from tests.performance.open_state_cases import in_flight_element, open_element
 
@@ -71,7 +72,7 @@ async def test_every_mismatch_the_guard_would_refuse_on_is_a_row_of_the_answer(
 ) -> None:
     reader = _reader(CASES[case])
 
-    answer = await _use_case(reader).read()
+    answer = await _use_case(reader).read(OWNER_ID)
 
     ids: set[UUID] = {p.allocation_id for p in answer.positions} | {
         o.attempt_id for o in answer.orders
@@ -95,7 +96,7 @@ async def test_an_empty_answer_is_a_state_the_guard_accepts_in_both_modes(
 ) -> None:
     reader = _reader(CASES[case])
 
-    answer = await _use_case(reader).read()
+    answer = await _use_case(reader).read(OWNER_ID)
 
     if not answer.positions and not answer.orders:
         # The guard raises StartupRefused when it would refuse: the assertion is
@@ -112,6 +113,6 @@ async def test_an_empty_answer_is_a_state_the_guard_accepts_in_both_modes(
 
 
 async def test_the_answer_for_an_empty_reader_is_empty() -> None:
-    answer = await _use_case(_reader(())).read()
+    answer = await _use_case(_reader(())).read(OWNER_ID)
 
     assert (answer.positions, answer.orders) == ((), ())

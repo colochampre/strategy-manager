@@ -25,6 +25,7 @@ from strategy_manager.strategies.domain.strategy import (
     FillMode,
     Strategy,
 )
+from tests.owner import OWNER_ID
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
@@ -41,6 +42,7 @@ def _strategy(**overrides: object) -> Strategy:
         "id": STRATEGY_ID,
         "name": "BAT - RSI Divergences v1.3",
         "policy": policy,
+        "author_id": OWNER_ID,
         "enabled": False,
     }
     fields.update(overrides)

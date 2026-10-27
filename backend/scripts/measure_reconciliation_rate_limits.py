@@ -75,7 +75,7 @@ from decimal import ROUND_UP, Decimal
 from typing import Any
 
 import httpx
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
@@ -581,6 +581,7 @@ async def main() -> int:
         "which calls once per settlement currency (default: 1). Binance returns "
         "every position in one call, so its arithmetic does not use this.",
     )
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     if args.samples < MIN_SAMPLES:
@@ -613,7 +614,9 @@ async def main() -> int:
     try:
         # The VAULT key, because that is the one balance.sync signs with and a
         # per-key budget measured on a different key is a different budget.
-        async with vault_credentials(settings, BYBIT_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BYBIT_EXCHANGE, user_email=args.user_email
+        ) as vaulted:
             announce(vaulted, f"vault ({BYBIT_EXCHANGE})")
             bybit_observations = await _measure_bybit(
                 settings,
@@ -634,7 +637,9 @@ async def main() -> int:
         # The VAULT key, same as Bybit above (design decision 18: ONE key per
         # exchange) -- and the same key balance.sync now signs with, so this
         # measurement is against the budget that key actually spends.
-        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BINANCE_EXCHANGE, user_email=args.user_email
+        ) as vaulted:
             announce(vaulted, f"vault ({BINANCE_EXCHANGE})")
             binance = BinanceCredentials(
                 api_key=vaulted.api_key, api_secret=vaulted.api_secret

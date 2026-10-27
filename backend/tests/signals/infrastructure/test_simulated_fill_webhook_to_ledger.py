@@ -51,6 +51,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.infrastructure.models import SignalRow
+from tests.owner import OWNER_ID
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
@@ -276,7 +277,7 @@ async def test_a_closing_alert_at_another_price_is_filled_at_that_alert_and_the_
     assert closed.fee_currency == "USDT"
     async with stack.factory() as session:
         net = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-            opened.allocation_id, "STX"
+            OWNER_ID, opened.allocation_id, "STX"
         )
     assert net == Decimal("0")
 
@@ -339,11 +340,11 @@ async def test_a_usdt_fee_moves_no_holding(stack: Stack) -> None:
     async def holdings() -> tuple[Decimal, Decimal]:
         async with stack.factory() as session:
             allocation = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
-                opened.allocation_id, "STX"
+                OWNER_ID, opened.allocation_id, "STX"
             )
             positions = await ReadSymbolPositions(
                 SqlAlchemyLedgerRepository(session)
-            ).net_positions_by_symbol(pool)
+            ).net_positions_by_symbol(OWNER_ID, pool)
         # A fully closed allocation vanishes from the pool-wide read (it HAVING-drops
         # a net of exactly zero), so "flat" is the empty list.
         assert {market_key(position.symbol) for position in positions} <= {"STXUSDT"}
@@ -363,9 +364,9 @@ async def test_a_profitable_round_trip_moves_no_availability(stack: Stack) -> No
 
     async with stack.factory() as session:
         funds = await PoolBalanceAdapter(
-            {("bybit", "usdt-m", "USDT"): BYBIT_POOL},
+            {(BYBIT_POOL.user_id, ("bybit", "usdt-m", "USDT")): BYBIT_POOL},
             DbBalanceSource(session, SystemClock(), max_age_seconds=90.0),
-        ).read("bybit", "usdt-m", "USDT")
+        ).read(BYBIT_POOL.user_id, "bybit", "usdt-m", "USDT")
         reservations = list((await session.execute(select(ReservationRow))).scalars())
     assert (funds.total, funds.available) == (POOL_BALANCE, POOL_BALANCE)
     # One reservation, the one the opening alert took: 564, FILLED. No price and
@@ -380,7 +381,8 @@ async def test_no_performance_total_counts_the_rehearsal_operation(stack: Stack)
 
     async with stack.factory() as session:
         fills = await SqlAlchemyAllocationFillsSource(session).pool_fills(
-            PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
+            OWNER_ID,
+            PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT),
         )
     assert fills.groups == ()
     assert fills.rehearsal_fill_count == 2
@@ -465,6 +467,7 @@ async def _seed_orphan(
     async with stack.factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -650,6 +653,8 @@ async def test_a_position_that_straddles_the_change_closes_at_the_alert_price_wi
     assert closed.fee == Decimal("0.31851875")  # 1250 x 0.4633 x 0.00055
     assert closed.fee_currency == "USDT"
     async with stack.factory() as session:
-        net = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(legacy, "STX")
+        net = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
+            OWNER_ID, legacy, "STX"
+        )
     assert net == Decimal("0")
     assert len(await _rows(stack.factory, strategy_id)) == 2

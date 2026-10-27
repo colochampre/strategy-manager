@@ -30,24 +30,25 @@ class InFlightWorkAdapter:
         self._reservations = reservations
 
     async def in_flight(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool:
         exchange, venue, settlement_currency = pool
 
         submitted = await self._attempts.submitted_for_strategy_symbol(
-            exchange, venue, settlement_currency, strategy_id, symbol
+            user_id, exchange, venue, settlement_currency, strategy_id, symbol
         )
         if submitted:
             return True
 
         return await self._reservations.has_pending_for_strategy(
-            exchange, venue, settlement_currency, strategy_id, now
+            user_id, exchange, venue, settlement_currency, strategy_id, now
         )
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
         exchange, venue, settlement_currency = pool
         return await self._attempts.submitted_closing_allocations(
+            user_id,
             exchange, venue, settlement_currency, strategy_id, symbol
         )

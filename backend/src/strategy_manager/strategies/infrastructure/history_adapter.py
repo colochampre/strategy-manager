@@ -6,6 +6,10 @@ the read over its own table, and this adapter only assembles the answer.
 
 Read-only: six ``SELECT count(...)`` statements, no lock, nothing written.
 Locking is ``DeleteStrategy``'s job.
+
+The reservations count is every user's, by design: deleting a strategy is the
+admin's, and any user's reservation on it is history (multi-user design AD8,
+owner decision 16).
 """
 
 from uuid import UUID

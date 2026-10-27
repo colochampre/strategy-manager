@@ -29,8 +29,9 @@ from strategy_manager.reconciliation.domain.discrepancy import (
     DiscrepancyStatus,
     Observation,
 )
+from tests.owner import OWNER_ID
 
-T0 = datetime(2026, 10, 16, 12, 0, 0, tzinfo=UTC)
+T0 =datetime(2026, 10, 16, 12, 0, 0, tzinfo=UTC)
 GRACE = 300
 REMINDER = 86400
 
@@ -59,6 +60,7 @@ def _row(
 ) -> DiscrepancyRecord:
     return DiscrepancyRecord(
         id=uuid4(),
+        user_id=OWNER_ID,
         exchange="bybit",
         venue="usdt-m",
         settlement_currency="USDT",

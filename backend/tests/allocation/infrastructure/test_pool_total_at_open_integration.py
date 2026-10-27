@@ -45,20 +45,23 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
+from tests.owner import OWNER_ID
 
 pytestmark = pytest.mark.integration
 
 _POOLS = {
-    ("pionex", "spot", "USDT"): PoolConfig(
+    (OWNER_ID, ("pionex", "spot", "USDT")): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
+        user_id=OWNER_ID,
         min_order_size=Decimal("1"),
     ),
-    ("pionex", "coin-m", "BTC"): PoolConfig(
+    (OWNER_ID, ("pionex", "coin-m", "BTC")): PoolConfig(
         exchange=Exchange.PIONEX,
         venue=Venue.COIN_M,
         settlement_currency=Currency.BTC,
+        user_id=OWNER_ID,
         min_order_size=Decimal("0.0001"),
     ),
 }

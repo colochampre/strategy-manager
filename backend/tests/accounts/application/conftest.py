@@ -26,6 +26,7 @@ from tests.accounts.infrastructure.conftest import (
     _ensure_test_database_exists,
     _test_database_url,
 )
+from tests.owner import seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 
@@ -45,6 +46,7 @@ async def pg_engine() -> AsyncIterator[AsyncEngine]:
                 "pool_balance_snapshots, jobs RESTART IDENTITY CASCADE"
             )
         )
+        await seed_owner(conn)
 
     yield engine
 

@@ -57,8 +57,8 @@ from strategy_manager.reconciliation.application.ports import (
     ProposedFillSnapshot,
     RecordedFillIdsPort,
     SystemOrderIdsPort,
+    UserVenueFillReadersPort,
     VenueFill,
-    VenueFillReaderRegistryPort,
     VenueFillReadError,
 )
 from strategy_manager.reconciliation.domain.booking import (
@@ -93,7 +93,7 @@ class PrepareBooking:
         self,
         discrepancies: DiscrepancyRepositoryPort,
         proposals: BookingProposalRepositoryPort,
-        venue_fills: VenueFillReaderRegistryPort,
+        venue_fills: UserVenueFillReadersPort,
         recorded_fill_ids: RecordedFillIdsPort,
         allocation_owner: AllocationOwnerPort,
         clock: ClockPort,
@@ -104,6 +104,11 @@ class PrepareBooking:
         dry_run: bool,
         system_order_ids: SystemOrderIdsPort,
     ) -> None:
+        """Every CONFIRMED discrepancy is prepared as the user it belongs to
+        (``DiscrepancyRecord.user_id``): the fills are read with THAT user's
+        reader (``venue_fills.for_user``), and every lookup (rejections,
+        recorded fills, system orders, the allocation's strategy) and the
+        proposal itself are that user's (multi-user AD8, AD10)."""
         self._discrepancies = discrepancies
         self._proposals = proposals
         self._venue_fills = venue_fills
@@ -146,6 +151,13 @@ class PrepareBooking:
                 # database CHECK is the real guard; this is what keeps an
                 # unbookable kind from ever reaching it.
                 continue
+
+            pool: PoolKey = (
+                discrepancy.exchange,
+                discrepancy.venue,
+                discrepancy.settlement_currency,
+            )
+            user_id = discrepancy.user_id
             considered += 1
 
             observation = Observation(
@@ -153,7 +165,9 @@ class PrepareBooking:
                 venue_net_base=discrepancy.venue_net_base,
                 ledger_net_base=discrepancy.ledger_net_base,
             )
-            if await self._proposals.has_matching_rejection(discrepancy.id, observation):
+            if await self._proposals.has_matching_rejection(
+                user_id, discrepancy.id, observation
+            ):
                 logger.info(
                     "prepare booking: discrepancy %s suppressed -- a rejected "
                     "proposal already covers this exact observation",
@@ -197,13 +211,10 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.WINDOW_TOO_LONG
                 continue
 
-            pool: PoolKey = (
-                discrepancy.exchange,
-                discrepancy.venue,
-                discrepancy.settlement_currency,
-            )
             try:
-                reader = self._venue_fills.for_pool(discrepancy.exchange, discrepancy.venue)
+                reader = self._venue_fills.for_user(user_id).for_pool(
+                    discrepancy.exchange, discrepancy.venue
+                )
                 fills = await reader.fills_in_window(pool, expected_market, window_start, now)
             except VenueFillReadError as exc:
                 logger.warning(
@@ -236,6 +247,7 @@ class PrepareBooking:
                 continue
 
             recorded_ids = await self._recorded_fill_ids.recorded_fill_ids(
+                user_id,
                 discrepancy.exchange,
                 discrepancy.venue,
                 [fill.exchange_fill_id for fill in fills],
@@ -308,7 +320,7 @@ class PrepareBooking:
             order_ids = sorted(
                 {fill.exchange_order_id for fill in matched.fills if fill.exchange_order_id}
             )
-            if await self._system_order_ids.holds_any(pool, order_ids):
+            if await self._system_order_ids.holds_any(user_id, pool, order_ids):
                 logger.warning(
                     "prepare booking: discrepancy %s matched fills of an order "
                     "this system placed, which is not a venue-originated "
@@ -319,10 +331,11 @@ class PrepareBooking:
                 refusals[discrepancy.id] = BookingRefusal.SYSTEM_ORDER_FILL
                 continue
             allocation_id = discrepancy.open_allocation_ids[0]
-            strategy_id = await self._allocation_owner.strategy_for(allocation_id)
+            strategy_id = await self._allocation_owner.strategy_for(user_id, allocation_id)
             client_order_id = build_client_order_id(discrepancy.exchange, matched.fills)
 
             proposal = NewBookingProposal(
+                user_id=user_id,
                 discrepancy_id=discrepancy.id,
                 exchange=discrepancy.exchange,
                 venue=discrepancy.venue,

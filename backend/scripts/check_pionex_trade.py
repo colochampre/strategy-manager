@@ -21,12 +21,13 @@ Both are reported.
 
 Credentials come from the VAULT, not the environment, because the vault is
 what the worker signs live orders with. Proving the environment's read-only key
-works would prove nothing about the path that matters.
+works would prove nothing about the path that matters. A key is a user's
+(multi-user design AD8), so ``--user-email`` names whose.
 
 Usage:
     cd backend
-    uv run python scripts/check_pionex_trade.py --symbol ETH_USDT --amount 10
-    uv run python scripts/check_pionex_trade.py --symbol ETH_USDT --amount 10 --execute
+    uv run python scripts/check_pionex_trade.py --user-email <e-mail> --amount 10
+    uv run python scripts/check_pionex_trade.py --user-email <e-mail> --amount 10 --execute
 """
 
 import argparse
@@ -36,13 +37,10 @@ import sys
 from decimal import Decimal
 from uuid import uuid4
 
-from strategy_manager.accounts.infrastructure.credential_vault import (
-    SqlAlchemyCredentialVault,
-)
+from probe_credentials import add_user_email_argument, announce, vault_credentials
+
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.db import engine, session_factory
-from strategy_manager.shared.infrastructure.clock import SystemClock
-from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
+from strategy_manager.shared.db import engine
 from strategy_manager.shared.infrastructure.pionex import EXCHANGE as PIONEX_EXCHANGE
 from strategy_manager.shared.infrastructure.pionex.errors import PionexApiError
 from strategy_manager.shared.infrastructure.pionex.factory import (
@@ -64,16 +62,13 @@ FILL_POLL_ATTEMPTS = 10
 FILL_POLL_SECONDS = 1.5
 
 
-async def _load_credentials() -> PionexCredentials:
-    settings = get_settings()
-    cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
-    async with session_factory() as session:
-        credential = await SqlAlchemyCredentialVault(
-            session, cipher, SystemClock()
-        ).load(PIONEX_EXCHANGE)
-    return PionexCredentials(
-        api_key=credential.api_key, api_secret=credential.api_secret
-    )
+async def _load_credentials(user_email: str) -> PionexCredentials:
+    """The vault key of the user ``user_email`` names (multi-user design AD8);
+    an unknown e-mail ends the run before anything is decrypted."""
+    async with vault_credentials(
+        get_settings(), PIONEX_EXCHANGE, user_email=user_email
+    ) as credentials:
+        return credentials
 
 
 async def _await_fills(
@@ -155,6 +150,7 @@ async def _run() -> int:
         action="store_true",
         help="actually place the orders; without it nothing is sent",
     )
+    add_user_email_argument(parser)
     args = parser.parse_args()
 
     if args.amount > MAX_AMOUNT:
@@ -163,7 +159,8 @@ async def _run() -> int:
 
     settings = get_settings()
     base_currency, _, quote_currency = args.symbol.partition("_")
-    credentials = await _load_credentials()
+    credentials = await _load_credentials(args.user_email)
+    announce(credentials, "vault")
 
     print(f"Pionex base URL: {settings.pionex_base_url}")
     print(f"Credentials:     from the vault, {credentials!r}")

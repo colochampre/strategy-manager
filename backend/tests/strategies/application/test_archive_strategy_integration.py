@@ -76,6 +76,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from tests.owner import OWNER_ID, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -111,6 +112,7 @@ async def _seed_strategy(
                 exchange=POOL[0],
                 venue=POOL[1],
                 settlement_currency=POOL[2],
+                author_id=OWNER_ID,
                 enabled=enabled,
                 fill_mode="PARTIAL",
                 archived_at=archived_at,
@@ -157,7 +159,9 @@ async def _seed_open_fill(
     signal_id = uuid4()
     await _seed_signal(session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -177,6 +181,7 @@ async def _seed_open_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=allocation_id,
@@ -192,7 +197,7 @@ async def _seed_open_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"open-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 
@@ -200,6 +205,7 @@ async def _seed_open_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -241,7 +247,9 @@ async def _seed_open_short_fill(
     signal_id = uuid4()
     await _seed_signal(session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -261,6 +269,7 @@ async def _seed_open_short_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=allocation_id,
@@ -276,7 +285,7 @@ async def _seed_open_short_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"open-short-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 
@@ -284,6 +293,7 @@ async def _seed_open_short_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -322,6 +332,7 @@ async def _seed_close_fill(
     attempt_id = uuid4()
     async with session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=attempt_id,
                 reservation_id=None,
@@ -337,7 +348,7 @@ async def _seed_close_fill(
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"close-{attempt_id}",
-            )
+            ),
         )
         await session.commit()
 
@@ -345,6 +356,7 @@ async def _seed_close_fill(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=attempt_id,
@@ -723,7 +735,9 @@ async def test_live_reservation_with_no_fill_yet_still_refuses_archive(
     signal_id = uuid4()
     await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
     async with pg_session_factory() as session:
+        await ensure_pool(session, POOL)
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=reservation_id,
                 strategy_id=strategy_id,

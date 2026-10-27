@@ -33,6 +33,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -56,16 +57,20 @@ async def _seed_allocation(
     exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
+    strategy_id: UUID | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> Allocation:
-    strategy_id, signal_id = uuid4(), uuid4()
+    signal_id = uuid4()
     allocation_id, attempt_id = uuid4(), uuid4()
-    await seed_strategy(
-        session_factory,
-        strategy_id=strategy_id,
-        exchange=exchange,
-        venue=venue,
-        settlement_currency=settlement_currency,
-    )
+    if strategy_id is None:
+        strategy_id = uuid4()
+        await seed_strategy(
+            session_factory,
+            strategy_id=strategy_id,
+            exchange=exchange,
+            venue=venue,
+            settlement_currency=settlement_currency,
+        )
     await seed_signal(
         session_factory,
         signal_id=signal_id,
@@ -81,6 +86,7 @@ async def _seed_allocation(
         venue=venue,
         settlement_currency=settlement_currency,
         status="FILLED",
+        user_id=user_id,
     )
     await seed_execution_attempt(
         session_factory,
@@ -108,6 +114,7 @@ async def _record(
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
     fill_id: str | None = None,
+    user_id: UUID = OWNER_ID,
 ) -> None:
     price = Decimal("100")
     prefix = REHEARSAL_FILL_ID_PREFIX if rehearsal else "live-"
@@ -115,6 +122,7 @@ async def _record(
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
                 exchange=exchange,
+                user_id=user_id,
                 strategy_id=allocation.strategy_id,
                 allocation_id=allocation.allocation_id,
                 execution_attempt_id=allocation.attempt_id,
@@ -144,6 +152,90 @@ async def _open_allocations(session_factory: async_sessionmaker[AsyncSession]) -
 async def _in_flight(session_factory: async_sessionmaker[AsyncSession]) -> list:  # type: ignore[type-arg]
     async with session_factory() as session:
         return list(await SqlAlchemyModeOriginReader(session).in_flight_attempts())
+
+
+# --- one user's rows, or every user's (multi-user design AD8, decision 16) ------
+
+
+async def _two_users_with_a_position_and_an_order_each(
+    factory: async_sessionmaker[AsyncSession],
+) -> tuple[UUID, Allocation, Allocation, UUID, UUID]:
+    """One strategy, two users; each holds an open position (a fill spelled
+    differently per user) and a SUBMITTED closing order of that position.
+    Returns ``(other, mine, theirs, my_order, their_order)``."""
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    mine = await _seed_allocation(factory)
+    theirs = await _seed_allocation(factory, strategy_id=mine.strategy_id, user_id=other)
+    await _record(factory, mine, side="BUY", quantity="1", rehearsal=False, symbol="SOLUSDT.P")
+    await _record(
+        factory, theirs, side="BUY", quantity="2", rehearsal=True, symbol="SOLUSDT", user_id=other
+    )
+    my_order, their_order = uuid4(), uuid4()
+    await seed_execution_attempt(
+        factory,
+        attempt_id=my_order,
+        closes_allocation_id=mine.allocation_id,
+        status="SUBMITTED",
+        exchange_order_id="1234567890123",
+    )
+    await seed_execution_attempt(
+        factory,
+        attempt_id=their_order,
+        closes_allocation_id=theirs.allocation_id,
+        status="SUBMITTED",
+        exchange_order_id=f"{REHEARSAL_ORDER_ID_PREFIX}{uuid4()}",
+    )
+    return other, mine, theirs, my_order, their_order
+
+
+async def test_open_allocations_given_a_user_are_that_users_rows_only(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, mine, theirs, _, _ = await _two_users_with_a_position_and_an_order_each(
+        pg_session_factory
+    )
+
+    async with pg_session_factory() as session:
+        reader = SqlAlchemyModeOriginReader(session)
+        owner_rows = await reader.open_allocations(OWNER_ID)
+        other_rows = await reader.open_allocations(other)
+
+    assert [row.allocation_id for row in owner_rows] == [mine.allocation_id]
+    assert [row.allocation_id for row in other_rows] == [theirs.allocation_id]
+
+
+async def test_in_flight_attempts_given_a_user_are_that_users_rows_only(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    other, _, _, my_order, their_order = await _two_users_with_a_position_and_an_order_each(
+        pg_session_factory
+    )
+
+    async with pg_session_factory() as session:
+        reader = SqlAlchemyModeOriginReader(session)
+        owner_rows = await reader.in_flight_attempts(OWNER_ID)
+        other_rows = await reader.in_flight_attempts(other)
+
+    assert [row.attempt_id for row in owner_rows] == [my_order]
+    assert [row.attempt_id for row in other_rows] == [their_order]
+
+
+async def test_without_a_user_both_reads_cover_every_user_as_the_workers_startup_guard_needs(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    _, mine, theirs, my_order, their_order = await _two_users_with_a_position_and_an_order_each(
+        pg_session_factory
+    )
+
+    async with pg_session_factory() as session:
+        reader = SqlAlchemyModeOriginReader(session)
+        allocations = await reader.open_allocations()
+        attempts = await reader.in_flight_attempts()
+
+    assert {row.allocation_id for row in allocations} == {mine.allocation_id, theirs.allocation_id}
+    assert {row.attempt_id for row in attempts} == {my_order, their_order}
 
 
 # --- open allocations: the origin of their fills ---------------------------

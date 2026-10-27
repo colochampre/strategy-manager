@@ -38,9 +38,11 @@ class FakeFillsSource:
         self._rehearsal_by_strategy = tuple((rehearsal_by_strategy or {}).items())
         self._rehearsal_groups = tuple(rehearsal_groups or ())
         self.asked: list[PoolKey] = []
+        self.users: list[UUID] = []
 
-    async def pool_fills(self, pool: PoolKey) -> PoolFills:
+    async def pool_fills(self, user_id: UUID, pool: PoolKey) -> PoolFills:
         self.asked.append(pool)
+        self.users.append(user_id)
         return PoolFills(
             tuple(self._groups),
             self._rehearsal_fill_count,
@@ -65,10 +67,12 @@ class FakePricingSource:
         self._facts = dict(facts or {})
         self._default = default
         self.calls: list[tuple[PoolKey, UUID, list[UUID]]] = []
+        self.users: list[UUID] = []
 
     async def pricing_facts(
-        self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PricingFacts]:
+        self.users.append(user_id)
         self.calls.append((pool, strategy_id, list(allocation_ids)))
         answer: dict[UUID, PricingFacts] = {}
         for allocation_id in allocation_ids:
@@ -90,10 +94,12 @@ class FakeOperationFillsSource:
     def __init__(self, held: Mapping[tuple[UUID, UUID], Sequence[OperationFill]]) -> None:
         self._held = {key: list(fills) for key, fills in held.items()}
         self.calls: list[tuple[UUID, UUID, int]] = []
+        self.users: list[UUID] = []
 
     async def operation_fills(
-        self, strategy_id: UUID, allocation_id: UUID, limit: int
+        self, user_id: UUID, strategy_id: UUID, allocation_id: UUID, limit: int
     ) -> Sequence[OperationFill]:
+        self.users.append(user_id)
         self.calls.append((strategy_id, allocation_id, limit))
         return self._held.get((strategy_id, allocation_id), [])[:limit]
 
@@ -124,13 +130,18 @@ class FakeOpenStateReader:
         self._opened = tuple(opened)
         self._in_flight = tuple(in_flight)
         self.calls: list[str] = calls if calls is not None else []
+        self.users: list[UUID | None] = []
 
-    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+    async def open_allocations(self, user_id: UUID | None = None) -> Sequence[OpenAllocationOrigin]:
         self.calls.append("open")
+        self.users.append(user_id)
         return self._opened
 
-    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
+    async def in_flight_attempts(
+        self, user_id: UUID | None = None
+    ) -> Sequence[InFlightAttemptOrigin]:
         self.calls.append("in_flight")
+        self.users.append(user_id)
         return self._in_flight
 
 
@@ -150,14 +161,19 @@ class FakeFactsSource:
         self._submitted = tuple(submitted)
         self.calls: list[str] = calls if calls is not None else []
         self.asked_ids: list[list[UUID]] = []
+        self.users: list[UUID] = []
 
-    async def position_facts(self, allocation_ids: Sequence[UUID]) -> Mapping[UUID, PositionFacts]:
+    async def position_facts(
+        self, user_id: UUID, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, PositionFacts]:
         self.calls.append("facts")
+        self.users.append(user_id)
         self.asked_ids.append(list(allocation_ids))
         return {i: self._facts[i] for i in allocation_ids if i in self._facts}
 
-    async def submitted_orders(self) -> Sequence[SubmittedOrder]:
+    async def submitted_orders(self, user_id: UUID) -> Sequence[SubmittedOrder]:
         self.calls.append("submitted")
+        self.users.append(user_id)
         return self._submitted
 
 
@@ -169,9 +185,11 @@ class FakeDisagreementSource:
     ) -> None:
         self._rows = tuple(rows)
         self.calls: list[str] = calls if calls is not None else []
+        self.users: list[UUID] = []
 
-    async def confirmed_open(self) -> Sequence[DiscrepancyRow]:
+    async def confirmed_open(self, user_id: UUID) -> Sequence[DiscrepancyRow]:
         self.calls.append("disagreements")
+        self.users.append(user_id)
         return self._rows
 
 
@@ -189,11 +207,11 @@ class HeldOpenStateSource:
         self.first_done = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
-        answer = await self._inner.in_flight_attempts()
+    async def in_flight_attempts(self, user_id: UUID) -> Sequence[InFlightAttemptOrigin]:
+        answer = await self._inner.in_flight_attempts(user_id)
         self.first_done.set()
         return answer
 
-    async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
+    async def open_allocations(self, user_id: UUID) -> Sequence[OpenAllocationOrigin]:
         await self.release.wait()
-        return await self._inner.open_allocations()
+        return await self._inner.open_allocations(user_id)

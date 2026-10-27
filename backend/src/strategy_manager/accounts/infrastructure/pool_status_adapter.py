@@ -11,7 +11,12 @@ lock the delete needs (lock order: advisory first, then row locks).
 Selecting the column rather than the entity also keeps the ORM identity map out
 of it, so a value cached earlier in the session can never answer for a fresh
 read.
+
+The pool is ``user_id``'s (multi-user design AD8): another user's pool on the
+same market, enabled or not, never answers for it.
 """
+
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,10 +30,13 @@ class SqlAlchemyPoolStatus:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def is_disabled(self, exchange: str, venue: str, settlement_currency: str) -> bool:
+    async def is_disabled(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> bool:
         enabled = (
             await self._session.execute(
                 select(CapitalPoolRow.enabled).where(
+                    CapitalPoolRow.user_id == user_id,
                     CapitalPoolRow.exchange == exchange,
                     CapitalPoolRow.venue == venue,
                     CapitalPoolRow.settlement_currency == settlement_currency,

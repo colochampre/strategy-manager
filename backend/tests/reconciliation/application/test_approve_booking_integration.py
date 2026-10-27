@@ -83,6 +83,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, ensure_pool
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -267,6 +268,7 @@ async def _seed_open_allocation(
     async with session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=reservation_id,
                 execution_attempt_id=attempt_id,
@@ -308,18 +310,21 @@ async def _seed_scenario(
 
     discrepancy_id, scan_id = uuid4(), uuid4()
     async with session_factory() as session:
+        pool_id = await ensure_pool(session, POOL, user_id=OWNER_ID)
         await session.execute(
             text(
                 "INSERT INTO reconciliation_discrepancies "
-                "(id, exchange, venue, settlement_currency, symbol, kind, "
+                "(id, user_id, pool_id, exchange, venue, settlement_currency, symbol, kind, "
                 "venue_net_base, ledger_net_base, open_allocation_ids, status, "
                 "confirmed_at, first_scan_id, last_scan_id) "
-                "VALUES (:id, :exchange, :venue, :settlement_currency, :symbol, "
-                "'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, ARRAY[:allocation_id]::uuid[], "
+                "VALUES (:id, :user_id, :pool_id, :exchange, :venue, :settlement_currency, "
+                ":symbol, 'ATTRIBUTABLE_FULL_CLOSE', 0, 0.5, ARRAY[:allocation_id]::uuid[], "
                 "'CONFIRMED', now(), :scan_id, :scan_id)"
             ),
             {
                 "id": discrepancy_id,
+                "user_id": OWNER_ID,
+                "pool_id": pool_id,
                 "exchange": POOL[0],
                 "venue": POOL[1],
                 "settlement_currency": POOL[2],
@@ -336,6 +341,7 @@ async def _seed_scenario(
     async with session_factory() as session:
         inserted = await SqlAlchemyBookingProposalRepository(session).insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -492,7 +498,7 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
         ledger_rows = (
             await session.execute(
                 text(
-                    "SELECT strategy_id, allocation_id, symbol, side, quantity, "
+                    "SELECT user_id, strategy_id, allocation_id, symbol, side, quantity, "
                     "usd_rate_at_fill FROM ledger_entries WHERE execution_attempt_id = :id"
                 ),
                 {"id": result.execution_attempt_id},
@@ -500,6 +506,9 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
         ).mappings().all()
     assert len(ledger_rows) == 1
     row = ledger_rows[0]
+    # The writer stamps the reservation's user, never the placeholder the use
+    # case builds the fill with.
+    assert row["user_id"] == OWNER_ID
     assert row["strategy_id"] == scenario.strategy_id
     assert row["allocation_id"] == scenario.allocation_id
     assert row["symbol"] == scenario.market_symbol
@@ -518,7 +527,7 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
     # (``market_symbol``, the bare venue spelling) -- design.md § 13.
     async with session_factory() as session:
         holdings = await SqlAlchemyLedgerRepository(session).symbol_holdings(
-            POOL[0], POOL[1], POOL[2], scenario.market_symbol
+            OWNER_ID, POOL[0], POOL[1], POOL[2], scenario.market_symbol
         )
     assert [h for h in holdings if h.strategy_id == scenario.strategy_id] == []
 
@@ -822,7 +831,9 @@ def _attempt(
 
 
 def _fill_record(scenario: _Scenario, *, attempt_id: UUID, exchange_fill_id: str) -> FillRecord:
+    # Built the way ``ApproveBooking`` builds it: with the proposal's user.
     return FillRecord(
+        user_id=OWNER_ID,
         strategy_id=scenario.strategy_id,
         allocation_id=scenario.allocation_id,
         execution_attempt_id=attempt_id,
@@ -871,7 +882,7 @@ async def test_client_order_id_collision_treated_as_expected_superseded(
         # The SAME transaction is still usable -- the SAVEPOINT, not the
         # whole transaction, absorbed the aborted insert.
         changed = await SqlAlchemyBookingProposalRepository(session).mark_state(
-            scenario.proposal_id, "SUPERSEDED", NOW, decision_reason="collision test"
+            OWNER_ID, scenario.proposal_id, "SUPERSEDED", NOW, decision_reason="collision test"
         )
         await session.commit()
     assert changed is True
@@ -903,7 +914,7 @@ async def test_ux_ledger_exchange_fill_collision_treated_as_expected_superseded(
         assert second.fills_written == 0
 
         changed = await SqlAlchemyBookingProposalRepository(session).mark_state(
-            scenario.proposal_id, "SUPERSEDED", NOW, decision_reason="collision test"
+            OWNER_ID, scenario.proposal_id, "SUPERSEDED", NOW, decision_reason="collision test"
         )
         await session.commit()
     assert changed is True

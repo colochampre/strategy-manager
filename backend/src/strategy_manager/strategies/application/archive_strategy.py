@@ -160,7 +160,7 @@ class ArchiveStrategy:
         # takes for this pool (PoolLockPort's own docstring) -- taken
         # BEFORE the row lock, never after, to avoid the lock-order-
         # inversion deadlock this module's docstring documents.
-        await self._pool_lock.acquire(*pool)
+        await self._pool_lock.acquire(unlocked.author_id, *pool)
 
         # Step 3: the row lock, second. Everything decided below is
         # re-read from HERE, never from the unlocked read above -- a

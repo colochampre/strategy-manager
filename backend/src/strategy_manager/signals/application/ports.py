@@ -159,7 +159,7 @@ class SymbolHoldingsPort(Protocol):
     """
 
     async def symbol_holdings(
-        self, pool: PoolKey, symbol: str
+        self, user_id: UUID, pool: PoolKey, symbol: str
     ) -> list[HeldAllocation]: ...
 
 
@@ -173,14 +173,18 @@ class InFlightWorkPort(Protocol):
     composing ``execution``'s and ``allocation``'s own repositories -- neither
     module owns the whole answer on its own, since attempts carry no
     ``strategy_id`` and reservations carry no ``symbol``.
+
+    ``in_flight`` and ``submitted_closing_allocations`` read ``user_id``'s
+    reservations and attempts only: the strategy author's, in whose pool the
+    signal is worked (multi-user design AD8, B.5).
     """
 
     async def in_flight(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str, now: datetime
     ) -> bool: ...
 
     async def submitted_closing_allocations(
-        self, pool: PoolKey, strategy_id: UUID, symbol: str
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, symbol: str
     ) -> list[UUID]:
         """The allocation id(s) whose closing execution attempt is currently
         SUBMITTED for this strategy and symbol -- what the rewired in-flight
@@ -231,10 +235,12 @@ class BalanceRefreshPort(Protocol):
     webhook ingress (CLAUDE.md rule 3).
 
     Implemented by ``accounts.application.refresh_pool_balance.RefreshPoolBalance``.
+
+    The pool is ``user_id``'s (multi-user design AD8): the strategy author's.
     """
 
     async def refresh(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> RefreshOutcome: ...
 
 
@@ -281,4 +287,7 @@ class TradeCapabilityPort(Protocol):
     ``VaultTradeCapabilityAdapter`` for a live worker and
     ``DryRunTradeCapability`` under ``DRY_RUN``."""
 
-    async def capability(self, exchange: str) -> TradeCapability: ...
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
+        """``user_id``'s active key on the exchange: the strategy author's, on
+        the signal path (multi-user design AD8)."""
+        ...

@@ -29,6 +29,7 @@ from strategy_manager.performance.domain.operation import PricingFacts, SidePric
 from strategy_manager.performance.infrastructure.rehearsal_pricing_source import (
     SqlAlchemyRehearsalPricingSource,
 )
+from tests.owner import OWNER_ID, seed_other_user
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
     PIONEX,
@@ -67,6 +68,7 @@ async def _rehearsal_round_trip(
     opening_prices: tuple[str, ...] = ("1",),
     closing_price: str = "0.4631",
     pool: PoolKey = BYBIT,
+    user_id: UUID = OWNER_ID,
 ) -> None:
     """An operation opened as ``STXUSDT_PERP`` (one fill per opening price) and
     closed as ``STXUSDT.P``, every fill carrying the rehearsal prefix."""
@@ -83,6 +85,7 @@ async def _rehearsal_round_trip(
             filled_at=T0 + timedelta(seconds=n),
             fill_id=f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}",
             pool=pool,
+            user_id=user_id,
         )
         for n, price in enumerate(opening_prices)
     ]
@@ -97,6 +100,7 @@ async def _rehearsal_round_trip(
         filled_at=T0 + timedelta(hours=1),
         fill_id=f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}",
         pool=pool,
+        user_id=user_id,
     )
     await _record(factory, *opening, closing)
 
@@ -106,10 +110,11 @@ async def _facts(
     strategy_id: UUID,
     allocation_ids: list[UUID],
     pool: PoolKey = BYBIT,
+    user_id: UUID = OWNER_ID,
 ) -> dict[UUID, PricingFacts]:
     async with factory() as session:
         answer = await SqlAlchemyRehearsalPricingSource(session).pricing_facts(
-            pool, strategy_id, allocation_ids
+            user_id, pool, strategy_id, allocation_ids
         )
         return dict(answer)
 
@@ -220,6 +225,30 @@ async def test_an_allocation_of_another_pool_is_not_answered(
 
     assert list(in_its_pool) == [allocation_id]
     assert in_another == {}
+
+
+async def test_an_allocation_of_a_second_user_on_the_same_strategy_and_pool_is_not_answered(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8: the strategy and the market are shared, the
+    allocations are not. Asking for both ids answers only the asker's own."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id, mine, my_attempt = await _seed_allocation(pg_session_factory)
+    _, theirs, their_attempt = await _seed_allocation(
+        pg_session_factory, strategy_id=strategy_id, user_id=other
+    )
+    await _rehearsal_round_trip(pg_session_factory, strategy_id, mine, my_attempt, alert="0.5")
+    await _rehearsal_round_trip(
+        pg_session_factory, strategy_id, theirs, their_attempt, alert="0.7", user_id=other
+    )
+
+    owner_answer = await _facts(pg_session_factory, strategy_id, [mine, theirs])
+    other_answer = await _facts(pg_session_factory, strategy_id, [mine, theirs], user_id=other)
+
+    assert list(owner_answer) == [mine]
+    assert list(other_answer) == [theirs]
 
 
 async def test_it_issues_one_statement_for_one_id_and_for_twenty(

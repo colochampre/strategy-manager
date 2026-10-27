@@ -210,7 +210,9 @@ class ClosingAttemptsPort(Protocol):
     narrow-Protocol-per-consumer convention ``ContinuationSeederPort``
     already follows in this file."""
 
-    async def latest_close_for(self, allocation_id: UUID) -> ExecutionAttempt | None: ...
+    async def latest_close_for(
+        self, user_id: UUID, allocation_id: UUID
+    ) -> ExecutionAttempt | None: ...
 
 
 class ContinuationSeederPort(Protocol):
@@ -280,6 +282,7 @@ class CloseOrphansPort(Protocol):
         holdings: list[HeldAllocation],
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None: ...
 
@@ -492,8 +495,9 @@ class ProcessSignalHandler:
         # refusal and before the guard, the refresh and the lock, and only in
         # this method, so a close is never refused by it and ``open_now`` (the
         # REVERSE continuation) is covered. Under DRY_RUN the wired port
-        # answers TRADE_CAPABLE, so nothing is refused.
-        capability = await self._trade_capability.capability(policy.exchange)
+        # answers TRADE_CAPABLE, so nothing is refused. The key asked about is
+        # the strategy author's (multi-user design AD8, tasks.md B.5).
+        capability = await self._trade_capability.capability(policy.author_id, policy.exchange)
         if capability is not TradeCapability.TRADE_CAPABLE:
             return await self._refuse_read_only_exchange(
                 signal_id, context, transition, policy, capability, close_executed=close_executed
@@ -505,6 +509,7 @@ class ProcessSignalHandler:
         # ``AllocateCapital.allocate()`` (design.md § "Guard order").
         pool: PoolKey = (policy.exchange, policy.venue, policy.settlement_currency)
         guard_outcome = await self._holding_guard.check(
+            user_id=policy.author_id,
             pool=pool,
             strategy_id=context.strategy_id,
             symbol=context.symbol,
@@ -556,6 +561,7 @@ class ProcessSignalHandler:
                     symbol=context.symbol,
                     holdings=guard_outcome.real_orphan_holdings,
                     next_poll=next_poll,
+                    user_id=policy.author_id,
                     reference_price=context.price,
                 )
                 return ProcessSignalResult(transition.kind.value, None, False)
@@ -588,8 +594,10 @@ class ProcessSignalHandler:
         # here can the ERROR name the signal, the strategy and the symbol --
         # ``RefreshPoolBalance`` itself never sees any of the three, only the
         # pool.
+        # The strategy AUTHOR's pool (B.5), here and in the sizing read below:
+        # until subscriptions exist a signal is allocated in its author's pool.
         refresh_outcome = await self._balance_refresh.refresh(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         if refresh_outcome.status is RefreshStatus.UNAVAILABLE:
             refused = (
@@ -608,7 +616,7 @@ class ProcessSignalHandler:
             )
 
         pool_balance = await self._pool_balance.read(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         # Sized from the pool's TOTAL, never from what is still free: the same
         # percentage must ask for the same amount whether or not other
@@ -639,6 +647,7 @@ class ProcessSignalHandler:
 
         await self._place_order.place(
             PlaceCommand(
+                user_id=policy.author_id,
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),
@@ -713,7 +722,7 @@ class ProcessSignalHandler:
         )
 
         existing_close = await self._closing_attempts.latest_close_for(
-            context.prior_reservation_id
+            policy.author_id, context.prior_reservation_id
         )
         if existing_close is not None:
             if existing_close.status is not ExecutionStatus.FAILED:
@@ -766,6 +775,7 @@ class ProcessSignalHandler:
 
         close_result = await self._close_position.close(
             CloseCommand(
+                user_id=policy.author_id,
                 allocation_id=context.prior_reservation_id,
                 strategy_id=context.strategy_id,
                 exchange=policy.exchange,

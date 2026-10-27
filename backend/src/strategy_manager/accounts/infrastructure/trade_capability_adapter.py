@@ -22,6 +22,8 @@ seen on the very next signal. A key replaced between this read and
 ``PlaceOrder`` fails at the venue as before (the accepted residual race).
 """
 
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,18 +34,23 @@ _ROW = ExchangeCredentialRow
 
 
 class VaultTradeCapabilityAdapter:
-    """One indexed read of ``exchange_credentials (trade_capable)`` for the
-    exchange's active row. The partial unique index
-    ``ux_exchange_credentials_one_active_per_exchange`` guarantees at most one
-    such row, so the answer is never ambiguous."""
+    """One indexed read of ``exchange_credentials (trade_capable)`` for
+    ``user_id``'s active row on the exchange: the signal path asks about the
+    strategy author's key, and another user's key on the same exchange never
+    answers for it (multi-user design AD8). The partial unique index
+    ``ux_exchange_credentials_one_active_per_exchange`` on ``(user_id,
+    exchange)`` guarantees at most one such row, so the answer is never
+    ambiguous."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def capability(self, exchange: str) -> TradeCapability:
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
         trade_capable = (
             await self._session.execute(
-                select(_ROW.trade_capable).where(_ROW.exchange == exchange, _ROW.is_active)
+                select(_ROW.trade_capable).where(
+                    _ROW.user_id == user_id, _ROW.exchange == exchange, _ROW.is_active
+                )
             )
         ).scalar_one_or_none()
         if trade_capable is None:
@@ -54,5 +61,5 @@ class VaultTradeCapabilityAdapter:
 class DryRunTradeCapability:
     """Always ``TRADE_CAPABLE``: a rehearsal refuses no exchange for its key."""
 
-    async def capability(self, exchange: str) -> TradeCapability:
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
         return TradeCapability.TRADE_CAPABLE

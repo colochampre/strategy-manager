@@ -7,12 +7,15 @@ Placed here because it needs
 the seeded-pools ``pg_engine`` fixture.
 """
 
+from collections.abc import AsyncIterator
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager import main
 from strategy_manager.main import create_app
+from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -113,8 +116,19 @@ async def test_an_unusable_master_key_does_not_stop_the_api_from_starting(
     settings = get_settings()
     monkeypatch.setattr(settings, "master_encryption_key", "")
 
+    app = create_app()
+    factory = async_sessionmaker(pg_engine, expire_on_commit=False)
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        # ``PUT /api/credentials`` resolves the signed-in ``User`` (B.6): from the
+        # test database, not from whatever the developer's ``DATABASE_URL`` holds.
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+
     async with main.lifespan(main.app), AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test"
     ) as api:
         health = await api.get("/health")
         webhook = await api.post("/webhook/tradingview", json={"not": "a signal"})

@@ -25,6 +25,7 @@ from strategy_manager.strategies.infrastructure.pool_catalog import (
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -50,6 +51,7 @@ def _strategy(
             fill_mode=FillMode.PARTIAL,
             allocation_percent=AllocationPercent(Decimal(percent)),
         ),
+        author_id=OWNER_ID,
         enabled=enabled,
     )
 
@@ -94,6 +96,7 @@ async def test_update_writes_the_mutable_fields(
             fill_mode=FillMode.SKIP,
             allocation_percent=AllocationPercent(Decimal("25")),
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
 
@@ -134,6 +137,7 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
             fill_mode=strategy.policy.fill_mode,
             allocation_percent=strategy.policy.allocation_percent,
         ),
+        author_id=OWNER_ID,
         enabled=True,
     )
 
@@ -174,7 +178,32 @@ async def test_the_pool_catalog_reports_only_enabled_pools(
         await session.commit()
 
     async with pg_session_factory() as session:
-        pools = await SqlAlchemyPoolCatalog(session).enabled_pools()
+        pools = await SqlAlchemyPoolCatalog(session).enabled_pools(OWNER_ID)
 
     assert (Exchange.PIONEX, Venue.SPOT, Currency.USDT) in pools
     assert (Exchange.PIONEX, Venue.COIN_M, Currency.ETH) not in pools
+
+
+async def test_the_pool_catalog_reports_only_the_users_own_enabled_pools(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8. A second user holds an enabled pool on
+    ``binance/usdt-m/USDT``, where the owner has none, and a DISABLED one on
+    ``bybit/usdt-m/USDT``, where the owner's is enabled. Each user's list is
+    their own enabled pools and nothing else."""
+    binance = (Exchange.BINANCE, Venue.USDT_M, Currency.USDT)
+    bybit = (Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, ("binance", "usdt-m", "USDT"), user_id=other)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other, enabled=False)
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        catalog = SqlAlchemyPoolCatalog(session)
+        owners = await catalog.enabled_pools(OWNER_ID)
+        others = await catalog.enabled_pools(other)
+
+    assert binance not in owners
+    assert bybit in owners
+    assert others == [binance]

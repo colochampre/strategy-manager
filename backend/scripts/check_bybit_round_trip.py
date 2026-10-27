@@ -50,7 +50,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
     BybitBalanceReader,
@@ -166,6 +166,7 @@ async def main() -> int:
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
     parser.add_argument("--granted", type=Decimal, default=DEFAULT_GRANTED)
     parser.add_argument("--confirm", action="store_true")
+    add_user_email_argument(parser)
     args = parser.parse_args()
     granted: Decimal = args.granted
 
@@ -183,7 +184,7 @@ async def main() -> int:
     print(f"Alert symbol {args.symbol} -> venue symbol {symbol}")
     print(f"Granted margin: {granted} USDT\n")
 
-    async with vault_credentials(settings, EXCHANGE) as vaulted:
+    async with vault_credentials(settings, EXCHANGE, user_email=args.user_email) as vaulted:
         announce(vaulted, f"vault ({EXCHANGE})")
         credentials = BybitCredentials(
             api_key=vaulted.api_key, api_secret=vaulted.api_secret

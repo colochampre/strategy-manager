@@ -17,21 +17,12 @@ The answer names a person, so it is never cached (``NoStoreMiddleware`` in
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.identity.application.resolve_user import ResolveUser
-from strategy_manager.identity.domain.user import InvalidEmailError
-from strategy_manager.identity.infrastructure.dependencies import (
-    UNAUTHORIZED_DETAIL,
-    is_admin,
-    verified_email,
-)
-from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, is_admin
 from strategy_manager.shared.config import Settings, get_settings
-from strategy_manager.shared.db import get_session
-from strategy_manager.shared.infrastructure.clock import SystemClock
 
 router = APIRouter(prefix="/me", tags=["identity"])
 
@@ -44,17 +35,9 @@ class MeBody(BaseModel):
 
 @router.get("", response_model=MeBody)
 async def me(
-    email: Annotated[str, Depends(verified_email)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> MeBody:
-    try:
-        user = await ResolveUser(SqlAlchemyUserRepository(session), SystemClock()).execute(email)
-    except InvalidEmailError:
-        # Access vouched for something that is not an address. It cannot become
-        # a user, and the caller learns nothing more than from a forged token.
-        raise HTTPException(status_code=401, detail=UNAUTHORIZED_DETAIL) from None
-    await session.commit()
     return MeBody(
         email=user.email, is_admin=is_admin(user.email, settings), dry_run=settings.dry_run
     )

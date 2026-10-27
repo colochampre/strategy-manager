@@ -22,6 +22,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -61,12 +62,18 @@ from tests.accounts.fakes import (
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
 from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    seed_admin,
+    sign_in_as_admin,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
     seed_strategy,
 )
+from tests.owner import seed_pool, seed_snapshot
 from tests.performance.infrastructure.test_performance_router import _trade
 
 SECRET = "wh-s3cret-7d41c9e2-must-never-leak"
@@ -246,18 +253,36 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     factory = pg_session_factory
     strategy_id = uuid4()
     await seed_strategy(factory, strategy_id=strategy_id)
+    # The pool routes answer the signed-in admin's pools, and the share preview
+    # reads the strategy author's (AD8): both users hold a synced Bybit pool.
+    async with factory() as session:
+        admin = await seed_admin(session)
+        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=admin)
+        await seed_snapshot(
+            session,
+            ("bybit", "usdt-m", "USDT"),
+            total=Decimal("1000"),
+            available=Decimal("800"),
+            observed_at=datetime.now(UTC),
+        )
+        await session.commit()
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")
     await _reserve(factory, "bybit", "usdt-m", "USDT", "150", strategy_id=strategy_id)
-    allocation_id = await _trade(factory, strategy_id, datetime.now(UTC) - timedelta(hours=2))
+    # The fills route answers the signed-in admin's own operation (AD8).
+    allocation_id = await _trade(
+        factory, strategy_id, datetime.now(UTC) - timedelta(hours=2), user_id=admin
+    )
     # One open discrepancy, so the list's row serializer is inspected too (W3).
     await clear_discrepancies(factory)
     await seed_discrepancy(factory, symbol="STXUSDT")
     cipher = EnvelopeCipher(bytes(MASTER_KEY_BYTES))
     async with factory() as session:
         # An active key, so ``GET /api/credentials`` answers a STORED entry and
-        # not only the empty ones an enabled pool produces.
+        # not only the empty ones an enabled pool produces. The admin's own key:
+        # the listing answers only the signed-in user's keys (AD8).
         await session.execute(text("TRUNCATE exchange_credentials CASCADE"))
         await SqlAlchemyCredentialVault(session, cipher, TickingClock()).store(
+            admin,
             ExchangeCredential(
                 exchange="bybit",
                 label="default",

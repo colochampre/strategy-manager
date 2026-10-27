@@ -32,6 +32,7 @@ from tests.ledger.infrastructure.conftest import (
     seed_signal,
     seed_strategy,
 )
+from tests.owner import OWNER_ID
 
 FILLED_AT = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
 PIONEX_SPOT = {"exchange": "pionex", "venue": "spot", "settlement_currency": "USDT"}
@@ -162,6 +163,7 @@ async def record_fill(
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
                 exchange=exchange,
+                user_id=OWNER_ID,
                 strategy_id=allocation.strategy_id,
                 allocation_id=allocation.allocation_id,
                 execution_attempt_id=allocation.attempt_id,

@@ -48,6 +48,7 @@ from tests.execution.fakes import RecordingOrderOutcomes
 
 NOW = datetime(2026, 8, 21, 14, 0, 0, tzinfo=UTC)
 SETTLE_DELAY = 2.0
+OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000e0e0e")
 ALLOCATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
@@ -66,8 +67,11 @@ class FakeHeld:
     def __init__(self, net_base: Decimal) -> None:
         self._net_base = net_base
         self.asked: list[tuple[UUID, str]] = []
+        # Whose position each read was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def net_base(self, allocation_id: UUID, base_currency: str) -> Decimal:
+    async def net_base(self, user_id: UUID, allocation_id: UUID, base_currency: str) -> Decimal:
+        self.users.append(user_id)
         self.asked.append((allocation_id, base_currency))
         return self._net_base
 
@@ -78,23 +82,28 @@ class SpyAttempts:
         self.placed: list[tuple[UUID, str]] = []
         self.failed: list[tuple[UUID, str]] = []
         self._log = log
+        # Whose attempt each call was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def insert(self, attempt: ExecutionAttempt) -> None:
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None:
+        self.users.append(user_id)
         self.inserted.append(attempt)
         self._log.append("attempt.insert")
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt:  # pragma: no cover
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt:  # pragma: no cover
         raise NotImplementedError
 
-    async def mark_placed(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_placed(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
+        self.users.append(user_id)
         self.placed.append((attempt_id, exchange_order_id))
 
     async def mark_filled(  # pragma: no cover - not used by ClosePosition
-        self, attempt_id: UUID, exchange_order_id: str
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
     ) -> None:
         raise NotImplementedError
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None:
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None:
+        self.users.append(user_id)
         self.failed.append((attempt_id, error))
 
 
@@ -210,7 +219,8 @@ def _command(
     signal_id: UUID | None = SIGNAL_ID,
     reference_price: Decimal | None = ALERT_PRICE,
 ) -> CloseCommand:
-    return CloseCommand(exchange="pionex", 
+    return CloseCommand(exchange="pionex",
+        user_id=OWNER,
         allocation_id=ALLOCATION_ID,
         strategy_id=STRATEGY_ID,
         venue="spot",
@@ -236,6 +246,7 @@ async def test_the_close_size_comes_from_the_ledger_not_from_a_price() -> None:
     assert order.base_size == Decimal("0.00199960")
     assert result.base_size == Decimal("0.00199960")
     assert held.asked == [(ALLOCATION_ID, "BTC")]
+    assert held.users == [OWNER]  # the position is read as the close's user
 
 
 async def test_the_closing_alerts_price_reaches_the_order_spec() -> None:
@@ -424,12 +435,28 @@ async def test_a_placed_close_records_the_exchange_id() -> None:
     assert attempts.placed == [(result.execution_attempt_id, "EX-9")]
 
 
+async def test_the_closing_attempt_is_written_and_marked_as_the_commands_user() -> None:
+    """Multi-user design AD2/AD8 (B.5): the closing attempt is inserted as the
+    user who owns the allocation, and marked placed or failed as that user."""
+    placed, placed_attempts, _, _, _, _ = _build()
+    await placed.close(_command())
+
+    rejected, rejected_attempts, _, _, _, _ = _build(
+        exchange_raises=ExchangeError("insufficient balance")
+    )
+    await rejected.close(_command())
+
+    assert placed_attempts.users == [OWNER, OWNER]  # insert, mark_placed
+    assert rejected_attempts.users == [OWNER, OWNER]  # insert, mark_failed
+
+
 async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> None:
     """A strategy in a USDT pool signalling a BTC-quoted market is
     misconfigured in a way that would otherwise surface as an inexplicably
     wrong order size."""
     use_case, attempts, queue, exchange, _, _ = _build()
-    command = CloseCommand(exchange="pionex", 
+    command = CloseCommand(exchange="pionex",
+        user_id=OWNER,
         allocation_id=ALLOCATION_ID,
         strategy_id=STRATEGY_ID,
         venue="spot",

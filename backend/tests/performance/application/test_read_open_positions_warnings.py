@@ -32,6 +32,7 @@ from strategy_manager.performance.domain.open_position import (
     OpenState,
     PoolLabel,
 )
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
 from tests.performance.open_state_cases import (
     POOL,
@@ -68,7 +69,7 @@ async def _read(
         FakeOpenStateReader(opened, in_flight),
         FakeFactsSource(facts, submitted),
         FakeDisagreementSource(rows),
-    ).read()
+    ).read(OWNER_ID)
 
 
 def _good(

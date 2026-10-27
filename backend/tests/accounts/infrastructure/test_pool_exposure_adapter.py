@@ -36,6 +36,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -50,10 +51,12 @@ async def _no_leftover_discrepancies(
 
 
 async def _exposure(
-    factory: async_sessionmaker[AsyncSession], pool: tuple[str, str, str] = POOL
+    factory: async_sessionmaker[AsyncSession],
+    pool: tuple[str, str, str] = POOL,
+    user_id: UUID = OWNER_ID,
 ) -> PoolExposure:
     async with factory() as session:
-        return await PoolExposureAdapter.over(session).exposure(pool)
+        return await PoolExposureAdapter.over(session).exposure(user_id, pool)
 
 
 async def _strategy(
@@ -148,6 +151,49 @@ async def test_another_pools_exposure_is_not_this_pools(
     assert not (await _exposure(pg_session_factory, OTHER_POOL)).is_empty()
 
 
+async def test_another_users_live_reservation_on_the_market_is_not_this_users_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8: deleting a key asks about the deleting user's own
+    reservations. Another user's live reservation on the same market and the
+    same strategy belongs to that user's pool, not this one's."""
+    strategy_id = await _strategy(pg_session_factory)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    reservation = await seed_live_reservation(
+        pg_session_factory, strategy_id=strategy_id, user_id=other
+    )
+
+    assert (await _exposure(pg_session_factory)).live_reservations == ()
+    assert (await _exposure(pg_session_factory, user_id=other)).live_reservations == (
+        reservation,
+    )
+
+
+async def test_another_users_open_position_on_the_market_is_not_this_users_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8: the ledger part of the question is the deleting
+    user's own rows. Another user's open position on the same market is not
+    capital behind this user's key."""
+    strategy_id = await _strategy(pg_session_factory)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    allocation = await seed_open_position(
+        pg_session_factory, strategy_id=strategy_id, symbol="ETHUSDT", user_id=other
+    )
+
+    mine = await _exposure(pg_session_factory)
+    theirs = await _exposure(pg_session_factory, user_id=other)
+
+    assert mine.symbols == frozenset()
+    assert mine.allocations == ()
+    assert theirs.symbols == frozenset({"ETHUSDT"})
+    assert theirs.allocations == (allocation,)
+
+
 async def test_a_closed_allocation_and_a_terminal_reservation_are_not_exposure(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> None:
@@ -169,6 +215,7 @@ async def test_a_closed_allocation_and_a_terminal_reservation_are_not_exposure(
         await SqlAlchemyLedgerRepository(session).insert(
             LedgerEntry(
                 id=uuid4(),
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation,
                 execution_attempt_id=close_attempt,
@@ -269,6 +316,23 @@ async def test_an_open_discrepancy_on_another_pool_of_the_same_exchange_is_expos
     await seed_discrepancy(pg_session_factory, symbol="SOLUSDT", pool=("bybit", "spot", "USDT"))
 
     assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset({"SOLUSDT"})
+
+
+async def test_another_users_open_discrepancy_on_the_same_market_is_not_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user AD8: deleting the owner's key is blocked by the owner's open
+    discrepancies, not by a second user's on the same exchange and pool."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await seed_discrepancy(pg_session_factory, symbol="SOLUSDT", user_id=other)
+    await seed_discrepancy(pg_session_factory, symbol="XRPUSDT")
+
+    assert (await _exposure(pg_session_factory)).open_discrepancies == frozenset({"XRPUSDT"})
+    assert (await _exposure(pg_session_factory, user_id=other)).open_discrepancies == frozenset(
+        {"SOLUSDT"}
+    )
 
 
 async def test_another_exchanges_open_discrepancy_is_not_this_pools(

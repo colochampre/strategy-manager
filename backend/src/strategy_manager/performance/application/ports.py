@@ -53,7 +53,7 @@ class AllocationFillsSourcePort(Protocol):
     this port.
     """
 
-    async def pool_fills(self, pool: PoolKey) -> PoolFills: ...
+    async def pool_fills(self, user_id: UUID, pool: PoolKey) -> PoolFills: ...
 
 
 class OperationFillsSourcePort(Protocol):
@@ -67,7 +67,7 @@ class OperationFillsSourcePort(Protocol):
     """
 
     async def operation_fills(
-        self, strategy_id: UUID, allocation_id: UUID, limit: int
+        self, user_id: UUID, strategy_id: UUID, allocation_id: UUID, limit: int
     ) -> Sequence[OperationFill]: ...
 
 
@@ -82,19 +82,20 @@ class RehearsalPricingSourcePort(Protocol):
     """
 
     async def pricing_facts(
-        self, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
+        self, user_id: UUID, pool: PoolKey, strategy_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PricingFacts]: ...
 
 
 class OpenStateSourcePort(Protocol):
-    """The mode guard's own two reads, whole-system, in the order the open
-    positions read issues them (design addendum "open positions", section C,
-    steps 1 and 2). Implemented by ``SqlAlchemyModeOriginReader``; the read
-    never filters, so what it shows is what the guard refuses on."""
+    """The mode guard's own two reads, in the order the open positions read
+    issues them (design addendum "open positions", section C, steps 1 and 2),
+    restricted here to ONE user's rows (multi-user design AD8). Implemented by
+    ``SqlAlchemyModeOriginReader``, whose ``user_id`` is optional: the worker's
+    startup guard asks without it and reads the whole system."""
 
-    async def in_flight_attempts(self) -> Sequence[InFlightAttemptElement]: ...
+    async def in_flight_attempts(self, user_id: UUID) -> Sequence[InFlightAttemptElement]: ...
 
-    async def open_allocations(self) -> Sequence[OpenAllocationElement]: ...
+    async def open_allocations(self, user_id: UUID) -> Sequence[OpenAllocationElement]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,14 +140,14 @@ class OpenPositionFactsSourcePort(Protocol):
     ``position_facts``' answer, and the caller keeps its row."""
 
     async def position_facts(
-        self, allocation_ids: Sequence[UUID]
+        self, user_id: UUID, allocation_ids: Sequence[UUID]
     ) -> Mapping[UUID, PositionFacts]: ...
 
-    async def submitted_orders(self) -> Sequence[SubmittedOrder]: ...
+    async def submitted_orders(self, user_id: UUID) -> Sequence[SubmittedOrder]: ...
 
 
 class ConfirmedDisagreementSourcePort(Protocol):
     """The open ``CONFIRMED`` rows of the reconciliation's discrepancies, read
     once. It reads no venue and writes nothing."""
 
-    async def confirmed_open(self) -> Sequence[DiscrepancyRow]: ...
+    async def confirmed_open(self, user_id: UUID) -> Sequence[DiscrepancyRow]: ...

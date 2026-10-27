@@ -43,9 +43,10 @@ def assert_lock_key_pairs_distinct(pairs: Sequence[LockKeyPair]) -> None:
         if collision is not None:
             raise PoolLockKeyCollisionError(
                 f"pools ({collision.exchange}, {collision.venue}, "
-                f"{collision.settlement_currency}) and ({pair.pool.exchange}, "
-                f"{pair.pool.venue}, {pair.pool.settlement_currency}) both hash to "
-                f"lock key {key}"
+                f"{collision.settlement_currency}, user {str(collision.user_id)[:8]}) and "
+                f"({pair.pool.exchange}, {pair.pool.venue}, "
+                f"{pair.pool.settlement_currency}, user {str(pair.pool.user_id)[:8]}) "
+                f"both hash to lock key {key}"
             )
         seen[key] = pair.pool
 
@@ -61,6 +62,7 @@ async def assert_pool_lock_keys_distinct(
         # The same folding ``PgAdvisoryLockAdapter`` uses, via the same VO:
         # computing it differently here would check a key nobody takes.
         key = LockKey.from_pool_key(
+            pool.user_id,
             PoolKey(
                 exchange=pool.exchange,
                 venue=pool.venue,

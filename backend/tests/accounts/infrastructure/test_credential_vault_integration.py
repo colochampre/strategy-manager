@@ -2,11 +2,17 @@
 
 Proves the two properties the table exists for — that what is written is
 unreadable without the master key, and that exactly one credential per
-exchange can ever be active, so the worker's lookup is never ambiguous.
+user and exchange can ever be active, so the worker's lookup is never
+ambiguous.
+
+Every method names the user whose key it reads or writes (multi-user design
+AD8): each one has a test where a SECOND user's key on the same exchange is
+present and is neither returned nor superseded.
 """
 
 import os
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select, text
@@ -30,6 +36,7 @@ from strategy_manager.shared.infrastructure.crypto import (
     DecryptionFailed,
     EnvelopeCipher,
 )
+from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -70,18 +77,56 @@ async def _clean(pg_session_factory: async_sessionmaker[AsyncSession]) -> None:
         await session.commit()
 
 
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
+
+
 async def test_a_stored_credential_round_trips(
     pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
 ) -> None:
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
-        await vault.store(_credential(), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(), LEGACY_FACTS)
         await session.commit()
 
-        loaded = await vault.load(EXCHANGE)
+        loaded = await vault.load(OWNER_ID, EXCHANGE)
 
     assert loaded.api_key == KEY
     assert loaded.api_secret == SECRET
+
+
+async def test_load_opens_the_users_own_key_never_another_users_on_the_same_exchange(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    other = await _other_user(pg_session_factory)
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        await vault.store(OWNER_ID, _credential(api_key="OWNER-KEY-0001"), LEGACY_FACTS)
+        await session.commit()
+        await vault.store(other, _credential(api_key="OTHER-KEY-0002"), LEGACY_FACTS)
+        await session.commit()
+
+        owners = await vault.load(OWNER_ID, EXCHANGE)
+        others = await vault.load(other, EXCHANGE)
+
+    assert owners.api_key == "OWNER-KEY-0001"
+    assert others.api_key == "OTHER-KEY-0002"
+
+
+async def test_a_user_with_no_key_is_not_handed_another_users_key(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    other = await _other_user(pg_session_factory)
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        await vault.store(OWNER_ID, _credential(), LEGACY_FACTS)
+        await session.commit()
+
+        with pytest.raises(CredentialNotFound, match="no active credential"):
+            await vault.load(other, EXCHANGE)
 
 
 async def test_nothing_readable_reaches_the_table(
@@ -89,7 +134,7 @@ async def test_nothing_readable_reaches_the_table(
 ) -> None:
     """The whole point of the table. Only the last-4 hint is plaintext."""
     async with pg_session_factory() as session:
-        await _vault(session, master_key).store(_credential(), LEGACY_FACTS)
+        await _vault(session, master_key).store(OWNER_ID, _credential(), LEGACY_FACTS)
         await session.commit()
 
         row = (
@@ -104,19 +149,20 @@ async def test_nothing_readable_reaches_the_table(
     assert KEY.encode() not in stored
     assert SECRET.encode() not in stored
     assert row.api_key_last4 == "abcd"
+    assert row.user_id == OWNER_ID
 
 
 async def test_the_wrong_master_key_cannot_read_a_stored_credential(
     pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
 ) -> None:
     async with pg_session_factory() as session:
-        await _vault(session, master_key).store(_credential(), LEGACY_FACTS)
+        await _vault(session, master_key).store(OWNER_ID, _credential(), LEGACY_FACTS)
         await session.commit()
 
         stranger = _vault(session, os.urandom(MASTER_KEY_BYTES))
 
         with pytest.raises(DecryptionFailed):
-            await stranger.load(EXCHANGE)
+            await stranger.load(OWNER_ID, EXCHANGE)
 
 
 async def test_storing_again_supersedes_rather_than_duplicating(
@@ -128,18 +174,18 @@ async def test_storing_again_supersedes_rather_than_duplicating(
     This test used to pass a new label on the second store. It therefore
     exercised a scenario no caller performs, and missed that a UNIQUE on
     (exchange, label) made real rotation raise a constraint violation. The
-    partial unique index allows one active row per exchange, so the old one
-    steps down before the new one lands; nothing else may constrain the row
-    that steps down.
+    partial unique index allows one active row per user and exchange, so the
+    old one steps down before the new one lands; nothing else may constrain the
+    row that steps down.
     """
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
-        await vault.store(_credential(api_key="OLD-KEY-0000"), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(api_key="OLD-KEY-0000"), LEGACY_FACTS)
         await session.commit()
-        await vault.store(_credential(api_key="NEW-KEY-1111"), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(api_key="NEW-KEY-1111"), LEGACY_FACTS)
         await session.commit()
 
-        loaded = await vault.load(EXCHANGE)
+        loaded = await vault.load(OWNER_ID, EXCHANGE)
         rows = (await session.execute(select(ExchangeCredentialRow))).scalars().all()
 
     assert loaded.api_key == "NEW-KEY-1111"
@@ -147,14 +193,43 @@ async def test_storing_again_supersedes_rather_than_duplicating(
     assert [row.is_active for row in rows].count(True) == 1
 
 
+async def test_storing_supersedes_only_the_users_own_key_never_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    other = await _other_user(pg_session_factory)
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        await vault.store(OWNER_ID, _credential(api_key="OWNER-KEY-0001"), LEGACY_FACTS)
+        await session.commit()
+        await vault.store(other, _credential(api_key="OTHER-KEY-0002"), LEGACY_FACTS)
+        await session.commit()
+        await vault.store(other, _credential(api_key="OTHER-KEY-0003"), LEGACY_FACTS)
+        await session.commit()
+
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT user_id, api_key_last4, is_active FROM exchange_credentials "
+                    "ORDER BY api_key_last4"
+                )
+            )
+        ).all()
+
+    assert [(r.user_id, r.api_key_last4, r.is_active) for r in rows] == [
+        (OWNER_ID, "0001", True),
+        (other, "0002", False),
+        (other, "0003", True),
+    ]
+
+
 async def test_a_superseded_credential_is_kept_not_deleted(
     pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
 ) -> None:
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
-        await vault.store(_credential(api_key="OLD-KEY-0000"), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(api_key="OLD-KEY-0000"), LEGACY_FACTS)
         await session.commit()
-        await vault.store(_credential(api_key="NEW-KEY-1111"), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(api_key="NEW-KEY-1111"), LEGACY_FACTS)
         await session.commit()
 
         inactive = (
@@ -173,7 +248,7 @@ async def test_loading_an_exchange_with_no_credential_fails_clearly(
 ) -> None:
     async with pg_session_factory() as session:
         with pytest.raises(CredentialNotFound, match="no active credential"):
-            await _vault(session, master_key).load("kraken")
+            await _vault(session, master_key).load(OWNER_ID, "kraken")
 
 
 async def test_hints_expose_only_the_last_four(
@@ -181,14 +256,32 @@ async def test_hints_expose_only_the_last_four(
 ) -> None:
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
-        await vault.store(_credential(), LEGACY_FACTS)
+        await vault.store(OWNER_ID, _credential(), LEGACY_FACTS)
         await session.commit()
 
-        hints = await vault.hints()
+        hints = await vault.hints(OWNER_ID)
 
     assert len(hints) == 1
     assert hints[0].api_key_last4 == "abcd"
     assert not hasattr(hints[0], "api_secret")
+
+
+async def test_hints_list_only_the_users_own_keys_never_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> None:
+    other = await _other_user(pg_session_factory)
+    async with pg_session_factory() as session:
+        vault = _vault(session, master_key)
+        await vault.store(OWNER_ID, _credential(api_key="OWNER-KEY-0001"), LEGACY_FACTS)
+        await session.commit()
+        await vault.store(other, _credential(api_key="OTHER-KEY-0002"), LEGACY_FACTS)
+        await session.commit()
+
+        owners = await vault.hints(OWNER_ID)
+        others = await vault.hints(other)
+
+    assert [hint.api_key_last4 for hint in owners] == ["0001"]
+    assert [hint.api_key_last4 for hint in others] == ["0002"]
 
 
 async def test_a_credential_can_be_rotated_more_than_once(
@@ -203,10 +296,10 @@ async def test_a_credential_can_be_rotated_more_than_once(
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
         for api_key in ("KEY-ONE-0001", "KEY-TWO-0002", "KEY-THREE-0003"):
-            await vault.store(_credential(api_key=api_key), LEGACY_FACTS)
+            await vault.store(OWNER_ID, _credential(api_key=api_key), LEGACY_FACTS)
             await session.commit()
 
-        loaded = await vault.load(EXCHANGE)
+        loaded = await vault.load(OWNER_ID, EXCHANGE)
         rows = (await session.execute(select(ExchangeCredentialRow))).scalars().all()
 
     assert loaded.api_key == "KEY-THREE-0003"
@@ -229,12 +322,12 @@ async def test_store_persists_facts_and_hints_return_them_never_ciphertext(
     )
     async with pg_session_factory() as session:
         stored = await _vault(session, master_key).store(
-            _credential_on("binance", api_key="BINANCE-KEY-abcd"), facts
+            OWNER_ID, _credential_on("binance", api_key="BINANCE-KEY-abcd"), facts
         )
         await session.commit()
 
     async with pg_session_factory() as session:
-        hints = await _vault(session, master_key).hints()
+        hints = await _vault(session, master_key).hints(OWNER_ID)
         row = (await session.execute(select(ExchangeCredentialRow))).scalar_one()
 
     assert stored.facts == facts
@@ -269,9 +362,9 @@ async def test_hints_report_verified_bybit_facts_including_internal_transfer(
     )
     async with pg_session_factory() as session:
         vault = _vault(session, master_key)
-        await vault.store(_credential_on("bybit", api_key="BYBIT-KEY-wxyz"), facts)
+        await vault.store(OWNER_ID, _credential_on("bybit", api_key="BYBIT-KEY-wxyz"), facts)
         await session.commit()
-        (hint,) = await vault.hints()
+        (hint,) = await vault.hints(OWNER_ID)
 
     assert hint.facts == facts
 
@@ -281,7 +374,7 @@ async def test_store_without_facts_is_a_type_error(
 ) -> None:
     async with pg_session_factory() as session:
         with pytest.raises(TypeError):
-            await _vault(session, master_key).store(_credential())  # type: ignore[call-arg]
+            await _vault(session, master_key).store(OWNER_ID, _credential())  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize(
@@ -322,6 +415,7 @@ async def test_the_orm_mirrors_the_venue_constraints_the_domain_cannot_see(
     async with pg_session_factory() as session:
         session.add(
             ExchangeCredentialRow(
+                user_id=OWNER_ID,
                 exchange=exchange,
                 label="default",
                 is_active=False,
@@ -397,11 +491,11 @@ async def test_a_wrong_branch_write_fails_before_the_active_key_is_deactivated(
                 CONFIRMED_AT, CONFIRMED_AT, None,
             )
         )
-        await vault.store(_credential_on(exchange, api_key="OLD-KEY-0000"), good)
+        await vault.store(OWNER_ID, _credential_on(exchange, api_key="OLD-KEY-0000"), good)
         await session.commit()
 
         with pytest.raises(InvariantViolation):
-            await vault.store(_credential_on(exchange, api_key="NEW-KEY-1111"), facts)
+            await vault.store(OWNER_ID, _credential_on(exchange, api_key="NEW-KEY-1111"), facts)
 
         # Read from the database, not the identity map: nothing was flushed.
         rows = (

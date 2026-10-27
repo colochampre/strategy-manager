@@ -13,6 +13,10 @@ use case and names tokens or fields, never a payload.
 The prompt and the saver are injected into ``run_store``, so the scripts are
 tested end to end with fakes (rule 1: no test needs a real credential, a
 database or a venue).
+
+**A key belongs to a user (multi-user design AD8).** Every store script takes a
+required ``--user-email``; the saver resolves it to that user's ``users`` row
+BEFORE the secret prompt, and refuses an e-mail nobody is registered with.
 """
 
 import logging
@@ -20,6 +24,10 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from getpass import getpass
+from uuid import UUID
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.application.save_credential import (
     SaveCredential,
@@ -47,7 +55,12 @@ LABEL = "default"
 
 SaveFn = Callable[[ExchangeCredential, OwnerConfirmations], Awaitable[SaveResult]]
 PromptFn = Callable[[], ExchangeCredential | None]
-SaverFactory = Callable[[], SaveFn | None]
+SaverFactory = Callable[[str], Awaitable[SaveFn | None]]
+"""Takes the ``--user-email``; ``None`` means it explained why nothing can be
+saved (an unusable master key, an unknown user)."""
+UserResolver = Callable[[str], Awaitable[UUID | None]]
+
+USER_EMAIL_HELP = "the e-mail of the user whose key this is; they must have signed in once."
 
 _WHAT_TO_DO = {
     SaveOutcome.KEY_REJECTED: (
@@ -120,17 +133,50 @@ def prompt_credential(exchange: str, venue: str, script: str) -> ExchangeCredent
         return None
 
 
-def vault_saver() -> SaveFn | None:
-    """The real wiring: the vault, the venue inspectors, the system clock.
+async def user_id_by_email(session: AsyncSession, email: str) -> UUID | None:
+    """The id of the user registered with ``email``, or ``None``."""
+    found = (
+        await session.execute(text("SELECT id FROM users WHERE email = :email"), {"email": email})
+    ).scalar_one_or_none()
+    return UUID(str(found)) if found is not None else None
 
-    Returns ``None`` after explaining when the master key is unusable, so the
-    script stops BEFORE the owner types a secret for a run that cannot succeed.
+
+async def _user_in_database(email: str) -> UUID | None:
+    try:
+        async with session_factory() as session:
+            return await user_id_by_email(session, email)
+    finally:
+        await engine.dispose()
+
+
+def explain_unknown_user(email: str) -> None:
+    print(
+        f"no user is registered with the e-mail {email!r}; they have to sign in to "
+        "the panel once before a key can be theirs. Nothing was stored.",
+        file=sys.stderr,
+    )
+
+
+async def vault_saver(
+    user_email: str, *, resolve: UserResolver = _user_in_database
+) -> SaveFn | None:
+    """The real wiring: the vault, the venue inspectors, the system clock, all
+    on behalf of the user ``user_email`` names.
+
+    Returns ``None`` after explaining when the master key is unusable or no
+    user is registered with ``user_email``, so the script stops BEFORE the
+    owner types a secret for a run that cannot succeed.
     """
     settings = get_settings()
     try:
         cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
     except InvariantViolation as exc:
         print(f"MASTER_ENCRYPTION_KEY problem: {exc}", file=sys.stderr)
+        return None
+
+    user_id = await resolve(user_email)
+    if user_id is None:
+        explain_unknown_user(user_email)
         return None
 
     # A signed Binance URL carries its signature in the query, and httpx logs
@@ -148,11 +194,11 @@ def vault_saver() -> SaveFn | None:
                 vault = SqlAlchemyCredentialVault(session, cipher, clock)
                 result = await SaveCredential(
                     inspectors, vault, SqlAlchemyCapitalPoolWriter(session), session, clock
-                ).execute(credential, confirmations)
+                ).execute(user_id, credential, confirmations)
                 if isinstance(result, Saved):
                     # Prove the round trip before reporting success: a credential
                     # that seals but cannot be opened is worse than none at all.
-                    reopened = await vault.load(credential.exchange)
+                    reopened = await vault.load(user_id, credential.exchange)
                     if reopened.api_key != credential.api_key:
                         raise RoundTripFailed(
                             "stored credential did not survive a decrypt round trip"
@@ -167,11 +213,12 @@ def vault_saver() -> SaveFn | None:
 async def run_store(
     *,
     confirmations: OwnerConfirmations,
+    user_email: str,
     prompt: PromptFn,
     make_saver: SaverFactory,
 ) -> int:
     """The part of a store script after its own arguments are settled."""
-    saver = make_saver()
+    saver = await make_saver(user_email)
     if saver is None:
         return 1
 

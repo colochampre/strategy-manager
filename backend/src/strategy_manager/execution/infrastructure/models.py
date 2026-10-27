@@ -57,6 +57,15 @@ class ExecutionAttemptRow(Base):
     # reservation's never needs: a FAILED or FILLED close must not block a
     # later one on the same allocation. PostgreSQL allows many NULLs in a
     # UNIQUE column, so nullability costs neither guarantee.
+    # Migration ``0030``: the attempt's owner, the user of the reservation it
+    # spends or unwinds (multi-user design AD2). Not part of the composite
+    # pool FK: an attempt names no pool by id.
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_execution_attempts_user"),
+        nullable=False,
+        index=True,
+    )
     reservation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("reservations.id"), nullable=True, unique=True
     )

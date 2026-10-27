@@ -46,7 +46,10 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
 )
-from strategy_manager.accounts.infrastructure.key_coverage import read_key_coverage
+from strategy_manager.accounts.infrastructure.key_coverage import (
+    UserExchange,
+    read_key_coverage,
+)
 from strategy_manager.accounts.infrastructure.pool_repository import CapitalPoolRepository
 from strategy_manager.accounts.infrastructure.pool_status_adapter import SqlAlchemyPoolStatus
 from strategy_manager.accounts.infrastructure.pools_router import router as pools_router
@@ -137,6 +140,7 @@ from strategy_manager.reconciliation.application.ports import (
     PoolKey,
     VenueFill,
     VenueFillReaderPort,
+    VenueFillReaderRegistryPort,
     VenueFillReadError,
     VenuePositionReaderPort,
     VenuePositionReaderRegistryPort,
@@ -144,8 +148,10 @@ from strategy_manager.reconciliation.application.ports import (
 from strategy_manager.reconciliation.application.prepare_booking import PrepareBooking
 from strategy_manager.reconciliation.application.reconciliation_scan_handler import (
     ReconciliationScanHandler,
+    ScanPoolsPort,
 )
 from strategy_manager.reconciliation.application.scan_pools import ScanPools
+from strategy_manager.reconciliation.application.scan_users import ScanUsers
 from strategy_manager.reconciliation.infrastructure.allocation_owner_adapter import (
     AllocationOwnerAdapter,
 )
@@ -182,6 +188,9 @@ from strategy_manager.reconciliation.infrastructure.router import (
 )
 from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
     SystemOrderIdsAdapter,
+)
+from strategy_manager.reconciliation.infrastructure.user_venue_fill_readers import (
+    UserVenueFillReaders,
 )
 from strategy_manager.reconciliation.infrastructure.venue_fill_reader_registry import (
     VenueFillReaderRegistry,
@@ -251,6 +260,7 @@ from strategy_manager.signals.infrastructure.failed_job_signal_reader import (
     SqlAlchemyFailedJobSignalReader,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
+from strategy_manager.signals.infrastructure.job_owner import attempt_owner, signal_owner
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
 )
@@ -384,7 +394,7 @@ def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:
 
 def _build_process_signal_handler(
     session: AsyncSession,
-    pools_by_key: Mapping[tuple[str, str, str], PoolConfig],
+    pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
     exchanges: ExchangeRegistryPort,
     tradable_pools: frozenset[tuple[str, str]],
@@ -600,9 +610,11 @@ def _build_settle_execution(
 
 
 async def _vault_credential(
-    vault: SqlAlchemyCredentialVault, exchange: str
+    vault: SqlAlchemyCredentialVault, user_id: UUID, exchange: str
 ) -> ExchangeCredential | None:
-    """The trade credential for one exchange, or ``None`` if none is stored.
+    """One user's trade credential for one exchange, or ``None`` if that user
+    has none stored. Another user's key on the same exchange is never a
+    substitute (multi-user design AD8).
 
     A missing credential is a degradation, not a failure, and it is scoped to
     the exchange that is missing it. Raising here would let an exchange nobody
@@ -628,26 +640,36 @@ async def _vault_credential(
     this helper and believing the missing exchange fails cleanly.
     """
     try:
-        return await vault.load(exchange)
+        return await vault.load(user_id, exchange)
     except CredentialNotFound:
         logger.warning(
-            "no active credential is stored for '%s'; its adapter will not be "
-            "registered, so signals on its pools will reserve capital and then "
-            "fail to place, holding it until the reservation expires. Trading "
-            "on every other exchange is unaffected.",
+            "no active credential is stored for '%s' of user %s; its adapter will "
+            "not be registered, so that user's signals on its pools will reserve "
+            "capital and then fail to place, holding it until the reservation "
+            "expires. Trading on every other exchange, and every other user's, is "
+            "unaffected.",
             exchange,
+            _user_prefix(user_id),
         )
         return None
 
 
 def _track_degraded_exchanges(
-    tracker: set[str], *, configured: frozenset[str], active: frozenset[str]
+    tracker: set[UserExchange],
+    *,
+    configured: frozenset[UserExchange],
+    active: frozenset[UserExchange],
 ) -> None:
     """Mutates the shared, process-lifetime DEGRADED set and logs each
     transition EXACTLY once: an ERROR the instant a configured exchange's key
     disappears while running, an INFO the instant it comes back. Steady state
     -- the common case, since ``balance.sync`` alone calls this every 60s --
     logs nothing at all.
+
+    Keyed by ``(user_id, exchange)`` (multi-user design AD9): one user's
+    missing key degrades that user's pair only, and every line names the
+    user by the first 8 hex of their id, never an e-mail, because an ERROR
+    reaches Telegram.
 
     No flood, by construction: ``tracker`` is the only thing consulted to
     decide whether an exchange is ALREADY known degraded, so a repeated call
@@ -673,24 +695,40 @@ def _track_degraded_exchanges(
     resume" for it would be actively misleading.
     """
     newly_degraded = (configured - active) - tracker
-    for exchange in sorted(newly_degraded):
+    for pair in sorted(newly_degraded, key=_pair_order):
+        user_id, exchange = pair
         logger.error(
-            "'%s' has an enabled pool but no active vault credential; its "
-            "reads are skipped until one is stored "
-            "(uv run python scripts/store_%s_credentials.py)",
+            "'%s' has an enabled pool but no active vault credential for user %s; "
+            "that user's reads are skipped until one is stored "
+            "(uv run python scripts/store_%s_credentials.py --user-email <theirs>)",
             exchange,
+            _user_prefix(user_id),
             exchange,
         )
-        tracker.add(exchange)
+        tracker.add(pair)
 
     recovered = tracker & active
-    for exchange in sorted(recovered):
+    for pair in sorted(recovered, key=_pair_order):
+        user_id, exchange = pair
         logger.info(
-            "'%s' has an active vault credential again; reads resume", exchange
+            "'%s' has an active vault credential again for user %s; reads resume",
+            exchange,
+            _user_prefix(user_id),
         )
-        tracker.discard(exchange)
+        tracker.discard(pair)
 
     tracker.difference_update(tracker - configured)
+
+
+def _user_prefix(user_id: UUID) -> str:
+    """How a user is named in a log line that may reach Telegram: the first 8
+    hex of their id, never an e-mail (multi-user design AD9)."""
+    return str(user_id)[:8]
+
+
+def _pair_order(pair: UserExchange) -> tuple[str, str]:
+    """Exchange first, then user: a UUID does not sort against a string."""
+    return pair[1], str(pair[0])
 
 
 class _PoolSet:
@@ -706,25 +744,33 @@ class _PoolSet:
     happens, at most, a few times a day. Every consumer reads the SAME
     shared instance, so a refresh lands for all of them the instant it
     happens, with no restart and no per-consumer plumbing.
+
+    ``by_key`` is keyed by ``(user_id, market)`` (multi-user design AD8): two
+    users may each hold a pool on one market, with their own minimum and their
+    own money, so the market alone no longer names a pool.
     """
 
     def __init__(self, pools: Sequence[PoolConfig]) -> None:
         self.pools: tuple[PoolConfig, ...] = ()
-        self.by_key: dict[tuple[str, str, str], PoolConfig] = {}
+        self.by_key: dict[tuple[UUID, tuple[str, str, str]], PoolConfig] = {}
         self.configured_exchanges: frozenset[str] = frozenset()
         self.replace(pools)
 
     def replace(self, pools: Sequence[PoolConfig]) -> None:
         self.pools = tuple(pools)
         self.by_key = {
-            (pool.exchange.value, pool.venue.value, pool.settlement_currency.value): pool
+            (
+                pool.user_id,
+                (pool.exchange.value, pool.venue.value, pool.settlement_currency.value),
+            ): pool
             for pool in pools
         }
-        self.configured_exchanges = frozenset(key[0] for key in self.by_key)
+        self.configured_exchanges = frozenset(market[0] for _, market in self.by_key)
 
 
 def _track_pool_changes(
-    previous: frozenset[tuple[str, str, str]], current: frozenset[tuple[str, str, str]]
+    previous: frozenset[tuple[UUID, tuple[str, str, str]]],
+    current: frozenset[tuple[UUID, tuple[str, str, str]]],
 ) -> None:
     """Logs a pool's enable/disable transition exactly once, the moment
     ``_PoolSet.replace`` adopts a new set (design.md's F11 fix, binding
@@ -736,11 +782,124 @@ def _track_pool_changes(
     ``_track_degraded_exchanges`` already has for exchanges. The very first
     reload after startup compares against the STARTUP set itself (``_PoolSet``
     is constructed from it), so nothing is re-logged there either.
+
+    A pool is a user's pool on a market, so the line names the market and the
+    user's id prefix, never an e-mail (multi-user design AD9).
     """
-    for key in sorted(current - previous):
-        logger.info("pool %s newly enabled; reads resume within one sync interval", key)
-    for key in sorted(previous - current):
-        logger.warning("pool %s newly disabled; reads stop from this cycle", key)
+    for user_id, market in sorted(current - previous, key=_pool_order):
+        logger.info(
+            "pool %s of user %s newly enabled; reads resume within one sync interval",
+            market,
+            str(user_id)[:8],
+        )
+    for user_id, market in sorted(previous - current, key=_pool_order):
+        logger.warning(
+            "pool %s of user %s newly disabled; reads stop from this cycle",
+            market,
+            str(user_id)[:8],
+        )
+
+
+def _pool_order(key: tuple[UUID, tuple[str, str, str]]) -> tuple[tuple[str, str, str], str]:
+    """Market first, then user: a UUID does not sort against a tuple."""
+    return key[1], str(key[0])
+
+
+def _markets_per_user(
+    by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig], exchange: str
+) -> dict[UUID, list[tuple[str, str, str]]]:
+    """Each user's enabled markets on one exchange, for one balance sync per
+    ``(user, exchange)`` (multi-user design AD9). A user with no pool on the
+    exchange is absent, so no sync is built that would read nothing."""
+    per_user: dict[UUID, list[tuple[str, str, str]]] = {}
+    for user_id, market in sorted(by_key, key=_pool_order):
+        if market[0] == exchange:
+            per_user.setdefault(user_id, []).append(market)
+    return per_user
+
+
+def _holds_pool(
+    by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
+    user_id: UUID | None,
+    exchange: str,
+) -> bool:
+    """Whether ``user_id`` holds an enabled pool on ``exchange``. ``None`` -- a
+    job whose owner could not be resolved -- holds none, so it is read with
+    nobody's key."""
+    return user_id is not None and any(
+        owner == user_id and market[0] == exchange for owner, market in by_key
+    )
+
+
+def _reconciliation_markets_per_user(
+    by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
+    active: frozenset[UserExchange],
+    *,
+    warn: bool,
+) -> dict[UUID, list[tuple[str, str, str]]]:
+    """Each user's markets that reconciliation can read, with THAT user's key
+    (multi-user design AD10, tasks.md B.8): the enabled pools of a user on an
+    exchange where the user also holds an active key.
+
+    A venue's net position is an account's, so the same market held by two
+    users is two reads, each with its owner's key. A user with a pool but no
+    active key on an exchange is skipped for that exchange only (and logged
+    when ``warn``, naming the user by the first 8 hex of the id and the
+    exchange); the other users, and the same user's other exchanges, still
+    run. A user with no readable market is absent. Markets are sorted and
+    users are ordered by id, so the order is stable from job to job."""
+    per_user: dict[UUID, list[tuple[str, str, str]]] = {}
+    unkeyed: set[UserExchange] = set()
+    for user_id, market in sorted(by_key, key=lambda key: (str(key[0]), key[1])):
+        exchange = market[0]
+        if exchange not in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):
+            continue
+        if (user_id, exchange) not in active:
+            unkeyed.add((user_id, exchange))
+            continue
+        per_user.setdefault(user_id, []).append(market)
+    if warn:
+        for user_id, exchange in sorted(unkeyed, key=lambda pair: (str(pair[0]), pair[1])):
+            logger.warning(
+                "reconciliation: user %s has a pool on %s but no active key there; "
+                "skipping this user on this exchange this cycle",
+                str(user_id)[:8],
+                exchange,
+            )
+    return per_user
+
+
+async def _user_position_readers(
+    *,
+    vault: SqlAlchemyCredentialVault,
+    clients: AsyncExitStack,
+    settings: Settings,
+    user_id: UUID,
+    exchanges: Sequence[str],
+) -> list[VenuePositionReaderPort]:
+    """The venue position readers of ONE user's account, one per exchange in
+    ``exchanges``, each signed with that user's own vault key. The clients are
+    entered on ``clients``, which the caller closes."""
+    readers: list[VenuePositionReaderPort] = []
+    if BYBIT_EXCHANGE in exchanges:
+        credential = await vault.load(user_id, BYBIT_EXCHANGE)
+        bybit = await clients.enter_async_context(
+            read_only_client(
+                settings,
+                BybitCredentials(api_key=credential.api_key, api_secret=credential.api_secret),
+            )
+        )
+        readers.append(BybitVenuePositionReader(bybit))
+    if BINANCE_EXCHANGE in exchanges:
+        credential = await vault.load(user_id, BINANCE_EXCHANGE)
+        binance = await clients.enter_async_context(
+            binance_read_only_client(
+                settings,
+                BinanceCredentials(api_key=credential.api_key, api_secret=credential.api_secret),
+            )
+        )
+        readers.append(BinanceVenuePositionReader(binance))
+    return readers
 
 
 class _DegradedVenueFillReader:
@@ -776,6 +935,68 @@ class _DegradedVenueFillReader:
         )
 
 
+def _degraded_fill_readers(exchanges: Sequence[str]) -> list[VenueFillReaderPort]:
+    """A ``_DegradedVenueFillReader`` for each of ``exchanges``."""
+    venues = {
+        BYBIT_EXCHANGE: BybitVenueFillReader.venues,
+        BINANCE_EXCHANGE: BinanceVenueFillReader.venues,
+    }
+    return [_DegradedVenueFillReader(exchange, venues[exchange]) for exchange in exchanges]
+
+
+async def _user_fill_readers(
+    *,
+    vault: SqlAlchemyCredentialVault,
+    clients: AsyncExitStack,
+    settings: Settings,
+    user_id: UUID,
+    keyed: Sequence[str],
+) -> list[VenueFillReaderPort]:
+    """The fill readers of ONE user's account (multi-user design AD10): a real
+    reader signed with that user's own vault key for each exchange in
+    ``keyed``, and a ``_DegradedVenueFillReader`` for every other reconciled
+    exchange, so a CONFIRMED discrepancy of this user on an exchange they have
+    lost the key for is skipped (a tolerated ``VenueFillReadError``) instead of
+    reaching an unserved pool."""
+    readers: list[VenueFillReaderPort] = []
+    if BYBIT_EXCHANGE in keyed:
+        credential = await vault.load(user_id, BYBIT_EXCHANGE)
+        bybit = await clients.enter_async_context(
+            read_only_client(
+                settings,
+                BybitCredentials(api_key=credential.api_key, api_secret=credential.api_secret),
+            )
+        )
+        readers.append(
+            BybitVenueFillReader(
+                bybit,
+                page_limit=settings.reconciliation_booking_prepare_page_limit,
+                max_pages=settings.reconciliation_booking_prepare_max_pages,
+            )
+        )
+    if BINANCE_EXCHANGE in keyed:
+        credential = await vault.load(user_id, BINANCE_EXCHANGE)
+        binance = await clients.enter_async_context(
+            binance_read_only_client(
+                settings,
+                BinanceCredentials(api_key=credential.api_key, api_secret=credential.api_secret),
+            )
+        )
+        readers.append(
+            BinanceVenueFillReader(
+                binance,
+                page_limit=settings.reconciliation_booking_prepare_page_limit,
+                max_pages=settings.reconciliation_booking_prepare_max_pages,
+            )
+        )
+    readers.extend(
+        _degraded_fill_readers(
+            [e for e in (BYBIT_EXCHANGE, BINANCE_EXCHANGE) if e not in keyed]
+        )
+    )
+    return readers
+
+
 async def assert_dry_run_matches_ledger(
     *,
     dry_run: bool,
@@ -805,7 +1026,7 @@ def build_worker_runner(
     *,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
     alert_channel: AlertChannelPort | None = None,
-    initial_degraded: frozenset[str] = frozenset(),
+    initial_degraded: frozenset[UserExchange] = frozenset(),
 ) -> WorkerRunner:
     """Registers ``signal.process``, ``reservation.sweep``, ``balance.sync``,
     ``execution.settle`` and ``reconciliation.scan``. One fresh session per
@@ -889,11 +1110,19 @@ def build_worker_runner(
     async def _fake_venue_book_ledger_reader(
         pool: tuple[str, str, str],
     ) -> list[tuple[str, Decimal]]:
+        # One book per exchange, not per user: it is seeded from every user's
+        # rows on the pool, summed per symbol.
         async with factory() as seed_session:
-            positions = await ReadSymbolPositions(
-                SqlAlchemyLedgerRepository(seed_session)
-            ).net_positions_by_symbol(pool)
-            return [(position.symbol, position.net_base) for position in positions]
+            repository = SqlAlchemyLedgerRepository(seed_session)
+            net_by_symbol: dict[str, Decimal] = {}
+            for seed_user in sorted(await repository.distinct_users_for_pool(*pool)):
+                for position in await ReadSymbolPositions(repository).net_positions_by_symbol(
+                    seed_user, pool
+                ):
+                    net_by_symbol[position.symbol] = (
+                        net_by_symbol.get(position.symbol, Decimal("0")) + position.net_base
+                    )
+            return list(net_by_symbol.items())
 
     fake_venue_book = FakeVenueBook(_fake_venue_book_ledger_reader)
 
@@ -1003,8 +1232,9 @@ def build_worker_runner(
     # so an exchange enabled or fully disabled at runtime is seen
     # immediately (binding requirement 3). Seeded from the worker's own
     # startup report (``worker._assert_keys_present``) so the very first
-    # per-job check never re-logs what startup already did.
-    _degraded: set[str] = set(initial_degraded)
+    # per-job check never re-logs what startup already did. Keyed by
+    # ``(user_id, exchange)`` (multi-user design AD9).
+    _degraded: set[UserExchange] = set(initial_degraded)
 
     # The last lock-key collision message reported by ``_reload_pools``, or
     # ``None`` once a reload has succeeded since. Compared against on every
@@ -1053,6 +1283,40 @@ def build_worker_runner(
         pool_set.replace(reloaded)
         _track_pool_changes(previous_keys, frozenset(pool_set.by_key))
 
+    async def _open_balance_reader(
+        clients: AsyncExitStack,
+        vault: SqlAlchemyCredentialVault,
+        user_id: UUID,
+        exchange: str,
+    ) -> ExchangeBalanceReaderPort:
+        """``user_id``'s balance reader on ``exchange``, signed with
+        ``user_id``'s own VAULT key: the one key per exchange that trades too
+        (design decision 18), so a green sync proves the trading key can read.
+        It does not prove the order path; the first order can still surface a
+        venue-side rejection this read never exercised.
+
+        Decrypted here and used immediately: the plaintext lives only for the
+        length of this call (CLAUDE.md rule 8). The client closes with
+        ``clients``."""
+        credential = await vault.load(user_id, exchange)
+        if exchange == BYBIT_EXCHANGE:
+            bybit = await clients.enter_async_context(
+                read_only_client(
+                    settings,
+                    BybitCredentials(
+                        api_key=credential.api_key, api_secret=credential.api_secret
+                    ),
+                )
+            )
+            return BybitBalanceReader(bybit, SystemClock())
+        binance = await clients.enter_async_context(
+            binance_read_only_client(
+                settings,
+                BinanceCredentials(api_key=credential.api_key, api_secret=credential.api_secret),
+            )
+        )
+        return BinanceBalanceReader(binance, SystemClock())
+
     # The fakes above hold their placed orders in memory, so place and settle
     # have to share the same instance per exchange or settlement finds
     # nothing. The live adapter is the opposite: it is stateless, the venue
@@ -1062,9 +1326,16 @@ def build_worker_runner(
 
     @asynccontextmanager
     async def exchange_for(
-        session: AsyncSession,
+        session: AsyncSession, user_id: UUID | None
     ) -> AsyncIterator[ExchangeRegistryPort]:
-        """Every venue this deployment can trade, built fresh for one job.
+        """Every venue ``user_id`` can trade, built fresh for one job.
+
+        ``user_id`` is the job's owner: the author of the strategy whose signal
+        or attempt this job works on (multi-user design AD8, tasks.md B.5/B.7).
+        Every adapter is signed with THAT user's key, never another user's on
+        the same exchange. An owner that could not be resolved (``None``) gets
+        an empty registry: the job then fails on the missing row, not on
+        somebody else's account.
 
         The registry is complete before the venue is known, so selection never
         has to fall back -- and a fallback is precisely the failure it exists
@@ -1095,12 +1366,16 @@ def build_worker_runner(
             yield VenueExchangeRegistry(list(fakes_by_exchange.values()))
             return
 
+        if user_id is None:
+            yield VenueExchangeRegistry([])
+            return
+
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
 
         async with AsyncExitStack() as clients:
             adapters: list[ExchangePort] = []
 
-            bybit = await _vault_credential(vault, BYBIT_EXCHANGE)
+            bybit = await _vault_credential(vault, user_id, BYBIT_EXCHANGE)
             if bybit is not None:
                 futures = await clients.enter_async_context(
                     trade_client(
@@ -1112,7 +1387,7 @@ def build_worker_runner(
                 )
                 adapters.append(BybitFuturesExchangeAdapter(futures))
 
-            binance = await _vault_credential(vault, BINANCE_EXCHANGE)
+            binance = await _vault_credential(vault, user_id, BINANCE_EXCHANGE)
             if binance is not None:
                 binance_futures = await clients.enter_async_context(
                     binance_trade_client(
@@ -1128,7 +1403,7 @@ def build_worker_runner(
 
     @asynccontextmanager
     async def balance_refresh_reader_for(
-        session: AsyncSession,
+        session: AsyncSession, user_id: UUID | None
     ) -> AsyncIterator[ExchangeBalanceReaderPort]:
         """A ``ReaderByExchange`` whose per-exchange factories build NOTHING
         until ``RefreshPoolBalance`` actually asks for a pool on that
@@ -1162,17 +1437,25 @@ def build_worker_runner(
         the lazy ``.load()`` above only to fail the moment it is actually
         invoked. Checked before the closures below so this context manager's
         one ``read_key_coverage`` query serves both exchanges, not two.
+
+        Per user (multi-user design AD9): only ``user_id``'s own pools and
+        ``user_id``'s own active key count, and the key decrypted is theirs.
+        An owner that could not be resolved (``None``) gets no factory at all.
         """
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
         coverage = await read_key_coverage(session)
         active = coverage.active
         _track_degraded_exchanges(_degraded, configured=coverage.configured, active=active)
+        if user_id is None:
+            yield ReaderByExchange({})
+            return
+        owner: UUID = user_id
 
         async with AsyncExitStack() as clients:
 
             async def bybit_reader() -> ExchangeBalanceReaderPort:
-                credential = await vault.load(BYBIT_EXCHANGE)
+                credential = await vault.load(owner, BYBIT_EXCHANGE)
                 bybit = await clients.enter_async_context(
                     read_only_client(
                         settings,
@@ -1184,7 +1467,7 @@ def build_worker_runner(
                 return BybitBalanceReader(bybit, SystemClock())
 
             async def binance_reader() -> ExchangeBalanceReaderPort:
-                credential = await vault.load(BINANCE_EXCHANGE)
+                credential = await vault.load(owner, BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
                         settings,
@@ -1198,14 +1481,14 @@ def build_worker_runner(
             factories: dict[str, ReaderFactory] = {}
 
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
-                and BYBIT_EXCHANGE in active
+                _holds_pool(pool_set.by_key, owner, BYBIT_EXCHANGE)
+                and (owner, BYBIT_EXCHANGE) in active
             ):
                 factories[BYBIT_EXCHANGE] = bybit_reader
 
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
-                and BINANCE_EXCHANGE in active
+                _holds_pool(pool_set.by_key, owner, BINANCE_EXCHANGE)
+                and (owner, BINANCE_EXCHANGE) in active
             ):
                 factories[BINANCE_EXCHANGE] = binance_reader
 
@@ -1213,7 +1496,7 @@ def build_worker_runner(
 
     @asynccontextmanager
     async def venue_net_position_reader_for(
-        session: AsyncSession,
+        session: AsyncSession, user_id: UUID | None
     ) -> AsyncIterator[VenuePositionReaderRegistryPort]:
         """The registry ``VenueNetPositionAdapter`` asks for the ONE pool the
         Existing-Position Guard's divergent branch actually reads -- built
@@ -1238,6 +1521,9 @@ def build_worker_runner(
         ``balance_refresh_reader_for`` above: a DEGRADED exchange is skipped
         here rather than reaching its own lazy ``.load()`` only to fail when
         actually invoked.
+
+        Per user, like ``balance_refresh_reader_for``: the venue position read
+        is ``user_id``'s own account, with ``user_id``'s own key.
         """
         if settings.dry_run:
             yield VenuePositionReaderRegistry(
@@ -1254,11 +1540,15 @@ def build_worker_runner(
         coverage = await read_key_coverage(session)
         active = coverage.active
         _track_degraded_exchanges(_degraded, configured=coverage.configured, active=active)
+        if user_id is None:
+            yield VenuePositionReaderRegistry([])
+            return
+        owner: UUID = user_id
 
         async with AsyncExitStack() as clients:
 
             async def bybit_position_reader() -> VenuePositionReaderPort:
-                credential = await vault.load(BYBIT_EXCHANGE)
+                credential = await vault.load(owner, BYBIT_EXCHANGE)
                 bybit = await clients.enter_async_context(
                     read_only_client(
                         settings,
@@ -1270,7 +1560,7 @@ def build_worker_runner(
                 return BybitVenuePositionReader(bybit)
 
             async def binance_position_reader() -> VenuePositionReaderPort:
-                credential = await vault.load(BINANCE_EXCHANGE)
+                credential = await vault.load(owner, BINANCE_EXCHANGE)
                 binance = await clients.enter_async_context(
                     binance_read_only_client(
                         settings,
@@ -1283,8 +1573,8 @@ def build_worker_runner(
 
             readers: list[VenuePositionReaderPort] = []
             if (
-                any(key[0] == BYBIT_EXCHANGE for key in pool_set.by_key)
-                and BYBIT_EXCHANGE in active
+                _holds_pool(pool_set.by_key, owner, BYBIT_EXCHANGE)
+                and (owner, BYBIT_EXCHANGE) in active
             ):
                 readers.append(
                     LazyVenuePositionReader(
@@ -1292,8 +1582,8 @@ def build_worker_runner(
                     )
                 )
             if (
-                any(key[0] == BINANCE_EXCHANGE for key in pool_set.by_key)
-                and BINANCE_EXCHANGE in active
+                _holds_pool(pool_set.by_key, owner, BINANCE_EXCHANGE)
+                and (owner, BINANCE_EXCHANGE) in active
             ):
                 readers.append(
                     LazyVenuePositionReader(
@@ -1304,56 +1594,69 @@ def build_worker_runner(
 
     async def handle_signal_process(job: ClaimedJob) -> None:
         signal_id = UUID(str(job.payload["signal_id"]))
-        async with (
-            factory() as session,
-            exchange_for(session) as exchanges,
-            balance_refresh_reader_for(session) as balance_refresh_reader,
-            venue_net_position_reader_for(session) as venue_position_readers,
-        ):
-            handler, _ = _build_process_signal_handler(
-                session,
-                pool_set.by_key,
-                settings,
-                exchanges,
-                tradable_pools,
-                balance_refresh_reader,
-                venue_position_readers,
-            )
-            # The returned ProcessSignalResult is intentionally discarded here:
-            # the handler owns every outcome (refused, failed, executed) and
-            # logs it itself. The result exists for tests and for the S5
-            # continuation -- do not "fix" this by branching on it.
-            await handler.handle(signal_id)
-            # Required since S5: the guard's in-flight branch may seed a
-            # continuation (``enqueue_unique``, which never commits) without
-            # otherwise writing anything through this handler. Every other
-            # path already committed via its own sub-use-case, so this is a
-            # harmless no-op for them.
-            await session.commit()
+        async with factory() as session:
+            # The strategy author's key, and nobody else's (AD8, B.5).
+            owner = await signal_owner(session, signal_id)
+            async with (
+                exchange_for(session, owner) as exchanges,
+                balance_refresh_reader_for(session, owner) as balance_refresh_reader,
+                venue_net_position_reader_for(session, owner) as venue_position_readers,
+            ):
+                handler, _ = _build_process_signal_handler(
+                    session,
+                    pool_set.by_key,
+                    settings,
+                    exchanges,
+                    tradable_pools,
+                    balance_refresh_reader,
+                    venue_position_readers,
+                )
+                # The returned ProcessSignalResult is intentionally discarded here:
+                # the handler owns every outcome (refused, failed, executed) and
+                # logs it itself. The result exists for tests and for the S5
+                # continuation -- do not "fix" this by branching on it.
+                await handler.handle(signal_id)
+                # Required since S5: the guard's in-flight branch may seed a
+                # continuation (``enqueue_unique``, which never commits) without
+                # otherwise writing anything through this handler. Every other
+                # path already committed via its own sub-use-case, so this is a
+                # harmless no-op for them.
+                await session.commit()
 
     async def handle_signal_open_after_close(job: ClaimedJob) -> None:
-        async with (
-            factory() as session,
-            exchange_for(session) as exchanges,
-            balance_refresh_reader_for(session) as balance_refresh_reader,
-            venue_net_position_reader_for(session) as venue_position_readers,
-        ):
-            _, open_after_close = _build_process_signal_handler(
-                session,
-                pool_set.by_key,
-                settings,
-                exchanges,
-                tradable_pools,
-                balance_refresh_reader,
-                venue_position_readers,
-            )
-            await open_after_close.poll(job)
-            await session.commit()
+        async with factory() as session:
+            # The continuation opens for the same signal's author (AD8, B.5).
+            owner = await signal_owner(session, UUID(str(job.payload["signal_id"])))
+            async with (
+                exchange_for(session, owner) as exchanges,
+                balance_refresh_reader_for(session, owner) as balance_refresh_reader,
+                venue_net_position_reader_for(session, owner) as venue_position_readers,
+            ):
+                _, open_after_close = _build_process_signal_handler(
+                    session,
+                    pool_set.by_key,
+                    settings,
+                    exchanges,
+                    tradable_pools,
+                    balance_refresh_reader,
+                    venue_position_readers,
+                )
+                await open_after_close.poll(job, owner)
+                await session.commit()
 
     async def handle_execution_settle(job: ClaimedJob) -> None:
         attempt_id = UUID(str(job.payload["execution_attempt_id"]))
-        async with factory() as session, exchange_for(session) as exchanges:
-            await _build_settle_execution(session, exchanges).settle(attempt_id)
+        async with factory() as session:
+            # Settled with the key the order was placed with: its author's, and
+            # the reservation read and marked is that same user's (AD8, B.5).
+            owner = await attempt_owner(session, attempt_id)
+            if owner is None:
+                raise LookupError(
+                    f"execution attempt {attempt_id} has no owner: the attempt, its "
+                    "reservation or its strategy is gone"
+                )
+            async with exchange_for(session, owner) as exchanges:
+                await _build_settle_execution(session, exchanges).settle(owner, attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault
@@ -1385,13 +1688,23 @@ def build_worker_runner(
         runs, so ``bybit_pools``/``binance_pools`` and every other
         consumer's own read of ``pool_set`` see the CURRENT configuration,
         not a startup snapshot.
+
+        One ``SyncBalances`` per ``(user, exchange)`` with an active key
+        (multi-user design AD9, tasks.md B.7), each reading that user's
+        account with that user's own key and storing that user's snapshots.
+
+        A failure degrades its pair only. A key that does not open, or a client
+        that cannot be built, skips that pair with a WARNING naming the
+        exchange and the user's id prefix; a read that fails is isolated the
+        same way by ``CompositeBalanceSync``. Every other pair is still synced
+        and the successor is still scheduled: one user's broken key must not
+        stall every user's balances. The skipped pair's snapshot keeps ageing,
+        which the staleness watchdog reports.
         """
         await _reload_pools()
 
         async with factory() as session:
             snapshots = SqlAlchemyBalanceSnapshotRepository(session)
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
 
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
             coverage = await read_key_coverage(session)
@@ -1401,58 +1714,34 @@ def build_worker_runner(
             async with AsyncExitStack() as clients:
                 syncs: list[SyncBalances] = []
 
-                if bybit_pools and BYBIT_EXCHANGE in active:
-                    # Decrypted here and used immediately — the plaintext lives
-                    # only for the length of this call (CLAUDE.md rule 8).
-                    credential = await vault.load(BYBIT_EXCHANGE)
-                    bybit = await clients.enter_async_context(
-                        read_only_client(
-                            settings,
-                            BybitCredentials(
-                                api_key=credential.api_key,
-                                api_secret=credential.api_secret,
-                            ),
+                for exchange in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):
+                    for user_id, markets in _markets_per_user(pool_set.by_key, exchange).items():
+                        if (user_id, exchange) not in active:
+                            continue
+                        try:
+                            reader = await _open_balance_reader(
+                                clients, vault, user_id, exchange
+                            )
+                        except Exception as exc:  # noqa: BLE001 -- isolated per pair, by design
+                            # The class only: a message could carry venue text,
+                            # and no traceback (its locals could hold a key).
+                            logger.warning(
+                                "balance sync skipped for '%s' of user %s: its key could "
+                                "not be opened (%s); every other pair is still synced",
+                                exchange,
+                                _user_prefix(user_id),
+                                type(exc).__name__,
+                            )
+                            continue
+                        syncs.append(
+                            SyncBalances(
+                                user_id=user_id,
+                                pools=markets,
+                                reader=reader,
+                                snapshots=snapshots,
+                                commit=session,
+                            )
                         )
-                    )
-                    syncs.append(
-                        SyncBalances(
-                            pools=bybit_pools,
-                            reader=BybitBalanceReader(bybit, SystemClock()),
-                            snapshots=snapshots,
-                            commit=session,
-                        )
-                    )
-
-                if binance_pools and BINANCE_EXCHANGE in active:
-                    # The VAULT key, the same one Bybit's branch above already
-                    # loads (design decision 18: ONE key per exchange, used
-                    # for reads and orders alike -- superseding the two-key
-                    # `.env`-plus-vault era this comment used to describe).
-                    #
-                    # What that changes: a green balance sync now DOES prove
-                    # the key that trades can also read, because they are the
-                    # same key and share the same allowlist. What has NOT
-                    # changed is that a sync only proves the READ path; the
-                    # first order can still surface a venue-side rejection
-                    # this sync never exercised.
-                    credential = await vault.load(BINANCE_EXCHANGE)
-                    binance = await clients.enter_async_context(
-                        binance_read_only_client(
-                            settings,
-                            BinanceCredentials(
-                                api_key=credential.api_key,
-                                api_secret=credential.api_secret,
-                            ),
-                        )
-                    )
-                    syncs.append(
-                        SyncBalances(
-                            pools=binance_pools,
-                            reader=BinanceBalanceReader(binance, SystemClock()),
-                            snapshots=snapshots,
-                            commit=session,
-                        )
-                    )
 
                 handler = BalanceSyncHandler(
                     sync_balances=CompositeBalanceSync(syncs),
@@ -1495,75 +1784,60 @@ def build_worker_runner(
         anyway, so doing that work first would decrypt a credential for a
         scan that is about to be skipped outright.
 
-        Live, a DEGRADED exchange's pools are filtered OUT of both
-        ``bybit_pools``/``binance_pools`` (per-job, from
-        ``read_key_coverage``) BEFORE either the reader-building below or
-        ``ScanPools(pools=...)`` sees them -- not only skipped for reader
-        construction. ``ScanPools`` never swallows ``UnservedPoolError``
-        (only ``VenuePositionReadError``, per pool, for a live call that
-        merely FAILED): a pool with a pool-list entry but no registered
-        reader would still raise it and kill this chain, the same failure
-        mode this unit fixes for balance.sync. Filtering the pool list keeps
-        the two collections in agreement by construction.
+        Per user's pool (multi-user design AD10): every user with an enabled
+        pool AND an active key on an exchange is scanned with a position
+        reader built from THAT user's vault key, so two users on one market
+        are two reads and two discrepancies. A user with a pool but no key is
+        filtered out of the scan for that exchange BEFORE ``ScanPools`` sees
+        its pools (``_reconciliation_markets_per_user``, which logs a WARNING
+        naming the user), not only skipped when building readers:
+        ``ScanPools`` never swallows ``UnservedPoolError`` (only
+        ``VenuePositionReadError``, per pool, for a live call that merely
+        FAILED), so a pool with no registered reader would kill this chain,
+        the same failure mode this unit fixes for balance.sync. The other
+        users still scan, and one ``ScanPools`` per user shares this one
+        session and the handler's single successor enqueue.
         """
         async with factory() as session:
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
-
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
+            markets_by_user: dict[UUID, list[tuple[str, str, str]]] = {}
             if not settings.dry_run:
                 coverage = await read_key_coverage(session)
                 active = coverage.active
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
-                if BYBIT_EXCHANGE not in active:
-                    bybit_pools = []
-                if BINANCE_EXCHANGE not in active:
-                    binance_pools = []
+                markets_by_user = _reconciliation_markets_per_user(
+                    pool_set.by_key, active, warn=True
+                )
 
             async with AsyncExitStack() as clients:
-                readers: list[VenuePositionReaderPort] = []
-
-                if not settings.dry_run:
-                    if bybit_pools:
-                        credential = await vault.load(BYBIT_EXCHANGE)
-                        bybit = await clients.enter_async_context(
-                            read_only_client(
-                                settings,
-                                BybitCredentials(
-                                    api_key=credential.api_key,
-                                    api_secret=credential.api_secret,
-                                ),
-                            )
+                scans: list[ScanPoolsPort] = []
+                for user_id, markets in markets_by_user.items():
+                    readers = await _user_position_readers(
+                        vault=vault,
+                        clients=clients,
+                        settings=settings,
+                        user_id=user_id,
+                        exchanges=sorted({market[0] for market in markets}),
+                    )
+                    scans.append(
+                        ScanPools(
+                            pools=markets,
+                            pool_users={market: user_id for market in markets},
+                            venue_readers=VenuePositionReaderRegistry(readers),
+                            ledger_positions=ReadSymbolPositions(
+                                SqlAlchemyLedgerRepository(session)
+                            ),
+                            discrepancies=SqlAlchemyDiscrepancyRepository(session),
+                            clock=SystemClock(),
+                            commit=session,
+                            confirmations_required=settings.reconciliation_confirmations,
                         )
-                        readers.append(BybitVenuePositionReader(bybit))
-
-                    if binance_pools:
-                        credential = await vault.load(BINANCE_EXCHANGE)
-                        binance = await clients.enter_async_context(
-                            binance_read_only_client(
-                                settings,
-                                BinanceCredentials(
-                                    api_key=credential.api_key,
-                                    api_secret=credential.api_secret,
-                                ),
-                            )
-                        )
-                        readers.append(BinanceVenuePositionReader(binance))
+                    )
 
                 handler = ReconciliationScanHandler(
-                    scan_pools=ScanPools(
-                        pools=bybit_pools + binance_pools,
-                        venue_readers=VenuePositionReaderRegistry(readers),
-                        ledger_positions=ReadSymbolPositions(
-                            SqlAlchemyLedgerRepository(session)
-                        ),
-                        discrepancies=SqlAlchemyDiscrepancyRepository(session),
-                        clock=SystemClock(),
-                        commit=session,
-                        confirmations_required=settings.reconciliation_confirmations,
-                    ),
+                    scan_pools=ScanUsers(scans),
                     queue=_job_queue(session, settings),
                     clock=SystemClock(),
                     interval_seconds=settings.reconciliation_scan_interval_seconds,
@@ -1603,85 +1877,55 @@ def build_worker_runner(
         never swallowed by ``sweep`` -- and kill this chain; the stand-in
         raises the ``VenueFillReadError`` ``sweep`` already tolerates per
         discrepancy instead (see that class's own docstring).
+
+        Per user (multi-user design AD10): each CONFIRMED discrepancy is read
+        with the fill reader of the user it belongs to, signed with that
+        user's own vault key. The stand-in is per user and exchange: a user
+        with no active key on an exchange (or no pool there any more, or no
+        longer known at all) resolves to stand-ins, never to another user's
+        reader.
         """
         async with factory() as session:
-            bybit_pools = [key for key in pool_set.by_key if key[0] == BYBIT_EXCHANGE]
-            binance_pools = [key for key in pool_set.by_key if key[0] == BINANCE_EXCHANGE]
-
             vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
-            active: frozenset[str] = frozenset()
+            markets_by_user: dict[UUID, list[tuple[str, str, str]]] = {}
             if not settings.dry_run:
                 coverage = await read_key_coverage(session)
                 active = coverage.active
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
+                # The scan already warns about a user without a key; here the
+                # stand-in reader reports it per discrepancy.
+                markets_by_user = _reconciliation_markets_per_user(
+                    pool_set.by_key, active, warn=False
+                )
 
             async with AsyncExitStack() as clients:
-                fill_readers: list[VenueFillReaderPort] = []
-
-                if not settings.dry_run:
-                    if bybit_pools:
-                        if BYBIT_EXCHANGE in active:
-                            credential = await vault.load(BYBIT_EXCHANGE)
-                            bybit = await clients.enter_async_context(
-                                read_only_client(
-                                    settings,
-                                    BybitCredentials(
-                                        api_key=credential.api_key,
-                                        api_secret=credential.api_secret,
-                                    ),
-                                )
-                            )
-                            fill_readers.append(
-                                BybitVenueFillReader(
-                                    bybit,
-                                    page_limit=(
-                                        settings.reconciliation_booking_prepare_page_limit
-                                    ),
-                                    max_pages=settings.reconciliation_booking_prepare_max_pages,
-                                )
-                            )
-                        else:
-                            fill_readers.append(
-                                _DegradedVenueFillReader(
-                                    BYBIT_EXCHANGE, BybitVenueFillReader.venues
-                                )
-                            )
-
-                    if binance_pools:
-                        if BINANCE_EXCHANGE in active:
-                            credential = await vault.load(BINANCE_EXCHANGE)
-                            binance = await clients.enter_async_context(
-                                binance_read_only_client(
-                                    settings,
-                                    BinanceCredentials(
-                                        api_key=credential.api_key,
-                                        api_secret=credential.api_secret,
-                                    ),
-                                )
-                            )
-                            fill_readers.append(
-                                BinanceVenueFillReader(
-                                    binance,
-                                    page_limit=(
-                                        settings.reconciliation_booking_prepare_page_limit
-                                    ),
-                                    max_pages=settings.reconciliation_booking_prepare_max_pages,
-                                )
-                            )
-                        else:
-                            fill_readers.append(
-                                _DegradedVenueFillReader(
-                                    BINANCE_EXCHANGE, BinanceVenueFillReader.venues
-                                )
-                            )
+                fill_registries: dict[UUID, VenueFillReaderRegistryPort] = {}
+                for user_id, markets in markets_by_user.items():
+                    fill_registries[user_id] = VenueFillReaderRegistry(
+                        await _user_fill_readers(
+                            vault=vault,
+                            clients=clients,
+                            settings=settings,
+                            user_id=user_id,
+                            keyed=sorted({market[0] for market in markets}),
+                        )
+                    )
 
                 handler = BookingPrepareHandler(
                     prepare_booking=PrepareBooking(
                         discrepancies=SqlAlchemyDiscrepancyRepository(session),
                         proposals=SqlAlchemyBookingProposalRepository(session),
-                        venue_fills=VenueFillReaderRegistry(fill_readers),
+                        # A discrepancy is read with its own user's key. A user
+                        # without one (or none any more) gets stand-ins that
+                        # fail with the tolerated ``VenueFillReadError``.
+                        venue_fills=UserVenueFillReaders(
+                            fill_registries,
+                            unkeyed=VenueFillReaderRegistry(
+                                _degraded_fill_readers([BYBIT_EXCHANGE, BINANCE_EXCHANGE])
+                            ),
+                        ),
                         recorded_fill_ids=ReadRecordedFillIds(
                             SqlAlchemyLedgerRepository(session)
                         ),

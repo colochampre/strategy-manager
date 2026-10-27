@@ -80,6 +80,10 @@ class RegisterCommand:
     an explicit decision (see ``AllocationPercent``), and the distinction
     matters: what the strategy actually receives is then capped by what is
     genuinely available, which is where competing for free capital happens.
+
+    ``author_id`` is the signed-in ``User`` registering it (multi-user design
+    AD2). Strategies stay admin-only (owner decision 16), so today the author
+    is always the admin.
     """
 
     strategy_id: UUID
@@ -90,6 +94,7 @@ class RegisterCommand:
     fill_mode: FillMode
     allocation_percent: Decimal
     allowed_pairs: list[str]
+    author_id: UUID
 
 
 class RegisterStrategy:
@@ -155,6 +160,7 @@ class RegisterStrategy:
                 fill_mode=command.fill_mode,
                 allocation_percent=AllocationPercent(command.allocation_percent),
             ),
+            author_id=command.author_id,
             allowed_pairs=allowed_pairs,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
@@ -213,7 +219,10 @@ class RegisterStrategy:
             raise UnknownPairs(unknown)
 
     async def _assert_pool_available(self, command: RegisterCommand) -> None:
-        available = await self._pools.enabled_pools()
+        # The AUTHOR's pools (multi-user design AD8): a strategy is allocated in
+        # its author's pool (B.5), so another user's enabled pool on the same
+        # market is not one this strategy could ever size from.
+        available = await self._pools.enabled_pools(command.author_id)
         if (command.exchange, command.venue, command.settlement_currency) in available:
             return
 

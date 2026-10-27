@@ -47,6 +47,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from tests.owner import OWNER_ID, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -70,7 +71,17 @@ def _history(**counts: int) -> StrategyHistory:
 
 
 async def _seed(factory: Factory, *rows: object) -> None:
+    """Adds ``rows`` in one commit. A reservation or a booking proposal is placed
+    in its user's pool on its market, seeded when missing (migration 0030), so
+    ``_reservation`` and ``_proposal`` can stay plain constructors."""
     async with factory() as session:
+        for row in rows:
+            if isinstance(row, ReservationRow | BookingProposalRow):
+                row.pool_id = await ensure_pool(
+                    session,
+                    (row.exchange, row.venue, row.settlement_currency),
+                    user_id=row.user_id,
+                )
         session.add_all(rows)
         await session.commit()
 
@@ -86,6 +97,7 @@ async def _strategy(factory: Factory) -> UUID:
             exchange=exchange,
             venue=venue,
             settlement_currency=currency,
+            author_id=OWNER_ID,
             enabled=False,
             fill_mode="PARTIAL",
             allowed_pairs=["STXUSDT"],
@@ -120,6 +132,7 @@ def _reservation(
     exchange, venue, currency = pool
     return ReservationRow(
         id=uuid4(),
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         signal_id=signal_id,
         exchange=exchange,
@@ -142,6 +155,7 @@ def _attempt(
     attempt_id = uuid4()
     return ExecutionAttemptRow(
         id=attempt_id,
+        user_id=OWNER_ID,
         reservation_id=reservation_id,
         closes_allocation_id=closes_allocation_id,
         signal_id=signal_id,
@@ -161,6 +175,7 @@ def _ledger_entry(strategy_id: UUID, allocation_id: UUID, attempt_id: UUID) -> L
     entry_id = uuid4()
     return LedgerEntryRow(
         id=entry_id,
+        user_id=OWNER_ID,
         strategy_id=strategy_id,
         allocation_id=allocation_id,
         execution_attempt_id=attempt_id,
@@ -185,6 +200,7 @@ def _proposal(strategy_id: UUID, *, state: str = "PENDING") -> BookingProposalRo
     exchange, venue, currency = _POOL
     return BookingProposalRow(
         id=uuid4(),
+        user_id=OWNER_ID,
         discrepancy_id=uuid4(),
         exchange=exchange,
         venue=venue,

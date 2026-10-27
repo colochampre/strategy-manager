@@ -54,6 +54,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
     seed_strategy,
 )
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 from tests.performance.infrastructure.test_performance_router import _walk
 
 pytestmark = pytest.mark.integration
@@ -91,16 +92,11 @@ async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # 
         yield api
 
 
-async def _add_pool(factory: Factory, pool: tuple[str, str, str], minimum: str) -> None:
-    exchange, venue, currency = pool
+async def _add_pool(
+    factory: Factory, pool: tuple[str, str, str], minimum: str, user_id: UUID = OWNER_ID
+) -> None:
     async with factory() as session:
-        await session.execute(
-            text(
-                "INSERT INTO capital_pools (exchange, venue, settlement_currency, min_order_size) "
-                "VALUES (:e, :v, :c, :minimum)"
-            ),
-            {"e": exchange, "v": venue, "c": currency, "minimum": Decimal(minimum)},
-        )
+        await seed_pool(session, pool, user_id=user_id, min_order_size=Decimal(minimum))
         await session.commit()
 
 
@@ -168,9 +164,16 @@ async def _synced(
     available: str = "400",
     pool: tuple[str, str, str] = BYBIT,
     age: timedelta = timedelta(seconds=1),
+    user_id: UUID = OWNER_ID,
 ) -> None:
+    """The snapshot of ``user_id``'s pool, by default the strategies' author's."""
     await _snapshot(
-        factory, *pool, total=total, available=available, observed_at=datetime.now(UTC) - age
+        factory,
+        *pool,
+        total=total,
+        available=available,
+        observed_at=datetime.now(UTC) - age,
+        user_id=user_id,
     )
 
 
@@ -243,6 +246,30 @@ async def test_the_stored_share_is_previewed_against_the_pools_balance(
         "below_pool_minimum": False,
     }
     assert [step["share"] for step in body["steps"]] == list(range(1, 101))
+
+
+async def test_the_preview_reads_the_authors_pool_never_another_users_on_the_market(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """Multi-user design AD8. A second user holds a bybit pool too, minimum 9,
+    synced at 999. The strategy is the owner's, so its preview is sized from the
+    owner's pool: minimum 5 and a total of 1000."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
+    await _synced(pg_session_factory, total="999", available="999", user_id=other)
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+
+    response = await _preview(client, strategy_id)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["pool_minimum"] == "5.000000000000000000"
+    assert body["balance"]["total"] == "1000.000000000000000000"
+    assert body["exact"]["amount"] == "335.000000000000000000"
 
 
 async def test_a_share_asked_for_is_served_as_exact(
@@ -470,12 +497,11 @@ async def test_a_share_outside_the_range_is_422_and_no_body_repeats_it(
 class _NoRowSizing:
     """A ``PoolSizingPort`` that finds no ``capital_pools`` row for any pool.
 
-    The foreign key from ``strategies`` to ``capital_pools`` makes that state
-    unbuildable in a real database, and no test here bends the schema to reach it:
-    the port's dependency is overridden instead."""
+    The real database reaches that state too since migration ``0030`` dropped the
+    strategies' pool FK; the test after this one builds it there."""
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolSizing | None:
         return None
 
@@ -503,6 +529,30 @@ async def test_a_strategy_whose_pool_has_no_row_is_500_with_one_error_naming_bot
     assert "bybit" in message
     assert "usdt-m" in message
     assert "USDT" in message
+
+
+async def test_a_strategy_whose_author_has_no_pool_on_its_market_is_500_not_another_users(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Multi-user design AD8. Only a second user holds a binance pool, synced at
+    1000; the owner's strategy points at binance. The preview is never sized
+    from the other user's pool: it is the no-row 500, with one ERROR."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await _add_pool(pg_session_factory, BINANCE, "5", user_id=other)
+    await _synced(pg_session_factory, pool=BINANCE, user_id=other)
+    strategy_id = await _strategy(pg_session_factory, pool=BINANCE)
+    caplog.set_level(logging.WARNING)
+
+    response = await _preview(client, strategy_id)
+
+    assert response.status_code == 500
+    errors = [record for record in caplog.records if record.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert "binance" in errors[0].getMessage()
 
 
 async def test_reading_a_stale_or_empty_pool_logs_nothing(
@@ -547,7 +597,7 @@ async def test_the_preview_completes_while_the_pools_advisory_lock_is_held(
     await _synced(pg_session_factory)
 
     async with pg_session_factory() as holder:
-        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(BYBIT_KEY))
+        await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(OWNER_ID, BYBIT_KEY))
         task: asyncio.Task[Any] | None = None
         try:
             async with pg_session_factory() as watcher:

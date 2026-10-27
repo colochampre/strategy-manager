@@ -42,6 +42,7 @@ this precondition; deletion is the only path that checks flatness.
 
 import logging
 from dataclasses import dataclass
+from uuid import UUID
 
 from strategy_manager.accounts.application.ports import (
     CapitalPoolWriterPort,
@@ -112,7 +113,17 @@ class DeleteCredential:
         self._pools = pools
         self._commit = commit
 
-    async def execute(self, exchange: str) -> Deleted:
+    async def execute(self, user_id: UUID, exchange: str) -> Deleted:
+        """``user_id`` is the signed-in user deleting the key (multi-user design
+        AD8). The key locked and deactivated is THAT user's, and the pool
+        switched off is that user's pool; another user's key on the same
+        exchange is never touched, and a user with no key of their own gets
+        ``NoActiveCredential`` even when someone else holds one.
+
+        The advisory lock taken is that user's pool lock (tasks.md B.4), and
+        every exposure that refuses the delete is that user's own: their enabled
+        strategies, live reservations, in-flight attempts, ledger holdings and
+        open discrepancies."""
         # Step 1: nothing below runs for an exchange without a known pool.
         try:
             known = known_pool_for(exchange)
@@ -121,15 +132,15 @@ class DeleteCredential:
         pool = (exchange, known.venue.value, known.settlement_currency.value)
 
         # Step 2: the advisory lock FIRST, the same key AllocateCapital takes.
-        await self._pool_lock.acquire(*pool)
+        await self._pool_lock.acquire(user_id, *pool)
 
         # Step 3: the row lock, second.
-        active = await self._credentials.lock_active(exchange)
+        active = await self._credentials.lock_active(user_id, exchange)
         if active is None:
             raise NoActiveCredential(f"no active credential for exchange {exchange!r}")
 
         # Step 4: exposure across EVERY strategy bound to the pool, inside the lock.
-        exposure = await self._exposure.exposure(pool)
+        exposure = await self._exposure.exposure(user_id, pool)
         if not exposure.is_empty():
             logger.warning(
                 "refused to delete the %s credential: the pool is not flat (%s)",
@@ -142,8 +153,8 @@ class DeleteCredential:
             )
 
         # Step 5 and 6: deactivate, disable, commit.
-        await self._credentials.deactivate(exchange)
-        flipped = await self._pools.disable(exchange)
+        await self._credentials.deactivate(user_id, exchange)
+        flipped = await self._pools.disable(user_id, exchange)
         await self._commit.commit()
 
         logger.info(

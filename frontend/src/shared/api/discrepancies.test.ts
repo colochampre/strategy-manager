@@ -105,6 +105,10 @@ describe("fetchConfirmed", () => {
       (): unknown => ({ ...fullBody(), needs_owner: [discrepancy(), without(discrepancy(), "last_observed_at")] }),
     ],
     [
+      "needs_owner, without the e-mail of its user",
+      (): unknown => ({ ...fullBody(), needs_owner: [discrepancy(), without(discrepancy(), "user_email")] }),
+    ],
+    [
       "being_booked",
       (): unknown => ({ ...fullBody(), being_booked: [discrepancy({ reason: null }), { ...discrepancy(), allocations: "none" }] }),
     ],

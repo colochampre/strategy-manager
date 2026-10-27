@@ -30,6 +30,7 @@ from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.curve import Exclusions
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID
 from tests.performance.fakes import FakeFillsSource, FixedClock
 
 POOL = PoolKey(Exchange.BYBIT, Venue.USDT_M, Currency.USDT)
@@ -97,7 +98,7 @@ def _closed(
 
 
 def _read(source: FakeFillsSource, strategy_id: UUID = S1):  # type: ignore[no-untyped-def]
-    return ReadStrategyPerformance(source, FixedClock(NOW)).read(strategy_id, POOL)
+    return ReadStrategyPerformance(source, FixedClock(NOW)).read(OWNER_ID, strategy_id, POOL)
 
 
 async def test_strategy_curve_uses_pool_capital_at_open_as_contribution() -> None:
@@ -113,7 +114,7 @@ async def test_strategy_curve_uses_pool_capital_at_open_as_contribution() -> Non
     )
 
     report = await _read(FakeFillsSource(groups))
-    pool = await ReadPoolPerformance(FakeFillsSource(groups), FixedClock(NOW)).read(POOL)
+    pool = await ReadPoolPerformance(FakeFillsSource(groups), FixedClock(NOW)).read(OWNER_ID, POOL)
 
     curve = report.performance.curve
     assert [p.daily_return for p in curve] == [Decimal("0.02"), Decimal("-0.01")]

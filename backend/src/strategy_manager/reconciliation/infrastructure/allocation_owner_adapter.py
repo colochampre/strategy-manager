@@ -21,9 +21,11 @@ class AllocationOwnerAdapter:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def strategy_for(self, allocation_id: UUID) -> UUID:
+    async def strategy_for(self, user_id: UUID, allocation_id: UUID) -> UUID:
         result = await self._session.execute(
-            select(ReservationRow.strategy_id).where(ReservationRow.id == allocation_id)
+            select(ReservationRow.strategy_id).where(
+                ReservationRow.id == allocation_id, ReservationRow.user_id == user_id
+            )
         )
         strategy_id = result.scalar_one_or_none()
         if strategy_id is None:

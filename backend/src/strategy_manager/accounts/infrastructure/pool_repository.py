@@ -19,6 +19,10 @@ class CapitalPoolRepository:
         self._conn = conn
 
     async def list_enabled(self) -> list[PoolConfig]:
+        """Every user's enabled pools, unscoped by design: this is the worker's
+        global sweep (multi-user design AD9), which works each pool for its own
+        user. Each ``PoolConfig`` carries its pool's ``user_id`` so no consumer
+        has to guess whose pool it is."""
         result = await self._conn.execute(
             select(CapitalPoolRow).where(CapitalPoolRow.enabled.is_(True))
         )
@@ -27,6 +31,7 @@ class CapitalPoolRepository:
                 exchange=Exchange(row.exchange),
                 venue=Venue(row.venue),
                 settlement_currency=Currency(row.settlement_currency),
+                user_id=row.user_id,
                 min_order_size=row.min_order_size,
                 enabled=row.enabled,
             )

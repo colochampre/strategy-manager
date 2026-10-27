@@ -38,7 +38,7 @@ from tests.accounts.fakes import (
     RecordingWriter,
     TickingClock,
 )
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin, without_a_database
 from tests.signals.infrastructure.test_webhook_secret_router import (
     _all_loggers,
     _Capture,
@@ -81,7 +81,7 @@ async def test_no_log_record_at_any_level_carries_the_key_or_the_secret_on_a_rea
     capture = _Capture()
 
     with _logging_restored():
-        app = create_app()
+        app = without_a_database(create_app())
         use_case = SaveCredential(
             KeyInspectorRegistry({"binance": inspector}),
             writer,

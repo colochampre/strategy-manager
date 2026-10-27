@@ -44,10 +44,13 @@ class BalanceSourcePort(Protocol):
     """Reads a pool's funds from the exchange or a stand-in.
     Implementations MUST be local (DB or in-memory) — a synchronous remote
     call here would run inside the advisory lock once consumed by
-    ``allocation.application.PoolBalancePort`` (design.md § Interfaces)."""
+    ``allocation.application.PoolBalancePort`` (design.md § Interfaces).
+
+    The pool is ``user_id``'s pool on that market (multi-user design AD8):
+    another user's pool on the same market is never read."""
 
     async def read_balance(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolFunds: ...
 
 
@@ -83,9 +86,10 @@ class ExchangeBalanceReaderPort(Protocol):
 
 
 class BalanceSnapshotWriterPort(Protocol):
-    """Persists readings so the allocation path can read them locally."""
+    """Persists readings so the allocation path can read them locally, each one
+    as the snapshot of ``user_id``'s pool on the reading's market."""
 
-    async def upsert(self, readings: Sequence[PoolBalanceReading]) -> None: ...
+    async def upsert(self, user_id: UUID, readings: Sequence[PoolBalanceReading]) -> None: ...
 
 
 class BalanceSnapshotAgePort(Protocol):
@@ -96,11 +100,11 @@ class BalanceSnapshotAgePort(Protocol):
 
     ``None`` means no snapshot has ever been synced for the pool -- there is
     nothing to fall back to, so this always resolves to UNAVAILABLE regardless
-    of the fallback bound.
+    of the fallback bound. The pool is ``user_id``'s.
     """
 
     async def age_seconds(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> float | None: ...
 
 
@@ -116,23 +120,30 @@ class CredentialVaultPort(Protocol):
     ``load`` returns a live secret and must only ever be called on the worker,
     immediately before signing (CLAUDE.md rule 8). Anything that merely needs
     to display or enumerate credentials calls ``hints`` instead.
+
+    Every call names the user whose key it reads (multi-user design AD8): one
+    user's key is never opened or listed for another, even on the same
+    exchange.
     """
 
-    async def load(self, exchange: str) -> ExchangeCredential: ...
+    async def load(self, user_id: UUID, exchange: str) -> ExchangeCredential: ...
 
-    async def hints(self) -> list[CredentialHint]: ...
+    async def hints(self, user_id: UUID) -> list[CredentialHint]: ...
 
 
 class CredentialWriterPort(Protocol):
-    """Stores a credential and makes it the active one for its exchange.
+    """Stores a credential and makes it ``user_id``'s active one for its
+    exchange, superseding only THAT user's previous active key (AD8).
 
     Deliberately has NO ``load``: the save path seals and never opens. Only the
     worker decrypts, at signing time (CLAUDE.md rule 8, decision 5). Raises
-    ``ConcurrentCredentialSave`` when another save for the same exchange won the
-    race.
+    ``ConcurrentCredentialSave`` when another save by the same user for the same
+    exchange won the race.
     """
 
-    async def store(self, credential: ExchangeCredential, facts: KeyFacts) -> CredentialHint: ...
+    async def store(
+        self, user_id: UUID, credential: ExchangeCredential, facts: KeyFacts
+    ) -> CredentialHint: ...
 
 
 class CapitalPoolWriterPort(Protocol):
@@ -146,16 +157,19 @@ class CapitalPoolWriterPort(Protocol):
 
     Both write through the caller's session, so they commit with the caller's
     transaction and roll back with it.
+
+    The pool is ``user_id``'s (multi-user design AD8): another user's pool on the
+    same market is never created, flipped or read.
     """
 
-    async def enable(self, exchange: str) -> bool:
+    async def enable(self, user_id: UUID, exchange: str) -> bool:
         """Makes the exchange's pool enabled, creating the row when it does not
         exist. An existing row's ``min_order_size`` is never touched. Returns
         ``True`` when this call changed something (row inserted, or flipped from
         disabled) and ``False`` when the pool was already enabled."""
         ...
 
-    async def disable(self, exchange: str) -> bool:
+    async def disable(self, user_id: UUID, exchange: str) -> bool:
         """Flips only an existing row to disabled; a missing row is not created.
         Returns ``True`` when an enabled row was flipped."""
         ...
@@ -234,9 +248,13 @@ class PoolExposure:
 class PoolExposurePort(Protocol):
     """Widens ``StrategyExposurePort`` from one strategy to every strategy bound
     to the pool. Implemented by
-    ``accounts.infrastructure.pool_exposure_adapter.PoolExposureAdapter``."""
+    ``accounts.infrastructure.pool_exposure_adapter.PoolExposureAdapter``.
 
-    async def exposure(self, pool: PoolKey) -> PoolExposure: ...
+    ``user_id`` is the user whose key is being deleted (multi-user design AD8):
+    the live reservations read are that user's only. The other reads are not
+    scoped yet (their tables gain their owner in later units of PR B)."""
+
+    async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure: ...
 
 
 class PoolLockPort(Protocol):
@@ -245,7 +263,9 @@ class PoolLockPort(Protocol):
     rollback). Implemented by ``strategies.infrastructure.pool_lock_adapter
     .PoolLockAdapter``, which derives the key through ``LockKey.from_pool_key``."""
 
-    async def acquire(self, exchange: str, venue: str, settlement_currency: str) -> None: ...
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,15 +279,16 @@ class ActiveCredential:
 
 
 class CredentialRevokerPort(Protocol):
-    """Deactivates an exchange's active credential, keeping the row (rotation
-    history is retained, decision 22). It has no ``load``: it never opens a
-    secret."""
+    """Deactivates a user's active credential on an exchange, keeping the row
+    (rotation history is retained, decision 22). It has no ``load``: it never
+    opens a secret. Another user's key on the same exchange is never locked or
+    deactivated (multi-user design AD8)."""
 
-    async def lock_active(self, exchange: str) -> ActiveCredential | None:
-        """``SELECT ... FOR UPDATE`` of the exchange's active row. ``None`` when
-        there is none."""
+    async def lock_active(self, user_id: UUID, exchange: str) -> ActiveCredential | None:
+        """``SELECT ... FOR UPDATE`` of ``user_id``'s active row on the exchange.
+        ``None`` when there is none."""
         ...
 
-    async def deactivate(self, exchange: str) -> None:
-        """Marks the active row inactive. The row is kept."""
+    async def deactivate(self, user_id: UUID, exchange: str) -> None:
+        """Marks ``user_id``'s active row inactive. The row is kept."""
         ...

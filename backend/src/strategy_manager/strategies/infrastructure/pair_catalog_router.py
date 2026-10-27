@@ -34,7 +34,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.shared.db import get_session
 from strategy_manager.strategies.application.ports import PairCatalogPort
 from strategy_manager.strategies.application.read_available_pairs import (
@@ -96,9 +97,12 @@ async def available_pairs(
     venue: str,
     settlement_currency: str,
     use_case: Annotated[ReadAvailablePairs, Depends(get_read_available_pairs)],
+    user: Annotated[User, Depends(current_user)],
 ) -> AvailablePairsBody:
+    """The pool must be the signed-in user's (multi-user design AD8); the router
+    stays admin-only (owner decision 16)."""
     try:
-        pairs = await use_case.execute((exchange, venue, settlement_currency))
+        pairs = await use_case.execute(user.id, (exchange, venue, settlement_currency))
     except UnknownPool:
         # The values are the caller's own text: ``%r`` keeps a newline out of the
         # log line and the precision keeps one line short.

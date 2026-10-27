@@ -54,7 +54,6 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
 )
-from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.domain.pool_key import PoolKey as AllocationPoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
@@ -99,6 +98,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
+from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -190,8 +190,8 @@ class RaceSyncedReservations:
         self._observed = observed
         self._synced = False
 
-    async def find_by_signal_id(self, signal_id: UUID) -> Reservation | None:
-        found = await self._inner.find_by_signal_id(signal_id)
+    async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
+        found = await self._inner.find_by_signal_id(user_id, signal_id)
         if not self._synced:
             self._synced = True
             self._observed.append(found)
@@ -199,17 +199,22 @@ class RaceSyncedReservations:
         return found
 
     async def sum_active(
-        self, exchange: str, venue: str, settlement_currency: str, now: datetime
+        self,
+        user_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+        now: datetime,
     ) -> Decimal:
-        return await self._inner.sum_active(exchange, venue, settlement_currency, now)
+        return await self._inner.sum_active(user_id, exchange, venue, settlement_currency, now)
 
-    async def insert(self, reservation: Reservation) -> None:
-        await self._inner.insert(reservation)
+    async def insert(self, user_id: UUID, reservation: Reservation) -> None:
+        await self._inner.insert(user_id, reservation)
 
     async def mark(
-        self, reservation_id: UUID, status: ReservationStatus, at: datetime
+        self, user_id: UUID, reservation_id: UUID, status: ReservationStatus, at: datetime
     ) -> None:
-        await self._inner.mark(reservation_id, status, at)
+        await self._inner.mark(user_id, reservation_id, status, at)
 
 
 class NeverCalledVenueNetPosition:
@@ -254,6 +259,7 @@ class NeverCalledCloseOrphans:
         holdings: object,
         next_poll: int = 0,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         raise AssertionError("there is no orphan here -- the prior holding nets to zero")
@@ -307,7 +313,9 @@ async def _seed_settled_flat_holding(
     allocation_id, opening_id, closing_id = uuid4(), uuid4(), uuid4()
 
     async with session_factory() as session:
+        await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
         await SqlAlchemyReservationRepository(session).insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -334,6 +342,7 @@ async def _seed_settled_flat_holding(
             (closing_id, OrderSide.SELL, None, allocation_id),
         ):
             await attempts.insert(
+                OWNER_ID,
                 ExecutionAttempt(
                     id=attempt_id,
                     reservation_id=reservation_id,
@@ -349,7 +358,7 @@ async def _seed_settled_flat_holding(
                     status=ExecutionStatus.FILLED,
                     origin=ExecutionOrigin.SYSTEM,
                     client_order_id=f"prior-{attempt_id}",
-                )
+                ),
             )
         await session.commit()
 
@@ -358,6 +367,7 @@ async def _seed_settled_flat_holding(
         for attempt_id, side in ((opening_id, "BUY"), (closing_id, "SELL")):
             await record.record(
                 FillRecord(
+                    user_id=OWNER_ID,
                     strategy_id=strategy_id,
                     allocation_id=allocation_id,
                     execution_attempt_id=attempt_id,
@@ -386,7 +396,7 @@ def _build_handler(
     registry: VenueExchangeRegistry,
     clock: FixedClock,
     balance_reader: FixedBalanceReader,
-    pools_by_key: dict[AccountsPoolKey, PoolConfig],
+    pools_by_key: dict[tuple[UUID, AccountsPoolKey], PoolConfig],
     reservations: SqlAlchemyReservationRepository | RaceSyncedReservations,
     seeder: RecordingSeeder,
 ) -> ProcessSignalHandler:
@@ -512,15 +522,12 @@ async def _setup(
     )
 
     async with session_factory() as session:
-        await session.execute(
-            insert(PoolBalanceSnapshotRow).values(
-                exchange="bybit",
-                venue="usdt-m",
-                settlement_currency="USDT",
-                total=Decimal("1"),  # deliberately wrong; the S3 refresh overwrites it
-                available=Decimal("1"),
-                observed_at=START - timedelta(hours=1),
-            )
+        await seed_snapshot(
+            session,
+            POOL,
+            total=Decimal("1"),  # deliberately wrong; the S3 refresh overwrites it
+            available=Decimal("1"),
+            observed_at=START - timedelta(hours=1),
         )
         await session.commit()
 
@@ -574,10 +581,11 @@ async def test_two_concurrent_open_now_calls_reserve_once_and_order_once(
     registry = VenueExchangeRegistry([exchange])
     balance_reader = FixedBalanceReader(pool=POOL, amount=POOL_BALANCE, clock=clock)
     pools_by_key = {
-        POOL: PoolConfig(
+        (OWNER_ID, POOL): PoolConfig(
             exchange=Exchange("bybit"),
             venue=Venue("usdt-m"),
             settlement_currency=Currency("USDT"),
+            user_id=OWNER_ID,
             min_order_size=Decimal("5"),
         )
     }

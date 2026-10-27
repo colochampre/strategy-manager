@@ -9,7 +9,13 @@ as ``strategies.infrastructure.pool_catalog``.
 and the history is still worth reading. "Unknown" means "not a row of
 ``capital_pools``", which also covers a value that is not an ``Exchange``,
 ``Venue`` or ``Currency`` at all, without that being a separate error.
+
+**Only ``user_id``'s pool is found** (multi-user design AD8): another user's
+pool on the same market answers ``None``, which the router turns into a 404, so
+its existence is not disclosed.
 """
+
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,14 +29,18 @@ class SqlAlchemyPoolLookup:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def find(self, exchange: str, venue: str, settlement_currency: str) -> PoolKey | None:
+    async def find(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> PoolKey | None:
         found = (
             await self._session.execute(
                 select(
                     CapitalPoolRow.exchange,
                     CapitalPoolRow.venue,
                     CapitalPoolRow.settlement_currency,
-                ).where(
+                )
+                .where(
+                    CapitalPoolRow.user_id == user_id,
                     CapitalPoolRow.exchange == exchange,
                     CapitalPoolRow.venue == venue,
                     CapitalPoolRow.settlement_currency == settlement_currency,

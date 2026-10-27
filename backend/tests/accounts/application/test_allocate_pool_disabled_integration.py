@@ -66,6 +66,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -82,6 +83,7 @@ async def factory(
 
 
 _POOL_KEY = LockKey.from_pool_key(
+    OWNER_ID,
     PoolKey(
         exchange=Exchange(POOL[0]),
         venue=Venue(POOL[1]),
@@ -176,12 +178,12 @@ async def test_allocation_that_waited_while_the_pool_was_disabled_skips_pool_dis
     strategy_id, signal_id = await _seed(factory)
 
     async with factory() as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         await held.execute(
             text("UPDATE capital_pools SET enabled = false WHERE exchange = :e"),
             {"e": POOL[0]},
         )
-        await SqlAlchemyCredentialRevoker(held, FixedClock()).deactivate(POOL[0])
+        await SqlAlchemyCredentialRevoker(held, FixedClock()).deactivate(OWNER_ID, POOL[0])
 
         allocation = _Allocation(factory, strategy_id, signal_id)
         await _allocation_is_queued_on_the_pool_lock(factory, allocation.task)
@@ -212,7 +214,7 @@ async def test_the_same_holder_without_disabling_the_pool_lets_the_allocation_re
     strategy_id, signal_id = await _seed(factory)
 
     async with factory() as held:
-        await PoolLockAdapter(held).acquire(*POOL)
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
         allocation = _Allocation(factory, strategy_id, signal_id)
         await _allocation_is_queued_on_the_pool_lock(factory, allocation.task)
         await held.commit()
@@ -224,6 +226,39 @@ async def test_the_same_holder_without_disabling_the_pool_lets_the_allocation_re
     assert allocation.result.skip_reason is None
     assert await _reservation_count(factory, strategy_id) == 1
     assert allocation.recorder.calls == []
+
+
+async def test_another_users_pool_disabled_under_the_lock_never_skips_this_allocation(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Multi-user design AD8. A second user holds a pool on the same market. The
+    holder disables THAT user's pool inside the lock; the owner's allocation
+    queues the same way and then reserves: only the author's own pool flag
+    answers the in-lock re-check."""
+    strategy_id, signal_id = await _seed(factory)
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await seed_pool(session, POOL, user_id=other)
+        await session.commit()
+
+    async with factory() as held:
+        # The owner's own lock, so the allocation queues: the other user's pool
+        # has a lock of its own since B.4 and would not hold this allocation.
+        await PoolLockAdapter(held).acquire(OWNER_ID, *POOL)
+        await held.execute(
+            text("UPDATE capital_pools SET enabled = false WHERE user_id = :u"), {"u": other}
+        )
+        allocation = _Allocation(factory, strategy_id, signal_id)
+        await _allocation_is_queued_on_the_pool_lock(factory, allocation.task)
+        await held.commit()
+
+    await asyncio.wait_for(allocation.task, WAIT_SECONDS)
+
+    assert allocation.result is not None
+    assert allocation.result.skip_reason is None
+    assert allocation.result.reservation_id is not None
+    assert await _reservation_count(factory, strategy_id) == 1
+    assert await _pool_enabled(factory) is True
 
 
 async def test_w1_interleaving_with_the_real_delete_credential_enabling_a_strategy_under_the_delete_lock(  # noqa: E501
@@ -260,13 +295,13 @@ async def test_w1_interleaving_with_the_real_delete_credential_enabling_a_strate
         def __init__(self, inner: Any) -> None:
             self._inner = inner
 
-        async def enable(self, exchange: str) -> bool:
+        async def enable(self, user_id: UUID, exchange: str) -> bool:
             raise AssertionError
 
-        async def disable(self, exchange: str) -> bool:
+        async def disable(self, user_id: UUID, exchange: str) -> bool:
             exposure_read.set()
             await resume_delete.wait()
-            return bool(await self._inner.disable(exchange))
+            return bool(await self._inner.disable(user_id, exchange))
 
     async def run_delete() -> None:
         async with factory() as session:
@@ -276,7 +311,7 @@ async def test_w1_interleaving_with_the_real_delete_credential_enabling_a_strate
                 PoolExposureAdapter.over(session),
                 _PausingPools(SqlAlchemyCapitalPoolWriter(session)),
                 session,
-            ).execute("bybit")
+            ).execute(OWNER_ID, "bybit")
 
     task_delete = asyncio.create_task(run_delete())
     await asyncio.wait_for(exposure_read.wait(), WAIT_SECONDS)

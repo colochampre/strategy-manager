@@ -25,6 +25,7 @@ from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
 )
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
+from tests.owner import OWNER_ID, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -55,9 +56,13 @@ async def _seed_reservation(
     )
     reservation_id = uuid4()
     async with session_factory() as session:
+        # The owner's reservation in the owner's pool (migration 0030).
+        pool_id = await ensure_pool(session, ("pionex", "spot", "USDT"))
         session.add(
             ReservationRow(
                 id=reservation_id,
+                user_id=OWNER_ID,
+                pool_id=pool_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
                 exchange="pionex",

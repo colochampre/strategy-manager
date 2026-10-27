@@ -72,9 +72,9 @@ def _scrub(text: str, secrets: list[str]) -> str:
     return text
 
 
-def _upgrade_head(database_url: str) -> None:
+def _upgrade(database_url: str, revision: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", revision],
         cwd=str(_BACKEND_DIR),
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
@@ -85,7 +85,7 @@ def _upgrade_head(database_url: str) -> None:
         password = re.sub(r"^[^:]+://[^:/@]*:([^@]*)@.*$", r"\1", database_url)
         secrets = [database_url, password if password != database_url else ""]
         raise RuntimeError(
-            "alembic upgrade head failed on the throwaway head database:\n"
+            f"alembic upgrade {revision} failed on a throwaway database:\n"
             f"{_scrub(result.stdout, secrets)}\n{_scrub(result.stderr, secrets)}"
         )
 
@@ -93,6 +93,16 @@ def _upgrade_head(database_url: str) -> None:
 @contextmanager
 def migrated_head_database(name: str) -> Iterator[str]:
     """Create ``name`` empty, migrate it to ``head``, yield its URL, drop it."""
+    with migrated_database(name, "head") as url:
+        yield url
+
+
+@contextmanager
+def migrated_database(name: str, revision: str) -> Iterator[str]:
+    """Create ``name`` empty, migrate it to ``revision``, yield its URL, drop it.
+
+    For a migration's own tests, which seed rows at the revision before it and
+    then upgrade."""
     dev_url = get_settings().database_url
     url = _database_url(dev_url, name)
     if url == dev_url:
@@ -102,7 +112,7 @@ def migrated_head_database(name: str) -> Iterator[str]:
     asyncio.run(drop_database_if_exists(maintenance_dsn, name))
     asyncio.run(_create_database(maintenance_dsn, name))
     try:
-        _upgrade_head(url)
+        _upgrade(url, revision)
         yield url
     finally:
         asyncio.run(drop_database_if_exists(maintenance_dsn, name))

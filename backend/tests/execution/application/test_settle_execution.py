@@ -40,6 +40,8 @@ STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
 CLOSING_SIGNAL_ID = uuid4()
 CLIENT_ORDER_ID = "client-order-1"
+# The job's owner: the author of the strategy behind the attempt.
+OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000c0c0c")
 
 
 class FrozenClock:
@@ -104,11 +106,15 @@ def _fill(quantity: str, price: str, fill_id: str = "F-1") -> Fill:
 
 
 class FakeReservations:
+    """Records whose reservation each call was for (multi-user design AD8)."""
+
     def __init__(self) -> None:
         self.marks: list[tuple[UUID, str]] = []
+        self.users: list[UUID] = []
 
-    async def get_for_update(self, reservation_id: UUID) -> ReservationSnapshot:
-        return ReservationSnapshot(exchange="pionex", 
+    async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot:
+        self.users.append(user_id)
+        return ReservationSnapshot(exchange="pionex",
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
             signal_id=SIGNAL_ID,
@@ -119,7 +125,8 @@ class FakeReservations:
             expires_at=NOW,
         )
 
-    async def mark(self, reservation_id: UUID, status: str, at: datetime) -> None:
+    async def mark(self, user_id: UUID, reservation_id: UUID, status: str, at: datetime) -> None:
+        self.users.append(user_id)
         self.marks.append((reservation_id, status))
 
 
@@ -128,22 +135,27 @@ class FakeAttempts:
         self._attempt = attempt
         self.filled: list[tuple[UUID, str]] = []
         self.failed: list[tuple[UUID, str]] = []
+        # Whose attempt each call was for (multi-user design AD8).
+        self.users: list[UUID] = []
 
-    async def insert(self, attempt: ExecutionAttempt) -> None:  # pragma: no cover
+    async def insert(self, user_id: UUID, attempt: ExecutionAttempt) -> None:  # pragma: no cover
         raise NotImplementedError
 
-    async def get(self, attempt_id: UUID) -> ExecutionAttempt:
+    async def get(self, user_id: UUID, attempt_id: UUID) -> ExecutionAttempt:
+        self.users.append(user_id)
         return self._attempt
 
     async def mark_placed(  # pragma: no cover
-        self, attempt_id: UUID, exchange_order_id: str
+        self, user_id: UUID, attempt_id: UUID, exchange_order_id: str
     ) -> None:
         raise NotImplementedError
 
-    async def mark_filled(self, attempt_id: UUID, exchange_order_id: str) -> None:
+    async def mark_filled(self, user_id: UUID, attempt_id: UUID, exchange_order_id: str) -> None:
+        self.users.append(user_id)
         self.filled.append((attempt_id, exchange_order_id))
 
-    async def mark_failed(self, attempt_id: UUID, error: str) -> None:
+    async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None:
+        self.users.append(user_id)
         self.failed.append((attempt_id, error))
 
 
@@ -238,7 +250,7 @@ async def test_the_order_is_looked_up_by_the_client_order_id() -> None:
     exchange = FakeExchange(fills=[_fill("2", "50")])
     use_case, _, _, _, _ = _build(exchange)
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert exchange.queried == [CLIENT_ORDER_ID]
 
@@ -247,7 +259,7 @@ async def test_a_filled_order_reaches_the_ledger_and_goes_terminal() -> None:
     exchange = FakeExchange(fills=[_fill("2", "50")])
     use_case, reservations, attempts, ledger, _ = _build(exchange)
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "FILLED"
     assert len(ledger.records) == 1
@@ -258,12 +270,38 @@ async def test_a_filled_order_reaches_the_ledger_and_goes_terminal() -> None:
     assert reservations.marks == [(RESERVATION_ID, "FILLED")]
 
 
+async def test_the_reservation_read_and_marked_is_the_job_owners() -> None:
+    """Multi-user design AD8 (B.5): settling reads and marks the reservation as
+    the job owner's, on the FILLED path and on the never-placed release."""
+    filled, filled_reservations, _, _, _ = _build(FakeExchange(fills=[_fill("2", "50")]))
+    await filled.settle(OWNER, ATTEMPT_ID)
+
+    released, released_reservations, _, _, _ = _build(FakeExchange(raises=OrderNotFound("x")))
+    await released.settle(OWNER, ATTEMPT_ID)
+
+    assert filled_reservations.users == [OWNER, OWNER]
+    assert released_reservations.users == [OWNER, OWNER]
+
+
+async def test_the_attempt_read_and_marked_is_the_job_owners() -> None:
+    """Multi-user design AD8 (B.5): settling reads the attempt and marks it
+    filled, or failed when the venue never saw it, as the job owner's."""
+    filled, _, filled_attempts, _, _ = _build(FakeExchange(fills=[_fill("2", "50")]))
+    await filled.settle(OWNER, ATTEMPT_ID)
+
+    released, _, released_attempts, _, _ = _build(FakeExchange(raises=OrderNotFound("x")))
+    await released.settle(OWNER, ATTEMPT_ID)
+
+    assert filled_attempts.users == [OWNER, OWNER]  # get, mark_filled
+    assert released_attempts.users == [OWNER, OWNER]  # get, mark_failed
+
+
 async def test_every_ledger_row_carries_its_strategy_and_allocation() -> None:
     """CLAUDE.md rule 6: every fill records strategy_id and allocation_id."""
     exchange = FakeExchange(fills=[_fill("2", "50")])
     use_case, _, _, ledger, _ = _build(exchange)
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert ledger.records[0].strategy_id == STRATEGY_ID
     assert ledger.records[0].allocation_id == RESERVATION_ID
@@ -277,7 +315,7 @@ async def test_a_market_order_filled_in_pieces_becomes_one_row_per_fill() -> Non
     )
     use_case, _, _, ledger, _ = _build(exchange)
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.fills == 2
     assert [record.price for record in ledger.records] == [Decimal("50"), Decimal("51")]
@@ -290,7 +328,7 @@ async def test_the_usd_rate_is_resolved_once_for_the_whole_settlement() -> None:
     exchange = FakeExchange(fills=[_fill("1", "50", "F-1"), _fill("1", "51", "F-2")])
     use_case, _, _, _, usd_rate = _build(exchange)
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert usd_rate.calls == 1
 
@@ -301,7 +339,7 @@ async def test_an_order_the_exchange_never_saw_releases_the_reservation() -> Non
     exchange = FakeExchange(raises=OrderNotFound("no such client order id"))
     use_case, reservations, attempts, ledger, _ = _build(exchange)
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "NEVER_PLACED"
     assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
@@ -317,7 +355,7 @@ async def test_an_order_with_no_fills_yet_is_retried_not_released() -> None:
     use_case, reservations, _, ledger, _ = _build(exchange)
 
     with pytest.raises(NotSettledYet):
-        await use_case.settle(ATTEMPT_ID)
+        await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert reservations.marks == []
     assert ledger.records == []
@@ -332,7 +370,7 @@ async def test_an_already_resolved_attempt_is_left_alone() -> None:
         exchange, attempt=_attempt(ExecutionStatus.FAILED)
     )
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "ALREADY_SETTLED"
     assert exchange.queried == []
@@ -346,7 +384,7 @@ async def test_a_second_settlement_of_a_filled_attempt_records_nothing() -> None
         exchange, attempt=_attempt(ExecutionStatus.FILLED)
     )
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "ALREADY_SETTLED"
     assert ledger.records == []
@@ -359,7 +397,7 @@ async def test_a_settled_close_writes_its_fills_under_the_opening_allocation() -
     exchange = FakeExchange([_fill("0.00199960", "50010")])
     use_case, _, _, ledger, _ = _build(exchange, attempt=_closing_attempt())
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "FILLED"
     assert ledger.records[0].allocation_id == RESERVATION_ID
@@ -376,7 +414,7 @@ async def test_a_settled_close_does_not_re_mark_the_reservation() -> None:
         exchange, attempt=_closing_attempt()
     )
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert reservations.marks == []
     assert attempts.filled == [(ATTEMPT_ID, "EX-1")]
@@ -392,7 +430,7 @@ async def test_a_close_the_exchange_never_saw_releases_nothing() -> None:
         exchange, attempt=_closing_attempt()
     )
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "NEVER_PLACED"
     assert reservations.marks == []
@@ -414,7 +452,7 @@ async def test_a_filled_order_logs_exactly_one_info(
     exchange = FakeExchange(fills=[_fill("2", "50")])
     use_case, _, _, _, _ = _build(exchange)
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "FILLED"
 
@@ -433,7 +471,7 @@ async def test_a_never_placed_order_logs_exactly_one_warning(
     exchange = FakeExchange(raises=OrderNotFound("no such client order id"))
     use_case, _, _, _, _ = _build(exchange)
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "NEVER_PLACED"
 
@@ -459,7 +497,7 @@ async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> 
         FakeExchange(fills=[_fill("2", "50")]), outcomes=outcomes, log=log
     )
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert outcomes.open_filled == [SIGNAL_ID]
     assert outcomes.close_filled == []
@@ -480,7 +518,7 @@ async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one(
         log=log,
     )
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert outcomes.close_filled == [CLOSING_SIGNAL_ID]
     assert SIGNAL_ID not in outcomes.close_filled + outcomes.open_filled
@@ -498,7 +536,7 @@ async def test_a_filled_close_with_no_linked_signal_records_nothing() -> None:
         outcomes=outcomes,
     )
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "FILLED"
     assert len(ledger.records) == 1
@@ -519,7 +557,7 @@ async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commi
         log=log,
     )
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
     [(signal_id, detail)] = outcomes.never_placed
@@ -540,7 +578,7 @@ async def test_a_never_placed_close_ends_the_closing_signal_rejected() -> None:
         log=log,
     )
 
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
     [(signal_id, detail)] = outcomes.never_placed
@@ -557,7 +595,7 @@ async def test_a_never_placed_close_with_no_linked_signal_records_nothing() -> N
         outcomes=outcomes,
     )
 
-    result = await use_case.settle(ATTEMPT_ID)
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert result.status == "NEVER_PLACED"
     assert attempts.failed[0][0] == ATTEMPT_ID
@@ -570,7 +608,7 @@ async def test_settle_writes_no_outcome_when_it_has_not_decided_anything() -> No
     retry = RecordingSettleOutcomes()
     use_case, _, _, _, _ = _build(FakeExchange(fills=[]), outcomes=retry)
     with pytest.raises(NotSettledYet):
-        await use_case.settle(ATTEMPT_ID)
+        await use_case.settle(OWNER, ATTEMPT_ID)
 
     settled = RecordingSettleOutcomes()
     use_case, _, _, _, _ = _build(
@@ -578,6 +616,6 @@ async def test_settle_writes_no_outcome_when_it_has_not_decided_anything() -> No
         attempt=_attempt(ExecutionStatus.FILLED),
         outcomes=settled,
     )
-    await use_case.settle(ATTEMPT_ID)
+    await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert retry.nothing and settled.nothing

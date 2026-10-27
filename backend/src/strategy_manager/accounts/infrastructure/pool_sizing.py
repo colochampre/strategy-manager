@@ -2,7 +2,7 @@
 read for the share preview (design.md, unit 12f addendum, section H).
 
 **One SELECT, and it is read-only.** The ``capital_pools`` row is OUTER-joined to its
-``pool_balance_snapshots`` row on the three-part key, for the reason
+``pool_balance_snapshots`` row on the pool's id, for the reason
 ``SqlAlchemyPoolOverview`` gives: a pool nothing has synced is the worst-off one, and
 an inner join would make it vanish and read like a pool that does not exist. That
 case is told apart on purpose: no ``capital_pools`` row answers ``None``, a pool with
@@ -16,11 +16,16 @@ applies, strictly (``now - observed_at > max_age``). Unlike the worker's balance
 reader, nothing here raises on a stale snapshot: a display must show it and say so.
 
 No lock, no write, no exchange and no credential: the API process decrypts nothing.
+
+**The pool is ``user_id``'s** (multi-user design AD8): the snapshot is joined on
+``pool_id`` (migration ``0030``) and the pool filtered by its owner, so another
+user's pool or snapshot on the same market is never the answer.
 """
 
 from datetime import timedelta
+from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import (
@@ -40,22 +45,22 @@ class SqlAlchemyPoolSizing:
         self._max_age = timedelta(seconds=snapshot_max_age_seconds)
 
     async def read(
-        self, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
     ) -> PoolSizing | None:
         row = (
             await self._session.execute(
-                select(CapitalPoolRow.min_order_size, PoolBalanceSnapshotRow)
+                select(
+                    CapitalPoolRow.min_order_size,
+                    PoolBalanceSnapshotRow.total,
+                    PoolBalanceSnapshotRow.observed_at,
+                )
                 .select_from(CapitalPoolRow)
                 .outerjoin(
                     PoolBalanceSnapshotRow,
-                    and_(
-                        CapitalPoolRow.exchange == PoolBalanceSnapshotRow.exchange,
-                        CapitalPoolRow.venue == PoolBalanceSnapshotRow.venue,
-                        CapitalPoolRow.settlement_currency
-                        == PoolBalanceSnapshotRow.settlement_currency,
-                    ),
+                    PoolBalanceSnapshotRow.pool_id == CapitalPoolRow.id,
                 )
                 .where(
+                    CapitalPoolRow.user_id == user_id,
                     CapitalPoolRow.exchange == exchange,
                     CapitalPoolRow.venue == venue,
                     CapitalPoolRow.settlement_currency == settlement_currency,
@@ -65,14 +70,14 @@ class SqlAlchemyPoolSizing:
         if row is None:
             return None
 
-        minimum, snapshot = row
-        if snapshot is None:
+        minimum, total, observed_at = row
+        if observed_at is None:
             return PoolSizing(min_order_size=minimum, snapshot=None)
         return PoolSizing(
             min_order_size=minimum,
             snapshot=SizingSnapshot(
-                total=snapshot.total,
-                observed_at=snapshot.observed_at,
-                stale=self._clock.now() - snapshot.observed_at > self._max_age,
+                total=total,
+                observed_at=observed_at,
+                stale=self._clock.now() - observed_at > self._max_age,
             ),
         )

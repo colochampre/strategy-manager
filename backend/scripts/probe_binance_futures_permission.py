@@ -34,7 +34,7 @@ never touches disk or shell history (values are never echoed):
         BINANCE_PROBE_API_KEY="$BINANCE_PROBE_API_KEY" \\
         BINANCE_PROBE_API_SECRET="$BINANCE_PROBE_API_SECRET" \\
         /opt/strategy-manager/.local/bin/uv run python \\
-        scripts/probe_binance_futures_permission.py
+        scripts/probe_binance_futures_permission.py --user-email <e-mail>
     unset BINANCE_PROBE_API_KEY BINANCE_PROBE_API_SECRET
 
 Afterwards, DELETE the temporary key on Binance.
@@ -42,6 +42,7 @@ Afterwards, DELETE the temporary key on Binance.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import io
 import os
@@ -51,7 +52,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from probe_credentials import vault_credentials
+from probe_credentials import add_user_email_argument, vault_credentials
 
 from strategy_manager.accounts.infrastructure.credential_vault import CredentialNotFound
 from strategy_manager.shared.config import get_settings
@@ -272,10 +273,14 @@ async def run_probe(
     return 0
 
 
-async def _main() -> int:
+async def _main(user_email: str) -> int:
+    """The vault key is the one of the user ``user_email`` names (multi-user
+    design AD8)."""
     settings = get_settings()
     try:
-        async with vault_credentials(settings, BINANCE_EXCHANGE) as vaulted:
+        async with vault_credentials(
+            settings, BINANCE_EXCHANGE, user_email=user_email
+        ) as vaulted:
             specs = load_probe_specs(vaulted.api_key, vaulted.api_secret, os.environ)
             return await run_probe(
                 specs,
@@ -288,7 +293,10 @@ async def _main() -> int:
 
 
 def main() -> int:
-    return asyncio.run(_main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_user_email_argument(parser)
+    args = parser.parse_args()
+    return asyncio.run(_main(args.user_email))
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ from strategy_manager.performance.infrastructure.open_position_facts_source impo
     SqlAlchemyOpenPositionFactsSource,
 )
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from tests.owner import OWNER_ID, seed_other_user
 from tests.performance.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -94,6 +95,7 @@ async def _seed_opening_attempt(
     order_id: str | None = None,
     symbol: str = "STXUSDT.P",
     attempt_pool: PoolKey = BYBIT,
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     """A reservation of ``strategy_id`` (in the bybit pool) with its own opening
     attempt, written in ``attempt_pool`` (which differs from the reservation's in
@@ -103,7 +105,11 @@ async def _seed_opening_attempt(
         factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"k-{signal_id}"
     )
     await seed_reservation(
-        factory, reservation_id=reservation_id, strategy_id=strategy_id, signal_id=signal_id
+        factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        user_id=user_id,
     )
     await seed_execution_attempt(
         factory,
@@ -211,7 +217,9 @@ async def test_the_fills_are_grouped_by_strategy_pool_symbol_side_and_upper_case
     pg_session_factory: async_sessionmaker[AsyncSession], ledger: FactsLedger
 ) -> None:
     async with pg_session_factory() as session:
-        facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts([ledger.x])
+        facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
+            OWNER_ID, [ledger.x]
+        )
 
     assert set(facts) == {ledger.x}
     first = T0
@@ -244,7 +252,7 @@ async def test_the_reservation_part_is_the_grant_the_status_the_pool_and_the_ope
 ) -> None:
     async with pg_session_factory() as session:
         facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
-            [ledger.x, ledger.y]
+            OWNER_ID, [ledger.x, ledger.y]
         )
 
     x, y = facts[ledger.x], facts[ledger.y]
@@ -268,8 +276,8 @@ async def test_an_allocation_that_was_not_asked_for_is_absent(
 ) -> None:
     async with pg_session_factory() as session:
         source = SqlAlchemyOpenPositionFactsSource(session)
-        facts = await source.position_facts([ledger.y])
-        unknown = await source.position_facts([uuid4()])
+        facts = await source.position_facts(OWNER_ID, [ledger.y])
+        unknown = await source.position_facts(OWNER_ID, [uuid4()])
 
     assert set(facts) == {ledger.y}
     assert unknown == {}
@@ -283,9 +291,9 @@ async def test_the_fills_and_the_reservation_are_two_statements_whatever_the_ids
     async with pg_session_factory() as session:
         source = SqlAlchemyOpenPositionFactsSource(session)
         with _captured_sql(pg_engine) as one:
-            await source.position_facts([ledger.x])
+            await source.position_facts(OWNER_ID, [ledger.x])
         with _captured_sql(pg_engine) as three:
-            await source.position_facts([ledger.x, ledger.y, ledger.z])
+            await source.position_facts(OWNER_ID, [ledger.x, ledger.y, ledger.z])
 
     assert (len(one), len(three)) == (2, 2)
 
@@ -294,7 +302,7 @@ async def test_every_submitted_attempt_is_read_whatever_its_parents(
     pg_session_factory: async_sessionmaker[AsyncSession], ledger: FactsLedger
 ) -> None:
     async with pg_session_factory() as session:
-        rows = await SqlAlchemyOpenPositionFactsSource(session).submitted_orders()
+        rows = await SqlAlchemyOpenPositionFactsSource(session).submitted_orders(OWNER_ID)
 
     by_attempt = {row.attempt_id: row for row in rows}
     assert len(rows) == len(by_attempt), "an attempt was read twice"
@@ -337,9 +345,49 @@ async def test_the_submitted_orders_are_one_statement(
     async with pg_session_factory() as session:
         source = SqlAlchemyOpenPositionFactsSource(session)
         with _captured_sql(pg_engine) as statements:
-            await source.submitted_orders()
+            await source.submitted_orders(OWNER_ID)
 
     assert len(statements) == 1
+
+
+async def test_a_second_users_facts_and_submitted_orders_on_the_same_strategy_are_not_read(
+    pg_session_factory: async_sessionmaker[AsyncSession], ledger: FactsLedger
+) -> None:
+    """Multi-user design AD8: another user holds an allocation of the SAME
+    strategy on the same market, with a fill (venue spelling) and a submitted
+    attempt. The owner's reads neither see them nor lose their own; the other
+    user's reads see only theirs."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    _, theirs, their_attempt = await _seed_allocation(
+        pg_session_factory, strategy_id=ledger.strategy_a, user_id=other
+    )
+    await _record(
+        pg_session_factory,
+        _fill(
+            strategy_id=ledger.strategy_a, allocation_id=theirs, attempt_id=their_attempt,
+            side="BUY", quantity="4", symbol="STXUSDT", user_id=other,
+        ),
+    )
+    their_submitted = await _seed_opening_attempt(
+        pg_session_factory, ledger.strategy_a, order_id="ORD-OTHER", user_id=other
+    )
+
+    async with pg_session_factory() as session:
+        source = SqlAlchemyOpenPositionFactsSource(session)
+        owner_facts = await source.position_facts(OWNER_ID, [ledger.x, theirs])
+        other_facts = await source.position_facts(other, [ledger.x, theirs])
+        owner_orders = await source.submitted_orders(OWNER_ID)
+        other_orders = await source.submitted_orders(other)
+
+    assert set(owner_facts) == {ledger.x}
+    assert set(other_facts) == {theirs}
+    assert {g.symbol for g in other_facts[theirs].groups} == {"STXUSDT"}
+    assert their_submitted not in {row.attempt_id for row in owner_orders}
+    assert ledger.open_live in {row.attempt_id for row in owner_orders}
+    # ``_seed_allocation`` also left the other user's own SUBMITTED opening attempt.
+    assert {row.attempt_id for row in other_orders} == {their_submitted, their_attempt}
 
 
 async def test_the_fills_statement_does_not_test_the_rehearsal_prefix(
@@ -350,7 +398,9 @@ async def test_the_fills_statement_does_not_test_the_rehearsal_prefix(
     """The origin of a position is the guard's alone (design section C)."""
     async with pg_session_factory() as session:
         with _captured_sql(pg_engine) as statements:
-            await SqlAlchemyOpenPositionFactsSource(session).position_facts([ledger.x])
+            await SqlAlchemyOpenPositionFactsSource(session).position_facts(
+                OWNER_ID, [ledger.x]
+            )
 
     for statement in statements:
         assert REHEARSAL_FILL_ID_PREFIX not in statement

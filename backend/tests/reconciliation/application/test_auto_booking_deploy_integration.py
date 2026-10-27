@@ -32,6 +32,7 @@ from strategy_manager.reconciliation.application.auto_book_pending import AUTO_B
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
+from tests.owner import OWNER_ID
 from tests.reconciliation.application.auto_booking_support import (
     NOW,
     FakeVenueFillReader,
@@ -190,7 +191,7 @@ async def test_a_historical_rejection_keeps_suppressing_and_reaches_the_owner_af
     rejected = await insert_pending_proposal(session_factory, scenario)
     async with session_factory() as session:
         changed = await SqlAlchemyBookingProposalRepository(session).mark_state(
-            rejected.id, "REJECTED", NOW, decided_by="owner", decision_reason="by hand"
+            OWNER_ID, rejected.id, "REJECTED", NOW, decided_by="owner", decision_reason="by hand"
         )
         await session.commit()
     assert changed is True

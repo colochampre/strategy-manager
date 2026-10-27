@@ -69,7 +69,10 @@ def test_the_bybit_fill_reader_uses_the_vault_credential() -> None:
     body = body[: body.index("async def handle_jobs_purge")]
 
     assert "SqlAlchemyCredentialVault" in body
-    assert "BybitVenueFillReader(" in body
+    # Per user (AD10): the handler hands the vault to the per-user helper, which
+    # builds the reader.
+    assert "_user_fill_readers(" in body
+    assert "BybitVenueFillReader(" in inspect.getsource(main._user_fill_readers)
 
 
 def test_binance_booking_prepare_signs_with_vault_key_not_settings() -> None:
@@ -83,16 +86,20 @@ def test_binance_booking_prepare_signs_with_vault_key_not_settings() -> None:
     body = source[source.index("async def handle_reconciliation_prepare_booking") :]
     body = body[: body.index("async def handle_jobs_purge")]
 
-    assert "BinanceVenueFillReader(" in body
+    helper = inspect.getsource(main._user_fill_readers)
+    assert "BinanceVenueFillReader(" in helper
     assert "binance_credentials_from_settings" not in body
+    assert "binance_credentials_from_settings" not in helper
     # One shared ``SqlAlchemyCredentialVault(...)`` construction serves both
     # venues (PR 3 unit 1b work unit 2's per-job active-key check needs the
     # SAME vault instance both branches load from) -- so the proof that both
     # actually load through it is each exchange's own ``vault.load(...)``
     # call, not a count of constructions.
+    # Since multi-user design AD9 a load names its user too: each discrepancy's
+    # own user (reconciliation per user's pool, AD10).
     assert "SqlAlchemyCredentialVault(" in body
-    assert "vault.load(BYBIT_EXCHANGE)" in body
-    assert "vault.load(BINANCE_EXCHANGE)" in body
+    assert "vault.load(user_id, BYBIT_EXCHANGE)" in helper
+    assert "vault.load(user_id, BINANCE_EXCHANGE)" in helper
 
 
 # --- PR 15, cd.1.22: the worker books what it prepares (owner decision 66 Q1) --
@@ -179,7 +186,8 @@ def test_binance_balance_refresh_signs_with_vault_key() -> None:
     assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
+    # The job owner's key (AD8): ``owner`` is the strategy author.
+    assert "vault.load(owner, BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_venue_position_signs_with_vault_key() -> None:
@@ -196,34 +204,42 @@ def test_binance_venue_position_signs_with_vault_key() -> None:
     assert "SqlAlchemyCredentialVault(" in body
     reader_body = body[body.index("async def binance_position_reader()") :]
     assert "binance_credentials_from_settings" not in reader_body
-    assert "vault.load(BINANCE_EXCHANGE)" in reader_body
+    assert "vault.load(owner, BINANCE_EXCHANGE)" in reader_body
 
 
 def test_binance_balance_sync_signs_with_vault_key() -> None:
-    """``handle_balance_sync``'s Binance branch (site ``main.py:960``)."""
+    """``handle_balance_sync``'s Binance branch. Since multi-user design AD9
+    every pair, Binance's included, is read through ``_open_balance_reader``
+    with that pair's user's vault key."""
     from strategy_manager import main
 
     source = inspect.getsource(main.build_worker_runner)
     body = source[source.index("async def handle_balance_sync") :]
     body = body[: body.index("async def handle_reservation_sweep")]
+    opener = source[source.index("async def _open_balance_reader") :]
+    opener = opener[: opener.index("async def exchange_for")]
 
     assert "SqlAlchemyCredentialVault(" in body
-    assert "if binance_pools and BINANCE_EXCHANGE in active:" in body
-    binance_block = body[body.index("if binance_pools and BINANCE_EXCHANGE in active:") :]
-    assert "binance_credentials_from_settings" not in binance_block
-    assert "vault.load(BINANCE_EXCHANGE)" in binance_block
+    assert "for exchange in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):" in body
+    assert "_open_balance_reader(" in body
+    assert "binance_credentials_from_settings" not in opener
+    assert "vault.load(user_id, exchange)" in opener
+    assert "binance_read_only_client(" in opener
 
 
 def test_binance_reconciliation_scan_signs_with_vault_key() -> None:
-    """``handle_reconciliation_scan``'s Binance branch (site ``main.py:1039``)."""
+    """``handle_reconciliation_scan``'s Binance reader: since multi-user design
+    AD10 it is built per user by ``_user_position_readers``, with that user's
+    own vault key."""
     from strategy_manager import main
 
     source = inspect.getsource(main.build_worker_runner)
     body = source[source.index("async def handle_reconciliation_scan") :]
     body = body[: body.index("async def handle_reconciliation_prepare_booking")]
+    helper = inspect.getsource(main._user_position_readers)
 
     assert "SqlAlchemyCredentialVault(" in body
-    assert "if binance_pools:" in body
-    binance_block = body[body.index("if binance_pools:") :]
-    assert "binance_credentials_from_settings" not in binance_block
-    assert "vault.load(BINANCE_EXCHANGE)" in binance_block
+    assert "_user_position_readers(" in body
+    assert "binance_credentials_from_settings" not in helper
+    assert "vault.load(user_id, BINANCE_EXCHANGE)" in helper
+    assert "binance_read_only_client(" in helper

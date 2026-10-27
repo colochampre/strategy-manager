@@ -12,12 +12,14 @@ from strategy_manager.signals.domain.outcome import SignalOutcome
 class FakeTradeCapability:
     """Answers ``answer`` for every exchange and records which exchanges it
     was asked about, so a test can prove the handler consulted it (or, for a
-    close, never did)."""
+    close, never did), and whose key (``users``)."""
 
     answer: TradeCapability = TradeCapability.TRADE_CAPABLE
     asked: list[str] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
 
-    async def capability(self, exchange: str) -> TradeCapability:
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
+        self.users.append(user_id)
         self.asked.append(exchange)
         return self.answer
 

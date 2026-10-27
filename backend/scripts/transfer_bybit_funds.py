@@ -43,7 +43,7 @@ import sys
 from decimal import Decimal
 from uuid import uuid4
 
-from probe_credentials import announce, vault_credentials
+from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.infrastructure.bybit import EXCHANGE
@@ -120,6 +120,7 @@ async def main() -> int:
         action="store_true",
         help="actually move the money. Without it this only previews.",
     )
+    add_user_email_argument(parser)
     args = parser.parse_args()
     amount: Decimal = args.amount
 
@@ -139,7 +140,7 @@ async def main() -> int:
     print(f"Moving {amount} {COIN}: {FROM_ACCOUNT} -> {TO_ACCOUNT}")
     print("Nothing leaves the exchange. This key cannot withdraw.\n")
 
-    async with vault_credentials(settings, EXCHANGE) as vaulted:
+    async with vault_credentials(settings, EXCHANGE, user_email=args.user_email) as vaulted:
         credentials = BybitCredentials(
             api_key=vaulted.api_key, api_secret=vaulted.api_secret
         )

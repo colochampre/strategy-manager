@@ -69,7 +69,9 @@ These exist because this system moves real money.
    does the rest.
 4. **Allocation is a transaction, not a calculation.** Availability read,
    allocation decision and reservation write happen inside one transaction,
-   serialized with `pg_advisory_xact_lock` keyed by `(venue, settlement_currency)`.
+   serialized with `pg_advisory_xact_lock` keyed by one user's pool:
+   `(exchange:venue, settlement_currency:user_id)`, folded by `LockKey`. Two
+   users on one market never share a lock.
 5. **Capital pools are per settlement currency.** There is no single "account
    capital" number. How many pools that produces is a property of the VENUE,
    not of this rule:
@@ -333,6 +335,9 @@ resume work.
   Measurements is off: it adds a script to every proxied page, and the page's
   CSP refuses any script that is not the build's (seen 2026-10-11). E-mail
   address obfuscation is off too, as a precaution that was not tested.
+  `www.strategymanager.trade` never reaches the VPS. It is a proxied `AAAA
+  100::` record, and a Redirect Rule (template "Redirect from WWW to root")
+  sends it with a 301 to the apex, keeping the path and the query (2026-10-26).
 - After every merge and deploy, update the delivery log in the active change's
   `tasks.md`.
 

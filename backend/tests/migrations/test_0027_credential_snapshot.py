@@ -112,7 +112,7 @@ def database_url() -> Iterator[str]:
 
     asyncio.run(drop_database_if_exists(maintenance_dsn, _DB_NAME))
     asyncio.run(_create_database(maintenance_dsn, _DB_NAME))
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
 
     yield url
 
@@ -353,7 +353,7 @@ def test_backfill_every_existing_row_trade_capable_true_both_sources_unrecorded_
             await engine.dispose()
 
     asyncio.run(seed())
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
     rows = asyncio.run(read())
 
     assert len(rows) == 5
@@ -569,7 +569,7 @@ def test_downgrade_succeeds_on_a_pure_backfill_shape(
         await _insert_legacy(connection, exchange="bybit", is_active=True, last4="abcd")
 
     _run_sql(url, seed)
-    _run_alembic_ok(url, "upgrade", "head")
+    _run_alembic_ok(url, "upgrade", "0029")
     columns_before = _run_sql(url, _new_column_count)
     assert columns_before == len(_NEW_COLUMNS)
 
@@ -585,7 +585,7 @@ def test_downgrade_succeeds_on_a_pure_backfill_shape(
 def test_downgrade_refuses_while_any_row_is_not_the_backfill_shape_naming_each_count(
     throwaway_db_factory: Callable[[str, str], str],
 ) -> None:
-    url = throwaway_db_factory("recorded", "head")
+    url = throwaway_db_factory("recorded", "0029")
 
     async def seed(connection: AsyncConnection) -> None:
         # A VERIFIED read-only Bybit key with a recorded internal_transfer.
@@ -629,7 +629,7 @@ def test_downgrade_refuses_for_a_recorded_internal_transfer_alone(
     """``internal_transfer`` is the one recorded fact no CHECK ties to a source,
     so a row can be legacy in every other respect and still hold it. Dropping
     the column would discard it."""
-    url = throwaway_db_factory("transfer", "head")
+    url = throwaway_db_factory("transfer", "0029")
 
     async def seed(connection: AsyncConnection) -> None:
         await _insert(connection, _LEGACY, internal_transfer=True)

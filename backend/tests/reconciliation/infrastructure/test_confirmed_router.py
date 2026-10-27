@@ -43,6 +43,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.owner import OWNER_EMAIL, OWNER_ID, ensure_pool, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
     seed_signal,
@@ -74,6 +75,8 @@ _DISCREPANCY_KEYS = {
     "allocations",
     "confirmed_at",
     "last_observed_at",
+    # B.8 / AD10: whose discrepancy it is, beside it.
+    "user_email",
 }
 _BOOKING_KEYS = {
     "proposal_id",
@@ -133,9 +136,11 @@ async def _discrepancy(
     confirmed_ago: timedelta = timedelta(hours=1),
     venue_net_base: Decimal = Decimal("0"),
     ledger_net_base: Decimal = Decimal("0.5"),
+    user_id: UUID = OWNER_ID,
 ) -> UUID:
     async with factory() as session:
         await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            user_id,
             POOL,
             symbol,
             Observation(kind, venue_net_base, ledger_net_base),
@@ -150,7 +155,7 @@ async def _discrepancy(
         records = await SqlAlchemyDiscrepancyRepository(session).list_discrepancies(
             open_only=True
         )
-    return next(r.id for r in records if r.symbol == symbol)
+    return next(r.id for r in records if r.symbol == symbol and r.user_id == user_id)
 
 
 async def _strategy_and_allocation(
@@ -195,6 +200,7 @@ async def _approved_proposal(
         repo = SqlAlchemyBookingProposalRepository(session)
         record = await repo.insert(
             NewBookingProposal(
+                user_id=OWNER_ID,
                 discrepancy_id=discrepancy_id,
                 exchange=POOL[0],
                 venue=POOL[1],
@@ -216,7 +222,7 @@ async def _approved_proposal(
         )
         assert record is not None
         assert await repo.mark_state(
-            record.id, "APPROVED", datetime.now(UTC), decided_by=decided_by
+            OWNER_ID, record.id, "APPROVED", datetime.now(UTC), decided_by=decided_by
         )
         await session.commit()
     return record.id
@@ -382,6 +388,7 @@ async def test_a_resolved_or_observed_discrepancy_is_in_no_list(
 ) -> None:
     async with pg_session_factory() as session:
         await SqlAlchemyDiscrepancyRepository(session).upsert_open(
+            OWNER_ID,
             POOL,
             "GGGUSDT",
             Observation(DiscrepancyKind.NO_MATCHING_ALLOCATION, Decimal("1"), Decimal("0")),
@@ -443,7 +450,8 @@ async def test_the_statement_count_is_the_same_for_one_and_for_twenty_open_discr
 
     assert len(body_one["booked"]) == 1
     assert len(body_twenty["needs_owner"]) == 19
-    assert one == twenty == 3
+    # The fourth is the users' e-mails (B.8), one query for every item.
+    assert one == twenty == 4
 
 
 _TABLES = text(
@@ -501,6 +509,33 @@ async def test_the_call_changes_no_table(
     assert await _snapshot(pg_session_factory) == before
 
 
+async def test_each_confirmed_discrepancy_names_the_e_mail_of_its_user(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """B.8 / B.10 (AD10): the panel reads this route, so it is here that the
+    admin learns whose discrepancy each one is. Two users hold one on the SAME
+    market and symbol; each item names its own user's e-mail."""
+    async with pg_session_factory() as session:
+        other_id = await seed_other_user(session)
+        await ensure_pool(session, POOL, user_id=other_id)
+        other_email = (
+            await session.execute(
+                text("SELECT email FROM users WHERE id = :id"), {"id": other_id}
+            )
+        ).scalar_one()
+        await session.commit()
+    mine = await _discrepancy(pg_session_factory, symbol="MMMUSDT")
+    theirs = await _discrepancy(pg_session_factory, symbol="MMMUSDT", user_id=other_id)
+
+    response = await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 200
+    emails = {
+        item["discrepancy_id"]: item.get("user_email") for item in response.json()["needs_owner"]
+    }
+    assert emails == {str(mine): OWNER_EMAIL, str(theirs): other_email}
+
+
 async def test_the_discrepancies_route_answers_as_before(
     client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -528,5 +563,7 @@ async def test_the_discrepancies_route_answers_as_before(
         "last_observed_at",
         "confirmed_at",
         "resolved_at",
+        # B.8: whose row it is, beside the row.
+        "user_email",
     }
     assert row["symbol"] == "KKKUSDT"

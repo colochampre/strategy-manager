@@ -18,10 +18,18 @@ So two rules, both enforced here rather than remembered:
 2. Every probe prints which key it is running as, before it does anything.
    The last four characters are the most that may ever be rendered
    (CLAUDE.md rule 8), and they are enough to tell two keys apart.
+
+A key belongs to a user (multi-user design AD8), so every vault probe takes a
+required ``--user-email`` and signs with THAT user's key, never another's. An
+e-mail nobody is registered with is refused before any key is opened.
 """
 
+import argparse
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+from credential_cli import user_id_by_email
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
@@ -37,9 +45,31 @@ from strategy_manager.shared.infrastructure.pionex.factory import (
 from strategy_manager.shared.infrastructure.pionex.signer import PionexCredentials
 
 
+def add_user_email_argument(parser: argparse.ArgumentParser) -> None:
+    """The required ``--user-email`` every vault probe takes: whose key it
+    signs as (multi-user design AD8)."""
+    parser.add_argument(
+        "--user-email",
+        required=True,
+        help="the e-mail of the user whose vault key this probe signs as",
+    )
+
+
+def unknown_user_refusal(email: str) -> str:
+    return (
+        f"no user is registered with the e-mail {email!r}; a probe signs as a "
+        "user's key, so name one who has signed in to the panel once. "
+        "Nothing was sent."
+    )
+
+
 @asynccontextmanager
 async def vault_credentials(
-    settings: Settings, exchange: str = PIONEX_EXCHANGE
+    settings: Settings,
+    exchange: str = PIONEX_EXCHANGE,
+    *,
+    user_email: str,
+    sessions: async_sessionmaker[AsyncSession] = session_factory,
 ) -> AsyncIterator[PionexCredentials]:
     """The credential the worker signs with, decrypted for the length of this
     context and no longer (CLAUDE.md rule 8).
@@ -54,12 +84,19 @@ async def vault_credentials(
     honest rather than sloppy: it is a redacting key/secret pair and nothing
     about it is Pionex-specific. Callers that need a venue's own credential
     type construct it from these two fields.
+
+    ``user_email`` names whose key it is; an unknown one ends the run with a
+    ``SystemExit`` that carries the reason, before anything is decrypted.
+    ``sessions`` is injectable for the tests, which run on their own database.
     """
     cipher = EnvelopeCipher.from_base64(settings.master_encryption_key)
-    async with session_factory() as session:
+    async with sessions() as session:
+        user_id = await user_id_by_email(session, user_email)
+        if user_id is None:
+            raise SystemExit(unknown_user_refusal(user_email))
         credential = await SqlAlchemyCredentialVault(
             session, cipher, SystemClock()
-        ).load(exchange)
+        ).load(user_id, exchange)
         yield PionexCredentials(
             api_key=credential.api_key, api_secret=credential.api_secret
         )

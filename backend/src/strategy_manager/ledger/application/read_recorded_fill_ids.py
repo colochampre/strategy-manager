@@ -10,6 +10,7 @@ here.
 """
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from strategy_manager.ledger.application.ports import RecordedFillIdsReaderPort
 
@@ -21,6 +22,6 @@ class ReadRecordedFillIds:
         self._reader = reader
 
     async def recorded_fill_ids(
-        self, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
+        self, user_id: UUID, exchange: str, venue: str, exchange_fill_ids: Sequence[str]
     ) -> frozenset[str]:
-        return await self._reader.recorded_fill_ids(exchange, venue, exchange_fill_ids)
+        return await self._reader.recorded_fill_ids(user_id, exchange, venue, exchange_fill_ids)

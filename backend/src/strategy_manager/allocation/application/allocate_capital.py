@@ -116,11 +116,16 @@ class AllocateCapital:
         self._pool_status = pool_status
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
-        existing = await self._reservations.find_by_signal_id(command.signal_id)
+        # The policy is read first because it names the strategy's AUTHOR, whose
+        # reservations these are (multi-user design AD8, B.5): the resume below
+        # looks only among that user's. It is a plain read and takes no lock.
+        policy = await self._strategy_policy.policy_for(command.strategy_id)
+
+        existing = await self._reservations.find_by_signal_id(
+            policy.author_id, command.signal_id
+        )
         if existing is not None:
             return self._resume(existing, command)
-
-        policy = await self._strategy_policy.policy_for(command.strategy_id)
 
         if not policy.enabled:
             # 2f.1 (orchestrator's outcome map, finding 8): the ONLY record
@@ -166,7 +171,7 @@ class AllocateCapital:
 
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
-        await self._lock.acquire(LockKey.from_pool_key(pool_key))
+        await self._lock.acquire(LockKey.from_pool_key(policy.author_id, pool_key))
 
         # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
         # re-reads the policy inside the lock"): the pre-lock read above can
@@ -210,8 +215,11 @@ class AllocateCapital:
         # held. It MUST follow ``acquire``: a read before the wait would see the
         # pool enabled. A plain read, never ``FOR UPDATE`` -- ``DeleteCredential``
         # updates this row, and a waiting allocation must not hold a lock it needs.
+        # The pool is the strategy's AUTHOR's (B.5): until subscriptions exist,
+        # a signal is allocated in its author's pool, never another user's pool
+        # on the same market.
         if await self._pool_status.is_disabled(
-            policy.exchange, policy.venue, policy.settlement_currency
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
         ):
             detail = (
                 f"in-lock re-check skips signal {command.signal_id} for strategy "
@@ -233,7 +241,7 @@ class AllocateCapital:
 
         try:
             pool_balance = await self._pool_balance.read(
-                policy.exchange, policy.venue, policy.settlement_currency
+                policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
             )
         except DomainError as exc:
             raise UnknownPoolError(
@@ -242,7 +250,7 @@ class AllocateCapital:
 
         now = self._clock.now()
         reserved_active = await self._reservations.sum_active(
-            policy.exchange, policy.venue, policy.settlement_currency, now
+            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency, now
         )
         pool = CapitalPool(
             key=pool_key, balance=pool_balance.available, reserved_active=reserved_active
@@ -258,7 +266,10 @@ class AllocateCapital:
             pool_total_at_open = self._pool_total_to_record(
                 pool_balance.total, command.signal_id, command.strategy_id
             )
+            # The author's reservation, in the author's pool (B.5): the same
+            # user whose balance and reservations the decision was made from.
             await self._reservations.insert(
+                policy.author_id,
                 Reservation(
                     id=reservation_id,
                     strategy_id=command.strategy_id,

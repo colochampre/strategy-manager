@@ -45,7 +45,6 @@ from strategy_manager.accounts.infrastructure.db_balance_source import (
     DbBalanceSnapshotAge,
     DbBalanceSource,
 )
-from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.domain.pool_key import PoolKey as AllocationPoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
@@ -91,6 +90,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
+from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
 
@@ -194,6 +194,7 @@ class NeverCalledCloseOrphans:
         symbol: str,
         holdings: object,
         *,
+        user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
         raise AssertionError(
@@ -265,7 +266,9 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     )
     async with pg_session_factory() as session:
         reservations = SqlAlchemyReservationRepository(session)
+        await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
         await reservations.insert(
+            OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
@@ -284,6 +287,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     async with pg_session_factory() as session:
         attempts = SqlAlchemyExecutionAttemptRepository(session)
         await attempts.insert(
+            OWNER_ID,
             ExecutionAttempt(
                 id=opening_attempt_id,
                 reservation_id=allocation_id,
@@ -299,12 +303,13 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 status=ExecutionStatus.FILLED,
                 origin=ExecutionOrigin.SYSTEM,
                 client_order_id=f"opening-{opening_attempt_id}",
-            )
+            ),
         )
         await session.commit()
     async with pg_session_factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
             FillRecord(
+                user_id=OWNER_ID,
                 strategy_id=strategy_id,
                 allocation_id=allocation_id,
                 execution_attempt_id=opening_attempt_id,
@@ -329,15 +334,12 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     # ---- a stale, deliberately WRONG snapshot -- proves the on-demand
     # refresh (S3) overwrites it rather than the open reading it directly ----
     async with pg_session_factory() as session:
-        await session.execute(
-            insert(PoolBalanceSnapshotRow).values(
-                exchange="bybit",
-                venue="usdt-m",
-                settlement_currency="USDT",
-                total=BEFORE_REVEAL_BALANCE,
-                available=BEFORE_REVEAL_BALANCE,
-                observed_at=START - timedelta(hours=1),
-            )
+        await seed_snapshot(
+            session,
+            POOL,
+            total=BEFORE_REVEAL_BALANCE,
+            available=BEFORE_REVEAL_BALANCE,
+            observed_at=START - timedelta(hours=1),
         )
         await session.commit()
 
@@ -367,6 +369,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         )
         close_result = await close_position.close(
             CloseCommand(
+                user_id=OWNER_ID,
                 allocation_id=allocation_id,
                 strategy_id=strategy_id,
                 exchange="bybit",
@@ -382,7 +385,9 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     close_attempt_id = close_result.execution_attempt_id
 
     async with pg_session_factory() as session:
-        close_attempt = await SqlAlchemyExecutionAttemptRepository(session).get(close_attempt_id)
+        close_attempt = await SqlAlchemyExecutionAttemptRepository(session).get(
+            OWNER_ID, close_attempt_id
+        )
     close_client_order_id = close_attempt.client_order_id
 
     # ---- the new opening signal, and the continuation seeded to await the close ----
@@ -425,10 +430,11 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         clock=clock,
     )
     pools_by_key = {
-        POOL: PoolConfig(
+        (OWNER_ID, POOL): PoolConfig(
             exchange=Exchange("bybit"),
             venue=Venue("usdt-m"),
             settlement_currency=Currency("USDT"),
+            user_id=OWNER_ID,
             min_order_size=Decimal("1"),
         )
     }
@@ -543,12 +549,12 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 commit=session,
                 outcomes=RecordingSettleOutcomes(),
             )
-            await settle.settle(UUID(str(job.payload["execution_attempt_id"])))
+            await settle.settle(OWNER_ID, UUID(str(job.payload["execution_attempt_id"])))
 
     async def handle_signal_open_after_close(job: ClaimedJob) -> None:
         async with pg_session_factory() as session:
             _, open_after_close = _build_process_signal_handler(session)
-            await open_after_close.poll(job)
+            await open_after_close.poll(job, OWNER_ID)
             await session.commit()
 
     handlers: dict[JobKind, JobHandler] = {
@@ -583,10 +589,10 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             # and nothing must have opened yet.
             async with pg_session_factory() as session:
                 mid_close = await SqlAlchemyExecutionAttemptRepository(session).get(
-                    close_attempt_id
+                    OWNER_ID, close_attempt_id
                 )
                 mid_reservation = await SqlAlchemyReservationRepository(session).find_by_signal_id(
-                    signal_id
+                    OWNER_ID, signal_id
                 )
             assert mid_close.status.value == "SUBMITTED"
             assert mid_reservation is None
@@ -595,9 +601,11 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     assert mid_flight_checked is True
 
     async with pg_session_factory() as session:
-        final_close = await SqlAlchemyExecutionAttemptRepository(session).get(close_attempt_id)
+        final_close = await SqlAlchemyExecutionAttemptRepository(session).get(
+            OWNER_ID, close_attempt_id
+        )
         final_reservation = await SqlAlchemyReservationRepository(session).find_by_signal_id(
-            signal_id
+            OWNER_ID, signal_id
         )
 
     assert final_close.status.value == "FILLED"
