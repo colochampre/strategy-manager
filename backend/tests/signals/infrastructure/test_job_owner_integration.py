@@ -21,7 +21,10 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID, seed_other_user
+from tests.owner import OWNER_ID, ensure_delivery, seed_other_user
+from tests.signals.infrastructure.conftest import (
+    seed_execution_attempt as seed_delivered_attempt,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -99,6 +102,63 @@ async def test_an_opening_and_a_closing_attempt_belong_to_their_strategys_author
         ]
 
     assert answers == [OWNER_ID, OWNER_ID, other, other]
+
+
+async def test_a_subscribers_attempts_belong_to_the_subscriber_not_the_strategys_author(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """C.8: ``execution.settle`` is owned by whoever the delivery that placed the
+    attempt is for. The strategy is the owner's; the open, the close and an orphan
+    close (no delivery at all) were all written as the subscriber, and the settle job
+    must trade with the subscriber's key."""
+    strategy_id, signal_id, reservation_id = uuid4(), uuid4(), uuid4()
+    open_attempt, close_attempt, orphan_close = uuid4(), uuid4(), uuid4()
+    async with pg_session_factory() as session:
+        subscriber = await seed_other_user(session)
+        await session.commit()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id, author_id=OWNER_ID)
+    await seed_signal(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    async with pg_session_factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id, user_id=subscriber
+        )
+        await session.commit()
+    await seed_reservation(
+        pg_session_factory,
+        reservation_id=reservation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        status="FILLED",
+        user_id=subscriber,
+    )
+    # Only one close of an allocation may be live at once: the delivery's is FILLED.
+    for attempt_id, closes, link, status in (
+        (open_attempt, None, delivery_id, "FILLED"),
+        (close_attempt, reservation_id, delivery_id, "FILLED"),
+        (orphan_close, reservation_id, None, "SUBMITTED"),
+    ):
+        await seed_delivered_attempt(
+            pg_session_factory,
+            attempt_id=attempt_id,
+            reservation_id=None if closes else reservation_id,
+            closes_allocation_id=closes,
+            delivery_id=link,
+            status=status,
+        )
+
+    async with pg_session_factory() as session:
+        answers = [
+            await attempt_owner(session, attempt)
+            for attempt in (open_attempt, close_attempt, orphan_close)
+        ]
+
+    assert answers == [subscriber, subscriber, subscriber]
+    assert OWNER_ID not in answers
 
 
 async def test_an_unknown_signal_or_attempt_has_no_owner(

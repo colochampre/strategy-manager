@@ -17,7 +17,7 @@ survives that commit lives in ``test_open_after_close_outcomes_integration``.
 """
 
 from datetime import timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -29,8 +29,10 @@ from tests.signals.application.test_open_after_close import (
     OWNER,
     SETTLE_TIMEOUT_SECONDS,
     FakeClosingAttemptsPort,
+    FakeDeliverySignals,
     FakeSignalLookupPort,
     _attempt,
+    _claimed_from,
     _continuation,
     _job,
     _signal,
@@ -64,28 +66,23 @@ async def test_a_superseded_signal_is_rejected_with_the_logged_message(
     assert outcomes.calls == []  # never the warning path
 
 
-async def test_an_abandonment_ends_the_authors_delivery_not_the_signal(
+async def test_an_abandonment_ends_the_delivery_the_job_names_not_the_signal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """C.7: the outcome lands on the delivery the continuation resolves for the
-    signal's author (C.8 keys the continuation by delivery), and the second INFO
-    line names both ids."""
+    """C.7/C.8: the outcome lands on the delivery the continuation was seeded for, and
+    the second INFO line names both ids. The delivery's id is not its signal's."""
     signal = _signal()
     delivery_id = uuid4()
     outcomes = RecordingSignalOutcomes()
-    continuation, _, _, _ = _continuation(
-        signals=FakeSignalLookupPort(signal=signal, newer=True), outcomes=outcomes
+    continuation, _, queue, _ = _continuation(
+        signals=FakeSignalLookupPort(signal=signal, newer=True),
+        outcomes=outcomes,
+        deliveries=FakeDeliverySignals({delivery_id: signal.id}),
     )
-
-    class _AuthorDelivery:
-        async def author_delivery_id(self, signal_id: UUID) -> UUID:
-            assert signal_id == signal.id
-            return delivery_id
-
-    continuation._deliveries = _AuthorDelivery()  # type: ignore[assignment]
+    await continuation.seed(delivery_id, [uuid4()], poll=0)
 
     with caplog.at_level("INFO", logger=_LOGGER):
-        await continuation.poll(_job(signal.id, [uuid4()]), OWNER)
+        await continuation.poll(_claimed_from(queue.enqueued[-1]), OWNER)
 
     [(row_id, outcome)] = outcomes.unless_terminal_calls
     assert row_id == delivery_id and row_id != signal.id

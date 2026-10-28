@@ -7,6 +7,7 @@ business logic, authentication and secrets; the frontend is a pure client.
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -271,9 +272,10 @@ from strategy_manager.signals.infrastructure.fan_out_adapters import (
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.job_owner import (
+    UnresolvableContinuation,
     attempt_owner,
+    continuation_delivery_id,
     delivery_owner,
-    signal_owner,
 )
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
@@ -582,8 +584,8 @@ def _build_process_delivery(
         poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
         # Decision 25 (5c.4): abandonments write their outcome through the
-        # silent-on-terminal path, on this run's session, onto the author's
-        # delivery of the signal (C.7; C.8 keys the continuation by delivery).
+        # silent-on-terminal path, on this run's session, onto the delivery the
+        # continuation was seeded for (C.7, C.8).
         outcomes=delivery_outcomes,
         deliveries=SqlAlchemyDeliveries(session),
     )
@@ -1700,8 +1702,24 @@ def build_worker_runner(
 
     async def handle_signal_open_after_close(job: ClaimedJob) -> None:
         async with factory() as session:
-            # The continuation opens for the same signal's author (AD8, B.5).
-            owner = await signal_owner(session, UUID(str(job.payload["signal_id"])))
+            try:
+                delivery_id = await continuation_delivery_id(session, job.payload)
+            except UnresolvableContinuation as exc:
+                # A job queued before C.8 names its signal only. With several
+                # deliveries (or none) there is no telling which subscriber it opens
+                # for, and guessing would trade on someone else's money. Retrying
+                # cannot change that, so the job ends here, loudly.
+                logger.error(
+                    "refusing signal.open_after_close job %s: %s; nothing was opened",
+                    job.id,
+                    exc,
+                )
+                return
+            # The continuation opens for the DELIVERY's user, with that user's key
+            # (AD8, C.8). A legacy payload is handed on carrying the delivery it
+            # resolved to, so ``poll`` and the next seed work that delivery.
+            owner = await delivery_owner(session, delivery_id)
+            job = replace(job, payload={**job.payload, "delivery_id": str(delivery_id)})
             async with (
                 exchange_for(session, owner) as exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,

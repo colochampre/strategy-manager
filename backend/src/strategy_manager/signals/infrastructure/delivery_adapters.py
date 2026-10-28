@@ -16,7 +16,6 @@ from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.signals.application.process_signal import Delivery, UnknownDeliveryError
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
-from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
 _DeliveryColumns = tuple[UUID, UUID, UUID, UUID, Decimal]
@@ -60,29 +59,17 @@ class SqlAlchemyDeliveries:
             raise UnknownDeliveryError(f"no delivery registered for id {delivery_id}")
         return _delivery(found)
 
-    async def of_signal_author(self, signal_id: UUID) -> Delivery:
+    async def signal_of(self, delivery_id: UUID) -> UUID:
+        """``OpenAfterClose``'s narrow view of ``load``: the signal a delivery
+        belongs to. A delivery that has no row raises, like ``load``."""
         found = (
             await self._session.execute(
-                _delivery_query()
-                .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
-                .join(StrategyRow, StrategyRow.id == SignalRow.strategy_id)
-                .where(
-                    SignalDeliveryRow.signal_id == signal_id,
-                    SignalDeliveryRow.user_id == StrategyRow.author_id,
-                )
+                select(SignalDeliveryRow.signal_id).where(SignalDeliveryRow.id == delivery_id)
             )
-        ).first()
+        ).scalar_one_or_none()
         if found is None:
-            raise UnknownDeliveryError(
-                f"signal {signal_id} has no delivery for its strategy's author; the "
-                "reverse continuation cannot open without one"
-            )
-        return _delivery(found)
-
-    async def author_delivery_id(self, signal_id: UUID) -> UUID:
-        """``OpenAfterClose``'s narrow view of ``of_signal_author``: only the id,
-        for the outcome an abandonment records on that delivery."""
-        return (await self.of_signal_author(signal_id)).delivery_id
+            raise UnknownDeliveryError(f"no delivery registered for id {delivery_id}")
+        return found
 
 
 class SqlAlchemySubscriptionReservations:

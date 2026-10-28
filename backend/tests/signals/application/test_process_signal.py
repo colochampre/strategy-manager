@@ -243,7 +243,7 @@ class SpyContinuationSeeder:
     asked for, without needing a real job queue.
 
     Mimics ``enqueue_unique``'s own ``dedupe_key`` semantics: the FIRST seed
-    for a given ``(signal_id, poll)`` pair inserts (``True``); a LATER one
+    for a given ``(delivery_id, poll)`` pair inserts (``True``); a LATER one
     for the exact same pair collides (``False``), regardless of
     ``replay_expected`` -- which only ever picks the log level a real
     ``OpenAfterClose.seed`` would choose, never the return value
@@ -254,14 +254,14 @@ class SpyContinuationSeeder:
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
         replay_expected: bool = False,
     ) -> bool:
-        self.calls.append((signal_id, awaited_allocation_ids, poll, replay_expected))
-        key = (signal_id, poll)
+        self.calls.append((delivery_id, awaited_allocation_ids, poll, replay_expected))
+        key = (delivery_id, poll)
         if key in self._seen:
             return False
         self._seen.add(key)
@@ -305,7 +305,7 @@ class SpyCloseOrphans:
 
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -315,7 +315,7 @@ class SpyCloseOrphans:
         user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
-        self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
+        self.calls.append((delivery_id, pool, strategy_id, symbol, holdings, next_poll))
         self.reference_prices.append(reference_price)
         self.users.append(user_id)
 

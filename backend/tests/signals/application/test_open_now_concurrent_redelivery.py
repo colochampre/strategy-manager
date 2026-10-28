@@ -244,20 +244,20 @@ class RecordingSeeder:
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
         replay_expected: bool = False,
     ) -> bool:
-        self.seeds.append((signal_id, awaited_allocation_ids, poll))
+        self.seeds.append((delivery_id, awaited_allocation_ids, poll))
         return True
 
 
 class NeverCalledCloseOrphans:
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: object,
         strategy_id: UUID,
         symbol: str,
@@ -492,9 +492,10 @@ class _NullQueue:
 
 async def _setup(
     session_factory: async_sessionmaker[AsyncSession],
-) -> tuple[UUID, UUID]:
+) -> tuple[UUID, UUID, UUID]:
     """Seeds the strategy, its settled flat holding, a stale-but-present pool
-    snapshot and the racing signal. Returns ``(strategy_id, signal_id)``."""
+    snapshot, the racing signal and its delivery. Returns ``(strategy_id, signal_id,
+    delivery_id)``."""
     strategy_id = uuid4()
     await seed_strategy(
         session_factory,
@@ -557,11 +558,13 @@ async def _setup(
         position_size=Decimal("1"),
         received_at=START,
     )
-    # The continuation opens for the signal's delivery to the author.
+    # The continuation is seeded for the signal's delivery to the author.
     async with session_factory() as session:
-        await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id
+        )
         await session.commit()
-    return strategy_id, signal_id
+    return strategy_id, signal_id, delivery_id
 
 
 async def test_the_unique_constraint_backstopping_the_dedup_really_exists(
@@ -593,7 +596,7 @@ async def test_the_unique_constraint_backstopping_the_dedup_really_exists(
 async def test_two_concurrent_open_now_calls_reserve_once_and_order_once(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    strategy_id, signal_id = await _setup(pg_session_factory)
+    strategy_id, signal_id, delivery_id = await _setup(pg_session_factory)
 
     clock = FixedClock(START)
     exchange = CountingFakeExchange(
@@ -628,7 +631,7 @@ async def test_two_concurrent_open_now_calls_reserve_once_and_order_once(
                 ),
                 seeder=seeder,
             )
-            return await handler.open_now(signal_id, poll=0)
+            return await handler.open_now(delivery_id, poll=0)
 
     outcomes = await asyncio.wait_for(
         asyncio.gather(one_delivery(), one_delivery(), return_exceptions=True),

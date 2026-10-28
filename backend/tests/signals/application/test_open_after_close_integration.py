@@ -424,7 +424,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         received_at=START,
     )
     async with pg_session_factory() as session:
-        await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        delivery_id = await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
         await session.commit()
     async with pg_session_factory() as session:
         await PostgresJobQueue(
@@ -436,12 +436,12 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             Job(
                 kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
                 payload={
-                    "signal_id": str(signal_id),
+                    "delivery_id": str(delivery_id),
                     "awaited_allocation_ids": [str(allocation_id)],
                     "poll": 0,
                 },
                 run_after=clock.now(),
-                dedupe_key=f"signal.open_after_close:{signal_id}:0",
+                dedupe_key=f"signal.open_after_close:{delivery_id}:0",
             )
         )
         await session.commit()
@@ -518,8 +518,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             outcomes=RecordingOrderOutcomes(),
         )
 
-        async def _open_now(this_signal_id: UUID, this_poll: int) -> object:
-            return await handler.open_now(this_signal_id, this_poll)
+        async def _open_now(this_delivery_id: UUID, this_poll: int) -> object:
+            return await handler.open_now(this_delivery_id, this_poll)
 
         open_after_close = OpenAfterClose(
             signals=signal_repository,

@@ -5,10 +5,10 @@ outcome there.
 The queue stays job-kind-agnostic, so this is where the kinds that can decide an
 outcome are named. ``signal.process`` is the fan-out, which works the SIGNAL itself
 (no delivery exists to hold its outcome). Every other kind works a DELIVERY:
-``delivery.process`` names it; ``signal.open_after_close`` names the signal and
-works the delivery of the strategy's author (until C.8 moves it to the delivery
-itself); ``execution.settle`` names an attempt, which carries the delivery that
-placed it, for an open and a close alike.
+``delivery.process`` and ``signal.open_after_close`` name it (a continuation queued
+before C.8 names only its signal, and resolves to the signal's only delivery, see
+``job_owner.continuation_delivery_id``); ``execution.settle`` names an attempt, which
+carries the delivery that placed it, for an open and a close alike.
 
 **Global by design** (multi-user design AD8): the queue's failure hook has no
 user context, and every row is followed by primary key from the attempt or
@@ -25,8 +25,11 @@ from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.signals.infrastructure.exhausted_job_recorder import FailedJobTarget
-from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
-from strategy_manager.strategies.infrastructure.models import StrategyRow
+from strategy_manager.signals.infrastructure.job_owner import (
+    UnresolvableContinuation,
+    continuation_delivery_id,
+)
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
 
 
 class SqlAlchemyFailedJobSignalReader:
@@ -47,9 +50,13 @@ class SqlAlchemyFailedJobSignalReader:
                     delivery_id=await self._existing_delivery(_uuid(job, "delivery_id"))
                 )
             case JobKind.SIGNAL_OPEN_AFTER_CLOSE:
-                return FailedJobTarget(
-                    delivery_id=await self._author_delivery(_uuid(job, "signal_id"))
-                )
+                try:
+                    continued = await continuation_delivery_id(self._session, job.payload)
+                except UnresolvableContinuation as exc:
+                    raise InvariantViolation(
+                        f"a FAILED signal.open_after_close job names no single delivery: {exc}"
+                    ) from exc
+                return FailedJobTarget(delivery_id=await self._existing_delivery(continued))
             case JobKind.EXECUTION_SETTLE:
                 delivery_id = await self._attempt_delivery(_uuid(job, "execution_attempt_id"))
                 return None if delivery_id is None else FailedJobTarget(delivery_id=delivery_id)
@@ -65,27 +72,6 @@ class SqlAlchemyFailedJobSignalReader:
         if found is None:
             raise InvariantViolation(f"no delivery {delivery_id} for a FAILED delivery.process job")
         return delivery_id
-
-    async def _author_delivery(self, signal_id: UUID) -> UUID:
-        """The continuation opens for the strategy author's delivery (C.6), so that
-        is the one its exhaustion ends."""
-        found = (
-            await self._session.execute(
-                select(SignalDeliveryRow.id)
-                .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
-                .join(StrategyRow, StrategyRow.id == SignalRow.strategy_id)
-                .where(
-                    SignalDeliveryRow.signal_id == signal_id,
-                    SignalDeliveryRow.user_id == StrategyRow.author_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if found is None:
-            raise InvariantViolation(
-                f"signal {signal_id} has no delivery for its strategy's author, for a "
-                "FAILED signal.open_after_close job"
-            )
-        return found
 
     async def _attempt_delivery(self, attempt_id: UUID) -> UUID | None:
         row = (

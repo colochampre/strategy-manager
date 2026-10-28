@@ -292,7 +292,7 @@ async def test_an_exhausted_fan_out_rejects_its_signal_row(
         (
             JobKind.SIGNAL_OPEN_AFTER_CLOSE,
             lambda s: {
-                "signal_id": str(s.closing_signal),
+                "delivery_id": str(s.closing_delivery),
                 "awaited_allocation_ids": [],
                 "poll": 2,
             },

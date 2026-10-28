@@ -43,7 +43,7 @@ class TimelineSeeder(SpyContinuationSeeder):
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
@@ -51,7 +51,7 @@ class TimelineSeeder(SpyContinuationSeeder):
     ) -> bool:
         self._timeline.log.append("seed")
         return await super().seed(
-            signal_id, awaited_allocation_ids, poll, replay_expected=replay_expected
+            delivery_id, awaited_allocation_ids, poll, replay_expected=replay_expected
         )
 
 
@@ -62,7 +62,7 @@ class TimelineCloseOrphans(SpyCloseOrphans):
 
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: tuple[str, str, str],
         strategy_id: UUID,
         symbol: str,
@@ -74,7 +74,7 @@ class TimelineCloseOrphans(SpyCloseOrphans):
     ) -> None:
         self._timeline.log.append("close_orphans")
         await super().close(
-            signal_id,
+            delivery_id,
             pool,
             strategy_id,
             symbol,

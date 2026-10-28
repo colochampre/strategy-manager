@@ -53,6 +53,7 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 from strategy_manager.signals.application.ports import DeliveryOutcomePort
+from strategy_manager.signals.application.process_signal import UnknownDeliveryError
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
 
@@ -86,17 +87,17 @@ class ClosingAttemptsPort(Protocol):
     ) -> ExecutionAttempt | None: ...
 
 
-class AuthorDeliveryPort(Protocol):
-    """The delivery this continuation works, as an id (tasks.md C.7). It is keyed
-    by the signal and opens for the strategy author's delivery until C.8 moves it
-    to the delivery itself, so an abandonment ends THAT delivery. Raises when the
-    signal has none: an abandonment that cannot find its delivery is loud."""
+class DeliverySignalPort(Protocol):
+    """The signal a delivery belongs to. The continuation is keyed by the DELIVERY
+    (tasks.md C.8): it works one subscriber's half of a signal, so an abandonment
+    ends that delivery and the open runs as that delivery's user. Raises
+    ``UnknownDeliveryError`` when the delivery is gone."""
 
-    async def author_delivery_id(self, signal_id: UUID) -> UUID: ...
+    async def signal_of(self, delivery_id: UUID) -> UUID: ...
 
 
-def _dedupe_key(signal_id: UUID, poll: int) -> str:
-    return f"signal.open_after_close:{signal_id}:{poll}"
+def _dedupe_key(delivery_id: UUID, poll: int) -> str:
+    return f"signal.open_after_close:{delivery_id}:{poll}"
 
 
 def _settling_too_long(
@@ -123,7 +124,7 @@ class OpenAfterClose:
         poll_interval_seconds: float,
         max_signal_age_seconds: float,
         outcomes: DeliveryOutcomePort,
-        deliveries: AuthorDeliveryPort,
+        deliveries: DeliverySignalPort,
     ) -> None:
         self._deliveries = deliveries
         self._signals = signals
@@ -138,7 +139,7 @@ class OpenAfterClose:
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
@@ -160,7 +161,7 @@ class OpenAfterClose:
         cover a NEW allocation this call would otherwise close unawaited).
 
         Every caller is expected to pass a ``poll`` that has never been
-        seeded before for this ``signal_id`` -- a conflict here means some
+        seeded before for this ``delivery_id`` -- a conflict here means some
         caller re-seeded an ALREADY-DONE step instead of advancing the
         chain, which would otherwise silently drop the continuation on the
         floor (``enqueue_unique``'s insert-or-return-existing no-ops rather
@@ -183,13 +184,13 @@ class OpenAfterClose:
         need to treat the conflict as unsafe for a NEW write even though
         the log itself is not an error (``CloseOrphans`` does exactly
         this)."""
-        dedupe_key = _dedupe_key(signal_id, poll)
+        dedupe_key = _dedupe_key(delivery_id, poll)
         run_after = self._clock.now() + timedelta(seconds=self._poll_interval_seconds)
         _, inserted = await self._queue.enqueue_unique(
             Job(
                 kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
                 payload={
-                    "signal_id": str(signal_id),
+                    "delivery_id": str(delivery_id),
                     "awaited_allocation_ids": [str(a) for a in awaited_allocation_ids],
                     "poll": poll,
                 },
@@ -201,18 +202,18 @@ class OpenAfterClose:
             return True
         if replay_expected:
             logger.info(
-                "seed replay for signal %s at poll %s (dedupe_key=%s): already "
+                "seed replay for delivery %s at poll %s (dedupe_key=%s): already "
                 "seeded by an earlier attempt at the same idempotent step",
-                signal_id,
+                delivery_id,
                 poll,
                 dedupe_key,
             )
             return False
         logger.error(
-            "seed conflict for signal %s at poll %s (dedupe_key=%s): a step "
+            "seed conflict for delivery %s at poll %s (dedupe_key=%s): a step "
             "already seeded was re-seeded instead of the chain advancing; "
             "the continuation may be stuck",
-            signal_id,
+            delivery_id,
             poll,
             dedupe_key,
         )
@@ -225,20 +226,35 @@ class OpenAfterClose:
         never raising) or reschedules itself -- ``WorkerRunner`` always sees
         this job succeed, because waiting is not a failure.
 
-        ``user_id`` is the job's owner, the author of the signal's strategy
-        (multi-user design AD8, B.5): the awaited closing attempts are read as
-        that user's. ``None`` only when the signal or its strategy is gone, and
-        the poll then ends on the missing signal before it reads an attempt."""
-        signal_id = UUID(str(job.payload["signal_id"]))
+        ``user_id`` is the job's owner, the delivery's user -- the subscriber, who
+        is the strategy's author only when the author is the subscriber (multi-user
+        design AD8, C.8): the awaited closing attempts are read as that user's.
+        ``None`` only when the delivery (or its signal) is gone, and the poll then
+        ends on the missing row before it reads an attempt. The job must carry
+        ``delivery_id``: the job handler resolves a legacy payload (``signal_id``
+        only) before it gets here.
+        """
+        delivery_id = UUID(str(job.payload["delivery_id"]))
         awaited_allocation_ids = [UUID(str(a)) for a in job.payload["awaited_allocation_ids"]]
         poll = int(job.payload["poll"])
 
+        try:
+            signal_id = await self._deliveries.signal_of(delivery_id)
+        except UnknownDeliveryError:
+            # No delivery row to end and no subscriber to open for.
+            logger.error(
+                "abandoning continuation for delivery %s: the delivery no longer exists",
+                delivery_id,
+            )
+            return
         signal = await self._signals.get_by_id(signal_id)
         if signal is None or signal.received_at is None:
             # Nothing to write to: the row this outcome would land on is gone.
             logger.error(
-                "abandoning continuation for signal %s: the signal no longer exists",
+                "abandoning continuation for signal %s (delivery %s): the signal no "
+                "longer exists",
                 signal_id,
+                delivery_id,
             )
             return
 
@@ -250,7 +266,9 @@ class OpenAfterClose:
                 f"abandoning continuation for signal {signal_id}: a newer signal for "
                 f"strategy {signal.strategy_id} on {signal.symbol} has arrived"
             )
-            await self._abandon(signal_id, "SIGNAL_SUPERSEDED", superseded, logging.WARNING)
+            await self._abandon(
+                delivery_id, signal_id, "SIGNAL_SUPERSEDED", superseded, logging.WARNING
+            )
             return
 
         assert user_id is not None  # the signal exists, so its strategy's author does
@@ -264,7 +282,9 @@ class OpenAfterClose:
             close_failed = (
                 f"abandoning continuation for signal {signal_id}: an awaited close failed"
             )
-            await self._abandon(signal_id, "AWAITED_CLOSE_FAILED", close_failed, logging.ERROR)
+            await self._abandon(
+                delivery_id, signal_id, "AWAITED_CLOSE_FAILED", close_failed, logging.ERROR
+            )
             return
 
         now = self._clock.now()
@@ -292,9 +312,11 @@ class OpenAfterClose:
                         "; the awaited close(s) already settled, so the position they "
                         "held is closed and this signal's own open was not placed"
                     )
-                await self._abandon(signal_id, "CONTINUATION_TIMED_OUT", too_old, logging.WARNING)
+                await self._abandon(
+                    delivery_id, signal_id, "CONTINUATION_TIMED_OUT", too_old, logging.WARNING
+                )
                 return
-            await self._open_now(signal_id, poll)
+            await self._open_now(delivery_id, poll)
             return
 
         # (4) Still waiting -- abandon only past a hard bound, never on
@@ -316,18 +338,22 @@ class OpenAfterClose:
                     f"abandoning continuation for signal {signal_id}: an awaited close "
                     f"has not settled within {self._settle_timeout_seconds:.0f}s"
                 )
-            await self._abandon(signal_id, "CONTINUATION_TIMED_OUT", timed_out, logging.ERROR)
+            await self._abandon(
+                delivery_id, signal_id, "CONTINUATION_TIMED_OUT", timed_out, logging.ERROR
+            )
             return
 
         # A worker crash between this method's own commit and its job's ack
         # redelivers the SAME job, re-running this exact branch and
         # re-seeding the SAME next poll -- the continuation's own
         # idempotency working, not a chain restart (design.md § S5b).
-        await self.seed(signal_id, awaited_allocation_ids, poll=poll + 1, replay_expected=True)
+        await self.seed(delivery_id, awaited_allocation_ids, poll=poll + 1, replay_expected=True)
 
-    async def _abandon(self, signal_id: UUID, reason: str, message: str, level: int) -> None:
-        """Ends the author's DELIVERY of the signal ``REJECTED`` with ``reason`` and
-        logs ``message`` (C.7): built once, it is both the log line and the
+    async def _abandon(
+        self, delivery_id: UUID, signal_id: UUID, reason: str, message: str, level: int
+    ) -> None:
+        """Ends the DELIVERY this continuation works ``REJECTED`` with ``reason`` and
+        logs ``message`` (C.7, C.8): built once, it is both the log line and the
         outcome's detail, so the two cannot drift (decision 25). A second,
         INFO line names the delivery it ended.
 
@@ -342,7 +368,6 @@ class OpenAfterClose:
         dust close writes no attempt, so it waits for the timeout), or a
         signal already ``PROCESSED``. Those must not WARN; the WARNING is
         reserved for a genuine conflict."""
-        delivery_id = await self._deliveries.author_delivery_id(signal_id)
         await self._outcomes.record_unless_terminal(
             delivery_id, SignalOutcome.rejected(reason, message)
         )

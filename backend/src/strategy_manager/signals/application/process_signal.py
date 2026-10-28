@@ -222,12 +222,6 @@ class UnknownDeliveryError(Exception):
 class DeliveryPort(Protocol):
     async def load(self, delivery_id: UUID) -> Delivery: ...
 
-    async def of_signal_author(self, signal_id: UUID) -> Delivery:
-        """The delivery of ``signal_id`` to its strategy's AUTHOR. The reverse
-        continuation (``signal.open_after_close``) is keyed by the signal and owned
-        by the author until C.8 moves it to the delivery; it opens for that one."""
-        ...
-
 
 class SignalContextPort(Protocol):
     async def load(self, delivery: Delivery) -> SignalContext:
@@ -276,7 +270,10 @@ class ContinuationSeederPort(Protocol):
     ``signals.application.open_after_close.OpenAfterClose``, declared here
     rather than imported so neither file needs the other's class.
 
-    ``poll`` MUST be the next never-before-seeded step in this signal's
+    The continuation is keyed by the DELIVERY (tasks.md C.8): each subscriber's
+    half of a signal has its own chain.
+
+    ``poll`` MUST be the next never-before-seeded step in this delivery's
     chain: 0 when deferred from a fresh ``handle()`` call, or the current
     poll plus one when deferred again from inside ``open_now`` -- seeding
     the SAME poll twice silently drops the continuation (design.md § S5,
@@ -298,7 +295,7 @@ class ContinuationSeederPort(Protocol):
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
@@ -327,7 +324,7 @@ class CloseOrphansPort(Protocol):
 
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -473,10 +470,12 @@ class ProcessDelivery:
             return result
         return await self._note_unexecuted_tail(delivery, context, transition, result)
 
-    async def open_now(self, signal_id: UUID, poll: int = 0) -> ProcessSignalResult:
+    async def open_now(self, delivery_id: UUID, poll: int = 0) -> ProcessSignalResult:
         """The S5 continuation's own entry point (design.md § S5, "all
         FILLED"): called by ``OpenAfterClose.poll()`` once every close it
-        awaited has settled. Re-runs the Existing-Position Guard, the S3
+        awaited has settled, for the delivery it was seeded for (tasks.md C.8): the
+        open runs in that delivery's user's pool, at its subscription's share.
+        Re-runs the Existing-Position Guard, the S3
         refresh and allocation from scratch -- not ``handle()``, since a
         continuation only ever awaits the CONSUMES side; the signal it
         carries was already classified as an opening signal the first time
@@ -515,7 +514,7 @@ class ProcessDelivery:
         ``poll + 1``, never restart the chain at 0 (orchestrator-found
         defect: seeding 0 again collides with the already-DONE poll 0 row
         and silently drops the continuation)."""
-        delivery = await self._deliveries.of_signal_author(signal_id)
+        delivery = await self._deliveries.load(delivery_id)
         context = await self._signal_context.load(delivery)
         transition = PositionTransition.classify(
             context.prior_position_size, context.position_size
@@ -634,7 +633,7 @@ class ProcessDelivery:
                 # order, so it cannot cross-wait with itself.
                 await self._outcomes.record(delivery.delivery_id, SignalOutcome.processing())
                 await self._close_orphans.close(
-                    signal_id=signal_id,
+                    delivery_id=delivery.delivery_id,
                     pool=pool,
                     strategy_id=context.strategy_id,
                     symbol=context.symbol,
@@ -654,7 +653,7 @@ class ProcessDelivery:
             # seeding 0 again there would collide with the already-DONE
             # poll 0 row and silently drop the chain.
             await self._open_after_close.seed(
-                signal_id, guard_outcome.awaited_allocation_ids or [], poll=next_poll
+                delivery.delivery_id, guard_outcome.awaited_allocation_ids or [], poll=next_poll
             )
             # Decision 25 (5b.8): the open is deferred, not decided. PROCESSING
             # is staged on the very commit that makes the seed durable, so a
@@ -819,7 +818,10 @@ class ProcessDelivery:
             if existing_close.status is not ExecutionStatus.FAILED:
                 if is_reverse_wiring:
                     await self._open_after_close.seed(
-                        signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
+                        delivery.delivery_id,
+                        [context.prior_reservation_id],
+                        poll=0,
+                        replay_expected=True,
                     )
                     await self._commit.commit()
                 return ProcessSignalResult(
@@ -861,7 +863,10 @@ class ProcessDelivery:
             # committed -- this job's own idempotent step recurring, not a
             # chain restart.
             await self._open_after_close.seed(
-                signal_id, [context.prior_reservation_id], poll=0, replay_expected=True
+                delivery.delivery_id,
+                [context.prior_reservation_id],
+                poll=0,
+                replay_expected=True,
             )
 
         close_result = await self._close_position.close(

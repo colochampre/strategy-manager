@@ -195,6 +195,38 @@ async def test_the_alert_price_is_the_one_on_the_signal_the_reservation_names(
     }
 
 
+async def test_the_alert_price_is_reached_through_the_reservations_delivery(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """C.8: the signal's price is read through the DELIVERY (``reservations.signal_id``
+    stays written, for reads only). A decoy signal priced 9 is planted on the
+    reservation's own ``signal_id``: the delivery still names the real one, priced 0.5,
+    and that is the price the answer carries."""
+    from tests.performance.infrastructure.conftest import seed_signal
+
+    strategy_id, allocation_id, attempt_id = await _seed_allocation(pg_session_factory)
+    await _rehearsal_round_trip(
+        pg_session_factory, strategy_id, allocation_id, attempt_id, alert="0.5"
+    )
+    decoy = uuid4()
+    await seed_signal(
+        pg_session_factory, signal_id=decoy, strategy_id=strategy_id, idempotency_key=f"d-{decoy}"
+    )
+    async with pg_session_factory() as session:
+        await session.execute(text("UPDATE signals SET price = 9 WHERE id = :id"), {"id": decoy})
+        await session.execute(
+            text("UPDATE reservations SET signal_id = :decoy WHERE id = :id"),
+            {"decoy": decoy, "id": allocation_id},
+        )
+        await session.commit()
+
+    answer = await _facts(pg_session_factory, strategy_id, [allocation_id])
+
+    assert {key: facts.alert_price for key, facts in answer.items()} == {
+        allocation_id: Decimal("0.5")
+    }
+
+
 async def test_an_allocation_of_another_strategy_is_not_answered(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

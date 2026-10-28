@@ -22,7 +22,9 @@ grouped, so an operation opened as ``STXUSDT_PERP`` and closed as ``STXUSDT.P``
 is one entry. Prices are the fills' own ``price``, never a derived average.
 
 ``performance/infrastructure`` already reads ``ReservationRow`` and
-``LedgerEntryRow``; this adapter also reads ``SignalRow``. No signal, allocation
+``LedgerEntryRow``; this adapter also reads ``SignalRow``, which it reaches through
+the reservation's DELIVERY (``reservations.signal_id`` stays written, for reads
+only). No signal, allocation
 or ledger type crosses into ``application/`` or ``domain/``: the answer is
 ``PricingFacts``.
 """
@@ -38,7 +40,7 @@ from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.performance.domain.operation import BUY, SELL, PricingFacts, SidePrices
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 
 
 class SqlAlchemyRehearsalPricingSource:
@@ -62,7 +64,8 @@ class SqlAlchemyRehearsalPricingSource:
                 SignalRow.price,
             )
             .join(ReservationRow, ReservationRow.id == LedgerEntryRow.allocation_id)
-            .join(SignalRow, SignalRow.id == ReservationRow.signal_id)
+            .join(SignalDeliveryRow, SignalDeliveryRow.id == ReservationRow.delivery_id)
+            .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
             .where(
                 LedgerEntryRow.user_id == user_id,
                 ReservationRow.user_id == user_id,

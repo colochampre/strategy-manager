@@ -52,9 +52,9 @@ class RecordingSignalOutcomes:
             self.log.append("outcome.unless_terminal")
 
 
-class SoleSubscriberAuthorDelivery:
-    """``AuthorDeliveryPort`` for the single-subscriber world: the author's delivery
-    of a signal has the signal's own id."""
+class SoleSubscriberDeliverySignals:
+    """``DeliverySignalPort`` for the single-subscriber world: a delivery has its
+    signal's own id."""
 
-    async def author_delivery_id(self, signal_id: UUID) -> UUID:
-        return signal_id
+    async def signal_of(self, delivery_id: UUID) -> UUID:
+        return delivery_id

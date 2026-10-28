@@ -18,6 +18,11 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionOrigin,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import GuardOutcome
@@ -77,10 +82,6 @@ class _Deliveries:
     async def load(self, delivery_id: UUID) -> Delivery:
         self.loaded.append(delivery_id)
         return self._delivery
-
-    async def of_signal_author(self, signal_id: UUID) -> Delivery:
-        return self._delivery
-
 
 class _OrphanGuard:
     """A guard that reports a REAL orphan, remembering whose holding it was asked
@@ -379,8 +380,95 @@ async def test_a_reverse_delivered_as_both_closes_and_seeds_the_open() -> None:
     await rig.handler.handle(DELIVERY, DeliveryHalves.BOTH.value)
 
     assert [call.allocation_id for call in rig.close.calls] == [PRIOR_RESERVATION]
-    assert [call[:3] for call in rig.seeder.calls] == [(SIGNAL, [PRIOR_RESERVATION], 0)]
+    # The continuation is seeded for the DELIVERY, whose id is not the signal's.
+    assert [call[:3] for call in rig.seeder.calls] == [(DELIVERY, [PRIOR_RESERVATION], 0)]
     assert rig.place.calls == []
+
+
+# --- the continuation is the delivery's (tasks.md C.8) ----------------------------
+
+
+def _live_close(allocation_id: UUID, status: ExecutionStatus) -> ExecutionAttempt:
+    return ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=allocation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol=_REVERSE_SYMBOL,
+        side=OrderSide.BUY,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=status,
+        origin=ExecutionOrigin.SYSTEM,
+        client_order_id=f"client-{allocation_id}",
+    )
+
+
+async def test_a_replayed_reverse_reseeds_the_continuation_for_the_delivery() -> None:
+    """A close that already exists (a redelivered job) re-seeds the SAME step, for the
+    delivery, so the idempotent replay lands on the key it already committed."""
+    rig = _rig(_reverse_context())
+    rig.closing.latest = _live_close(PRIOR_RESERVATION, ExecutionStatus.SUBMITTED)
+
+    await rig.handler.handle(DELIVERY, DeliveryHalves.BOTH.value)
+
+    assert rig.close.calls == []
+    assert rig.seeder.calls == [(DELIVERY, [PRIOR_RESERVATION], 0, True)]
+
+
+async def test_the_in_flight_deferral_seeds_the_continuation_for_the_delivery() -> None:
+    rig = _rig(_open_long_context())
+    rig.in_flight.result = True
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert [call[:3] for call in rig.seeder.calls] == [(DELIVERY, [], 0)]
+    assert rig.place.calls == []
+
+
+async def test_a_real_orphan_is_closed_on_behalf_of_the_delivery_not_the_signal() -> None:
+    guard = _OrphanGuard(
+        [HeldAllocation(allocation_id=uuid4(), strategy_id=uuid4(), net_base=Decimal("1"))]
+    )
+    rig = _rig(_open_long_context(), guard=guard)
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert [call[0] for call in rig.orphans.calls] == [DELIVERY]
+
+
+async def test_open_now_opens_for_the_delivery_it_is_given_in_its_users_pool_and_share() -> None:
+    """The continuation's entry point loads the DELIVERY (a subscriber who is not the
+    author, at their own share), not the strategy author's delivery of the signal."""
+    rig = _rig(_open_long_context())
+
+    result = await rig.handler.open_now(DELIVERY, poll=2)
+
+    assert result.executed is True
+    assert rig.deliveries.loaded == [DELIVERY]
+    assert rig.capability.users == [SUBSCRIBER]
+    assert rig.refresh.users == [SUBSCRIBER]
+    assert [call.user_id for call in rig.allocate.calls] == [SUBSCRIBER]
+    assert [call.delivery_id for call in rig.allocate.calls] == [DELIVERY]
+    assert [call.signal_id for call in rig.allocate.calls] == [SIGNAL]
+    assert [call.requested.amount for call in rig.allocate.calls] == [
+        POOL_TOTAL * SUBSCRIPTION_SHARE / Decimal("100")
+    ]
+    assert [call.user_id for call in rig.place.calls] == [SUBSCRIBER]
+    assert [call.delivery_id for call in rig.place.calls] == [DELIVERY]
+
+
+async def test_open_now_deferring_again_seeds_the_next_poll_for_the_delivery() -> None:
+    rig = _rig(_open_long_context())
+    rig.in_flight.result = True
+
+    await rig.handler.open_now(DELIVERY, poll=2)
+
+    assert [call[:3] for call in rig.seeder.calls] == [(DELIVERY, [], 3)]
 
 
 # --- no usable halves is refused, loudly ------------------------------------------

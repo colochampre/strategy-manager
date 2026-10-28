@@ -46,6 +46,7 @@ from strategy_manager.main import (
 from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
     VenuePositionReaderRegistry,
 )
+from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.models import JobRow
@@ -483,6 +484,154 @@ async def test_a_subscription_with_no_prior_reservation_is_told_there_is_nothing
     assert await _outcome(world, stranger_delivery) == ("REJECTED", "NO_POSITION_TO_CLOSE")
     for delivery_id, _ in queued.values():
         assert await _outcome(world, delivery_id) == ("PROCESSING", None)
+
+
+# --- a reverse, two subscribers (tasks.md C.8) ---------------------------------------
+
+
+async def _continue(world: World, done: set[UUID]) -> list[UUID]:
+    """Runs every ``signal.open_after_close`` job not yet run, as the worker would: one
+    poll per job, in the DELIVERY's user's session. A re-deferred poll enqueues a new
+    job, so the caller loops until none is left. Returns the deliveries it continued."""
+    async with world.factory() as session:
+        jobs = (
+            (
+                await session.execute(
+                    select(JobRow)
+                    .where(JobRow.kind == "signal.open_after_close")
+                    .order_by(JobRow.created_at, JobRow.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    pools = {
+        (member, MARKET): PoolConfig(
+            exchange=Exchange("bybit"),
+            venue=Venue("usdt-m"),
+            settlement_currency=Currency("USDT"),
+            user_id=member,
+            min_order_size=Decimal("1"),
+        )
+        for member in world.venues
+    }
+    continued: list[UUID] = []
+    for job in jobs:
+        if job.id in done:
+            continue
+        done.add(job.id)
+        delivery_id = UUID(str(job.payload["delivery_id"]))
+        async with world.factory() as session:
+            owner = (
+                await session.execute(
+                    select(SignalDeliveryRow.user_id).where(SignalDeliveryRow.id == delivery_id)
+                )
+            ).scalar_one()
+            _, open_after_close = _build_process_delivery(
+                session,
+                pools,
+                get_settings(),
+                VenueExchangeRegistry([world.venues[owner]]),
+                frozenset({("bybit", "usdt-m")}),
+                _Reader(world.totals[owner]),  # type: ignore[arg-type]
+                VenuePositionReaderRegistry([]),
+            )
+            await open_after_close.poll(
+                ClaimedJob(
+                    id=job.id,
+                    kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
+                    payload=job.payload,
+                    attempts=1,
+                    max_attempts=5,
+                ),
+                owner,
+            )
+            await session.commit()
+        continued.append(delivery_id)
+    return continued
+
+
+async def test_a_reverse_closes_and_then_opens_for_each_subscriber_in_their_own_pool(
+    pg_session_factory: Factory,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two users both hold the strategy's long. The flip to short is worked per
+    delivery: each closes ITS OWN allocation, and the continuation that follows is
+    keyed by that delivery, so each then opens its own short, in its own pool, at its
+    own share, on its own venue. A continuation keyed by the signal would run once, for
+    the author, and the other subscriber would end flat."""
+    world = await _world(pg_session_factory)
+    opening = await _signal(world, position_size="1", minutes=1)
+    await _run(world, opening)
+    held_by = await _reservations(world, opening)
+    # Recent: the continuation abandons a signal older than ten minutes.
+    reverse = await _signal(world, position_size="-1", minutes=29)
+    caplog.set_level(logging.ERROR)
+
+    await _fan_out(world, reverse)
+    queued = await _queued(world, reverse)
+    assert {user: halves for user, (_, halves) in queued.items()} == {
+        world.author: "close_and_open",
+        world.other: "close_and_open",
+    }
+    for user, (delivery_id, halves) in queued.items():
+        await _work(world, user, delivery_id, halves)
+
+    # One continuation PER DELIVERY, named by it and by nothing else.
+    async with world.factory() as session:
+        seeded = (
+            (await session.execute(select(JobRow).where(JobRow.kind == "signal.open_after_close")))
+            .scalars()
+            .all()
+        )
+    assert {job.dedupe_key for job in seeded} == {
+        f"signal.open_after_close:{delivery_id}:0" for delivery_id, _ in queued.values()
+    }
+    for job in seeded:
+        assert set(job.payload) == {"delivery_id", "awaited_allocation_ids", "poll"}
+    # Each close unwound its OWN subscriber's allocation.
+    for user in (world.author, world.other):
+        _, closes = await _attempts_by_kind(world, user)
+        assert [c.closes_allocation_id for c in closes] == [held_by[user].id]
+        assert [c.delivery_id for c in closes] == [queued[user][0]]
+
+    await _settle_all(world)
+    assert await _held(world, world.author) == Decimal("0")
+    assert await _held(world, world.other) == Decimal("0")
+
+    done: set[UUID] = set()
+    continued = await _continue(world, done)
+    await _settle_all(world)
+
+    assert sorted(continued) == sorted(delivery_id for delivery_id, _ in queued.values())
+    reservations = await _reservations(world, reverse)
+    assert set(reservations) == {world.author, world.other}
+    # 50% of the author's 1000 and 25% of the other user's 400, each in their own pool.
+    assert reservations[world.author].amount == Decimal("500")
+    assert reservations[world.other].amount == Decimal("100")
+    assert reservations[world.author].pool_id == held_by[world.author].pool_id
+    assert reservations[world.other].pool_id == held_by[world.other].pool_id
+    assert reservations[world.author].pool_id != reservations[world.other].pool_id
+    for user in (world.author, world.other):
+        assert reservations[user].delivery_id == queued[user][0]
+        opens, closes = await _attempts_by_kind(world, user)
+        # The first opening, then the reverse's short: the close is the third order.
+        assert len(opens) == 2 and len(closes) == 1
+        short = opens[-1]
+        assert short.reservation_id == reservations[user].id
+        assert short.side == "SELL"
+        assert short.user_id == user
+        assert short.delivery_id == queued[user][0]
+        assert short.signal_id == reverse
+        assert short.status == "FILLED"
+        assert len(world.venues[user].orders) == 3
+        assert await _outcome(world, queued[user][0]) == ("PROCESSED", None)
+    # Short by what each was granted, at the alert's price of 1.
+    assert await _held(world, world.author) == Decimal("-500")
+    assert await _held(world, world.other) == Decimal("-100")
+    assert await _signal_outcome(world, reverse) == ("ACCEPTED", None, None)
+    # Nothing was dropped on the way: no seed conflict, no abandonment.
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 
 # --- a subscription that left ---------------------------------------------------------

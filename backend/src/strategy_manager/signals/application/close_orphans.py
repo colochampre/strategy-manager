@@ -41,13 +41,13 @@ close:
 - ``inserted=True`` (this call's ``next_poll`` was genuinely unused
   before -- the ordinary case, and also what a genuinely NEW signal
   hitting the same still-divergent allocation always gets, since its own
-  ``dedupe_key`` is scoped by ITS OWN ``signal_id``): every allocation
+  delivery, hence its own ``dedupe_key``, is new): every allocation
   needing a fresh close is safe to close, INCLUDING one whose latest
   closing attempt is FAILED (spec: trade-execution § Retryable Close,
   Single In-Flight Attempt) -- this fresh continuation step is guaranteed
   to be exactly what was just passed.
 - ``inserted=False`` (a collision: SOME earlier attempt at this exact
-  ``(signal_id, next_poll)`` already committed a row, and that row's
+  ``(delivery_id, next_poll)`` already committed a row, and that row's
   ``awaited_allocation_ids`` payload is fixed -- ``enqueue_unique``'s own
   ON CONFLICT DO NOTHING discards this call's payload): an allocation
   already covered by an existing non-FAILED close is still safely left
@@ -116,7 +116,7 @@ class ContinuationSeederPort(Protocol):
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
@@ -154,7 +154,7 @@ class CloseOrphans:
 
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -164,8 +164,10 @@ class CloseOrphans:
         user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
-        """``user_id`` owns the holdings: the strategy's author. The closing
-        attempts are read and written as that user's (multi-user design AD8).
+        """``delivery_id`` is the delivery whose open waits behind these closes: the
+        continuation is seeded for it (tasks.md C.8), and nothing else.
+        ``user_id`` owns the holdings: that delivery's user. The closing attempts
+        are read and written as that user's (multi-user design AD8).
 
         ``holdings`` is the strategy's own non-zero allocations on this
         market, exactly as ``HoldingGuard`` reported them via
@@ -173,7 +175,7 @@ class CloseOrphans:
         so this acts on precisely what was classified REAL a moment ago.
 
         ``next_poll`` MUST be the next never-before-seeded step in this
-        signal's own chain (see ``CloseOrphansPort``'s docstring in
+        delivery's own chain (see ``CloseOrphansPort``'s docstring in
         ``process_signal.py``) -- ``ProcessSignalHandler._handle_consumes``
         threads its own ``next_poll`` through unchanged."""
         allocation_ids = [holding.allocation_id for holding in holdings]
@@ -194,7 +196,7 @@ class CloseOrphans:
         # its own ERROR. Logging the seed's own conflict at ERROR too would
         # be a second, redundant alarm for the same event.
         inserted = await self._open_after_close.seed(
-            signal_id, allocation_ids, poll=next_poll, replay_expected=True
+            delivery_id, allocation_ids, poll=next_poll, replay_expected=True
         )
 
         placed_a_close = False

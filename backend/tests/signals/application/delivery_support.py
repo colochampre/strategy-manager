@@ -43,9 +43,6 @@ class SoleSubscriberDeliveries:
     async def load(self, delivery_id: UUID) -> Delivery:
         return self._delivery(delivery_id)
 
-    async def of_signal_author(self, signal_id: UUID) -> Delivery:
-        return self._delivery(signal_id)
-
     def _delivery(self, signal_id: UUID) -> Delivery:
         policy: StrategyPolicySnapshot = self._policy_port.snapshot
         return Delivery(

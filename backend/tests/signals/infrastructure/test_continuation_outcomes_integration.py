@@ -126,11 +126,13 @@ class _Scenario:
         opening_signal_id: UUID,
         reverse_signal_id: UUID,
         allocation_id: UUID,
+        reverse_delivery_id: UUID,
     ) -> None:
         self.strategy_id = strategy_id
         self.opening_signal_id = opening_signal_id
         self.reverse_signal_id = reverse_signal_id
         self.allocation_id = allocation_id
+        self.reverse_delivery_id = reverse_delivery_id
 
 
 async def _seed_reverse(
@@ -162,7 +164,7 @@ async def _seed_reverse(
         position_size=Decimal("-1"),
         received_at=now - reverse_age,
     )
-    # The continuation opens for the reverse signal's delivery to the author.
+    # The continuation is seeded for the reverse signal's delivery to the author.
     async with factory() as session:
         reverse_delivery = await ensure_delivery(
             session, signal_id=reverse_signal, strategy_id=strategy_id
@@ -215,7 +217,7 @@ async def _seed_reverse(
                     delivery_id=reverse_delivery,
                 )
     await _decide(factory, opening_signal, SignalOutcome.processed())
-    return _Scenario(strategy_id, opening_signal, reverse_signal, allocation_id)
+    return _Scenario(strategy_id, opening_signal, reverse_signal, allocation_id, reverse_delivery)
 
 
 def _fill(
@@ -274,7 +276,7 @@ async def _run_continuation(
                 id=uuid4(),
                 kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
                 payload={
-                    "signal_id": str(scenario.reverse_signal_id),
+                    "delivery_id": str(scenario.reverse_delivery_id),
                     "awaited_allocation_ids": [str(a) for a in awaited],
                     "poll": 0,
                 },
@@ -476,7 +478,8 @@ async def test_a_deleted_signal_writes_nothing_and_raises_nothing(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     scenario = await _seed_reverse(pg_session_factory, allowed_pairs=None, close_status="FAILED")
-    scenario.reverse_signal_id = uuid4()  # a job whose signal no longer exists
+    # A job whose delivery, and so its signal, no longer exists.
+    scenario.reverse_delivery_id = uuid4()
 
     await _run_continuation(pg_session_factory, scenario, awaited=[scenario.allocation_id])
     # reaching here is the assertion: the abandonment logged and returned

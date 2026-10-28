@@ -10,6 +10,7 @@ is what is observed. No real credential (rule 1): every key is a sentinel.
 """
 
 import base64
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -39,7 +40,13 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_other_user
+from tests.owner import (
+    OWNER_ID,
+    ensure_author_subscription,
+    ensure_delivery,
+    ensure_pool,
+    seed_other_user,
+)
 from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
@@ -265,6 +272,118 @@ async def test_a_delivery_job_without_halves_hands_the_handler_none_not_a_defaul
     )
 
     assert recorded.handled == [(delivery_id, None)]
+
+
+class _Continuation:
+    """Stands in for ``OpenAfterClose``: records the job it is polled with and the
+    owner it is polled as."""
+
+    def __init__(self, seen: _Recorded) -> None:
+        self._seen = seen
+
+    async def poll(self, job: ClaimedJob, owner: UUID | None) -> None:
+        self._seen.handled.append((job.payload.get("delivery_id"), owner))
+
+
+def _use_continuation(monkeypatch: pytest.MonkeyPatch, seen: _Recorded) -> None:
+    monkeypatch.setattr(
+        main, "_build_process_delivery", lambda *args, **kwargs: (None, _Continuation(seen))
+    )
+
+
+def _continuation_job(**ids: UUID) -> ClaimedJob:
+    payload: dict[str, object] = {key: str(value) for key, value in ids.items()}
+    payload |= {"awaited_allocation_ids": [], "poll": 0}
+    return _job(JobKind.SIGNAL_OPEN_AFTER_CLOSE, payload)  # type: ignore[arg-type]
+
+
+async def test_a_continuation_job_trades_with_its_deliverys_key_never_the_strategy_authors(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C.8: a reverse's second half opens as the DELIVERY's user. The strategy is the
+    owner's and both hold a key, but the delivery is the other user's."""
+    delivery_id, other = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+    _use_continuation(monkeypatch, recorded)
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.SIGNAL_OPEN_AFTER_CLOSE](  # noqa: SLF001
+        _continuation_job(delivery_id=delivery_id)
+    )
+
+    assert recorded.signed_with == [OTHER_KEY]
+    assert recorded.handled == [(str(delivery_id), other)]
+
+
+async def test_a_continuation_queued_before_c8_resolves_to_its_signals_only_delivery(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A job carrying only ``signal_id`` is not dropped: it is polled for the signal's
+    one delivery, with that delivery's user's key, and the payload the poll sees
+    names the delivery."""
+    delivery_id, other = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+    async with pg_session_factory() as session:
+        signal_id = (
+            await session.execute(
+                text("SELECT signal_id FROM signal_deliveries WHERE id = :id"), {"id": delivery_id}
+            )
+        ).scalar_one()
+    _use_continuation(monkeypatch, recorded)
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.SIGNAL_OPEN_AFTER_CLOSE](  # noqa: SLF001
+        _continuation_job(signal_id=signal_id)
+    )
+
+    assert recorded.signed_with == [OTHER_KEY]
+    assert recorded.handled == [(str(delivery_id), other)]
+
+
+async def test_a_continuation_queued_before_c8_for_a_signal_with_two_deliveries_is_refused(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Which of the two subscribers it opens for cannot be known, so it opens for
+    neither: no client is built, nothing is polled, and one ERROR names the signal."""
+    delivery_id, _ = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+    async with pg_session_factory() as session:
+        signal_id = (
+            await session.execute(
+                text("SELECT signal_id FROM signal_deliveries WHERE id = :id"), {"id": delivery_id}
+            )
+        ).scalar_one()
+        strategy_id = (
+            await session.execute(
+                text("SELECT strategy_id FROM signals WHERE id = :id"), {"id": signal_id}
+            )
+        ).scalar_one()
+        await ensure_author_subscription(session, strategy_id)
+        await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        await session.commit()
+    _use_continuation(monkeypatch, recorded)
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    with caplog.at_level(logging.ERROR, logger="strategy_manager.main"):
+        await runner._handlers[JobKind.SIGNAL_OPEN_AFTER_CLOSE](  # noqa: SLF001
+            _continuation_job(signal_id=signal_id)
+        )
+
+    assert recorded.signed_with == []
+    assert recorded.handled == []
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert str(signal_id) in errors[0] and "2 deliveries" in errors[0]
 
 
 async def test_the_owner_of_a_delivery_is_its_user_not_the_authors(
