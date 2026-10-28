@@ -143,4 +143,12 @@ These come from the owner's own words above. They are not asked again.
     - A disabled strategy fans out no signal, so its subscription needs no key. If the author enables it again, the subscriber's next opening is refused before any capital is reserved (`EXCHANGE_HAS_NO_KEY`), which is what happens to an author today.
     - A LEAVING subscription holds an open position, and that position already blocks the delete through the ledger holdings.
 
+21. **An author may make a strategy private, chosen at creation and changeable afterwards; making it private keeps its current subscribers (2026-10-28, amends R7).** The owner asked for it ("Prefiero que se pueda cambiar luego de crearla") and chose "Los actuales siguen".
+    - The owner's use case: run a strategy privately until it has a history, then publish it with data to analyse.
+    - The public record is computed from the strategy's own signals (decision 15), never from a user's ledger, so the signals received while private are already the history when it turns public. That record always includes the private period, so going private never hides a bad run.
+    - Going private blocks new subscriptions only: a subscription to another author's private strategy is refused as not found (AD8). Current subscribers keep receiving its signals, and the fan-out does not read the visibility. A subscriber who leaves cannot come back while it stays private.
+    - A private strategy leaves the public list and its public page.
+    - Accepted risk: an author may run several private strategies and publish only the lucky one. Nothing prevents that; the public history is the only mitigation, as in decision 9.
+    - Scheduled for PR D (authoring): the column, the creation choice, the change, and the subscribe refusal. It must be in place before PR F opens the public list.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
