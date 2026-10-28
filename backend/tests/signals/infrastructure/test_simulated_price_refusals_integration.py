@@ -61,13 +61,17 @@ def _exchange(exchange: str = "bybit") -> FakeExchangeAdapter:
     return FakeExchangeAdapter(exchange=exchange, fee_rate=Decimal("0"))
 
 
-def _close_command(
+async def _close_command(
+    factory: async_sessionmaker[AsyncSession],
     strategy_id: UUID,
     allocation_id: UUID,
     signal_id: UUID | None,
     reference_price: Decimal | None,
 ) -> CloseCommand:
+    """The command ``ProcessDelivery`` builds: the signal and its delivery travel
+    together, and an orphan close has neither."""
     return CloseCommand(
+        delivery_id=None if signal_id is None else await order_h._delivery_of(factory, signal_id),
         user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
@@ -125,7 +129,7 @@ async def test_a_close_with_no_reference_price_fails_the_attempt_rejects_the_sig
     result = await _close(
         pg_session_factory,
         _exchange(),
-        _close_command(strategy_id, allocation_id, closing_signal, None),
+        await _close_command(pg_session_factory, strategy_id, allocation_id, closing_signal, None),
     )
 
     assert result.status == "FAILED"
@@ -161,7 +165,7 @@ async def test_zero_negative_nan_and_infinite_close_prices_are_each_refused_the_
     result = await _close(
         pg_session_factory,
         _exchange(),
-        _close_command(strategy_id, allocation_id, closing_signal, price),
+        await _close_command(pg_session_factory, strategy_id, allocation_id, closing_signal, price),
     )
 
     assert result.status == "FAILED"
@@ -185,7 +189,7 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     refused = await _close(
         pg_session_factory,
         exchange,
-        _close_command(strategy_id, allocation_id, closing_signal, None),
+        await _close_command(pg_session_factory, strategy_id, allocation_id, closing_signal, None),
     )
     assert refused.status == "FAILED"
     async with pg_session_factory() as session:
@@ -195,7 +199,9 @@ async def test_a_refused_close_leaves_the_position_open_and_a_later_close_at_a_u
     placed = await _close(
         pg_session_factory,
         exchange,
-        _close_command(strategy_id, allocation_id, None, Decimal("0.4633")),
+        await _close_command(
+            pg_session_factory, strategy_id, allocation_id, None, Decimal("0.4633")
+        ),
     )
 
     assert placed.status == "PLACED"
@@ -230,7 +236,9 @@ async def test_an_orphan_close_refused_for_its_price_writes_no_outcome_on_any_si
     )
 
     result = await _close(
-        pg_session_factory, _exchange(), _close_command(strategy_id, allocation_id, None, None)
+        pg_session_factory,
+        _exchange(),
+        await _close_command(pg_session_factory, strategy_id, allocation_id, None, None),
     )
 
     assert result.status == "FAILED"
@@ -252,12 +260,11 @@ async def test_an_order_the_exchange_did_not_build_is_refused_and_an_opening_res
         pg_session_factory, expires_at=order_h._NOW + order_h.timedelta(hours=1)
     )
     exchange = _ForgetfulExchange(exchange="bybit", fee_rate=Decimal("0"))
+    command = await order_h._place_command(pg_session_factory, reservation_id)
 
     async with pg_session_factory() as session:
         commit = order_h._FaultyCommit(session, fail_on=None)
-        await order_h._place_order(session, commit, exchange).place(
-            order_h._place_command(reservation_id)
-        )
+        await order_h._place_order(session, commit, exchange).place(command)
 
     signal = await order_h._signal(pg_session_factory, signal_id)
     assert (signal.status, signal.outcome_reason) == ("REJECTED", "ORDER_REJECTED_BY_VENUE")
@@ -313,6 +320,7 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
         await order_h._place_order(session, commit, exchange).place(
             PlaceCommand(
                 user_id=OWNER_ID,
+                delivery_id=await order_h._delivery_of(pg_session_factory, signal_id),
                 reservation_id=reservation_id,
                 symbol="ETHBTC",
                 side=OrderSide.BUY,

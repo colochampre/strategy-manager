@@ -56,7 +56,11 @@ from tests.signals.application.test_process_signal import (
 from tests.signals.application.test_process_signal import (
     FakeClosingAttemptsPort as FakeProcessClosingAttemptsPort,
 )
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import (
+    FakeTradeCapability,
+    RecordingSignalOutcomes,
+    SoleSubscriberAuthorDelivery,
+)
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
 # The job's owner: the author of the signal's strategy (multi-user design AD8).
@@ -250,6 +254,7 @@ def _continuation(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         max_signal_age_seconds=MAX_SIGNAL_AGE_SECONDS,
         outcomes=outcomes if outcomes is not None else RecordingSignalOutcomes(),
+        deliveries=SoleSubscriberAuthorDelivery(),
     )
     return continuation, attempts_port, queue_port, open_now_port
 
@@ -637,6 +642,7 @@ async def test_in_flight_that_never_clears_keeps_rescheduling_until_the_age_boun
         poll_interval_seconds=1.0,
         max_signal_age_seconds=3.0,
         outcomes=RecordingSignalOutcomes(),
+        deliveries=SoleSubscriberAuthorDelivery(),
     )
     open_now.continuation = continuation
 

@@ -1,6 +1,9 @@
-"""Decision 25, task 5c.6 on real PostgreSQL: a signal whose job ends ``FAILED``
-becomes ``REJECTED`` ``JOB_FAILED``, exactly once, in the SAME transaction as the
-``FAILED`` status.
+"""Decision 25, task 5c.6 (tasks.md C.7) on real PostgreSQL: what a job was working
+on, when it ends ``FAILED``, becomes ``REJECTED`` ``JOB_FAILED``, exactly once, in
+the SAME transaction as the ``FAILED`` status.
+
+A job that worked a DELIVERY ends that delivery's row; a fan-out
+(``signal.process``) worked the SIGNAL itself and ends the signal's row.
 
 The production pieces run together: ``WorkerRunner`` claims and fails the job
 through ``ExhaustionObservingJobQueue`` wired exactly as ``main.py`` wires it
@@ -8,13 +11,14 @@ through ``ExhaustionObservingJobQueue`` wired exactly as ``main.py`` wires it
 ``max_attempts=1``, so the handler's one exception is the last attempt.
 
 "Exactly once" is asserted three ways, none of which is a ``sleep(0)`` barrier:
-a job reaches ``FAILED`` once (the claim lock), two exhausted jobs of ONE signal
-write once (the terminal guard, silent), and a writer racing a held signal-row
-lock genuinely waits (``not task.done()``) before resolving.
+a job reaches ``FAILED`` once (the claim lock), two exhausted jobs of ONE delivery
+write once (the terminal guard, silent), and a writer racing a held row lock
+genuinely waits (``not task.done()``) before resolving.
 """
 
 import asyncio
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -39,11 +43,12 @@ from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
 from strategy_manager.signals.infrastructure.failed_job_signal_reader import (
     SqlAlchemyFailedJobSignalReader,
 )
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
+    SqlAlchemyDeliveryOutcomeAdapter,
     SqlAlchemySignalOutcomeAdapter,
 )
-from tests.owner import ensure_delivery
+from tests.owner import ensure_author_subscription, ensure_delivery, seed_other_user
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -68,6 +73,7 @@ def _observing_queue(session: AsyncSession) -> ExhaustionObservingJobQueue:
         session,
         observer=ExhaustedJobSignalRecorder(
             SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
             SqlAlchemyFailedJobSignalReader(session),
         ),
         backoff_base_seconds=30.0,
@@ -127,11 +133,32 @@ async def _signal(factory: async_sessionmaker[AsyncSession], signal_id: UUID) ->
         ).scalar_one()
 
 
+async def _delivery_row(
+    factory: async_sessionmaker[AsyncSession], delivery_id: UUID
+) -> SignalDeliveryRow:
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.id == delivery_id)
+            )
+        ).scalar_one()
+
+
 async def _decide(
     factory: async_sessionmaker[AsyncSession], signal_id: UUID, outcome: SignalOutcome
 ) -> None:
     async with factory() as session:
         await SqlAlchemySignalOutcomeAdapter(session, _FixedClock()).record(signal_id, outcome)
+        await session.commit()
+
+
+async def _decide_delivery(
+    factory: async_sessionmaker[AsyncSession], delivery_id: UUID, outcome: SignalOutcome
+) -> None:
+    async with factory() as session:
+        await SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()).record(
+            delivery_id, outcome
+        )
         await session.commit()
 
 
@@ -142,20 +169,27 @@ def _guard_records(caplog: pytest.LogCaptureFixture) -> list[str]:
 class _Seed:
     def __init__(
         self,
+        strategy_id: UUID,
         opening_signal: UUID,
         closing_signal: UUID,
+        opening_delivery: UUID,
+        closing_delivery: UUID,
         open_attempt: UUID,
         close_attempt: UUID,
     ) -> None:
+        self.strategy_id = strategy_id
         self.opening_signal = opening_signal
         self.closing_signal = closing_signal
+        self.opening_delivery = opening_delivery
+        self.closing_delivery = closing_delivery
         self.open_attempt = open_attempt
         self.close_attempt = close_attempt
 
 
 async def _seed(factory: async_sessionmaker[AsyncSession]) -> _Seed:
-    """An opening signal with its reservation and OPEN attempt (no link, like a
-    pre-5c attempt), and a closing signal with its linked CLOSE attempt."""
+    """An opening signal with its delivery, reservation and OPEN attempt, and a
+    closing signal with its delivery and linked CLOSE attempt. Each attempt names
+    its own delivery (C.7)."""
     strategy_id, opening_signal, closing_signal = uuid4(), uuid4(), uuid4()
     reservation_id, open_attempt, close_attempt = uuid4(), uuid4(), uuid4()
     await seed_strategy(factory, strategy_id=strategy_id)
@@ -172,6 +206,15 @@ async def _seed(factory: async_sessionmaker[AsyncSession]) -> _Seed:
             position_size=size,
             received_at=_NOW - timedelta(hours=1 if key == "opening" else 0),
         )
+    async with factory() as session:
+        await ensure_author_subscription(session, strategy_id)
+        opening_delivery = await ensure_delivery(
+            session, signal_id=opening_signal, strategy_id=strategy_id
+        )
+        closing_delivery = await ensure_delivery(
+            session, signal_id=closing_signal, strategy_id=strategy_id
+        )
+        await session.commit()
     await seed_reservation(
         factory,
         reservation_id=reservation_id,
@@ -185,6 +228,8 @@ async def _seed(factory: async_sessionmaker[AsyncSession]) -> _Seed:
         reservation_id=reservation_id,
         symbol="STXUSDT",
         status="SUBMITTED",
+        signal_id=opening_signal,
+        delivery_id=opening_delivery,
     )
     await seed_execution_attempt(
         factory,
@@ -193,84 +238,34 @@ async def _seed(factory: async_sessionmaker[AsyncSession]) -> _Seed:
         symbol="STXUSDT",
         status="SUBMITTED",
         signal_id=closing_signal,
+        delivery_id=closing_delivery,
     )
-    return _Seed(opening_signal, closing_signal, open_attempt, close_attempt)
+    return _Seed(
+        strategy_id,
+        opening_signal,
+        closing_signal,
+        opening_delivery,
+        closing_delivery,
+        open_attempt,
+        close_attempt,
+    )
 
 
 # ---- every kind, through the real runner ------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("kind", "payload_for", "signal_of"),
-    [
-        (
-            JobKind.SIGNAL_PROCESS,
-            lambda s: {"signal_id": str(s.opening_signal)},
-            lambda s: s.opening_signal,
-        ),
-        (
-            JobKind.SIGNAL_OPEN_AFTER_CLOSE,
-            lambda s: {
-                "signal_id": str(s.closing_signal),
-                "awaited_allocation_ids": [],
-                "poll": 2,
-            },
-            lambda s: s.closing_signal,
-        ),
-        (
-            JobKind.EXECUTION_SETTLE,
-            lambda s: {"execution_attempt_id": str(s.open_attempt)},
-            lambda s: s.opening_signal,
-        ),
-        (
-            JobKind.EXECUTION_SETTLE,
-            lambda s: {"execution_attempt_id": str(s.close_attempt)},
-            lambda s: s.closing_signal,
-        ),
-    ],
-    ids=["signal.process", "signal.open_after_close", "settle-open", "settle-close"],
-)
-async def test_a_job_that_exhausts_its_retries_rejects_its_signal(
-    pg_session_factory: async_sessionmaker[AsyncSession], kind, payload_for, signal_of  # type: ignore[no-untyped-def]
-) -> None:
-    seed = await _seed(pg_session_factory)
-    job_id = await _enqueue(pg_session_factory, kind, payload_for(seed))
-
-    ran = await _runner(pg_session_factory, [kind], "the venue is down").run_once()
-
-    assert ran is True
-    job = await _job(pg_session_factory, job_id)
-    assert (job.status, job.last_error) == ("FAILED", "the venue is down")
-    signal = await _signal(pg_session_factory, signal_of(seed))
-    assert (signal.status, signal.outcome_reason, signal.outcome_detail) == (
-        "REJECTED",
-        "JOB_FAILED",
-        "the venue is down",
-    )
-    assert signal.decided_at == _NOW
-
-
-async def test_a_delivery_job_that_exhausts_its_retries_rejects_its_deliverys_signal(
+async def test_an_exhausted_fan_out_rejects_its_signal_row(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """C.6: an exhausted ``delivery.process`` is recorded against its delivery's
-    signal the way an exhausted ``signal.process`` is, never silently. The full
-    move of the reader to the delivery is C.8."""
+    """``signal.process`` works the signal itself: no delivery exists to hold the
+    outcome, so it lands on the signal's row, and no delivery is touched."""
     seed = await _seed(pg_session_factory)
-    strategy_id = (await _signal(pg_session_factory, seed.opening_signal)).strategy_id
-    async with pg_session_factory() as session:
-        delivery_id = await ensure_delivery(
-            session, signal_id=seed.opening_signal, strategy_id=strategy_id
-        )
-        await session.commit()
     job_id = await _enqueue(
-        pg_session_factory,
-        JobKind.DELIVERY_PROCESS,
-        {"delivery_id": str(delivery_id), "halves": "open"},
+        pg_session_factory, JobKind.SIGNAL_PROCESS, {"signal_id": str(seed.opening_signal)}
     )
 
     ran = await _runner(
-        pg_session_factory, [JobKind.DELIVERY_PROCESS], "the venue is down"
+        pg_session_factory, [JobKind.SIGNAL_PROCESS], "the venue is down"
     ).run_once()
 
     assert ran is True
@@ -282,9 +277,72 @@ async def test_a_delivery_job_that_exhausts_its_retries_rejects_its_deliverys_si
         "JOB_FAILED",
         "the venue is down",
     )
+    assert signal.decided_at == _NOW
+    assert (await _delivery_row(pg_session_factory, seed.opening_delivery)).status == "ACCEPTED"
 
 
-async def test_a_settle_job_for_a_close_does_not_reject_the_opening_signal(
+@pytest.mark.parametrize(
+    ("kind", "payload_for", "delivery_of"),
+    [
+        (
+            JobKind.DELIVERY_PROCESS,
+            lambda s: {"delivery_id": str(s.opening_delivery), "halves": "open"},
+            lambda s: s.opening_delivery,
+        ),
+        (
+            JobKind.SIGNAL_OPEN_AFTER_CLOSE,
+            lambda s: {
+                "signal_id": str(s.closing_signal),
+                "awaited_allocation_ids": [],
+                "poll": 2,
+            },
+            lambda s: s.closing_delivery,
+        ),
+        (
+            JobKind.EXECUTION_SETTLE,
+            lambda s: {"execution_attempt_id": str(s.open_attempt)},
+            lambda s: s.opening_delivery,
+        ),
+        (
+            JobKind.EXECUTION_SETTLE,
+            lambda s: {"execution_attempt_id": str(s.close_attempt)},
+            lambda s: s.closing_delivery,
+        ),
+    ],
+    ids=["delivery.process", "signal.open_after_close", "settle-open", "settle-close"],
+)
+async def test_a_job_that_exhausts_its_retries_rejects_its_delivery(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    kind: JobKind,
+    payload_for: Callable[[_Seed], dict[str, object]],
+    delivery_of: Callable[[_Seed], UUID],
+) -> None:
+    seed = await _seed(pg_session_factory)
+    job_id = await _enqueue(pg_session_factory, kind, payload_for(seed))
+
+    ran = await _runner(pg_session_factory, [kind], "the venue is down").run_once()
+
+    assert ran is True
+    job = await _job(pg_session_factory, job_id)
+    assert (job.status, job.last_error) == ("FAILED", "the venue is down")
+    delivery = await _delivery_row(pg_session_factory, delivery_of(seed))
+    assert (delivery.status, delivery.outcome_reason, delivery.outcome_detail) == (
+        "REJECTED",
+        "JOB_FAILED",
+        "the venue is down",
+    )
+    assert delivery.decided_at == _NOW
+    # The signal's own columns are never written by a delivery's job.
+    for signal_id in (seed.opening_signal, seed.closing_signal):
+        signal = await _signal(pg_session_factory, signal_id)
+        assert (signal.status, signal.outcome_reason, signal.decided_at) == (
+            "ACCEPTED",
+            None,
+            None,
+        )
+
+
+async def test_a_settle_job_for_a_close_does_not_reject_the_opening_delivery(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     seed = await _seed(pg_session_factory)
@@ -296,26 +354,40 @@ async def test_a_settle_job_for_a_close_does_not_reject_the_opening_signal(
 
     await _runner(pg_session_factory, [JobKind.EXECUTION_SETTLE], "boom").run_once()
 
-    assert (await _signal(pg_session_factory, seed.opening_signal)).status == "ACCEPTED"
+    assert (await _delivery_row(pg_session_factory, seed.opening_delivery)).status == "ACCEPTED"
+    assert (await _delivery_row(pg_session_factory, seed.closing_delivery)).status == "REJECTED"
 
 
-async def test_a_job_that_will_be_retried_leaves_its_signal_alone(
+async def test_a_job_that_will_be_retried_leaves_its_signal_and_delivery_alone(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     seed = await _seed(pg_session_factory)
     async with pg_session_factory() as session:
-        await PostgresJobQueue(session).enqueue(
+        queue = PostgresJobQueue(session)
+        await queue.enqueue(
             Job(
                 kind=JobKind.SIGNAL_PROCESS,
                 payload={"signal_id": str(seed.opening_signal)},
                 max_attempts=3,
             )
         )
+        await queue.enqueue(
+            Job(
+                kind=JobKind.DELIVERY_PROCESS,
+                payload={"delivery_id": str(seed.opening_delivery), "halves": "open"},
+                max_attempts=3,
+            )
+        )
         await session.commit()
 
-    await _runner(pg_session_factory, [JobKind.SIGNAL_PROCESS], "transient").run_once()
+    runner = _runner(
+        pg_session_factory, [JobKind.SIGNAL_PROCESS, JobKind.DELIVERY_PROCESS], "transient"
+    )
+    await runner.run_once()
+    await runner.run_once()
 
     assert (await _signal(pg_session_factory, seed.opening_signal)).status == "ACCEPTED"
+    assert (await _delivery_row(pg_session_factory, seed.opening_delivery)).status == "ACCEPTED"
 
 
 async def test_the_detail_is_the_error_bounded_and_redacted_in_the_row(
@@ -323,30 +395,31 @@ async def test_the_detail_is_the_error_bounded_and_redacted_in_the_row(
 ) -> None:
     seed = await _seed(pg_session_factory)
     await _enqueue(
-        pg_session_factory, JobKind.SIGNAL_PROCESS, {"signal_id": str(seed.opening_signal)}
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
     )
     message = "connect failed for postgresql://app:hunter2@db/app " + "z" * 5000
 
-    await _runner(pg_session_factory, [JobKind.SIGNAL_PROCESS], message).run_once()
+    await _runner(pg_session_factory, [JobKind.DELIVERY_PROCESS], message).run_once()
 
-    signal = await _signal(pg_session_factory, seed.opening_signal)
-    assert signal.outcome_detail is not None
-    assert len(signal.outcome_detail) == MAX_DETAIL_CHARS
-    assert "hunter2" not in signal.outcome_detail
-
-
-# ---- never over a terminal signal, exactly once ------------------------------
+    delivery = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    assert delivery.outcome_detail is not None
+    assert len(delivery.outcome_detail) == MAX_DETAIL_CHARS
+    assert "hunter2" not in delivery.outcome_detail
 
 
-@pytest.mark.parametrize(
-    "held",
-    [
-        SignalOutcome.processed(),
-        SignalOutcome.rejected("CLOSE_REJECTED_BY_VENUE", "refused earlier"),
-    ],
-    ids=["processed", "rejected"],
-)
-async def test_an_exhausted_job_never_overwrites_a_terminal_signal_and_does_not_warn(
+# ---- never over a terminal outcome, exactly once -----------------------------
+
+
+_HELD = [
+    SignalOutcome.processed(),
+    SignalOutcome.rejected("CLOSE_REJECTED_BY_VENUE", "refused earlier"),
+]
+
+
+@pytest.mark.parametrize("held", _HELD, ids=["processed", "rejected"])
+async def test_an_exhausted_fan_out_never_overwrites_a_terminal_signal_and_does_not_warn(
     pg_session_factory: async_sessionmaker[AsyncSession],
     caplog: pytest.LogCaptureFixture,
     held: SignalOutcome,
@@ -372,16 +445,47 @@ async def test_an_exhausted_job_never_overwrites_a_terminal_signal_and_does_not_
     assert _guard_records(caplog) == []
 
 
-async def test_two_exhausted_jobs_of_one_signal_write_exactly_once(
+@pytest.mark.parametrize("held", _HELD, ids=["processed", "rejected"])
+async def test_an_exhausted_job_never_overwrites_a_terminal_delivery_and_does_not_warn(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+    held: SignalOutcome,
+) -> None:
+    caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
+    seed = await _seed(pg_session_factory)
+    await _decide_delivery(pg_session_factory, seed.opening_delivery, held)
+    before = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    job_id = await _enqueue(
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
+    )
+
+    await _runner(pg_session_factory, [JobKind.DELIVERY_PROCESS], "late failure").run_once()
+
+    assert (await _job(pg_session_factory, job_id)).status == "FAILED"
+    after = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    assert (after.status, after.outcome_reason, after.outcome_detail, after.decided_at) == (
+        before.status,
+        before.outcome_reason,
+        before.outcome_detail,
+        before.decided_at,
+    )
+    assert _guard_records(caplog) == []
+
+
+async def test_two_exhausted_jobs_of_one_delivery_write_exactly_once(
     pg_session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """``signal.process`` and the ``execution.settle`` of its open both die: the
-    signal ends ``JOB_FAILED`` once, with the FIRST error, and the second job is
+    """``delivery.process`` and the ``execution.settle`` of its open both die: the
+    delivery ends ``JOB_FAILED`` once, with the FIRST error, and the second job is
     a silent no-op (not a second write, not a WARNING)."""
     caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
     seed = await _seed(pg_session_factory)
     first = await _claimed(
-        pg_session_factory, JobKind.SIGNAL_PROCESS, {"signal_id": str(seed.opening_signal)}
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
     )
     second = await _claimed(
         pg_session_factory,
@@ -391,18 +495,56 @@ async def test_two_exhausted_jobs_of_one_signal_write_exactly_once(
 
     async with pg_session_factory() as session:
         await _observing_queue(session).fail(first, "first error")
-    decided = await _signal(pg_session_factory, seed.opening_signal)
+    decided = await _delivery_row(pg_session_factory, seed.opening_delivery)
     async with pg_session_factory() as session:
         await _observing_queue(session).fail(second, "second error")
 
-    signal = await _signal(pg_session_factory, seed.opening_signal)
-    assert (signal.status, signal.outcome_reason, signal.outcome_detail) == (
+    delivery = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    assert (delivery.status, delivery.outcome_reason, delivery.outcome_detail) == (
         "REJECTED",
         "JOB_FAILED",
         "first error",
     )
-    assert signal.decided_at == decided.decided_at
+    assert delivery.decided_at == decided.decided_at
     assert (await _job(pg_session_factory, second)).status == "FAILED"  # still marked FAILED
+    assert _guard_records(caplog) == []
+
+
+async def test_two_deliveries_of_one_signal_exhaust_independently(
+    pg_session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
+) -> None:
+    """C.7: the second subscriber's exhausted job is not swallowed by the first's
+    terminal outcome. Each delivery of ONE signal ends ``JOB_FAILED`` with its own
+    error, and the signal's row is untouched."""
+    caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
+    seed = await _seed(pg_session_factory)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        other_delivery = await ensure_delivery(
+            session, signal_id=seed.opening_signal, strategy_id=seed.strategy_id, user_id=other
+        )
+        await session.commit()
+    first = await _claimed(
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
+    )
+    second = await _claimed(
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(other_delivery), "halves": "open"},
+    )
+
+    async with pg_session_factory() as session:
+        await _observing_queue(session).fail(first, "first error")
+    async with pg_session_factory() as session:
+        await _observing_queue(session).fail(second, "second error")
+
+    one = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    two = await _delivery_row(pg_session_factory, other_delivery)
+    assert (one.status, one.outcome_detail) == ("REJECTED", "first error")
+    assert (two.status, two.outcome_detail) == ("REJECTED", "second error")
+    assert (await _signal(pg_session_factory, seed.opening_signal)).status == "ACCEPTED"
     assert _guard_records(caplog) == []
 
 
@@ -412,7 +554,9 @@ async def test_a_failed_commit_loses_the_failed_status_and_the_rejection_togethe
     """A redelivery after that failed commit still records exactly once."""
     seed = await _seed(pg_session_factory)
     job_id = await _claimed(
-        pg_session_factory, JobKind.SIGNAL_PROCESS, {"signal_id": str(seed.opening_signal)}
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
     )
 
     async with pg_session_factory() as session:
@@ -426,13 +570,13 @@ async def test_a_failed_commit_loses_the_failed_status_and_the_rejection_togethe
             await _observing_queue(session).fail(job_id, "boom")
 
     assert (await _job(pg_session_factory, job_id)).status == "CLAIMED"
-    assert (await _signal(pg_session_factory, seed.opening_signal)).status == "ACCEPTED"
+    assert (await _delivery_row(pg_session_factory, seed.opening_delivery)).status == "ACCEPTED"
 
     async with pg_session_factory() as session:  # the redelivered failure
         await _observing_queue(session).fail(job_id, "boom")
 
-    signal = await _signal(pg_session_factory, seed.opening_signal)
-    assert (signal.status, signal.outcome_reason) == ("REJECTED", "JOB_FAILED")
+    delivery = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    assert (delivery.status, delivery.outcome_reason) == ("REJECTED", "JOB_FAILED")
     assert (await _job(pg_session_factory, job_id)).status == "FAILED"
 
 
@@ -440,8 +584,8 @@ async def test_the_exhaustion_write_waits_for_a_concurrent_writer_holding_the_si
     pg_session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
 ) -> None:
     """Lock-hold harness. Session B decided the signal and keeps its
-    transaction open (row locked); the exhaustion of a job of that signal must
-    WAIT (``not task.done()`` after a real delay). Once B commits it finds the
+    transaction open (row locked); the exhaustion of a fan-out job of that signal
+    must WAIT (``not task.done()`` after a real delay). Once B commits it finds the
     signal terminal and stays silent, and the job is still ``FAILED``."""
     caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
     seed = await _seed(pg_session_factory)
@@ -466,5 +610,40 @@ async def test_the_exhaustion_write_waits_for_a_concurrent_writer_holding_the_si
 
     signal = await _signal(pg_session_factory, seed.opening_signal)
     assert (signal.status, signal.outcome_reason) == ("REJECTED", "PAIR_NOT_ALLOWED")
+    assert (await _job(pg_session_factory, job_id)).status == "FAILED"
+    assert _guard_records(caplog) == []
+
+
+async def test_the_exhaustion_write_waits_for_a_concurrent_writer_holding_the_delivery_row(
+    pg_session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
+) -> None:
+    """The same harness on the DELIVERY's row: it is the row locked, so the
+    exhaustion waits for the holder and then stays silent over its terminal
+    outcome."""
+    caplog.set_level(logging.WARNING, logger=_GUARD_LOGGER)
+    seed = await _seed(pg_session_factory)
+    job_id = await _claimed(
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(seed.opening_delivery), "halves": "open"},
+    )
+
+    async with pg_session_factory() as session_b, pg_session_factory() as session_a:
+        await SqlAlchemyDeliveryOutcomeAdapter(session_b, _FixedClock()).record(
+            seed.opening_delivery, SignalOutcome.rejected("PAIR_NOT_ALLOWED", "b holds the lock")
+        )
+
+        async def _a_fails() -> None:
+            await _observing_queue(session_a).fail(job_id, "a waited")
+
+        task = asyncio.create_task(_a_fails())
+        await asyncio.sleep(0.5)
+        assert not task.done(), "the exhaustion write must block on the row B holds locked"
+
+        await session_b.commit()
+        await asyncio.wait_for(task, timeout=10)
+
+    delivery = await _delivery_row(pg_session_factory, seed.opening_delivery)
+    assert (delivery.status, delivery.outcome_reason) == ("REJECTED", "PAIR_NOT_ALLOWED")
     assert (await _job(pg_session_factory, job_id)).status == "FAILED"
     assert _guard_records(caplog) == []

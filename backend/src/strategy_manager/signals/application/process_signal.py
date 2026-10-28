@@ -92,9 +92,9 @@ from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import (
     BalanceRefreshPort,
+    DeliveryOutcomePort,
     PoolKey,
     RefreshStatus,
-    SignalOutcomePort,
     TradeCapability,
     TradeCapabilityPort,
 )
@@ -383,7 +383,7 @@ class ProcessDelivery:
         closing_attempts: ClosingAttemptsPort,
         close_orphans: CloseOrphansPort,
         tradable_pools: frozenset[tuple[str, str]],
-        outcomes: SignalOutcomePort,
+        outcomes: DeliveryOutcomePort,
         trade_capability: TradeCapabilityPort,
     ) -> None:
         self._deliveries = deliveries
@@ -417,7 +417,7 @@ class ProcessDelivery:
         halves = _parse_halves(raw_halves)
         if halves is None:
             return await self._refuse_halves(
-                signal_id,
+                delivery,
                 transition,
                 "DELIVERY_HALVES_MISSING",
                 f"delivery {delivery_id} of signal {signal_id} carries no usable halves "
@@ -425,7 +425,7 @@ class ProcessDelivery:
             )
         if not all(effect in transition.effects for effect in _EFFECTS_NEEDED[halves]):
             return await self._refuse_halves(
-                signal_id,
+                delivery,
                 transition,
                 "DELIVERY_HALVES_MISMATCH",
                 f"delivery {delivery_id} of signal {signal_id} was told to run {halves.value}, "
@@ -441,11 +441,11 @@ class ProcessDelivery:
         # archived strategy holds no position, so there is never a close for
         # this refusal to strand.
         if policy.archived:
-            return await self._refuse_archived_strategy(signal_id, context, transition, policy)
+            return await self._refuse_archived_strategy(delivery, context, transition, policy)
 
         if (policy.exchange, policy.venue) not in self._tradable_pools:
             return await self._refuse_untradable_pool(
-                signal_id, context, transition, policy.exchange, policy.venue
+                delivery, context, transition, policy.exchange, policy.venue
             )
 
         # The halves are what ``FanOutSignal`` decided this subscription runs, in
@@ -460,10 +460,8 @@ class ProcessDelivery:
         # With a consuming side hardcoded to BUY, a strategy holding a long and
         # told to flip short bought MORE long.
         if halves is DeliveryHalves.OPEN:
-            return await self._handle_consumes(signal_id, context, transition, policy, delivery)
-        result = await self._handle_releases(
-            signal_id, context, transition, policy, delivery, halves
-        )
+            return await self._handle_consumes(context, transition, policy, delivery)
+        result = await self._handle_releases(context, transition, policy, delivery, halves)
         if halves is DeliveryHalves.CLOSE:
             return result
         if _new_side_holdable(context.symbol, context.position_size):
@@ -473,7 +471,7 @@ class ProcessDelivery:
             # the close above settles FILLED -- there is no unexecuted tail
             # to report here, only a completion still in flight.
             return result
-        return await self._note_unexecuted_tail(signal_id, context, transition, result)
+        return await self._note_unexecuted_tail(delivery, context, transition, result)
 
     async def open_now(self, signal_id: UUID, poll: int = 0) -> ProcessSignalResult:
         """The S5 continuation's own entry point (design.md § S5, "all
@@ -537,10 +535,9 @@ class ProcessDelivery:
         close_executed = transition.kind is TransitionKind.REVERSE
         if policy.archived:
             return await self._refuse_archived_strategy(
-                signal_id, context, transition, policy, close_executed=close_executed
+                delivery, context, transition, policy, close_executed=close_executed
             )
         return await self._handle_consumes(
-            signal_id,
             context,
             transition,
             policy,
@@ -551,7 +548,6 @@ class ProcessDelivery:
 
     async def _handle_consumes(
         self,
-        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -559,6 +555,7 @@ class ProcessDelivery:
         next_poll: int = 0,
         close_executed: bool = False,
     ) -> ProcessSignalResult:
+        signal_id = delivery.signal_id
         # Unlisted-pair refusal (decision 1; design.md § 7, "Where the
         # allowlist applies: opens only") runs BEFORE even the Existing-
         # Position Guard -- it gates the OPENING effect only, so it belongs
@@ -567,7 +564,7 @@ class ProcessDelivery:
         # both reach this same method.
         if market_key(context.symbol) not in policy.allowed_pairs:
             return await self._refuse_unlisted_pair(
-                signal_id, context, transition, policy, close_executed=close_executed
+                delivery, context, transition, policy, close_executed=close_executed
             )
 
         # Read-only / keyless exchange refusal (decisions 18 and 20; design.md
@@ -582,7 +579,7 @@ class ProcessDelivery:
         capability = await self._trade_capability.capability(delivery.user_id, policy.exchange)
         if capability is not TradeCapability.TRADE_CAPABLE:
             return await self._refuse_read_only_exchange(
-                signal_id, context, transition, policy, capability, close_executed=close_executed
+                delivery, context, transition, policy, capability, close_executed=close_executed
             )
 
         # The Existing-Position Guard (spec: capital-allocation §
@@ -601,7 +598,7 @@ class ProcessDelivery:
         if not guard_outcome.proceed:
             if guard_outcome.refused is not None:
                 return await self._reject(
-                    signal_id,
+                    delivery,
                     transition,
                     guard_outcome.reason or _UNCODED_GUARD_REFUSAL,
                     guard_outcome.refused,
@@ -625,17 +622,17 @@ class ProcessDelivery:
                 # review of `ee640d6`, "a close can be placed with no live
                 # continuation awaiting it").
                 #
-                # Decision 25 (5b.8): the signal is PROCESSING while the
+                # Decision 25 (5b.8): the delivery is PROCESSING while the
                 # orphan is closed and the open waits. ``CloseOrphans`` seeds
                 # the continuation and then commits -- inside its first
                 # ``ClosePosition.close`` (SUBMITTED, or the NOT_CLOSABLE
                 # commit) or, when nothing needed closing, its own final
                 # commit -- so the status is staged here, BEFORE that call,
                 # and rides that same first commit as the seed. That takes
-                # the signals row lock ahead of the close's own inserts;
-                # every path to that row for one signal takes it in this same
+                # the delivery's row lock ahead of the close's own inserts;
+                # every path to that row for one delivery takes it in this same
                 # order, so it cannot cross-wait with itself.
-                await self._outcomes.record(signal_id, SignalOutcome.processing())
+                await self._outcomes.record(delivery.delivery_id, SignalOutcome.processing())
                 await self._close_orphans.close(
                     signal_id=signal_id,
                     pool=pool,
@@ -662,8 +659,8 @@ class ProcessDelivery:
             # Decision 25 (5b.8): the open is deferred, not decided. PROCESSING
             # is staged on the very commit that makes the seed durable, so a
             # signal is never PROCESSING without a continuation to finish it
-            # (or the reverse). The signals row lock is the last one taken.
-            await self._outcomes.record(signal_id, SignalOutcome.processing())
+            # (or the reverse). The delivery's row lock is the last one taken.
+            await self._outcomes.record(delivery.delivery_id, SignalOutcome.processing())
             await self._commit.commit()
             return ProcessSignalResult(transition.kind.value, None, False)
 
@@ -690,7 +687,7 @@ class ProcessDelivery:
             )
             logger.error("refusing signal, balance unavailable: %s", refused)
             return await self._reject(
-                signal_id,
+                delivery,
                 transition,
                 "BALANCE_UNAVAILABLE",
                 refused,
@@ -711,7 +708,6 @@ class ProcessDelivery:
         )
         if requested.amount <= 0:
             return await self._refuse_non_positive_request(
-                signal_id,
                 context,
                 transition,
                 policy,
@@ -736,6 +732,7 @@ class ProcessDelivery:
         await self._place_order.place(
             PlaceCommand(
                 user_id=delivery.user_id,
+                delivery_id=delivery.delivery_id,
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),
@@ -746,7 +743,6 @@ class ProcessDelivery:
 
     async def _handle_releases(
         self,
-        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -775,6 +771,7 @@ class ProcessDelivery:
         place a genuine second closing order rather than merely hitting a
         database error.
         """
+        signal_id = delivery.signal_id
         if context.prior_reservation_id is None:
             # Decision 27 (design.md § B): a releasing signal with nothing to
             # release. Nothing closes and nothing opens, exactly as before;
@@ -788,7 +785,7 @@ class ProcessDelivery:
             if halves is DeliveryHalves.BOTH:
                 refused += ", and the new side was not opened"
             logger.warning("%s", refused)
-            return await self._reject(signal_id, transition, "NO_POSITION_TO_CLOSE", refused)
+            return await self._reject(delivery, transition, "NO_POSITION_TO_CLOSE", refused)
 
         # Unlisted-pair WARNING, closing anyway (decision 15; design.md §
         # 7, "A releasing signal is never refused by the allowlist"). A
@@ -878,6 +875,7 @@ class ProcessDelivery:
                 symbol=context.symbol,
                 side=_releasing_side(_prior_of(context)),
                 signal_id=signal_id,
+                delivery_id=delivery.delivery_id,
                 reference_price=context.price,
             )
         )
@@ -896,7 +894,6 @@ class ProcessDelivery:
 
     async def _refuse_non_positive_request(
         self,
-        signal_id: UUID,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -960,12 +957,12 @@ class ProcessDelivery:
         )
         logger.warning("refusing signal, nothing to allocate: %s", refused)
         return await self._reject(
-            signal_id, transition, "NOTHING_TO_ALLOCATE", refused, close_executed=close_executed
+            delivery, transition, "NOTHING_TO_ALLOCATE", refused, close_executed=close_executed
         )
 
     async def _refuse_archived_strategy(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -992,17 +989,17 @@ class ProcessDelivery:
         on, not a paraphrase.
         """
         refused = (
-            f"signal {signal_id} for ARCHIVED strategy {policy.name} "
+            f"signal {delivery.signal_id} for ARCHIVED strategy {policy.name} "
             f"({context.strategy_id}) refused; remove its TradingView alert"
         )
         logger.warning(refused)
         return await self._reject(
-            signal_id, transition, "STRATEGY_ARCHIVED", refused, close_executed=close_executed
+            delivery, transition, "STRATEGY_ARCHIVED", refused, close_executed=close_executed
         )
 
     async def _refuse_unlisted_pair(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -1024,18 +1021,18 @@ class ProcessDelivery:
         """
         pair_key = market_key(context.symbol)
         refused = (
-            f"signal {signal_id} for strategy {context.strategy_id} opens "
+            f"signal {delivery.signal_id} for strategy {context.strategy_id} opens "
             f"{context.symbol} ({pair_key}), which is not in its allowed pairs "
             f"[{_pairs_text(policy)}]; refusing the open, no capital reserved"
         )
         logger.warning(refused)
         return await self._reject(
-            signal_id, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
+            delivery, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
         )
 
     async def _refuse_read_only_exchange(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
@@ -1071,17 +1068,17 @@ class ProcessDelivery:
                 "store a key that can trade futures (Settings)"
             )
         refused = (
-            f"signal {signal_id} for strategy {policy.name} ({context.strategy_id}) "
+            f"signal {delivery.signal_id} for strategy {policy.name} ({context.strategy_id}) "
             f"refused: {reason}; no capital reserved"
         )
         logger.warning("%s", refused)
         return await self._reject(
-            signal_id, transition, code, refused, close_executed=close_executed
+            delivery, transition, code, refused, close_executed=close_executed
         )
 
     async def _refuse_untradable_pool(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         context: SignalContext,
         transition: PositionTransition,
         exchange: str,
@@ -1112,10 +1109,10 @@ class ProcessDelivery:
             "No order was placed and no capital was reserved."
         )
         logger.warning("refusing signal for %s: %s", context.symbol, refused)
-        return await self._reject(signal_id, transition, "UNTRADABLE_POOL", refused)
+        return await self._reject(delivery, transition, "UNTRADABLE_POOL", refused)
 
     async def _refuse_halves(
-        self, signal_id: UUID, transition: PositionTransition, reason: str, refused: str
+        self, delivery: Delivery, transition: PositionTransition, reason: str, refused: str
     ) -> ProcessSignalResult:
         """A delivery whose payload does not say what to run, or says something
         the signal contradicts. Never defaulted and never guessed: an order for
@@ -1123,11 +1120,11 @@ class ProcessDelivery:
         what ``FanOutSignal`` enqueued and retrying cannot change the payload, so
         the signal ends ``REJECTED`` instead of the job retrying until it exhausts."""
         logger.error("refusing delivery, %s", refused)
-        return await self._reject(signal_id, transition, reason, refused)
+        return await self._reject(delivery, transition, reason, refused)
 
     async def _reject(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         transition: PositionTransition,
         reason: str,
         refused: str,
@@ -1135,8 +1132,8 @@ class ProcessDelivery:
         close_executed: bool = False,
     ) -> ProcessSignalResult:
         """The one place a refusal (rows 1-7 of design.md § B) becomes a
-        durable outcome: the signal ends ``REJECTED`` with ``reason`` and the
-        human message already logged for it.
+        durable outcome: the DELIVERY ends ``REJECTED`` with ``reason`` and the
+        human message already logged for it (C.7: its own row, not the signal's).
 
         Same-commit rule (design.md § C): none of these refusals has a
         commit of its own today, since nothing else is written on these
@@ -1155,13 +1152,22 @@ class ProcessDelivery:
                 f"{refused}; the close half of this REVERSE already executed, so the "
                 "position is flat rather than flipped"
             )
-        await self._outcomes.record(signal_id, SignalOutcome.rejected(reason, detail))
+        await self._outcomes.record(delivery.delivery_id, SignalOutcome.rejected(reason, detail))
         await self._commit.commit()
+        # The refusal's own WARNING names the signal (its text is the stored
+        # detail, kept verbatim); this names whose delivery it ended, since one
+        # signal has one delivery per subscriber.
+        logger.info(
+            "delivery %s of signal %s ended REJECTED (%s)",
+            delivery.delivery_id,
+            delivery.signal_id,
+            reason,
+        )
         return ProcessSignalResult(transition.kind.value, None, False, refused=refused)
 
     async def _note_unexecuted_tail(
         self,
-        signal_id: UUID,
+        delivery: Delivery,
         context: SignalContext,
         transition: PositionTransition,
         result: ProcessSignalResult,
@@ -1213,7 +1219,8 @@ class ProcessDelivery:
                 f"{refused}; the close was submitted and spot cannot hold the new short"
             )
             await self._outcomes.record(
-                signal_id, SignalOutcome.rejected("REVERSE_NEW_SIDE_UNHOLDABLE", detail)
+                delivery.delivery_id,
+                SignalOutcome.rejected("REVERSE_NEW_SIDE_UNHOLDABLE", detail),
             )
             await self._commit.commit()
         return replace(result, refused=refused)

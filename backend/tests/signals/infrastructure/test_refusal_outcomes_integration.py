@@ -27,14 +27,14 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.signals.application.process_signal import SignalContext
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
-    SqlAlchemySignalOutcomeAdapter,
+    SqlAlchemyDeliveryOutcomeAdapter,
 )
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.application.test_process_signal import (
     SpyAdvisoryLock,
     SpyPlaceOrder,
@@ -54,11 +54,42 @@ class _FixedClock:
         return _NOW
 
 
-async def _row(session_factory: async_sessionmaker[AsyncSession], signal_id: object) -> SignalRow:
+async def _row(
+    session_factory: async_sessionmaker[AsyncSession], signal_id: object
+) -> SignalDeliveryRow:
+    """The outcome of ``signal_id`` for its (sole) subscriber: since C.7 it lives on
+    the DELIVERY's row."""
+    async with session_factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+
+
+async def _signal_row(
+    session_factory: async_sessionmaker[AsyncSession], signal_id: object
+) -> SignalRow:
+    """The signal's OWN row, which a delivery's refusal never writes."""
     async with session_factory() as session:
         return (
             await session.execute(select(SignalRow).where(SignalRow.id == signal_id))
         ).scalar_one()
+
+
+async def _sole_delivery(
+    session_factory: async_sessionmaker[AsyncSession], signal_id: object, strategy_id: object
+) -> None:
+    """The one delivery of the single-subscriber world, whose id IS the signal's
+    (``delivery_support.SoleSubscriberDeliveries``), as a real row."""
+    async with session_factory() as session:
+        await ensure_delivery(
+            session,
+            signal_id=signal_id,  # type: ignore[arg-type]
+            strategy_id=strategy_id,  # type: ignore[arg-type]
+            delivery_id=signal_id,  # type: ignore[arg-type]
+        )
+        await session.commit()
 
 
 async def test_a_refusal_is_durable_after_the_handler_returns(
@@ -72,6 +103,7 @@ async def test_a_refusal_is_durable_after_the_handler_returns(
     await seed_signal_row(
         pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="r1"
     )
+    await _sole_delivery(pg_session_factory, signal_id, strategy_id)
     context = SignalContext(
         strategy_id=strategy_id,
         symbol="STXUSDT.P",  # TradingView spelling; the allowlist holds market keys
@@ -88,7 +120,7 @@ async def test_a_refusal_is_durable_after_the_handler_returns(
             allocate_capital=_allocate_capital(SpyAdvisoryLock()),
             place_order=SpyPlaceOrder(),
             policy=_snapshot(allowed_pairs=frozenset({"ETHUSDT"})),
-            outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
+            outcomes=SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
             commit=session,
         )
         result = await handler.handle(signal_id)
@@ -98,6 +130,8 @@ async def test_a_refusal_is_durable_after_the_handler_returns(
     assert row.outcome_reason == "PAIR_NOT_ALLOWED"
     assert row.outcome_detail == result.refused
     assert row.decided_at == _NOW
+    own = await _signal_row(pg_session_factory, signal_id)
+    assert (own.status, own.outcome_reason, own.decided_at) == ("ACCEPTED", None, None)
 
 
 def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCapital:
@@ -120,7 +154,7 @@ def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCap
         commit=session,
         clock=_FixedClock(),
         reservation_ttl_seconds=30,
-        skip_recorder=SignalSkipRecorder(SqlAlchemySignalOutcomeAdapter(session, _FixedClock())),
+        skip_recorder=SignalSkipRecorder(SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())),
         pool_status=SqlAlchemyPoolStatus(session),
     )
 
@@ -133,6 +167,7 @@ async def test_the_pre_lock_disabled_skip_is_durable_through_its_added_commit(
     await seed_signal_row(
         pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="s1"
     )
+    await _sole_delivery(pg_session_factory, signal_id, strategy_id)
 
     async with pg_session_factory() as session:
         result = await _allocate_capital_on(session, Decimal("1000")).allocate(
@@ -141,7 +176,7 @@ async def test_the_pre_lock_disabled_skip_is_durable_through_its_added_commit(
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
                 user_id=OWNER_ID,
-                delivery_id=uuid4(),
+                delivery_id=signal_id,
             )
         )
 
@@ -150,6 +185,8 @@ async def test_the_pre_lock_disabled_skip_is_durable_through_its_added_commit(
     assert row.status == "REJECTED"
     assert row.outcome_reason == "STRATEGY_DISABLED"
     assert row.outcome_detail is not None and str(signal_id) in row.outcome_detail
+    own = await _signal_row(pg_session_factory, signal_id)
+    assert (own.status, own.outcome_reason) == ("ACCEPTED", None)
 
 
 async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool_lock(
@@ -160,6 +197,7 @@ async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool
     await seed_signal_row(
         pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="s2"
     )
+    await _sole_delivery(pg_session_factory, signal_id, strategy_id)
 
     async with pg_session_factory() as session:
         result = await _allocate_capital_on(session, Decimal("0")).allocate(
@@ -168,7 +206,7 @@ async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
                 user_id=OWNER_ID,
-                delivery_id=uuid4(),
+                delivery_id=signal_id,
             )
         )
 
@@ -195,6 +233,7 @@ async def test_a_release_with_no_position_is_durable_after_the_handler_returns(
         idempotency_key="np1",
         symbol="STXUSDT_PERP",
     )
+    await _sole_delivery(pg_session_factory, signal_id, strategy_id)
     context = SignalContext(
         strategy_id=strategy_id,
         symbol="STXUSDT.P",
@@ -210,7 +249,7 @@ async def test_a_release_with_no_position_is_durable_after_the_handler_returns(
             context=context,
             allocate_capital=_allocate_capital(SpyAdvisoryLock()),
             place_order=SpyPlaceOrder(),
-            outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
+            outcomes=SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
             commit=session,
         )
         await handler.handle(signal_id)

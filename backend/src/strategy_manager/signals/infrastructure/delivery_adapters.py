@@ -79,6 +79,11 @@ class SqlAlchemyDeliveries:
             )
         return _delivery(found)
 
+    async def author_delivery_id(self, signal_id: UUID) -> UUID:
+        """``OpenAfterClose``'s narrow view of ``of_signal_author``: only the id,
+        for the outcome an abandonment records on that delivery."""
+        return (await self.of_signal_author(signal_id)).delivery_id
+
 
 class SqlAlchemySubscriptionReservations:
     """Implements ``SubscriptionReservationsPort``."""

@@ -7,10 +7,11 @@ PER USER, which is what each subscriber's own key gives them in a live run (a
 registry signed with another user's key would place on the other's account), and a
 balance reader per user, reporting that user's own pool.
 
-What is NOT asserted, on purpose, is the signal's own outcome: until C.7 moves the
-outcome to the delivery, two deliveries of one signal share one terminal outcome, so
-the second one's write is dropped. These tests read reservations, attempts, orders
-and the ledger, which is what each delivery wrote for itself.
+Since C.7 each delivery records its OWN outcome (``signal_deliveries``), so these
+tests also assert it: two deliveries of one signal end independently, and the signal
+itself stays ``ACCEPTED`` with its outcome columns empty, because the fan-out
+delivered it. They read reservations, attempts, orders and the ledger besides, which
+is what each delivery wrote for itself.
 
 A symbol wears a different spelling on each side of a boundary: the alert says
 ``STXUSDT.P``, the venue and the ledger say ``STXUSDT``.
@@ -49,7 +50,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.application.fan_out_signal import FanOutResult
-from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.subscriptions.application.change_share import ChangeShare
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
@@ -298,6 +299,22 @@ async def _attempts(world: World, user: UUID) -> list[ExecutionAttemptRow]:
         )
 
 
+async def _outcome(world: World, delivery_id: UUID) -> tuple[str, str | None]:
+    """A delivery's ``(status, outcome_reason)``."""
+    async with world.factory() as session:
+        row = await session.get(SignalDeliveryRow, delivery_id)
+        assert row is not None
+        return row.status, row.outcome_reason
+
+
+async def _signal_outcome(world: World, signal_id: UUID) -> tuple[str, str | None, object]:
+    """The signal's OWN ``(status, outcome_reason, decided_at)``."""
+    async with world.factory() as session:
+        row = await session.get(SignalRow, signal_id)
+        assert row is not None
+        return row.status, row.outcome_reason, row.decided_at
+
+
 async def _subscription(world: World, subscription_id: UUID) -> SubscriptionRow:
     async with world.factory() as session:
         row = await session.get(SubscriptionRow, subscription_id)
@@ -357,6 +374,11 @@ async def test_two_subscribers_are_each_sized_from_their_own_pool_and_share_and_
         (attempt,) = await _attempts(world, user)
         assert attempt.reservation_id == reservations[user].id
         assert attempt.status == "FILLED"
+        # C.7: each delivery ended on its own row, and the attempt names it.
+        assert attempt.delivery_id == queued[user][0]
+        assert await _outcome(world, queued[user][0]) == ("PROCESSED", None)
+    # The signal itself stays ACCEPTED: it was delivered, and nothing decided it.
+    assert await _signal_outcome(world, signal_id) == ("ACCEPTED", None, None)
 
 
 async def test_a_close_works_only_that_subscribers_reservation(
@@ -385,6 +407,10 @@ async def test_a_close_works_only_that_subscribers_reservation(
     assert await _held(world, world.other) == Decimal("0")
     assert len(world.venues[world.author].orders) == 2
     assert len(world.venues[world.other].orders) == 2
+    # C.7: both closing deliveries ended PROCESSED, each on its own row.
+    for user, (delivery_id, _) in queued.items():
+        assert await _outcome(world, delivery_id) == ("PROCESSED", None), user
+    assert await _signal_outcome(world, closing) == ("ACCEPTED", None, None)
 
 
 async def _attempts_by_kind(
@@ -451,6 +477,12 @@ async def test_a_subscription_with_no_prior_reservation_is_told_there_is_nothing
     for user in (world.author, world.other):
         _, closes = await _attempts_by_kind(world, user)
         assert len(closes) == 1
+    # C.7: one signal, three deliveries, three independent outcomes. The stranger's
+    # terminal refusal is its own; the holders' closes are placed (PROCESSING until
+    # settle, which this test does not run) and are not dragged down by it.
+    assert await _outcome(world, stranger_delivery) == ("REJECTED", "NO_POSITION_TO_CLOSE")
+    for delivery_id, _ in queued.values():
+        assert await _outcome(world, delivery_id) == ("PROCESSING", None)
 
 
 # --- a subscription that left ---------------------------------------------------------

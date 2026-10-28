@@ -39,6 +39,10 @@ RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
 CLOSING_SIGNAL_ID = uuid4()
+# The delivery each attempt names (C.7): the row settle records its outcome on. The
+# reservation of the closing attempt belongs to the OPENING delivery, never this one.
+DELIVERY_ID = uuid4()
+CLOSING_DELIVERY_ID = uuid4()
 CLIENT_ORDER_ID = "client-order-1"
 # The job's owner: the author of the strategy behind the attempt.
 OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000c0c0c")
@@ -70,6 +74,8 @@ def _closing_attempt(
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
         signal_id=signal_id,
+        # The signal and the delivery travel together: an orphan close has neither.
+        delivery_id=None if signal_id is None else CLOSING_DELIVERY_ID,
     )
 
 
@@ -90,6 +96,7 @@ def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAt
         status=status,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
+        delivery_id=DELIVERY_ID,
     )
 
 
@@ -608,9 +615,8 @@ async def test_a_never_placed_order_logs_exactly_one_warning(
 
 
 async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> None:
-    """5c.1. The signal is resolved through ``reservation.signal_id`` (the
-    attempt here carries none, like every attempt written before 5c), and the
-    write sits after the ledger rows and BEFORE the one commit."""
+    """5c.1. The delivery is the attempt's own link (C.7), and the write sits
+    after the ledger rows and BEFORE the one commit."""
     outcomes = RecordingSettleOutcomes()
     log: list[str] = []
     use_case, _, _, _, _ = _build(
@@ -619,7 +625,7 @@ async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> 
 
     await use_case.settle(OWNER, ATTEMPT_ID)
 
-    assert outcomes.open_filled == [SIGNAL_ID]
+    assert outcomes.open_filled == [DELIVERY_ID]
     assert outcomes.close_filled == []
     assert log == ["ledger.record", "outcome.open_filled", "commit"]
 
@@ -627,8 +633,9 @@ async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> 
 async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one() -> None:
     """5c.3. ``allocation_id`` of a close is the OPENING allocation, so its
     reservation names the OPENING signal (``SIGNAL_ID`` in this fake). The
-    signal to tell is the one the attempt carries. Must fail if settle reads
-    the reservation's signal for a close."""
+    delivery to tell is the one the attempt carries, and the signal handed beside
+    it is the CLOSING one. Must fail if settle reads the reservation's for a
+    close."""
     outcomes = RecordingSettleOutcomes()
     log: list[str] = []
     use_case, _, _, _, _ = _build(
@@ -640,8 +647,10 @@ async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one(
 
     await use_case.settle(OWNER, ATTEMPT_ID)
 
-    assert outcomes.close_filled == [CLOSING_SIGNAL_ID]
-    assert SIGNAL_ID not in outcomes.close_filled + outcomes.open_filled
+    assert outcomes.close_filled == [CLOSING_DELIVERY_ID]
+    assert outcomes.close_filled_signals == [CLOSING_SIGNAL_ID]
+    assert DELIVERY_ID not in outcomes.close_filled + outcomes.open_filled
+    assert SIGNAL_ID not in outcomes.close_filled_signals
     assert outcomes.open_filled == []
     assert log == ["ledger.record", "outcome.close_filled", "commit"]
 
@@ -666,7 +675,7 @@ async def test_a_filled_close_with_no_linked_signal_records_nothing() -> None:
 async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commit(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """5c.2. Resolved through the reservation; the detail is the exact
+    """5c.2. Resolved through the attempt's delivery; the detail is the exact
     message logged, and the write sits before the release's one commit."""
     caplog.set_level("WARNING", logger="strategy_manager.execution.application.settle_execution")
     outcomes = RecordingSettleOutcomes()
@@ -680,8 +689,8 @@ async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commi
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
-    [(signal_id, detail)] = outcomes.never_placed
-    assert signal_id == SIGNAL_ID
+    [(delivery_id, detail)] = outcomes.never_placed
+    assert delivery_id == DELIVERY_ID
     assert log == ["outcome.never_placed", "commit"]
     [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
     assert detail == warning.getMessage()
@@ -701,8 +710,8 @@ async def test_a_never_placed_close_ends_the_closing_signal_rejected() -> None:
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
-    [(signal_id, detail)] = outcomes.never_placed
-    assert signal_id == CLOSING_SIGNAL_ID  # never the opening signal
+    [(delivery_id, detail)] = outcomes.never_placed
+    assert delivery_id == CLOSING_DELIVERY_ID  # never the opening delivery
     assert "position remains open" in detail
     assert log == ["outcome.never_placed", "commit"]
 

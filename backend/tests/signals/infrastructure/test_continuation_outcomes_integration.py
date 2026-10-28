@@ -43,9 +43,9 @@ from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.domain.outcome import SignalOutcome
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
-    SqlAlchemySignalOutcomeAdapter,
+    SqlAlchemyDeliveryOutcomeAdapter,
 )
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
@@ -87,18 +87,27 @@ class _RichBalanceReader:
         ]
 
 
-async def _signal(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> SignalRow:
+async def _signal(
+    factory: async_sessionmaker[AsyncSession], signal_id: UUID
+) -> SignalDeliveryRow:
+    """What became of ``signal_id`` for its (sole) subscriber: since C.7 the
+    outcome lives on the DELIVERY's row, so that is the row read."""
     async with factory() as session:
         return (
-            await session.execute(select(SignalRow).where(SignalRow.id == signal_id))
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
         ).scalar_one()
 
 
 async def _decide(
     factory: async_sessionmaker[AsyncSession], signal_id: UUID, outcome: SignalOutcome
 ) -> None:
+    delivery_id = (await _signal(factory, signal_id)).id
     async with factory() as session:
-        await SqlAlchemySignalOutcomeAdapter(session, _NowClock()).record(signal_id, outcome)
+        await SqlAlchemyDeliveryOutcomeAdapter(session, _NowClock()).record(
+            delivery_id, outcome
+        )
         await session.commit()
 
 
@@ -155,7 +164,9 @@ async def _seed_reverse(
     )
     # The continuation opens for the reverse signal's delivery to the author.
     async with factory() as session:
-        await ensure_delivery(session, signal_id=reverse_signal, strategy_id=strategy_id)
+        reverse_delivery = await ensure_delivery(
+            session, signal_id=reverse_signal, strategy_id=strategy_id
+        )
         await session.commit()
     await seed_reservation(
         factory,
@@ -184,6 +195,7 @@ async def _seed_reverse(
                 symbol=_TRADINGVIEW,
                 status="FILLED",
                 signal_id=reverse_signal,
+                delivery_id=reverse_delivery,
             )
             async with factory() as ledger_session:
                 await RecordFill(SqlAlchemyLedgerRepository(ledger_session)).record(
@@ -200,6 +212,7 @@ async def _seed_reverse(
                     symbol=_TRADINGVIEW,
                     status=close_status,
                     signal_id=reverse_signal,
+                    delivery_id=reverse_delivery,
                 )
     await _decide(factory, opening_signal, SignalOutcome.processed())
     return _Scenario(strategy_id, opening_signal, reverse_signal, allocation_id)

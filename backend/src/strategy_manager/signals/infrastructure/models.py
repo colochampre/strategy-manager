@@ -69,8 +69,9 @@ class SignalDeliveryRow(Base):
     got from it (multi-user design AD5).
 
     The outcome columns repeat the signal's own (``SignalRow``) and the status
-    CHECK allows the same values as ``ck_signals_status``. Nothing writes this
-    table yet: the outcome writers move to it in C.7."""
+    CHECK allows the same values as ``ck_signals_status``. Since C.7 every
+    outcome of work done for a delivery is written here, and the signal's own
+    columns hold only the strategy-level refusals that reached no delivery."""
 
     __tablename__ = "signal_deliveries"
     __table_args__ = (

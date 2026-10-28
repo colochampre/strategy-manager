@@ -1,4 +1,6 @@
-"""Shared fake for ``OrderOutcomeRecorderPort`` (decision 25, rows 9-15)."""
+"""Shared fakes for ``OrderOutcomeRecorderPort`` (decision 25, rows 9-15) and
+``SettleOutcomeRecorderPort`` (rows 16-17). Since tasks.md C.7 every id they record
+is a DELIVERY's."""
 
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -14,13 +16,13 @@ class RecordingOrderOutcomes:
     rejected: list[tuple[UUID, str, str]] = field(default_factory=list)
     log: list[str] | None = None
 
-    async def record_processing(self, signal_id: UUID) -> None:
-        self.processing.append(signal_id)
+    async def record_processing(self, delivery_id: UUID) -> None:
+        self.processing.append(delivery_id)
         if self.log is not None:
             self.log.append("outcome.processing")
 
-    async def record_rejected(self, signal_id: UUID, reason: str, detail: str) -> None:
-        self.rejected.append((signal_id, reason, detail))
+    async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None:
+        self.rejected.append((delivery_id, reason, detail))
         if self.log is not None:
             self.log.append("outcome.rejected")
 
@@ -29,25 +31,29 @@ class RecordingOrderOutcomes:
 class RecordingSettleOutcomes:
     """Shared fake for ``SettleOutcomeRecorderPort`` (decision 25, rows
     16-17). ``log`` (optional) receives ``"outcome.<method>"`` in call order,
-    so a test can prove the write was staged BEFORE the commit."""
+    so a test can prove the write was staged BEFORE the commit.
+    ``close_filled`` holds the delivery ids and ``close_filled_signals`` the
+    signal ids passed beside them."""
 
     open_filled: list[UUID] = field(default_factory=list)
     close_filled: list[UUID] = field(default_factory=list)
+    close_filled_signals: list[UUID] = field(default_factory=list)
     never_placed: list[tuple[UUID, str]] = field(default_factory=list)
     log: list[str] | None = None
 
-    async def record_open_filled(self, signal_id: UUID) -> None:
-        self.open_filled.append(signal_id)
+    async def record_open_filled(self, delivery_id: UUID) -> None:
+        self.open_filled.append(delivery_id)
         if self.log is not None:
             self.log.append("outcome.open_filled")
 
-    async def record_close_filled(self, signal_id: UUID) -> None:
-        self.close_filled.append(signal_id)
+    async def record_close_filled(self, delivery_id: UUID, signal_id: UUID) -> None:
+        self.close_filled.append(delivery_id)
+        self.close_filled_signals.append(signal_id)
         if self.log is not None:
             self.log.append("outcome.close_filled")
 
-    async def record_never_placed(self, signal_id: UUID, detail: str) -> None:
-        self.never_placed.append((signal_id, detail))
+    async def record_never_placed(self, delivery_id: UUID, detail: str) -> None:
+        self.never_placed.append((delivery_id, detail))
         if self.log is not None:
             self.log.append("outcome.never_placed")
 

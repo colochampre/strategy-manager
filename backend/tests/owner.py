@@ -189,6 +189,7 @@ async def ensure_delivery(
     strategy_id: UUID,
     user_id: UUID = OWNER_ID,
     subscription_strategy_id: UUID | None = None,
+    delivery_id: UUID | None = None,
 ) -> UUID:
     """The id of the delivery of ``signal_id`` to ``user_id``'s subscription to
     ``strategy_id``, seeded when missing (multi-user design AD5; migration
@@ -196,6 +197,10 @@ async def ensure_delivery(
 
     ``subscription_strategy_id`` hosts the subscription on another strategy, for a
     test that counts a strategy's subscriptions and must not see this one.
+
+    ``delivery_id`` names a delivery that is made here (ignored when it exists):
+    the single-subscriber unit tests run in a world where a delivery's id IS its
+    signal's, and a real row needs that id.
 
     The user's live subscription is reused. A user with none gets an ENDED one,
     in their pool on the strategy's market: it serves only as the delivery's
@@ -251,7 +256,7 @@ async def ensure_delivery(
     ).scalar_one_or_none()
     if existing is not None:
         return UUID(str(existing))
-    delivery_id = uuid4()
+    delivery_id = delivery_id if delivery_id is not None else uuid4()
     await executor.execute(
         text(
             "INSERT INTO signal_deliveries (id, signal_id, subscription_id, user_id) "

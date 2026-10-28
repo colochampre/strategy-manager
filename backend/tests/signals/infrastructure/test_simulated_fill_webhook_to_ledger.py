@@ -50,7 +50,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.signals.domain.outcome import SignalOutcome
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from tests.owner import OWNER_ID
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
 from tests.signals.infrastructure.conftest import (
@@ -447,6 +447,7 @@ async def _seed_orphan(
         position_size=Decimal(prior_position_size),
         received_at=datetime.now(UTC) - timedelta(hours=2),
     )
+    await settle_h._seed_delivery(stack.factory, prior_signal, strategy_id)
     await settle_h._set_outcome(stack.factory, prior_signal, SignalOutcome.processed())
     await seed_reservation(
         stack.factory,
@@ -545,8 +546,11 @@ async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_
 
     assert (await _signal_price(stack.factory, nan_close)).is_nan()
     async with stack.factory() as session:
+        # C.7: the refusal is the outcome of the signal's DELIVERY.
         refused = (
-            await session.execute(select(SignalRow).where(SignalRow.id == nan_close))
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == nan_close)
+            )
         ).scalar_one()
         [opening_attempt] = (
             await session.execute(

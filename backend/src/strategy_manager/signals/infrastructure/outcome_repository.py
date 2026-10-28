@@ -1,5 +1,9 @@
-"""SQLAlchemy implementation of ``SignalOutcomePort`` (decision 25,
-design.md "Addendum: signal outcomes (decision 25)" § A, § D).
+"""SQLAlchemy implementations of ``SignalOutcomePort`` and ``DeliveryOutcomePort``
+(decision 25, design.md "Addendum: signal outcomes (decision 25)" § A, § D).
+
+Since C.7 the work done for a delivery records its outcome on the DELIVERY's row
+(``SqlAlchemyDeliveryOutcomeAdapter``); the signal's own row holds only the
+strategy-level refusals that reached no delivery (``SqlAlchemySignalOutcomeAdapter``).
 
 A separate adapter from ``SqlAlchemySignalRepository`` (rather than a new
 method on it): every existing call site constructs that repository as
@@ -17,7 +21,7 @@ from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import SignalStatus
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +92,65 @@ class SqlAlchemySignalOutcomeAdapter:
                 "signal %s already terminal at %s (reason=%s); refused to overwrite with "
                 "%s (reason=%s)",
                 signal_id,
+                current_status.value,
+                row.outcome_reason,
+                outcome.status.value,
+                outcome.reason,
+            )
+            return
+
+        row.status = outcome.status.value
+        row.outcome_reason = outcome.reason
+        row.outcome_detail = outcome.detail
+        if outcome.status in _TERMINAL_STATUSES:
+            row.decided_at = self._clock.now()
+
+
+class SqlAlchemyDeliveryOutcomeAdapter:
+    """Implements ``DeliveryOutcomePort`` against ``signal_deliveries`` (tasks.md
+    C.7, finding d). The terminal latch is ``SqlAlchemySignalOutcomeAdapter``'s,
+    unchanged, on the DELIVERY's row: that row is the one read fresh and locked
+    ``FOR UPDATE``, never the signal's, so two deliveries of one signal never wait
+    for each other and a terminal outcome of one never blocks the other.
+
+    Stages on the caller's session and never commits, for the same-commit rule."""
+
+    def __init__(self, session: AsyncSession, clock: ClockPort) -> None:
+        self._session = session
+        self._clock = clock
+
+    async def record_unless_terminal(self, delivery_id: UUID, outcome: SignalOutcome) -> None:
+        await self._record(delivery_id, outcome, warn_on_conflict=False)
+
+    async def record(self, delivery_id: UUID, outcome: SignalOutcome) -> None:
+        await self._record(delivery_id, outcome, warn_on_conflict=True)
+
+    async def _record(
+        self, delivery_id: UUID, outcome: SignalOutcome, *, warn_on_conflict: bool
+    ) -> None:
+        row = await self._session.get(
+            SignalDeliveryRow, delivery_id, populate_existing=True, with_for_update=True
+        )
+        if row is None:
+            raise InvariantViolation(
+                f"cannot record an outcome for unknown delivery {delivery_id}"
+            )
+
+        current_status = SignalStatus(row.status)
+        if current_status in _TERMINAL_STATUSES:
+            if (
+                current_status == outcome.status
+                and row.outcome_reason == outcome.reason
+                and row.outcome_detail == outcome.detail
+            ):
+                return  # identical repeat: silent no-op
+            if not warn_on_conflict:
+                return  # the caller expects a terminal delivery: silent no-op
+            logger.warning(
+                "delivery %s of signal %s already terminal at %s (reason=%s); refused to "
+                "overwrite with %s (reason=%s)",
+                delivery_id,
+                row.signal_id,
                 current_status.value,
                 row.outcome_reason,
                 outcome.status.value,

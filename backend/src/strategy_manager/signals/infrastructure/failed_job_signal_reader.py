@@ -1,18 +1,19 @@
-"""``SqlAlchemyFailedJobSignalReader``: resolves a job's payload to the signal
-it was working on (decision 25, task 5c.6).
+"""``SqlAlchemyFailedJobSignalReader``: resolves a job's payload to what it was
+working on (decision 25, task 5c.6; tasks.md C.7), so an exhausted job records its
+outcome there.
 
-The queue stays job-kind-agnostic, so this is where the kinds that can
-decide a signal are named. Two carry the signal id directly, and
-``delivery.process`` carries a delivery id, whose signal is read from the
-delivery (C.6; C.8 moves the reader to the delivery itself). ``execution.settle``
-carries an attempt id, and the attempt is resolved the way ``execution.settle``
-itself resolves it: a CLOSE through ``execution_attempts.signal_id`` (its
-``allocation_id`` is the OPENING allocation, so that reservation names the
-opening signal), an OPEN through ``reservation.signal_id``.
+The queue stays job-kind-agnostic, so this is where the kinds that can decide an
+outcome are named. ``signal.process`` is the fan-out, which works the SIGNAL itself
+(no delivery exists to hold its outcome). Every other kind works a DELIVERY:
+``delivery.process`` names it; ``signal.open_after_close`` names the signal and
+works the delivery of the strategy's author (until C.8 moves it to the delivery
+itself); ``execution.settle`` names an attempt, which carries the delivery that
+placed it, for an open and a close alike.
 
 **Global by design** (multi-user design AD8): the queue's failure hook has no
-user context, and the reservation is followed by primary key from the attempt
-the job itself names, never searched for, so no other user's row can answer.
+user context, and every row is followed by primary key from the attempt or
+delivery the job itself names, never searched for, so no other user's row can
+answer.
 """
 
 from uuid import UUID
@@ -20,73 +21,81 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
+from strategy_manager.signals.infrastructure.exhausted_job_recorder import FailedJobTarget
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 
 class SqlAlchemyFailedJobSignalReader:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def signal_for(self, job: ClaimedJob) -> UUID | None:
-        """The signal ``job`` was working on, ``None`` when this kind decides
-        no signal or the link is NULL (an orphan close, an attempt written
-        before 5c). A payload that cannot be resolved RAISES rather than
-        returning ``None``: the queue logs the error, and a FAILED job whose
-        signal cannot be found must not be skipped quietly."""
+    async def target_for(self, job: ClaimedJob) -> FailedJobTarget | None:
+        """What ``job`` was working on, ``None`` when this kind decides nothing or
+        the link is NULL (an orphan close, an attempt written before 5c). A
+        payload that cannot be resolved RAISES rather than returning ``None``: the
+        queue logs the error, and a FAILED job whose delivery cannot be found must
+        not be skipped quietly."""
         match job.kind:
-            case JobKind.SIGNAL_PROCESS | JobKind.SIGNAL_OPEN_AFTER_CLOSE:
-                return _uuid(job, "signal_id")
+            case JobKind.SIGNAL_PROCESS:
+                return FailedJobTarget(signal_id=_uuid(job, "signal_id"))
             case JobKind.DELIVERY_PROCESS:
-                return await self._delivery_signal(_uuid(job, "delivery_id"))
+                return FailedJobTarget(
+                    delivery_id=await self._existing_delivery(_uuid(job, "delivery_id"))
+                )
+            case JobKind.SIGNAL_OPEN_AFTER_CLOSE:
+                return FailedJobTarget(
+                    delivery_id=await self._author_delivery(_uuid(job, "signal_id"))
+                )
             case JobKind.EXECUTION_SETTLE:
-                return await self._settle_signal(_uuid(job, "execution_attempt_id"))
+                delivery_id = await self._attempt_delivery(_uuid(job, "execution_attempt_id"))
+                return None if delivery_id is None else FailedJobTarget(delivery_id=delivery_id)
             case _:
                 return None
 
-    async def _delivery_signal(self, delivery_id: UUID) -> UUID:
-        """A ``delivery.process`` job names its delivery, and the signal is the
-        delivery's. Until C.7 moves the outcome to the delivery, the exhaustion is
-        recorded on that signal."""
-        signal_id = (
+    async def _existing_delivery(self, delivery_id: UUID) -> UUID:
+        found = (
             await self._session.execute(
-                select(SignalDeliveryRow.signal_id).where(SignalDeliveryRow.id == delivery_id)
+                select(SignalDeliveryRow.id).where(SignalDeliveryRow.id == delivery_id)
             )
         ).scalar_one_or_none()
-        if signal_id is None:
+        if found is None:
             raise InvariantViolation(f"no delivery {delivery_id} for a FAILED delivery.process job")
-        return signal_id
+        return delivery_id
 
-    async def _settle_signal(self, attempt_id: UUID) -> UUID | None:
+    async def _author_delivery(self, signal_id: UUID) -> UUID:
+        """The continuation opens for the strategy author's delivery (C.6), so that
+        is the one its exhaustion ends."""
+        found = (
+            await self._session.execute(
+                select(SignalDeliveryRow.id)
+                .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
+                .join(StrategyRow, StrategyRow.id == SignalRow.strategy_id)
+                .where(
+                    SignalDeliveryRow.signal_id == signal_id,
+                    SignalDeliveryRow.user_id == StrategyRow.author_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if found is None:
+            raise InvariantViolation(
+                f"signal {signal_id} has no delivery for its strategy's author, for a "
+                "FAILED signal.open_after_close job"
+            )
+        return found
+
+    async def _attempt_delivery(self, attempt_id: UUID) -> UUID | None:
         row = (
             await self._session.execute(
-                select(
-                    ExecutionAttemptRow.reservation_id,
-                    ExecutionAttemptRow.closes_allocation_id,
-                    ExecutionAttemptRow.signal_id,
-                ).where(ExecutionAttemptRow.id == attempt_id)
+                select(ExecutionAttemptRow.delivery_id).where(ExecutionAttemptRow.id == attempt_id)
             )
         ).one_or_none()
         if row is None:
             raise InvariantViolation(f"no execution attempt {attempt_id} for a FAILED settle job")
-        if row.closes_allocation_id is not None:
-            # A CLOSE: its allocation is the OPENING one, so the reservation
-            # would name the opening signal. Only the attempt's own link is
-            # the closing signal, and NULL means nothing to record.
-            return row.signal_id  # type: ignore[no-any-return]
-        signal_id = (
-            await self._session.execute(
-                select(ReservationRow.signal_id).where(ReservationRow.id == row.reservation_id)
-            )
-        ).scalar_one_or_none()
-        if signal_id is None:
-            raise InvariantViolation(
-                f"no reservation {row.reservation_id} behind execution attempt {attempt_id}"
-            )
-        return signal_id
+        return row.delivery_id  # type: ignore[no-any-return]
 
 
 def _uuid(job: ClaimedJob, key: str) -> UUID:

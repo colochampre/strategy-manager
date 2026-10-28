@@ -106,10 +106,15 @@ class SubscriptionReservationsPort(Protocol):
 
 
 class SignalOutcomePort(Protocol):
-    """Records the outcome ``signal.process`` (and, from PR 5c, the settle
-    and continuation jobs) decided for a signal -- decision 25, design.md
+    """Records the outcome of a SIGNAL itself -- decision 25, design.md
     "Addendum: signal outcomes" § D. Implemented by
     ``signals.infrastructure.outcome_repository.SqlAlchemySignalOutcomeAdapter``.
+
+    Since C.7 only the STRATEGY-LEVEL refusals use it: ``FanOutSignal`` settling a
+    signal that reached no delivery (archived strategy, nothing to close, nobody
+    subscribed), and an exhausted ``signal.process`` job. Every outcome of work done
+    for a delivery goes through ``DeliveryOutcomePort`` instead, onto that
+    delivery's own row.
 
     ``record`` stages the write on the caller's own session, immediately
     before the specific commit that makes the decided outcome durable (the
@@ -147,6 +152,29 @@ class SignalOutcomePort(Protocol):
         row lock (fresh, ``FOR UPDATE``), never commits, raises on an unknown
         signal, and writes ``PROCESSING`` / ``PROCESSED`` / ``REJECTED`` over
         a non-terminal row exactly as ``record`` does."""
+        ...
+
+
+class DeliveryOutcomePort(Protocol):
+    """Records the outcome of ONE DELIVERY of a signal (tasks.md C.7, finding d;
+    design AD5): the row of ``signal_deliveries``, not the signal's. Two
+    subscribers' deliveries of one signal each reach their own terminal outcome, and
+    neither blocks nor overwrites the other. Implemented by
+    ``signals.infrastructure.outcome_repository.SqlAlchemyDeliveryOutcomeAdapter``.
+
+    The contract is ``SignalOutcomePort``'s, per delivery: ``record`` stages the write
+    on the caller's session, takes the delivery's row lock (fresh, ``FOR UPDATE``),
+    never commits and raises on an unknown delivery. ``PROCESSED`` and ``REJECTED``
+    are never overwritten: a DIFFERENT outcome for a terminal delivery is a no-op
+    that logs one WARNING naming the signal, the delivery, the outcome already
+    recorded and the one refused; an IDENTICAL repeat is a silent no-op."""
+
+    async def record(self, delivery_id: UUID, outcome: SignalOutcome) -> None: ...
+
+    async def record_unless_terminal(self, delivery_id: UUID, outcome: SignalOutcome) -> None:
+        """Like ``record``, but a delivery that is ALREADY terminal is left alone
+        SILENTLY: for the writers whose "it may already have ended" is the ordinary
+        case (a continuation abandoning a delivery, an exhausted job)."""
         ...
 
 

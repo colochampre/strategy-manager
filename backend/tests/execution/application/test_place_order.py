@@ -42,6 +42,8 @@ SETTLE_DELAY = 2.0
 RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
+# The delivery whose work reserved it: every outcome of the order lands on this id.
+DELIVERY_ID = uuid4()
 # The reservation's owner: the author of the strategy whose signal allocated it.
 OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000d0d0d")
 
@@ -220,6 +222,7 @@ def _command(
 ) -> PlaceCommand:
     return PlaceCommand(
         user_id=OWNER,
+        delivery_id=DELIVERY_ID,
         reservation_id=RESERVATION_ID,
         symbol="BTC_USDT",
         side=side,
@@ -536,7 +539,7 @@ async def test_an_expired_reservation_rejects_the_signal_on_its_release_commit(
 
     logged = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert outcomes.rejected == [
-        (SIGNAL_ID, "RESERVATION_EXPIRED_BEFORE_SUBMIT", logged[0])
+        (DELIVERY_ID, "RESERVATION_EXPIRED_BEFORE_SUBMIT", logged[0])
     ]
     assert outcomes.processing == []
     # Staged first, then the ONE commit that also carries the release.
@@ -562,7 +565,7 @@ async def test_an_order_not_placeable_rejects_the_signal_on_its_release_commit(
     await use_case.place(_command())
 
     logged = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert outcomes.rejected == [(SIGNAL_ID, "ORDER_NOT_PLACEABLE", logged[0])]
+    assert outcomes.rejected == [(DELIVERY_ID, "ORDER_NOT_PLACEABLE", logged[0])]
     assert "BTCUSDT is too small to open a position" in logged[0]
     assert outcomes.processing == []
     assert log == ["outcome.rejected", "commit"]
@@ -583,7 +586,7 @@ async def test_a_venue_rejection_rejects_the_signal_on_the_post_network_commit(
     await use_case.place(_command())
 
     logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert outcomes.rejected == [(SIGNAL_ID, "ORDER_REJECTED_BY_VENUE", logged[0])]
+    assert outcomes.rejected == [(DELIVERY_ID, "ORDER_REJECTED_BY_VENUE", logged[0])]
     assert outcomes.processing == []
     assert log == [
         "attempt.insert",
@@ -604,7 +607,7 @@ async def test_a_placed_order_leaves_the_signal_processing_on_the_placed_commit(
 
     await use_case.place(_command())
 
-    assert outcomes.processing == [SIGNAL_ID]
+    assert outcomes.processing == [DELIVERY_ID]
     assert outcomes.rejected == []
     assert log == [
         "attempt.insert",
@@ -623,4 +626,16 @@ async def test_the_opening_attempt_is_linked_to_the_signal_of_its_reservation() 
 
     await use_case.place(_command())
 
+    assert attempts.inserted[0].signal_id == SIGNAL_ID
+
+
+async def test_the_opening_attempt_is_linked_to_the_delivery_of_its_command() -> None:
+    """C.7: settle records the order's outcome on the delivery the attempt names,
+    beside the signal link (the strategy history still counts attempts through
+    the signal)."""
+    use_case, _, attempts, _, _, _ = _build()
+
+    await use_case.place(_command())
+
+    assert attempts.inserted[0].delivery_id == DELIVERY_ID
     assert attempts.inserted[0].signal_id == SIGNAL_ID

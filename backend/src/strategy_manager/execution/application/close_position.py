@@ -76,6 +76,13 @@ class CloseCommand:
     say so, and one that closes without any (``None``) must say that
     explicitly too -- then no outcome is written for that close.
 
+    ``delivery_id`` is the delivery that asked for the close, and the row its
+    outcomes land on (tasks.md C.7). It is REQUIRED with no default, like
+    ``signal_id``, and travels with it: both set, or both ``None`` (an orphan
+    close). A closing attempt has no reservation of its own, and the one it
+    unwinds names the OPENING delivery, so the command is the only route to the
+    closing one. The attempt records it beside ``signal_id``.
+
     ``reference_price`` is the stored price of the alert that CAUSED this close
     (the closing or reversing signal's, or, for an orphan, the opening signal
     that found it) -- never the price of the signal that opened the position.
@@ -97,6 +104,7 @@ class CloseCommand:
     symbol: str
     side: OrderSide
     signal_id: UUID | None
+    delivery_id: UUID | None
     reference_price: Decimal | None
 
 
@@ -201,9 +209,9 @@ class ClosePosition:
             # (a REVERSE's continuation seed, a real orphan's seed) instead
             # of leaving it to a later, unrelated commit. It commits even
             # with no signal (an orphan close) for that second reason.
-            if command.signal_id is not None:
+            if command.delivery_id is not None:
                 await self._outcomes.record_rejected(
-                    command.signal_id, "CLOSE_DUST_NOT_CLOSABLE", dust
+                    command.delivery_id, "CLOSE_DUST_NOT_CLOSABLE", dust
                 )
             await self._commit.commit()
             return CloseResult(
@@ -238,6 +246,8 @@ class ClosePosition:
                 # a close to the signal that asked for it. ``None`` (an orphan
                 # close) writes NULL, which records nothing at settle.
                 signal_id=command.signal_id,
+                # C.7: the closing delivery. Work pulled forward from C.8.
+                delivery_id=command.delivery_id,
             ),
         )
         await self._queue.enqueue(
@@ -268,9 +278,9 @@ class ClosePosition:
             )
             # Row 14: staged on this post-network commit, never the earlier
             # SUBMITTED one, which was written before the venue answered.
-            if command.signal_id is not None:
+            if command.delivery_id is not None:
                 await self._outcomes.record_rejected(
-                    command.signal_id, "CLOSE_REJECTED_BY_VENUE", rejected
+                    command.delivery_id, "CLOSE_REJECTED_BY_VENUE", rejected
                 )
             await self._commit.commit()
             logger.error("%s", rejected)
@@ -285,8 +295,8 @@ class ClosePosition:
         # Row 15: submitted, not settled -- PROCESSING, never PROCESSED. For a
         # REVERSE this is also decision 26's rule: the close half moves the
         # signal to PROCESSING and only the open half ends it.
-        if command.signal_id is not None:
-            await self._outcomes.record_processing(command.signal_id)
+        if command.delivery_id is not None:
+            await self._outcomes.record_processing(command.delivery_id)
         await self._commit.commit()
         return CloseResult(
             status="PLACED",

@@ -52,7 +52,7 @@ from uuid import UUID
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
-from strategy_manager.signals.application.ports import SignalOutcomePort
+from strategy_manager.signals.application.ports import DeliveryOutcomePort
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
 
@@ -86,6 +86,15 @@ class ClosingAttemptsPort(Protocol):
     ) -> ExecutionAttempt | None: ...
 
 
+class AuthorDeliveryPort(Protocol):
+    """The delivery this continuation works, as an id (tasks.md C.7). It is keyed
+    by the signal and opens for the strategy author's delivery until C.8 moves it
+    to the delivery itself, so an abandonment ends THAT delivery. Raises when the
+    signal has none: an abandonment that cannot find its delivery is loud."""
+
+    async def author_delivery_id(self, signal_id: UUID) -> UUID: ...
+
+
 def _dedupe_key(signal_id: UUID, poll: int) -> str:
     return f"signal.open_after_close:{signal_id}:{poll}"
 
@@ -113,8 +122,10 @@ class OpenAfterClose:
         settle_timeout_seconds: float,
         poll_interval_seconds: float,
         max_signal_age_seconds: float,
-        outcomes: SignalOutcomePort,
+        outcomes: DeliveryOutcomePort,
+        deliveries: AuthorDeliveryPort,
     ) -> None:
+        self._deliveries = deliveries
         self._signals = signals
         self._attempts = attempts
         self._queue = queue
@@ -315,9 +326,10 @@ class OpenAfterClose:
         await self.seed(signal_id, awaited_allocation_ids, poll=poll + 1, replay_expected=True)
 
     async def _abandon(self, signal_id: UUID, reason: str, message: str, level: int) -> None:
-        """Ends the signal ``REJECTED`` with ``reason`` and logs ``message``:
-        built once, it is both the log line and the outcome's detail, so the
-        two cannot drift (decision 25).
+        """Ends the author's DELIVERY of the signal ``REJECTED`` with ``reason`` and
+        logs ``message`` (C.7): built once, it is both the log line and the
+        outcome's detail, so the two cannot drift (decision 25). A second,
+        INFO line names the delivery it ended.
 
         Staged on this run's session and made durable by the job handler's
         own trailing ``commit()`` (``main.py::handle_signal_open_after_close``);
@@ -330,7 +342,16 @@ class OpenAfterClose:
         dust close writes no attempt, so it waits for the timeout), or a
         signal already ``PROCESSED``. Those must not WARN; the WARNING is
         reserved for a genuine conflict."""
+        delivery_id = await self._deliveries.author_delivery_id(signal_id)
         await self._outcomes.record_unless_terminal(
-            signal_id, SignalOutcome.rejected(reason, message)
+            delivery_id, SignalOutcome.rejected(reason, message)
         )
         logger.log(level, "%s", message)
+        # The message above is also the stored detail and names only the signal;
+        # this names whose delivery it ended.
+        logger.info(
+            "delivery %s of signal %s ended REJECTED %s by the continuation",
+            delivery_id,
+            signal_id,
+            reason,
+        )

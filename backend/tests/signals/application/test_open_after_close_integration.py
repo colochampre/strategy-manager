@@ -399,6 +399,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 symbol="STXUSDT.P",
                 side=OrderSide.SELL,
                 signal_id=None,
+                delivery_id=None,
                 reference_price=Decimal("0.4633"),
             )
         )
@@ -535,6 +536,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             poll_interval_seconds=POLL_INTERVAL_SECONDS,
             max_signal_age_seconds=600.0,
             outcomes=RecordingSignalOutcomes(),
+            deliveries=SqlAlchemyDeliveries(session),
         )
         handler = ProcessDelivery(
             deliveries=SqlAlchemyDeliveries(session),

@@ -237,6 +237,7 @@ class CloseOrphans:
                     # the signal would let a dust orphan REJECT the very open
                     # that is waiting on it, before 5c owns that decision.
                     signal_id=None,
+                    delivery_id=None,
                     # The price of the OPENING alert that found this orphan, not
                     # the price of the signal that opened the position. It rides
                     # separately from ``signal_id``: no signal id does not mean

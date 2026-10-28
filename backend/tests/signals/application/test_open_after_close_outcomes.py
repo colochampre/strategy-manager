@@ -17,7 +17,7 @@ survives that commit lives in ``test_open_after_close_outcomes_integration``.
 """
 
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -62,6 +62,36 @@ async def test_a_superseded_signal_is_rejected_with_the_logged_message(
     assert signal_id == signal.id
     assert outcome == SignalOutcome.rejected("SIGNAL_SUPERSEDED", _abandonment_message(caplog))
     assert outcomes.calls == []  # never the warning path
+
+
+async def test_an_abandonment_ends_the_authors_delivery_not_the_signal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """C.7: the outcome lands on the delivery the continuation resolves for the
+    signal's author (C.8 keys the continuation by delivery), and the second INFO
+    line names both ids."""
+    signal = _signal()
+    delivery_id = uuid4()
+    outcomes = RecordingSignalOutcomes()
+    continuation, _, _, _ = _continuation(
+        signals=FakeSignalLookupPort(signal=signal, newer=True), outcomes=outcomes
+    )
+
+    class _AuthorDelivery:
+        async def author_delivery_id(self, signal_id: UUID) -> UUID:
+            assert signal_id == signal.id
+            return delivery_id
+
+    continuation._deliveries = _AuthorDelivery()  # type: ignore[assignment]
+
+    with caplog.at_level("INFO", logger=_LOGGER):
+        await continuation.poll(_job(signal.id, [uuid4()]), OWNER)
+
+    [(row_id, outcome)] = outcomes.unless_terminal_calls
+    assert row_id == delivery_id and row_id != signal.id
+    assert outcome.reason == "SIGNAL_SUPERSEDED"
+    info = [r.getMessage() for r in caplog.records if r.levelno == 20 and r.name == _LOGGER]
+    assert len(info) == 1 and str(delivery_id) in info[0] and str(signal.id) in info[0]
 
 
 async def test_an_awaited_close_that_failed_rejects_the_signal(

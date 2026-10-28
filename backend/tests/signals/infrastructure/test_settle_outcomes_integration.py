@@ -53,12 +53,12 @@ from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.signals.domain.outcome import SignalOutcome
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
 )
 from strategy_manager.signals.infrastructure.outcome_repository import (
-    SqlAlchemySignalOutcomeAdapter,
+    SqlAlchemyDeliveryOutcomeAdapter,
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
@@ -70,7 +70,7 @@ from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocatio
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -121,7 +121,7 @@ def _settle(
         clock=_FixedClock(),
         commit=commit,
         outcomes=SignalSettleOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
             SqlAlchemySignalRepository(session),
         ),
         pool_lock=PoolLockAdapter(session),
@@ -147,7 +147,7 @@ def _place_order(session: AsyncSession, exchange: FakeExchangeAdapter) -> PlaceO
         commit=session,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
     )
 
@@ -162,12 +162,36 @@ def _close_position(session: AsyncSession, exchange: FakeExchangeAdapter) -> Clo
         commit=session,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
     )
 
 
-async def _signal(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> SignalRow:
+async def _delivery_of(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> UUID:
+    """The id of the one delivery these single-subscriber tests give a signal."""
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow.id).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+
+
+async def _signal(
+    factory: async_sessionmaker[AsyncSession], signal_id: UUID
+) -> SignalDeliveryRow:
+    """What became of ``signal_id`` for its (sole) subscriber: since C.7 the
+    outcome lives on the DELIVERY's row, so that is the row read."""
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+
+
+async def _signal_row(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> SignalRow:
+    """The signal's OWN row, which no delivery-level writer touches any more."""
     async with factory() as session:
         return (
             await session.execute(select(SignalRow).where(SignalRow.id == signal_id))
@@ -200,9 +224,23 @@ async def _ledger_rows(factory: async_sessionmaker[AsyncSession]) -> int:
 async def _set_outcome(
     factory: async_sessionmaker[AsyncSession], signal_id: UUID, outcome: SignalOutcome
 ) -> None:
+    delivery_id = await _delivery_of(factory, signal_id)
     async with factory() as session:
-        await SqlAlchemySignalOutcomeAdapter(session, _FixedClock()).record(signal_id, outcome)
+        await SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()).record(
+            delivery_id, outcome
+        )
         await session.commit()
+
+
+async def _seed_delivery(
+    factory: async_sessionmaker[AsyncSession], signal_id: UUID, strategy_id: UUID
+) -> UUID:
+    async with factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id
+        )
+        await session.commit()
+    return delivery_id
 
 
 def _guard_records(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -223,6 +261,7 @@ async def _seed_open(
         idempotency_key=f"open-{signal_id}",
         symbol=_PIONEX,
     )
+    await _seed_delivery(factory, signal_id, strategy_id)
     await seed_reservation(
         factory,
         reservation_id=reservation_id,
@@ -240,9 +279,17 @@ async def _place_open(
     reservation_id: UUID,
 ) -> None:
     async with factory() as session:
+        signal_id = (
+            await session.execute(
+                select(ReservationRow.signal_id).where(ReservationRow.id == reservation_id)
+            )
+        ).scalar_one()
+    delivery_id = await _delivery_of(factory, signal_id)
+    async with factory() as session:
         result = await _place_order(session, exchange).place(
             PlaceCommand(
                 user_id=OWNER_ID,
+                delivery_id=delivery_id,
                 reservation_id=reservation_id,
                 symbol=_TRADINGVIEW,
                 side=OrderSide.BUY,
@@ -284,6 +331,8 @@ async def _seed_position(
         position_size=Decimal(closing_position_size),
         received_at=_NOW - timedelta(hours=1),
     )
+    opening_delivery = await _seed_delivery(factory, opening_signal_id, strategy_id)
+    await _seed_delivery(factory, closing_signal_id, strategy_id)
     await seed_reservation(
         factory,
         reservation_id=allocation_id,
@@ -297,6 +346,8 @@ async def _seed_position(
         reservation_id=allocation_id,
         symbol=_VENUE_BARE,
         status="FILLED",
+        signal_id=opening_signal_id,
+        delivery_id=opening_delivery,
     )
     async with factory() as session:
         await RecordFill(SqlAlchemyLedgerRepository(session)).record(
@@ -334,6 +385,7 @@ async def _place_close(
     allocation_id: UUID,
     closing_signal_id: UUID,
 ) -> None:
+    delivery_id = await _delivery_of(factory, closing_signal_id)
     async with factory() as session:
         result = await _close_position(session, exchange).close(
             CloseCommand(
@@ -346,6 +398,7 @@ async def _place_close(
                 symbol=_TRADINGVIEW,
                 side=OrderSide.SELL,
                 signal_id=closing_signal_id,
+                delivery_id=delivery_id,
                 reference_price=Decimal("0.4633"),
             )
         )
@@ -377,6 +430,8 @@ async def test_placing_an_open_writes_the_signal_link_on_its_attempt(
 
     [attempt] = await _attempts(pg_session_factory)
     assert attempt.signal_id == signal_id
+    # C.7: the delivery is written beside the signal, and is the row settle ends.
+    assert attempt.delivery_id == await _delivery_of(pg_session_factory, signal_id)
 
 
 async def test_placing_a_close_writes_the_closing_signal_link_not_the_opening_one(
@@ -397,6 +452,8 @@ async def test_placing_a_close_writes_the_closing_signal_link_not_the_opening_on
     attempt = await _closing_attempt(pg_session_factory, allocation_id)
     assert attempt.signal_id == closing_signal
     assert attempt.signal_id != opening_signal
+    assert attempt.delivery_id == await _delivery_of(pg_session_factory, closing_signal)
+    assert attempt.delivery_id != await _delivery_of(pg_session_factory, opening_signal)
 
 
 # ---- 5c.1: settle of an OPEN, FILLED ----------------------------------------
@@ -423,6 +480,9 @@ async def test_a_filled_open_processes_its_signal_in_the_commit_that_records_the
         None,
         _NOW,
     )
+    # The signal's own row is never written by the delivery's settle (C.7).
+    own = await _signal_row(pg_session_factory, signal_id)
+    assert (own.status, own.outcome_reason, own.decided_at) == ("ACCEPTED", None, None)
     assert await _ledger_rows(pg_session_factory) == 1
     assert (await _reservation(pg_session_factory, reservation_id)).status == "FILLED"
 
@@ -445,11 +505,12 @@ async def test_a_failed_settle_commit_loses_the_fills_and_the_processed_status_t
     assert (await _reservation(pg_session_factory, reservation_id)).status == "SUBMITTED"
 
 
-async def test_a_legacy_open_attempt_with_no_link_still_resolves_through_its_reservation(
+async def test_a_legacy_open_attempt_with_only_its_delivery_link_still_ends_its_delivery(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """5c.1: an open resolves its signal through ``reservation.signal_id``,
-    so an attempt written before this PR (NULL link) still ends its signal."""
+    """5c.1 (C.7): an attempt written before 0025 has no ``signal_id``, and 0032
+    gave it the delivery of its reservation. That link alone is what settle needs
+    to end the delivery."""
     exchange = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
     _, signal_id, reservation_id = await _seed_open(pg_session_factory)
     await _place_open(pg_session_factory, exchange, reservation_id)
@@ -599,6 +660,8 @@ async def test_a_never_placed_open_rejects_its_signal_in_the_commit_that_release
         attempt_id=attempt_id,
         reservation_id=reservation_id,
         symbol=_VENUE_BARE,
+        signal_id=signal_id,
+        delivery_id=await _delivery_of(pg_session_factory, signal_id),
     )
 
     async with pg_session_factory() as session:
@@ -634,6 +697,8 @@ async def test_a_failed_release_commit_loses_the_release_and_the_rejection_toget
         attempt_id=attempt_id,
         reservation_id=reservation_id,
         symbol=_VENUE_BARE,
+        signal_id=signal_id,
+        delivery_id=await _delivery_of(pg_session_factory, signal_id),
     )
 
     async with pg_session_factory() as session:
@@ -661,7 +726,13 @@ async def test_a_never_placed_close_rejects_the_closing_signal_only(
     attempt_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
-            OWNER_ID, _submitted_close(attempt_id, allocation_id, reverse_signal)
+            OWNER_ID,
+            _submitted_close(
+                attempt_id,
+                allocation_id,
+                reverse_signal,
+                await _delivery_of(pg_session_factory, reverse_signal),
+            ),
         )
         await session.commit()
 
@@ -696,7 +767,7 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
     attempt_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyExecutionAttemptRepository(session).insert(
-            OWNER_ID, _submitted_close(attempt_id, allocation_id, None)
+            OWNER_ID, _submitted_close(attempt_id, allocation_id, None, None)
         )
         await session.commit()
 
@@ -712,7 +783,9 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
     assert (await _signal(pg_session_factory, opening_signal)).status == "PROCESSED"
 
 
-def _submitted_close(attempt_id: UUID, allocation_id: UUID, signal_id: UUID | None):  # type: ignore[no-untyped-def]
+def _submitted_close(  # type: ignore[no-untyped-def]
+    attempt_id: UUID, allocation_id: UUID, signal_id: UUID | None, delivery_id: UUID | None
+):
     from strategy_manager.execution.domain.execution_attempt import (
         ExecutionAttempt,
         ExecutionOrigin,
@@ -735,4 +808,5 @@ def _submitted_close(attempt_id: UUID, allocation_id: UUID, signal_id: UUID | No
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=f"client-{attempt_id}",
         signal_id=signal_id,
+        delivery_id=delivery_id,
     )

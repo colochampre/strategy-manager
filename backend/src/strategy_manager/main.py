@@ -279,6 +279,7 @@ from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
 )
 from strategy_manager.signals.infrastructure.outcome_repository import (
+    SqlAlchemyDeliveryOutcomeAdapter,
     SqlAlchemySignalOutcomeAdapter,
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
@@ -460,9 +461,11 @@ def _build_process_delivery(
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
     reservation_repository = SqlAlchemyReservationRepository(session)
-    # Decision 25: one outcome adapter on the run's session, so every outcome
-    # write is staged on the same unit of work as the commit that decides it.
-    signal_outcomes = SqlAlchemySignalOutcomeAdapter(session, SystemClock())
+    # Decision 25 (C.7): one outcome adapter on the run's session, so every outcome
+    # write is staged on the same unit of work as the commit that decides it. The
+    # work of a delivery records on that DELIVERY's row; the signal's own row is
+    # written only by the fan-out's strategy-level refusals.
+    delivery_outcomes = SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock())
 
     signal_context = SignalContextAdapter(
         signals=signal_repository,
@@ -530,7 +533,7 @@ def _build_process_delivery(
         commit=session,
         clock=SystemClock(),
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
-        skip_recorder=SignalSkipRecorder(signal_outcomes),
+        skip_recorder=SignalSkipRecorder(delivery_outcomes),
         pool_status=SqlAlchemyPoolStatus(session),
     )
 
@@ -542,7 +545,7 @@ def _build_process_delivery(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
     )
 
     # A close shares the exchange and the attempt repository with placement,
@@ -556,7 +559,7 @@ def _build_process_delivery(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
     )
 
     # The S5 continuation (design.md § S5) and this handler need each other:
@@ -579,8 +582,10 @@ def _build_process_delivery(
         poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
         # Decision 25 (5c.4): abandonments write their outcome through the
-        # silent-on-terminal path, on this run's session.
-        outcomes=signal_outcomes,
+        # silent-on-terminal path, on this run's session, onto the author's
+        # delivery of the signal (C.7; C.8 keys the continuation by delivery).
+        outcomes=delivery_outcomes,
+        deliveries=SqlAlchemyDeliveries(session),
     )
 
     # The REAL branch of the Existing-Position Guard (design.md § S6): shares
@@ -613,7 +618,7 @@ def _build_process_delivery(
         closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
-        outcomes=signal_outcomes,
+        outcomes=delivery_outcomes,
         # Decisions 18 and 20 (design.md § 4a): chosen by DRY_RUN like the
         # exchange adapters. A rehearsal places nothing, so no key is needed
         # and none can be missing; live, the answer is one column read of the
@@ -646,7 +651,7 @@ def _build_settle_execution(
         # so the signal's outcome is staged on the same unit of work as the
         # fills (or the release) it is decided by.
         outcomes=SignalSettleOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+            SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
             SqlAlchemySignalRepository(session),
         ),
         # C.6: a close takes the user's pool lock (the same ``LockKey`` path
@@ -2141,6 +2146,7 @@ def build_worker_runner(
                 session,
                 observer=ExhaustedJobSignalRecorder(
                     SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+                    SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
                     SqlAlchemyFailedJobSignalReader(session),
                 ),
                 backoff_base_seconds=settings.job_retry_backoff_base_seconds,

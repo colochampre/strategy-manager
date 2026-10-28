@@ -73,9 +73,14 @@ class PlaceCommand:
 
     ``user_id`` owns the reservation: the author of the strategy whose signal
     allocated it (multi-user design AD8, B.5). The reservation is read and
-    marked as that user's only."""
+    marked as that user's only.
+
+    ``delivery_id`` is the delivery whose work reserved it: the row every outcome
+    of this order lands on (tasks.md C.7), and the delivery the attempt records
+    beside its ``signal_id`` so ``execution.settle`` finds it again."""
 
     user_id: UUID
+    delivery_id: UUID
     reservation_id: UUID
     symbol: str
     side: OrderSide
@@ -133,7 +138,7 @@ class PlaceOrder:
                 "releasing it, no order placed"
             )
             await self._outcomes.record_rejected(
-                reservation.signal_id, "RESERVATION_EXPIRED_BEFORE_SUBMIT", expired
+                command.delivery_id, "RESERVATION_EXPIRED_BEFORE_SUBMIT", expired
             )
             await self._commit.commit()
             logger.warning("%s", expired)
@@ -180,7 +185,7 @@ class PlaceOrder:
                 f"symbol={command.symbol} reason={exc}"
             )
             await self._outcomes.record_rejected(
-                reservation.signal_id, "ORDER_NOT_PLACEABLE", not_placeable
+                command.delivery_id, "ORDER_NOT_PLACEABLE", not_placeable
             )
             await self._commit.commit()
             logger.warning("%s", not_placeable)
@@ -211,6 +216,9 @@ class PlaceOrder:
                 # reservation for an open, but the attempt carries it too so
                 # every attempt is resolvable without a join.
                 signal_id=reservation.signal_id,
+                # C.7: the delivery settle records this order's outcome on. Work
+                # pulled forward from C.8, which writes it everywhere else too.
+                delivery_id=command.delivery_id,
             ),
         )
         await self._queue.enqueue(
@@ -242,7 +250,7 @@ class PlaceOrder:
                 f"symbol={command.symbol} error={exc}"
             )
             await self._outcomes.record_rejected(
-                reservation.signal_id, "ORDER_REJECTED_BY_VENUE", rejected
+                command.delivery_id, "ORDER_REJECTED_BY_VENUE", rejected
             )
             await self._commit.commit()
             # 2f.3 (orchestrator's outcome map, finding 11): this except
@@ -261,7 +269,7 @@ class PlaceOrder:
         # Row 12: the order is only SUBMITTED to the exchange; its fate is
         # decided by ``execution.settle``, so the signal is PROCESSING, never
         # PROCESSED. Staged on the ``mark_placed`` commit.
-        await self._outcomes.record_processing(reservation.signal_id)
+        await self._outcomes.record_processing(command.delivery_id)
         await self._commit.commit()
         return PlaceResult(
             status="PLACED",

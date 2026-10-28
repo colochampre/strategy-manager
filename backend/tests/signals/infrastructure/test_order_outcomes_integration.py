@@ -48,14 +48,14 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.models import JobRow
-from strategy_manager.signals.infrastructure.models import SignalRow
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
 )
 from strategy_manager.signals.infrastructure.outcome_repository import (
-    SqlAlchemySignalOutcomeAdapter,
+    SqlAlchemyDeliveryOutcomeAdapter,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -120,7 +120,7 @@ def _place_order(
         commit=commit,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
     )
 
@@ -137,17 +137,38 @@ def _close_position(
         commit=commit,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
     )
 
 
 async def _signal(
     factory: async_sessionmaker[AsyncSession], signal_id: UUID
-) -> SignalRow:
+) -> SignalDeliveryRow:
+    """What became of ``signal_id`` for its (sole) subscriber: since C.7 the
+    outcome lives on the DELIVERY's row, so that is the row read."""
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+
+
+async def _signal_row(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> SignalRow:
+    """The signal's OWN row, which no delivery-level writer touches any more."""
     async with factory() as session:
         return (
             await session.execute(select(SignalRow).where(SignalRow.id == signal_id))
+        ).scalar_one()
+
+
+async def _delivery_of(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -> UUID:
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow.id).where(SignalDeliveryRow.signal_id == signal_id)
+            )
         ).scalar_one()
 
 
@@ -193,9 +214,20 @@ async def _seed_open(
     return strategy_id, signal_id, reservation_id
 
 
-def _place_command(reservation_id: UUID) -> PlaceCommand:
+async def _place_command(
+    factory: async_sessionmaker[AsyncSession], reservation_id: UUID
+) -> PlaceCommand:
+    """The command ``ProcessDelivery`` builds: it carries the delivery whose work
+    reserved ``reservation_id``."""
+    async with factory() as session:
+        delivery_id = (
+            await session.execute(
+                select(ReservationRow.delivery_id).where(ReservationRow.id == reservation_id)
+            )
+        ).scalar_one()
     return PlaceCommand(
         user_id=OWNER_ID,
+        delivery_id=delivery_id,
         reservation_id=reservation_id,
         symbol=_TRADINGVIEW,
         side=OrderSide.BUY,
@@ -212,10 +244,11 @@ async def test_an_expired_reservation_release_and_rejection_land_in_one_commit(
     _, signal_id, reservation_id = await _seed_open(
         pg_session_factory, expires_at=_NOW - timedelta(minutes=1)
     )
+    command = await _place_command(pg_session_factory, reservation_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _place_order(session, commit).place(_place_command(reservation_id))
+        result = await _place_order(session, commit).place(command)
 
     assert result.status == "ABORTED_EXPIRED"
     assert commit.calls == 1  # the outcome is NOT on a commit of its own
@@ -225,6 +258,9 @@ async def test_an_expired_reservation_release_and_rejection_land_in_one_commit(
     assert signal.outcome_detail is not None and str(reservation_id) in signal.outcome_detail
     assert signal.decided_at == _NOW
     assert (await _reservation(pg_session_factory, reservation_id)).status == "RELEASED"
+    # C.7: the signal's own row is never written by a delivery's order.
+    own = await _signal_row(pg_session_factory, signal_id)
+    assert (own.status, own.outcome_reason, own.decided_at) == ("ACCEPTED", None, None)
 
 
 async def test_a_failed_commit_loses_the_release_and_the_rejection_together(
@@ -233,11 +269,12 @@ async def test_a_failed_commit_loses_the_release_and_the_rejection_together(
     _, signal_id, reservation_id = await _seed_open(
         pg_session_factory, expires_at=_NOW - timedelta(minutes=1)
     )
+    command = await _place_command(pg_session_factory, reservation_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
-            await _place_order(session, commit).place(_place_command(reservation_id))
+            await _place_order(session, commit).place(command)
 
     signal = await _signal(pg_session_factory, signal_id)
     assert signal.status == "ACCEPTED"
@@ -251,10 +288,11 @@ async def test_a_placed_order_and_processing_land_in_the_same_final_commit(
     _, signal_id, reservation_id = await _seed_open(
         pg_session_factory, expires_at=_NOW + timedelta(hours=1)
     )
+    command = await _place_command(pg_session_factory, reservation_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
-        result = await _place_order(session, commit).place(_place_command(reservation_id))
+        result = await _place_order(session, commit).place(command)
 
     assert result.status == "PLACED"
     assert commit.calls == 2  # pre-network SUBMITTED, then placed + PROCESSING
@@ -273,11 +311,12 @@ async def test_a_failed_final_commit_loses_the_placed_mark_and_processing_togeth
     _, signal_id, reservation_id = await _seed_open(
         pg_session_factory, expires_at=_NOW + timedelta(hours=1)
     )
+    command = await _place_command(pg_session_factory, reservation_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=2)
         with pytest.raises(RuntimeError, match="injected commit failure"):
-            await _place_order(session, commit).place(_place_command(reservation_id))
+            await _place_order(session, commit).place(command)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
     [attempt] = await _attempts(pg_session_factory)
@@ -311,6 +350,9 @@ async def _seed_close(
         idempotency_key=f"closing-{closing_signal_id}",
         symbol=_PIONEX,
     )
+    async with factory() as session:
+        await ensure_delivery(session, signal_id=closing_signal_id, strategy_id=strategy_id)
+        await session.commit()
     await seed_reservation(
         factory,
         reservation_id=allocation_id,
@@ -352,10 +394,17 @@ async def _seed_close(
     return strategy_id, closing_signal_id, allocation_id
 
 
-def _close_command(
-    strategy_id: UUID, allocation_id: UUID, signal_id: UUID | None
+async def _close_command(
+    factory: async_sessionmaker[AsyncSession],
+    strategy_id: UUID,
+    allocation_id: UUID,
+    signal_id: UUID | None,
 ) -> CloseCommand:
+    """The command ``ProcessDelivery`` builds: the signal and its delivery travel
+    together, and an orphan close (``signal_id=None``) has neither."""
+    delivery_id = None if signal_id is None else await _delivery_of(factory, signal_id)
     return CloseCommand(
+        delivery_id=delivery_id,
         user_id=OWNER_ID,
         allocation_id=allocation_id,
         strategy_id=strategy_id,
@@ -383,12 +432,13 @@ async def test_a_placed_close_and_processing_land_in_the_same_final_commit(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
             session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
-        ).close(_close_command(strategy_id, allocation_id, signal_id))
+        ).close(command)
 
     assert result.status == "PLACED"
     assert commit.calls == 2
@@ -402,13 +452,14 @@ async def test_a_failed_final_commit_loses_the_close_placed_mark_and_processing_
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=2)
         with pytest.raises(RuntimeError, match="injected commit failure"):
             await _close_position(
                 session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
-            ).close(_close_command(strategy_id, allocation_id, signal_id))
+            ).close(command)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
     [attempt] = await _closing_attempts(pg_session_factory, allocation_id)
@@ -423,6 +474,7 @@ async def test_a_dust_close_rejection_and_the_staged_seed_land_in_the_added_comm
     the outcome durable together with whatever the caller staged before the
     call. A job stands in for the continuation seed a REVERSE stages."""
     strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
 
     async with pg_session_factory() as session:
         await PostgresJobQueue(session, clock=_FixedClock()).enqueue(
@@ -431,7 +483,7 @@ async def test_a_dust_close_rejection_and_the_staged_seed_land_in_the_added_comm
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
             session, commit, _DustExchange(exchange="bybit", fee_rate=Decimal("0"))
-        ).close(_close_command(strategy_id, allocation_id, signal_id))
+        ).close(command)
 
     assert result.status == "NOT_CLOSABLE"
     assert commit.calls == 1
@@ -449,6 +501,7 @@ async def test_a_failed_dust_commit_loses_the_rejection_and_the_staged_seed_toge
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
 
     async with pg_session_factory() as session:
         await PostgresJobQueue(session, clock=_FixedClock()).enqueue(
@@ -458,7 +511,7 @@ async def test_a_failed_dust_commit_loses_the_rejection_and_the_staged_seed_toge
         with pytest.raises(RuntimeError, match="injected commit failure"):
             await _close_position(
                 session, commit, _DustExchange(exchange="bybit", fee_rate=Decimal("0"))
-            ).close(_close_command(strategy_id, allocation_id, signal_id))
+            ).close(command)
 
     assert (await _signal(pg_session_factory, signal_id)).status == "ACCEPTED"
     async with pg_session_factory() as session:
@@ -471,12 +524,13 @@ async def test_a_close_with_no_signal_leaves_every_signal_untouched(
     """An orphan close (``signal_id=None``) places its order and commits, and
     no signal row changes."""
     strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, None)
 
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _close_position(
             session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
-        ).close(_close_command(strategy_id, allocation_id, None))
+        ).close(command)
 
     assert result.status == "PLACED"
     assert commit.calls == 2

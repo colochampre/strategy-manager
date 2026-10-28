@@ -27,6 +27,7 @@ from strategy_manager.signals.application.process_signal import (
     SignalContext,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
+from strategy_manager.signals.domain.outcome import SignalOutcome
 from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -304,6 +305,46 @@ async def test_a_real_orphan_is_closed_as_the_deliverys_user() -> None:
     assert rig.place.calls == []
 
 
+# --- the outcome is the delivery's (tasks.md C.7) ---------------------------------
+
+
+async def test_the_order_command_names_the_delivery_it_serves() -> None:
+    rig = await _opened()
+
+    assert [call.delivery_id for call in rig.place.calls] == [DELIVERY]
+    assert DELIVERY != SIGNAL
+
+
+async def test_the_close_command_names_the_delivery_beside_the_signal() -> None:
+    rig = await _closed()
+
+    assert [call.delivery_id for call in rig.close.calls] == [DELIVERY]
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+
+
+async def test_a_refusal_ends_the_delivery_never_the_signal() -> None:
+    rig = _rig(replace(_close_context(), prior_reservation_id=None))
+
+    result = await rig.handler.handle(DELIVERY, "close")
+
+    assert result.executed is False
+    [(row_id, outcome)] = rig.outcomes.calls
+    assert row_id == DELIVERY
+    assert outcome.reason == "NO_POSITION_TO_CLOSE"
+    assert rig.outcomes.unless_terminal_calls == []
+
+
+async def test_a_real_orphan_leaves_the_delivery_processing_while_it_closes_the_orphan() -> None:
+    guard = _OrphanGuard(
+        [HeldAllocation(allocation_id=uuid4(), strategy_id=uuid4(), net_base=Decimal("1"))]
+    )
+    rig = _rig(_open_long_context(), guard=guard)
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert rig.outcomes.calls == [(DELIVERY, SignalOutcome.processing())]
+
+
 # --- the halves are the payload's -------------------------------------------------
 
 
@@ -360,6 +401,7 @@ async def test_a_payload_without_usable_halves_is_refused_loudly_and_runs_nothin
     assert rig.place.calls == []
     assert rig.close.calls == []
     assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["DELIVERY_HALVES_MISSING"]
+    assert [row_id for row_id, _ in rig.outcomes.calls] == [DELIVERY]
     assert [record.levelname for record in caplog.records] == ["ERROR"]
 
 

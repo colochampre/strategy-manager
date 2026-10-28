@@ -349,26 +349,26 @@ class CommitPort(Protocol):
 
 
 class OrderOutcomeRecorderPort(Protocol):
-    """Records, on the caller's own session, what became of the SIGNAL an
+    """Records, on the caller's own session, what became of the DELIVERY an
     order or close was placed for (decision 25, design.md "Addendum: signal
-    outcomes" § C, rows 9-15). Declared here, consumer-side, so ``execution``
-    never imports ``signals``;
+    outcomes" § C, rows 9-15; tasks.md C.7). Declared here, consumer-side, so
+    ``execution`` never imports ``signals``;
     ``signals.infrastructure.order_outcome_recorder.SignalOrderOutcomeRecorder``
-    adapts it onto ``SignalOutcomePort``.
+    adapts it onto ``DeliveryOutcomePort``.
 
-    Like ``SignalOutcomePort.record`` it stages the write and NEVER commits:
+    Like ``DeliveryOutcomePort.record`` it stages the write and NEVER commits:
     the use case calls it immediately before the commit that makes the
     outcome durable, so the outcome and the reservation mark / attempt write
     land together or not at all.
 
-    ``record_rejected`` ends the signal ``REJECTED``: ``reason`` is the stable
+    ``record_rejected`` ends the delivery ``REJECTED``: ``reason`` is the stable
     code and ``detail`` the human message already logged for that branch.
     ``record_processing`` is the interim status of a submitted order whose
     fate ``execution.settle`` decides later -- never ``PROCESSED``."""
 
-    async def record_processing(self, signal_id: UUID) -> None: ...
+    async def record_processing(self, delivery_id: UUID) -> None: ...
 
-    async def record_rejected(self, signal_id: UUID, reason: str, detail: str) -> None: ...
+    async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None: ...
 
 
 class PoolLockPort(Protocol):
@@ -406,8 +406,8 @@ class LeavingSubscriptionPort(Protocol):
 
 class SettleOutcomeRecorderPort(Protocol):
     """Records, on the caller's own session, what ``execution.settle`` learned
-    about the SIGNAL an order was placed for (decision 25, design.md "Addendum:
-    signal outcomes" § B rows 16-17). Consumer-side, like
+    about the DELIVERY an order was placed for (decision 25, design.md "Addendum:
+    signal outcomes" § B rows 16-17; tasks.md C.7). Consumer-side, like
     ``OrderOutcomeRecorderPort``, so ``execution`` never imports ``signals``;
     ``signals.infrastructure.settle_outcome_recorder`` adapts it.
 
@@ -415,23 +415,24 @@ class SettleOutcomeRecorderPort(Protocol):
     immediately before the commit that makes the fills (or the release)
     durable, so the outcome lands with them or not at all.
 
-    - ``record_open_filled``: an opening order FILLED. The signal ends
+    - ``record_open_filled``: an opening order FILLED. The delivery ends
       ``PROCESSED``. Also how a REVERSE's open half, placed from the
       continuation, reaches its final status.
     - ``record_close_filled``: a closing order FILLED. A plain CLOSE ends
       ``PROCESSED``; a REVERSE's close writes NOTHING (decision 26: its open
       half decides), which is why the adapter, not settle, owns the
-      knowledge of what kind of signal this is.
-    - ``record_never_placed``: the exchange never saw the order. The signal
+      knowledge of what kind of signal this is. ``signal_id`` is the signal
+      the delivery belongs to, which that question is asked of.
+    - ``record_never_placed``: the exchange never saw the order. The delivery
       ends ``REJECTED`` ``ORDER_NEVER_REACHED_EXCHANGE`` with ``detail`` (the
       message settle also logs) -- for an open, and for a close alike.
     """
 
-    async def record_open_filled(self, signal_id: UUID) -> None: ...
+    async def record_open_filled(self, delivery_id: UUID) -> None: ...
 
-    async def record_close_filled(self, signal_id: UUID) -> None: ...
+    async def record_close_filled(self, delivery_id: UUID, signal_id: UUID) -> None: ...
 
-    async def record_never_placed(self, signal_id: UUID, detail: str) -> None: ...
+    async def record_never_placed(self, delivery_id: UUID, detail: str) -> None: ...
 
 
 class ModeOriginReaderPort(Protocol):

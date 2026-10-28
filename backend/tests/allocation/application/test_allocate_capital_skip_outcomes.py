@@ -11,7 +11,7 @@ the one added for it.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -65,13 +65,13 @@ def _use_case(
     )
 
 
-def _command(signal_id: object, strategy_id: object) -> AllocateCommand:
+def _command(signal_id: object, strategy_id: object, delivery_id: UUID) -> AllocateCommand:
     return AllocateCommand(
         signal_id=signal_id,  # type: ignore[arg-type]
         strategy_id=strategy_id,  # type: ignore[arg-type]
         requested=Money(amount=Decimal("200"), currency=Currency.USDT),
         user_id=OWNER_ID,
-        delivery_id=uuid4(),
+        delivery_id=delivery_id,
     )
 
 
@@ -84,7 +84,7 @@ def _pool(total: str, available: str, minimum: str) -> PoolBalance:
 async def test_pre_lock_disabled_skip_records_the_reason_and_adds_its_own_commit(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    signal_id, strategy_id = uuid4(), uuid4()
+    signal_id, strategy_id, delivery_id = uuid4(), uuid4(), uuid4()
     recorder = RecordingSkipRecorder()
     commit = OrderingCommit(recorder)
     lock = FakeAdvisoryLock()
@@ -97,12 +97,14 @@ async def test_pre_lock_disabled_skip_records_the_reason_and_adds_its_own_commit
     )
 
     with caplog.at_level("WARNING"):
-        result = await use_case.allocate(_command(signal_id, strategy_id))
+        result = await use_case.allocate(_command(signal_id, strategy_id, delivery_id))
 
     assert result.skip_reason == "STRATEGY_DISABLED"
     assert lock.acquired == []  # still pre-lock: the commit added holds no lock
     message = next(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
-    assert recorder.calls == [(signal_id, "STRATEGY_DISABLED", message)]
+    # C.7: the skip lands on the DELIVERY, while the logged message names the signal.
+    assert recorder.calls == [(delivery_id, "STRATEGY_DISABLED", message)]
+    assert str(signal_id) in message
     assert commit.staged_at_commit == [1]
 
 
@@ -116,7 +118,7 @@ async def test_pre_lock_disabled_skip_records_the_reason_and_adds_its_own_commit
 async def test_in_lock_skip_records_the_reason_before_its_existing_commit(
     caplog: pytest.LogCaptureFixture, second: dict[str, bool], reason: str
 ) -> None:
-    signal_id, strategy_id = uuid4(), uuid4()
+    signal_id, strategy_id, delivery_id = uuid4(), uuid4(), uuid4()
     recorder = RecordingSkipRecorder()
     commit = OrderingCommit(recorder)
     policy = SequencedStrategyPolicyPort(
@@ -128,11 +130,11 @@ async def test_in_lock_skip_records_the_reason_before_its_existing_commit(
     use_case = _use_case(policy, _pool("1000", "1000", "10"), recorder, commit)
 
     with caplog.at_level("WARNING"):
-        result = await use_case.allocate(_command(signal_id, strategy_id))
+        result = await use_case.allocate(_command(signal_id, strategy_id, delivery_id))
 
     assert result.skip_reason == reason
     message = next(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
-    assert recorder.calls == [(signal_id, reason, message)]
+    assert recorder.calls == [(delivery_id, reason, message)]
     assert commit.staged_at_commit == [1]
 
 
@@ -151,18 +153,18 @@ async def test_decide_skip_records_the_engine_reason_before_the_commit(
     pool: PoolBalance,
     reason: str,
 ) -> None:
-    signal_id, strategy_id = uuid4(), uuid4()
+    signal_id, strategy_id, delivery_id = uuid4(), uuid4(), uuid4()
     recorder = RecordingSkipRecorder()
     commit = OrderingCommit(recorder)
     snapshot: StrategyPolicySnapshot = _enabled_snapshot(strategy_id=strategy_id, **overrides)
     use_case = _use_case(FakeStrategyPolicyPort(snapshot), pool, recorder, commit)
 
     with caplog.at_level("WARNING"):
-        result = await use_case.allocate(_command(signal_id, strategy_id))
+        result = await use_case.allocate(_command(signal_id, strategy_id, delivery_id))
 
     assert result.skip_reason == reason
     message = next(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
-    assert recorder.calls == [(signal_id, reason, message)]
+    assert recorder.calls == [(delivery_id, reason, message)]
     assert commit.staged_at_commit == [1]
 
 
@@ -177,7 +179,7 @@ async def test_a_granted_allocation_records_no_skip() -> None:
         commit,
     )
 
-    result = await use_case.allocate(_command(signal_id, strategy_id))
+    result = await use_case.allocate(_command(signal_id, strategy_id, uuid4()))
 
     assert result.reservation_id is not None
     assert recorder.calls == []
