@@ -57,27 +57,33 @@ async def subscription(
     *,
     status: str = "ACTIVE",
     share: str = "30",
+    created_at: datetime | None = None,
 ) -> UUID:
     subscription_id = uuid4()
     async with factory() as session:
-        session.add(
-            SubscriptionRow(
-                id=subscription_id,
-                user_id=user_id,
-                strategy_id=strategy_id,
-                pool_id=pool_id,
-                allocation_percent=Decimal(share),
-                status=status,
-            )
+        row = SubscriptionRow(
+            id=subscription_id,
+            user_id=user_id,
+            strategy_id=strategy_id,
+            pool_id=pool_id,
+            allocation_percent=Decimal(share),
+            status=status,
         )
+        if created_at is not None:
+            # Otherwise the column's server default stamps it.
+            row.created_at = created_at
+        session.add(row)
         await session.commit()
     return subscription_id
 
 
-async def open_allocation(factory: Factory, user_id: UUID, strategy_id: UUID) -> None:
+async def open_allocation(
+    factory: Factory, user_id: UUID, strategy_id: UUID, *, symbol: str = "STXUSDT"
+) -> None:
     """A FILLED reservation and its BUY fill in the user's ledger: a position the
     strategy holds for that user. The alert's spelling is ``STXUSDT.P``; the
-    ledger holds the venue's ``STXUSDT``."""
+    ledger holds the venue's ``STXUSDT`` (``symbol``, when a test needs another
+    market)."""
     signal_id, reservation_id, attempt_id = uuid4(), uuid4(), uuid4()
     exchange, venue, currency = MARKET
     await seed_signal(
@@ -95,7 +101,7 @@ async def open_allocation(factory: Factory, user_id: UUID, strategy_id: UUID) ->
         user_id=user_id,
     )
     await seed_execution_attempt(
-        factory, attempt_id=attempt_id, reservation_id=reservation_id, symbol="STXUSDT"
+        factory, attempt_id=attempt_id, reservation_id=reservation_id, symbol=symbol
     )
     async with factory() as session:
         entry_id = uuid4()
@@ -109,7 +115,7 @@ async def open_allocation(factory: Factory, user_id: UUID, strategy_id: UUID) ->
                 exchange=exchange,
                 venue=venue,
                 settlement_currency=currency,
-                symbol="STXUSDT",
+                symbol=symbol,
                 side="BUY",
                 quantity=Decimal("1"),
                 price=Decimal("1"),

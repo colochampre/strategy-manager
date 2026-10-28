@@ -16,6 +16,10 @@ class JobKind(StrEnum):
     """Every job kind processed by the worker, across all slices."""
 
     SIGNAL_PROCESS = "signal.process"
+    # One signal reaching one subscription (multi-user AD5). Enqueued only by
+    # ``FanOutSignal``; no handler is registered until C.6 wires it together
+    # with ``signal.process -> FanOutSignal``.
+    DELIVERY_PROCESS = "delivery.process"
     RESERVATION_SWEEP = "reservation.sweep"
     BALANCE_SYNC = "balance.sync"
     EXECUTION_SETTLE = "execution.settle"
