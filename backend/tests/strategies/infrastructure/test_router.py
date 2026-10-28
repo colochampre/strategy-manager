@@ -59,6 +59,7 @@ from tests.identity_auth import (
     sign_in_as_admin,
 )
 from tests.owner import OWNER_ID, seed_reservation_row
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -853,6 +854,7 @@ async def _delete_client(
             return DeleteStrategy(
                 repository=SqlAlchemyStrategyRepository(session),
                 pool_lock=PoolLockAdapter(session),
+                subscribers=real_subscribers(session),
                 history=_NoHistory(),
                 enablement_log=SqlAlchemyEnablementLog(session),
                 clock=SystemClock(),

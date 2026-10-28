@@ -140,6 +140,26 @@ class SqlAlchemySubscriptionRepository:
         )
         return {row.strategy_id: _to_domain(row) for row in result.scalars().all()}
 
+    async def live_for_strategy_for_update(self, strategy_id: UUID) -> list[Subscription]:
+        """EVERY user's ACTIVE or LEAVING subscription of the strategy, row-locked and
+        re-read as the database holds them now, in a stable order.
+
+        **Global by design, whoever's the subscription** (multi-user design AD8,
+        owner decision 5): its one caller is the admin's archive of a strategy,
+        which ends every subscriber's place in it. It is the only read here that
+        takes no ``user_id``."""
+        result = await self._session.execute(
+            select(SubscriptionRow)
+            .where(
+                SubscriptionRow.strategy_id == strategy_id,
+                SubscriptionRow.status.in_(_LIVE),
+            )
+            .order_by(SubscriptionRow.pool_id, SubscriptionRow.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return [_to_domain(row) for row in result.scalars().all()]
+
     async def has_live(self, user_id: UUID, strategy_id: UUID) -> bool:
         found = (
             await self._session.execute(

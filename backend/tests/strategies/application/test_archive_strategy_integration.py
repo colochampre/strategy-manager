@@ -77,6 +77,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -391,6 +392,7 @@ def _build_archive_strategy(
     return ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=real_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
@@ -643,6 +645,7 @@ async def test_archive_unknown_strategy_raises() -> None:
     use_case = ArchiveStrategy(
         repository=_NeverCalledRepository(),  # type: ignore[arg-type]
         pool_lock=None,  # type: ignore[arg-type]
+        subscribers=None,  # type: ignore[arg-type]
         exposure=None,  # type: ignore[arg-type]
         commit=None,  # type: ignore[arg-type]
         clock=FixedClock(),

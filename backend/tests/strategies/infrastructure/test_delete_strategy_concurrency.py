@@ -80,8 +80,9 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, ensure_author_subscription, seed_owner
 from tests.pg_head_schema import migrated_head_database
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -180,6 +181,7 @@ def _delete_use_case(
     return DeleteStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=pool_lock if pool_lock is not None else PoolLockAdapter(session),  # type: ignore[arg-type]
+        subscribers=real_subscribers(session),
         history=_history(session),
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
@@ -204,6 +206,11 @@ async def _seed_strategy(factory: Factory) -> UUID:
                 allowed_pairs=["STXUSDT"],
             )
         )
+        await session.commit()
+    # The author's own subscription (what RegisterStrategy makes): since C.9 the
+    # pool lock a delete or an archive takes is that of the strategy's subscribers.
+    async with factory() as session:
+        await ensure_author_subscription(session, strategy_id)
         await session.commit()
     return strategy_id
 
@@ -328,6 +335,7 @@ def _archive(session: AsyncSession) -> ArchiveStrategy:
     return ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=real_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),

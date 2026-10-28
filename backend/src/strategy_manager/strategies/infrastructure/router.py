@@ -80,6 +80,7 @@ from strategy_manager.strategies.application.replace_allowed_pairs import (
     ReplaceAllowedPairs,
     ReplaceAllowedPairsCommand,
 )
+from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.application.update_strategy import (
     StrategyArchived,
     UnknownStrategy,
@@ -114,6 +115,9 @@ from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
 from strategy_manager.strategies.infrastructure.share_input import Share
+from strategy_manager.strategies.infrastructure.subscribers_adapter import (
+    StrategySubscribersAdapter,
+)
 from strategy_manager.subscriptions.domain.subscription import Subscription
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
@@ -445,12 +449,18 @@ def get_preview_share(sizing: Annotated[PoolSizingPort, Depends(get_pool_sizing)
     return PreviewShare(sizing)
 
 
+def _subscribers(session: AsyncSession) -> StrategySubscribersAdapter:
+    ledger = SqlAlchemyLedgerRepository(session)
+    return StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+
 def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
     """The real wiring, the ``get_register_strategy`` pattern: a router test
     overrides this ONE dependency."""
     return DeleteStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=_subscribers(session),
         history=StrategyHistoryAdapter(
             signals=SqlAlchemySignalRepository(session),
             reservations=SqlAlchemyReservationRepository(session),
@@ -695,6 +705,7 @@ async def archive_strategy(
     use_case = ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
@@ -711,6 +722,11 @@ async def archive_strategy(
     except StillEnabled as exc:
         raise HTTPException(
             status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except SubscribersChanged as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
         ) from exc
     except OpenPosition as exc:
         # ``HTTPException.detail`` is serialized by Starlette's plain
@@ -759,6 +775,11 @@ async def delete_strategy(
         await session.rollback()
         raise HTTPException(
             status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except SubscribersChanged as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
         ) from exc
     except StrategyHasHistory as exc:
         await session.rollback()

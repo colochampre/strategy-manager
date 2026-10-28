@@ -72,6 +72,7 @@ from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLoc
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_owner
 from tests.pg_head_schema import migrated_head_database
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -133,6 +134,7 @@ def _use_case(session: AsyncSession, history: object | None = None) -> DeleteStr
     return DeleteStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=real_subscribers(session),
         history=history if history is not None else _real_history(session),  # type: ignore[arg-type]
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=_Clock(),  # type: ignore[arg-type]

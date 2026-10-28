@@ -2,6 +2,7 @@
 provider owns the adapter — ``main.py`` binds them together.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Protocol
@@ -280,6 +281,46 @@ class StrategyHistoryPort(Protocol):
     Read-only: it takes no lock and writes nothing."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriberPool:
+    """One pool that holds a live (ACTIVE or LEAVING) subscription of a strategy.
+
+    ``pool`` is read from the capital pool's OWN row, not derived from the
+    strategy's market, so the lock taken is the one ``AllocateCapital`` takes for
+    that very row. ``user_id`` is the pool's owner, which ``LockKey`` folds in."""
+
+    pool_id: int
+    user_id: UUID
+    pool: PoolKey
+
+
+class StrategySubscribersPort(Protocol):
+    """What archive and delete need to know about a strategy's subscribers
+    (multi-user tasks.md C.9). Implemented by
+    ``strategies.infrastructure.subscribers_adapter.StrategySubscribersAdapter``,
+    which composes the subscriptions module's own repository and its
+    open-allocation read."""
+
+    async def live_pools(self, strategy_id: UUID) -> list[SubscriberPool]:
+        """The pool of every ACTIVE or LEAVING subscription of the strategy.
+        Read-only and unlocked: the caller sorts, locks, and then re-reads."""
+        ...
+
+    async def holders(
+        self, strategy_id: UUID, subscribers: Sequence[SubscriberPool]
+    ) -> list[UUID]:
+        """The subscribers (a subset of ``subscribers``, by user) that still hold
+        an open allocation of the strategy: a position the ledger holds under any
+        spelling of its symbol, or a reservation still holding capital."""
+        ...
+
+    async def end_all(self, strategy_id: UUID, now: datetime) -> int:
+        """Ends every ACTIVE or LEAVING subscription of the strategy through the
+        subscription's own ``end`` transition, and returns how many. Flushed, not
+        committed: the caller's commit makes it one unit with the archive."""
+        ...
 
 
 class PoolLockPort(Protocol):

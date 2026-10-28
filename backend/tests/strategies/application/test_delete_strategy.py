@@ -36,6 +36,7 @@ from strategy_manager.strategies.domain.strategy import (
     Strategy,
 )
 from tests.owner import OWNER_ID
+from tests.strategies.fakes import FakeSubscribers
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 NAME = "Delete Me v1"
@@ -204,6 +205,7 @@ class Harness:
         self.use_case = DeleteStrategy(
             repository=self.repository,
             pool_lock=self.pool_lock,
+            subscribers=FakeSubscribers.sole_author(self.repository.unlocked or _strategy()),
             history=self.history,
             enablement_log=FakeEnablementLog(self.events, enablement or []),
             clock=FixedClock(),
