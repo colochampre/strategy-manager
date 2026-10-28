@@ -450,7 +450,7 @@ It needs an independent verifier before the PR.
   - The states are ACTIVE, LEAVING and ENDED. The legal moves are ACTIVE to LEAVING, ACTIVE to ENDED and LEAVING to ENDED; any other raises.
   - The share reuses the strategies domain's `AllocationPercent`.
   - Pure unit tests.
-- [ ] C.4 `subscriptions/application` and `infrastructure`: the use cases `Subscribe`, `Leave` and `ChangeShare`, a repository scoped by `user_id`, and a router under `/api/subscriptions` open to any signed-in user.
+- [x] C.4 `subscriptions/application` and `infrastructure`: the use cases `Subscribe`, `Leave` and `ChangeShare`, a repository scoped by `user_id`, and a router under `/api/subscriptions` open to any signed-in user.
   - **Subscribe** needs:
     - a strategy that exists and is not archived;
     - the user's own pool for the strategy's market, or 409 `NO_POOL_FOR_MARKET`;
@@ -477,7 +477,7 @@ It needs an independent verifier before the PR.
         - Mutations proved each of these guards: the lock, the user filter on get, `get_for_update` and update, `has_live`, the race translation, and the user filter on reservations.
         - Not mutation-proved: the user argument passed to the ledger's `symbol_holdings`. `test_another_users_open_allocation_does_not_keep_this_user_leaving` covers it.
       - The full gate found that `test_webhook_secret_router`'s sweep had no body for the new write routes and no data for the list. It now seeds the admin's subscription, and it sends real bodies to POST and PATCH. Leave is in `_NO_BODY`.
-    - **C.4b** is the strategies side above. It needs C.4a's repository. Done on 2026-10-27.
+    - **C.4b** is the strategies side above. It needs C.4a's repository. Done on 2026-10-27 in `cb15718`, with the full gate green: ruff 0, mypy 0, pytest exit 0 with no failing test.
       - **What changed:**
         - `RegisterStrategy` takes an `AuthorSubscriptionPort` (strategies declares it, `SqlAlchemyAuthorSubscription` implements it over C.4a's repository and pool lookup). The author's ACTIVE subscription is flushed after the strategy insert and before the one commit, in the author's own pool, at the requested share. The strategy still gets its own `allocation_percent`.
         - The pool refusal was already there: `PoolNotAvailable` answers 422 before any write. It stays 422 (not 409 `NO_POOL_FOR_MARKET`). The adapter raises the same error for a pool deleted after that check, and the route rolls back, so neither row survives.
