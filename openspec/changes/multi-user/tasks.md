@@ -695,9 +695,13 @@ It needs an independent verifier before the PR.
   - The tests that seed an enabled strategy now seed its author's ACTIVE subscription too, as `RegisterStrategy` does: `_strategy` in `test_pool_exposure_adapter.py` and `test_delete_credential_integration.py`, and two router tests.
   - Full gate on 2026-10-28: `ruff=0 mypy=0 pytest=0 failing=0`.
   - Follow-up for the panel (not this task): the 409's `enabled_strategies` copy says "Disable it first", which a subscriber cannot do; their remedy is to leave. Non-admins have no strategy list until PR F.
-- [ ] C.11 Concurrency on real PostgreSQL, with the lock-hold harness:
+- [x] C.11 Concurrency on real PostgreSQL, with the lock-hold harness:
   - two deliveries of one signal for two users take two different pool locks, and neither waits for the other;
   - two deliveries for one user's pool serialize.
+  - Done on 2026-10-28, written inline by the parent, in `tests/allocation/infrastructure/test_delivery_pool_lock_concurrency.py`. Tests only: the locks were built in B.4 and C.6.
+  - The holder is a real `AllocateCapital` run paused at its commit, so the lock it holds is the one the use case took for its delivery. The two-user test runs in both orders (author holds, subscriber holds). The same-user test proves the queue with `not task.done()` plus a NOT-granted `pg_locks` row for that user's pool key.
+  - They passed at once, so they were proved by mutation of `allocate_capital.py:181`: locking on `policy.author_id` reddens both two-user cases; removing the lock reddens the same-user test.
+  - Full gate on 2026-10-28: the first run failed once on `test_a_reverse_closes_and_then_opens_for_each_subscriber_in_their_own_pool` (C.8), which this task does not touch. It passed alone, after the new file, and three times in its own file; the rerun was `ruff=0 mypy=0 pytest=0 failing=0`. Recorded as an intermittent for the final verifier; the failing line was not captured.
 
 ### Frontend
 
