@@ -70,7 +70,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_pool, seed_owner
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -420,6 +420,13 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
         pool_id = await ensure_pool(session, _POOL)
     signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other, pool_id)
     await _seed(factory, signal)
+    # The reservation serves a delivery of its signal (migration 0032), to a
+    # subscription of ``other``'s, the strategy that signal belongs to.
+    async with factory() as session:
+        reservation.delivery_id = await ensure_delivery(  # type: ignore[attr-defined]
+            session, signal_id=signal.id, strategy_id=other  # type: ignore[attr-defined]
+        )
+        await session.commit()
     await _seed(factory, reservation)
     await _seed(factory, attempt)
     await _seed(factory, entry)

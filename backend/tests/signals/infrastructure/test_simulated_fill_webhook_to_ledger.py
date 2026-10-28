@@ -143,7 +143,8 @@ async def stack(
         strategy_id = await seed_strategy_on(pg_session_factory, pool)
         async with pg_session_factory() as session:
             await session.execute(
-                text("UPDATE strategies SET allocation_percent = :pct WHERE id = :id"),
+                # The share that sizes an opening is the SUBSCRIPTION's (C.6).
+                text("UPDATE subscriptions SET allocation_percent = :pct WHERE strategy_id = :id"),
                 {"pct": ALLOCATION_PERCENT, "id": strategy_id},
             )
             await session.commit()

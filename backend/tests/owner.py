@@ -24,7 +24,10 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
+
+from strategy_manager.allocation.application.allocate_capital import AllocateCommand
+from strategy_manager.shared.domain.money import Money
 
 OWNER_ID = UUID("0a1b2c3d-0000-4000-8000-00000000a0a0")
 OWNER_EMAIL = "fixture-owner@example.com"
@@ -118,6 +121,177 @@ async def ensure_pool(
     return await seed_pool(executor, market, user_id=user_id)
 
 
+async def ensure_author_subscription(
+    executor: AsyncConnection | AsyncSession,
+    strategy_id: UUID,
+    *,
+    share: Decimal | None = None,
+    status: str = "ACTIVE",
+) -> UUID:
+    """The strategy's AUTHOR's subscription to it, seeded when the author holds no
+    live one (``RegisterStrategy`` makes it in production). The pool is the
+    author's own on the strategy's market, seeded when missing. The share is the
+    strategy's own ``allocation_percent`` unless given, which is what sized a
+    signal before sizing moved to the subscription. A test that
+    drives a signal through the worker needs it: ``FanOutSignal`` delivers only
+    to subscriptions, so a strategy seeded raw has nobody to work its signals.
+    Not committed."""
+    found = (
+        await executor.execute(
+            text(
+                "SELECT s.id FROM subscriptions s JOIN strategies t ON t.id = s.strategy_id "
+                "WHERE s.strategy_id = :strategy_id AND s.user_id = t.author_id "
+                "AND s.status IN ('ACTIVE', 'LEAVING')"
+            ),
+            {"strategy_id": strategy_id},
+        )
+    ).scalar_one_or_none()
+    if found is not None:
+        return UUID(str(found))
+    strategy = (
+        await executor.execute(
+            text(
+                "SELECT author_id, exchange, venue, settlement_currency, allocation_percent "
+                "FROM strategies WHERE id = :strategy_id"
+            ),
+            {"strategy_id": strategy_id},
+        )
+    ).one()
+    author_id = UUID(str(strategy[0]))
+    if share is None:
+        share = Decimal(strategy[4])
+    pool_id = await ensure_pool(
+        executor, (strategy[1], strategy[2], strategy[3]), user_id=author_id
+    )
+    subscription_id = uuid4()
+    await executor.execute(
+        text(
+            "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+            "allocation_percent, status) "
+            "VALUES (:id, :user_id, :strategy_id, :pool_id, :share, :status)"
+        ),
+        {
+            "id": subscription_id,
+            "user_id": author_id,
+            "strategy_id": strategy_id,
+            "pool_id": pool_id,
+            "share": share,
+            "status": status,
+        },
+    )
+    return subscription_id
+
+
+async def ensure_delivery(
+    executor: AsyncConnection | AsyncSession,
+    *,
+    signal_id: UUID,
+    strategy_id: UUID,
+    user_id: UUID = OWNER_ID,
+    subscription_strategy_id: UUID | None = None,
+) -> UUID:
+    """The id of the delivery of ``signal_id`` to ``user_id``'s subscription to
+    ``strategy_id``, seeded when missing (multi-user design AD5; migration
+    ``0032`` makes ``reservations.delivery_id`` NOT NULL).
+
+    ``subscription_strategy_id`` hosts the subscription on another strategy, for a
+    test that counts a strategy's subscriptions and must not see this one.
+
+    The user's live subscription is reused. A user with none gets an ENDED one,
+    in their pool on the strategy's market: it serves only as the delivery's
+    owner, and being ENDED it is never eligible for a signal and never blocks a
+    later ``ACTIVE`` one (the partial unique ignores ENDED). A test about
+    subscriptions seeds its own, before or after. Not committed."""
+    hosting = strategy_id if subscription_strategy_id is None else subscription_strategy_id
+    # A live subscription first, then one this helper made earlier (ENDED).
+    known = (
+        await executor.execute(
+            text(
+                "SELECT id FROM subscriptions WHERE user_id = :user_id "
+                "AND strategy_id = :strategy_id ORDER BY (status = 'ENDED'), created_at LIMIT 1"
+            ),
+            {"user_id": user_id, "strategy_id": hosting},
+        )
+    ).scalar_one_or_none()
+    if known is not None:
+        subscription_id = UUID(str(known))
+    else:
+        market = (
+            await executor.execute(
+                text(
+                    "SELECT exchange, venue, settlement_currency FROM strategies "
+                    "WHERE id = :strategy_id"
+                ),
+                {"strategy_id": hosting},
+            )
+        ).one()
+        pool_id = await ensure_pool(executor, (market[0], market[1], market[2]), user_id=user_id)
+        subscription_id = uuid4()
+        await executor.execute(
+            text(
+                "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+                "allocation_percent, status, ended_at) "
+                "VALUES (:id, :user_id, :strategy_id, :pool_id, 30, 'ENDED', now())"
+            ),
+            {
+                "id": subscription_id,
+                "user_id": user_id,
+                "strategy_id": hosting,
+                "pool_id": pool_id,
+            },
+        )
+    existing = (
+        await executor.execute(
+            text(
+                "SELECT id FROM signal_deliveries "
+                "WHERE signal_id = :signal_id AND subscription_id = :subscription_id"
+            ),
+            {"signal_id": signal_id, "subscription_id": subscription_id},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return UUID(str(existing))
+    delivery_id = uuid4()
+    await executor.execute(
+        text(
+            "INSERT INTO signal_deliveries (id, signal_id, subscription_id, user_id) "
+            "VALUES (:id, :signal_id, :subscription_id, :user_id)"
+        ),
+        {
+            "id": delivery_id,
+            "signal_id": signal_id,
+            "subscription_id": subscription_id,
+            "user_id": user_id,
+        },
+    )
+    return delivery_id
+
+
+async def allocate_command(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    signal_id: UUID,
+    strategy_id: UUID,
+    requested: Money,
+    user_id: UUID = OWNER_ID,
+) -> AllocateCommand:
+    """The command that allocates ``signal_id`` for ``user_id``: the delivery it
+    serves is seeded (``ensure_delivery``) and committed first, since the
+    reservation it writes names it."""
+    async with factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id, user_id=user_id
+        )
+        await session.commit()
+    return AllocateCommand(
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=requested,
+        user_id=user_id,
+        delivery_id=delivery_id,
+    )
+
+
 async def seed_reservation_row(
     executor: AsyncConnection | AsyncSession,
     *,
@@ -129,18 +303,27 @@ async def seed_reservation_row(
     status: str = "SUBMITTED",
     expires_at: datetime,
     user_id: UUID = OWNER_ID,
+    delivery_id: UUID | None = None,
 ) -> int:
     """One ``reservations`` row of ``user_id``, in that user's pool on
     ``market`` (seeded when missing, ``ensure_pool``), written raw. Returns the
-    pool's id. Not committed: the caller's transaction owns it."""
+    pool's id. Not committed: the caller's transaction owns it.
+
+    The reservation serves ``delivery_id``, or, when none is given, the delivery
+    of its signal to the user's subscription (``ensure_delivery``)."""
     pool_id = await ensure_pool(executor, market, user_id=user_id)
+    if delivery_id is None:
+        delivery_id = await ensure_delivery(
+            executor, signal_id=signal_id, strategy_id=strategy_id, user_id=user_id
+        )
     exchange, venue, currency = market
     await executor.execute(
         text(
             "INSERT INTO reservations "
-            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
+            "(id, user_id, pool_id, strategy_id, signal_id, delivery_id, exchange, venue, "
             "settlement_currency, amount, status, expires_at) "
-            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :exchange, :venue, "
+            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :delivery_id, "
+            ":exchange, :venue, "
             ":settlement_currency, :amount, :status, :expires_at)"
         ),
         {
@@ -148,6 +331,7 @@ async def seed_reservation_row(
             "user_id": user_id,
             "pool_id": pool_id,
             "strategy_id": strategy_id,
+            "delivery_id": delivery_id,
             "signal_id": signal_id,
             "exchange": exchange,
             "venue": venue,

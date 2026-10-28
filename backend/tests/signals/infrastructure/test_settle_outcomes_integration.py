@@ -45,6 +45,7 @@ from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
+from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -62,6 +63,12 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
     SignalSettleOutcomeRecorder,
+)
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
+from strategy_manager.subscriptions.application.end_leaving import EndLeavingSubscription
+from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
+from strategy_manager.subscriptions.infrastructure.repository import (
+    SqlAlchemySubscriptionRepository,
 )
 from tests.owner import OWNER_ID
 from tests.signals.infrastructure.conftest import (
@@ -116,6 +123,16 @@ def _settle(
         outcomes=SignalSettleOutcomeRecorder(
             SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),
             SqlAlchemySignalRepository(session),
+        ),
+        pool_lock=PoolLockAdapter(session),
+        leaving=EndLeavingSubscription(
+            SqlAlchemySubscriptionRepository(session),
+            OpenAllocationAdapter(
+                session,
+                SqlAlchemyLedgerRepository(session),
+                ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+            ),
+            _FixedClock(),
         ),
     )
 

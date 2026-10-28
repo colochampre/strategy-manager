@@ -54,8 +54,9 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
     seed_strategy,
 )
-from tests.owner import OWNER_ID, seed_other_user, seed_pool
+from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_pool
 from tests.performance.infrastructure.test_performance_router import _walk
+from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
 
@@ -306,6 +307,105 @@ async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors
     assert authors.status_code == 200, authors.text
     assert authors.json()["pool_minimum"] == "5.000000000000000000"
     assert _exact(authors)["amount"] == "100.000000000000000000"
+
+
+async def _subscribe(
+    factory: Factory, strategy_id: UUID, user_id: UUID, share: str, status: str = "ACTIVE"
+) -> None:
+    async with factory() as session:
+        pool_id = await ensure_pool(session, BYBIT, user_id=user_id)
+        await session.commit()
+    await seeds.subscription(factory, user_id, strategy_id, pool_id, share=share, status=status)
+
+
+async def test_without_a_share_the_preview_defaults_to_the_signed_in_users_subscription(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """tasks.md C.6 (re-homed from C.4b). The strategy's own copy says 33.5, the
+    caller's subscription says 12.5: the default is the subscription's, sized from
+    the pool's 1000."""
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5")
+
+    response = await _preview(client, strategy_id)
+
+    assert response.status_code == 200, response.text
+    assert _exact(response) == {
+        "share": "12.5",
+        "amount": "125.000000000000000000",
+        "below_pool_minimum": False,
+    }
+
+
+async def test_another_users_subscription_is_not_the_callers_default_share(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The caller holds none, so today's behaviour holds: the strategy's own copy."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, other, "12.5")
+
+    response = await _preview(client, strategy_id)
+
+    assert response.status_code == 200, response.text
+    assert _exact(response)["share"] == "33.5"
+
+
+async def test_the_authors_subscription_is_not_the_callers_default_share_either(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The strategy is another user's, and so is the only subscription to it: the
+    caller, who holds none, still gets the strategy's own copy."""
+    async with pg_session_factory() as session:
+        author = await seed_other_user(session)
+        await session.commit()
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET author_id = :author WHERE id = :id"),
+            {"author": author, "id": strategy_id},
+        )
+        await session.commit()
+    await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, author, "12.5")
+
+    response = await _preview(client, strategy_id)
+
+    assert response.status_code == 200, response.text
+    assert _exact(response)["share"] == "33.5"
+
+
+async def test_an_ended_subscription_is_not_the_callers_default_share(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5", status="ENDED")
+
+    response = await _preview(client, strategy_id)
+
+    assert _exact(response)["share"] == "33.5"
+
+
+async def test_a_share_asked_for_beats_the_subscription_share(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5")
+
+    response = await _preview(client, strategy_id, share="50")
+
+    assert _exact(response)["share"] == "50"
 
 
 async def test_a_share_asked_for_is_served_as_exact(
@@ -702,8 +802,10 @@ async def test_the_route_issues_the_same_number_of_statements_for_the_stored_sha
     pg_engine: AsyncEngine,  # noqa: F811
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """Two reads of the database, and nothing per step: the strategy, then the pool
-    with its snapshot. The asked share is arithmetic, not another query."""
+    """Nothing per step. An asked share reads the strategy, then the pool with its
+    snapshot, and the share itself is arithmetic, not another query. A share NOT
+    asked for is the caller's subscription's (C.6), so it costs the one read that
+    finds it, and still nothing per step."""
     strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
 
@@ -712,8 +814,8 @@ async def test_the_route_issues_the_same_number_of_statements_for_the_stored_sha
     with _captured_sql(pg_engine) as for_an_asked_share:
         await _preview(client, strategy_id, share="12.34")
 
-    assert len(for_the_stored_share) == len(for_an_asked_share)
-    assert len(for_the_stored_share) == 2
+    assert len(for_the_stored_share) == len(for_an_asked_share) + 1
+    assert len(for_an_asked_share) == 2
     assert all(
         statement.lstrip().upper().startswith("SELECT")
         for statement in for_the_stored_share + for_an_asked_share

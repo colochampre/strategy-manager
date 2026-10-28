@@ -31,8 +31,8 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
-from strategy_manager.signals.application.process_signal import ProcessSignalHandler
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
+from tests.signals.application.delivery_support import sole_subscriber_handler
 from tests.signals.application.test_process_signal import (
     TRADABLE,
     FakeBalanceRefreshPort,
@@ -712,7 +712,7 @@ async def test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally
     pool_balance = PoolBalance(
         total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
     )
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(
             replace(_open_long_context(), received_at=NOW)
         ),

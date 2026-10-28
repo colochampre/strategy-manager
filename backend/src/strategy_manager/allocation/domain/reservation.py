@@ -71,6 +71,10 @@ class Reservation:
     # read inside the allocation lock (migration ``0026``). ``None`` only on
     # rows written before that migration, which cannot be backfilled.
     pool_total_at_open: Decimal | None = None
+    # The delivery (one signal reaching one subscription) this reservation serves
+    # (migration ``0032``). Always set on a stored row; ``None`` only on a
+    # reservation not yet written.
+    delivery_id: UUID | None = None
 
     def transition_to(self, new_status: ReservationStatus) -> "Reservation":
         """Returns a new ``Reservation`` with the target status. Raises on any

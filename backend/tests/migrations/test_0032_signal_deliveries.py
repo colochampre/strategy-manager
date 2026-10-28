@@ -5,8 +5,9 @@ existing signal one delivery, for its strategy author's subscription (the one
 0031 made), copying the signal's outcome columns, and points each reservation
 and each attempt that has a reservation at that delivery.
 
-``reservations.delivery_id`` stays NULLABLE and the unique on
-``reservations.signal_id`` stays until C.6 (owner's choice, 2026-10-27).
+``reservations.delivery_id`` is NOT NULL after its backfill and the unique on
+``reservations.signal_id`` is gone (C.6, owner's choice, 2026-10-27): two
+subscribers each hold a reservation for one signal.
 
 Real PostgreSQL. Each migration scenario seeds a database at ``0031`` and
 upgrades it; the constraint tests share one module-scoped database and roll back.
@@ -36,6 +37,13 @@ _DB_PREFIX = "strategy_manager_test_deliveries"
 _PER_SUBSCRIPTION_UNIQUE = "ux_signal_deliveries_signal_subscription"
 _RESERVATION_UNIQUE = "ux_reservations_delivery"
 _DECIDED_AT = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+# Unique indexes on ``reservations (signal_id)`` alone, found by inspection.
+_SIGNAL_UNIQUE_COUNT = (
+    "SELECT count(*) FROM pg_index i "
+    "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+    "WHERE i.indrelid = 'reservations'::regclass AND i.indisunique "
+    "AND i.indnatts = 1 AND a.attname = 'signal_id'"
+)
 
 
 def _alembic(database_url: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -548,9 +556,10 @@ async def test_two_reservations_cannot_share_one_delivery(
     assert _constraint_name(caught.value) == _RESERVATION_UNIQUE
 
 
-async def test_a_reservation_without_a_delivery_is_still_accepted(
+async def test_a_reservation_without_a_delivery_is_refused(
     conn: AsyncConnection, seeded: Seeded
 ) -> None:
+    """C.6: every reservation serves a delivery, so the column is NOT NULL."""
     signal = uuid4()
     await conn.execute(
         text(
@@ -561,34 +570,6 @@ async def test_a_reservation_without_a_delivery_is_still_accepted(
         {"id": signal, "s": seeded.beta, "k": str(uuid4())},
     )
 
-    await conn.execute(
-        text(
-            "INSERT INTO reservations (id, user_id, pool_id, strategy_id, signal_id, exchange, "
-            "venue, settlement_currency, amount, expires_at) "
-            "VALUES (:id, :u, :p, :s, :sig, 'binance', 'usdt-m', 'USDT', 10, "
-            "now() + interval '1 day')"
-        ),
-        {
-            "id": uuid4(),
-            "u": seeded.owner,
-            "p": seeded.owner_pool,
-            "s": seeded.beta,
-            "sig": signal,
-        },
-    )
-
-    nullable = await conn.execute(
-        text(
-            "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_name = 'reservations' AND column_name = 'delivery_id'"
-        )
-    )
-    assert nullable.scalar_one() == "YES"
-
-
-async def test_the_unique_on_reservations_signal_id_stays(
-    conn: AsyncConnection, seeded: Seeded
-) -> None:
     with pytest.raises(IntegrityError) as caught:
         await conn.execute(
             text(
@@ -601,12 +582,72 @@ async def test_the_unique_on_reservations_signal_id_stays(
                 "id": uuid4(),
                 "u": seeded.owner,
                 "p": seeded.owner_pool,
-                "s": seeded.alpha,
-                "sig": seeded.accepted,
+                "s": seeded.beta,
+                "sig": signal,
             },
         )
 
-    assert _constraint_name(caught.value) == "reservations_signal_id_key"
+    column = getattr(caught.value.orig.__cause__, "column_name", None)  # type: ignore[union-attr]
+    assert column == "delivery_id"
+
+
+async def test_two_reservations_for_one_signal_on_two_deliveries_are_accepted(
+    conn: AsyncConnection, seeded: Seeded
+) -> None:
+    """C.6: the old unique on ``reservations.signal_id`` is gone, since two
+    subscribers each hold a reservation for one signal."""
+    other_delivery = uuid4()
+    await conn.execute(
+        text(
+            "INSERT INTO signal_deliveries (id, signal_id, subscription_id, user_id) "
+            "VALUES (:id, :sig, :sub, :u)"
+        ),
+        {
+            "id": other_delivery,
+            "sig": seeded.accepted,
+            "sub": seeded.other_alpha_sub,
+            "u": seeded.other,
+        },
+    )
+
+    await conn.execute(
+        text(
+            "INSERT INTO reservations (id, user_id, pool_id, strategy_id, signal_id, "
+            "delivery_id, exchange, venue, settlement_currency, amount, expires_at) "
+            "VALUES (:id, :u, :p, :s, :sig, :d, 'binance', 'usdt-m', 'USDT', 10, "
+            "now() + interval '1 day')"
+        ),
+        {
+            "id": uuid4(),
+            "u": seeded.other,
+            "p": seeded.other_pool,
+            "s": seeded.alpha,
+            "sig": seeded.accepted,
+            "d": other_delivery,
+        },
+    )
+
+    count = await conn.execute(
+        text("SELECT count(*) FROM reservations WHERE signal_id = :s"), {"s": seeded.accepted}
+    )
+    assert count.scalar_one() == 2
+
+
+async def test_no_unique_constraint_remains_on_reservations_signal_id(
+    conn: AsyncConnection,
+) -> None:
+    """Found by inspection, as the migration finds it: no unique constraint and
+    no unique index covers ``signal_id`` alone."""
+    result = await conn.execute(
+        text(
+            "SELECT count(*) FROM pg_index i "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+            "WHERE i.indrelid = 'reservations'::regclass AND i.indisunique "
+            "AND i.indnatts = 1 AND a.attname = 'signal_id'"
+        )
+    )
+
+    assert result.scalar_one() == 0
 
 
 async def test_deliveries_are_indexed_by_user(conn: AsyncConnection) -> None:
@@ -650,17 +691,21 @@ def test_downgrade_drops_the_deliveries_and_upgrades_again(
     signals_outcome = _scalar(
         url, "SELECT outcome_reason FROM signals WHERE id = :s", {"s": data.rejected}
     )
+    restored = _scalar(url, _SIGNAL_UNIQUE_COUNT)
     assert leftovers == 0
     assert tables == 0
     assert signals_outcome == "NO_CAPITAL"
+    assert restored == 1
 
     _alembic_ok(url, "upgrade", "0032")
     version = _version(url)
     deliveries = _scalar(url, "SELECT count(*) FROM signal_deliveries")
     unfilled = _scalar(url, "SELECT count(*) FROM reservations WHERE delivery_id IS NULL")
+    dropped_again = _scalar(url, _SIGNAL_UNIQUE_COUNT)
     assert version == "0032"
     assert deliveries == 4
     assert unfilled == 0
+    assert dropped_again == 0
 
 
 def test_downgrade_refuses_with_more_than_one_user(

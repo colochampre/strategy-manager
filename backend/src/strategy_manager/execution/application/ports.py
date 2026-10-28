@@ -371,6 +371,39 @@ class OrderOutcomeRecorderPort(Protocol):
     async def record_rejected(self, signal_id: UUID, reason: str, detail: str) -> None: ...
 
 
+class PoolLockPort(Protocol):
+    """The advisory lock ``AllocateCapital`` takes for one user's pool, derived
+    through the same ``LockKey`` code path. Declared here so a closing settlement
+    can take it without importing ``allocation``: while a user's close is booked
+    and a LEAVING subscription of theirs is ended, no opening of theirs can reserve
+    capital in that pool and no ``Leave`` can read a stale holding. Taken before any
+    row lock, like everywhere else."""
+
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...
+
+
+class LeavingSubscriptionPort(Protocol):
+    """Ends a user's LEAVING subscription to a strategy once nothing of the
+    strategy is held any more (owner decision 4). Implemented by
+    ``subscriptions``; settle calls it in the SAME transaction that books a close,
+    after the closing fill is recorded, and under the pool lock."""
+
+    async def end_if_flat(
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+    ) -> bool:
+        """Stages ENDED on the user's LEAVING subscription when it holds no open
+        allocation of the strategy left, and returns whether it did. Nothing for a
+        user with no LEAVING subscription. Never commits."""
+        ...
+
+
 class SettleOutcomeRecorderPort(Protocol):
     """Records, on the caller's own session, what ``execution.settle`` learned
     about the SIGNAL an order was placed for (decision 25, design.md "Addendum:

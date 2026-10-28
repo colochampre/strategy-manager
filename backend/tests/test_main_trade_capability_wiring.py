@@ -2,7 +2,7 @@
 
 Which adapter answers "can this exchange's key trade?" is a ``DRY_RUN``
 decision, made where the exchange adapters are chosen: the worker's
-``_build_process_signal_handler``. Under ``DRY_RUN`` the fake exchange places
+``_build_process_delivery``. Under ``DRY_RUN`` the fake exchange places
 nothing, so every exchange must answer ``TRADE_CAPABLE``; live, the answer comes
 from the vault's recorded column. Getting either wrong is silent: a live worker
 wired to the dry-run answer places orders on read-only keys, and a rehearsal
@@ -32,7 +32,7 @@ def _handler_for(dry_run: bool) -> object:
     )
     engine = create_async_engine("postgresql+asyncpg://nobody:nothing@localhost:1/none")
     session = AsyncSession(engine)
-    handler, _ = main._build_process_signal_handler(
+    handler, _ = main._build_process_delivery(
         session,
         {},
         settings,
@@ -53,11 +53,11 @@ def test_dry_run_false_wires_the_vault_capability() -> None:
 
 
 def test_every_handler_build_takes_the_capability_from_the_same_dry_run_switch() -> None:
-    """Both job handlers that build the handler (``signal.process`` and the
+    """Both job handlers that build the handler (``delivery.process`` and the
     open-after-close continuation) go through the one builder, so the
     continuation cannot end up with a different answer than the first pass."""
     source = inspect.getsource(main.build_worker_runner)
-    assert source.count("_build_process_signal_handler(") == 2
+    assert source.count("_build_process_delivery(") == 2
     assert "VaultTradeCapabilityAdapter" not in source
     assert "DryRunTradeCapability" not in source
 

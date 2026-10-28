@@ -36,6 +36,14 @@ class SubscriptionRepositoryPort(Protocol):
 
     async def update(self, subscription: Subscription) -> None: ...
 
+    async def get_live_for_update(
+        self, user_id: UUID, strategy_id: UUID
+    ) -> Subscription | None:
+        """The user's ACTIVE or LEAVING subscription to the strategy, taking the
+        row lock and re-reading what the database holds now; ``None`` when the
+        user holds none. The partial unique index allows at most one."""
+        ...
+
     async def list_for_user(self, user_id: UUID) -> list[Subscription]: ...
 
     async def has_live(self, user_id: UUID, strategy_id: UUID) -> bool:

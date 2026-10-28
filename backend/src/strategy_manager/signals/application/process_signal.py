@@ -1,7 +1,14 @@
-"""``ProcessSignalHandler``: the ``signal.process`` job handler that routes a
-signal by its ``PositionTransition`` (design.md's job handlers table;
-"New scope in this slice: tasks 5.16-5.17 route by ``PositionTransition`` so
-a capital-RELEASING signal never takes the advisory lock").
+"""``ProcessDelivery``: the ``delivery.process`` job handler that works one
+signal for ONE subscription (multi-user design AD5; tasks.md C.6). It was
+``ProcessSignalHandler``, the ``signal.process`` handler of a single-user system,
+and its body is the same: only the subject changed. Every use of the strategy's
+author is now the delivery's user, the pool is that user's, the share is that
+subscription's, and the halves it runs come from the job payload, written by
+``FanOutSignal``, rather than from classifying the signal again.
+
+It routes a signal by its ``PositionTransition`` (design.md's job handlers
+table; "New scope in this slice: tasks 5.16-5.17 route by ``PositionTransition``
+so a capital-RELEASING signal never takes the advisory lock").
 
 A CONSUMES signal (opening a position, or the consuming half of a reverse)
 goes through ``AllocateCapital`` — the only path that takes the advisory
@@ -23,8 +30,8 @@ This handler's work ends when the order is placed. What it filled at is
 recorded by the ``execution.settle`` job, which ``PlaceOrder`` schedules
 before it ever contacts the exchange.
 
-``requested`` for a CONSUMES signal is derived from the strategy's
-configured ``allocation_percent`` applied to the pool BALANCE (design.md
+``requested`` for a CONSUMES signal is derived from the SUBSCRIPTION's
+``allocation_percent`` applied to the subscriber's pool BALANCE (design.md
 § "Order size never comes from the alert", percent base RESOLVED
 2026-08-18; tasks.md 7.7/7.8) — never from the alert's ``position_size`` or
 ``contracts``, which are TradingView's *simulated* equity and have no
@@ -81,6 +88,7 @@ from strategy_manager.execution.domain.market_symbol import is_perpetual, market
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
 from strategy_manager.shared.domain.money import Currency, Money
+from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import (
     BalanceRefreshPort,
@@ -103,6 +111,15 @@ logger = logging.getLogger(__name__)
 # Fallback code for a guard refusal that carries no ``reason`` (a stand-in
 # guard, or a future branch that forgot one): still ``REJECTED``, never silent.
 _UNCODED_GUARD_REFUSAL = "HOLDING_GUARD_REFUSED"
+
+# What each set of halves needs of the signal's own classification. A delivery
+# is told what to run by ``FanOutSignal``; this is the check that the signal
+# still says the same, so a payload that disagrees with it runs nothing.
+_EFFECTS_NEEDED: dict[DeliveryHalves, tuple[TransitionEffect, ...]] = {
+    DeliveryHalves.OPEN: (TransitionEffect.CONSUMES,),
+    DeliveryHalves.CLOSE: (TransitionEffect.RELEASES,),
+    DeliveryHalves.BOTH: (TransitionEffect.RELEASES, TransitionEffect.CONSUMES),
+}
 
 
 def _consuming_side(next_position_size: Decimal) -> OrderSide:
@@ -154,14 +171,16 @@ _UNSET_RECEIVED_AT = datetime(1970, 1, 1, tzinfo=UTC)
 
 @dataclass(frozen=True, slots=True)
 class SignalContext:
-    """Everything ``ProcessSignalHandler`` needs about a signal to route and
+    """Everything ``ProcessDelivery`` needs about a signal to route and
     size an order, decoupled from ``signals``' own persistence model and
     from the ``allocation``/``execution`` modules' own aggregates.
 
-    ``prior_reservation_id`` is the reservation tied to the signal that
-    produced ``prior_position_size`` — the reservation a closing (RELEASES)
-    signal must execute against. ``None`` when there is no prior signal, or
-    the prior signal never produced a reservation (e.g. it was skipped)."""
+    ``prior_reservation_id`` is the SUBSCRIPTION's own latest reservation on
+    this strategy and symbol for an earlier signal — the reservation a closing
+    (RELEASES) signal must execute against. ``None`` when the subscription has
+    none (it never opened, or its opening was skipped), whatever other
+    subscribers hold. ``own_reservation_id`` is the delivery's user's reservation
+    for THIS signal."""
 
     strategy_id: UUID
     symbol: str
@@ -180,12 +199,45 @@ class SignalContext:
     received_at: datetime = _UNSET_RECEIVED_AT
 
 
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    """One signal reaching one subscription (migration ``0032``): who the work is
+    for, and at what share. ``user_id`` is the subscriber, which is the strategy's
+    author only when the author is the subscriber. Every read and write of a
+    delivery's work is made as this user, in this user's pool, with this user's
+    key; ``allocation_percent`` is the SUBSCRIPTION's share, not the strategy's."""
+
+    delivery_id: UUID
+    signal_id: UUID
+    subscription_id: UUID
+    user_id: UUID
+    allocation_percent: Decimal
+
+
+class UnknownDeliveryError(Exception):
+    """A delivery that has no row, or a signal with no delivery for its author.
+    A misconfiguration, not a business outcome: the job fails loudly."""
+
+
+class DeliveryPort(Protocol):
+    async def load(self, delivery_id: UUID) -> Delivery: ...
+
+    async def of_signal_author(self, signal_id: UUID) -> Delivery:
+        """The delivery of ``signal_id`` to its strategy's AUTHOR. The reverse
+        continuation (``signal.open_after_close``) is keyed by the signal and owned
+        by the author until C.8 moves it to the delivery; it opens for that one."""
+        ...
+
+
 class SignalContextPort(Protocol):
-    async def load(self, signal_id: UUID) -> SignalContext: ...
+    async def load(self, delivery: Delivery) -> SignalContext:
+        """The signal as THIS subscription sees it: the prior position is the
+        strategy's, the prior and own reservations are the subscription's."""
+        ...
 
 
 class PlaceOrderPort(Protocol):
-    """Narrowed to exactly what ``ProcessSignalHandler`` calls, so a fake can
+    """Narrowed to exactly what ``ProcessDelivery`` calls, so a fake can
     stand in for ``PlaceOrder`` in unit tests without a full exchange stack.
 
     Placing is where this handler's responsibility ends. What the order
@@ -310,13 +362,14 @@ class ProcessSignalResult:
     failed: str | None = None
 
 
-class ProcessSignalHandler:
+class ProcessDelivery:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
-    (slice 5) — the ``signal.process`` job's whole business logic
-    (design.md's job handlers table)."""
+    (slice 5) — the ``delivery.process`` job's whole business logic
+    (design.md's job handlers table), for one subscription."""
 
     def __init__(
         self,
+        deliveries: DeliveryPort,
         signal_context: SignalContextPort,
         strategy_policy: StrategyPolicyPort,
         pool_balance: PoolBalancePort,
@@ -333,6 +386,7 @@ class ProcessSignalHandler:
         outcomes: SignalOutcomePort,
         trade_capability: TradeCapabilityPort,
     ) -> None:
+        self._deliveries = deliveries
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -349,11 +403,34 @@ class ProcessSignalHandler:
         self._outcomes = outcomes
         self._trade_capability = trade_capability
 
-    async def handle(self, signal_id: UUID) -> ProcessSignalResult:
-        context = await self._signal_context.load(signal_id)
+    async def handle(self, delivery_id: UUID, raw_halves: object) -> ProcessSignalResult:
+        """Works one delivery. ``raw_halves`` is the job payload's ``halves`` as it
+        arrived: ``FanOutSignal`` wrote which half (or halves) this subscription
+        runs, and it is never defaulted. A payload without a usable value is
+        refused loudly instead of guessed."""
+        delivery = await self._deliveries.load(delivery_id)
+        signal_id = delivery.signal_id
+        context = await self._signal_context.load(delivery)
         transition = PositionTransition.classify(
             context.prior_position_size, context.position_size
         )
+        halves = _parse_halves(raw_halves)
+        if halves is None:
+            return await self._refuse_halves(
+                signal_id,
+                transition,
+                "DELIVERY_HALVES_MISSING",
+                f"delivery {delivery_id} of signal {signal_id} carries no usable halves "
+                f"({raw_halves!r}); nothing was run for it",
+            )
+        if not all(effect in transition.effects for effect in _EFFECTS_NEEDED[halves]):
+            return await self._refuse_halves(
+                signal_id,
+                transition,
+                "DELIVERY_HALVES_MISMATCH",
+                f"delivery {delivery_id} of signal {signal_id} was told to run {halves.value}, "
+                f"but the signal is a {transition.kind.value}; nothing was run for it",
+            )
         policy = await self._strategy_policy.policy_for(context.strategy_id)
 
         # Archived-strategy refusal (decision 11; design.md § 8, "Signal
@@ -371,25 +448,25 @@ class ProcessSignalHandler:
                 signal_id, context, transition, policy.exchange, policy.venue
             )
 
-        # ``transition.effects`` is ORDERED, and that ordering is the domain's
-        # own statement of what happens first. A reverse releases before it
-        # consumes, so routing on the first effect closes the prior position --
-        # no branch names REVERSE anywhere.
+        # The halves are what ``FanOutSignal`` decided this subscription runs, in
+        # the order the domain states them: a reverse releases before it consumes.
+        # The signal's own effects are ORDERED for that reason, and a delivery of a
+        # reverse may run only one of them (a subscription that holds nothing
+        # opens only; a LEAVING one closes only), so the payload picks and the
+        # classification above only vouches for it.
         #
         # The previous routing asked ``CONSUMES in effects``, which for a
         # reverse matched the SECOND effect and skipped the first entirely.
         # With a consuming side hardcoded to BUY, a strategy holding a long and
         # told to flip short bought MORE long.
-        if transition.effects[0] is TransitionEffect.CONSUMES:
-            result = await self._handle_consumes(signal_id, context, transition, policy)
-        else:
-            result = await self._handle_releases(signal_id, context, transition, policy)
-
-        if len(transition.effects) == 1:
+        if halves is DeliveryHalves.OPEN:
+            return await self._handle_consumes(signal_id, context, transition, policy, delivery)
+        result = await self._handle_releases(
+            signal_id, context, transition, policy, delivery, halves
+        )
+        if halves is DeliveryHalves.CLOSE:
             return result
-        if transition.kind is TransitionKind.REVERSE and _new_side_holdable(
-            context.symbol, context.position_size
-        ):
+        if _new_side_holdable(context.symbol, context.position_size):
             # Reverse Completion (spec: trade-execution § Reverse
             # Completion; design.md § "Reverse wiring (A6)"): the open half
             # was already seeded, inside ``_handle_releases``, to run once
@@ -422,9 +499,11 @@ class ProcessSignalHandler:
         ``tests/signals/application/test_open_now_concurrent_redelivery.py``):
         both read ``own_reservation_id is None`` before either commits.
         What actually stops the second open one step earlier than
-        ``PlaceOrder`` is ``reservations.signal_id``'s UNIQUE constraint
-        (migration 0004) -- with that constraint dropped, the same race
-        produces two reservations, two attempts and two real orders. The
+        ``PlaceOrder`` is ``reservations.delivery_id``'s UNIQUE constraint
+        (migration 0032; it was ``signal_id``'s, migration 0004, until two
+        subscribers could each hold a reservation for one signal) -- with that
+        constraint dropped, the same race produces two reservations, two
+        attempts and two real orders. The
         loser raises the UNIQUE violation out of this method; ``WorkerRunner``
         logs it and ``queue.fail()`` schedules a retry, and the redelivery
         then finds ``own_reservation_id`` set and takes the no-op above. So
@@ -438,7 +517,8 @@ class ProcessSignalHandler:
         ``poll + 1``, never restart the chain at 0 (orchestrator-found
         defect: seeding 0 again collides with the already-DONE poll 0 row
         and silently drops the continuation)."""
-        context = await self._signal_context.load(signal_id)
+        delivery = await self._deliveries.of_signal_author(signal_id)
+        context = await self._signal_context.load(delivery)
         transition = PositionTransition.classify(
             context.prior_position_size, context.position_size
         )
@@ -464,6 +544,7 @@ class ProcessSignalHandler:
             context,
             transition,
             policy,
+            delivery,
             next_poll=poll + 1,
             close_executed=close_executed,
         )
@@ -474,6 +555,7 @@ class ProcessSignalHandler:
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        delivery: Delivery,
         next_poll: int = 0,
         close_executed: bool = False,
     ) -> ProcessSignalResult:
@@ -496,8 +578,8 @@ class ProcessSignalHandler:
         # this method, so a close is never refused by it and ``open_now`` (the
         # REVERSE continuation) is covered. Under DRY_RUN the wired port
         # answers TRADE_CAPABLE, so nothing is refused. The key asked about is
-        # the strategy author's (multi-user design AD8, tasks.md B.5).
-        capability = await self._trade_capability.capability(policy.author_id, policy.exchange)
+        # the delivery's user's, i.e. the subscriber's (multi-user design AD8, C.6).
+        capability = await self._trade_capability.capability(delivery.user_id, policy.exchange)
         if capability is not TradeCapability.TRADE_CAPABLE:
             return await self._refuse_read_only_exchange(
                 signal_id, context, transition, policy, capability, close_executed=close_executed
@@ -509,7 +591,7 @@ class ProcessSignalHandler:
         # ``AllocateCapital.allocate()`` (design.md § "Guard order").
         pool: PoolKey = (policy.exchange, policy.venue, policy.settlement_currency)
         guard_outcome = await self._holding_guard.check(
-            user_id=policy.author_id,
+            user_id=delivery.user_id,
             pool=pool,
             strategy_id=context.strategy_id,
             symbol=context.symbol,
@@ -561,7 +643,7 @@ class ProcessSignalHandler:
                     symbol=context.symbol,
                     holdings=guard_outcome.real_orphan_holdings,
                     next_poll=next_poll,
-                    user_id=policy.author_id,
+                    user_id=delivery.user_id,
                     reference_price=context.price,
                 )
                 return ProcessSignalResult(transition.kind.value, None, False)
@@ -594,10 +676,10 @@ class ProcessSignalHandler:
         # here can the ERROR name the signal, the strategy and the symbol --
         # ``RefreshPoolBalance`` itself never sees any of the three, only the
         # pool.
-        # The strategy AUTHOR's pool (B.5), here and in the sizing read below:
-        # until subscriptions exist a signal is allocated in its author's pool.
+        # The SUBSCRIBER's pool (C.6), here and in the sizing read below: a
+        # delivery is allocated in its own user's pool, never the author's.
         refresh_outcome = await self._balance_refresh.refresh(
-            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
+            delivery.user_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         if refresh_outcome.status is RefreshStatus.UNAVAILABLE:
             refused = (
@@ -616,14 +698,15 @@ class ProcessSignalHandler:
             )
 
         pool_balance = await self._pool_balance.read(
-            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
+            delivery.user_id, policy.exchange, policy.venue, policy.settlement_currency
         )
         # Sized from the pool's TOTAL, never from what is still free: the same
         # percentage must ask for the same amount whether or not other
         # strategies already hold positions. ``decide()`` still caps the grant
-        # at what is actually available.
+        # at what is actually available. The percentage is the SUBSCRIPTION's:
+        # each subscriber sizes the same signal from their own pool and share.
         requested = Money(
-            amount=requested_from_percent(pool_balance.total, policy.allocation_percent),
+            amount=requested_from_percent(pool_balance.total, delivery.allocation_percent),
             currency=Currency(policy.settlement_currency),
         )
         if requested.amount <= 0:
@@ -632,13 +715,18 @@ class ProcessSignalHandler:
                 context,
                 transition,
                 policy,
+                delivery,
                 pool_balance.total,
                 close_executed=close_executed,
             )
 
         result = await self._allocate_capital.allocate(
             AllocateCommand(
-                signal_id=signal_id, strategy_id=context.strategy_id, requested=requested
+                signal_id=signal_id,
+                strategy_id=context.strategy_id,
+                requested=requested,
+                user_id=delivery.user_id,
+                delivery_id=delivery.delivery_id,
             )
         )
 
@@ -647,7 +735,7 @@ class ProcessSignalHandler:
 
         await self._place_order.place(
             PlaceCommand(
-                user_id=policy.author_id,
+                user_id=delivery.user_id,
                 reservation_id=result.reservation_id,
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),
@@ -662,10 +750,14 @@ class ProcessSignalHandler:
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        delivery: Delivery,
+        halves: DeliveryHalves,
     ) -> ProcessSignalResult:
         """A close carries no price, because nothing about its size is derived
-        from one. ``ClosePosition`` reads the ledger for what the opening
-        allocation actually acquired.
+        from one. The allocation it works is THIS subscription's
+        (``context.prior_reservation_id``), never another subscriber's.
+        ``ClosePosition`` reads the ledger for what the opening allocation
+        actually acquired.
 
         For a REVERSE whose new side is holdable (design.md § "Reverse
         wiring (A6)"), the S5 continuation is seeded to await THIS close
@@ -693,7 +785,7 @@ class ProcessSignalHandler:
                 f"{transition.kind.value} {context.symbol}, but the strategy holds no "
                 "position to close (no prior reservation); nothing was closed"
             )
-            if transition.kind is TransitionKind.REVERSE:
+            if halves is DeliveryHalves.BOTH:
                 refused += ", and the new side was not opened"
             logger.warning("%s", refused)
             return await self._reject(signal_id, transition, "NO_POSITION_TO_CLOSE", refused)
@@ -717,12 +809,14 @@ class ProcessSignalHandler:
                 signal_id,
             )
 
-        is_reverse_wiring = transition.kind is TransitionKind.REVERSE and _new_side_holdable(
+        # Only a delivery that runs BOTH halves has an open to wait for the close:
+        # a LEAVING subscription closes alone and never opens.
+        is_reverse_wiring = halves is DeliveryHalves.BOTH and _new_side_holdable(
             context.symbol, context.position_size
         )
 
         existing_close = await self._closing_attempts.latest_close_for(
-            policy.author_id, context.prior_reservation_id
+            delivery.user_id, context.prior_reservation_id
         )
         if existing_close is not None:
             if existing_close.status is not ExecutionStatus.FAILED:
@@ -775,7 +869,7 @@ class ProcessSignalHandler:
 
         close_result = await self._close_position.close(
             CloseCommand(
-                user_id=policy.author_id,
+                user_id=delivery.user_id,
                 allocation_id=context.prior_reservation_id,
                 strategy_id=context.strategy_id,
                 exchange=policy.exchange,
@@ -806,6 +900,7 @@ class ProcessSignalHandler:
         context: SignalContext,
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
+        delivery: Delivery,
         pool_total: Decimal,
         *,
         close_executed: bool = False,
@@ -858,7 +953,7 @@ class ProcessSignalHandler:
         pool = f"({policy.exchange}, {policy.venue}, {policy.settlement_currency})"
         refused = (
             f"pool {pool} sizes to nothing for strategy {context.strategy_id} on "
-            f"{context.symbol}: {policy.allocation_percent}% of a {pool_total} total "
+            f"{context.symbol}: {delivery.allocation_percent}% of a {pool_total} total "
             "is not a positive amount. No order was placed and no capital was "
             "reserved; this is not retried, because neither number can change "
             "without the owner changing it."
@@ -1019,6 +1114,17 @@ class ProcessSignalHandler:
         logger.warning("refusing signal for %s: %s", context.symbol, refused)
         return await self._reject(signal_id, transition, "UNTRADABLE_POOL", refused)
 
+    async def _refuse_halves(
+        self, signal_id: UUID, transition: PositionTransition, reason: str, refused: str
+    ) -> ProcessSignalResult:
+        """A delivery whose payload does not say what to run, or says something
+        the signal contradicts. Never defaulted and never guessed: an order for
+        real money is not placed on a guess. ERROR, because it is a defect in
+        what ``FanOutSignal`` enqueued and retrying cannot change the payload, so
+        the signal ends ``REJECTED`` instead of the job retrying until it exhausts."""
+        logger.error("refusing delivery, %s", refused)
+        return await self._reject(signal_id, transition, reason, refused)
+
     async def _reject(
         self,
         signal_id: UUID,
@@ -1111,6 +1217,17 @@ class ProcessSignalHandler:
             )
             await self._commit.commit()
         return replace(result, refused=refused)
+
+
+def _parse_halves(raw: object) -> DeliveryHalves | None:
+    """The payload's ``halves`` as a value, or ``None`` when it is absent or not
+    one of the three ``FanOutSignal`` writes."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        return DeliveryHalves(raw)
+    except ValueError:
+        return None
 
 
 def _prior_of(context: SignalContext) -> Decimal:

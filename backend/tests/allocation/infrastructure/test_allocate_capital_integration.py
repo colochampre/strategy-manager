@@ -17,7 +17,6 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
-    AllocateCommand,
 )
 from strategy_manager.allocation.domain.decision import DecisionOutcome
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
@@ -29,7 +28,13 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
-from tests.owner import OWNER_ID, seed_other_user, seed_pool, seed_reservation_row
+from tests.owner import (
+    OWNER_ID,
+    allocate_command,
+    seed_other_user,
+    seed_pool,
+    seed_reservation_row,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -70,15 +75,15 @@ async def test_full_allocation_writes_a_pending_reservation_inside_txn_a(
         pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="k1"
     )
 
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+    )
     async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session, balance=Decimal("1000"))
-        result = await use_case.allocate(
-            AllocateCommand(
-                signal_id=signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-            )
-        )
+        result = await use_case.allocate(command)
 
     assert result.outcome is DecisionOutcome.FULL
     assert result.granted == Decimal("200")
@@ -93,14 +98,14 @@ async def test_full_allocation_writes_a_pending_reservation_inside_txn_a(
         assert row.amount == Decimal("200")
 
 
-async def test_the_reservation_is_the_authors_in_the_authors_pool_and_ignores_another_users(
+async def test_the_reservation_is_the_deliverys_users_in_their_pool_and_ignores_another_users(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Multi-user design AD8 (B.5): both users hold a pool on this market, and
-    the owner already reserves 900 of a balance of 1000 there. The other
-    user's strategy is allocated in the other user's pool: the owner's 900 does
-    not shrink it, and the row written carries the author and the author's
-    pool."""
+    """Multi-user design AD8 / C.6: both users hold a pool on this market, and
+    the owner already reserves 900 of a balance of 1000 there. A strategy the
+    OWNER authored is allocated, for its other subscriber, in the subscriber's
+    pool: the owner's 900 does not shrink it, and the row written carries the
+    subscriber and the subscriber's pool, and the delivery it serves."""
     async with pg_session_factory() as session:
         author = await seed_other_user(session)
         author_pool = await seed_pool(session, ("pionex", "spot", "USDT"), user_id=author)
@@ -123,9 +128,16 @@ async def test_the_reservation_is_the_authors_in_the_authors_pool_and_ignores_an
         )
         await session.commit()
     strategy_id, signal_id = uuid4(), uuid4()
-    await seed_strategy(pg_session_factory, strategy_id=strategy_id, author_id=author)
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await seed_signal(
         pg_session_factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key="a1"
+    )
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        user_id=author,
     )
     pools = {
         **_SPOT_USDT_POOL,
@@ -152,13 +164,7 @@ async def test_the_reservation_is_the_authors_in_the_authors_pool_and_ignores_an
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
         )
-        result = await use_case.allocate(
-            AllocateCommand(
-                signal_id=signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-            )
-        )
+        result = await use_case.allocate(command)
 
     assert result.outcome is DecisionOutcome.FULL
     assert result.granted == Decimal("200")
@@ -169,6 +175,7 @@ async def test_the_reservation_is_the_authors_in_the_authors_pool_and_ignores_an
             )
         ).scalar_one()
     assert (row.user_id, row.pool_id) == (author, author_pool)
+    assert row.delivery_id == command.delivery_id
 
 
 async def test_partial_allocation_grants_only_the_available_remainder(
@@ -191,27 +198,27 @@ async def test_partial_allocation_grants_only_the_available_remainder(
     )
 
     # First allocation consumes 850 of the pool's 1000, leaving 150 available.
+    first_command = await allocate_command(
+        pg_session_factory,
+        signal_id=first_signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("850"), currency=Currency.USDT),
+    )
     async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session, balance=Decimal("1000"))
-        first = await use_case.allocate(
-            AllocateCommand(
-                signal_id=first_signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("850"), currency=Currency.USDT),
-            )
-        )
+        first = await use_case.allocate(first_command)
     assert first.outcome is DecisionOutcome.FULL
 
     # Second, larger request must be clamped to the 150 still available.
+    second_command = await allocate_command(
+        pg_session_factory,
+        signal_id=second_signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("300"), currency=Currency.USDT),
+    )
     async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session, balance=Decimal("1000"))
-        second = await use_case.allocate(
-            AllocateCommand(
-                signal_id=second_signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("300"), currency=Currency.USDT),
-            )
-        )
+        second = await use_case.allocate(second_command)
 
     assert second.outcome is DecisionOutcome.PARTIAL
     assert second.granted == Decimal("150")
@@ -245,26 +252,26 @@ async def test_skip_when_no_availability_writes_no_reservation_row(
     )
 
     # Fully consume the pool.
+    first_command = await allocate_command(
+        pg_session_factory,
+        signal_id=first_signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("1000"), currency=Currency.USDT),
+    )
     async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session, balance=Decimal("1000"))
-        first = await use_case.allocate(
-            AllocateCommand(
-                signal_id=first_signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("1000"), currency=Currency.USDT),
-            )
-        )
+        first = await use_case.allocate(first_command)
     assert first.outcome is DecisionOutcome.FULL
 
+    second_command = await allocate_command(
+        pg_session_factory,
+        signal_id=second_signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+    )
     async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session, balance=Decimal("1000"))
-        second = await use_case.allocate(
-            AllocateCommand(
-                signal_id=second_signal_id,
-                strategy_id=strategy_id,
-                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-            )
-        )
+        second = await use_case.allocate(second_command)
 
     assert second.outcome is DecisionOutcome.SKIP
     assert second.skip_reason == "NO_AVAILABILITY"

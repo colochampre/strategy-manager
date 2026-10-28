@@ -20,6 +20,7 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.signals.infrastructure.failed_job_signal_reader import (
     SqlAlchemyFailedJobSignalReader,
 )
+from tests.owner import ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -91,6 +92,29 @@ async def test_a_signal_process_job_names_its_signal(
     assert await _resolve(pg_session_factory, job) == signal_id
 
 
+async def test_a_delivery_process_job_names_the_signal_of_its_delivery(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """C.6: a ``delivery.process`` job carries a delivery, not a signal; the
+    signal it was working on is the delivery's."""
+    strategy_id, signal_id = uuid4(), uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await seed_signal_row(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"key-{signal_id}",
+    )
+    async with pg_session_factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id
+        )
+        await session.commit()
+    job = _job(JobKind.DELIVERY_PROCESS, {"delivery_id": str(delivery_id), "halves": "open"})
+
+    assert await _resolve(pg_session_factory, job) == signal_id
+
+
 async def test_a_continuation_job_names_its_signal(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -154,8 +178,16 @@ async def test_a_job_kind_that_decides_no_signal_resolves_to_nothing(
         _job(JobKind.SIGNAL_PROCESS, {}),
         _job(JobKind.EXECUTION_SETTLE, {}),
         _job(JobKind.EXECUTION_SETTLE, {"execution_attempt_id": str(uuid4())}),
+        _job(JobKind.DELIVERY_PROCESS, {"halves": "open"}),
+        _job(JobKind.DELIVERY_PROCESS, {"delivery_id": str(uuid4()), "halves": "open"}),
     ],
-    ids=["no-signal-id", "no-attempt-id", "unknown-attempt"],
+    ids=[
+        "no-signal-id",
+        "no-attempt-id",
+        "unknown-attempt",
+        "no-delivery-id",
+        "unknown-delivery",
+    ],
 )
 async def test_a_malformed_or_dangling_payload_is_loud(
     pg_session_factory: async_sessionmaker[AsyncSession], job: ClaimedJob

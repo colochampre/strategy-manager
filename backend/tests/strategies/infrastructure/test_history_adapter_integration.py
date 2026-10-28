@@ -22,6 +22,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
@@ -48,7 +49,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
-from tests.owner import OWNER_ID, ensure_pool
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -72,6 +73,28 @@ def _history(**counts: int) -> StrategyHistory:
     return StrategyHistory(**base)
 
 
+async def _host_strategy(session: AsyncSession) -> UUID:
+    """A strategy nobody counts, to host the subscription of a seeded delivery."""
+    host = uuid4()
+    exchange, venue, currency = _POOL
+    await session.execute(
+        text(
+            "INSERT INTO strategies "
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, :exchange, :venue, :currency, false, 'PARTIAL', :author)"
+        ),
+        {
+            "id": host,
+            "name": f"host-{host}",
+            "exchange": exchange,
+            "venue": venue,
+            "currency": currency,
+            "author": OWNER_ID,
+        },
+    )
+    return host
+
+
 async def _seed(factory: Factory, *rows: object) -> None:
     """Adds ``rows`` in one commit. A reservation or a booking proposal is placed
     in its user's pool on its market, seeded when missing (migration 0030), so
@@ -84,6 +107,17 @@ async def _seed(factory: Factory, *rows: object) -> None:
                     (row.exchange, row.venue, row.settlement_currency),
                     user_id=row.user_id,
                 )
+                if isinstance(row, ReservationRow) and row.delivery_id is None:
+                    # The reservation serves a delivery (migration 0032), whose
+                    # subscription is hosted on a strategy of its own so that no
+                    # count under test sees it.
+                    row.delivery_id = await ensure_delivery(
+                        session,
+                        signal_id=row.signal_id,
+                        strategy_id=row.strategy_id,
+                        user_id=row.user_id,
+                        subscription_strategy_id=await _host_strategy(session),
+                    )
             if isinstance(row, SubscriptionRow):
                 row.pool_id = await ensure_pool(session, _POOL, user_id=row.user_id)
         session.add_all(rows)

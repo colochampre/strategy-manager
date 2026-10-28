@@ -76,7 +76,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_pool
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -166,6 +166,9 @@ async def _seed_open_fill(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),
@@ -254,6 +257,9 @@ async def _seed_open_short_fill(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),
@@ -742,6 +748,9 @@ async def test_live_reservation_with_no_fill_yet_still_refuses_archive(
                 id=reservation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),

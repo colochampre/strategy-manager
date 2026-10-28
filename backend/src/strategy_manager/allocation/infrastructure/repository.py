@@ -52,6 +52,7 @@ def _to_domain(row: ReservationRow) -> Reservation:
         created_at=row.created_at,
         updated_at=row.updated_at,
         pool_total_at_open=row.pool_total_at_open,
+        delivery_id=row.delivery_id,
     )
 
 
@@ -113,7 +114,13 @@ class SqlAlchemyReservationRepository:
         """Writes ``reservation`` as ``user_id``'s, in that user's pool on its
         market. Raises, before writing anything, when the user holds no pool
         there: the composite FK would refuse the row anyway, and naming the user
-        and the market says why."""
+        and the market says why. Raises too when the reservation names no
+        delivery: every reservation serves one (migration ``0032``)."""
+        if reservation.delivery_id is None:
+            raise InvariantViolation(
+                f"reservation {reservation.id} names no delivery; a reservation always "
+                "serves the delivery of one signal to one subscription"
+            )
         pool_id = (
             await self._session.execute(
                 select(CapitalPoolRow.id).where(
@@ -139,6 +146,7 @@ class SqlAlchemyReservationRepository:
                 pool_id=pool_id,
                 strategy_id=reservation.strategy_id,
                 signal_id=reservation.signal_id,
+                delivery_id=reservation.delivery_id,
                 exchange=reservation.pool_key.exchange.value,
                 venue=reservation.pool_key.venue.value,
                 settlement_currency=reservation.pool_key.settlement_currency.value,

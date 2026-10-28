@@ -3,7 +3,7 @@
 runs through ``open_now`` records its outcome, both in that job's own commits.
 
 The production composition root builds the handler
-(``main._build_process_signal_handler``), so this proves the wiring as well as
+(``main._build_process_delivery``), so this proves the wiring as well as
 the behaviour: a continuation built without the outcome port, or with the
 warning path instead of the silent one, fails here. The handler's trailing
 ``session.commit()`` is replayed exactly as ``main.handle_signal_open_after_close``
@@ -35,7 +35,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
-from strategy_manager.main import _build_process_signal_handler
+from strategy_manager.main import _build_process_delivery
 from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
     VenuePositionReaderRegistry,
 )
@@ -47,7 +47,7 @@ from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemySignalOutcomeAdapter,
 )
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -153,6 +153,10 @@ async def _seed_reverse(
         position_size=Decimal("-1"),
         received_at=now - reverse_age,
     )
+    # The continuation opens for the reverse signal's delivery to the author.
+    async with factory() as session:
+        await ensure_delivery(session, signal_id=reverse_signal, strategy_id=strategy_id)
+        await session.commit()
     await seed_reservation(
         factory,
         reservation_id=allocation_id,
@@ -243,7 +247,7 @@ async def _run_continuation(
         )
     }
     async with factory() as session:
-        _, open_after_close = _build_process_signal_handler(
+        _, open_after_close = _build_process_delivery(
             session,
             pools,
             settings,

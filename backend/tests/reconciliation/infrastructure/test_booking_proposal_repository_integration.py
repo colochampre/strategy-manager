@@ -51,7 +51,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
-from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_owner
+from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_owner, seed_reservation_row
 from tests.pg_drop import drop_database_if_exists
 
 pytestmark = pytest.mark.integration
@@ -200,25 +200,17 @@ async def _seed_discrepancy(
         },
     )
     # The author's reservation in the author's pool (migration 0030).
-    pool_id = await ensure_pool(session, _POOL, user_id=author)
-    await session.execute(
-        text(
-            "INSERT INTO reservations "
-            "(id, user_id, pool_id, strategy_id, signal_id, exchange, venue, "
-            "settlement_currency, amount, status, expires_at) "
-            "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :exchange, :venue, "
-            ":settlement_currency, 100, 'FILLED', now() + interval '1 hour')"
-        ),
-        {
-            "id": allocation_id,
-            "user_id": author,
-            "pool_id": pool_id,
-            "strategy_id": strategy_id,
-            "signal_id": signal_id,
-            "exchange": _POOL[0],
-            "venue": _POOL[1],
-            "settlement_currency": _POOL[2],
-        },
+    # (and the delivery it serves, since migration 0032).
+    pool_id = await seed_reservation_row(
+        session,
+        reservation_id=allocation_id,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        market=_POOL,
+        amount=Decimal("100"),
+        status="FILLED",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        user_id=author,
     )
     await session.execute(
         text(

@@ -1,8 +1,10 @@
 """``SqlAlchemyFailedJobSignalReader``: resolves a job's payload to the signal
 it was working on (decision 25, task 5c.6).
 
-The queue stays job-kind-agnostic, so this is where the three kinds that can
-decide a signal are named. Two carry the signal id directly. ``execution.settle``
+The queue stays job-kind-agnostic, so this is where the kinds that can
+decide a signal are named. Two carry the signal id directly, and
+``delivery.process`` carries a delivery id, whose signal is read from the
+delivery (C.6; C.8 moves the reader to the delivery itself). ``execution.settle``
 carries an attempt id, and the attempt is resolved the way ``execution.settle``
 itself resolves it: a CLOSE through ``execution_attempts.signal_id`` (its
 ``allocation_id`` is the OPENING allocation, so that reservation names the
@@ -22,6 +24,7 @@ from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
 
 
 class SqlAlchemyFailedJobSignalReader:
@@ -37,10 +40,25 @@ class SqlAlchemyFailedJobSignalReader:
         match job.kind:
             case JobKind.SIGNAL_PROCESS | JobKind.SIGNAL_OPEN_AFTER_CLOSE:
                 return _uuid(job, "signal_id")
+            case JobKind.DELIVERY_PROCESS:
+                return await self._delivery_signal(_uuid(job, "delivery_id"))
             case JobKind.EXECUTION_SETTLE:
                 return await self._settle_signal(_uuid(job, "execution_attempt_id"))
             case _:
                 return None
+
+    async def _delivery_signal(self, delivery_id: UUID) -> UUID:
+        """A ``delivery.process`` job names its delivery, and the signal is the
+        delivery's. Until C.7 moves the outcome to the delivery, the exhaustion is
+        recorded on that signal."""
+        signal_id = (
+            await self._session.execute(
+                select(SignalDeliveryRow.signal_id).where(SignalDeliveryRow.id == delivery_id)
+            )
+        ).scalar_one_or_none()
+        if signal_id is None:
+            raise InvariantViolation(f"no delivery {delivery_id} for a FAILED delivery.process job")
+        return signal_id
 
     async def _settle_signal(self, attempt_id: UUID) -> UUID | None:
         row = (

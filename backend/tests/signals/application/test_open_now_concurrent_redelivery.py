@@ -1,4 +1,4 @@
-"""``ProcessSignalHandler.open_now`` under GENUINE concurrent redelivery
+"""``ProcessDelivery.open_now`` under GENUINE concurrent redelivery
 (design.md § S5, "Dedup"; spec: job-queue § Continuation Idempotency --
 "Retrying or re-running a continuation MUST NEVER submit more than one open
 for the same signal, and a crash between committing a poll and acknowledging
@@ -87,8 +87,12 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.process_signal import (
-    ProcessSignalHandler,
+    ProcessDelivery,
     ProcessSignalResult,
+)
+from strategy_manager.signals.infrastructure.delivery_adapters import (
+    SqlAlchemyDeliveries,
+    SqlAlchemySubscriptionReservations,
 )
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.models import SignalRow
@@ -98,9 +102,10 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
-from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
+from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
 
@@ -108,7 +113,7 @@ POOL: AccountsPoolKey = ("bybit", "usdt-m", "USDT")
 START = datetime.now(UTC)
 # 40% of a 100 USDT pool, so the LOSER of the race still finds 60 available
 # and reaches ``reservations.insert`` -- the point where the UNIQUE
-# constraint on ``signal_id`` is the last thing standing. At 100% the loser
+# constraint on ``delivery_id`` is the last thing standing. At 100% the loser
 # would be turned away by ``decide()`` for want of availability and the
 # constraint would never be exercised at all.
 POOL_BALANCE = Decimal("100")
@@ -314,12 +319,16 @@ async def _seed_settled_flat_holding(
 
     async with session_factory() as session:
         await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
+        delivery_id = await ensure_delivery(
+            session, signal_id=prior_signal_id, strategy_id=strategy_id
+        )
         await SqlAlchemyReservationRepository(session).insert(
             OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=prior_signal_id,
+                delivery_id=delivery_id,
                 pool_key=AllocationPoolKey(
                     exchange=Exchange("bybit"),
                     venue=Venue("usdt-m"),
@@ -399,7 +408,7 @@ def _build_handler(
     pools_by_key: dict[tuple[UUID, AccountsPoolKey], PoolConfig],
     reservations: SqlAlchemyReservationRepository | RaceSyncedReservations,
     seeder: RecordingSeeder,
-) -> ProcessSignalHandler:
+) -> ProcessDelivery:
     """One whole production handler bound to ONE session -- the unit a worker
     process builds per claimed job, and therefore the unit two workers would
     each have their own of."""
@@ -408,11 +417,13 @@ def _build_handler(
     own_reservations = SqlAlchemyReservationRepository(session)
     attempts_repository = SqlAlchemyExecutionAttemptRepository(session)
 
-    return ProcessSignalHandler(
+    return ProcessDelivery(
+        deliveries=SqlAlchemyDeliveries(session),
         signal_context=SignalContextAdapter(
             signals=signal_repository,
             strategies=strategy_repository,
             reservations=own_reservations,
+            subscription_reservations=SqlAlchemySubscriptionReservations(session),
         ),
         strategy_policy=StrategyPolicyAdapter(strategy_repository),
         pool_balance=PoolBalanceAdapter(
@@ -505,7 +516,12 @@ async def _setup(
             text("UPDATE strategies SET allocation_percent = :p WHERE id = :id"),
             {"p": ALLOCATION_PERCENT, "id": strategy_id},
         )
+        pool_id = await ensure_pool(session, POOL)
         await session.commit()
+    # The author's subscription is what sizes the open (C.6): 40%.
+    await seeds.subscription(
+        session_factory, OWNER_ID, strategy_id, pool_id, share=str(ALLOCATION_PERCENT)
+    )
 
     prior_signal_id = uuid4()
     await _seed_signal(
@@ -541,16 +557,21 @@ async def _setup(
         position_size=Decimal("1"),
         received_at=START,
     )
+    # The continuation opens for the signal's delivery to the author.
+    async with session_factory() as session:
+        await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        await session.commit()
     return strategy_id, signal_id
 
 
 async def test_the_unique_constraint_backstopping_the_dedup_really_exists(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """``open_now``'s docstring leans on ``reservations.signal_id`` being
-    UNIQUE. Asserted against the live catalog rather than the migration
-    source, because the constraint that matters is the one the database is
-    actually enforcing."""
+    """``open_now``'s docstring leans on ``reservations.delivery_id`` being
+    UNIQUE (it was ``signal_id`` before C.6: two subscribers now each hold a
+    reservation for one signal, so a DELIVERY is what one reservation serves).
+    Asserted against the live catalog rather than the migration source, because
+    the constraint that matters is the one the database is actually enforcing."""
     async with pg_session_factory() as session:
         unique_columns = (
             await session.execute(
@@ -565,7 +586,8 @@ async def test_the_unique_constraint_backstopping_the_dedup_really_exists(
             )
         ).scalars().all()
 
-    assert "signal_id" in unique_columns
+    assert "delivery_id" in unique_columns
+    assert "signal_id" not in unique_columns
 
 
 async def test_two_concurrent_open_now_calls_reserve_once_and_order_once(

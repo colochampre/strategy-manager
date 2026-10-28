@@ -153,7 +153,7 @@ class _Allocation:
                 pool_status=SqlAlchemyPoolStatus(session),
             )
             self.result = await use_case.allocate(
-                _allocate_command(self.signal_id, self._strategy_id)
+                await _allocate_command(self._factory, self.signal_id, self._strategy_id)
             )
 
 

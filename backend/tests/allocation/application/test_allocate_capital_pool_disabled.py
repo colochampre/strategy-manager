@@ -35,6 +35,7 @@ from tests.allocation.application.test_allocate_capital import (
     _enabled_snapshot,
 )
 from tests.allocation.fakes import RecordingPoolStatus, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 
 class _EventLock:
@@ -66,6 +67,8 @@ class _Rig:
             signal_id=signal_id,
             strategy_id=self.strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
 
 

@@ -43,6 +43,7 @@ from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemySignalOutcomeAdapter,
 )
+from tests.owner import ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -247,6 +248,40 @@ async def test_a_job_that_exhausts_its_retries_rejects_its_signal(
         "the venue is down",
     )
     assert signal.decided_at == _NOW
+
+
+async def test_a_delivery_job_that_exhausts_its_retries_rejects_its_deliverys_signal(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """C.6: an exhausted ``delivery.process`` is recorded against its delivery's
+    signal the way an exhausted ``signal.process`` is, never silently. The full
+    move of the reader to the delivery is C.8."""
+    seed = await _seed(pg_session_factory)
+    strategy_id = (await _signal(pg_session_factory, seed.opening_signal)).strategy_id
+    async with pg_session_factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=seed.opening_signal, strategy_id=strategy_id
+        )
+        await session.commit()
+    job_id = await _enqueue(
+        pg_session_factory,
+        JobKind.DELIVERY_PROCESS,
+        {"delivery_id": str(delivery_id), "halves": "open"},
+    )
+
+    ran = await _runner(
+        pg_session_factory, [JobKind.DELIVERY_PROCESS], "the venue is down"
+    ).run_once()
+
+    assert ran is True
+    job = await _job(pg_session_factory, job_id)
+    assert (job.status, job.last_error) == ("FAILED", "the venue is down")
+    signal = await _signal(pg_session_factory, seed.opening_signal)
+    assert (signal.status, signal.outcome_reason, signal.outcome_detail) == (
+        "REJECTED",
+        "JOB_FAILED",
+        "the venue is down",
+    )
 
 
 async def test_a_settle_job_for_a_close_does_not_reject_the_opening_signal(

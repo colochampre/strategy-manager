@@ -24,16 +24,18 @@ the opening signal's delivery: the closing signal was never recorded, and the
 reservation names the same subscription, which is what a delivery is read for.
 Production had 4 attempts without ``signal_id`` (pre-check, 2026-10-27).
 
-**Expand now, contract later.** ``reservations.delivery_id`` stays NULLABLE and
-the unique on ``reservations.signal_id`` stays. C.6 makes the first NOT NULL and
-drops the second, in this same migration, together with the code that writes it.
-While ``delivery_id`` can be NULL its UNIQUE refuses nothing, so dropping the
-old guard now would leave no protection against a second reservation for one
-signal.
+**The reservation's uniqueness moves to the delivery.** ``reservations.delivery_id``
+is NOT NULL once the backfill has filled it, and the column-level unique on
+``reservations.signal_id`` (from 0004) is dropped: two subscribers each hold a
+reservation for one signal. ``delivery_id``'s own UNIQUE is now the guard against
+a second reservation for one delivery, and it refuses something because the
+column can no longer be NULL. The unique's name is found by inspection, never
+guessed. The ``signal_id`` column itself stays, for reads.
 
 **Downgrade.** Refuses when more than one user exists, as 0031's does, since
-the old schema has one outcome per signal. It drops the new columns, their constraints and the
-table; the signals still hold their outcome.
+the old schema has one outcome per signal. It restores the ``signal_id`` unique,
+drops the new columns, their constraints and the table; the signals still hold
+their outcome.
 """
 
 from collections.abc import Sequence
@@ -53,6 +55,8 @@ _STATUS = "ck_signal_deliveries_status"
 _RESERVATION_FK = "fk_reservations_delivery"
 _RESERVATION_UNIQUE = "ux_reservations_delivery"
 _ATTEMPT_FK = "fk_execution_attempts_delivery"
+# The name 0004 gave the column-level unique on ``reservations.signal_id``.
+_SIGNAL_UNIQUE_DEFAULT = "reservations_signal_id_key"
 _MAX_NAMED = 10
 
 _AUTHOR_SUBSCRIPTION = """
@@ -65,6 +69,30 @@ _AUTHOR_SUBSCRIPTION = """
 
 def _count(sql: str) -> int:
     return int(op.get_bind().execute(sa.text(sql)).scalar_one())
+
+
+def _signal_unique_name() -> str:
+    """The unique constraint on ``reservations (signal_id)`` alone, found in the
+    catalog. Raises when there is none: dropping nothing would leave a schema
+    that still refuses a second subscriber's reservation."""
+    name = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT c.conname FROM pg_constraint AS c "
+                "WHERE c.conrelid = 'reservations'::regclass AND c.contype = 'u' "
+                "AND c.conkey = ARRAY[(SELECT a.attnum FROM pg_attribute AS a "
+                "WHERE a.attrelid = 'reservations'::regclass AND a.attname = 'signal_id')]"
+            )
+        )
+        .scalar_one_or_none()
+    )
+    if name is None:
+        raise RuntimeError(
+            "0032 expected a unique constraint on reservations (signal_id) to drop, and "
+            "found none"
+        )
+    return str(name)
 
 
 def _refuse_a_signal_without_an_author_subscription() -> None:
@@ -139,6 +167,10 @@ def upgrade() -> None:
     )
     op.create_foreign_key(_RESERVATION_FK, "reservations", _TABLE, ["delivery_id"], ["id"])
     op.create_unique_constraint(_RESERVATION_UNIQUE, "reservations", ["delivery_id"])
+    # Every reservation's signal has a delivery (the refusal above), so the
+    # backfill left no NULL; a database where it did fails here, naming the column.
+    op.alter_column("reservations", "delivery_id", nullable=False)
+    op.drop_constraint(_signal_unique_name(), "reservations", type_="unique")
 
     op.add_column("execution_attempts", sa.Column("delivery_id", postgresql.UUID(as_uuid=True)))
     # In order of precedence: the attempt's own signal, then the reservation
@@ -168,6 +200,7 @@ def downgrade() -> None:
 
     op.drop_constraint(_ATTEMPT_FK, "execution_attempts", type_="foreignkey")
     op.drop_column("execution_attempts", "delivery_id")
+    op.create_unique_constraint(_SIGNAL_UNIQUE_DEFAULT, "reservations", ["signal_id"])
     op.drop_constraint(_RESERVATION_UNIQUE, "reservations", type_="unique")
     op.drop_constraint(_RESERVATION_FK, "reservations", type_="foreignkey")
     op.drop_column("reservations", "delivery_id")

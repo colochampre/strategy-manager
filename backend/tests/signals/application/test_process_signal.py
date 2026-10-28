@@ -72,10 +72,7 @@ from strategy_manager.signals.application.ports import (
     RefreshStatus,
     TradeCapability,
 )
-from strategy_manager.signals.application.process_signal import (
-    ProcessSignalHandler,
-    SignalContext,
-)
+from strategy_manager.signals.application.process_signal import Delivery, SignalContext
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
@@ -85,6 +82,10 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
 )
 from tests.owner import OWNER_ID
+from tests.signals.application.delivery_support import (
+    SoleSubscriberHandler,
+    sole_subscriber_handler,
+)
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
@@ -202,7 +203,7 @@ class SpyClosePosition:
 class FakeSignalContextPort:
     context: SignalContext
 
-    async def load(self, signal_id: UUID) -> SignalContext:
+    async def load(self, delivery: Delivery) -> SignalContext:
         return self.context
 
 
@@ -466,8 +467,8 @@ def _process_signal_handler(
     close_orphans: SpyCloseOrphans | None = None,
     outcomes: RecordingSignalOutcomes | None = None,
     trade_capability: FakeTradeCapability | None = None,
-) -> ProcessSignalHandler:
-    return ProcessSignalHandler(
+) -> SoleSubscriberHandler:
+    return sole_subscriber_handler(
         signal_context=FakeSignalContextPort(context),
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
         pool_balance=FakePoolBalancePort(
@@ -1594,7 +1595,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
             )
 
     lock = SpyAdvisoryLock()
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(_snapshot()),
         pool_balance=OrderingPoolBalance(),  # type: ignore[arg-type]
@@ -1729,7 +1730,7 @@ async def test_the_refresh_and_the_sizing_read_are_the_strategy_authors_pool() -
     sizing = FakePoolBalancePort(
         PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1"))
     )
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(policy),
         pool_balance=sizing,
@@ -1760,7 +1761,7 @@ async def test_the_in_flight_read_and_the_placement_are_the_strategy_authors() -
     policy = _snapshot(author_id=author)
     in_flight_work = FakeInFlightWorkPort()
     place_order = SpyPlaceOrder()
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(policy),
         pool_balance=FakePoolBalancePort(
@@ -2414,7 +2415,7 @@ def _sized_handler(
     allocation_percent: Decimal,
     strategy_id: UUID,
     symbol: str = "ETHUSDT",
-) -> tuple[ProcessSignalHandler, SpyAllocateCapital, SpyAdvisoryLock, SpyPlaceOrder]:
+) -> tuple[SoleSubscriberHandler, SpyAllocateCapital, SpyAdvisoryLock, SpyPlaceOrder]:
     """A CONSUMES-path handler whose ask is sized from ``pool_total`` and
     ``allocation_percent`` -- the two numbers whose product decides whether
     the request is strictly positive at all."""
@@ -2554,6 +2555,8 @@ async def test_an_empty_pool_is_refused_rather_than_raised() -> None:
                 signal_id=uuid4(),
                 strategy_id=uuid4(),
                 requested=Money(amount=Decimal("0"), currency=Currency("USDT")),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 
@@ -3211,7 +3214,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
 
         def handler(
             lock: SpyAdvisoryLock, place_order: SpyPlaceOrder, outcomes: RecordingSignalOutcomes
-        ) -> ProcessSignalHandler:
+        ) -> SoleSubscriberHandler:
             return _process_signal_handler(
                 context=_stx_open_context(),
                 allocate_capital=_allocate_capital(lock),

@@ -29,7 +29,9 @@ from strategy_manager.execution.application.ports import (
     ExecutionAttemptRepositoryPort,
     FillRecord,
     FillRecorderPort,
+    LeavingSubscriptionPort,
     OrderNotFound,
+    PoolLockPort,
     ReservationGatewayPort,
     SettleOutcomeRecorderPort,
 )
@@ -74,7 +76,11 @@ class SettleExecution:
         clock: ClockPort,
         commit: CommitPort,
         outcomes: SettleOutcomeRecorderPort,
+        pool_lock: PoolLockPort,
+        leaving: LeavingSubscriptionPort,
     ) -> None:
+        self._pool_lock = pool_lock
+        self._leaving = leaving
         self._reservations = reservations
         self._exchanges = exchanges
         self._attempts = attempts
@@ -119,6 +125,17 @@ class SettleExecution:
         # for an opening one. ``allocation_id`` resolves to the reservation
         # that funded an open, or to the allocation a close is unwinding, and
         # both carry the same strategy.
+        #
+        # A close also takes the user's POOL lock, first of all and after the
+        # remote read above (a lock is never held across exchange latency): it
+        # books the fill that can leave a LEAVING subscription holding nothing,
+        # and ends that subscription in this same transaction. The lock is what
+        # makes that decision consistent with ``Leave`` and with an opening of the
+        # user's own, and the pool lock comes before every row lock.
+        if attempt.is_closing:
+            await self._pool_lock.acquire(
+                user_id, attempt.exchange, attempt.venue, attempt.settlement_currency
+            )
         reservation = await self._reservations.get_for_update(user_id, attempt.allocation_id)
         usd_rate = await self._usd_rate_provider.usd_rate(
             Currency(attempt.settlement_currency)
@@ -132,6 +149,17 @@ class SettleExecution:
             # unwinding went FILLED when the position opened. Re-marking it
             # would rewrite settled history to say something it already says.
             await self._reservations.mark(user_id, attempt.allocation_id, FILLED, now)
+        else:
+            # Owner decision 4: a subscription that left while it held a position
+            # is LEAVING, and ends when the strategy closes the last of it. The
+            # fill above is already recorded, so the holding read is current.
+            await self._leaving.end_if_flat(
+                user_id,
+                reservation.strategy_id,
+                attempt.exchange,
+                attempt.venue,
+                attempt.settlement_currency,
+            )
         # Decision 25, rows 16-17 (5c.1, 5c.3): the signal's outcome rides the
         # SAME commit as the fills, staged last so its row lock is the last
         # one taken. An open resolves its signal through the reservation; a

@@ -108,12 +108,15 @@ def _fill(quantity: str, price: str, fill_id: str = "F-1") -> Fill:
 class FakeReservations:
     """Records whose reservation each call was for (multi-user design AD8)."""
 
-    def __init__(self) -> None:
+    def __init__(self, log: list[str] | None = None) -> None:
         self.marks: list[tuple[UUID, str]] = []
         self.users: list[UUID] = []
+        self._log = log
 
     async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot:
         self.users.append(user_id)
+        if self._log is not None:
+            self._log.append("reservation.get_for_update")
         return ReservationSnapshot(exchange="pionex",
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
@@ -218,13 +221,54 @@ class SpyCommit:
             self._log.append("commit")
 
 
+class FakePoolLock:
+    """Records which pool each acquisition was for; ``log`` (optional) receives
+    ``"pool_lock"`` in call order."""
+
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.acquired: list[tuple[UUID, str, str, str]] = []
+        self._log = log
+
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        self.acquired.append((user_id, exchange, venue, settlement_currency))
+        if self._log is not None:
+            self._log.append("pool_lock")
+
+
+class FakeLeaving:
+    """Stands in for the subscriptions side. ``log`` (optional) receives
+    ``"leaving.end_if_flat"`` in call order."""
+
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.asked: list[tuple[UUID, UUID, str, str, str]] = []
+        self._log = log
+
+    async def end_if_flat(
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+    ) -> bool:
+        self.asked.append((user_id, strategy_id, exchange, venue, settlement_currency))
+        if self._log is not None:
+            self._log.append("leaving.end_if_flat")
+        return False
+
+
 def _build(
     exchange: FakeExchange,
     attempt: ExecutionAttempt | None = None,
     outcomes: RecordingSettleOutcomes | None = None,
     log: list[str] | None = None,
+    trace_locks: bool = False,
+    lock: FakePoolLock | None = None,
+    leaving: FakeLeaving | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
-    reservations = FakeReservations()
+    reservations = FakeReservations(log if trace_locks else None)
     attempts = FakeAttempts(attempt or _attempt())
     ledger = SpyLedger(log)
     usd_rate = StubUsdRate()
@@ -239,6 +283,8 @@ def _build(
         clock=FrozenClock(),
         commit=SpyCommit(log),
         outcomes=outcomes,
+        pool_lock=lock or FakePoolLock(log if trace_locks else None),
+        leaving=leaving or FakeLeaving(log if trace_locks else None),
     )
     return use_case, reservations, attempts, ledger, usd_rate
 
@@ -436,6 +482,80 @@ async def test_a_close_the_exchange_never_saw_releases_nothing() -> None:
     assert reservations.marks == []
     assert ledger.records == []
     assert attempts.failed[0][0] == ATTEMPT_ID
+
+
+# --------------------------------------------------------------------------
+# C.6 -- a close that books the last open allocation ends a LEAVING subscription
+# --------------------------------------------------------------------------
+
+
+async def test_a_settled_close_takes_the_pool_lock_first_and_then_asks_to_end_a_leaving_one() -> (
+    None
+):
+    """Lock order: the user's pool lock BEFORE the reservation's row lock. The
+    subscription is ended after the closing fill is recorded and before the one
+    commit, so both land (or neither) together."""
+    log: list[str] = []
+    exchange = FakeExchange([_fill("0.00199960", "50010")])
+    use_case, _, _, _, _ = _build(
+        exchange, attempt=_closing_attempt(), log=log, trace_locks=True
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert log == [
+        "pool_lock",
+        "reservation.get_for_update",
+        "ledger.record",
+        "leaving.end_if_flat",
+        "outcome.close_filled",
+        "commit",
+    ]
+
+
+async def test_the_pool_locked_and_the_subscription_asked_about_are_the_job_owners() -> None:
+    lock = FakePoolLock()
+    leaving = FakeLeaving()
+    use_case, _, _, _, _ = _build(
+        FakeExchange([_fill("0.00199960", "50010")]),
+        attempt=_closing_attempt(),
+        lock=lock,
+        leaving=leaving,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert lock.acquired == [(OWNER, "pionex", "spot", "USDT")]
+    assert leaving.asked == [(OWNER, STRATEGY_ID, "pionex", "spot", "USDT")]
+
+
+async def test_a_settled_open_takes_no_pool_lock_and_ends_no_subscription() -> None:
+    """An opening settlement is unchanged: it books fills for a reservation and
+    needs neither the pool lock nor the subscription."""
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), log=log, trace_locks=True
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert "pool_lock" not in log
+    assert "leaving.end_if_flat" not in log
+
+
+async def test_a_close_the_exchange_never_saw_ends_no_subscription() -> None:
+    """The position stays open, so a LEAVING subscription stays LEAVING."""
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing_attempt(),
+        log=log,
+        trace_locks=True,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert "leaving.end_if_flat" not in log
 
 
 # --------------------------------------------------------------------------

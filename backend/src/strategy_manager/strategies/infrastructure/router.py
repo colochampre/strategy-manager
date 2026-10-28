@@ -592,7 +592,20 @@ async def preview_share(
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
-    previewed = policy.allocation_percent.value if share is None else share
+    # No ``share`` asked: the signed-in user's own subscription's share, since that
+    # is what sizes their next opening (tasks.md C.6). A user who holds none gets
+    # the strategy's own copy, which is what the preview always answered before.
+    previewed = share
+    if previewed is None:
+        held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+            user.id, [strategy_id]
+        )
+        subscription = held.get(strategy_id)
+        previewed = (
+            subscription.allocation_percent.value
+            if subscription is not None
+            else policy.allocation_percent.value
+        )
     try:
         # The SIGNED-IN user's own pool on the strategy's market (C.4b): a share is
         # a part of the subscriber's pool, so another user previews against theirs,

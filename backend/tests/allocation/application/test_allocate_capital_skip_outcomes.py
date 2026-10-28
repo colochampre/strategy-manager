@@ -31,6 +31,7 @@ from tests.allocation.application.test_allocate_capital import (
     _enabled_snapshot,
 )
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 
 @dataclass
@@ -69,6 +70,8 @@ def _command(signal_id: object, strategy_id: object) -> AllocateCommand:
         signal_id=signal_id,  # type: ignore[arg-type]
         strategy_id=strategy_id,  # type: ignore[arg-type]
         requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        user_id=OWNER_ID,
+        delivery_id=uuid4(),
     )
 
 

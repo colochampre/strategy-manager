@@ -24,7 +24,14 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
-from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_pool, seed_reservation_row
+from tests.owner import (
+    OWNER_ID,
+    ensure_delivery,
+    ensure_pool,
+    seed_other_user,
+    seed_pool,
+    seed_reservation_row,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -158,10 +165,15 @@ async def test_insert_writes_the_user_and_that_users_pool_on_the_market(
     async with pg_session_factory() as session:
         other_pool = await ensure_pool(session, MARKET, user_id=other)
         owner_pool = await ensure_pool(session, MARKET, user_id=OWNER_ID)
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id, user_id=other
+        )
+        await session.commit()
     reservation = Reservation(
         id=uuid4(),
         strategy_id=strategy_id,
         signal_id=signal_id,
+        delivery_id=delivery_id,
         pool_key=PoolKey(
             exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT
         ),
@@ -177,6 +189,37 @@ async def test_insert_writes_the_user_and_that_users_pool_on_the_market(
     row = await _row(pg_session_factory, reservation.id)
     assert other_pool != owner_pool
     assert (row.user_id, row.pool_id) == (other, other_pool)
+    assert row.delivery_id == delivery_id
+
+
+async def test_insert_refuses_a_reservation_that_names_no_delivery(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Every reservation serves one delivery (migration 0032): refused before any
+    write, naming the reservation, rather than left to the database's NOT NULL."""
+    strategy_id = await _strategy(pg_session_factory)
+    signal_id = uuid4()
+    await seed_signal(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    reservation = Reservation(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        pool_key=PoolKey(
+            exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT
+        ),
+        amount=Decimal("100"),
+        status=ReservationStatus.PENDING,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+
+    async with pg_session_factory() as session:
+        with pytest.raises(InvariantViolation, match=str(reservation.id)):
+            await SqlAlchemyReservationRepository(session).insert(OWNER_ID, reservation)
 
 
 async def test_insert_refuses_a_market_the_user_holds_no_pool_on(
@@ -198,6 +241,8 @@ async def test_insert_refuses_a_market_the_user_holds_no_pool_on(
         id=uuid4(),
         strategy_id=strategy_id,
         signal_id=signal_id,
+        # Never written: the repository refuses on the pool first.
+        delivery_id=uuid4(),
         pool_key=PoolKey(
             exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT
         ),
@@ -226,6 +271,9 @@ async def test_a_reservation_cannot_reference_another_users_pool(
     )
     async with pg_session_factory() as session:
         owner_pool = await ensure_pool(session, MARKET, user_id=OWNER_ID)
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id, user_id=other
+        )
         session.add(
             ReservationRow(
                 id=uuid4(),
@@ -233,6 +281,7 @@ async def test_a_reservation_cannot_reference_another_users_pool(
                 pool_id=owner_pool,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=delivery_id,
                 exchange=MARKET[0],
                 venue=MARKET[1],
                 settlement_currency=MARKET[2],

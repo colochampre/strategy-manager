@@ -30,6 +30,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from strategy_manager.signals.infrastructure.job_owner import delivery_owner
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -38,7 +39,8 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     seed_signal,
     seed_strategy,
 )
-from tests.owner import OWNER_ID, seed_other_user
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_other_user
+from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
 
@@ -157,20 +159,25 @@ async def test_a_settle_job_trades_with_the_attempts_author_key_never_another_us
     assert recorded.settled_as == [other]
 
 
-async def test_a_signal_job_trades_with_the_strategy_authors_key_never_another_users(
+async def test_a_signal_job_fans_out_its_signal_and_opens_no_venue_client(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
     recorded: _Recorded,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """C.6: ``signal.process`` reaches ``FanOutSignal`` and nothing else. It
+    places no order, so no key is decrypted and no client opened for it: each
+    ``delivery.process`` job it enqueues is worked with its own subscriber's."""
     signal_id, _, _ = await _the_other_users_signal(pg_session_factory, recorded.master_key)
 
-    class _Handler:
-        async def handle(self, signal: UUID) -> None:
+    class _FanOut:
+        async def run(self, signal: UUID) -> None:
             recorded.handled.append(signal)
 
-    monkeypatch.setattr(
-        main, "_build_process_signal_handler", lambda *args, **kwargs: (_Handler(), None)
-    )
+    def _no_delivery_handler(*args: object, **kwargs: object) -> None:
+        raise AssertionError("signal.process must not build a delivery handler")
+
+    monkeypatch.setattr(main, "_build_fan_out_signal", lambda session, settings: _FanOut())
+    monkeypatch.setattr(main, "_build_process_delivery", _no_delivery_handler)
     runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
 
     await runner._handlers[JobKind.SIGNAL_PROCESS](  # noqa: SLF001
@@ -178,4 +185,100 @@ async def test_a_signal_job_trades_with_the_strategy_authors_key_never_another_u
     )
 
     assert recorded.handled == [signal_id]
+    assert recorded.signed_with == []
+
+
+async def _a_delivery_to_the_other_user(
+    factory: async_sessionmaker[AsyncSession], master_key: bytes
+) -> tuple[UUID, UUID]:
+    """A strategy the OWNER authored, with a signal delivered to ANOTHER user's
+    subscription. Both hold a key. Returns ``(delivery_id, subscriber's id)``."""
+    async with factory() as session:
+        other = await seed_other_user(session)
+        pool_id = await ensure_pool(session, ("bybit", "usdt-m", "USDT"), user_id=other)
+        await session.commit()
+    await _store(factory, master_key, OWNER_ID, OWNER_KEY)
+    await _store(factory, master_key, other, OTHER_KEY)
+    strategy_id, signal_id = uuid4(), uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id, author_id=OWNER_ID)
+    await seed_signal(
+        factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"k-{signal_id}"
+    )
+    await seeds.subscription(factory, other, strategy_id, pool_id)
+    async with factory() as session:
+        delivery_id = await ensure_delivery(
+            session, signal_id=signal_id, strategy_id=strategy_id, user_id=other
+        )
+        await session.commit()
+    return delivery_id, other
+
+
+async def test_a_delivery_job_trades_with_the_subscribers_key_never_the_strategy_authors(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C.6: ``delivery.process`` reaches ``ProcessDelivery`` with the halves its
+    payload names, signed with the DELIVERY's user's key although the strategy is
+    the owner's."""
+    delivery_id, _ = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+
+    class _Handler:
+        async def handle(self, delivery: UUID, halves: object) -> None:
+            recorded.handled.append((delivery, halves))
+
+    monkeypatch.setattr(
+        main, "_build_process_delivery", lambda *args, **kwargs: (_Handler(), None)
+    )
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.DELIVERY_PROCESS](  # noqa: SLF001
+        _job(JobKind.DELIVERY_PROCESS, {"delivery_id": str(delivery_id), "halves": "open"})
+    )
+
+    assert recorded.handled == [(delivery_id, "open")]
     assert recorded.signed_with == [OTHER_KEY]
+
+
+async def test_a_delivery_job_without_halves_hands_the_handler_none_not_a_default(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivery_id, _ = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+
+    class _Handler:
+        async def handle(self, delivery: UUID, halves: object) -> None:
+            recorded.handled.append((delivery, halves))
+
+    monkeypatch.setattr(
+        main, "_build_process_delivery", lambda *args, **kwargs: (_Handler(), None)
+    )
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.DELIVERY_PROCESS](  # noqa: SLF001
+        _job(JobKind.DELIVERY_PROCESS, {"delivery_id": str(delivery_id)})
+    )
+
+    assert recorded.handled == [(delivery_id, None)]
+
+
+async def test_the_owner_of_a_delivery_is_its_user_not_the_authors(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+) -> None:
+    delivery_id, other = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+
+    async with pg_session_factory() as session:
+        owner = await delivery_owner(session, delivery_id)
+        missing = await delivery_owner(session, uuid4())
+
+    assert owner == other
+    assert owner != OWNER_ID
+    assert missing is None

@@ -86,6 +86,25 @@ class SignalRepositoryPort(Protocol):
         ...
 
 
+class SubscriptionReservationsPort(Protocol):
+    """A subscription's own reservations, as a close needs them (tasks.md C.6,
+    finding b)."""
+
+    async def latest_before(
+        self,
+        subscription_id: UUID,
+        user_id: UUID,
+        strategy_id: UUID,
+        symbol: str,
+        received_at: datetime,
+    ) -> UUID | None:
+        """The subscription's latest reservation on this strategy and this symbol
+        (under every spelling of it) whose signal was received before
+        ``received_at``, in any status; ``None`` when it has none. Another
+        subscriber's reservation for the same signal is never returned."""
+        ...
+
+
 class SignalOutcomePort(Protocol):
     """Records the outcome ``signal.process`` (and, from PR 5c, the settle
     and continuation jobs) decided for a signal -- decision 25, design.md

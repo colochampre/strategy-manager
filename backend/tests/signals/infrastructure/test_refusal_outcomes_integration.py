@@ -140,6 +140,8 @@ async def test_the_pre_lock_disabled_skip_is_durable_through_its_added_commit(
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 
@@ -165,6 +167,8 @@ async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 

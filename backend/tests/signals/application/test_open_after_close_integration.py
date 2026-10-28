@@ -81,18 +81,29 @@ from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
-from strategy_manager.signals.application.process_signal import ProcessSignalHandler
+from strategy_manager.signals.application.process_signal import ProcessDelivery
+from strategy_manager.signals.infrastructure.delivery_adapters import (
+    SqlAlchemyDeliveries,
+    SqlAlchemySubscriptionReservations,
+)
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from strategy_manager.subscriptions.application.end_leaving import EndLeavingSubscription
+from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
+from strategy_manager.subscriptions.infrastructure.repository import (
+    SqlAlchemySubscriptionRepository,
+)
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
-from tests.owner import OWNER_ID, ensure_pool, seed_snapshot
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 from tests.signals.infrastructure.conftest import seed_strategy
+from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
 
@@ -266,13 +277,23 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     )
     async with pg_session_factory() as session:
         reservations = SqlAlchemyReservationRepository(session)
-        await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
+        pool_id = await ensure_pool(session, ("bybit", "usdt-m", "USDT"))
+        await session.commit()
+    # The author's subscription sizes the open (C.6), at the share the strategy
+    # row used to carry.
+    await seeds.subscription(pg_session_factory, OWNER_ID, strategy_id, pool_id, share="100")
+    async with pg_session_factory() as session:
+        reservations = SqlAlchemyReservationRepository(session)
+        prior_delivery = await ensure_delivery(
+            session, signal_id=prior_signal_id, strategy_id=strategy_id
+        )
         await reservations.insert(
             OWNER_ID,
             Reservation(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=prior_signal_id,
+                delivery_id=prior_delivery,
                 pool_key=AllocationPoolKey(
                     exchange=Exchange("bybit"),
                     venue=Venue("usdt-m"),
@@ -402,6 +423,9 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         received_at=START,
     )
     async with pg_session_factory() as session:
+        await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        await session.commit()
+    async with pg_session_factory() as session:
         await PostgresJobQueue(
             session,
             clock=clock,
@@ -441,7 +465,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
 
     def _build_process_signal_handler(
         session: AsyncSession,
-    ) -> tuple[ProcessSignalHandler, OpenAfterClose]:
+    ) -> tuple[ProcessDelivery, OpenAfterClose]:
         strategy_repository = SqlAlchemyStrategyRepository(session)
         signal_repository = SqlAlchemySignalRepository(session)
         reservation_repository = SqlAlchemyReservationRepository(session)
@@ -512,11 +536,13 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             max_signal_age_seconds=600.0,
             outcomes=RecordingSignalOutcomes(),
         )
-        handler = ProcessSignalHandler(
+        handler = ProcessDelivery(
+            deliveries=SqlAlchemyDeliveries(session),
             signal_context=SignalContextAdapter(
                 signals=signal_repository,
                 strategies=strategy_repository,
                 reservations=reservation_repository,
+                subscription_reservations=SqlAlchemySubscriptionReservations(session),
             ),
             strategy_policy=StrategyPolicyAdapter(strategy_repository),
             pool_balance=PoolBalanceAdapter(
@@ -548,6 +574,16 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 clock=clock,
                 commit=session,
                 outcomes=RecordingSettleOutcomes(),
+                pool_lock=PoolLockAdapter(session),
+                leaving=EndLeavingSubscription(
+                    SqlAlchemySubscriptionRepository(session),
+                    OpenAllocationAdapter(
+                        session,
+                        SqlAlchemyLedgerRepository(session),
+                        ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+                    ),
+                    clock,
+                ),
             )
             await settle.settle(OWNER_ID, UUID(str(job.payload["execution_attempt_id"])))
 

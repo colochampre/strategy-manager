@@ -76,6 +76,25 @@ class SqlAlchemySubscriptionRepository:
         ).scalar_one_or_none()
         return None if row is None else _to_domain(row)
 
+    async def get_live_for_update(
+        self, user_id: UUID, strategy_id: UUID
+    ) -> Subscription | None:
+        """``SELECT ... FOR UPDATE`` of the user's ACTIVE or LEAVING row for the
+        strategy, re-read as the database holds it now (see ``get_for_update``)."""
+        row = (
+            await self._session.execute(
+                select(SubscriptionRow)
+                .where(
+                    SubscriptionRow.user_id == user_id,
+                    SubscriptionRow.strategy_id == strategy_id,
+                    SubscriptionRow.status.in_(_LIVE),
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _to_domain(row)
+
     async def update(self, subscription: Subscription) -> None:
         """Writes the mutable fields of the user's own row; a row of another user
         matches nothing and is left alone."""
