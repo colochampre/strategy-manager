@@ -138,4 +138,9 @@ These come from the owner's own words above. They are not asked again.
     - Once other users exist, their subscriptions to a strategy that never emitted a signal go with it too. They lose nothing, because nothing traded.
     - The question came from `test_strategy_references_guard`, which refuses any new reference into `strategies` that the delete check does not count. `PositionTransition` has no scale-in: every consuming effect is an entry at the signal's price, either an opening from flat or the opening half of a reverse. So every consuming effect goes to every ACTIVE subscription, and every releasing effect goes only to the subscriptions that hold that symbol's open allocation.
 
+20. **Deleting a key is blocked by the user's ACTIVE subscriptions to ENABLED strategies on that market (PR C, C.10, 2026-10-28).** The owner chose "Solo las ACTIVE, como recomendas" over blocking on every subscription that is not ENDED.
+    - Until now the delete was blocked by the enabled strategies the user authors. A subscriber authors nothing, so that read would let them delete the key a subscription still needs.
+    - A disabled strategy fans out no signal, so its subscription needs no key. If the author enables it again, the subscriber's next opening is refused before any capital is reserved (`EXCHANGE_HAS_NO_KEY`), which is what happens to an author today.
+    - A LEAVING subscription holds an open position, and that position already blocks the delete through the ledger holdings.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

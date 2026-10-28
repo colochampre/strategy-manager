@@ -91,7 +91,12 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import OWNER_ID, allocate_command, seed_other_user
+from tests.owner import (
+    OWNER_ID,
+    allocate_command,
+    ensure_author_subscription,
+    seed_other_user,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -190,8 +195,15 @@ async def _pool_enabled(
 async def _strategy(
     factory: async_sessionmaker[AsyncSession], *, enabled: bool = False
 ) -> UUID:
+    """An enabled one gets its author's ACTIVE subscription, as
+    ``RegisterStrategy`` makes it: that is what blocks the delete (owner
+    decision 20)."""
     strategy_id = uuid4()
     await seed_strategy(factory, strategy_id=strategy_id, enabled=enabled)
+    if enabled:
+        async with factory() as session:
+            await ensure_author_subscription(session, strategy_id)
+            await session.commit()
     return strategy_id
 
 

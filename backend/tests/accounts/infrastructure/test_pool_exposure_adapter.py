@@ -36,7 +36,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import OWNER_ID, seed_other_user
+from tests.owner import OWNER_ID, ensure_author_subscription, ensure_pool, seed_other_user
 
 pytestmark = pytest.mark.integration
 
@@ -65,6 +65,8 @@ async def _strategy(
     enabled: bool = False,
     pool: tuple[str, str, str] = POOL,
 ) -> UUID:
+    """An owner-authored strategy, with the author's ACTIVE subscription that
+    ``RegisterStrategy`` makes in production."""
     strategy_id = uuid4()
     await seed_strategy(
         factory,
@@ -74,7 +76,46 @@ async def _strategy(
         settlement_currency=pool[2],
         enabled=enabled,
     )
+    async with factory() as session:
+        await ensure_author_subscription(session, strategy_id)
+        await session.commit()
     return strategy_id
+
+
+async def _subscribe(
+    factory: async_sessionmaker[AsyncSession],
+    strategy_id: UUID,
+    user_id: UUID,
+    *,
+    status: str = "ACTIVE",
+    pool: tuple[str, str, str] = POOL,
+) -> None:
+    """``user_id``'s subscription to ``strategy_id``, in that user's own pool."""
+    async with factory() as session:
+        pool_id = await ensure_pool(session, pool, user_id=user_id)
+        await session.execute(
+            text(
+                "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+                "allocation_percent, status, ended_at) "
+                "VALUES (:id, :user_id, :strategy_id, :pool_id, 30, :status, "
+                "CASE WHEN :status = 'ENDED' THEN now() END)"
+            ),
+            {
+                "id": uuid4(),
+                "user_id": user_id,
+                "strategy_id": strategy_id,
+                "pool_id": pool_id,
+                "status": status,
+            },
+        )
+        await session.commit()
+
+
+async def _other_user(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    return other
 
 
 async def test_an_empty_pool_has_no_exposure(
@@ -134,6 +175,51 @@ async def test_a_disabled_strategy_is_not_reported_as_enabled(
 ) -> None:
     strategy_id = await _strategy(pg_session_factory, enabled=True)
     await set_strategy_enabled(pg_session_factory, strategy_id, False)
+
+    assert (await _exposure(pg_session_factory)).enabled_strategies == ()
+
+
+async def test_a_subscribers_active_subscription_to_an_enabled_strategy_is_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Owner decision 20: a subscriber authors nothing, yet the next signal of a
+    strategy they hold an ACTIVE subscription to is worked with their key."""
+    strategy_id = await _strategy(pg_session_factory, enabled=True)
+    subscriber = await _other_user(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, subscriber)
+
+    exposure = await _exposure(pg_session_factory, user_id=subscriber)
+
+    assert exposure.enabled_strategies == (
+        EnabledStrategy(id=strategy_id, name=f"strategy-{strategy_id}"),
+    )
+    assert not exposure.is_empty()
+
+
+async def test_a_leaving_or_ended_subscription_is_not_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Owner decision 20: only ACTIVE counts. A LEAVING subscription's open
+    position blocks through the ledger holdings, not here; an ENDED one needs
+    no key."""
+    leaving = await _strategy(pg_session_factory, enabled=True)
+    ended = await _strategy(pg_session_factory, enabled=True)
+    subscriber = await _other_user(pg_session_factory)
+    await _subscribe(pg_session_factory, leaving, subscriber, status="LEAVING")
+    await _subscribe(pg_session_factory, ended, subscriber, status="ENDED")
+
+    assert (await _exposure(pg_session_factory, user_id=subscriber)).enabled_strategies == ()
+
+
+async def test_another_users_active_subscription_is_not_this_users_exposure(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Multi-user design AD8: a subscriber's subscription to a strategy the
+    owner did not subscribe to does not block the owner's key."""
+    strategy_id = uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id, enabled=True)
+    subscriber = await _other_user(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, subscriber)
 
     assert (await _exposure(pg_session_factory)).enabled_strategies == ()
 

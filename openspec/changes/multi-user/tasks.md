@@ -688,7 +688,13 @@ It needs an independent verifier before the PR.
       - The `held_by` list is computed from ACTIVE and LEAVING subscribers only; ledger or reservation rows of a user with no live subscription still refuse (the exposure read is global) but are not named.
     - The archive replay that ends leftover live subscriptions was not asked for; the parent kept it (one isolated block, it heals strategies archived before C.9 and the `Subscribe` race above).
     - Full gate (parent, 2026-10-28): `ruff=0 mypy=0 pytest=0 failing=0`.
-- [ ] C.10 The delete-key exposure (`accounts/infrastructure/pool_exposure_adapter.py:71-80`) reads the user's non-ENDED subscriptions on that market, instead of the strategies they author. The cross-user test from B.D.1 stays green, and one new test proves that a subscription blocks the delete.
+- [x] C.10 The delete-key exposure (`accounts/infrastructure/pool_exposure_adapter.py:71-80`) reads the user's non-ENDED subscriptions on that market, instead of the strategies they author. The cross-user test from B.D.1 stays green, and one new test proves that a subscription blocks the delete.
+  - Done on 2026-10-28, written inline by the parent. Owner decision 20 narrowed "non-ENDED" to ACTIVE subscriptions to ENABLED strategies: a LEAVING subscription's open position already blocks through the ledger holdings, and a disabled strategy fans out nothing.
+  - The read joins `subscriptions` to the user's own pool on the market (`capital_pools` on `(pool_id, user_id)`) and to the strategy. It no longer filters `author_id`, so an author whose own subscription is ENDED is not blocked by their enabled strategy.
+  - RED on assertions before the change: `test_a_subscribers_active_subscription_to_an_enabled_strategy_is_exposure` and `test_another_users_active_subscription_is_not_this_users_exposure`. Proved by mutation: `status != 'ENDED'` reddens `test_a_leaving_or_ended_subscription_is_not_exposure`; dropping the enabled filter reddens `test_a_disabled_strategy_is_not_reported_as_enabled` and three more; dropping the exchange and venue filters reddens `test_another_pools_exposure_is_not_this_pools`.
+  - The tests that seed an enabled strategy now seed its author's ACTIVE subscription too, as `RegisterStrategy` does: `_strategy` in `test_pool_exposure_adapter.py` and `test_delete_credential_integration.py`, and two router tests.
+  - Full gate on 2026-10-28: `ruff=0 mypy=0 pytest=0 failing=0`.
+  - Follow-up for the panel (not this task): the 409's `enabled_strategies` copy says "Disable it first", which a subscriber cannot do; their remedy is to leave. Non-admins have no strategy list until PR F.
 - [ ] C.11 Concurrency on real PostgreSQL, with the lock-hold harness:
   - two deliveries of one signal for two users take two different pool locks, and neither waits for the other;
   - two deliveries for one user's pool serialize.
