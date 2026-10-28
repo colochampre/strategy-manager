@@ -102,6 +102,21 @@ class SpyCommit:
         self.commits += 1
 
 
+class SpyAuthorSubscriptions:
+    """Records each strategy it was asked to subscribe the author to, and how many
+    commits had happened by then (the subscription must precede the one commit)."""
+
+    def __init__(self, commit: SpyCommit, failure: Exception | None = None) -> None:
+        self._commit = commit
+        self._failure = failure
+        self.calls: list[tuple[Strategy, int]] = []
+
+    async def subscribe_author(self, strategy: Strategy) -> None:
+        self.calls.append((strategy, self._commit.commits))
+        if self._failure is not None:
+            raise self._failure
+
+
 class FakeCatalog:
     """A fake ``PairCatalogPort``. It records the pool of every call, and fails
     with ``failure`` when one is given. The default list holds every symbol the
@@ -142,11 +157,17 @@ def _build(
     existing: Strategy | None = None,
     pools: list[tuple[Venue, Currency]] | None = None,
     catalog: FakeCatalog | None = None,
+    subscriptions: list[SpyAuthorSubscriptions] | None = None,
+    failure: Exception | None = None,
 ) -> tuple[RegisterStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
+    """``subscriptions``, when given, receives the spy the use case was built with."""
     repository = FakeRepository(existing)
     commit = SpyCommit()
     log = SpyEnablementLog()
     clock = FixedClock(FIXED_NOW)
+    spy = SpyAuthorSubscriptions(commit, failure)
+    if subscriptions is not None:
+        subscriptions.append(spy)
     use_case = RegisterStrategy(
         repository=repository,  # type: ignore[arg-type]
         pools=FakePools(pools),  # type: ignore[arg-type]
@@ -154,6 +175,7 @@ def _build(
         commit=commit,  # type: ignore[arg-type]
         enablement_log=log,  # type: ignore[arg-type]
         clock=clock,  # type: ignore[arg-type]
+        author_subscriptions=spy,
     )
     return use_case, repository, commit, log, clock
 
@@ -244,13 +266,15 @@ async def test_the_pools_checked_are_the_authors_never_another_users() -> None:
     other = UUID("5f0c1d2e-0000-4000-8000-0000000000c2")
     repository = FakeRepository()
     pools = FakePools()
+    commit = SpyCommit()
     use_case = RegisterStrategy(
         repository=repository,  # type: ignore[arg-type]
         pools=pools,  # type: ignore[arg-type]
         pairs=FakeCatalog(),
-        commit=SpyCommit(),  # type: ignore[arg-type]
+        commit=commit,  # type: ignore[arg-type]
         enablement_log=SpyEnablementLog(),  # type: ignore[arg-type]
         clock=FixedClock(FIXED_NOW),  # type: ignore[arg-type]
+        author_subscriptions=SpyAuthorSubscriptions(commit),
     )
 
     with pytest.raises(PoolNotAvailable, match="Enabled pools are none"):
@@ -266,6 +290,46 @@ async def test_the_write_is_committed() -> None:
     await use_case.register(_command())
 
     assert commit.commits == 1
+
+
+async def test_the_author_is_subscribed_to_the_strategy_before_the_one_commit() -> None:
+    """C.4b: a subscription is the only way to trade a strategy, its author
+    included, so it is written with the strategy and committed with it (zero
+    commits had happened when the port was asked)."""
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, repository, commit, _, _ = _build(subscriptions=spies)
+
+    strategy = await use_case.register(_command(allocation_percent=Decimal("25")))
+
+    [spy] = spies
+    assert [(called, before) for called, before in spy.calls] == [(strategy, 0)]
+    assert strategy.author_id == AUTHOR_ID
+    assert strategy.policy.allocation_percent.value == Decimal("25")
+    assert repository.inserted == [strategy]
+    assert commit.commits == 1
+
+
+async def test_a_failing_author_subscription_commits_nothing() -> None:
+    """The strategy row is flushed before the subscription is written; only the
+    commit makes it stay, so a subscription that raises must stop before it."""
+    use_case, repository, commit, _, _ = _build(failure=PoolNotAvailable("pool vanished"))
+
+    with pytest.raises(PoolNotAvailable, match="pool vanished"):
+        await use_case.register(_command())
+
+    assert len(repository.inserted) == 1
+    assert commit.commits == 0
+
+
+async def test_a_refused_registration_never_asks_for_a_subscription() -> None:
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, _, _, _, _ = _build(pools=[], subscriptions=spies)
+
+    with pytest.raises(PoolNotAvailable):
+        await use_case.register(_command())
+
+    [spy] = spies
+    assert spy.calls == []
 
 
 async def test_the_allocation_percent_is_carried_onto_the_policy() -> None:

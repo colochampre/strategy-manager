@@ -48,7 +48,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.strategies.infrastructure.router import get_pool_sizing
 from tests.accounts.infrastructure.test_pools_router import _snapshot
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -73,8 +73,12 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
 
 
-def _app(factory: Factory) -> FastAPI:
+def _app(factory: Factory, user_id: UUID = OWNER_ID) -> FastAPI:
+    """The signed-in user is ``user_id`` (the fixtures' owner by default): the
+    preview is sized from the SIGNED-IN user's pool (tasks.md C.4b). The admin's
+    assertion still opens the admin-only router."""
     app = create_app()
+    act_as(app, user_id)
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with factory() as session:
@@ -270,6 +274,38 @@ async def test_the_preview_reads_the_authors_pool_never_another_users_on_the_mar
     assert body["pool_minimum"] == "5.000000000000000000"
     assert body["balance"]["total"] == "1000.000000000000000000"
     assert body["exact"]["amount"] == "335.000000000000000000"
+
+
+async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """tasks.md C.4b. The strategy is the owner's, on a bybit pool minimum 5 with a
+    total of 1000. A second user holds a bybit pool too, minimum 9, synced at 200:
+    the same strategy previews for them as 20 USDT at a share of 10, against 9."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
+    await _synced(pg_session_factory, total="200", available="200", user_id=other)
+    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    await _synced(pg_session_factory, total="1000", available="400")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(pg_session_factory, other)), base_url="http://test"
+    ) as second:
+        theirs = await _preview(second, strategy_id, share="10")
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
+    ) as first:
+        authors = await _preview(first, strategy_id, share="10")
+
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["pool_minimum"] == "9.000000000000000000"
+    assert _balance(theirs)["total"] == "200.000000000000000000"
+    assert _exact(theirs)["amount"] == "20.000000000000000000"
+    assert authors.status_code == 200, authors.text
+    assert authors.json()["pool_minimum"] == "5.000000000000000000"
+    assert _exact(authors)["amount"] == "100.000000000000000000"
 
 
 async def test_a_share_asked_for_is_served_as_exact(

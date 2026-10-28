@@ -115,6 +115,22 @@ class PoolCatalogPort(Protocol):
         ...
 
 
+class AuthorSubscriptionPort(Protocol):
+    """Writes the author's own subscription to a strategy just registered.
+
+    A subscription is the only way to trade a strategy, its author included
+    (multi-user design AD3), so ``RegisterStrategy`` needs one in the SAME
+    transaction as the strategy row. The implementation flushes and never
+    commits: the caller commits once, so a failure here leaves neither row.
+    """
+
+    async def subscribe_author(self, strategy: Strategy) -> None:
+        """An ACTIVE subscription of ``strategy.author_id``, in the author's own
+        pool for the strategy's market, at the strategy's share. Raises
+        ``PoolNotAvailable`` when the author has no pool for the market."""
+        ...
+
+
 class PairCatalogPort(Protocol):
     """Which pairs a strategy on a capital pool may trade, according to the
     venue itself.

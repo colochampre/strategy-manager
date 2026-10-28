@@ -59,6 +59,9 @@ from strategy_manager.strategies.application.register_strategy import (
 )
 from strategy_manager.strategies.domain.enablement import uptime
 from strategy_manager.strategies.domain.strategy import FillMode
+from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
+    SqlAlchemyAuthorSubscription,
+)
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
     StrategyEnablementEventRow,
@@ -510,6 +513,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
             commit=session,  # type: ignore[arg-type]
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=_Clock(),  # type: ignore[arg-type]
+            author_subscriptions=SqlAlchemyAuthorSubscription(session),
         ).register(
             RegisterCommand(
                 strategy_id=strategy_id,

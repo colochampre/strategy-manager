@@ -477,7 +477,35 @@ It needs an independent verifier before the PR.
         - Mutations proved each of these guards: the lock, the user filter on get, `get_for_update` and update, `has_live`, the race translation, and the user filter on reservations.
         - Not mutation-proved: the user argument passed to the ledger's `symbol_holdings`. `test_another_users_open_allocation_does_not_keep_this_user_leaving` covers it.
       - The full gate found that `test_webhook_secret_router`'s sweep had no body for the new write routes and no data for the list. It now seeds the admin's subscription, and it sends real bodies to POST and PATCH. Leave is in `_NO_BODY`.
-    - **C.4b** is the strategies side above. It needs C.4a's repository.
+    - **C.4b** is the strategies side above. It needs C.4a's repository. Done on 2026-10-27.
+      - **What changed:**
+        - `RegisterStrategy` takes an `AuthorSubscriptionPort` (strategies declares it, `SqlAlchemyAuthorSubscription` implements it over C.4a's repository and pool lookup). The author's ACTIVE subscription is flushed after the strategy insert and before the one commit, in the author's own pool, at the requested share. The strategy still gets its own `allocation_percent`.
+        - The pool refusal was already there: `PoolNotAvailable` answers 422 before any write. It stays 422 (not 409 `NO_POOL_FOR_MARKET`). The adapter raises the same error for a pool deleted after that check, and the route rolls back, so neither row survives.
+        - `UpdateCommand` and `UpdateRequest` lose `allocation_percent`. A PATCH body that carries the key (any value, `null` included) is refused with 422 located at `body.allocation_percent`; other unknown keys are still ignored as before. `UpdateStrategy` no longer writes the share or logs a share change.
+        - `StrategyView` loses `allocation_percent` and gains `subscription`, C.4a's `SubscriptionView` or null, on every route that returns it (POST, GET list and detail, PATCH, PUT pairs, archive). The list reads it with one query (`live_for_strategies`).
+        - The share preview reads the signed-in user's pool, not `strategy.author_id`'s.
+      - **RED:**
+        - Against skeletons that changed nothing, these failed on assertions: the register-order test, the failing-subscription test, the PATCH 422 tests, the no-share-on-any-view test, `UpdateCommand` has no share, the four `subscription` view tests, and the second-user preview.
+        - The two adapter integration tests and `test_a_refused_registration_never_asks_for_a_subscription` were written after the code they guard. They were proven by mutation only.
+      - **Mutations proved:**
+        - the adapter doing nothing;
+        - committing before the subscription;
+        - asking for a subscription before the pool check;
+        - `UpdateStrategy` rewriting the share;
+        - the user filter on `live_for_strategies`;
+        - its status filter;
+        - a query per strategy on the list.
+      - **Tests moved to the new contract, none dropped for other behavior:**
+        - the PATCH-share tests in `test_router.py`, `test_share_decimals.py` and `test_update_strategy.py` now assert the refusal;
+        - the share-change log tests and `test_share_change_integration.py`'s reservation and next-opening tests guarded the removed edit path, so C.6 re-homes them on `ChangeShare`. Its lock test now patches the name;
+        - the delete tests expect `subscriptions: 1` for a registered strategy, since registration subscribes the author;
+        - the preview tests sign in as `OWNER_ID` with `act_as`.
+      - The share-change log line moved with the share: `ChangeShare` now logs a real change after its commit, with the subscription and strategy ids and both values. 3 tests are in `tests/subscriptions/application/test_change_share.py`. The positive one was red on an assertion first. The other two were proven by mutation: logging always, and logging before the commit.
+      - The full gate found that `test_validation_errors`' redacted-422 test reached the local database. `PATCH /api/strategies/{id}` now resolves the signed-in user before it validates the body, so the test serves the app through `without_a_database`.
+      - **Not mutation-proved:** the PUT-pairs and archive answers carrying `subscription` (the one `_view` helper is covered through GET, PATCH and POST).
+      - **Left for later:**
+        - A preview with no `share` query still defaults to the strategy's own copy of the share, not the caller's subscription. C.6 moves it with the sizing read.
+        - A signed-in user with no pool on the strategy's market gets the preview's existing 500 and one ERROR log, written for a data fault. Only the admin reaches the strategies router today, and the admin's pools exist. It becomes a 4xx before that router opens to other users.
   - `strategies.allocation_percent` stays on the domain's `AllocationPolicy` and on `StrategyRow` until C.6. `process_signal` still sizes from it, and C.6 moves that read to the subscription. Until then `RegisterStrategy` writes the share to both the strategy and the author's subscription. Only the API stops exposing it on the strategy. The branch is never deployed in between, so the interim gap does not reach production: `ChangeShare` does not move sizing before C.6.
 - [ ] C.5 `FanOutSignal` (`signals/application`) replaces the body of the `signal.process` handler. In one transaction:
   1. archived refusal and effect classification, as today, per (strategy, symbol);
@@ -505,6 +533,8 @@ It needs an independent verifier before the PR.
     - two subscribers to one strategy, each sized from their own pool and share, each placed with their own key (the fake, per pool);
     - a close works only that subscriber's reservation;
     - LEAVING turns into ENDED on the last close;
+    - re-homed from C.4b on `ChangeShare`: a share change leaves an already-held reservation as it is, and the next opening is sized at the new share;
+    - a share preview with no `share` query defaults to the caller's subscription share;
     - a position opened before the upgrade, whose reservation got its `delivery_id` from the backfill, is closed by the first close signal after it. Production may hold an open position across the deploy.
 - [ ] C.7 Outcomes per delivery (finding d). `SqlAlchemySignalOutcomeRepository` writes `signal_deliveries` and locks the delivery row, not the signal's. Every writer the map listed moves with it: `process_signal`, `skip_recorder`, `place_order`, `close_position`, `settle_execution`, `open_after_close` and `exhausted_job_recorder`.
   - A test proves that two deliveries of one signal record their outcomes independently.

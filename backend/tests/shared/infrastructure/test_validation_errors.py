@@ -28,7 +28,7 @@ from strategy_manager.main import create_app
 from strategy_manager.shared.infrastructure.validation_errors import (
     redacted_validation_handler,
 )
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin, without_a_database
 
 KEY = "SENTINEL-KEY-0f3a11"
 SECRET = "SENTINEL-SECRET-9c1d77"
@@ -178,12 +178,14 @@ async def test_a_real_route_of_the_real_app_answers_a_redacted_422(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``PATCH /api/strategies/{id}`` is an existing body route: its wrong-typed
-    field is echoed by the default handler and must not be by this app."""
+    field is echoed by the default handler and must not be by this app. The
+    route resolves the signed-in user before it validates the body, since its
+    answer carries that user's subscription, so the user comes from no database."""
     sign_in_as_admin(monkeypatch)
     body =json.dumps({"name": {"nested": SECRET}, "enabled": SECRET})
 
     async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
+        transport=ASGITransport(app=without_a_database(create_app())), base_url="http://test"
     ) as api:
         response = await api.patch(
             "/api/strategies/5f0b2c1e-5b0b-4d7e-9f57-3a1f6f0f9c11",

@@ -5,6 +5,7 @@ another user's subscription is simply not found, never forbidden, so its
 existence is not revealed.
 """
 
+from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
@@ -101,6 +102,24 @@ class SqlAlchemySubscriptionRepository:
             .order_by(SubscriptionRow.created_at, SubscriptionRow.id)
         )
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def live_for_strategies(
+        self, user_id: UUID, strategy_ids: Sequence[UUID]
+    ) -> dict[UUID, Subscription]:
+        """The user's ACTIVE or LEAVING subscription to each of ``strategy_ids``, by
+        strategy id, in ONE query; a strategy the user holds none of is absent. The
+        partial unique index allows one live row per (user, strategy), so the map
+        never loses one."""
+        if not strategy_ids:
+            return {}
+        result = await self._session.execute(
+            select(SubscriptionRow).where(
+                SubscriptionRow.user_id == user_id,
+                SubscriptionRow.strategy_id.in_(strategy_ids),
+                SubscriptionRow.status.in_(_LIVE),
+            )
+        )
+        return {row.strategy_id: _to_domain(row) for row in result.scalars().all()}
 
     async def has_live(self, user_id: UUID, strategy_id: UUID) -> bool:
         found = (
