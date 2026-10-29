@@ -13,7 +13,10 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.strategies.domain.strategy import AllocationPercent
-from strategy_manager.subscriptions.application.errors import SubscriptionNotFound
+from strategy_manager.subscriptions.application.errors import (
+    AuthorCannotLeave,
+    SubscriptionNotFound,
+)
 from strategy_manager.subscriptions.application.leave import Leave
 from strategy_manager.subscriptions.application.ports import Market, StrategyMarket
 from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
@@ -48,11 +51,14 @@ class _Subscriptions:
 
 
 class _Strategies:
-    def __init__(self, strategy_id: UUID) -> None:
+    def __init__(self, strategy_id: UUID, author_id: UUID) -> None:
         self._strategy_id = strategy_id
+        self._author_id = author_id
 
     async def find(self, strategy_id: UUID) -> StrategyMarket | None:
-        return StrategyMarket(id=self._strategy_id, market=_MARKET, archived=False)
+        return StrategyMarket(
+            id=self._strategy_id, market=_MARKET, archived=False, author_id=self._author_id
+        )
 
 
 class _Allocations:
@@ -92,7 +98,9 @@ class _Clock:
         return _NOW
 
 
-def _leave(*, holds: bool) -> tuple[Leave, _Calls, _Subscriptions, _Lock, Subscription]:
+def _leave(
+    *, holds: bool, by_the_author: bool = False
+) -> tuple[Leave, _Calls, _Subscriptions, _Lock, Subscription]:
     calls = _Calls()
     subscription = Subscription(
         id=uuid4(),
@@ -103,9 +111,10 @@ def _leave(*, holds: bool) -> tuple[Leave, _Calls, _Subscriptions, _Lock, Subscr
     )
     subscriptions = _Subscriptions(calls, subscription)
     lock = _Lock(calls)
+    author_id = subscription.user_id if by_the_author else uuid4()
     use_case = Leave(
         subscriptions=subscriptions,
-        strategies=_Strategies(subscription.strategy_id),
+        strategies=_Strategies(subscription.strategy_id, author_id),
         allocations=_Allocations(calls, holds),
         pool_lock=lock,
         commit=_Commit(calls),
@@ -147,6 +156,18 @@ async def test_a_subscription_of_another_user_takes_no_lock_and_writes_nothing()
 
     with pytest.raises(SubscriptionNotFound):
         await use_case.leave(uuid4(), subscription.id)
+
+    assert calls.log == ["get"]
+    assert lock.taken is None
+    assert subscriptions.updated is None
+
+
+async def test_the_author_cannot_leave_and_nothing_is_locked_or_written() -> None:
+    """Owner decision 22: the author stays subscribed to their own strategy."""
+    use_case, calls, subscriptions, lock, subscription = _leave(holds=False, by_the_author=True)
+
+    with pytest.raises(AuthorCannotLeave):
+        await use_case.leave(subscription.user_id, subscription.id)
 
     assert calls.log == ["get"]
     assert lock.taken is None

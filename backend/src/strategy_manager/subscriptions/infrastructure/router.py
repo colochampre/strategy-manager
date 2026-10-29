@@ -31,6 +31,7 @@ from strategy_manager.strategies.infrastructure.share_input import Share
 from strategy_manager.subscriptions.application.change_share import ChangeShare
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
+    AuthorCannotLeave,
     NoPoolForMarket,
     StrategyArchived,
     StrategyNotFound,
@@ -155,6 +156,8 @@ async def leave(
         subscription = await use_case.leave(user.id, subscription_id)
     except SubscriptionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthorCannotLeave as exc:
+        raise _conflict("AUTHOR_CANNOT_LEAVE", str(exc)) from exc
     except SubscriptionNotActive as exc:
         raise _conflict("SUBSCRIPTION_NOT_ACTIVE", str(exc)) from exc
     return SubscriptionView.of(subscription)

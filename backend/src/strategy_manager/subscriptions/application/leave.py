@@ -6,6 +6,7 @@ row locks, everywhere):
 1. An UNLOCKED, user-scoped read of the subscription, to learn its strategy and
    so the pool whose lock to take. Another user's row is "not found" here, and
    only here. A strategy's market is immutable, so reading it unlocked is safe.
+   The strategy's own author is refused here, before any lock (owner decision 22).
 2. The user's pool advisory lock, the SAME one ``AllocateCapital`` takes: while
    it is held no opening of this user's can reserve capital, so the allocation
    read below cannot be outrun by one.
@@ -21,6 +22,7 @@ from uuid import UUID
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.subscriptions.application.errors import (
+    AuthorCannotLeave,
     SubscriptionNotActive,
     SubscriptionNotFound,
 )
@@ -58,6 +60,11 @@ class Leave:
         strategy = await self._strategies.find(unlocked.strategy_id)
         if strategy is None:
             raise SubscriptionNotFound(f"no subscription {subscription_id}")
+        # A strategy's author is immutable, so the unlocked read decides it.
+        if strategy.author_id == user_id:
+            raise AuthorCannotLeave(
+                f"the author of strategy {strategy.id} cannot leave it; disable or archive it"
+            )
 
         await self._pool_lock.acquire(user_id, *strategy.market)
 

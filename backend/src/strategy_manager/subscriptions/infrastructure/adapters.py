@@ -36,6 +36,7 @@ class SqlAlchemyStrategyLookup:
             id=row.id,
             market=(row.exchange, row.venue, row.settlement_currency),
             archived=row.archived_at is not None,
+            author_id=row.author_id,
         )
 
 

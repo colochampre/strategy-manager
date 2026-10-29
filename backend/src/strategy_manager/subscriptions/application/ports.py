@@ -13,12 +13,13 @@ Market = tuple[str, str, str]
 
 @dataclass(frozen=True, slots=True)
 class StrategyMarket:
-    """What subscribing needs to know about a strategy: where it trades, and
-    whether it still takes subscribers."""
+    """What subscribing and leaving need to know about a strategy: where it trades,
+    whether it still takes subscribers, and who wrote it (an author cannot leave)."""
 
     id: UUID
     market: Market
     archived: bool
+    author_id: UUID
 
 
 class SubscriptionRepositoryPort(Protocol):

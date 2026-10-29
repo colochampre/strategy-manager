@@ -28,3 +28,9 @@ class SubscriptionNotFound(DomainError):
 
 class SubscriptionNotActive(DomainError):
     """Leaving and changing the share are for an ACTIVE subscription only."""
+
+
+class AuthorCannotLeave(DomainError):
+    """An author stays subscribed to their own strategy (owner decision 22). The way
+    out is to disable it, which stops it for everyone, or to archive it, which ends
+    every subscription."""

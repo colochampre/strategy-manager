@@ -30,6 +30,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import OWNER_ID, ensure_author_subscription
 from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
@@ -449,6 +450,24 @@ async def test_leaving_a_subscription_that_is_not_active_is_a_409_and_changes_no
 
     assert response.status_code == 409
     assert response.json()["detail"]["error"] == "SUBSCRIPTION_NOT_ACTIVE"
+    assert await seeds.rows(pg_session_factory) == before
+
+
+async def test_the_author_leaving_their_own_strategy_is_a_409_and_changes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """Owner decision 22: the author's way out is to disable or archive, not to leave."""
+    strategy_id = await seeds.strategy(pg_session_factory)
+    async with pg_session_factory() as session:
+        subscription_id = await ensure_author_subscription(session, strategy_id)
+        await session.commit()
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(OWNER_ID).post(f"/api/subscriptions/{subscription_id}/leave")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "AUTHOR_CANNOT_LEAVE"
     assert await seeds.rows(pg_session_factory) == before
 
 
