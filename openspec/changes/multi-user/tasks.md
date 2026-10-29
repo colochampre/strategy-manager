@@ -6,10 +6,11 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-27: main `7f67fc3`, panel bundle `5632e763deb5` (#87 changed no frontend), alembic `0030`, certifi `2026.10.23`.
+- 2026-10-29: main `214db9b`, panel bundle `214db9b714ef`, alembic `0032`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
+- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is still there, nullable and unread, until PR D's 0033.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -20,6 +21,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #85 | PR A: identity from Cloudflare Access, `/api/me`, the panel without the token, migration 0029 | `a1295e0` (parents `7a006fc`, `7f878ca`) | 2026-10-22, see "PR A's delivery" |
 | #86 | PR B: every owned row belongs to its user, scoped reads, the per-user lock, worker and reconciliation, migration 0030 | `5632e76` (parents `a1295e0`, `814f1eb`) | 2026-10-27, see "PR B's delivery" |
 | #87 | Outside this change: certifi 2026.7.22 -> 2026.10.23, which drops the distrusted `emSign ECC Root CA - G3` (eMudhra, Mozilla bug 2083449), and `tests/shared/test_tls_trust.py` to pin it | `7f67fc3` (parents `5632e76`, `39ea058`) | 2026-10-27. Pull as `strategy`; `uv sync --locked` swapped only certifi; both services restarted, both active. The venv's httpx context read `2026.10.23 113 False` (version, distinct root names, G3 present). No WARNING or ERROR in 15 minutes of both journals. No panel step. |
+| #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -809,7 +811,7 @@ It needs an independent verifier before the PR.
 ### Owner-run (production)
 
 - [x] C.0 The read-only pre-check (2026-10-27). Its results are above, under "Production at planning".
-- [ ] C.13 Before the deploy: a fresh backup, then rehearse 0031 and 0032 on a throwaway restore.
+- [x] C.13 Before the deploy: a fresh backup, then rehearse 0031 and 0032 on a throwaway restore.
   - Counts unchanged on every existing table.
   - 6 subscriptions: 3 ACTIVE at 30 and 3 ENDED at 5.
   - 48 deliveries, with outcomes equal to their signals'.
@@ -831,7 +833,7 @@ It needs an independent verifier before the PR.
     - It prints, without stopping, the deliveries by status and how many `ACCEPTED` deliveries open a position. Those never run, and since `e1314bc` they make no close holder.
     - `jobs` is left out of the count comparison: the live worker enqueues periodic jobs between the dump and the count.
     - **Local run:** a copy of the dev database (4 strategies, 1 archived, 4 signals, 2 reservations, 4 attempts, 6 ledger rows), brought to `0030` with one user, ran the whole script with `REHEARSAL_LOCAL=1`, exit 0. The first local run caught a `GROUP BY` that PostgreSQL refuses. The dev database stayed at `0028`, and the throwaway databases and dumps were removed.
-- [ ] C.14 Deploy:
+- [x] C.14 Deploy (all checks but the last; see "PR C's delivery"):
   1. pull as `strategy`;
   2. stop `strategy-worker`;
   3. `alembic upgrade head`;
@@ -848,9 +850,37 @@ It needs an independent verifier before the PR.
 
 - [x] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Backend after `6adb011`: ruff 0, mypy 0, pytest exit 0 with no failing test. Frontend after `ed2c724`, the last frontend change: lint 0, 102 files, 2,937 tests passed. Verifier: the C.V block, with the B1, B1a and B1b rechecks all closed.
 - [x] C.D.2 Push and open the PR (on the owner's word). PR #88, opened 2026-10-29 from `54bdb2a` (27 commits over `origin/main` `7f67fc3`).
-- [ ] C.D.3 Merge (owner), with a merge commit.
-- [ ] C.D.4 Deploy (C.13, C.14).
-- [ ] C.D.5 Delivery log row and "Production now".
+- [x] C.D.3 Merge (owner), with a merge commit: `214db9b`.
+- [x] C.D.4 Deploy (C.13, C.14).
+- [x] C.D.5 Delivery log row and "Production now".
+
+### PR C's delivery
+
+**PR C's deploy, 2026-10-29** (owner-run, one step at a time):
+1. Pull as `strategy`, fast-forward `7f67fc3..214db9b`. No dependency changed, so no `uv sync`. The first attempt was typed inside an SSH session already on the VPS, which has no key to reach itself (`Permission denied (publickey)`); run from the owner's machine it worked.
+2. **Backup and rehearsal (C.13).** The backup is `/root/sm_pre0031_20261029_1517.dump`, and the rehearsal ran on `sm_rehearsal_0032`, restored from it.
+   - Production was at `0030`, with 1 user. Strategies: 3 live at 30 %, 3 archived at 5 %, each with exactly one author pool for its market. Live jobs: the six recurring chains, each `PENDING`.
+   - Counts, the same in production and in the copy, and unchanged after `upgrade head`, after `downgrade 0030` and after the second upgrade:
+     - `users` 1, `exchange_credentials` 8, `capital_pools` 5, `pool_balance_snapshots` 2;
+     - `reservations` 13, `execution_attempts` 26, `ledger_entries` 83;
+     - `reconciliation_discrepancies` 1, `booking_proposals` 0;
+     - `strategies` 6, `signals` 54.
+   - The ledger's `(id, xmin)` fingerprint was unchanged by each step.
+   - After each upgrade: subscriptions `ACTIVE 30 3` and `ENDED 5 3`, one per strategy for its author, in a pool of its market, and none beyond the authors'; 54 deliveries for 54 signals, each with its signal's outcome and the author's subscription (`ACCEPTED` 17, `PROCESSED` 22, `REJECTED` 15); every reservation and attempt with its delivery; the constraints, the live unique index and the pool-market trigger present; the `reservations (signal_id)` unique dropped; `strategies.allocation_percent` nullable; both ledger triggers enabled (`O`).
+   - 9 of the `ACCEPTED` deliveries open a position. They have no job and never run, and since `e1314bc` they make no close holder.
+   - After the downgrade: every strategy's share restored and `NOT NULL` again, the new tables gone, the `signal_id` unique back.
+   - The copy was dropped. Production was untouched, still at `0030`.
+3. The worker was stopped (`inactive`) before the migration. The API stayed up: a signal received meanwhile would have waited in `signal.process` for the new worker.
+4. `alembic upgrade head`: `0030 -> 0031`, `0031 -> 0032`.
+5. Both services restarted, both `active`. Checkout `214db9b714ef`.
+6. **pps.6.** The bundle was built from a clean worktree of `origin/main` at `214db9b714ef`: `npm ci` 0, build 0, 22 entries, SHA-256 `558eb57f1c96073ded6a4532acd83f09e553cf2f946140ff955a87eb5056f6cc`. The VPS printed `OK`, `readable`, and `214db9b714ef` for both bundle and checkout.
+7. **Checks.**
+   - Production: alembic `0032`; subscriptions `ACTIVE 30 3` and `ENDED 5 3`; `deliveries=54 signals=54`; live jobs only the six recurring chains.
+   - No WARNING, ERROR or traceback from either service since the restart (16:26:45 CET).
+   - The worker logged `1 enabled pools, dry_run=False`, `vault self-test: 1 sealed credential(s) opened (binance of user a90b5f44)` and `recurring chains already alive; nothing seeded`.
+   - A POST to `/webhook/tradingview` answered `401`.
+   - The owner loaded every page of the panel. The strategy page shows their share at 30 %, as before: it is now read from and written to their subscription.
+   - **Pending:** the first real signal after the deploy makes exactly one delivery.
 
 ## PR D-G
 
