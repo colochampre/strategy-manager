@@ -1199,20 +1199,24 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 
 # --------------------------------------------------------------------------
 # C.4b -- a strategy no longer carries a share on the API. The share is the
-# subscription's (``/api/subscriptions``); the column stays on the strategy row
-# until C.6 because ``process_signal`` still sizes from it, but neither the view
-# nor the PATCH touches it. A PATCH that still sends one is refused, never
-# silently dropped. (This replaces unit 12f.9.7, which served and edited it.)
+# subscription's (``/api/subscriptions``), and since 0033 the strategy row has no
+# column for it; neither the view nor the PATCH touches it. A PATCH that still
+# sends one is refused, never silently dropped. (This replaces unit 12f.9.7,
+# which served and edited it.)
 # --------------------------------------------------------------------------
 
 
 async def _stored_share(
     pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
 ) -> Decimal:
-    """The column itself, which is what ``process_signal`` still reads."""
+    """The author's subscription's share, the only one there is since 0033."""
     async with pg_session_factory() as session:
         value = await session.scalar(
-            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
+            text(
+                "SELECT allocation_percent FROM subscriptions WHERE strategy_id = :id "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"id": strategy_id},
         )
     assert isinstance(value, Decimal)
     return value

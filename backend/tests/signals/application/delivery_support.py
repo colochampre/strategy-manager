@@ -5,8 +5,11 @@ written for that body model a world with ONE subscriber: the strategy's author, 
 the strategy's share. This module keeps them in that world without touching what
 they assert:
 
+* ``SnapshotWithShare`` is the policy snapshot plus the sole subscriber's share. The
+  strategy has no share since migration 0033, so the single-subscriber tests carry
+  theirs here, in the test layer only;
 * ``SoleSubscriberDeliveries`` answers a delivery whose id IS the signal id the test
-  names, for the policy's author at the policy's share, so every assertion made on a
+  names, for the policy's author at the snapshot's share, so every assertion made on a
   signal id, a user or a share keeps meaning what it meant;
 * ``SoleSubscriberHandler`` tells the delivery which halves to run the way
   ``FanOutSignal`` would for that subscriber: from the signal's own classification.
@@ -15,6 +18,8 @@ The distinct-user behaviour (a subscriber that is NOT the author, at a share tha
 NOT the strategy's) is proven in ``test_process_delivery.py``.
 """
 
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -32,6 +37,11 @@ from strategy_manager.signals.domain.position_transition import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotWithShare(StrategyPolicySnapshot):
+    allocation_percent: Decimal = Decimal("100")
+
+
 class SoleSubscriberDeliveries:
     """Implements ``DeliveryPort`` for a world with one subscriber. It reads the
     policy port's snapshot at every load, so a test that changes the share between
@@ -44,7 +54,7 @@ class SoleSubscriberDeliveries:
         return self._delivery(delivery_id)
 
     def _delivery(self, signal_id: UUID) -> Delivery:
-        policy: StrategyPolicySnapshot = self._policy_port.snapshot
+        policy: SnapshotWithShare = self._policy_port.snapshot
         return Delivery(
             delivery_id=signal_id,
             signal_id=signal_id,

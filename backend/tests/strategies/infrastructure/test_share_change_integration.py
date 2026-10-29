@@ -4,9 +4,9 @@ reworked by C.4b).
 
 Until C.4b the PATCH also changed the strategy's share, and these tests pinned that a
 change leaves a held reservation untouched and sizes only the NEXT opening. The share is
-the subscription's now, and ``process_signal`` keeps reading the strategy's own copy
-until C.6, so those two properties have no route to exercise here: C.6 re-homes them on
-``ChangeShare``. What stays true of the PATCH, and is pinned below:
+the subscription's now (and since 0033 the strategy has no copy), so those two properties
+have no route to exercise here: C.6 re-homes them on ``ChangeShare``. What stays true
+of the PATCH, and is pinned below:
 
 - it completes while another connection still HOLDS the pool's advisory lock (the
   lock-hold harness used the other way round: here the second actor must NOT wait, so an
@@ -35,7 +35,7 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.identity_auth import ADMIN_HEADERS
 from tests.ledger.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, ensure_author_subscription
 from tests.performance.infrastructure.test_allocation_fills_source import (
     _fill,
     _record,
@@ -62,16 +62,13 @@ async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # 
 
 
 async def _strategy_holding_a_reservation(factory: Factory, share: str) -> tuple[UUID, UUID]:
-    """A strategy with ``share`` as its own copy of the share, holding one reservation of
+    """A strategy whose author subscribes at ``share``, holding one reservation of
     100 USDT made when the pool held 1000, and the ledger rows of its opening."""
     strategy_id, allocation_id, attempt_id = await _seed_allocation(
         factory, pool_total_at_open="1000"
     )
     async with factory() as session:
-        await session.execute(
-            text("UPDATE strategies SET allocation_percent = CAST(:share AS numeric)"),
-            {"share": share},
-        )
+        await ensure_author_subscription(session, strategy_id, share=Decimal(share))
         await session.execute(
             text("UPDATE reservations SET amount = 100 WHERE id = :id"), {"id": allocation_id}
         )
@@ -101,7 +98,11 @@ async def _rows(factory: Factory, table: str) -> list[tuple[Any, ...]]:
 async def _stored_share(factory: Factory, strategy_id: UUID) -> Decimal:
     async with factory() as session:
         value = await session.scalar(
-            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
+            text(
+                "SELECT allocation_percent FROM subscriptions WHERE strategy_id = :id "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"id": strategy_id},
         )
     assert isinstance(value, Decimal)
     return value

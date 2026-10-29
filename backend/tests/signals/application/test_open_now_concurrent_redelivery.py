@@ -513,10 +513,6 @@ async def _setup(
         allowed_pairs=frozenset({"STXUSDT"}),
     )
     async with session_factory() as session:
-        await session.execute(
-            text("UPDATE strategies SET allocation_percent = :p WHERE id = :id"),
-            {"p": ALLOCATION_PERCENT, "id": strategy_id},
-        )
         pool_id = await ensure_pool(session, POOL)
         await session.commit()
     # The author's subscription is what sizes the open (C.6): 40%.

@@ -29,7 +29,7 @@ class AllocationPercent:
     ``requested`` is derived from — the owner's explicit decision
     2026-08-18, superseding an earlier "percentage of availability" draft
     (design.md § "Order size never comes from the alert"; tasks.md 7.1).
-    Mirrors the ``strategies.allocation_percent`` CHECK constraint:
+    Mirrors the ``subscriptions.allocation_percent`` CHECK constraint:
     ``0 < value <= 100``.
     """
 
@@ -51,14 +51,12 @@ class AllocationPolicy:
     read and validated together — they are the strategy's whole allocation
     policy (design.md's ``strategies`` table columns).
 
-    ``allocation_percent`` defaults to 100 — migration ``0007``'s
-    ``DEFAULT 100`` preserves current behaviour for any existing row."""
+    The share is not here: it belongs to a subscription (migration ``0033``)."""
 
     exchange: Exchange
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: AllocationPercent = AllocationPercent(Decimal("100"))
 
 
 @dataclass(frozen=True, slots=True)

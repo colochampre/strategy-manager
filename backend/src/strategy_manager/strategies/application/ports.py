@@ -11,7 +11,7 @@ from uuid import UUID
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.enablement import EnablementEvent
-from strategy_manager.strategies.domain.strategy import Strategy
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Strategy
 
 # ``(exchange, venue, settlement_currency)`` — mirrors
 # ``signals.application.ports.PoolKey``/``reconciliation``'s own alias
@@ -125,9 +125,9 @@ class AuthorSubscriptionPort(Protocol):
     commits: the caller commits once, so a failure here leaves neither row.
     """
 
-    async def subscribe_author(self, strategy: Strategy) -> None:
+    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
         """An ACTIVE subscription of ``strategy.author_id``, in the author's own
-        pool for the strategy's market, at the strategy's share. Raises
+        pool for the strategy's market, at ``share``. Raises
         ``PoolNotAvailable`` when the author has no pool for the market."""
         ...
 

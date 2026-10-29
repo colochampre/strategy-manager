@@ -131,8 +131,7 @@ async def ensure_author_subscription(
     """The strategy's AUTHOR's subscription to it, seeded when the author holds no
     live one (``RegisterStrategy`` makes it in production). The pool is the
     author's own on the strategy's market, seeded when missing. The share is the
-    strategy's own ``allocation_percent`` unless given, which is what sized a
-    signal before sizing moved to the subscription. A test that
+    100 unless given, the share a new subscription starts from. A test that
     drives a signal through the worker needs it: ``FanOutSignal`` delivers only
     to subscriptions, so a strategy seeded raw has nobody to work its signals.
     Not committed."""
@@ -151,7 +150,7 @@ async def ensure_author_subscription(
     strategy = (
         await executor.execute(
             text(
-                "SELECT author_id, exchange, venue, settlement_currency, allocation_percent "
+                "SELECT author_id, exchange, venue, settlement_currency "
                 "FROM strategies WHERE id = :strategy_id"
             ),
             {"strategy_id": strategy_id},
@@ -159,7 +158,7 @@ async def ensure_author_subscription(
     ).one()
     author_id = UUID(str(strategy[0]))
     if share is None:
-        share = Decimal(strategy[4])
+        share = Decimal("100")
     pool_id = await ensure_pool(
         executor, (strategy[1], strategy[2], strategy[3]), user_id=author_id
     )

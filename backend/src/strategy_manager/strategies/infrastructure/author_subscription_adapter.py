@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.strategies.application.register_strategy import PoolNotAvailable
-from strategy_manager.strategies.domain.strategy import Strategy
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Strategy
 from strategy_manager.subscriptions.domain.subscription import Subscription
 from strategy_manager.subscriptions.infrastructure.adapters import SqlAlchemyUserPools
 from strategy_manager.subscriptions.infrastructure.repository import (
@@ -24,7 +24,7 @@ class SqlAlchemyAuthorSubscription:
         self._pools = SqlAlchemyUserPools(session)
         self._subscriptions = SqlAlchemySubscriptionRepository(session)
 
-    async def subscribe_author(self, strategy: Strategy) -> None:
+    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
         policy = strategy.policy
         market = (policy.exchange.value, policy.venue.value, policy.settlement_currency.value)
         pool_id = await self._pools.pool_id(strategy.author_id, market)
@@ -41,6 +41,6 @@ class SqlAlchemyAuthorSubscription:
                 user_id=strategy.author_id,
                 strategy_id=strategy.id,
                 pool_id=pool_id,
-                allocation_percent=policy.allocation_percent,
+                allocation_percent=share,
             )
         )

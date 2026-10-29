@@ -108,7 +108,6 @@ async def _add_pool(
 async def _strategy(
     factory: Factory,
     *,
-    share: str = "33.5",
     pool: tuple[str, str, str] = BYBIT,
     archived: bool = False,
 ) -> UUID:
@@ -122,20 +121,13 @@ async def _strategy(
         settlement_currency=currency,
         enabled=not archived,
     )
-    async with factory() as session:
-        await session.execute(
-            text(
-                "UPDATE strategies SET allocation_percent = CAST(:share AS numeric) "
-                "WHERE id = :id"
-            ),
-            {"share": share, "id": strategy_id},
-        )
-        if archived:
+    if archived:
+        async with factory() as session:
             await session.execute(
                 text("UPDATE strategies SET archived_at = now() WHERE id = :id"),
                 {"id": strategy_id},
             )
-        await session.commit()
+            await session.commit()
     return strategy_id
 
 
@@ -210,8 +202,9 @@ async def test_the_stored_share_is_previewed_against_the_pools_balance(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "33.5")
 
     response = await _preview(client, strategy_id)
 
@@ -265,8 +258,9 @@ async def test_the_preview_reads_the_authors_pool_never_another_users_on_the_mar
         await session.commit()
     await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
     await _synced(pg_session_factory, total="999", available="999", user_id=other)
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "33.5")
 
     response = await _preview(client, strategy_id)
 
@@ -288,7 +282,7 @@ async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors
         await session.commit()
     await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
     await _synced(pg_session_factory, total="200", available="200", user_id=other)
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
 
     async with AsyncClient(
@@ -310,10 +304,15 @@ async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors
 
 
 async def _subscribe(
-    factory: Factory, strategy_id: UUID, user_id: UUID, share: str, status: str = "ACTIVE"
+    factory: Factory,
+    strategy_id: UUID,
+    user_id: UUID,
+    share: str,
+    status: str = "ACTIVE",
+    pool: tuple[str, str, str] = BYBIT,
 ) -> None:
     async with factory() as session:
-        pool_id = await ensure_pool(session, BYBIT, user_id=user_id)
+        pool_id = await ensure_pool(session, pool, user_id=user_id)
         await session.commit()
     await seeds.subscription(factory, user_id, strategy_id, pool_id, share=share, status=status)
 
@@ -322,10 +321,9 @@ async def test_without_a_share_the_preview_defaults_to_the_signed_in_users_subsc
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """tasks.md C.6 (re-homed from C.4b). The strategy's own copy says 33.5, the
-    caller's subscription says 12.5: the default is the subscription's, sized from
-    the pool's 1000."""
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    """tasks.md C.6 (re-homed from C.4b). The default is the caller's subscription's
+    12.5, sized from the pool's 1000."""
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
     await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5")
 
@@ -343,18 +341,18 @@ async def test_another_users_subscription_is_not_the_callers_default_share(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """The caller holds none, so today's behaviour holds: the strategy's own copy."""
+    """The caller holds none, so the preview shows a full share (N4)."""
     async with pg_session_factory() as session:
         other = await seed_other_user(session)
         await session.commit()
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
     await _subscribe(pg_session_factory, strategy_id, other, "12.5")
 
     response = await _preview(client, strategy_id)
 
     assert response.status_code == 200, response.text
-    assert _exact(response)["share"] == "33.5"
+    assert _exact(response)["share"] == "100"
 
 
 async def test_the_authors_subscription_is_not_the_callers_default_share_either(
@@ -362,11 +360,11 @@ async def test_the_authors_subscription_is_not_the_callers_default_share_either(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
     """The strategy is another user's, and so is the only subscription to it: the
-    caller, who holds none, still gets the strategy's own copy."""
+    caller, who holds none, still gets a full share."""
     async with pg_session_factory() as session:
         author = await seed_other_user(session)
         await session.commit()
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     async with pg_session_factory() as session:
         await session.execute(
             text("UPDATE strategies SET author_id = :author WHERE id = :id"),
@@ -379,27 +377,27 @@ async def test_the_authors_subscription_is_not_the_callers_default_share_either(
     response = await _preview(client, strategy_id)
 
     assert response.status_code == 200, response.text
-    assert _exact(response)["share"] == "33.5"
+    assert _exact(response)["share"] == "100"
 
 
 async def test_an_ended_subscription_is_not_the_callers_default_share(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
     await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5", status="ENDED")
 
     response = await _preview(client, strategy_id)
 
-    assert _exact(response)["share"] == "33.5"
+    assert _exact(response)["share"] == "100"
 
 
 async def test_a_share_asked_for_beats_the_subscription_share(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="1000", available="400")
     await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "12.5")
 
@@ -412,7 +410,7 @@ async def test_a_share_asked_for_is_served_as_exact(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="33.5")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
 
     response = await _preview(client, strategy_id, share="12.34")
@@ -452,8 +450,9 @@ async def test_the_stored_share_is_echoed_in_canonical_plain_notation_too(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
     """The column is an unscaled numeric: ``33.500`` can be what it holds."""
-    strategy_id = await _strategy(pg_session_factory, share="33.500")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "33.500")
 
     response = await _preview(client, strategy_id)
 
@@ -536,8 +535,9 @@ async def test_a_stale_balance_is_served_marked(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
     limit = get_settings().balance_snapshot_max_age_seconds
-    strategy_id = await _strategy(pg_session_factory, share="10")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, age=timedelta(seconds=limit + 60))
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "10")
 
     response = await _preview(client, strategy_id)
 
@@ -569,8 +569,9 @@ async def test_an_archived_strategy_is_served(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="30", archived=True)
+    strategy_id = await _strategy(pg_session_factory, archived=True)
     await _synced(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "30")
 
     response = await _preview(client, strategy_id)
 
@@ -585,10 +586,12 @@ async def test_each_strategy_answers_its_own_pool(
     """S1 on ``bybit/usdt-m/USDT`` and S2 on ``binance/usdt-m/USDT``, with different
     totals and minimums: neither answer carries the other's."""
     await _add_pool(pg_session_factory, BINANCE, "7.5")
-    first = await _strategy(pg_session_factory, share="10", pool=BYBIT)
-    second = await _strategy(pg_session_factory, share="10", pool=BINANCE)
+    first = await _strategy(pg_session_factory, pool=BYBIT)
+    second = await _strategy(pg_session_factory, pool=BINANCE)
     await _synced(pg_session_factory, total="1000", available="400", pool=BYBIT)
     await _synced(pg_session_factory, total="250", available="250", pool=BINANCE)
+    await _subscribe(pg_session_factory, first, OWNER_ID, "10")
+    await _subscribe(pg_session_factory, second, OWNER_ID, "10", pool=BINANCE)
 
     one = await _preview(client, first)
     two = await _preview(client, second)
@@ -731,6 +734,7 @@ async def test_the_preview_completes_while_the_pools_advisory_lock_is_held(
     wait for it. It takes no lock at all."""
     strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "33.5")
 
     async with pg_session_factory() as holder:
         await PgAdvisoryLockAdapter(holder).acquire(LockKey.from_pool_key(OWNER_ID, BYBIT_KEY))
@@ -830,8 +834,9 @@ async def test_no_share_preview_response_contains_a_json_float_or_an_exponent(
     that makes ``str(Decimal)`` write an exponent. Every leaf is a string, a boolean,
     a null or (only ``share`` of a step) an integer; the raw text parses without a
     float at all."""
-    strategy_id = await _strategy(pg_session_factory, share="0.0000001")
+    strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory, total="0.5", available="0.5")
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "0.0000001")
 
     def _no_float(token: str) -> float:
         raise AssertionError(f"a JSON float in the response: {token}")

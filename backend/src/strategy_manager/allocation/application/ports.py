@@ -43,7 +43,6 @@ class StrategyPolicySnapshot:
     exchange: str
     venue: str
     settlement_currency: str
-    allocation_percent: Decimal  # 0 < value <= 100 (tasks.md 7.6)
     author_id: UUID
     name: str = ""
     archived: bool = False

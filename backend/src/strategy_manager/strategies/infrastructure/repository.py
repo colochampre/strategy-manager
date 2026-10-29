@@ -12,7 +12,6 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import StrategyStillReferenced
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -40,7 +39,6 @@ class SqlAlchemyStrategyRepository:
                 author_id=strategy.author_id,
                 enabled=strategy.enabled,
                 fill_mode=strategy.policy.fill_mode.value,
-                allocation_percent=strategy.policy.allocation_percent.value,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
             )
         )
@@ -106,7 +104,6 @@ class SqlAlchemyStrategyRepository:
         row.name = strategy.name
         row.enabled = strategy.enabled
         row.fill_mode = strategy.policy.fill_mode.value
-        row.allocation_percent = strategy.policy.allocation_percent.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
         # Archive is terminal (design.md § 8): every OTHER caller of
         # ``update()`` (``UpdateStrategy``, ``ReplaceAllowedPairs``) reads
@@ -147,7 +144,6 @@ def _to_domain(row: StrategyRow) -> Strategy:
             venue=Venue(row.venue),
             settlement_currency=Currency(row.settlement_currency),
             fill_mode=FillMode(row.fill_mode),
-            allocation_percent=AllocationPercent(row.allocation_percent),
         ),
         author_id=row.author_id,
         enabled=row.enabled,

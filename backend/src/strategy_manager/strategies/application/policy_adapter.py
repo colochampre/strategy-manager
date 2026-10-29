@@ -33,7 +33,6 @@ class StrategyPolicyAdapter:
             exchange=strategy.policy.exchange.value,
             venue=strategy.policy.venue.value,
             settlement_currency=strategy.policy.settlement_currency.value,
-            allocation_percent=strategy.policy.allocation_percent.value,
             author_id=strategy.author_id,
             name=strategy.name,
             # ``archived_at`` is presence-tested here rather than carried as a

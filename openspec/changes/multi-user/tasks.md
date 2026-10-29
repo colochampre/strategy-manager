@@ -916,14 +916,25 @@ It needs an independent verifier before the PR.
 
 ### Backend
 
-- [ ] D.1 Migration 0033 (AD6, decisions 21 and 23).
-  - `strategies.webhook_secret_hash text NOT NULL`: the SHA-256 hex of the current `Settings.webhook_secret` for every existing row, so today's TradingView alerts keep working unchanged. It refuses, naming nothing secret, when strategies exist and the setting is empty.
+- [x] D.1 Migration 0033 (AD6, decisions 21 and 23), and no code touches `strategies.allocation_percent` any more. Done on 2026-10-29.
+  - `strategies.webhook_secret_hash text`: the SHA-256 hex of the current `Settings.webhook_secret` for every existing row, so today's TradingView alerts keep working unchanged. It refuses, naming nothing secret, when strategies exist and the setting is empty. The hash is computed in Python (`hashlib`); the secret never goes into SQL text or a log.
+    - It stays NULLABLE here: until D.3 nothing writes it on create. D.3 adds `NOT NULL` to this same migration, together with `RegisterStrategy` writing it (the C.2/C.6 precedent; 0033 is not in production).
+  - The share leaves the strategy (from D.4, moved here because dropping the column needs it): `AllocationPolicy.allocation_percent` and `StrategyPolicySnapshot.allocation_percent` go; `RegisterCommand.allocation_percent` stays and `subscribe_author` takes it as an argument; the repository stops writing and reading the column; the preview's fallback for a user with no subscription is 100 (N4). `AllocationPercent` stays, the subscriptions use it.
   - `strategies.visibility text NOT NULL` with CHECK `PUBLIC | PRIVATE`; existing rows `PRIVATE`.
   - The global unique on `strategies.name` is replaced by `UNIQUE (author_id, name)`. Find the old constraint's real name in the schema; do not guess it.
   - `strategies.allocation_percent` and its CHECK are dropped.
   - Downgrade: refuses unless exactly one user exists (as 0031); restores `allocation_percent` from each strategy's author subscription (the latest one), `NOT NULL` again; restores the global name unique; drops the two new columns.
   - Tests on real PostgreSQL through `migrated_database(name, "0032")`: the backfilled hash equals the setting's, the empty-setting refusal, visibility's CHECK and default, two authors may share a name and one author may not repeat one, the column gone, the downgrade and the upgrade again.
   - The ORM mirrors it: `StrategyRow` loses `allocation_percent` and gains both columns.
+  - **Evidence (2026-10-29):**
+    - `backend/migrations/versions/0033_strategy_authoring.py` and `tests/migrations/test_0033_strategy_authoring.py` (16 tests, real PostgreSQL, `WEBHOOK_SECRET` passed to the alembic subprocess: `wh-test-0033`, and `""` for the refusal and the empty database). The old name unique is found in `pg_constraint`, not guessed.
+    - RED: before the migration existed, every test errored in its fixture with alembic's "Can't locate revision identified by '0033'". A migration test cannot fail on an assertion before its revision exists, so the proof of non-vacuity is the mutations below.
+    - Mutations, each seen red on an assertion and then restored: skipping the hash `UPDATE` (`test_every_strategy_gets_the_hash_of_the_settings_secret`); disabling the empty-secret refusal (`test_refuses_when_strategies_exist_and_the_secret_is_empty`, `0 != 0` on the return code); the visibility default `PUBLIC` (`test_visibility_defaults_to_private`, `test_existing_strategies_are_private`); the downgrade picking the OLDEST subscription (`test_downgrade_restores_each_share_from_the_latest_author_subscription_and_upgrades_again`).
+    - The downgrade restores `allocation_percent` NULLABLE (as it is at 0032 since 0031), not `NOT NULL` as the bullet above says: a strategy with no subscription would otherwise make it fail, and 0031's own downgrade is the step that makes it `NOT NULL` again. It refuses with more than one user (`found 2`).
+    - Code: `AllocationPolicy.allocation_percent` and `StrategyPolicySnapshot.allocation_percent` removed; `subscribe_author(strategy, share)`, with `RegisterStrategy` validating the share (`AllocationPercent`) before the insert; repository and `StrategyRow` updated (`UniqueConstraint("author_id", "name", name="ux_strategies_author_name")`, `ck_strategies_visibility`); the preview's fallback is `Decimal("100")`.
+    - Tests moved off the column: the share the single-subscriber signal tests carry now lives in a test-only `SnapshotWithShare` (`tests/signals/application/delivery_support.py`); `tests/owner.py::ensure_author_subscription` defaults to 100; the share-preview tests seed the owner's subscription instead of the strategy column, and "no subscription" now previews 100.
+    - Focused runs: ruff 0, mypy 0 (341 files); `tests/strategies tests/signals tests/allocation tests/subscriptions tests/accounts` plus the 0033 file, one failure (`test_the_preview_completes_while_the_pools_advisory_lock_is_held`, fixed by seeding the owner's subscription), then green on rerun; `test_0031`, `test_0032` and `test_0033` pass together. The full suite is the parent's.
+    - Parent review: the downgrade's share now comes from the AUTHOR's subscription (a join on `author_id`), as the text says, not from any user's; identical under the one-user guard. Gate after it: ruff 0, mypy 0, full pytest exit 0 with no failing test (the first run was stopped by the machine running low on memory, not by a failure).
 - [ ] D.2 The webhook authenticates per strategy (AD6, map a).
   - A port reads one strategy's `webhook_secret_hash` by primary key. Ingress runs in the stated order and compares `sha256(secret)` with `hmac.compare_digest`.
   - `SourceIpAndSecretAuth` splits into the source check, which stays global and first, and the per-strategy secret check.
@@ -939,7 +950,7 @@ It needs an independent verifier before the PR.
   - The repository gains author-scoped reads, and every route reads through them: another user's strategy answers 404 on `GET /{id}`, `/events`, `/share-preview`, `PUT /allowed-pairs`, `PATCH`, `archive`, `DELETE` and the regenerate route, each with its cross-user test.
   - `GET /strategies` lists the user's own strategies.
   - A repeated name answers 409 only within one author; the refusal says nothing about other users' strategies.
-  - The share: `RegisterCommand` carries it to the author's subscription without `StrategyPolicy.allocation_percent`; the field leaves the domain policy and the adapters. The preview's fallback, for a user with no subscription, is 100, the create form's default (N4).
+  - (The share leaving the strategy moved to D.1.)
   - Every test that relied on the admin guard still holds for a non-admin author.
 - [ ] D.5 Private strategies (decision 21).
   - The create request takes `visibility` (default `PRIVATE`); `PATCH /{id}` changes it, author only.

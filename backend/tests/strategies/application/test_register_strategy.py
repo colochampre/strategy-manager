@@ -27,7 +27,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogUnavailable,
     UnknownPairs,
 )
-from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import AllocationPercent, FillMode, Strategy
 
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 
@@ -110,9 +110,11 @@ class SpyAuthorSubscriptions:
         self._commit = commit
         self._failure = failure
         self.calls: list[tuple[Strategy, int]] = []
+        self.shares: list[AllocationPercent] = []
 
-    async def subscribe_author(self, strategy: Strategy) -> None:
+    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
         self.calls.append((strategy, self._commit.commits))
+        self.shares.append(share)
         if self._failure is not None:
             raise self._failure
 
@@ -304,7 +306,7 @@ async def test_the_author_is_subscribed_to_the_strategy_before_the_one_commit() 
     [spy] = spies
     assert [(called, before) for called, before in spy.calls] == [(strategy, 0)]
     assert strategy.author_id == AUTHOR_ID
-    assert strategy.policy.allocation_percent.value == Decimal("25")
+    assert spy.shares == [AllocationPercent(Decimal("25"))]
     assert repository.inserted == [strategy]
     assert commit.commits == 1
 
@@ -332,12 +334,15 @@ async def test_a_refused_registration_never_asks_for_a_subscription() -> None:
     assert spy.calls == []
 
 
-async def test_the_allocation_percent_is_carried_onto_the_policy() -> None:
-    use_case, repository, _, _, _ = _build()
+async def test_the_share_reaches_the_author_subscription_not_the_strategy() -> None:
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, repository, _, _, _ = _build(subscriptions=spies)
 
     await use_case.register(_command(allocation_percent=Decimal("25")))
 
-    assert repository.inserted[0].policy.allocation_percent.value == Decimal("25")
+    [spy] = spies
+    assert spy.shares == [AllocationPercent(Decimal("25"))]
+    assert not hasattr(repository.inserted[0].policy, "allocation_percent")
 
 
 async def _registered() -> Strategy:

@@ -153,6 +153,9 @@ class RegisterStrategy:
 
         await self._assert_pairs_listed(command, allowed_pairs.pairs)
 
+        # Validated here, before anything is written: the share goes to the
+        # author's subscription, not to the strategy.
+        share = AllocationPercent(command.allocation_percent)
         strategy = Strategy(
             id=command.strategy_id,
             name=command.name,
@@ -161,7 +164,6 @@ class RegisterStrategy:
                 venue=command.venue,
                 settlement_currency=command.settlement_currency,
                 fill_mode=command.fill_mode,
-                allocation_percent=AllocationPercent(command.allocation_percent),
             ),
             author_id=command.author_id,
             allowed_pairs=allowed_pairs,
@@ -173,7 +175,7 @@ class RegisterStrategy:
         # A subscription is the only way to trade a strategy, its author included
         # (C.4b). Written before the one commit, so a pool that vanished since
         # the check above leaves neither row.
-        await self._author_subscriptions.subscribe_author(strategy)
+        await self._author_subscriptions.subscribe_author(strategy, share)
 
         if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
             await self._enablement_log.append(

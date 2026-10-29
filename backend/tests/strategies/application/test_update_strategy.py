@@ -6,7 +6,6 @@ holding open while the system believes it closed.
 """
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,7 +17,6 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -34,7 +32,6 @@ def _strategy(**overrides: object) -> Strategy:
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,
-        allocation_percent=AllocationPercent(Decimal("100")),
     )
     fields: dict[str, object] = {
         "id": STRATEGY_ID,
@@ -136,9 +133,8 @@ def test_the_command_offers_no_way_to_change_the_pool() -> None:
 
 
 def test_the_command_offers_no_way_to_change_the_share() -> None:
-    """C.4b: the share is the subscription's. The strategy's own copy (which
-    ``process_signal`` still sizes from until C.6) is written at registration and
-    never again."""
+    """C.4b: the share is the subscription's, and since 0033 the strategy has no
+    copy of it."""
     assert "allocation_percent" not in UpdateCommand.__dataclass_fields__
 
 
@@ -165,8 +161,7 @@ async def test_omitted_fields_are_left_exactly_as_they_were() -> None:
     assert updated.name == "original"
     assert updated.enabled is True
     assert updated.policy.fill_mode is FillMode.SKIP
-    assert updated.policy.allocation_percent == existing.policy.allocation_percent
-    assert repository.updated[0].policy.allocation_percent.value == Decimal("100")
+    assert repository.updated[0].policy.fill_mode is FillMode.SKIP
 
 
 async def test_the_pool_survives_every_update() -> None:
