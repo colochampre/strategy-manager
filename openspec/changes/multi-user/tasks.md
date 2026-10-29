@@ -745,12 +745,33 @@ It needs an independent verifier before the PR.
     - Two existing tests change on purpose:
       - `test_a_new_subscriber_gets_the_next_opening_and_so_its_close`. It was "... but not the close", which asserted B1.
       - `test_a_reservation_that_no_longer_holds_capital_does_not_make_a_holder`. Its seed left the filled reservation's delivery ACCEPTED, so it now marks it PROCESSED.
+  - **Recheck of B1 (2026-10-29): CLOSED.** A backlogged close closes what its opening opens. The verifier's probe also shows that a backlogged reverse ends with each subscriber short in their own pool. Both changed tests reflect the fix and hide no regression.
+  - **B1a, opened by the B1 fix. The owner authorized a second correction on 2026-10-29 ("Dale, autorizo la segunda corrección para B1a").** A close now reaches a subscription whose awaited opening ends up holding nothing. `latest_before` (`delivery_adapters.py:81-109`) returns the subscription's latest reservation on the symbol in any status. After an earlier round trip, that is the old allocation, whose close already FILLED. `_handle_releases` (`process_signal.py:814-829`) takes it as an idempotent retry and returns with no order, no outcome and no log line, so the delivery and its signal stay `ACCEPTED` for ever. No money moves. The baseline refused the same close as `NO_POSITION_TO_CLOSE` with a WARNING.
+    - **Two ways in:**
+      - A backlog where the opening is then refused.
+      - Without a backlog: 0032 copies production's 17 `ACCEPTED` signals into `ACCEPTED` deliveries that have no job. Any of those that is an opening makes its subscription a holder of every later close on that symbol.
+    - **The verifier's regression test,** `test_close_to_a_subscriber_who_never_opened.py` (two cases), failed with `('ACCEPTED', None)`. Its content is in the recheck report.
+    - **Fix directions:**
+      - Count a pending delivery only while its `delivery.process` job is unfinished.
+      - In `_handle_releases`, treat an existing non-FAILED close as a replay only when it belongs to this delivery. Otherwise refuse it as `NO_POSITION_TO_CLOSE` with a WARNING.
+    - **Fixed, both directions:**
+      - `_awaits_opening` joins the delivery's `delivery.process` job (`dedupe_key = 'delivery:<id>'`) and counts it only while that job is `PENDING` or `CLAIMED`. A job that is `DONE` or exhausted (`FAILED`), or no job at all (0032's backfill), makes no holder.
+      - `_handle_releases` refuses an existing non-FAILED close that belongs to ANOTHER delivery (`existing_close.delivery_id != delivery.delivery_id`). It ends `NO_POSITION_TO_CLOSE` with one WARNING naming the close attempt, plus "and the new side was not opened" for a reverse. A close of this same delivery is still a silent replay. A FAILED close keeps its existing paths: a plain close retries and a reverse reports the failure.
+      - A legacy close placed before PR C has no `delivery_id`, so it never counts as a replay of a PR C delivery. That is the production case: every earlier round trip there is legacy.
+      - Changed behaviour, beyond B1a: a reverse whose prior allocation another delivery's close is still working (`SUBMITTED`) is now refused with a WARNING. It used to seed a continuation and open the new side.
+    - **Tests, red first on assertions:**
+      - The verifier's two tests, strengthened. The backlog case must end `REJECTED` / `NO_POSITION_TO_CLOSE` with the WARNING. The backfill case must get no delivery at all, so it stayed red on `('REJECTED', 'NO_POSITION_TO_CLOSE')` until the second direction landed.
+      - `test_a_pending_delivery_whose_job_will_never_run_makes_no_holder_when`, three cases: `DONE`, `FAILED`, no job.
+      - Proven by mutation: `test_a_pending_delivery_whose_job_is_being_worked_still_makes_a_holder` (counting only `PENDING`), and `test_a_reverse_whose_allocation_another_delivery_closed_is_refused_with_a_warning` (dropping the delivery comparison). Dropping the FAILED exclusion reddens the two existing FAILED-close tests.
+      - `_pending_delivery` in `test_fan_out_integration.py` now writes the delivery's live job too, as fan-out does.
+      - Eight existing replay tests (five unit, three in `test_replay_outcomes_integration.py`) seeded the earlier close with no `delivery_id`. They describe a retry of the same delivery, so the seed now carries that delivery's id.
+    - **Intermittent B1 test, fixed in the same correction.** `_retries_are_due` set `run_after = now()` on the server, but `claim` compares against the Python clock, which can trail it by milliseconds. A job was then not due, and four passes were not enough: 2 of 3 runs failed with an `execution.settle` job left `PENDING`. It now sets `run_after` a minute back, and 5 of 5 runs passed.
   - **The intermittent reverse test: cause found and fixed.** `test_delivery_flow_integration.py` took `_T0 = now() - 30 min` at import. A reverse's open is abandoned once its signal is older than `delayed_open_max_signal_age_seconds` (600 s), so the test failed whenever a full run reached it more than about 9 minutes after collection. `World.t0` is now taken per test, in `_world`. With it pushed 15 minutes back, the test goes red.
   - **Advisories, not reachable in PR C**, because only the owner signs in and decision 22 refuses the author's Leave:
     - **N1, must be closed before PR F.** `Leave` with an opening delivery still queued ends the subscription at once: it counts holdings and live reservations, not queued deliveries. `ProcessDelivery` never reads the subscription's status, so that delivery opens a position no close will reach.
     - **N2.** A subscription made LEAVING only by a live reservation stays LEAVING if that reservation is released unfilled: `end_if_flat` runs only on a closing fill. The partial unique then blocks a new subscription.
     - **N5.** `ProcessDelivery` and `AllocateCapital` do not skip an ENDED subscription. This is the same fix as N1.
-    - **New with B1's fix.** A delivery left non-terminal for ever (a defect of its own) would make its subscriber a close target for every later close on that symbol. Each such close then ends as a no-op or as `NO_POSITION_TO_CLOSE`, and places nothing.
+    - **New with B1's fix, closed by B1a's.** A delivery left non-terminal for ever made its subscriber a close target for every later close on that symbol. Only a delivery whose job is still live counts now.
   - **Advisories, for the owner or later PRs:**
     - **N3.** An archived strategy has no live subscription, so its page now says "You are not subscribed to this strategy…" where it used to show the share read-only. This applies to the 3 archived "… Test" strategies in production.
     - **N4.** The preview's fallback (`strategies/infrastructure/router.py:617`) and `RegisterStrategy` still use `strategies.allocation_percent`. PR D's 0033 must remove both before dropping the column.

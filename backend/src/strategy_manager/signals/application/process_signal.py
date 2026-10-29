@@ -814,6 +814,26 @@ class ProcessDelivery:
         existing_close = await self._closing_attempts.latest_close_for(
             delivery.user_id, context.prior_reservation_id
         )
+        if (
+            existing_close is not None
+            and existing_close.status is not ExecutionStatus.FAILED
+            and existing_close.delivery_id != delivery.delivery_id
+        ):
+            # Not a retry of THIS delivery's close: another delivery already closed
+            # that allocation. ``latest_before`` returns the subscription's latest
+            # reservation in ANY status, so a subscriber whose awaited opening never
+            # held anything (PR C verifier, B1a) lands on an earlier round trip's.
+            # Reporting success here would leave the delivery ACCEPTED for ever.
+            refused = (
+                f"signal {signal_id} for strategy {context.strategy_id} asks to "
+                f"{transition.kind.value} {context.symbol}, but the position it would "
+                f"close ({context.prior_reservation_id}) was already closed by another "
+                f"delivery (close attempt {existing_close.id}); nothing was closed"
+            )
+            if halves is DeliveryHalves.BOTH:
+                refused += ", and the new side was not opened"
+            logger.warning("%s", refused)
+            return await self._reject(delivery, transition, "NO_POSITION_TO_CLOSE", refused)
         if existing_close is not None:
             if existing_close.status is not ExecutionStatus.FAILED:
                 if is_reverse_wiring:

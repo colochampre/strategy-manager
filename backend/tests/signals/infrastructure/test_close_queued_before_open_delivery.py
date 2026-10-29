@@ -9,6 +9,7 @@ close, and only then work the opening's deliveries. The close must still close w
 the opening opens, and must place nothing for a subscriber whose opening was refused.
 """
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -101,10 +102,14 @@ async def _drain(world: World) -> list[str]:
 
 
 async def _retries_are_due(world: World) -> None:
-    """Time passes: every job waiting out its retry delay is due now."""
+    """Time passes: every job waiting out its retry delay is due now. A minute back,
+    not ``now()``: ``claim`` compares against the PYTHON clock, which can trail the
+    server's ``now()`` by a few milliseconds, and the job would not be due yet."""
     async with world.factory() as session:
         await session.execute(
-            update(JobRow).where(JobRow.status == "PENDING").values(run_after=func.now())
+            update(JobRow)
+            .where(JobRow.status == "PENDING")
+            .values(run_after=func.now() - timedelta(minutes=1))
         )
         await session.commit()
 

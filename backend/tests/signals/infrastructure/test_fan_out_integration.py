@@ -581,18 +581,30 @@ async def _pending_delivery(
     subscription_id: UUID,
     *,
     status: str = "ACCEPTED",
+    job_status: str | None = "PENDING",
 ) -> None:
-    """A delivery of ``signal_id`` to the subscription, written raw, in ``status``."""
+    """A delivery of ``signal_id`` to the subscription, written raw, in ``status``,
+    with its ``delivery.process`` job in ``job_status`` (``None``: no job at all)."""
+    delivery_id = uuid4()
     async with factory() as session:
         session.add(
             SignalDeliveryRow(
-                id=uuid4(),
+                id=delivery_id,
                 signal_id=signal_id,
                 subscription_id=subscription_id,
                 user_id=user_id,
                 status=status,
             )
         )
+        if job_status is not None:
+            session.add(
+                JobRow(
+                    kind=JobKind.DELIVERY_PROCESS.value,
+                    payload={"delivery_id": str(delivery_id), "halves": "open"},
+                    dedupe_key=f"delivery:{delivery_id}",
+                    status=job_status,
+                )
+            )
         await session.commit()
 
 
@@ -657,6 +669,52 @@ async def test_a_pending_delivery_makes_no_holder_when(
 
     assert subscription_id not in await _delivered_to(pg_session_factory, signal_id), case
     assert result.delivery_ids == ()
+
+
+@pytest.mark.parametrize(
+    ("case", "job_status"),
+    [
+        ("its job already finished", "DONE"),
+        ("its job ran out of attempts", "FAILED"),
+        # What 0032 leaves: a delivery copied from a signal that stayed ACCEPTED.
+        ("it has no job at all", None),
+    ],
+)
+async def test_a_pending_delivery_whose_job_will_never_run_makes_no_holder_when(
+    pg_session_factory: Factory,  # noqa: F811
+    case: str,
+    job_status: str | None,
+) -> None:
+    """Only a job still to run puts the opening ahead of the close (PR C verifier,
+    B1a). A delivery left pending with no live job never opens anything."""
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, subscription_id = await _subscriber(pg_session_factory, strategy_id)
+    opening = await _signal(pg_session_factory, strategy_id, position_size="1", minutes=1)
+    await _pending_delivery(
+        pg_session_factory, opening, user_id, subscription_id, job_status=job_status
+    )
+    closing = await _signal(pg_session_factory, strategy_id, position_size="0", minutes=2)
+
+    result = await _fan_out(pg_session_factory, closing)
+
+    assert subscription_id not in await _delivered_to(pg_session_factory, closing), case
+    assert result.delivery_ids == ()
+
+
+async def test_a_pending_delivery_whose_job_is_being_worked_still_makes_a_holder(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, subscription_id = await _subscriber(pg_session_factory, strategy_id)
+    opening = await _signal(pg_session_factory, strategy_id, position_size="1", minutes=1)
+    await _pending_delivery(
+        pg_session_factory, opening, user_id, subscription_id, job_status="CLAIMED"
+    )
+    closing = await _signal(pg_session_factory, strategy_id, position_size="0", minutes=2)
+
+    await _fan_out(pg_session_factory, closing)
+
+    assert set(await _delivered_to(pg_session_factory, closing)) == {subscription_id}
 
 
 async def test_another_subscriptions_pending_opening_does_not_make_this_one_a_holder(

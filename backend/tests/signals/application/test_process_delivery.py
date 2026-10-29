@@ -404,6 +404,7 @@ def _live_close(allocation_id: UUID, status: ExecutionStatus) -> ExecutionAttemp
         status=status,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=f"client-{allocation_id}",
+        delivery_id=DELIVERY,
     )
 
 

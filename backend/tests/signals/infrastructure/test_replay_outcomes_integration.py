@@ -171,7 +171,7 @@ async def test_an_idempotent_close_replay_leaves_a_terminal_outcome_untouched(
             place_order=SpyPlaceOrder(),
             close_position=close_position,
             closing_attempts=FakeClosingAttemptsPort(
-                latest=_existing_close(ExecutionStatus.FILLED, allocation_id)
+                latest=_existing_close(ExecutionStatus.FILLED, allocation_id, signal_id)
             ),
             outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
             commit=session,
@@ -209,7 +209,9 @@ async def test_a_failed_reverse_close_replay_keeps_the_closes_own_rejection(
             place_order=SpyPlaceOrder(),
             close_position=close_position,
             closing_attempts=FakeClosingAttemptsPort(
-                latest=_existing_close(ExecutionStatus.FAILED, context.prior_reservation_id)
+                latest=_existing_close(
+                    ExecutionStatus.FAILED, context.prior_reservation_id, signal_id
+                )
             ),
             outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
             commit=session,
@@ -256,7 +258,9 @@ async def test_a_replayed_spot_short_reverse_repeats_its_outcome_silently(
             place_order=SpyPlaceOrder(),
             close_position=replay_close,
             closing_attempts=FakeClosingAttemptsPort(
-                latest=_existing_close(ExecutionStatus.SUBMITTED, context.prior_reservation_id)
+                latest=_existing_close(
+                    ExecutionStatus.SUBMITTED, context.prior_reservation_id, signal_id
+                )
             ),
             outcomes=SqlAlchemySignalOutcomeAdapter(session, _FixedClock()),  # type: ignore[arg-type]
             commit=session,

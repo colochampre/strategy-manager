@@ -77,7 +77,10 @@ def _spot_short_reverse_context() -> SignalContext:
     )
 
 
-def _existing_close(status: ExecutionStatus, allocation_id: UUID) -> ExecutionAttempt:
+def _existing_close(
+    status: ExecutionStatus, allocation_id: UUID, delivery_id: UUID
+) -> ExecutionAttempt:
+    """The close ``delivery_id`` already placed: a replay of that delivery finds it."""
     return ExecutionAttempt(
         id=uuid4(),
         reservation_id=None,
@@ -94,6 +97,7 @@ def _existing_close(status: ExecutionStatus, allocation_id: UUID) -> ExecutionAt
         origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
         error="rejected by venue" if status is ExecutionStatus.FAILED else None,
+        delivery_id=delivery_id,
     )
 
 
@@ -241,7 +245,9 @@ async def test_a_replayed_spot_short_reverse_records_the_same_outcome_again() ->
         place_order=SpyPlaceOrder(),
         close_position=replay_close,
         closing_attempts=FakeClosingAttemptsPort(
-            latest=_existing_close(ExecutionStatus.SUBMITTED, context.prior_reservation_id)
+            latest=_existing_close(
+                ExecutionStatus.SUBMITTED, context.prior_reservation_id, signal_id
+            )
         ),
         outcomes=second,
     )
@@ -264,6 +270,7 @@ async def test_the_failed_reverse_close_replay_reports_it_without_a_second_outco
     outcomes = RecordingSignalOutcomes()
     context = _holdable_reverse_context()
     assert context.prior_reservation_id is not None
+    signal_id = uuid4()
     close_position = SpyClosePosition()
     handler = _process_signal_handler(
         context=context,
@@ -271,12 +278,12 @@ async def test_the_failed_reverse_close_replay_reports_it_without_a_second_outco
         place_order=SpyPlaceOrder(),
         close_position=close_position,
         closing_attempts=FakeClosingAttemptsPort(
-            latest=_existing_close(ExecutionStatus.FAILED, context.prior_reservation_id)
+            latest=_existing_close(ExecutionStatus.FAILED, context.prior_reservation_id, signal_id)
         ),
         outcomes=outcomes,
     )
 
-    result = await handler.handle(uuid4())
+    result = await handler.handle(signal_id)
 
     assert close_position.calls == []
     assert result.failed == "rejected by venue"
@@ -298,6 +305,7 @@ async def test_an_idempotent_close_replay_writes_no_outcome() -> None:
         settlement_currency="USDT",
     )
     assert context.prior_reservation_id is not None
+    signal_id = uuid4()
     close_position = SpyClosePosition()
     handler = _process_signal_handler(
         context=context,
@@ -305,12 +313,12 @@ async def test_an_idempotent_close_replay_writes_no_outcome() -> None:
         place_order=SpyPlaceOrder(),
         close_position=close_position,
         closing_attempts=FakeClosingAttemptsPort(
-            latest=_existing_close(ExecutionStatus.FILLED, context.prior_reservation_id)
+            latest=_existing_close(ExecutionStatus.FILLED, context.prior_reservation_id, signal_id)
         ),
         outcomes=outcomes,
     )
 
-    result = await handler.handle(uuid4())
+    result = await handler.handle(signal_id)
 
     assert close_position.calls == []
     assert result.executed is True

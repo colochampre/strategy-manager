@@ -17,6 +17,9 @@ from strategy_manager.allocation.domain.reservation import ReservationStatus
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
+from strategy_manager.shared.application.job import JobKind
+from strategy_manager.shared.infrastructure.models import JobRow
+from strategy_manager.shared.infrastructure.recurring_jobs import LIVE_STATUSES
 from strategy_manager.signals.application.fan_out_signal import SignalFacts, Subscriber
 from strategy_manager.signals.application.ports import PoolKey, SignalRepositoryPort
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
@@ -138,12 +141,22 @@ class SqlAlchemySubscribers:
         this symbol under any spelling, that leaves a position open (an opening or a
         reverse) and has not run yet. It holds nothing so far, but its job was
         enqueued when that signal fanned out, ahead of the close being fanned out
-        now: the queue claims by ``run_after``, so the close runs after it."""
+        now: the queue claims by ``run_after``, so the close runs after it.
+
+        Only while that job is still live (pending or being worked). A delivery left
+        pending with no live job never runs: 0032 copied every signal that stayed
+        ACCEPTED into such a delivery, with no job (PR C verifier, B1a)."""
         pending = (
             await self._session.execute(
                 select(SignalDeliveryRow.id)
                 .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
+                .join(
+                    JobRow,
+                    JobRow.dedupe_key == func.concat("delivery:", SignalDeliveryRow.id),
+                )
                 .where(
+                    JobRow.kind == JobKind.DELIVERY_PROCESS.value,
+                    JobRow.status.in_(LIVE_STATUSES),
                     SignalDeliveryRow.subscription_id == subscription_id,
                     SignalDeliveryRow.status.in_(_PENDING_DELIVERY),
                     SignalRow.strategy_id == strategy_id,
