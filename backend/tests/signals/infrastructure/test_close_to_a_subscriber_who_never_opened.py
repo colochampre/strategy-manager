@@ -91,7 +91,7 @@ async def test_a_backlogged_close_after_a_refused_opening_ends_with_an_outcome(
     assert any(
         record.levelno == logging.WARNING
         and str(closing) in record.getMessage()
-        and "already closed by another delivery" in record.getMessage()
+        and "which is not this delivery's" in record.getMessage()
         for record in caplog.records
     )
 

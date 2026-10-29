@@ -2341,25 +2341,13 @@ async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_se
     assert result.failed is None
 
 
-async def test_a_reverse_whose_allocation_another_delivery_closed_is_refused_with_a_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """PR C verifier, B1a: the prior reservation's close belongs to ANOTHER
-    delivery, so it is not a retry of this one. Nothing is open to close, and
-    reporting success would leave the delivery ACCEPTED for ever without a word."""
-    caplog.set_level(logging.WARNING, logger="strategy_manager.signals.application.process_signal")
-    lock = SpyAdvisoryLock()
-    close_position = SpyClosePosition()
-    seeder = SpyContinuationSeeder()
-    place_order = SpyPlaceOrder()
-    outcomes = RecordingSignalOutcomes()
-    prior_reservation_id = uuid4()
-    signal_id = uuid4()
-    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
-    earlier_round_trip_close = ExecutionAttempt(
+def _another_deliverys_close(allocation_id: UUID) -> ExecutionAttempt:
+    """A FILLED close of ``allocation_id`` placed by a delivery other than the one
+    under test."""
+    return ExecutionAttempt(
         id=uuid4(),
         reservation_id=None,
-        closes_allocation_id=prior_reservation_id,
+        closes_allocation_id=allocation_id,
         exchange="bybit",
         venue="usdt-m",
         settlement_currency="USDT",
@@ -2373,30 +2361,86 @@ async def test_a_reverse_whose_allocation_another_delivery_closed_is_refused_wit
         client_order_id="client-1",
         delivery_id=uuid4(),
     )
+
+
+async def test_a_plain_close_whose_allocation_another_delivery_closed_is_refused_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PR C verifier, B1a: the prior reservation's close belongs to ANOTHER
+    delivery, so it is not a retry of this one. Nothing is open to close, and
+    reporting success would leave the delivery ACCEPTED for ever without a word."""
+    caplog.set_level(logging.WARNING, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
     handler = _process_signal_handler(
         context=context,
-        allocate_capital=_allocate_capital(lock),
-        place_order=place_order,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
         close_position=close_position,
-        open_after_close=seeder,
-        closing_attempts=FakeClosingAttemptsPort(latest=earlier_round_trip_close),
+        closing_attempts=FakeClosingAttemptsPort(
+            latest=_another_deliverys_close(prior_reservation_id)
+        ),
         outcomes=outcomes,
     )
 
     result = await handler.handle(signal_id)
 
     assert close_position.calls == []
-    assert seeder.calls == []
-    assert place_order.calls == []
     assert result.executed is False
     assert [(row, outcome.reason) for row, outcome in outcomes.calls] == [
         (signal_id, "NO_POSITION_TO_CLOSE")
     ]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
-    assert "already closed by another delivery" in warnings[0]
-    assert "the new side was not opened" in warnings[0]
+    assert "which is not this delivery's" in warnings[0]
     assert result.refused == warnings[0]
+
+
+async def test_a_reverse_whose_allocation_another_delivery_closed_waits_for_it_and_opens(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PR C verifier, B1b: two reverses queued back to back. The second one's prior
+    allocation was closed by the FIRST one's delivery, whose continuation the second
+    supersedes. The second still seeds its own continuation on that close and opens
+    the new side, exactly as a replay does, and places no second close."""
+    caplog.set_level(logging.WARNING, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    seeder = SpyContinuationSeeder()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        open_after_close=seeder,
+        closing_attempts=FakeClosingAttemptsPort(
+            latest=_another_deliverys_close(prior_reservation_id)
+        ),
+        outcomes=outcomes,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert seeder.calls == [(signal_id, [prior_reservation_id], 0, True)]
+    assert result.executed is True
+    assert result.refused is None
+    assert outcomes.calls == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 async def test_a_plain_close_retried_after_a_failed_close_places_a_new_one() -> None:

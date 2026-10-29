@@ -818,17 +818,26 @@ class ProcessDelivery:
             existing_close is not None
             and existing_close.status is not ExecutionStatus.FAILED
             and existing_close.delivery_id != delivery.delivery_id
+            and not is_reverse_wiring
         ):
-            # Not a retry of THIS delivery's close: another delivery already closed
-            # that allocation. ``latest_before`` returns the subscription's latest
-            # reservation in ANY status, so a subscriber whose awaited opening never
-            # held anything (PR C verifier, B1a) lands on an earlier round trip's.
-            # Reporting success here would leave the delivery ACCEPTED for ever.
+            # Not a retry of THIS delivery's close: something else already closed
+            # that allocation (another delivery, or a booked reconciliation).
+            # ``latest_before`` returns the subscription's latest reservation in ANY
+            # status, so a subscriber whose awaited opening never held anything (PR C
+            # verifier, B1a) lands on an earlier round trip's. Reporting success here
+            # would leave the delivery ACCEPTED for ever.
+            #
+            # A reverse that wires its open is NOT refused: it seeds below and waits
+            # for that close, as it always did. Two reverses queued back to back
+            # (B1b) meet exactly this, the first one's close, and the first one's
+            # continuation is superseded by the second: refusing would leave the
+            # subscriber flat while the strategy holds a side.
             refused = (
                 f"signal {signal_id} for strategy {context.strategy_id} asks to "
                 f"{transition.kind.value} {context.symbol}, but the position it would "
-                f"close ({context.prior_reservation_id}) was already closed by another "
-                f"delivery (close attempt {existing_close.id}); nothing was closed"
+                f"close ({context.prior_reservation_id}) was already closed by close "
+                f"attempt {existing_close.id}, which is not this delivery's; nothing "
+                "was closed"
             )
             if halves is DeliveryHalves.BOTH:
                 refused += ", and the new side was not opened"
