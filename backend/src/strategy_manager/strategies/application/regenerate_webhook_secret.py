@@ -5,8 +5,9 @@ The author asks for a new secret when the old one leaked or the alert is being
 rebuilt. The hash is replaced and the plain secret is returned once; the old
 secret stops authenticating at the webhook from the commit on.
 
-**Another user's strategy is a strategy that does not exist** (AD8): the same
-``UnknownStrategy``, so the answer cannot tell the two apart.
+**Another user's strategy is a strategy that does not exist** (AD8): the caller hands
+in the author's own repository, which cannot see it, so the answer is the same
+``UnknownStrategy`` and cannot tell the two apart.
 
 **An archived strategy is refused**, as every other write on one is
 (``StrategyArchived``). The row is read ``FOR UPDATE``, the lock ``UpdateStrategy``
@@ -32,10 +33,13 @@ class RegenerateWebhookSecret:
         self._repository = repository
         self._commit = commit
 
-    async def regenerate(self, strategy_id: UUID, author_id: UUID) -> str:
-        """The new plain secret. Nothing is logged: neither it nor its hash."""
+    async def regenerate(self, strategy_id: UUID) -> str:
+        """The new plain secret. Nothing is logged: neither it nor its hash.
+
+        The repository is the author's own (``AuthorStrategyRepository``): a strategy
+        it cannot see is another user's or none, and both are ``UnknownStrategy``."""
         strategy = await self._repository.get_by_id_for_update(strategy_id)
-        if strategy is None or strategy.author_id != author_id:
+        if strategy is None:
             raise UnknownStrategy(f"no strategy registered under id {strategy_id}")
         if strategy.archived_at is not None:
             raise StrategyArchived(

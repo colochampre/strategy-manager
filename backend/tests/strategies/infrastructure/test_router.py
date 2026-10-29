@@ -55,6 +55,7 @@ from strategy_manager.strategies.infrastructure.router import router as strategi
 from tests.identity_auth import (
     ADMIN_EMAIL,
     ADMIN_HEADERS,
+    act_as,
     hand_owner_pools_to_admin,
     sign_in_as_admin,
 )
@@ -108,7 +109,10 @@ async def _authenticated_client(
     pg_session_factory: async_sessionmaker[AsyncSession],
     catalog: _Catalog | None = None,
     raise_app_exceptions: bool = True,
+    as_user: UUID | None = None,
 ) -> AsyncIterator[AsyncClient]:
+    """``as_user`` makes ``current_user`` resolve to that user, for a test whose rows
+    are seeded as the fixtures' owner: a strategy is read only by its author (D.4)."""
     from strategy_manager.shared import db as shared_db
 
     # ``strategy_enablement_events`` (migration 0024) has no ORM-level FK to
@@ -125,6 +129,8 @@ async def _authenticated_client(
     await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
+    if as_user is not None:
+        act_as(app, as_user)
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with pg_session_factory() as session:

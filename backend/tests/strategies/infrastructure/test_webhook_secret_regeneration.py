@@ -313,14 +313,16 @@ async def test_an_archived_strategy_is_refused_with_409_and_keeps_its_secret(
     assert await _stored_hash(engine, strategy_id) == secret_hash(OLD_SECRET)
 
 
-async def test_a_user_who_is_not_the_admin_is_refused_at_the_door(
+async def test_a_user_who_is_not_the_admin_is_not_the_admins_strategys_author(
     client: AsyncClient, engine: AsyncEngine, admin_id: UUID
 ) -> None:
+    """The door is open to every signed-in user (D.4), so a non-admin gets past it
+    and is stopped by the scope: the admin's strategy is a 404 to them."""
     strategy_id = await _seed(engine, author=admin_id)
 
     response = await _regenerate(client, strategy_id, headers=OTHER_HEADERS)
 
-    assert response.status_code == 403
+    assert response.status_code == 404
     assert await _stored_hash(engine, strategy_id) == secret_hash(OLD_SECRET)
 
 

@@ -35,7 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.db import get_session
 from strategy_manager.strategies.application.ports import PairCatalogPort
 from strategy_manager.strategies.application.read_available_pairs import (
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/pools",
     tags=["pools"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -99,8 +99,8 @@ async def available_pairs(
     use_case: Annotated[ReadAvailablePairs, Depends(get_read_available_pairs)],
     user: Annotated[User, Depends(current_user)],
 ) -> AvailablePairsBody:
-    """The pool must be the signed-in user's (multi-user design AD8); the router
-    stays admin-only (owner decision 16)."""
+    """The pool must be the signed-in user's (multi-user design AD8). Any signed-in
+    user may ask, because any signed-in user may author a strategy on their pools."""
     try:
         pairs = await use_case.execute(user.id, (exchange, venue, settlement_currency))
     except UnknownPool:

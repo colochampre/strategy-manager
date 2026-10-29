@@ -48,7 +48,7 @@ from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
@@ -115,7 +115,9 @@ from strategy_manager.strategies.infrastructure.pool_catalog import (
 )
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import (
+    AuthorStrategyRepository,
     SqlAlchemyStrategyRepository,
+    is_name_conflict,
 )
 from strategy_manager.strategies.infrastructure.share_input import Share
 from strategy_manager.strategies.infrastructure.subscribers_adapter import (
@@ -138,14 +140,18 @@ from strategy_manager.subscriptions.infrastructure.router import SubscriptionVie
 # open, and it would look exactly like the four already here. A decorator that
 # has to be copied is a rule that will eventually not be.
 #
-# So there is deliberately no ``Depends(require_admin)`` on any route
-# below. Adding one would not be harmless duplication — it would teach the
-# next reader that this is where authentication lives, and the route that then
-# omits it inherits nothing and says nothing.
+# Any signed-in user may author (multi-user design AD8, decision 23), so the
+# router asks for a signed-in user and not for the admin. Which strategies a route
+# can reach is the repository's business: every route reads through
+# ``AuthorStrategyRepository``, so another user's strategy is a 404.
+#
+# The router's dependency is what makes the protection structural; a route's own
+# ``user`` parameter is only how it gets the user it needs, and resolves the same
+# dependency once per request.
 router = APIRouter(
     prefix="/strategies",
     tags=["strategies"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 logger = logging.getLogger(__name__)
@@ -225,6 +231,12 @@ class WebhookSecretView(BaseModel):
 
 # Neither answer may be kept by the browser or an intermediary: each carries a secret.
 _NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _own(session: AsyncSession, user: User) -> AuthorStrategyRepository:
+    """The signed-in user's strategies, and nobody else's: the only way a route here
+    reads a strategy."""
+    return AuthorStrategyRepository(session, user.id)
 
 
 async def _view(
@@ -451,10 +463,10 @@ def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> Registe
     )
 
 
-def get_replace_allowed_pairs(session: SessionDep, pairs: PairCatalogDep) -> ReplaceAllowedPairs:
-    return ReplaceAllowedPairs(
-        repository=SqlAlchemyStrategyRepository(session), pairs=pairs, commit=session
-    )
+def get_replace_allowed_pairs(
+    session: SessionDep, user: CurrentUserDep, pairs: PairCatalogDep
+) -> ReplaceAllowedPairs:
+    return ReplaceAllowedPairs(repository=_own(session, user), pairs=pairs, commit=session)
 
 
 def get_pool_sizing(session: SessionDep) -> PoolSizingPort:
@@ -474,11 +486,11 @@ def _subscribers(session: AsyncSession) -> StrategySubscribersAdapter:
     return StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
 
 
-def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
+def get_delete_strategy(session: SessionDep, user: CurrentUserDep) -> DeleteStrategy:
     """The real wiring, the ``get_register_strategy`` pattern: a router test
     overrides this ONE dependency."""
     return DeleteStrategy(
-        repository=SqlAlchemyStrategyRepository(session),
+        repository=_own(session, user),
         pool_lock=PoolLockAdapter(session),
         subscribers=_subscribers(session),
         history=StrategyHistoryAdapter(
@@ -504,8 +516,8 @@ async def register_strategy(
     use_case: Annotated[RegisterStrategy, Depends(get_register_strategy)],
     response: Response,
 ) -> RegisteredStrategyView:
-    """The signed-in ``User`` is the author (multi-user design AD2). The router
-    stays admin-only (owner decision 16), so the author is the admin.
+    """The signed-in ``User`` is the author (multi-user design AD2), whoever they
+    are: any signed-in user may author (AD8).
 
     The answer carries the strategy's webhook secret, the one time it is shown (AD6)."""
     try:
@@ -534,9 +546,13 @@ async def register_strategy(
     except (UnknownPairs, PairCatalogNotServed, PairCatalogUnavailable) as exc:
         raise _pair_refusal(exc) from exc
     except IntegrityError as exc:
-        # ``name`` is UNIQUE at the database level. Reported as a conflict
+        # ``(author, name)`` is UNIQUE at the database level. Reported as a conflict
         # rather than a 500, because the caller can fix it by sending another
-        # name.
+        # name. Only that constraint: any other integrity failure is a defect and
+        # stays a 500, not a name clash the caller is told to fix. The text says
+        # nothing of other users' strategies, whose names are not this caller's.
+        if not is_name_conflict(exc):
+            raise
         await session.rollback()
         raise HTTPException(
             status_code=409, detail=f"a strategy named {body.name!r} already exists"
@@ -561,11 +577,9 @@ async def regenerate_webhook_secret(
     """Replaces the strategy's secret and returns the new one, once. Only its author
     may (another user's strategy is a 404, AD8); an archived strategy is a 409. The
     old secret is refused at the webhook from the commit on."""
-    use_case = RegenerateWebhookSecret(
-        repository=SqlAlchemyStrategyRepository(session), commit=session
-    )
+    use_case = RegenerateWebhookSecret(repository=_own(session, user), commit=session)
     try:
-        secret = await use_case.regenerate(strategy_id, user.id)
+        secret = await use_case.regenerate(strategy_id)
     except UnknownStrategy as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StrategyArchived as exc:
@@ -580,13 +594,11 @@ async def regenerate_webhook_secret(
 async def list_strategies(
     session: SessionDep, user: CurrentUserDep, include_archived: bool = False
 ) -> list[StrategyView]:
-    """Every author's strategies, unscoped by design: an admin read (owner
-    decision 16 keeps strategies admin-only, and AD8 makes the strategy list a
-    public read once authoring opens). The strategies are not scoped to a user;
-    each carries the SIGNED-IN user's own subscription to it, from one query."""
-    strategies = await SqlAlchemyStrategyRepository(session).list_all(
-        include_archived=include_archived
-    )
+    """The signed-in user's OWN strategies, the admin's included (AD8): another
+    author's are not listed, public or not. Seeing other authors' strategies is the
+    public list's job (PR F). Each carries the signed-in user's own subscription to
+    it, from one query."""
+    strategies = await _own(session, user).list_all(include_archived=include_archived)
     # ONE query for every strategy's events (design.md § 14:
     # "list_all(include_archived) + one events query -> uptime()"), not one
     # per strategy -- acceptable either way at today's scale (tens of
@@ -610,7 +622,7 @@ async def list_strategies(
 async def get_strategy(
     strategy_id: UUID, session: SessionDep, user: CurrentUserDep
 ) -> StrategyView:
-    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    strategy = await _own(session, user).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
@@ -619,9 +631,9 @@ async def get_strategy(
 
 @router.get("/{strategy_id}/events", response_model=list[EnablementEventView])
 async def get_strategy_events(
-    strategy_id: UUID, session: SessionDep
+    strategy_id: UUID, session: SessionDep, user: CurrentUserDep
 ) -> list[EnablementEventView]:
-    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    strategy = await _own(session, user).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
@@ -649,7 +661,7 @@ async def preview_share(
     one): one ERROR naming the strategy and the pool, and a fixed 500. A pool with
     no snapshot, or a stale one, is a normal answer and logs nothing.
     """
-    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    strategy = await _own(session, user).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
@@ -716,7 +728,7 @@ async def update_strategy(
     strategy_id: UUID, body: UpdateRequest, session: SessionDep, user: CurrentUserDep
 ) -> StrategyView:
     use_case = UpdateStrategy(
-        repository=SqlAlchemyStrategyRepository(session),
+        repository=_own(session, user),
         commit=session,
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
@@ -737,6 +749,8 @@ async def update_strategy(
             status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
         ) from exc
     except IntegrityError as exc:
+        if not is_name_conflict(exc):
+            raise
         await session.rollback()
         raise HTTPException(
             status_code=409, detail=f"a strategy named {body.name!r} already exists"
@@ -755,7 +769,7 @@ async def archive_strategy(
     SAME ``archived_at``, never a fresh one (design.md § 8's sequence
     diagram; design.md's API table)."""
     use_case = ArchiveStrategy(
-        repository=SqlAlchemyStrategyRepository(session),
+        repository=_own(session, user),
         pool_lock=PoolLockAdapter(session),
         subscribers=_subscribers(session),
         exposure=StrategyExposureAdapter(

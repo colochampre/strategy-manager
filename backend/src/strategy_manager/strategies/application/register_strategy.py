@@ -87,8 +87,7 @@ class RegisterCommand:
     genuinely available, which is where competing for free capital happens.
 
     ``author_id`` is the signed-in ``User`` registering it (multi-user design
-    AD2). Strategies stay admin-only (owner decision 16), so today the author
-    is always the admin.
+    AD2): whoever is signed in, the admin or not (AD8).
     """
 
     strategy_id: UUID
@@ -143,9 +142,12 @@ class RegisterStrategy:
     async def register(self, command: RegisterCommand) -> Registration:
         existing = await self._repository.get_by_id(command.strategy_id)
         if existing is not None:
+            # The id is global but the strategy may be another user's: its name is
+            # theirs to share, so it is named only to its own author.
+            named = f" ({existing.name!r})" if existing.author_id == command.author_id else ""
             raise StrategyAlreadyRegistered(
-                f"a strategy is already registered under id {command.strategy_id} "
-                f"({existing.name!r}). That id comes from the alert's signalType, "
+                f"a strategy is already registered under id {command.strategy_id}"
+                f"{named}. That id comes from the alert's signalType, "
                 "so two strategies sharing one means an alert is misconfigured."
             )
 

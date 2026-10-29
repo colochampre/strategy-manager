@@ -57,7 +57,8 @@ Factory = async_sessionmaker[AsyncSession]
 
 @pytest.fixture
 async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # noqa: F811
-    async for api in _authenticated_client(pg_session_factory):
+    # The strategy is seeded as the fixtures' owner, and a user reads only their own.
+    async for api in _authenticated_client(pg_session_factory, as_user=OWNER_ID):
         yield api
 
 

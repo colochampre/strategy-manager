@@ -274,15 +274,24 @@ async def test_the_preview_reads_the_authors_pool_never_another_users_on_the_mar
 async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """tasks.md C.4b. The strategy is the owner's, on a bybit pool minimum 5 with a
-    total of 1000. A second user holds a bybit pool too, minimum 9, synced at 200:
-    the same strategy previews for them as 20 USDT at a share of 10, against 9."""
+    """tasks.md C.4b, narrowed by D.4: a user previews only the strategies they
+    author, so the pool is the author's. The owner holds a bybit pool, minimum 5
+    with a total of 1000. A second user holds a bybit pool too, minimum 9, synced at
+    200, and authors a strategy: it previews for them as 20 USDT at a share of 10,
+    against 9, and not against the owner's pool. The owner, who is not its author,
+    is told there is no such strategy."""
     async with pg_session_factory() as session:
         other = await seed_other_user(session)
         await session.commit()
     await _add_pool(pg_session_factory, BYBIT, "9", user_id=other)
     await _synced(pg_session_factory, total="200", available="200", user_id=other)
     strategy_id = await _strategy(pg_session_factory)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET author_id = :author WHERE id = :id"),
+            {"author": other, "id": strategy_id},
+        )
+        await session.commit()
     await _synced(pg_session_factory, total="1000", available="400")
 
     async with AsyncClient(
@@ -292,15 +301,13 @@ async def test_a_second_user_is_previewed_against_their_own_pool_not_the_authors
     async with AsyncClient(
         transport=ASGITransport(app=_app(pg_session_factory)), base_url="http://test"
     ) as first:
-        authors = await _preview(first, strategy_id, share="10")
+        owners = await _preview(first, strategy_id, share="10")
 
     assert theirs.status_code == 200, theirs.text
     assert theirs.json()["pool_minimum"] == "9.000000000000000000"
     assert _balance(theirs)["total"] == "200.000000000000000000"
     assert _exact(theirs)["amount"] == "20.000000000000000000"
-    assert authors.status_code == 200, authors.text
-    assert authors.json()["pool_minimum"] == "5.000000000000000000"
-    assert _exact(authors)["amount"] == "100.000000000000000000"
+    assert owners.status_code == 404, owners.text
 
 
 async def _subscribe(
@@ -355,12 +362,13 @@ async def test_another_users_subscription_is_not_the_callers_default_share(
     assert _exact(response)["share"] == "100"
 
 
-async def test_the_authors_subscription_is_not_the_callers_default_share_either(
+async def test_a_strategy_another_user_authors_is_not_previewed_for_the_caller(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """The strategy is another user's, and so is the only subscription to it: the
-    caller, who holds none, still gets a full share."""
+    """The strategy and its only subscription are another user's. Until strategies
+    can be public (PR F) the caller is not shown it at all (tasks.md D.4), whatever
+    share the other user holds."""
     async with pg_session_factory() as session:
         author = await seed_other_user(session)
         await session.commit()
@@ -376,8 +384,7 @@ async def test_the_authors_subscription_is_not_the_callers_default_share_either(
 
     response = await _preview(client, strategy_id)
 
-    assert response.status_code == 200, response.text
-    assert _exact(response)["share"] == "100"
+    assert response.status_code == 404, response.text
 
 
 async def test_an_ended_subscription_is_not_the_callers_default_share(

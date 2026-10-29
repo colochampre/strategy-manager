@@ -3,7 +3,9 @@ scoped to the signed-in user (multi-user design AD1; tasks.md A.7, B.6).
 
 A route open to any signed-in user must answer that user's own rows only (owner
 decision 16), so the set that skips ``require_admin`` is listed explicitly and
-every other route keeps it. This reads the routes the app actually serves, so a
+every other route keeps it. The strategies routes and the pair catalogue joined that
+set in PR D (AD8, decision 23): any signed-in user authors, scoped to their own.
+This reads the routes the app actually serves, so a
 router added later without the guard fails here, not in production.
 
 ``/webhook/tradingview`` and ``/health`` stay outside Access entirely: TradingView
@@ -48,6 +50,20 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/subscriptions"),
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
     ("PATCH", "/api/subscriptions/{subscription_id}"),
+    # Any signed-in user authors (AD8, tasks.md D.4); every strategy read goes
+    # through the author's own repository, and the pair catalogue through the
+    # user's own pools.
+    ("POST", "/api/strategies"),
+    ("GET", "/api/strategies"),
+    ("GET", "/api/strategies/{strategy_id}"),
+    ("PATCH", "/api/strategies/{strategy_id}"),
+    ("DELETE", "/api/strategies/{strategy_id}"),
+    ("GET", "/api/strategies/{strategy_id}/events"),
+    ("GET", "/api/strategies/{strategy_id}/share-preview"),
+    ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"),
+    ("POST", "/api/strategies/{strategy_id}/archive"),
+    ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
+    ("GET", "/api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs"),
 }
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
 
@@ -94,7 +110,7 @@ def test_every_api_route_but_me_and_the_scoped_ones_requires_the_admin() -> None
 
     unguarded = [key for key in admin_only if require_admin not in routes[key]]
 
-    assert len(admin_only) >= 10  # a walk that found nothing would pass for free
+    assert len(admin_only) >= 3  # a walk that found nothing would pass for free
     assert unguarded == []
 
 
@@ -160,7 +176,7 @@ async def test_every_api_route_but_me_forbids_a_signed_in_user_who_is_not_the_ad
             assert response.status_code == 403, f"{method} {path}"
             assert response.json() == {"detail": FORBIDDEN_DETAIL}, f"{method} {path}"
 
-    assert len(admin_only) >= 10
+    assert len(admin_only) >= 3
 
 
 def test_me_requires_a_signed_in_user_and_not_the_admin() -> None:
