@@ -4,14 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
 import { useStrategy } from "@/shared/api/strategies";
-import type { Strategy } from "@/shared/api/types";
+import type { Strategy, Subscription } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { jsonResponse, pool } from "@/test/harness";
+import { jsonResponse, pool, subscriptionOf } from "@/test/harness";
 import { pressRangeKey, pressTab } from "@/test/keyboard";
 
 const ID = "11111111-1111-4111-8111-111111111111";
+const SUBSCRIPTION_ID = "33333333-3333-4333-8333-333333333333";
 
-function strategy(overrides: Partial<Strategy> = {}): Strategy {
+/** The signed-in user's ACTIVE subscription to the strategy, at `share`: the share the control edits. */
+const subscription = (share: string, overrides: Partial<Subscription> = {}) =>
+  subscriptionOf(ID, share, { id: SUBSCRIPTION_ID, ...overrides });
+
+/**
+ * The strategy as its author sees it. `allocation_percent` is shorthand for the share of the author's own
+ * subscription, the only share there is (owner decision 22: the author is always subscribed).
+ */
+function strategy({ allocation_percent = "30", ...overrides }: Partial<Strategy> & { allocation_percent?: string } = {}): Strategy {
   return {
     id: ID,
     name: "ETH Breakout",
@@ -19,7 +28,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "30",
+    subscription: subscription(allocation_percent),
     enabled: false,
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
@@ -35,7 +44,7 @@ interface Request {
 }
 
 interface Options {
-  /** What a PATCH answers. By default: 200, the strategy with the share it was sent. */
+  /** What the subscription's PATCH answers. By default: 200, the subscription with the share it was sent. */
   patch?: (sent: string) => Promise<Response> | Response;
   /** What a GET of the share preview answers, given the `share` asked (null for the stored share). Default: a 500. */
   preview?: (share: string | null) => Promise<Response> | Response;
@@ -113,12 +122,14 @@ function stub(server: Server, options: Options) {
       return Promise.resolve(jsonResponse([pool("bybit", "usdt-m", "USDT", balance)]));
     }
     requests.push({ method: init?.method ?? "GET", path, body: typeof init?.body === "string" ? init.body : undefined });
-    if (init?.method === "PATCH") {
+    // The share is saved on the subscription; a PATCH anywhere else is not served.
+    if (init?.method === "PATCH" && path === `/api/subscriptions/${SUBSCRIPTION_ID}`) {
       const sent = String(init.body);
       if (options.patch !== undefined) return Promise.resolve(options.patch(sent));
       const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
-      server.strategy = { ...server.strategy, allocation_percent };
-      return Promise.resolve(jsonResponse(server.strategy));
+      const saved = subscription(allocation_percent);
+      server.strategy = { ...server.strategy, subscription: saved };
+      return Promise.resolve(jsonResponse(saved));
     }
     if (path === `/api/strategies/${ID}`) {
       return Promise.resolve(server.gone ? jsonResponse({ detail: "no such strategy" }, 404) : jsonResponse(server.strategy));
@@ -365,7 +376,7 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     expect(requests).toEqual([]);
   });
 
-  it("the request body is exactly the share as a string", async () => {
+  it("the save is a PATCH of the signed-in user's subscription, never of the strategy, with exactly the share as a string", async () => {
     const { patches } = setup(strategy());
 
     type("33.5");
@@ -374,7 +385,7 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]).toEqual({
       method: "PATCH",
-      path: `/api/strategies/${ID}`,
+      path: `/api/subscriptions/${SUBSCRIPTION_ID}`,
       body: '{"allocation_percent":"33.5"}',
     });
   });
@@ -398,7 +409,7 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(requests.some((request) => request.method === "PATCH")).toBe(true));
 
-    const allowed = [`/api/strategies/${ID}`, `/api/strategies/${ID}/share-preview`];
+    const allowed = [`/api/subscriptions/${SUBSCRIPTION_ID}`, `/api/strategies/${ID}`, `/api/strategies/${ID}/share-preview`];
     for (const request of requests) {
       expect(allowed).toContain(request.path.split("?")[0]);
       expect(request.path).not.toMatch(/pool|available-pairs|webhook|secret/);
@@ -467,7 +478,9 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
 
 const SAVE_FAILED = "The share was not saved. Try again.";
 const OUT_OF_RANGE = "The share must be above 0 and at most 100.";
-const ARCHIVED = "This strategy is archived and can no longer be changed.";
+const NOT_ACTIVE = "Your subscription to this strategy is no longer active, so its share can no longer be changed.";
+const LEAVING = "Your subscription is leaving: no new operation opens, and the open position closes with the strategy's next close.";
+const NONE = "You are not subscribed to this strategy, so no share of your pool is set for it.";
 const GONE = "This strategy no longer exists.";
 const UNREADABLE = "The stored share could not be read, so it cannot be edited here.";
 
@@ -504,11 +517,12 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     expect(saveButton()).toBeEnabled();
   });
 
-  it("a 409 STRATEGY_ARCHIVED shows the archived text, the page re-reads the strategy and the control turns read-only", async () => {
+  it("a 409 SUBSCRIPTION_NOT_ACTIVE shows the not-active text, the page re-reads the strategy and a LEAVING subscription turns read-only", async () => {
     const page = setupPage(strategy(), {
       patch: () => {
-        page.server.strategy = { ...page.server.strategy, archived_at: "2026-10-09T10:00:00Z" };
-        return jsonResponse({ detail: { error: "STRATEGY_ARCHIVED", message: "archived" } }, 409);
+        const left = subscription("30", { status: "LEAVING", left_at: "2026-10-28T10:00:00Z" });
+        page.server.strategy = { ...page.server.strategy, subscription: left };
+        return jsonResponse({ detail: { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" } }, 409);
       },
     });
     await screen.findByRole("textbox");
@@ -516,12 +530,62 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     type("40");
     fireEvent.click(saveButton());
 
-    expect(await alertLine()).toHaveTextContent(ARCHIVED);
+    expect(await alertLine()).toHaveTextContent(NOT_ACTIVE);
     await waitFor(() => expect(page.reads().length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(field()).toBeDisabled());
     expect(track()).toBeDisabled();
     expect(saveButton()).toBeDisabled();
     for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeDisabled();
+    expect(screen.getByText(LEAVING)).toBeInTheDocument();
+  });
+
+  it("a 409 SUBSCRIPTION_NOT_ACTIVE whose re-read holds no subscription keeps the not-active text and drops the control", async () => {
+    const page = setupPage(strategy(), {
+      patch: () => {
+        page.server.strategy = { ...page.server.strategy, archived_at: "2026-10-09T10:00:00Z", subscription: null };
+        return jsonResponse({ detail: { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" } }, 409);
+      },
+    });
+    await screen.findByRole("textbox");
+
+    type("40");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(screen.queryByText(NONE)).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent(NOT_ACTIVE);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+  });
+
+  it("with no subscription there is no track, no field and no Save, and the control says why", () => {
+    const { requests } = setup(strategy({ subscription: null }));
+
+    expect(screen.getByText(label())).toBeInTheDocument();
+    expect(screen.getByText(NONE)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    expect(requests.filter((request) => request.method === "PATCH")).toEqual([]);
+  });
+
+  it("a LEAVING subscription shows its share read-only and says it closes with the strategy's next close", () => {
+    setup(strategy({ subscription: subscription("37.5", { status: "LEAVING", left_at: "2026-10-28T10:00:00Z" }) }));
+
+    expect(field()).toHaveValue("37.5");
+    expect(field()).toBeDisabled();
+    expect(track()).toBeDisabled();
+    expect(saveButton()).toBeDisabled();
+    for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeDisabled();
+    expect(screen.getByText(LEAVING)).toBeInTheDocument();
+  });
+
+  it("an ACTIVE subscription says nothing about leaving", () => {
+    setup(strategy());
+
+    expect(field()).toBeEnabled();
+    expect(screen.queryByText(LEAVING)).toBeNull();
+    expect(screen.queryByText(NONE)).toBeNull();
   });
 
   it("a 404 shows 'This strategy no longer exists.' and the strategy is read again for the page to show its not-found state", async () => {
@@ -544,7 +608,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     ["a network failure", () => Promise.reject(new TypeError("Failed to fetch"))],
     ["a 500", refuse(500, "boom")],
     ["a 503", refuse(503, "unavailable")],
-    ["a 200 whose body is not a strategy", () => jsonResponse({ id: 7 })],
+    ["a 200 whose body is not a subscription", () => jsonResponse({ id: 7 })],
   ])("%s shows the failure text and keeps the draft", async (_name, patch) => {
     setup(strategy(), { patch });
 
@@ -613,13 +677,34 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     }
   });
 
-  it("the archived text is in Spanish when the language is", async () => {
+  it("the not-active text is in Spanish when the language is", async () => {
     await i18n.changeLanguage("es");
     try {
-      setup(strategy(), { patch: refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" }) });
+      setup(strategy(), { patch: refuse(409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" }) });
       type("40");
       fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
-      expect(await alertLine()).toHaveTextContent("Esta estrategia está archivada y ya no se puede modificar.");
+      expect(await alertLine()).toHaveTextContent(
+        "Su suscripción a esta estrategia ya no está activa, por lo que su porcentaje ya no se puede cambiar.",
+      );
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("the leaving and the no-subscription texts are in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      setup(strategy({ subscription: subscription("30", { status: "LEAVING", left_at: "2026-10-28T10:00:00Z" }) }));
+      expect(
+        screen.getByText(
+          "Su suscripción está saliendo: no se abre ninguna operación nueva, y la posición abierta se cierra con el próximo cierre de la estrategia.",
+        ),
+      ).toBeInTheDocument();
+      cleanup();
+      setup(strategy({ subscription: null }));
+      expect(
+        screen.getByText("Usted no está suscrito a esta estrategia, por lo que no tiene un porcentaje de su pool asignado."),
+      ).toBeInTheDocument();
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
@@ -646,7 +731,7 @@ async function saveFortyOnAPage(options: Options = {}) {
 }
 
 describe("PoolShareEditor, 'Saved' for the share", () => {
-  it("Saved shows when the PATCH answers 200 with a strategy", async () => {
+  it("Saved shows when the PATCH answers 200 with a subscription", async () => {
     await saveFortyOnAPage();
 
     expect(field().value).toBe("40");
@@ -700,11 +785,11 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
 
   it.each([
     ["a 422", refuse(422, [{ msg: "refused" }])],
-    ["a 409", refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" })],
-    ["a 404", refuse(404, "no such strategy")],
+    ["a 409", refuse(409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" })],
+    ["a 404", refuse(404, "no such subscription")],
     ["a 500", refuse(500, "boom")],
     ["a network failure", () => Promise.reject(new TypeError("Failed to fetch"))],
-    ["a 200 whose body is not a strategy", () => jsonResponse({ id: 7 })],
+    ["a 200 whose body is not a subscription", () => jsonResponse({ id: 7 })],
   ])("no Saved after %s", async (_name, patch) => {
     setup(strategy(), { patch });
 
@@ -742,7 +827,7 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
         calls += 1;
         if (calls > 1) return new Promise<Response>(() => undefined);
         const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
-        return jsonResponse({ ...strategy(), allocation_percent });
+        return jsonResponse(subscription(allocation_percent));
       },
     });
     type("40");
@@ -766,7 +851,7 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
         calls += 1;
         if (calls > 1) return jsonResponse({ detail: "boom" }, 500);
         const { allocation_percent } = JSON.parse(sent) as { allocation_percent: string };
-        return jsonResponse({ ...strategy(), allocation_percent });
+        return jsonResponse(subscription(allocation_percent));
       },
     });
     type("40");
@@ -1747,9 +1832,17 @@ const SHARE_TEXTS = {
   save: { en: "Save share", es: "Guardar porcentaje" },
   saving: { en: "Saving…", es: "Guardando…" },
   saveFailed: { en: "The share was not saved. Try again.", es: "El porcentaje no se guardó. Inténtelo de nuevo." },
-  archived: {
-    en: "This strategy is archived and can no longer be changed.",
-    es: "Esta estrategia está archivada y ya no se puede modificar.",
+  notActive: {
+    en: "Your subscription to this strategy is no longer active, so its share can no longer be changed.",
+    es: "Su suscripción a esta estrategia ya no está activa, por lo que su porcentaje ya no se puede cambiar.",
+  },
+  leaving: {
+    en: "Your subscription is leaving: no new operation opens, and the open position closes with the strategy's next close.",
+    es: "Su suscripción está saliendo: no se abre ninguna operación nueva, y la posición abierta se cierra con el próximo cierre de la estrategia.",
+  },
+  none: {
+    en: "You are not subscribed to this strategy, so no share of your pool is set for it.",
+    es: "Usted no está suscrito a esta estrategia, por lo que no tiene un porcentaje de su pool asignado.",
   },
   gone: { en: "This strategy no longer exists.", es: "Esta estrategia ya no existe." },
   unreadable: {
@@ -1833,7 +1926,16 @@ describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I
     here(T.outOfRange);
   });
 
-  it("Saving…, the failure, the archived refusal and the missing strategy", async () => {
+  it("the leaving subscription and the missing one", () => {
+    setup(strategy({ subscription: subscription("30", { status: "LEAVING", left_at: "2026-10-28T10:00:00Z" }) }));
+    here(T.leaving);
+    cleanup();
+
+    setup(strategy({ subscription: null }));
+    here(T.none);
+  });
+
+  it("Saving…, the failure, the not-active refusal and the missing strategy", async () => {
     setup(strategy(), { patch: () => new Promise<Response>(() => undefined) });
     type("40");
     fireEvent.click(named(T.save));
@@ -1847,14 +1949,14 @@ describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I
     here(T.saveFailed);
     cleanup();
 
-    setup(strategy(), { patch: refuse(409, { error: "STRATEGY_ARCHIVED", message: "archived" }) });
+    setup(strategy(), { patch: refuse(409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" }) });
     type("40");
     fireEvent.click(named(T.save));
     await alertLine();
-    here(T.archived);
+    here(T.notActive);
     cleanup();
 
-    setup(strategy(), { patch: refuse(404, "no such strategy") });
+    setup(strategy(), { patch: refuse(404, "no such subscription") });
     type("40");
     fireEvent.click(named(T.save));
     await alertLine();

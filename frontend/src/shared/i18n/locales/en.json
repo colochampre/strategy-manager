@@ -302,6 +302,9 @@
         "saveFailed": "The share was not saved. Try again.",
         "archived": "This strategy is archived and can no longer be changed.",
         "gone": "This strategy no longer exists.",
+        "notActive": "Your subscription to this strategy is no longer active, so its share can no longer be changed.",
+        "leaving": "Your subscription is leaving: no new operation opens, and the open position closes with the strategy's next close.",
+        "none": "You are not subscribed to this strategy, so no share of your pool is set for it.",
         "unreadable": "The stored share could not be read, so it cannot be edited here."
       }
     },

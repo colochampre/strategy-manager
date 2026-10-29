@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { isSubscription } from "@/shared/api/subscriptions";
 import type { EnablementEvent, RegisterStrategyBody, Strategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,7 +26,8 @@ function isStrategy(value: unknown): value is Strategy {
     typeof value.venue === "string" &&
     typeof value.settlement_currency === "string" &&
     (value.fill_mode === "SKIP" || value.fill_mode === "PARTIAL") &&
-    typeof value.allocation_percent === "string" &&
+    // The share is the signed-in user's, on their subscription; null when they hold none. Never absent.
+    (value.subscription === null || isSubscription(value.subscription)) &&
     typeof value.enabled === "boolean" &&
     (value.archived_at === null || typeof value.archived_at === "string") &&
     Array.isArray(value.allowed_pairs) &&
@@ -77,24 +79,8 @@ export function setStrategyEnabled(strategyId: string, enabled: boolean): Promis
 }
 
 /**
- * `PATCH /api/strategies/{id}` with only `allocation_percent`, sent as the string it is: every other field
- * stays unchanged. The answer is checked, as for a read, so the page never caches a body it cannot describe.
- */
-export async function setStrategyAllocationPercent(strategyId: string, value: string): Promise<Strategy> {
-  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ allocation_percent: value }),
-  });
-  if (!isStrategy(body)) {
-    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
-  }
-  return body;
-}
-
-/**
  * `PATCH /api/strategies/{id}` with only `name`: every other field stays unchanged. The caller trims it; the API
- * does not. The answer is checked, as for the share.
+ * does not. The answer is checked, as for a read, so the page never caches a body it cannot describe.
  */
 export async function setStrategyName(strategyId: string, name: string): Promise<Strategy> {
   const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
@@ -135,27 +121,9 @@ export function useSetStrategyEnabled(strategyId: string) {
 }
 
 /**
- * Saves the share. On success the checked answer is written into `['strategy', id]`, so the stored value
- * the page shows is the confirmed one even if the refetch that follows fails. Settled, not only success,
- * for the reason of the enable switch: a refusal says the stored state is not what the page showed, so
- * the list and the page (and the preview under its key) read it again. The invalidation's promise is
- * returned, so the mutation stays pending until the page holds the new state.
+ * Renames the strategy. On success the checked answer is written into `['strategy', id]`, so the page shows
+ * the confirmed name even if the refetch that follows fails; settled, both keys are read again.
  */
-export function useSetAllocationPercent(strategyId: string) {
-  const queryClient = useQueryClient();
-  return useMutation<Strategy, Error, string>({
-    mutationFn: (value) => setStrategyAllocationPercent(strategyId, value),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(["strategy", strategyId], saved);
-    },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
-      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
-    },
-  });
-}
-
-/** Renames the strategy, with the share's cache effects: the confirmed answer first, then both keys read again. */
 export function useRenameStrategy(strategyId: string) {
   const queryClient = useQueryClient();
   return useMutation<Strategy, Error, string>({

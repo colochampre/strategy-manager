@@ -17,6 +17,7 @@ import {
   resetExchangeScope,
   strategyRoute,
   stubApi,
+  subscriptionOf,
   unlock,
   unsyncedSharePreview,
 } from "@/test/harness";
@@ -33,7 +34,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "100",
+    subscription: subscriptionOf(ID),
     enabled: false,
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
@@ -436,7 +437,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("test_the_share_control_is_the_first_of_the_settings_column_under_its_heading_and_above_the_allowed_pairs", async () => {
-    renderPage(strategy({ allocation_percent: "37.5" }));
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5") }));
     await heading("ETH Breakout");
 
     const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
@@ -453,7 +454,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("test_no_text_of_the_pages_header_line_contains_the_share_or_per_trade", async () => {
-    renderPage(strategy({ allocation_percent: "37.5" }));
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5") }));
     const title = await heading("ETH Breakout");
 
     const header = title.closest("header") as HTMLElement;
@@ -464,7 +465,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("test_an_archived_strategy_shows_the_control_read_only", async () => {
-    renderPage(strategy({ allocation_percent: "37.5", archived_at: "2026-09-01T00:00:00+00:00" }));
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5"), archived_at: "2026-09-01T00:00:00+00:00" }));
     await heading("ETH Breakout");
 
     const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
@@ -527,8 +528,9 @@ describe("StrategyDetailPage", () => {
       ].sort();
 
     expect(newKeys(es)).toEqual(newKeys(en));
-    // 23 share texts, "Saved", six webhook texts and the Win rate heading.
-    expect(newKeys(en)).toHaveLength(23 + 1 + 6 + 1);
+    // 26 share texts (with the subscription's not-active, leaving and none), "Saved", six webhook texts and
+    // the Win rate heading.
+    expect(newKeys(en)).toHaveLength(26 + 1 + 6 + 1);
     for (const key of newKeys(en)) {
       expect(i18n.exists(key, { lng: "en" })).toBe(true);
       // Without the fallback to English, so a Spanish key that was deleted is not found.

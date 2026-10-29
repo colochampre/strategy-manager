@@ -705,12 +705,25 @@ It needs an independent verifier before the PR.
 
 ### Frontend
 
-- [ ] C.12 The share editor (`features/strategies/PoolShareEditor.tsx`) edits the signed-in user's subscription (`PATCH /api/subscriptions/{id}`), not the strategy.
-  - The strategy page shows that subscription's state, with Subscribe and Leave. LEAVING reads as "closes with the strategy's next close".
+- [x] C.12 The share editor (`features/strategies/PoolShareEditor.tsx`) edits the signed-in user's subscription (`PATCH /api/subscriptions/{id}`), not the strategy.
+  - ~~The strategy page shows that subscription's state, with Subscribe and Leave. LEAVING reads as "closes with the strategy's next close".~~ Amended by decision 22: an author cannot leave their own strategy, and in PR C the strategy pages are the admin's, who wrote every strategy. So C.12 has no Subscribe or Leave; they move to PR F. `Leave` refuses the author with 409 `AUTHOR_CANNOT_LEAVE` (backend, red first).
   - `NewStrategyDialog` still sends the share, which now becomes the author's subscription.
   - `types.ts` and `strategies.ts` follow the API.
   - EN and ES copy, with ES in "usted".
   - Each changed behaviour gets its test, red first.
+  - Done (2026-10-28), in two commits.
+    - **Backend, decision 22.** `StrategyMarket` gained `author_id`. `Leave` refuses the author after the unlocked reads and before the pool lock, and the router maps it to 409 `AUTHOR_CANNOT_LEAVE`. Both new tests were red on assertions first: `test_the_author_cannot_leave_and_nothing_is_locked_or_written` (DID NOT RAISE) and `test_the_author_leaving_their_own_strategy_is_a_409_and_changes_nothing` (200 != 409). Gate green: `ruff=0 mypy=0 pytest=0 failing=0`.
+    - **Frontend.**
+      - `Strategy` lost `allocation_percent` and gained `subscription: Subscription | null`, and `isStrategy` checks it: a malformed or absent key is an error. Before this, every strategy read on the branch failed, because `isStrategy` still required the share the API no longer sends.
+      - The new `shared/api/subscriptions.ts` holds `isSubscription`, `setSubscriptionShare` and `useSetSubscriptionShare`. On success the hook writes the answer into the cached strategy's `subscription`; settled, it invalidates `['strategies']` and `['strategy', id]`, which also refreshes the preview under that key.
+      - `setStrategyAllocationPercent`, `useSetAllocationPercent` and `strategies.share.test.ts` are gone.
+      - The editor reads the subscription's share. With no subscription it shows `share.none` and no control. A LEAVING subscription reads its share with the control disabled, under `share.leaving`. A 409 `SUBSCRIPTION_NOT_ACTIVE` shows `share.notActive`; the strategy-archived mapping went, since the subscription route never answers it. `share.archived` stays, because `StrategyTitle` uses it.
+      - The test harness gained `subscriptionOf`. Fixtures that do not exercise the share carry `subscription: null`.
+      - Red first: the new API tests failed on assertions against a skeleton. The editor's tests failed on presence after a structural swap of the hook, because the component still read the old share.
+      - Mutations: removing the subscription check from `isStrategy`, removing the status check from `isSubscription`, adding a `['positions','open']` invalidation, making LEAVING editable, and unmapping `SUBSCRIPTION_NOT_ACTIVE` each turned their tests red. All were restored.
+      - Gate: `npm run lint` 0, `npm test` 102 files and 2937 tests passed.
+    - **C.10's panel follow-up is settled.** With decision 22 the author has no Leave, so "Disable it first" is the right remedy in that 409. A subscriber who is not the author sees no strategy page before PR F, so that copy is revisited there.
+    - **For LEAVING.** Archiving refuses an open position, and the author cannot leave, so the author's subscription cannot reach LEAVING in PR C. Its display is defensive, and it serves PR F.
 
 ### Owner-run (production)
 

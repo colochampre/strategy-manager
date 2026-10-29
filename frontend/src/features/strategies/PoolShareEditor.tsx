@@ -14,7 +14,7 @@ import type { DraftRefusal } from "@/features/strategies/share-value";
 import { ApiError } from "@/shared/api/client";
 import { useSharePreview } from "@/shared/api/share-preview";
 import { useDebouncedValue } from "@/shared/lib/useDebouncedValue";
-import { useSetAllocationPercent } from "@/shared/api/strategies";
+import { useSetSubscriptionShare } from "@/shared/api/subscriptions";
 import type { SharePreview, Strategy } from "@/shared/api/types";
 
 interface PoolShareEditorProps {
@@ -39,11 +39,11 @@ const REFUSAL_TEXT: Record<DraftRefusal, string> = {
   "too-many-decimals": "strategies.detail.share.tooManyDecimals",
 };
 
-/** The text of a refused or failed save: the status (and the archived code) decides, never the server's wording. */
+/** The text of a refused or failed save: the status (and the not-active code) decides, never the server's wording. */
 function saveRefusal(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 422) return "strategies.detail.share.outOfRange";
-    if (error.status === 409 && error.code === "STRATEGY_ARCHIVED") return "strategies.detail.share.archived";
+    if (error.status === 409 && error.code === "SUBSCRIPTION_NOT_ACTIVE") return "strategies.detail.share.notActive";
     if (error.status === 404) return "strategies.detail.share.gone";
   }
   return "strategies.detail.share.saveFailed";
@@ -102,19 +102,21 @@ function isCovered(value: string, stored: string): boolean {
 }
 
 /**
- * The share of the pool a strategy asks for per trade (design § C). The value is one decimal string: the
- * field keeps the text as typed, the handle follows it, and nothing is sent until Save. Moving the handle
- * or activating a stop is the one moment a decimal is rounded, to a whole number.
+ * The share of the signed-in user's pool a strategy asks for per trade (design § C). It is the user's own
+ * subscription's share, saved on that subscription, never on the strategy (multi-user tasks C.12). The value
+ * is one decimal string: the field keeps the text as typed, the handle follows it, and nothing is sent until
+ * Save. Moving the handle or activating a stop is the one moment a decimal is rounded, to a whole number.
  */
 export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState(false);
-  const save = useSetAllocationPercent(strategy.id);
+  const held = strategy.subscription;
+  const save = useSetSubscriptionShare(strategy.id, held?.id ?? "");
   const preview = useSharePreview(strategy.id);
 
-  const stored = readStored(strategy.allocation_percent);
+  const stored = held === null ? null : readStored(held.allocation_percent);
   const current = stored !== null && draft !== null && draft.base === stored ? draft : null;
   const text = current?.text ?? stored ?? "";
   const reading = parseDraft(text);
@@ -128,6 +130,21 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const amountInfo = useInfoDisclosure();
   // When the balance was read, from the first read; there is no time to name until a balance exists.
   const readAt = preview.data?.balance?.observed_at ?? null;
+  const refusal = save.status === "error" && (
+    <p role="alert" className="text-sm text-loss">
+      {t(saveRefusal(save.error))}
+    </p>
+  );
+  if (held === null) {
+    // No subscription, so no share of this user's pool to edit. A refused save that found it gone keeps its line.
+    return (
+      <section className="flex flex-col gap-3">
+        <p className="text-sm text-ink-2">{t("strategies.detail.share.label")}</p>
+        <p className="text-sm text-ink-2">{t("strategies.detail.share.none")}</p>
+        {refusal}
+      </section>
+    );
+  }
   if (stored === null) {
     // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
     return (
@@ -138,7 +155,9 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
     );
   }
 
-  const archived = strategy.archived_at !== null;
+  // A LEAVING subscription takes no share change (the API answers 409), so it reads as it stands.
+  const leaving = held.status !== "ACTIVE";
+  const readOnly = strategy.archived_at !== null || leaving;
   const handle = current?.handle ?? roundToHandle(stored);
   const changed = reading.valid && reading.canonical !== stored;
   const busy = save.isPending;
@@ -158,7 +177,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   // A button that reads "Saved" is disabled, so a save never starts while "Saved" stands: a refusal and
   // "Saved" are never on screen together. Set on success only, never on settle.
   const handleSave = () => {
-    if (!reading.valid || !changed || archived || busy) return;
+    if (!reading.valid || !changed || readOnly || busy) return;
     save.mutate(reading.canonical, { onSuccess: () => setSaved(true) });
   };
   const saveText = t("strategies.detail.share.save");
@@ -182,7 +201,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         text={text}
         handle={handle}
         value={reading.valid ? reading.canonical : null}
-        disabled={archived || busy}
+        disabled={readOnly || busy}
         invalid={!reading.valid}
         describedBy={reading.valid ? undefined : ids.problem}
         onText={handleText}
@@ -212,7 +231,7 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
             shown={busy ? savingText : saved ? savedText : saveText}
             message={saved ? savedText : null}
             onClick={handleSave}
-            disabled={archived || busy || !changed || saved}
+            disabled={readOnly || busy || !changed || saved}
             icon={Save}
             className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           />
@@ -223,11 +242,8 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
           {t(REFUSAL_TEXT[reading.refusal])}
         </p>
       )}
-      {save.status === "error" && (
-        <p role="alert" className="text-sm text-loss">
-          {t(saveRefusal(save.error))}
-        </p>
-      )}
+      {leaving && <p className="text-sm text-ink-2">{t("strategies.detail.share.leaving")}</p>}
+      {refusal}
     </section>
   );
 }

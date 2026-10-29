@@ -117,9 +117,28 @@ export interface EnablementEvent {
 
 export type FillMode = "SKIP" | "PARTIAL";
 
+export type SubscriptionStatus = "ACTIVE" | "LEAVING" | "ENDED";
+
 /**
- * One strategy of `GET /api/strategies` (`StrategyView`). `allocation_percent`
- * is a decimal string; `archived_at` is null while the strategy is live.
+ * The signed-in user's own place in a strategy (`SubscriptionView`), in their own pool. `allocation_percent`
+ * is a decimal string: the share of that pool the strategy may ask for per trade. A LEAVING subscription takes
+ * no new openings and ends with the strategy's next close.
+ */
+export interface Subscription {
+  id: string;
+  strategy_id: string;
+  pool_id: number;
+  allocation_percent: string;
+  status: SubscriptionStatus;
+  created_at: string | null;
+  left_at: string | null;
+  ended_at: string | null;
+}
+
+/**
+ * One strategy of `GET /api/strategies` (`StrategyView`). `subscription` is the signed-in user's live
+ * (ACTIVE or LEAVING) subscription to it, or null; the share lives there, not on the strategy.
+ * `archived_at` is null while the strategy is live.
  */
 export interface Strategy {
   id: string;
@@ -128,14 +147,17 @@ export interface Strategy {
   venue: string;
   settlement_currency: string;
   fill_mode: FillMode;
-  allocation_percent: string;
+  subscription: Subscription | null;
   enabled: boolean;
   archived_at: string | null;
   allowed_pairs: string[];
   uptime: StrategyUptime;
 }
 
-/** The body of `POST /api/strategies` (`RegisterRequest`); `id` is the alert's `signalType`. */
+/**
+ * The body of `POST /api/strategies` (`RegisterRequest`); `id` is the alert's `signalType`. The share becomes
+ * the author's own subscription, made with the strategy.
+ */
 export interface RegisterStrategyBody {
   id: string;
   name: string;

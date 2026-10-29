@@ -302,6 +302,9 @@
         "saveFailed": "El porcentaje no se guardó. Inténtelo de nuevo.",
         "archived": "Esta estrategia está archivada y ya no se puede modificar.",
         "gone": "Esta estrategia ya no existe.",
+        "notActive": "Su suscripción a esta estrategia ya no está activa, por lo que su porcentaje ya no se puede cambiar.",
+        "leaving": "Su suscripción está saliendo: no se abre ninguna operación nueva, y la posición abierta se cierra con el próximo cierre de la estrategia.",
+        "none": "Usted no está suscrito a esta estrategia, por lo que no tiene un porcentaje de su pool asignado.",
         "unreadable": "No se pudo leer el porcentaje guardado, por lo que no se puede editar aquí."
       }
     },
