@@ -12,7 +12,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
@@ -332,12 +332,19 @@ async def test_a_live_reservation_on_the_symbol_makes_its_user_a_holder(
     assert idle not in delivered
 
 
-async def test_a_new_subscriber_gets_the_next_opening_but_not_the_close_it_never_opened(
+async def test_a_new_subscriber_gets_the_next_opening_and_so_its_close(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
+    """The newcomer holds nothing yet, but the opening was delivered to it. Its
+    delivery is still queued when the close fans out, so the close goes to it too:
+    otherwise that opening would open a position nothing ever closes (PR C
+    verifier, B1). A user who never got the opening still gets no close."""
     strategy_id = await seeds.strategy(pg_session_factory)
     _, veteran = await _subscriber(pg_session_factory, strategy_id, holds=True)
     _, newcomer = await _subscriber(pg_session_factory, strategy_id)
+    _, too_late = await _subscriber(
+        pg_session_factory, strategy_id, created_at=_T0 + timedelta(seconds=90)
+    )
     opening = await _opening(pg_session_factory, strategy_id)
     closing = await _signal(pg_session_factory, strategy_id, position_size="0", minutes=2)
 
@@ -345,7 +352,8 @@ async def test_a_new_subscriber_gets_the_next_opening_but_not_the_close_it_never
     await _fan_out(pg_session_factory, closing)
 
     assert set(await _delivered_to(pg_session_factory, opening)) == {veteran, newcomer}
-    assert set(await _delivered_to(pg_session_factory, closing)) == {veteran}
+    assert set(await _delivered_to(pg_session_factory, closing)) == {veteran, newcomer}
+    assert too_late not in await _delivered_to(pg_session_factory, closing)
 
 
 async def test_a_reverse_gives_the_holder_both_halves_and_the_others_only_the_opening(
@@ -548,8 +556,120 @@ async def test_a_reservation_that_no_longer_holds_capital_does_not_make_a_holder
         status="FILLED",
         user_id=user_id,
     )
+    # The seed's delivery is left ACCEPTED; a filled reservation's delivery has run.
+    async with pg_session_factory() as session:
+        await session.execute(
+            update(SignalDeliveryRow)
+            .where(SignalDeliveryRow.signal_id == opened)
+            .values(status="PROCESSED")
+        )
+        await session.commit()
     signal_id = await _closing(pg_session_factory, strategy_id)
 
     await _fan_out(pg_session_factory, signal_id)
 
     assert subscription not in await _delivered_to(pg_session_factory, signal_id)
+
+
+# -- an opening still waiting for its delivery (PR C verifier, B1) ---------
+
+
+async def _pending_delivery(
+    factory: Factory,
+    signal_id: UUID,
+    user_id: UUID,
+    subscription_id: UUID,
+    *,
+    status: str = "ACCEPTED",
+) -> None:
+    """A delivery of ``signal_id`` to the subscription, written raw, in ``status``."""
+    async with factory() as session:
+        session.add(
+            SignalDeliveryRow(
+                id=uuid4(),
+                signal_id=signal_id,
+                subscription_id=subscription_id,
+                user_id=user_id,
+                status=status,
+            )
+        )
+        await session.commit()
+
+
+async def test_an_earlier_opening_still_waiting_for_its_delivery_makes_a_holder(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The opening was fanned out but its delivery has not run, so the subscriber holds
+    neither an allocation nor a reservation. That delivery's job was enqueued when the
+    opening fanned out, ahead of the close's (the queue claims by ``run_after``), so the
+    close goes to that subscription and runs after the opening."""
+    strategy_id = await seeds.strategy(pg_session_factory)
+    _, waiting = await _subscriber(pg_session_factory, strategy_id)
+    _, flat = await _subscriber(
+        pg_session_factory, strategy_id, created_at=_T0 + timedelta(seconds=90)
+    )
+    opening = await _signal(pg_session_factory, strategy_id, position_size="1", minutes=1)
+    await _fan_out(pg_session_factory, opening)
+    closing = await _signal(pg_session_factory, strategy_id, position_size="0", minutes=2)
+
+    await _fan_out(pg_session_factory, closing)
+
+    delivered = await _delivered_to(pg_session_factory, closing)
+    assert set(delivered) == {waiting}
+    assert flat not in delivered
+    assert _halves(await _delivery_jobs(pg_session_factory), delivered[waiting]) == "close"
+
+
+@pytest.mark.parametrize(
+    ("case", "status", "position_size", "symbol", "minutes"),
+    [
+        # Minute 0, before the opening `_closing` writes at minute 1, so the close's
+        # prior signal stays that opening; minute 3 is after the close at minute 2.
+        ("its delivery already ran", "PROCESSED", "1", _ALERT, 0),
+        ("its delivery was refused", "REJECTED", "1", _ALERT, 0),
+        ("it was a close, not an opening", "ACCEPTED", "0", _ALERT, 0),
+        ("it was on another symbol", "ACCEPTED", "1", "BTCUSDT.P", 0),
+        ("it came after the close", "ACCEPTED", "1", _ALERT, 3),
+    ],
+)
+async def test_a_pending_delivery_makes_no_holder_when(
+    pg_session_factory: Factory,  # noqa: F811
+    case: str,
+    status: str,
+    position_size: str,
+    symbol: str,
+    minutes: int,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, subscription_id = await _subscriber(pg_session_factory, strategy_id)
+    other = await _signal(
+        pg_session_factory,
+        strategy_id,
+        position_size=position_size,
+        minutes=minutes,
+        symbol=symbol,
+    )
+    await _pending_delivery(pg_session_factory, other, user_id, subscription_id, status=status)
+    # The close itself follows an opening on STXUSDT that this user never got.
+    signal_id = await _closing(pg_session_factory, strategy_id)
+
+    result = await _fan_out(pg_session_factory, signal_id)
+
+    assert subscription_id not in await _delivered_to(pg_session_factory, signal_id), case
+    assert result.delivery_ids == ()
+
+
+async def test_another_subscriptions_pending_opening_does_not_make_this_one_a_holder(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    _, mine = await _subscriber(pg_session_factory, strategy_id)
+    theirs_user, theirs = await _subscriber(pg_session_factory, strategy_id)
+    opening = await _signal(pg_session_factory, strategy_id, position_size="1", minutes=1)
+    await _pending_delivery(pg_session_factory, opening, theirs_user, theirs)
+    closing = await _signal(pg_session_factory, strategy_id, position_size="0", minutes=2)
+
+    await _fan_out(pg_session_factory, closing)
+
+    assert set(await _delivered_to(pg_session_factory, closing)) == {theirs}
+    assert mine not in await _delivered_to(pg_session_factory, closing)

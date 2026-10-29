@@ -26,6 +26,8 @@ from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
 _LIVE_RESERVATION = (ReservationStatus.PENDING.value, ReservationStatus.SUBMITTED.value)
 _LIVE = (SubscriptionStatus.ACTIVE.value, SubscriptionStatus.LEAVING.value)
+#: A delivery that has not reached its outcome yet (``ck_signal_deliveries_status``).
+_PENDING_DELIVERY = ("ACCEPTED", "PROCESSING")
 
 
 class SignalFactsAdapter:
@@ -73,6 +75,9 @@ class SqlAlchemySubscribers:
             subscriber
             for subscriber in live
             if await self._holds(subscriber.user_id, strategy_id, symbol, pool)
+            or await self._awaits_opening(
+                subscriber.subscription_id, strategy_id, symbol, received_at
+            )
         ]
 
     async def _subscribers(
@@ -125,6 +130,31 @@ class SqlAlchemySubscribers:
             )
         ).first()
         return reserved is not None
+
+    async def _awaits_opening(
+        self, subscription_id: UUID, strategy_id: UUID, symbol: str, received_at: datetime
+    ) -> bool:
+        """A delivery to THIS subscription of an earlier signal of the strategy, on
+        this symbol under any spelling, that leaves a position open (an opening or a
+        reverse) and has not run yet. It holds nothing so far, but its job was
+        enqueued when that signal fanned out, ahead of the close being fanned out
+        now: the queue claims by ``run_after``, so the close runs after it."""
+        pending = (
+            await self._session.execute(
+                select(SignalDeliveryRow.id)
+                .join(SignalRow, SignalRow.id == SignalDeliveryRow.signal_id)
+                .where(
+                    SignalDeliveryRow.subscription_id == subscription_id,
+                    SignalDeliveryRow.status.in_(_PENDING_DELIVERY),
+                    SignalRow.strategy_id == strategy_id,
+                    func.upper(SignalRow.symbol).in_(market_spellings(symbol)),
+                    SignalRow.received_at < received_at,
+                    SignalRow.position_size != 0,
+                )
+                .limit(1)
+            )
+        ).first()
+        return pending is not None
 
 
 class SqlAlchemyDeliveryRepository:

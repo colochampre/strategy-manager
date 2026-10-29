@@ -75,8 +75,6 @@ MARKET = ("bybit", "usdt-m", "USDT")
 ALERT = "STXUSDT.P"
 ETH_ALERT = "ETHUSDT.P"
 FILL_PRICE = Decimal("2")
-_T0 = datetime.now(UTC) - timedelta(minutes=30)
-_SUBSCRIBED_BEFORE = _T0 - timedelta(days=1)
 
 
 class _Reader:
@@ -122,9 +120,16 @@ class World:
     other_subscription: UUID
     venues: dict[UUID, _Fake]
     totals: dict[UUID, Decimal]
+    #: When this test's signals start, half an hour before the test began. Taken per
+    #: test, never at import: a reverse's open is abandoned once its signal is older
+    #: than ``delayed_open_max_signal_age_seconds`` (600 s), so a time taken at
+    #: collection failed that test whenever a full run reached it 9 minutes later.
+    t0: datetime
 
 
 async def _world(factory: Factory, *, author_share: str = "50", other_share: str = "25") -> World:
+    t0 = datetime.now(UTC) - timedelta(minutes=30)
+    subscribed_before = t0 - timedelta(days=1)
     async with factory() as session:
         other = await seed_other_user(session)
         author_pool = await ensure_pool(session, MARKET, user_id=OWNER_ID)
@@ -151,10 +156,10 @@ async def _world(factory: Factory, *, author_share: str = "50", other_share: str
         strategy_id,
         author_pool,
         share=author_share,
-        created_at=_SUBSCRIBED_BEFORE,
+        created_at=subscribed_before,
     )
     other_subscription = await seeds.subscription(
-        factory, other, strategy_id, other_pool, share=other_share, created_at=_SUBSCRIBED_BEFORE
+        factory, other, strategy_id, other_pool, share=other_share, created_at=subscribed_before
     )
     return World(
         factory,
@@ -165,6 +170,7 @@ async def _world(factory: Factory, *, author_share: str = "50", other_share: str
         other_subscription,
         venues={OWNER_ID: _Fake(), other: _Fake()},
         totals={OWNER_ID: Decimal("1000"), other: Decimal("400")},
+        t0=t0,
     )
 
 
@@ -179,7 +185,7 @@ async def _signal(
         idempotency_key=f"key-{signal_id}",
         symbol=symbol,
         position_size=Decimal(position_size),
-        received_at=_T0 + timedelta(minutes=minutes),
+        received_at=world.t0 + timedelta(minutes=minutes),
     )
     return signal_id
 
@@ -444,7 +450,7 @@ async def test_a_subscription_with_no_prior_reservation_is_told_there_is_nothing
         stranger,
         world.strategy_id,
         stranger_pool,
-        created_at=_T0 + timedelta(seconds=90),
+        created_at=world.t0 + timedelta(seconds=90),
     )
     world.venues[stranger] = _Fake()
     world.totals[stranger] = Decimal("100")

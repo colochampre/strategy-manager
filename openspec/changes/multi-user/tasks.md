@@ -725,6 +725,37 @@ It needs an independent verifier before the PR.
     - **C.10's panel follow-up is settled.** With decision 22 the author has no Leave, so "Disable it first" is the right remedy in that 409. A subscriber who is not the author sees no strategy page before PR F, so that copy is revisited there.
     - **For LEAVING.** Archiving refuses an open position, and the author cannot leave, so the author's subscription cannot reach LEAVING in PR C. Its display is defensive, and it serves PR F.
 
+### Independent verification (2026-10-28)
+
+- [x] C.V An independent verifier (Opus) checked C.1-C.12 against this section, `design.md` and decisions 1-22.
+  - **Base.** PR C's base is `origin/main` `7f67fc3`: 21 commits. The local `main` is stale, and diffing against it also pulls in PR A and PR B.
+  - **Verdict.** C.1-C.4 and C.6-C.12 pass. C.5 had one blocker.
+  - **B1, fixed.** A close could be fanned out before the opening's deliveries had run: a backlog does it, such as the worker stopped through a deploy, a restart, or a slow job ahead. The queue claims by `run_after`, and a signal's delivery jobs are enqueued only when that signal fans out.
+    - Before the fix, the close's fan-out found no holder. The signal ended `REJECTED` / `NO_POSITION_TO_CLOSE` with an INFO line, and then the opening opened for every subscriber, with nothing left to close it.
+    - The fix: `SqlAlchemySubscribers.live_holders` also counts a subscription that has a pending delivery (`ACCEPTED` or `PROCESSING`) of an EARLIER signal of the strategy, on that symbol under any spelling, that leaves a position open (`position_size != 0`). That delivery's job sits ahead of the close's, so the close runs after it. If the opening's fills have not settled, the close raises `NothingRecordedYet` and retries, as before.
+    - If the opening is then refused, the close finds no reservation and ends `NO_POSITION_TO_CLOSE` with a WARNING, placing nothing (`process_signal.py:773-787`).
+    - Tests, red first on assertions:
+      - `test_close_queued_before_open_delivery.py`: the verifier's probe, which held 500 open before the fix. Its `_drain` retries `NothingRecordedYet` the way the worker does.
+      - `test_an_earlier_opening_still_waiting_for_its_delivery_makes_a_holder`.
+      - `test_another_subscriptions_pending_opening_does_not_make_this_one_a_holder`.
+    - Guard tests:
+      - `test_a_pending_delivery_makes_no_holder_when`, five cases: the delivery already ran, it was refused, its signal was a close, it was on another symbol, it came after the close.
+      - `test_a_close_queued_behind_an_opening_that_is_then_refused_places_nothing`.
+    - Mutation proofs: each of the six filters, and the no-reservation early return, turned their tests red. All were restored.
+    - Two existing tests change on purpose:
+      - `test_a_new_subscriber_gets_the_next_opening_and_so_its_close`. It was "... but not the close", which asserted B1.
+      - `test_a_reservation_that_no_longer_holds_capital_does_not_make_a_holder`. Its seed left the filled reservation's delivery ACCEPTED, so it now marks it PROCESSED.
+  - **The intermittent reverse test: cause found and fixed.** `test_delivery_flow_integration.py` took `_T0 = now() - 30 min` at import. A reverse's open is abandoned once its signal is older than `delayed_open_max_signal_age_seconds` (600 s), so the test failed whenever a full run reached it more than about 9 minutes after collection. `World.t0` is now taken per test, in `_world`. With it pushed 15 minutes back, the test goes red.
+  - **Advisories, not reachable in PR C**, because only the owner signs in and decision 22 refuses the author's Leave:
+    - **N1, must be closed before PR F.** `Leave` with an opening delivery still queued ends the subscription at once: it counts holdings and live reservations, not queued deliveries. `ProcessDelivery` never reads the subscription's status, so that delivery opens a position no close will reach.
+    - **N2.** A subscription made LEAVING only by a live reservation stays LEAVING if that reservation is released unfilled: `end_if_flat` runs only on a closing fill. The partial unique then blocks a new subscription.
+    - **N5.** `ProcessDelivery` and `AllocateCapital` do not skip an ENDED subscription. This is the same fix as N1.
+    - **New with B1's fix.** A delivery left non-terminal for ever (a defect of its own) would make its subscriber a close target for every later close on that symbol. Each such close then ends as a no-op or as `NO_POSITION_TO_CLOSE`, and places nothing.
+  - **Advisories, for the owner or later PRs:**
+    - **N3.** An archived strategy has no live subscription, so its page now says "You are not subscribed to this strategy…" where it used to show the share read-only. This applies to the 3 archived "… Test" strategies in production.
+    - **N4.** The preview's fallback (`strategies/infrastructure/router.py:617`) and `RegisterStrategy` still use `strategies.allocation_percent`. PR D's 0033 must remove both before dropping the column.
+  - **The known advisories, confirmed and unchanged:** single-spelling `find_prior`; the Subscribe-archive race, healed by archive replay; `held_by` empty for holders with no live subscription; no server retry on `SUBSCRIBERS_CHANGED`; `signal_owner` dead code; a multi-delivery legacy continuation refused with an ERROR log.
+
 ### Owner-run (production)
 
 - [x] C.0 The read-only pre-check (2026-10-27). Its results are above, under "Production at planning".

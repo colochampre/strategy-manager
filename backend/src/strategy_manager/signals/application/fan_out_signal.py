@@ -97,8 +97,11 @@ class SubscribersPort(Protocol):
     ) -> list[Subscriber]:
         """The strategy's ACTIVE or LEAVING subscriptions, created at or before
         ``received_at``, whose user holds this SYMBOL's open allocation of the
-        strategy: ledger holdings under every spelling of the symbol, or a
-        reservation still holding capital for it."""
+        strategy: ledger holdings under every spelling of the symbol, a
+        reservation still holding capital for it, or a delivery of an EARLIER
+        opening signal on that symbol that has not run yet. That last one is what
+        a backlog leaves: the opening fanned out but its delivery is still queued,
+        ahead of this close's, so the close must go to it (PR C verifier, B1)."""
         ...
 
 
