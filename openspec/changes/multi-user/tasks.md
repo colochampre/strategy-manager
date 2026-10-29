@@ -783,6 +783,16 @@ It needs an independent verifier before the PR.
       - `test_a_reverse_whose_allocation_another_delivery_closed_waits_for_it_and_opens` replaces the B1a unit test that asserted the refusal for a reverse.
       - `test_a_plain_close_whose_allocation_another_delivery_closed_is_refused_with_a_warning` keeps B1a's refusal pinned at unit level.
       - Mutations: dropping `not is_reverse_wiring` reddens the probe and the reverse unit test. Dropping the refusal reddens the plain unit test. Both mutations were restored.
+  - **Recheck of B1b against `6adb011` (2026-10-29): CLOSED, and B1a is still closed. No blocker.**
+    - Two backlogged reverses end on the strategy's side whether R1's close is still `SUBMITTED` or already `FILLED`.
+      - Each subscriber holds exactly one open, and R2 opens once.
+      - R1 ends `SIGNAL_SUPERSEDED` and R2 ends `PROCESSED`, with no jobs left.
+      - Dropping `not is_reverse_wiring` reddens the verifier's stronger probes.
+    - B1a's shape with a reverse (a refused opening, then a reverse) seeds on the old close and opens the new side. If the pool is still empty, it ends `NOTHING_TO_ALLOCATE`, and past 600 s it ends `CONTINUATION_TIMED_OUT`. It is never stuck, and the subscriber ends on the strategy's side, where `7f67fc3` left them flat.
+    - A non-holdable reverse (a spot short) is still refused `NO_POSITION_TO_CLOSE` with a WARNING. That ends flat, which is correct.
+    - **Advisories, not change-caused:**
+      - When a reverse waited on another delivery's close and its open is then refused or times out, the detail says "the close half of this REVERSE already executed". That close was not this delivery's. The wording is cosmetic and the same at `0fdeee4`.
+      - The reverse path's FAILED-close and in-flight `open_now` race are identical at `0fdeee4`.
   - **Advisories from the B1a recheck:**
     - A close booked by reconciliation (`approve_booking.py:310-324`, with no delivery id) now makes a later close delivery end `NO_POSITION_TO_CLOSE`, where `7f67fc3` replayed it silently. That is better. The WARNING used to say "closed by another delivery", which is wrong for a booking; B1b's correction rewords it.
   - **The intermittent reverse test: cause found and fixed.** `test_delivery_flow_integration.py` took `_T0 = now() - 30 min` at import. A reverse's open is abandoned once its signal is older than `delayed_open_max_signal_age_seconds` (600 s), so the test failed whenever a full run reached it more than about 9 minutes after collection. `World.t0` is now taken per test, in `_world`. With it pushed 15 minutes back, the test goes red.
